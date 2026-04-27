@@ -36,7 +36,7 @@ torch
 # ── Retrieval Sources ───────────────────────────────────────────────────────
 tavily-python
 wikipedia
-arxiv>=2.4.0
+arxiv>=3.0.0
 duckduckgo-search
 ddgs
 
