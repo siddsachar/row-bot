@@ -101,7 +101,7 @@ jobs:
       # Certum/SimplySign, verified with signtool, then uploaded to the release.
 
       - name: Upload Windows installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ThothSetup-Windows
           path: dist/ThothSetup_*.exe
@@ -320,14 +320,14 @@ jobs:
           du -h "$DMG_PATH"
 
       - name: Upload signed macOS DMG
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Thoth-macOS
           path: dist/Thoth-*-macOS-*.dmg
           retention-days: 90
 
       - name: Upload signed macOS PKG
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Thoth-macOS-pkg
           path: dist/Thoth-*-macOS-*.pkg
