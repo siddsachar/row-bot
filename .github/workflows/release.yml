@@ -52,7 +52,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-python@v5
         with:
@@ -81,7 +81,7 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # System Python (used by build script to find tkinter for bundling)
       - uses: actions/setup-python@v5
@@ -120,7 +120,7 @@ jobs:
       PKG_SIGN_IDENTITY: "Developer ID Installer: Siddharth Sachar (33PQRTZLNW)"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # ── Import Apple certificates into a temporary keychain ────────────────
       - name: Import Apple certificates
