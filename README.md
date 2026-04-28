@@ -163,6 +163,12 @@ Connect external **Model Context Protocol** servers from Settings → MCP and ex
 
 [Details →](docs/ARCHITECTURE.md#mcp-client--external-tools)
 
+### 🔄 Migration Wizard
+
+Move from **Hermes Agent** or **OpenClaw** into Thoth with a scan-first migration wizard launched from **Settings → Preferences**. The wizard detects the source, previews every item before writing, and applies only the selected identity files, memories, skills, model/provider settings, MCP server definitions, and explicitly selected API keys. Risky channel/runtime state is kept for manual review, archive-only source files are copied into a redacted report instead of activated live, imported MCP servers stay disabled until reviewed, and target conflicts are backed up before replacement.
+
+[Details →](docs/ARCHITECTURE.md#migration-wizard)
+
 ### ⬆ Auto-Updates
 
 Thoth checks GitHub Releases in the background and surfaces an "⬆ vX.Y.Z" pill in the status bar when a new build is available. Clicking it opens release notes plus Install / Skip / Remind-me-later buttons. Downloads are SHA256-verified against a manifest embedded in each release body and Authenticode/codesign verified before launch. Auto-checking is on by default; if there's no Internet the check fails silently. Channel selection (stable vs beta), skip list, and a manual "Check now" button live in **Settings → Preferences → Updates**. The same flow is exposed to the agent as `thoth_check_for_updates` and `thoth_install_update` (always approval-gated).

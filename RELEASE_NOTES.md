@@ -4,7 +4,7 @@
 
 ## v3.18.0 — External MCP Tools, Marketplace Import & Runtime Isolation
 
-Thoth now has a full **Model Context Protocol client** for connecting external MCP servers as native dynamic tools without letting a broken server take down the app. MCP ships as a guarded core subsystem: servers are configured from a dedicated Settings tab, imported disabled by default, tested before use, and exposed to the agent as namespaced `mcp_<server>_<tool>` tools only after explicit enablement. The runtime supports stdio, Streamable HTTP, and SSE transports; handles tool, resource, and prompt surfaces; classifies destructive tools; routes risky actions through Thoth's existing interrupt approvals; and keeps all MCP config in a separate `mcp_servers.json` so bad external settings degrade to diagnostics rather than startup failure. Marketplace search can pull from curated starters plus MCP directories, while dependency handling covers common user-space runtimes such as Node.js, uv, and Playwright Chromium, leaving heavier requirements like Docker as clear manual setup tasks.
+Thoth now has a full **Model Context Protocol client** for connecting external MCP servers as native dynamic tools without letting a broken server take down the app. MCP ships as a guarded core subsystem: servers are configured from a dedicated Settings tab, imported disabled by default, tested before use, and exposed to the agent as namespaced `mcp_<server>_<tool>` tools only after explicit enablement. The runtime supports stdio, Streamable HTTP, and SSE transports; handles tool, resource, and prompt surfaces; classifies destructive tools; routes risky actions through Thoth's existing interrupt approvals; and keeps all MCP config in a separate `mcp_servers.json` so bad external settings degrade to diagnostics rather than startup failure. Marketplace search can pull from curated starters plus MCP directories, while dependency handling covers common user-space runtimes such as Node.js, uv, and Playwright Chromium, leaving heavier requirements like Docker as clear manual setup tasks. This release also adds a guarded **Hermes/OpenClaw migration wizard** in Preferences so users can preview and import selected identity, memory, skill, model, MCP, and credential data into Thoth with backups and redacted reports.
 
 ### 🔌 MCP Client & Dynamic Tools
 
@@ -34,6 +34,17 @@ Thoth now has a full **Model Context Protocol client** for connecting external M
 - **Directory search** — marketplace search can use official registry-style sources plus PulseMCP, Smithery, and Glama adapters with cache/curated fallback when live sources are unavailable or irrelevant
 - **Diagnostics dialog** — masked config plus live runtime status are available from the MCP settings surface for troubleshooting without exposing secrets
 
+### 🔄 Hermes & OpenClaw Migration Wizard
+
+- **Preferences-launched wizard** — Settings → Preferences now exposes an **Open Migration Wizard** action instead of a permanent top-level migration tab, keeping this one-time setup flow out of the main settings sidebar
+- **Supported sources** — detects and plans imports from Hermes Agent (`.hermes`) and OpenClaw (`.openclaw`, legacy `.clawdbot` / `.moltbot`) with provider-mismatch guards so the wrong source type does not produce a misleading partial plan
+- **Preview-first flow** — scan builds a dry-run plan only; apply requires explicit review and writes only the currently selected items
+- **Mapped data** — imports identity/persona files, memory files, daily OpenClaw memory, skills, model/provider settings, disabled MCP server definitions, and opt-in API keys/tokens
+- **Manual-review boundaries** — channels, approvals, browser, cron, hooks, tools, broad runtime state, and unknown/risky source data stay skipped or archive-only instead of being activated live
+- **Backups and reports** — existing targets are backed up before replacement, repeated writes to the same target preserve the original once per run, and every apply writes `plan.json`, `result.json`, `backup_manifest.json`, and `summary.md`
+- **Secret redaction** — migration reports redact secret-shaped values and archive snapshots redact JSON/key-value files; API key import remains an explicit opt-in
+- **MCP safety** — migrated MCP server definitions stay disabled until reviewed, so a bad imported server cannot break startup or automatically expose risky external tools
+
 ### ⚙️ Runtime Requirements
 
 - **Requirement detection** — stdio servers infer required launchers from commands such as `npx`, `uvx`, and `docker`, plus Playwright browser requirements for Playwright MCP
@@ -54,6 +65,7 @@ Thoth now has a full **Model Context Protocol client** for connecting external M
 - **Focused offline suite** — new `test_mcp_client.py` covers bad config fallback, secret masking, destructive detection, marketplace fallback/filtering, conflict policy, runtime requirement inference, managed runtime env injection, settings rows, stdio discovery/call, tool enable/approval toggles, global MCP disable, bad server failure, display names, background safety, and MCP browser loop controls
 - **Opt-in live suite** — new `test_mcp_real_world_e2e.py` plus `scripts/mcp_real_world_e2e.py` validate real public MCP servers outside normal CI, including Microsoft Learn and Context7
 - **Main regression coverage** — `test_suite.py` includes MCP modules in import/consistency checks and validates the focused MCP test files are part of the tracked suite
+- **Migration regression suite** — new `test_migration_core.py`, `test_migration_detection.py`, `test_migration_planner.py`, `test_migration_apply.py`, and `test_migration_wizard_ui.py` cover source detection, wrong-provider guards, dry-run planning, conflict behavior, backup/report generation, redaction, daily memory import, UI helper behavior, and Preferences placement
 
 ### 📁 Files Changed
 
@@ -66,12 +78,16 @@ Thoth now has a full **Model Context Protocol client** for connecting external M
 | **`test_mcp_client.py`** | **New** — offline MCP regression suite focused on robustness and failure isolation |
 | **`test_mcp_real_world_e2e.py`** | **New** — opt-in unittest wrapper for live public MCP checks |
 | **`scripts/mcp_real_world_e2e.py`** | **New** — maintainer release check for real MCP endpoints and dynamic wrapper invocation |
+| **`migration/`** | **New** — pure models, redaction, source detection, realistic fixtures, dry-run planners, and guarded apply/report engine for Hermes/OpenClaw migrations |
+| **`ui/migration_wizard.py`** | **New** — Preferences-launched scan/review/apply wizard with category summaries, selection controls, conflict handling, and report path display |
+| **`test_migration_*.py`** | **New** — focused migration coverage for models, detection, planners, apply/report behavior, and UI helpers |
 | `agent.py` | Treats MCP tool output as untrusted, resolves readable MCP tool labels, and applies browser-loop handling to MCP browser tools |
 | `app.py` | Starts MCP discovery non-fatally during startup and closes MCP sessions during shutdown |
+| `ui/settings.py` | Adds the Preferences migration launcher while preserving old `Migration` deep-link routing to Preferences |
 | `tools/thoth_status_tool.py` | Synchronizes the `mcp` tool toggle with the global MCP client switch |
 | `tool_guides/thoth_status_guide/SKILL.md` | Documents MCP global toggle behavior through Thoth Status |
 | `requirements.txt` | Adds the Python MCP SDK and LangChain MCP adapter dependencies |
-| `installer/thoth_setup.iss` | Bundles the new MCP client package, MCP settings UI, MCP parent tool, and guide |
+| `installer/thoth_setup.iss` | Bundles the new MCP client package, MCP settings UI, MCP parent tool, guide, and migration package/UI |
 
 ## v3.17.0 — Designer Studio II: Interactive Modes, Video Gen & Review Flow
 

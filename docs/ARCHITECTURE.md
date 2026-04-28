@@ -28,6 +28,7 @@
 - [Image Generation](#image-generation)
 - [Video Generation](#video-generation)
 - [MCP Client & External Tools](#mcp-client--external-tools)
+- [Migration Wizard](#migration-wizard)
 - [Plugin System & Marketplace](#plugin-system--marketplace)
 - [Auto-Updates](#auto-updates)
 - [Habit & Health Tracker](#habit--health-tracker)
@@ -545,6 +546,42 @@ Thoth includes a guarded Model Context Protocol client that can connect external
 
 ---
 
+## Migration Wizard
+
+Thoth includes a one-time migration wizard for moving selected data from Hermes Agent or OpenClaw into a Thoth data directory without treating legacy state as trusted runtime configuration.
+
+### Flow & UI
+
+- **Preferences launcher** — `ui/settings.py` exposes **Open Migration Wizard** at the bottom of Settings → Preferences. The wizard opens in a maximized dialog so it stays available without occupying a permanent settings tab
+- **Three-step flow** — `ui/migration_wizard.py` guides users through source/target selection, read-only scan/review, and explicit apply
+- **Provider support** — users choose Hermes Agent or OpenClaw. Defaults point at `~/.hermes` or `~/.openclaw`, but any source and target folder can be selected for disposable test runs
+- **Preview controls** — categories and rows show status, selection state, conflict notes, manual-review notes, archive-only behavior, and report paths after apply
+
+### Detection & Planning
+
+- **Pure migration package** — `migration/` owns the feature: `core.py` models plans/items/summaries, `redaction.py` masks secrets, `detection.py` scans sources read-only, `planner.py` builds dry-run plans, `apply.py` writes backups/reports, and `fixtures.py` creates realistic test homes
+- **Read-only scan** — detection and planning do not write to either source or target. Existing target files are only inspected to mark conflicts
+- **Provider mismatch guard** — Hermes scans reject OpenClaw-looking folders, and OpenClaw scans reject Hermes-looking folders, returning an empty actionable plan instead of partial generic matches
+- **Mapped data** — planners can map model/provider config, identity/persona files, long-term memories, OpenClaw daily memory, skills, MCP server definitions, and explicit API key/token entries
+- **Risk boundaries** — channel config, approvals, browser/cron/hooks/tools settings, legacy runtime state, logs, sessions, OAuth/auth stores, plugin state, and broad command allowlists are skipped for manual review or copied only into the migration report archive
+
+### Apply, Backups & Reports
+
+- **Explicit apply** — only selected planned/sensitive items are applied. Archive-only items are copied to the report archive, not activated in the live Thoth target
+- **Backups first** — existing target files are backed up before overwrite/append/update. Multiple writes to the same target preserve the pre-migration original once per run, and newly created files are not backed up later in the same run
+- **Redacted report** — each run writes redacted `plan.json`, `result.json`, `backup_manifest.json`, and `summary.md` under `migration-reports/<timestamp>/`
+- **Archive redaction** — JSON and key/value archive snapshots are redacted before being copied into reports; binary or unsupported files are represented by a placeholder instead of raw content
+- **MCP import safety** — migrated MCP servers are written disabled. They must be reviewed and enabled from Settings → MCP before any external tools become available to the agent
+- **Credential import** — API keys and tokens are off by default and require explicit selection. Reports hide their values; encrypted/keychain-backed storage is planned as the next security phase and migration key import will route through that path when available
+
+### Testing
+
+- **Focused suites** — `test_migration_core.py`, `test_migration_detection.py`, `test_migration_planner.py`, `test_migration_apply.py`, and `test_migration_wizard_ui.py` cover model invariants, source detection, dry-run planning, wrong-provider rejection, conflict behavior, backups, reports, redaction, daily memory import, and UI helper logic
+- **Realistic fixtures** — `migration/fixtures.py` builds multi-month Hermes and OpenClaw homes with fake secrets, memories, skills, channels, MCP servers, approvals, cron/hooks, plugins, sessions, logs, and archive-only state
+- **Manual E2E path** — disposable targets under `.tmp/migration-fixtures/` are used for click-through validation before release; the fixture root is ignored by git
+
+---
+
 ## Plugin System & Marketplace
 
 A sandboxed, hot-reloadable extension system lets plugins add new tools and skills without modifying the core codebase.
@@ -698,6 +735,7 @@ Thoth ships with **12 manual bundled skills** and **16 tool guides**. Manual ski
 | **`tools/`** + **`designer/tool.py`** | Self-registering core tool modules, registry, base classes, and LangChain tool conversion |
 | **`plugins/`** | Plugin runtime, marketplace client, manifest validation, security scanner, and settings integration |
 | **`mcp_client/`** | External Model Context Protocol client: config, runtime sessions, marketplace search, requirements, safety classification, diagnostics, and result normalization |
+| **`migration/`** | Hermes/OpenClaw migration models, redaction, source detection, dry-run planning, realistic fixtures, and guarded apply/report generation |
 | **`static/`** | Bundled frontend assets such as Mermaid and graph/visualization helpers |
 | **`version.py`** | Single source of truth for the current Thoth version |
 
@@ -728,6 +766,8 @@ All user data is stored under `~/.thoth/` (or `%USERPROFILE%\\.thoth\\` on Windo
 ├── skills_config.json             # Manual skill enable/disable state
 ├── mcp_servers.json               # External MCP server config, global switch, tool enablement, approvals
 ├── mcp_marketplace_cache.json     # Cached MCP directory search results
+├── migration-reports/             # Redacted migration plans, results, summaries, and archive snapshots
+├── migration-backups/             # Pre-migration backups of overwritten target files
 ├── runtimes/                      # Optional user-space runtimes installed by MCP requirement helper
 ├── skill_versions/                # Skill patch backups for self-improvement flows
 ├── thoth_app.log                  # Structured application log
