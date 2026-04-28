@@ -43,6 +43,7 @@ class _StatusQueryInput(BaseModel):
             "'memory' (knowledge graph stats), "
             "'skills' (enabled/disabled skills), "
             "'tools' (enabled/disabled tools), "
+            "'mcp' (external MCP server/tool status), "
             "'api_keys' (which providers are configured — never returns key values), "
             "'identity' (configured name and personality), "
             "'tasks' (active scheduled tasks summary), "
@@ -69,7 +70,7 @@ class _SettingUpdateInput(BaseModel):
             "'dream_cycle' (enable/disable — value is 'on' or 'off'), "
             "'dream_window' (dream cycle hours — value is 'START-END' e.g. '1-5'), "
             "'skill_toggle' (enable/disable a skill — value is 'skill_name:on' or 'skill_name:off'), "
-            "'tool_toggle' (enable/disable a tool — value is 'tool_name:on' or 'tool_name:off'), "
+            "'tool_toggle' (enable/disable a tool — value is 'tool_name:on' or 'tool_name:off'; use 'mcp:on/off' for the global MCP client), "
             "'image_gen_model' (set image generation model — value is provider/model-id), "
             "'video_gen_model' (set video generation model — value is provider/model-id), "
             "'run_dream_cycle' (manually trigger the dream cycle — value is 'now'), "
@@ -172,7 +173,7 @@ def _query_overview() -> str:
     from version import __version__
     parts = [f"**Thoth v{__version__}**"]
     for cat in ("model", "vision", "image_gen", "voice", "api_keys", "memory",
-                "channels", "skills", "identity", "config", "designer"):
+                "channels", "skills", "tools", "mcp", "identity", "config", "designer"):
         try:
             parts.append(_QUERY_HANDLERS[cat]())
         except Exception as exc:
@@ -270,6 +271,31 @@ def _query_tools() -> str:
         return "\n".join(lines)
     except Exception as exc:
         return f"**Tools**\nError: {exc}"
+
+
+def _query_mcp() -> str:
+    try:
+        from mcp_client.runtime import get_status_summary
+        summary = get_status_summary()
+        lines = [
+            "**MCP Client**",
+            f"- Global enable: {'on' if summary.get('enabled') else 'off'}",
+            f"- MCP SDK: {'available' if summary.get('sdk_available') else 'missing'}",
+            f"- Servers: {summary.get('enabled_server_count', 0)} enabled / {summary.get('server_count', 0)} configured / {summary.get('connected_server_count', 0)} connected",
+            f"- Tools: {summary.get('enabled_tool_count', 0)} enabled / {summary.get('tool_count', 0)} discovered",
+            f"- Approval-gated tools: {summary.get('destructive_tool_count', 0)}",
+        ]
+        servers = summary.get("servers", {})
+        if servers:
+            lines.append("- Server details:")
+            for name, status in sorted(servers.items()):
+                detail = f"  - {name}: {status.get('status', 'unknown')} ({status.get('transport', 'stdio')})"
+                if status.get("last_error"):
+                    detail += f" — last error: {status['last_error']}"
+                lines.append(detail)
+        return "\n".join(lines)
+    except Exception as exc:
+        return f"**MCP Client**\nError: {exc}"
 
 
 def _query_api_keys() -> str:
@@ -544,6 +570,7 @@ _QUERY_HANDLERS = {
     "memory": _query_memory,
     "skills": _query_skills,
     "tools": _query_tools,
+    "mcp": _query_mcp,
     "api_keys": _query_api_keys,
     "identity": _query_identity,
     "tasks": _query_tasks,
@@ -798,7 +825,14 @@ def _update_setting(setting: str, value: str) -> str:
         if not resolved_name:
             suggestion_text = f" Try one of: {', '.join(suggestions)}." if suggestions else ""
             return f"Unknown tool '{name_part}'.{suggestion_text}"
-        current_state = tool_registry.is_enabled(resolved_name)
+        if resolved_name == "mcp":
+            try:
+                from mcp_client import config as mcp_config
+                current_state = mcp_config.is_globally_enabled()
+            except Exception:
+                current_state = tool_registry.is_enabled(resolved_name)
+        else:
+            current_state = tool_registry.is_enabled(resolved_name)
         if current_state == on:
             return f"Tool '{resolved_label}' is already {'enabled' if on else 'disabled'}."
         canonical_value = f"{resolved_name}:{'on' if on else 'off'}"
@@ -811,13 +845,20 @@ def _update_setting(setting: str, value: str) -> str:
         if not approval:
             return "Tool toggle cancelled."
         try:
-            tool_registry.set_enabled(resolved_name, on)
-            actual_state = tool_registry.is_enabled(resolved_name)
+            if resolved_name == "mcp":
+                from mcp_client import config as mcp_config
+                mcp_config.set_global_enabled(on)
+                actual_state = mcp_config.is_globally_enabled() and tool_registry.is_enabled(resolved_name)
+            else:
+                tool_registry.set_enabled(resolved_name, on)
+                actual_state = tool_registry.is_enabled(resolved_name)
             if actual_state != on:
                 return (
                     f"Failed to {'enable' if on else 'disable'} tool '{resolved_label}'. "
                     f"The setting did not take effect."
                 )
+            if resolved_name == "mcp":
+                return f"MCP client and tool '{resolved_label}' {'enabled' if on else 'disabled'}."
             return f"Tool '{resolved_label}' {'enabled' if on else 'disabled'}."
         except Exception as exc:
             return f"Failed to toggle tool: {exc}"
@@ -1166,7 +1207,7 @@ class ThothStatusTool(BaseTool):
                     "cloud_context_size, dream_cycle (on/off), "
                     "dream_window (e.g. '1-5'), "
                     "skill_toggle (e.g. 'deep_research:off'), "
-                    "tool_toggle (e.g. 'arxiv:off'), "
+                        "tool_toggle (e.g. 'arxiv:off' or 'mcp:off'), "
                     "image_gen_model, video_gen_model, "
                     "run_dream_cycle (trigger immediately), "
                     "self_improvement (on/off)."

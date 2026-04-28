@@ -268,6 +268,13 @@ async def on_startup():
     _set("⚡ Loading workflows…")
     await asyncio.to_thread(lambda: (seed_default_tasks(), start_task_scheduler()))
 
+    _set("🔌 Starting MCP servers…")
+    try:
+        from mcp_client.runtime import discover_enabled_servers
+        await asyncio.to_thread(discover_enabled_servers)
+    except Exception as exc:
+        logger.warning("MCP startup skipped (non-fatal): %s", exc)
+
     # Pre-warm agent graph so first thread switch is fast
     _set("🧠 Building agent graph…")
     try:
@@ -433,6 +440,12 @@ async def on_shutdown():
         print("[shutdown] Tunnels closed")
     except Exception as exc:
         print(f"[shutdown] Tunnel cleanup error: {exc}")
+    try:
+        from mcp_client.runtime import shutdown as _mcp_shutdown
+        _mcp_shutdown()
+        print("[shutdown] MCP sessions closed")
+    except Exception as exc:
+        print(f"[shutdown] MCP cleanup error: {exc}")
     print("[shutdown] Done")
 
 

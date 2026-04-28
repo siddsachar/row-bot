@@ -142,6 +142,31 @@ def _notify_api_error(friendly_msg: str) -> None:
 def _keep_browser_snapshots() -> int:
     """How many recent browser snapshots to keep in full (rest become stubs)."""
     return min(8, max(2, get_context_size() // 40_000))
+
+
+def _is_browser_tool_name(tool_name: str) -> bool:
+    """Return True for native browser tools and MCP-prefixed browser tools."""
+    name = str(tool_name or "")
+    return name.startswith("browser_") or (name.startswith("mcp_") and "_browser_" in name)
+
+
+def _browser_action_name(tool_name: str) -> str:
+    name = str(tool_name or "browser")
+    if name.startswith("browser_"):
+        return name.removeprefix("browser_")
+    if "_browser_" in name:
+        return name.split("_browser_", 1)[1]
+    return name
+
+
+def _is_browser_snapshot_tool_name(tool_name: str) -> bool:
+    action = _browser_action_name(tool_name)
+    return action in {"snapshot", "take_screenshot"}
+
+
+def _is_browser_navigation_tool_name(tool_name: str) -> bool:
+    action = _browser_action_name(tool_name)
+    return action in {"navigate", "navigate_back", "back", "click", "type", "fill_form", "press_key", "select_option", "hover", "drag", "scroll", "tab"}
 # Extra tokens to account for content injected by _pre_model_trim that is NOT
 # stored in the checkpoint: skills prompt, date/time line, auto-recalled
 # memories, per-message framing tokens.
@@ -364,11 +389,10 @@ def _pre_model_trim(state: dict) -> dict:
     # and replace older ones with a compact stub (URL + title + action)
     # so the model still knows *what it did* but without the full DOM.
     # The checkpoint is NOT modified — full snapshots remain for the UI.
-    _BROWSER_PREFIX = "browser_"
     browser_indices = [
         i for i, m in enumerate(messages)
         if m.type == "tool"
-        and (getattr(m, "name", "") or "").startswith(_BROWSER_PREFIX)
+        and _is_browser_tool_name(getattr(m, "name", "") or "")
     ]
     _n_keep = _keep_browser_snapshots()
     if len(browser_indices) > _n_keep:
@@ -385,7 +409,7 @@ def _pre_model_trim(state: dict) -> dict:
                     title = line[7:].strip()
                 if url and title:
                     break
-            action = (m.name or "browser").replace("browser_", "", 1)
+            action = _browser_action_name(getattr(m, "name", "") or "browser")
             stub = (
                 f"[Prior browser {action} — "
                 f"URL: {url or '(unknown)'}, "
@@ -404,7 +428,7 @@ def _pre_model_trim(state: dict) -> dict:
     # LAST occurrence and replace earlier ones with a short note.
     _tool_msg_indices = [
         i for i, m in enumerate(messages)
-        if m.type == "tool" and not (getattr(m, "name", "") or "").startswith(_BROWSER_PREFIX)
+        if m.type == "tool" and not _is_browser_tool_name(getattr(m, "name", "") or "")
     ]
     if _tool_msg_indices:
         _seen_hashes: dict[str, list[int]] = {}  # hash → [indices]
@@ -484,7 +508,7 @@ def _pre_model_trim(state: dict) -> dict:
     for i in tool_indices:
         m = messages[i]
         _tool_name = getattr(m, "name", "") or ""
-        if _tool_name in _UNTRUSTED_TOOLS:
+        if _tool_name in _UNTRUSTED_TOOLS or _tool_name.startswith("mcp_"):
             _raw = _content_to_str(m.content)
             _tagged = (
                 f'<EXTERNAL_CONTENT source="{_tool_name}">\n'
@@ -823,7 +847,24 @@ def _pre_model_trim(state: dict) -> dict:
                 _is_bg = False
             _limit = RECURSION_LIMIT_TASK if _is_bg else RECURSION_LIMIT_CHAT
             _threshold = int(_limit * 0.75)
-            if _steps >= _threshold:
+            _browser_tool_steps = sum(
+                1 for _m in _orig_msgs[_last_human + 1:]
+                if _m.type == "tool" and _is_browser_tool_name(getattr(_m, "name", "") or "")
+            )
+            _browser_threshold = 8
+            if _browser_tool_steps >= _browser_threshold:
+                from langchain_core.messages import SystemMessage as _WDMsg
+                _wind_down = _WDMsg(
+                    content=(
+                        "[IMPORTANT: You have already used "
+                        f"{_browser_tool_steps} browser actions for this request. "
+                        "Stop browsing now and provide the best final answer from the evidence already gathered. "
+                        "If the site blocked automation, showed irrelevant results, or did not expose prices clearly, say that plainly. "
+                        "Do NOT call more browser tools or shell tools for this request.]"
+                    )
+                )
+                trimmed.append(_wind_down)
+            elif _steps >= _threshold:
                 from langchain_core.messages import SystemMessage as _WDMsg
                 _wind_down = _WDMsg(
                     content=(
@@ -1696,10 +1737,37 @@ import re as _re
 _TOOL_DISPLAY_NAMES: dict[str, str] = {}
 
 
+def _resolve_mcp_tool_display_name(func_name: str) -> str:
+    if not str(func_name or "").startswith("mcp_"):
+        return func_name
+    try:
+        from mcp_client.runtime import get_catalog_snapshot
+        for server_name, tools in get_catalog_snapshot().items():
+            for info in tools:
+                if info.get("prefixed_name") == func_name:
+                    return f"MCP: {info.get('name') or func_name} ({server_name})"
+    except Exception:
+        pass
+    try:
+        from mcp_client import config as mcp_config
+        from mcp_client.safety import prefixed_tool_name
+        for server_name, server_cfg in mcp_config.get_servers().items():
+            tools_cfg = server_cfg.get("tools", {}) if isinstance(server_cfg.get("tools"), dict) else {}
+            names = set((tools_cfg.get("enabled") or {}).keys()) | set((tools_cfg.get("catalog") or {}).keys())
+            for tool_name in names:
+                if prefixed_tool_name(server_name, tool_name) == func_name:
+                    return f"MCP: {tool_name} ({server_name})"
+    except Exception:
+        pass
+    return "MCP: " + func_name.removeprefix("mcp_")
+
+
 def _resolve_tool_display_name(func_name: str) -> str:
     """Convert tool function name to display name using the registry.
     For multi-tool entries (e.g. filesystem), map sub-tool names back
     to the parent tool's display name."""
+    if str(func_name or "").startswith("mcp_"):
+        return _resolve_mcp_tool_display_name(func_name)
     if not _TOOL_DISPLAY_NAMES:
         for t in tool_registry.get_all_tools():
             _TOOL_DISPLAY_NAMES[t.name] = t.display_name
@@ -1707,7 +1775,7 @@ def _resolve_tool_display_name(func_name: str) -> str:
             try:
                 for lc_tool in t.as_langchain_tools():
                     if lc_tool.name != t.name:
-                        _TOOL_DISPLAY_NAMES[lc_tool.name] = t.display_name
+                        _TOOL_DISPLAY_NAMES[lc_tool.name] = _resolve_mcp_tool_display_name(lc_tool.name) if lc_tool.name.startswith("mcp_") else t.display_name
             except Exception:
                 pass  # tool not configured yet — sub-names added on rebuild
     return _TOOL_DISPLAY_NAMES.get(func_name, func_name)
@@ -1889,6 +1957,10 @@ def _stream_graph(agent, input_data, config: dict,
     _LOOP_THRESHOLD = 4
     _recent_tool_sigs: list[str] = []   # last N signatures
     _loop_detected = False
+    _BROWSER_TOOL_LIMIT = 14
+    _browser_tool_count = 0
+    _recent_browser_actions: list[str] = []
+    _browser_budget_exceeded = False
 
     try:
         stream_iter = agent.stream(
@@ -1959,6 +2031,17 @@ def _stream_graph(agent, input_data, config: dict,
                             if len(_recent_tool_sigs) >= _LOOP_THRESHOLD:
                                 _loop_detected = True
 
+                            if _is_browser_tool_name(tc["name"]):
+                                _browser_tool_count += 1
+                                _recent_browser_actions.append(_browser_action_name(tc["name"]))
+                                _recent_browser_actions = _recent_browser_actions[-8:]
+                                _snapshot_heavy = len(_recent_browser_actions) >= 6 and all(
+                                    action in {"snapshot", "take_screenshot", "navigate", "navigate_back", "back"}
+                                    for action in _recent_browser_actions[-6:]
+                                )
+                                if _browser_tool_count >= _BROWSER_TOOL_LIMIT or _snapshot_heavy:
+                                    _browser_budget_exceeded = True
+
                     # Tool result returned
                     if m.type == "tool":
                         yield ("tool_done", {
@@ -1967,7 +2050,7 @@ def _stream_graph(agent, input_data, config: dict,
                             "content": getattr(m, "content", ""),
                         })
 
-            if _loop_detected:
+            if _loop_detected or _browser_budget_exceeded:
                 break
 
         # ── messages: token-level streaming ──────────────────────────────────
@@ -2143,6 +2226,24 @@ def _stream_graph(agent, input_data, config: dict,
             yield ("done", "".join(full_answer) + "\n\n" + _loop_msg)
         else:
             yield ("error", _loop_msg)
+        return
+
+    if _browser_budget_exceeded:
+        logger.warning("Browser tool budget exceeded: %d browser tool calls", _browser_tool_count)
+        try:
+            repair_orphaned_tool_calls(config=config, agent_graph=agent)
+        except Exception:
+            pass
+        _browser_msg = (
+            "⚠️ I used too many browser actions without reaching a stable result, "
+            "so I stopped before getting stuck in a longer loop. Try narrowing the request, "
+            "or use a site/search page that is less likely to block automation."
+        )
+        _notify_api_error(_browser_msg)
+        if full_answer:
+            yield ("done", "".join(full_answer) + "\n\n" + _browser_msg)
+        else:
+            yield ("error", _browser_msg)
         return
 
     # Check if the graph paused due to an interrupt (destructive tool gate)

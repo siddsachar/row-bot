@@ -81,6 +81,26 @@ class PluginAPI:
         """Write a secret (API key) for this plugin."""
         self._state.set_plugin_secret(self._plugin_id, key, value)
 
+    # ── Runtime Context ─────────────────────────────────────────────────
+    def is_background_workflow(self) -> bool:
+        """Return True when the current tool call is running from a background task."""
+        try:
+            from agent import is_background_workflow
+            return bool(is_background_workflow())
+        except Exception as exc:
+            logger.debug("Plugin background workflow check unavailable: %s", exc)
+            return False
+
+    def get_allowed_recipients(self) -> list[str]:
+        """Return email recipients approved for the current background task."""
+        try:
+            from agent import _task_allowed_recipients_var
+            recipients = _task_allowed_recipients_var.get() or []
+            return [str(recipient) for recipient in recipients]
+        except Exception as exc:
+            logger.debug("Plugin allowed recipients unavailable: %s", exc)
+            return []
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 # PluginTool — base class for plugin tools

@@ -181,6 +181,12 @@ FEATURE_MANIFEST: list[dict[str, str]] = [
         "configure": "Settings → Plugins to manage installed plugins.",
     },
     {
+        "feature": "MCP Client",
+        "keywords": "mcp, model context protocol, external tools, tool server, marketplace, registry",
+        "description": "Connect external Model Context Protocol servers as native dynamic tools with global kill switch, per-server enablement, per-tool toggles, approval gates for destructive tools, recommended starter recipes, overlap/risk labels, marketplace browse/import, diagnostics, and isolated failure handling.",
+        "configure": "Settings → MCP to add, test, import, browse, enable, and troubleshoot MCP servers.",
+    },
+    {
         "feature": "Dream Cycle",
         "keywords": "dream, nightly, memory refinement, consolidation, background processing",
         "description": "Nightly 5-phase memory refinement process that consolidates, deduplicates, enriches the knowledge graph, and generates automated insights.",
@@ -371,6 +377,22 @@ def get_dynamic_state() -> str:
         if enabled:
             names = [s.display_name for s in enabled]
             parts.append(f"- Enabled skills: {', '.join(names)}")
+    except Exception:
+        pass
+
+    # MCP external tool status
+    try:
+        from mcp_client.runtime import get_status_summary
+        mcp = get_status_summary()
+        if mcp.get("enabled") or mcp.get("server_count"):
+            server_bits = f"{mcp.get('connected_server_count', 0)}/{mcp.get('enabled_server_count', 0)} connected"
+            parts.append(
+                f"- MCP client: {'enabled' if mcp.get('enabled') else 'disabled'}, "
+                f"servers {server_bits}, {mcp.get('enabled_tool_count', 0)} enabled external tools"
+            )
+            failed = [name for name, st in (mcp.get("servers") or {}).items() if st.get("status") in {"failed", "dependency_missing"}]
+            if failed:
+                parts.append(f"- MCP attention: {', '.join(failed[:5])} need troubleshooting")
     except Exception:
         pass
 

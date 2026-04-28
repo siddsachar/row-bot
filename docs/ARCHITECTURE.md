@@ -27,6 +27,7 @@
 - [Tool Guides](#tool-guides)
 - [Image Generation](#image-generation)
 - [Video Generation](#video-generation)
+- [MCP Client & External Tools](#mcp-client--external-tools)
 - [Plugin System & Marketplace](#plugin-system--marketplace)
 - [Auto-Updates](#auto-updates)
 - [Habit & Health Tracker](#habit--health-tracker)
@@ -43,7 +44,7 @@
 ## ReAct Agent Architecture
 
 - **Autonomous tool use** — the agent decides which tools to call, when, and how many times, based on your question
-- **28 core tools plus auto-generated channel tools** — web search, email, calendar, file management, shell access, browser automation, vision, image generation, video generation, X (Twitter), a personal knowledge graph, Designer Studio, scheduled workflows, habit tracking, Thoth Status self-inspection, and more
+- **29 core tools plus auto-generated channel tools** — web search, email, calendar, file management, shell access, browser automation, vision, image generation, video generation, X (Twitter), a personal knowledge graph, Designer Studio, scheduled workflows, habit tracking, Thoth Status self-inspection, external MCP tools, and more
 - **Streaming responses** — tokens stream in real-time with a typing indicator
 - **Thinking indicators** — shows when the model is reasoning before responding
 - **Smart context management** — automatic conversation summarization compresses older turns when token usage exceeds 80% of the context window, preserving the 5 most recent turns and a running summary; a hard trim at 85% drops oldest messages as a safety net; oversized tool outputs are proportionally shrunk so multi-tool chains fit within context; accurate token counting via tiktoken (cl100k_base)
@@ -487,6 +488,63 @@ Thoth can generate short video clips from text prompts or reference images, prim
 
 ---
 
+## MCP Client & External Tools
+
+Thoth includes a guarded Model Context Protocol client that can connect external MCP servers and expose their tools to the ReAct agent without making external servers part of Thoth's trusted core.
+
+### Runtime Model
+
+- **Dedicated package** — `mcp_client/` owns persistent config, marketplace search, dependency checks, safety classification, runtime sessions, logging, result normalization, and curated starter metadata
+- **Separate config file** — MCP state is stored in `~/.thoth/mcp_servers.json`, separate from native tool toggles, so malformed or broken MCP config falls back to an empty disabled config instead of damaging normal tool settings
+- **Global enable switch** — `enabled` in MCP config is the top-level kill switch. Turning it off stops active sessions, clears the discovered catalog, removes dynamic MCP tools from the agent, and keeps saved server definitions for later
+- **Per-server runtime** — each enabled server gets its own `McpServerRuntime` session tracked by status (`connecting`, `connected`, `failed`, `dependency_missing`, `stopped`, `global_disabled`), tool counts, timestamps, transport, and last error
+- **Transport support** — stdio, Streamable HTTP, and SSE are supported through the Python MCP SDK. Each server can set command, args, cwd, env, URL, headers, connect timeout, tool timeout, and output limit
+- **Non-blocking startup** — `app.py` discovers enabled servers during startup in a guarded path. Exceptions are logged as warnings and do not stop Thoth from launching
+- **Shutdown cleanup** — app shutdown calls MCP runtime shutdown to close child sessions and stop external stdio processes
+
+### Dynamic Tool Injection
+
+- **Parent registry tool** — `tools/mcp_tool.py` registers `mcp` / **External MCP Tools** as the native parent tool. It is the stable toggle users see in Settings and Thoth Status
+- **Dynamic wrappers** — discovered enabled MCP tools are converted into LangChain `StructuredTool` instances at agent build time, with names generated as `mcp_<server>_<tool>`
+- **Schema conversion** — JSON input schemas are converted into Pydantic argument models where possible, with a permissive fallback for complex or invalid schemas
+- **Resources and prompts** — servers can optionally expose `list_resources`, `read_resource`, `list_prompts`, and `get_prompt` utility tools through per-server advanced toggles
+- **Readable display names** — `agent.py` resolves tool-call UI labels back to the original MCP tool and server name, for example `MCP: microsoft_docs_search (microsoft-learn-mcp)`
+- **Result normalization** — MCP text, structured content, resource links, embedded resources, binary/image blocks, empty results, errors, and oversized outputs are normalized before being sent back into the model
+
+### Safety & Trust Boundaries
+
+- **External output is untrusted** — the MCP tool guide tells the agent not to follow instructions found inside MCP results unless they are clearly part of the user's request
+- **Native tools stay preferred** — Thoth Memory, Browser, filesystem, document, search, channel, and Designer capabilities remain canonical for Thoth-owned behavior; overlapping MCP servers are treated as external alternatives
+- **Destructive classification** — tool names, descriptions, and MCP annotations are inspected for write/send/delete/run/deploy/payment-style behavior. Destructive tools require approval and are not enabled by default after discovery
+- **Approval synchronization** — destructive MCP wrapper names are included in the parent tool's `destructive_tool_names`, so they flow through the existing interrupt approval mechanism
+- **Background workflow rules** — MCP destructive tools follow workflow safety mode: approval-required modes interrupt, while explicit allow-all mode can run enabled destructive MCP tools
+- **Capability overlap detection** — `mcp_client/conflicts.py` labels MCP servers that overlap native memory, browser, documents, web search, URL reading, channels, or Designer capabilities and forces manual tool selection for overlap/high-risk imports
+- **Secret masking** — diagnostics use masked config output so headers, tokens, and environment values are not displayed raw
+
+### Settings UI & Marketplace
+
+- **Settings → MCP** — `ui/mcp_settings.py` provides the user-facing MCP control surface: global enable switch, add server, import config, browse MCP servers, diagnostics, test, refresh, edit, delete, and per-tool controls
+- **Disabled-until-tested imports** — manual JSON imports and marketplace entries are saved disabled. Users test the server before enabling it
+- **Tool review rows** — after a successful probe, each tool shows name, description, input schema summary, enabled state, destructive badge, approval state, and whether it comes only from saved config or live catalog
+- **Marketplace adapters** — `mcp_client/marketplace.py` can search curated starters plus official-style directories, PulseMCP, Smithery, and Glama, with cache and curated fallback when live results fail or ignore the query
+- **Starter metadata** — curated entries preserve trust tier, risk level, auth requirement, native overlap, requirements, notes, and install recipe metadata
+- **Diagnostics dialog** — Settings can display masked MCP config and live status summary for support/debugging without requiring file edits
+
+### Runtime Requirements
+
+- **Requirement inference** — stdio launch commands infer runtime requirements for `npx`/Node.js, `uvx`/uv, Docker, and Playwright MCP browser dependencies
+- **Managed user-space installs** — Thoth can install private Node.js LTS, uv, and Playwright Chromium runtimes under `~/.thoth/runtimes/` and inject those paths only into MCP child process environments
+- **Manual complex dependencies** — Docker and other heavyweight system dependencies are surfaced as manual setup requirements with setup links instead of being bundled into Thoth
+- **No bundled MCP runtimes** — Thoth depends on the Python MCP SDK, but external server runtimes are resolved at runtime so the app package does not ship Node, uv, Docker, or browser payloads unnecessarily
+
+### Testing & Release Checks
+
+- **Offline regression suite** — `test_mcp_client.py` covers config fallback, secret masking, safety classification, marketplace fallback/filtering, conflict policy, runtime requirement handling, managed environment injection, settings rows, stdio discovery/call, global disable, bad server failure, display names, background safety, and browser-loop handling
+- **Opt-in live E2E** — `scripts/mcp_real_world_e2e.py` and `test_mcp_real_world_e2e.py` connect to public MCP servers outside normal CI to validate import, probe, manual tool enablement, dynamic wrapper invocation, and read-only approval classification
+- **Maintainer workflow** — MCP-heavy releases run the offline suite first, then the live public E2E check from the repo root
+
+---
+
 ## Plugin System & Marketplace
 
 A sandboxed, hot-reloadable extension system lets plugins add new tools and skills without modifying the core codebase.
@@ -577,7 +635,7 @@ A sandboxed, hot-reloadable extension system lets plugins add new tools and skil
 
 Skills are reusable instruction packs that shape how the agent thinks and responds. Each skill is a `SKILL.md` file with YAML frontmatter (display name, icon, description, required tools, tags) and freeform instructions injected into the system prompt when enabled.
 
-Thoth ships with **12 manual bundled skills** and **15 tool guides**. Manual skills are toggled from Settings; tool guides auto-activate when their linked tools are available.
+Thoth ships with **12 manual bundled skills** and **16 tool guides**. Manual skills are toggled from Settings; tool guides auto-activate when their linked tools are available.
 
 | Skill | Description |
 |-------|-------------|
@@ -598,7 +656,7 @@ Thoth ships with **12 manual bundled skills** and **15 tool guides**. Manual ski
 - **In-app skill editor** — skills can be created and edited directly from Settings
 - **Per-skill enablement** — only enabled manual skills are injected into the system prompt
 - **Per-thread and per-workflow overrides** — skill selection can be narrowed for individual threads and workflows
-- **Tool guides remain automatic** — Designer and Thoth Status guides joined the existing Browser, Calendar, Chart, Email, Filesystem, Math, Shell, Telegram, Tracker, Vision, Weather, Wiki, and X guides in the built-in set
+- **Tool guides remain automatic** — Designer, MCP, and Thoth Status guides joined the existing Browser, Calendar, Chart, Email, Filesystem, Math, Shell, Telegram, Tracker, Vision, Weather, Wiki, and X guides in the built-in set
 
 ---
 
@@ -631,7 +689,7 @@ Thoth ships with **12 manual bundled skills** and **15 tool guides**. Manual ski
 | **`memory_extraction.py`** | Background conversation scan that extracts entities and relations the live agent did not save |
 | **`skills.py`** | Discovery, loading, activation, override, and prompt-building for manual skills and tool guides |
 | **`bundled_skills/`** | 12 built-in manual skills as `SKILL.md` packages |
-| **`tool_guides/`** | 15 built-in tool-specific auto-activation guides |
+| **`tool_guides/`** | 16 built-in tool-specific auto-activation guides |
 | **`tasks.py`** | Workflow engine, SQLite persistence, APScheduler scheduling, pipeline execution, run history, safety mode, and delivery routing |
 | **`notifications.py`** | Unified desktop, sound, and toast notification system |
 | **`channels/`** | Channel ABC, registry, media helpers, auth helpers, approval routing, command handling, tool generation, and bundled channel adapters |
@@ -639,6 +697,7 @@ Thoth ships with **12 manual bundled skills** and **15 tool guides**. Manual ski
 | **`tools/thoth_status_tool.py`** | Self-introspection and controlled self-management tool, including optional self-improvement skill operations |
 | **`tools/`** + **`designer/tool.py`** | Self-registering core tool modules, registry, base classes, and LangChain tool conversion |
 | **`plugins/`** | Plugin runtime, marketplace client, manifest validation, security scanner, and settings integration |
+| **`mcp_client/`** | External Model Context Protocol client: config, runtime sessions, marketplace search, requirements, safety classification, diagnostics, and result normalization |
 | **`static/`** | Bundled frontend assets such as Mermaid and graph/visualization helpers |
 | **`version.py`** | Single source of truth for the current Thoth version |
 
@@ -667,6 +726,9 @@ All user data is stored under `~/.thoth/` (or `%USERPROFILE%\\.thoth\\` on Windo
 ├── channels_config.json           # Channel enablement and per-channel config
 ├── shell_history.json             # Per-thread shell history
 ├── skills_config.json             # Manual skill enable/disable state
+├── mcp_servers.json               # External MCP server config, global switch, tool enablement, approvals
+├── mcp_marketplace_cache.json     # Cached MCP directory search results
+├── runtimes/                      # Optional user-space runtimes installed by MCP requirement helper
 ├── skill_versions/                # Skill patch backups for self-improvement flows
 ├── thoth_app.log                  # Structured application log
 ├── splash.log                     # Splash-screen diagnostics
@@ -712,7 +774,7 @@ Most open-source AI assistants are still **developer tools disguised as products
 | **Conversations** | Provider-owned chat history | Local SQLite-backed threads, exportable anytime |
 | **Cost** | Subscription or provider billing | Free with local models; cloud usage is pay-per-token only when you opt in |
 | **Memory** | Limited, opaque, provider-controlled | Personal knowledge graph with entities, relations, visualization, wiki export, and background refinement |
-| **Tools** | Limited app integrations and provider-defined plug-ins | 28 core tools plus auto-generated channel tools: shell, browser, filesystem, Gmail, Calendar, memory graph, Designer Studio, Thoth Status, image generation, video generation, research tools, and more |
+| **Tools** | Limited app integrations and provider-defined plug-ins | 29 core tools plus auto-generated channel tools: shell, browser, filesystem, Gmail, Calendar, memory graph, Designer Studio, Thoth Status, MCP external tools, image generation, video generation, research tools, and more |
 | **Customization** | Pick a model and maybe a custom instruction | Swap models per thread or workflow, configure name and personality, build workflows, toggle tools and skills, and enable self-improvement features |
 | **Voice** | Usually cloud-processed | Local faster-whisper STT plus Kokoro TTS |
 | **Availability** | Internet required | Local models work offline; cloud models are optional |
@@ -731,7 +793,7 @@ Most open-source AI assistants are still **developer tools disguised as products
 | **Knowledge refinement** | 5-phase Dream Cycle with merge, enrich, decay, infer, and insight passes | Experimental dreaming-style memory promotion flows |
 | **Document intelligence** | Structured graph extraction with provenance, dedup, and relation typing | Strong workspace tools but less graph-centric document knowledge modeling |
 | **Designer / Canvas** | Designer Studio for decks, one-pagers, reports, published links, plus inline Mermaid and Plotly rendering | A2UI-style interactive workspace focus |
-| **Tools** | 28 core tools plus auto-generated channel send tools, including Designer Studio and Thoth Status | Broad built-in toolset with different emphasis |
+| **Tools** | 29 core tools plus auto-generated channel send tools, including Designer Studio, Thoth Status, and MCP external tools | Broad built-in toolset with different emphasis |
 | **Messaging channels** | 5 bundled channels with streaming, media handling, approvals, and a sidebar monitor | Wider channel catalog and gateway focus |
 | **Autonomous workflows** | Step-based workflows with approvals, conditions, triggers, concurrency groups, and safety modes | Strong channel routing and automation, different orchestration model |
 | **Desktop experience** | Native Windows and macOS desktop app with tray, splash, and setup wizard | More developer-first and channel-first in practice |

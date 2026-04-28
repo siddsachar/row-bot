@@ -55,7 +55,12 @@ print("\n" + "=" * 70)
 print("1. AST SYNTAX CHECK")
 print("=" * 70)
 
-py_files = sorted(PROJECT_ROOT.glob("*.py")) + sorted((PROJECT_ROOT / "tools").glob("*.py")) + sorted((PROJECT_ROOT / "channels").glob("*.py"))
+py_files = (
+    sorted(PROJECT_ROOT.glob("*.py"))
+    + sorted((PROJECT_ROOT / "tools").glob("*.py"))
+    + sorted((PROJECT_ROOT / "channels").glob("*.py"))
+    + sorted((PROJECT_ROOT / "mcp_client").glob("*.py"))
+)
 py_files = [f for f in py_files if f.name != "test_suite.py"]
 
 for f in py_files:
@@ -90,6 +95,9 @@ CORE_MODULES = [
     "tasks",
     "notifications",
     "launcher",
+    "mcp_client.config",
+    "mcp_client.marketplace",
+    "mcp_client.runtime",
 ]
 
 for mod_name in CORE_MODULES:
@@ -7902,6 +7910,11 @@ try:
         assert _papi49.plugin_dir == _plugin_dir49
         record("PASS", "plugins: PluginAPI object creation and properties")
 
+        # ── 49e+. PluginAPI background context defaults ────────────────
+        assert _papi49.is_background_workflow() in (True, False)
+        assert isinstance(_papi49.get_allowed_recipients(), list)
+        record("PASS", "plugins: PluginAPI exposes background context helpers")
+
         # ── 49f. PluginTool base class ───────────────────────────────────
         class _TestTool49(_api49.PluginTool):
             @property
@@ -13603,7 +13616,14 @@ try:
     record("PASS", f"68p: all {len(_tool_files68)} tool .py files in thoth_setup.iss")
 
     # ── 68q. Top-level .py files in ISS ─────────────────────────────
-    _skip_top68 = {"test_suite.py", "test_memory_e2e.py", "integration_tests.py"}
+    _skip_top68 = {
+        "debug_tools.py",
+        "test_suite.py",
+        "test_memory_e2e.py",
+        "test_mcp_client.py",
+        "test_mcp_real_world_e2e.py",
+        "integration_tests.py",
+    }
     _top_files68 = [f.name for f in _P68(".").glob("*.py") if f.name not in _skip_top68]
     _missing_top68 = [f for f in _top_files68 if f not in _iss68]
     assert not _missing_top68, f"Top-level .py files missing from ISS: {_missing_top68}"
@@ -13688,6 +13708,7 @@ try:
     _top_py69 = {
         f.name for f in _APP_ROOT69.glob("*.py")
         if not f.name.startswith(("test_", "integration_", "_"))
+        and f.name != "debug_tools.py"
     }
     _missing_top69 = {f for f in _top_py69 if f not in _iss_text69}
     assert not _missing_top69, f"Top-level .py files missing from ISS: {sorted(_missing_top69)}"

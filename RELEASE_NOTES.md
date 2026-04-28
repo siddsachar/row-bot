@@ -2,6 +2,77 @@
 
 ---
 
+## v3.18.0 — External MCP Tools, Marketplace Import & Runtime Isolation
+
+Thoth now has a full **Model Context Protocol client** for connecting external MCP servers as native dynamic tools without letting a broken server take down the app. MCP ships as a guarded core subsystem: servers are configured from a dedicated Settings tab, imported disabled by default, tested before use, and exposed to the agent as namespaced `mcp_<server>_<tool>` tools only after explicit enablement. The runtime supports stdio, Streamable HTTP, and SSE transports; handles tool, resource, and prompt surfaces; classifies destructive tools; routes risky actions through Thoth's existing interrupt approvals; and keeps all MCP config in a separate `mcp_servers.json` so bad external settings degrade to diagnostics rather than startup failure. Marketplace search can pull from curated starters plus MCP directories, while dependency handling covers common user-space runtimes such as Node.js, uv, and Playwright Chromium, leaving heavier requirements like Docker as clear manual setup tasks.
+
+### 🔌 MCP Client & Dynamic Tools
+
+- **New `mcp_client/` subsystem** — persistent config, runtime sessions, result normalization, safety classification, marketplace discovery, dependency checks, and structured diagnostics live under a dedicated package instead of being mixed into built-in tool code
+- **Native parent tool** — new `tools/mcp_tool.py` registers **External MCP Tools** as the parent toggle; actual MCP server tools are injected dynamically through `as_langchain_tools()` after discovery
+- **Namespaced tool wrappers** — MCP tools are exposed as `mcp_<server>_<tool>` so external tool names cannot collide with native tools or each other
+- **Transport support** — stdio, Streamable HTTP, and SSE servers are supported through the Python MCP SDK, with per-server connect timeout, tool timeout, output cap, environment, headers, working directory, and command/URL settings
+- **Resources and prompts** — MCP resources and prompts can be exposed as optional utility tools per server, separately from the server's normal tool list
+- **Model-facing output normalization** — text, structured content, embedded resources, links, image/binary blocks, errors, empty responses, and oversized outputs are normalized before they reach the LLM
+
+### 🛡️ Safety, Permissions & Fault Isolation
+
+- **Global kill switch** — disabling MCP stops active sessions, clears the runtime catalog, removes dynamic MCP tools from the agent, and keeps the saved server configuration for later re-enable
+- **Per-server and per-tool toggles** — users can enable the MCP client globally, then choose exactly which servers and tools are active
+- **Destructive-tool gates** — tools whose names, descriptions, or MCP annotations indicate write/send/delete/run/deploy/payment-style behavior require approval; destructive tools are not auto-enabled after discovery
+- **Native capability overlap labels** — servers that overlap built-in Thoth memory, browser, filesystem/document, web search, channel, or Designer capabilities are labeled and require manual tool selection
+- **Untrusted external output handling** — MCP guide instructions tell the agent to treat MCP results as untrusted external content and prefer native Thoth tools for Thoth-owned capabilities
+- **Startup-safe design** — missing SDKs, bad JSON config, missing commands, failed child processes, broken endpoints, and server connection failures degrade to status rows and logs instead of blocking Thoth startup
+- **Shutdown cleanup** — app shutdown now closes MCP child sessions so external stdio processes are not left behind
+
+### 🧭 Settings UI, Import & Marketplace Search
+
+- **Settings → MCP tab** — add/edit/import/test/refresh/delete MCP servers from the GUI with the same simple enable-checkbox pattern as built-in tools
+- **Tool review surface** — after a successful test, discovered tools show descriptions, input schema summaries, destructive/approval badges, enable checkboxes, and approval toggles for non-destructive tools
+- **Import disabled by default** — JSON imports and marketplace entries are saved disabled until tested and reviewed
+- **Curated starter catalog** — recommended entries cover common external MCP use cases while preserving risk, trust, overlap, and requirement metadata
+- **Directory search** — marketplace search can use official registry-style sources plus PulseMCP, Smithery, and Glama adapters with cache/curated fallback when live sources are unavailable or irrelevant
+- **Diagnostics dialog** — masked config plus live runtime status are available from the MCP settings surface for troubleshooting without exposing secrets
+
+### ⚙️ Runtime Requirements
+
+- **Requirement detection** — stdio servers infer required launchers from commands such as `npx`, `uvx`, and `docker`, plus Playwright browser requirements for Playwright MCP
+- **Managed easy installs** — Thoth can install private user-space Node.js LTS, uv, and Playwright Chromium runtimes under `~/.thoth/runtimes/` without packaging those runtimes inside Thoth
+- **Manual complex installs** — non-trivial system dependencies such as Docker are surfaced with setup guidance instead of being bundled or silently installed
+- **Managed environment injection** — resolved runtime paths are added only to the MCP child process environment, avoiding global PATH mutation
+
+### 🧠 Agent, Status & Guide Integration
+
+- **Tool display names** — dynamic MCP calls render with readable labels such as `MCP: microsoft_docs_search (microsoft-learn-mcp)` in tool-call UI
+- **Browser-loop controls** — MCP browser tools participate in Thoth's browser snapshot trimming and loop-control logic so long browsing runs do not flood context
+- **Background workflow safety** — destructive MCP tools respect the workflow safety mode: approval-required modes interrupt, while explicit allow-all mode can run enabled destructive MCP tools
+- **Thoth Status integration** — `thoth_update_setting` can enable/disable the global MCP client through the normal tool-toggle path, keeping the parent registry tool and runtime state synchronized
+- **New MCP tool guide** — `tool_guides/mcp_guide/SKILL.md` documents when to use external MCP tools, how to treat MCP output, how to handle MCP errors, and how global disable behaves
+
+### 🧪 Tests & Release Checks
+
+- **Focused offline suite** — new `test_mcp_client.py` covers bad config fallback, secret masking, destructive detection, marketplace fallback/filtering, conflict policy, runtime requirement inference, managed runtime env injection, settings rows, stdio discovery/call, tool enable/approval toggles, global MCP disable, bad server failure, display names, background safety, and MCP browser loop controls
+- **Opt-in live suite** — new `test_mcp_real_world_e2e.py` plus `scripts/mcp_real_world_e2e.py` validate real public MCP servers outside normal CI, including Microsoft Learn and Context7
+- **Main regression coverage** — `test_suite.py` includes MCP modules in import/consistency checks and validates the focused MCP test files are part of the tracked suite
+
+### 📁 Files Changed
+
+| File | Change |
+|------|--------|
+| **`mcp_client/`** | **New** — isolated MCP client package for config, runtime sessions, marketplace search, requirement handling, safety classification, logging, conflicts, result normalization, and curated starters |
+| **`tools/mcp_tool.py`** | **New** — parent External MCP Tools registry entry that injects dynamic MCP LangChain tools |
+| **`ui/mcp_settings.py`** | **New** — Settings → MCP tab with add/import/browse/test/refresh/delete flows, requirement install buttons, diagnostics, and per-tool enable/approval controls |
+| **`tool_guides/mcp_guide/SKILL.md`** | **New** — agent guidance for safe use of external MCP tools and global MCP disable semantics |
+| **`test_mcp_client.py`** | **New** — offline MCP regression suite focused on robustness and failure isolation |
+| **`test_mcp_real_world_e2e.py`** | **New** — opt-in unittest wrapper for live public MCP checks |
+| **`scripts/mcp_real_world_e2e.py`** | **New** — maintainer release check for real MCP endpoints and dynamic wrapper invocation |
+| `agent.py` | Treats MCP tool output as untrusted, resolves readable MCP tool labels, and applies browser-loop handling to MCP browser tools |
+| `app.py` | Starts MCP discovery non-fatally during startup and closes MCP sessions during shutdown |
+| `tools/thoth_status_tool.py` | Synchronizes the `mcp` tool toggle with the global MCP client switch |
+| `tool_guides/thoth_status_guide/SKILL.md` | Documents MCP global toggle behavior through Thoth Status |
+| `requirements.txt` | Adds the Python MCP SDK and LangChain MCP adapter dependencies |
+| `installer/thoth_setup.iss` | Bundles the new MCP client package, MCP settings UI, MCP parent tool, and guide |
+
 ## v3.17.0 — Designer Studio II: Interactive Modes, Video Gen & Review Flow
 
 Designer graduates from a single-mode deck authoring tool into a full multi-mode design studio. Five project modes now ship — **deck**, **document**, **landing page**, **app mockup**, and **storyboard** — each with its own canvas rules, prompt guardrails, and curated template gallery. Interactive modes (landing / app_mockup / storyboard) run on a new sandboxed **runtime bridge** that turns declarative `data-thoth-action` attributes into real in-preview navigation, state toggles, and media playback without letting the agent write free-form `<script>`. A new **video generation tool** joins image generation as a first-class asset producer. A surgical tool surface — move, duplicate, restyle, refine-text, add-chart, insert-component, critique-page, apply-repairs — lets the agent edit pages without rewriting HTML. A new **review dialog** and **mutation diff** show exactly what changed turn over turn. The agent is bound by mode-specific **content budgets** and a **post-critique repair loop** so pages no longer clip at the canvas edge. Editable PPTX export is rewritten around isolated-page rasters so overlapping text no longer bleeds between slides. Designer assets now live under a **shared `utils/`** layer, and the home UI picks up bulk-select, skeleton loading, confirm dialogs, and richer sidebar + status bar states. Outside Designer, Thoth ships its own **in-app auto-updater** — packaged Windows and macOS builds now check GitHub Releases in the background, surface an `⬆ vX.Y.Z` pill in the status bar, and install SHA256- and code-signature-verified updates without leaving the app.

@@ -2967,6 +2967,7 @@ def open_settings(
                         tab_accounts = ui.tab("Accounts", icon="group")
                         tab_channels = ui.tab("Channels", icon="forum")
                         tab_utils = ui.tab("Utilities", icon="build")
+                        tab_mcp = ui.tab("MCP", icon="hub")
                         tab_plugins = ui.tab("Plugins", icon="extension")
                         tab_prefs = ui.tab("Preferences", icon="tune")
                         _tab_map = {
@@ -2980,6 +2981,7 @@ def open_settings(
                             "Gmail": tab_accounts, "Calendar": tab_accounts,
                             "Accounts": tab_accounts,
                             "Channels": tab_channels, "Utilities": tab_utils,
+                            "MCP": tab_mcp,
                             "Plugins": tab_plugins,
                             "Preferences": tab_prefs,
                         }
@@ -3000,6 +3002,7 @@ def open_settings(
                     (tab_knowledge, "Knowledge", _build_knowledge_tab),
                     (tab_voice, "Voice", _build_voice_tab),
                     (tab_channels, "Channels", _build_channels_tab),
+                    (tab_mcp, "MCP", lambda: __import__("ui.mcp_settings", fromlist=["build_mcp_settings_tab"]).build_mcp_settings_tab(_reopen)),
                     (tab_plugins, "Plugins", _build_plugins_tab),
                     (tab_prefs, "Preferences", _build_preferences_tab),
                 ]

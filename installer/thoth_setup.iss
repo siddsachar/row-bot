@@ -107,6 +107,18 @@ Source: "..\utils\__init__.py";        DestDir: "{app}\app\utils"; Flags: ignore
 Source: "..\utils\text.py";            DestDir: "{app}\app\utils"; Flags: ignoreversion
 Source: "..\utils\media.py";           DestDir: "{app}\app\utils"; Flags: ignoreversion
 
+; ── MCP client package ───────────────────────────────────────────────────────
+Source: "..\mcp_client\__init__.py";    DestDir: "{app}\app\mcp_client"; Flags: ignoreversion
+Source: "..\mcp_client\conflicts.py";   DestDir: "{app}\app\mcp_client"; Flags: ignoreversion
+Source: "..\mcp_client\config.py";      DestDir: "{app}\app\mcp_client"; Flags: ignoreversion
+Source: "..\mcp_client\logging.py";     DestDir: "{app}\app\mcp_client"; Flags: ignoreversion
+Source: "..\mcp_client\marketplace.py"; DestDir: "{app}\app\mcp_client"; Flags: ignoreversion
+Source: "..\mcp_client\recommended_servers.json"; DestDir: "{app}\app\mcp_client"; Flags: ignoreversion
+Source: "..\mcp_client\requirements.py"; DestDir: "{app}\app\mcp_client"; Flags: ignoreversion
+Source: "..\mcp_client\results.py";     DestDir: "{app}\app\mcp_client"; Flags: ignoreversion
+Source: "..\mcp_client\runtime.py";     DestDir: "{app}\app\mcp_client"; Flags: ignoreversion
+Source: "..\mcp_client\safety.py";      DestDir: "{app}\app\mcp_client"; Flags: ignoreversion
+
 ; ── Tools package ────────────────────────────────────────────────────────────
 Source: "..\tools\__init__.py";        DestDir: "{app}\app\tools"; Flags: ignoreversion
 Source: "..\tools\base.py";            DestDir: "{app}\app\tools"; Flags: ignoreversion
@@ -120,6 +132,7 @@ Source: "..\tools\documents_tool.py";  DestDir: "{app}\app\tools"; Flags: ignore
 Source: "..\tools\duckduckgo_tool.py"; DestDir: "{app}\app\tools"; Flags: ignoreversion
 Source: "..\tools\filesystem_tool.py"; DestDir: "{app}\app\tools"; Flags: ignoreversion
 Source: "..\tools\gmail_tool.py";      DestDir: "{app}\app\tools"; Flags: ignoreversion
+Source: "..\tools\mcp_tool.py";        DestDir: "{app}\app\tools"; Flags: ignoreversion
 Source: "..\tools\memory_tool.py";     DestDir: "{app}\app\tools"; Flags: ignoreversion
 Source: "..\tools\system_info_tool.py"; DestDir: "{app}\app\tools"; Flags: ignoreversion
 Source: "..\tools\tracker_tool.py";    DestDir: "{app}\app\tools"; Flags: ignoreversion
@@ -173,6 +186,7 @@ Source: "..\ui\graph_panel.py";        DestDir: "{app}\app\ui"; Flags: ignorever
 Source: "..\ui\head_html.py";          DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\helpers.py";            DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\home.py";               DestDir: "{app}\app\ui"; Flags: ignoreversion
+Source: "..\ui\mcp_settings.py";       DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\render.py";             DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\settings.py";           DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\setup_wizard.py";       DestDir: "{app}\app\ui"; Flags: ignoreversion

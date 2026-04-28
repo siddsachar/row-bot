@@ -51,6 +51,11 @@ monorepo/
 # Test files
 CLOUD_MODE_TEST_PLAN.md
 _README_OLD.md
+test_output*.txt
+amazon_*_results.png
+
+# Browser/MCP runtime traces
+.playwright-mcp/
 
 # Internal planning docs (not shipped)
 docs/ENTERPRISE_ROADMAP.md

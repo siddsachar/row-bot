@@ -145,8 +145,8 @@ for f in "$PROJECT_DIR"/*.py; do
 done
 cp "$PROJECT_DIR/requirements.txt" "$APP_SRC/"
 
-# Sub-packages (tools, channels, bundled_skills, tool_guides, ui, plugins, designer, scripts, utils)
-for pkg in tools channels bundled_skills tool_guides ui plugins designer scripts utils; do
+# Sub-packages (tools, channels, bundled_skills, tool_guides, ui, plugins, designer, scripts, utils, mcp_client)
+for pkg in tools channels bundled_skills tool_guides ui plugins designer scripts utils mcp_client; do
     if [ -d "$PROJECT_DIR/$pkg" ]; then
         rsync -a \
               --exclude='__pycache__' --exclude='*.pyc' \

@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/tests-All%20Pass-brightgreen?style=flat" alt="Tests">
 </p>
 
-Thoth is a **local-first AI assistant built for personal AI sovereignty** — your models, your data, your rules. It combines a powerful ReAct agent with **28 core tools plus auto-generated channel send tools** — web search, email, calendar, file management, shell access, browser automation, vision, image generation, video generation, X (Twitter), long-term memory with a personal knowledge graph, **Designer Studio** (five modes: decks, documents, landing pages, app mockups, and motion storyboards), **advanced workflows** with conditional branching and approval gates, **Thoth Status** self-inspection, configurable identity, an insights engine, habit tracking, and more — plus a **plugin system** with a built-in marketplace and **5 messaging channels** (Telegram, WhatsApp, Discord, Slack, SMS) with full media support, streaming, reactions, and approval routing. Run everything locally via [Ollama](https://ollama.com/), or add opt-in cloud models from **OpenAI**, **Anthropic** (Claude), **Google AI** (Gemini), **xAI** (Grok), and **OpenRouter** (100+ models) when you need frontier reasoning or don't have a GPU. Either way, your data — conversations, memories, documents, designer projects, and history — stays on your machine.
+Thoth is a **local-first AI assistant built for personal AI sovereignty** — your models, your data, your rules. It combines a powerful ReAct agent with **29 core tools plus auto-generated channel send tools** — web search, email, calendar, file management, shell access, browser automation, vision, image generation, video generation, X (Twitter), long-term memory with a personal knowledge graph, **Designer Studio** (five modes: decks, documents, landing pages, app mockups, and motion storyboards), **advanced workflows** with conditional branching and approval gates, **Thoth Status** self-inspection, configurable identity, an insights engine, habit tracking, and **external MCP tools** — plus a **plugin system** with a built-in marketplace and **5 messaging channels** (Telegram, WhatsApp, Discord, Slack, SMS) with full media support, streaming, reactions, and approval routing. Run everything locally via [Ollama](https://ollama.com/), or add opt-in cloud models from **OpenAI**, **Anthropic** (Claude), **Google AI** (Gemini), **xAI** (Grok), and **OpenRouter** (100+ models) when you need frontier reasoning or don't have a GPU. Either way, your data — conversations, memories, documents, designer projects, and history — stays on your machine.
 
 > **Local models are already amazing.** You'll be surprised what a 14B+ local model can do. If you start with cloud models today, and as local models get smarter and hardware gets cheaper, transition to fully local, fully private, fully free AI — seamlessly, with no changes to your setup.
 
@@ -43,7 +43,7 @@ In ancient Egyptian mythology, **Thoth** (𓁟) was the god of wisdom, writing, 
 
 ### 🤖 ReAct Agent Architecture
 
-LangGraph-based autonomous agent with **28 core tools plus auto-generated channel tools** — the agent decides which tools to call, how many times, and in what order. Real-time token streaming with thinking model support (DeepSeek-R1, Qwen3, QwQ — collapsible reasoning bubbles). Smart context management via tiktoken: auto-summarization at 80% capacity, proportional tool-output shrinking, and dynamic tool budgets that adapt to available headroom. The prompt stack combines centralized templates with dynamic identity and self-knowledge context so Thoth can describe its own capabilities accurately. Destructive actions require explicit confirmation; orphaned tool calls are auto-repaired; recursive loops are caught with a wind-down warning at 75%.
+LangGraph-based autonomous agent with **29 core tools plus auto-generated channel tools** — the agent decides which tools to call, how many times, and in what order. Real-time token streaming with thinking model support (DeepSeek-R1, Qwen3, QwQ — collapsible reasoning bubbles). Smart context management via tiktoken: auto-summarization at 80% capacity, proportional tool-output shrinking, and dynamic tool budgets that adapt to available headroom. The prompt stack combines centralized templates with dynamic identity and self-knowledge context so Thoth can describe its own capabilities accurately. Destructive actions require explicit confirmation; orphaned tool calls are auto-repaired; recursive loops are caught with a wind-down warning at 75%.
 
 [Details →](docs/ARCHITECTURE.md#react-agent-architecture)
 
@@ -157,11 +157,17 @@ A sandboxed, hot-reloadable **plugin architecture** lets anyone add new tools an
 
 [Details →](docs/ARCHITECTURE.md#plugin-system--marketplace)
 
+### 🔌 MCP Client & External Tools
+
+Connect external **Model Context Protocol** servers from Settings → MCP and expose their tools to the agent as namespaced `mcp_<server>_<tool>` calls. Servers can be added manually, imported from JSON, or discovered through curated starters and MCP directories. Every import is saved disabled until tested; each server has its own enable checkbox; each discovered tool has its own enable checkbox; destructive tools are disabled by default and always route through Thoth's approval interrupt when enabled. The runtime is isolated from app startup: bad config, missing commands, broken endpoints, missing SDKs, and failed child processes become diagnostics instead of crashes. Thoth can install common user-space runtimes such as Node.js, uv, and Playwright Chromium when needed, while complex dependencies like Docker are shown as manual setup tasks.
+
+[Details →](docs/ARCHITECTURE.md#mcp-client--external-tools)
+
 ### ⬆ Auto-Updates
 
 Thoth checks GitHub Releases in the background and surfaces an "⬆ vX.Y.Z" pill in the status bar when a new build is available. Clicking it opens release notes plus Install / Skip / Remind-me-later buttons. Downloads are SHA256-verified against a manifest embedded in each release body and Authenticode/codesign verified before launch. Auto-checking is on by default; if there's no Internet the check fails silently. Channel selection (stable vs beta), skip list, and a manual "Check now" button live in **Settings → Preferences → Updates**. The same flow is exposed to the agent as `thoth_check_for_updates` and `thoth_install_update` (always approval-gated).
 
-[Details →](docs/ARCHITECTURE.md#plugin-system--marketplace)
+[Details →](docs/ARCHITECTURE.md#auto-updates)
 
 ### 📋 Habit & Health Tracker
 
@@ -189,7 +195,7 @@ Desktop notifications, distinct audio chimes (task completion, timer alerts), an
 
 ### 🧩 Bundled Skills
 
-**12 reusable instruction packs** plus **15 tool guides** injected into the system prompt when enabled — each a `SKILL.md` with YAML frontmatter. Manual skills toggle from Settings; tool guides auto-activate when their linked tools are enabled. Create custom skills via the in-app editor or `~/.thoth/skills/`.
+**12 reusable instruction packs** plus **16 tool guides** injected into the system prompt when enabled — each a `SKILL.md` with YAML frontmatter. Manual skills toggle from Settings; tool guides auto-activate when their linked tools are enabled. Create custom skills via the in-app editor or `~/.thoth/skills/`.
 
 | Skill | Description |
 |-------|-------------|
@@ -224,7 +230,7 @@ Desktop notifications, distinct audio chimes (task completion, timer alerts), an
 | **Wiki vault** | **Obsidian-compatible export** — one `.md` per entity with `[[wiki-links]]`, YAML frontmatter, and per-type indexes | Not available |
 | **Voice** | **Fully local** — faster-whisper STT + Kokoro TTS with 10 voices. Audio never leaves your machine | ElevenLabs (cloud TTS) + system fallback. Voice Wake on macOS/iOS |
 | **Health tracking** | **Built-in tracker** — medications, symptoms, exercise, mood, sleep, periods. Streak analysis, CSV export, Plotly charts | Not available |
-| **Tools** | 28 core tools plus auto-generated channel send tools — shell, browser, filesystem, Gmail, Calendar, Designer Studio, Thoth Status, memory graph, image + video generation, and research tools | ~20 built-in tools — exec, browser, web search, canvas, cron, image/music/video generation |
+| **Tools** | 29 core tools plus auto-generated channel send tools — shell, browser, filesystem, Gmail, Calendar, Designer Studio, Thoth Status, memory graph, MCP external tools, image + video generation, and research tools | ~20 built-in tools — exec, browser, web search, canvas, cron, image/music/video generation |
 | **Messaging channels** | **5 channels** — Telegram, WhatsApp, Discord, Slack, SMS — all with streaming, reactions, media, and approval routing. Auto-generated per-channel tools. Tunnel manager for webhooks | **23+ channels** — WhatsApp, Telegram, Slack, Discord, Signal, iMessage, Teams, Matrix, IRC, and many more |
 | **Autonomous agents** | **Advanced workflows** — step-based pipelines with conditions, approval gates, webhook triggers, concurrency groups, and per-workflow safety mode. Multiple run in parallel with their own persistent threads | Multi-agent routing with isolated sessions per sender/channel |
 | **Desktop app** | Native window (pywebview) + system tray on **Windows & macOS**. One-click installers for both | macOS menu bar app. No native Windows app (WSL2 required). iOS & Android companion apps |
@@ -241,7 +247,7 @@ Desktop notifications, distinct audio chimes (task completion, timer alerts), an
 
 ## 🔧 Tools
 
-Thoth's agent has access to 28 core tool modules. Many of them expose multiple operations, and running messaging channels add extra send/photo/document tools automatically. Tools can be enabled or disabled from the Settings panel.
+Thoth's agent has access to 29 core tool modules. Many of them expose multiple operations, and running messaging channels add extra send/photo/document tools automatically. Tools can be enabled or disabled from the Settings panel.
 
 ### Search & Knowledge
 
@@ -271,6 +277,7 @@ Thoth's agent has access to 28 core tool modules. Many of them expose multiple o
 | **🐦 X (Twitter)** | Grouped read, post, and engage operations for search, timeline, mentions, user info, posting, replies, quotes, likes, reposts, bookmarks, and deletes via OAuth 2.0 PKCE | X API keys |
 | **🖼️ Image Generation** | Generate images from text prompts and edit existing images via OpenAI, xAI (Grok Imagine), and Google (Imagen 4, Nano Banana); rendered inline in chat and deliverable to channels | Cloud API key |
 | **🎬 Video Generation** | Generate short video clips from text prompts or reference images via Google Veo; rendered inline in chat, used by Designer storyboards, and deliverable to channels | Cloud API key |
+| **🔌 External MCP Tools** | Connect external Model Context Protocol servers as dynamic namespaced tools; supports stdio, Streamable HTTP, and SSE; per-server and per-tool toggles; destructive-tool approval gates; curated starter import and diagnostics | Optional per server |
 
 ### Design & Self-Management
 
@@ -300,6 +307,7 @@ Thoth's agent has access to 28 core tool modules. Many of them expose multiple o
 - **Browser tabs are isolated per thread**: each chat or background task gets its own browser tab; tabs are cleaned up on task completion or thread deletion
 - **Background task permissions are configurable per-task**: shell command prefixes and email recipients can be allowlisted in the task editor
 - **Gmail/Calendar operations are tiered**: read, compose/write, and destructive tiers can be toggled independently
+- **MCP tools are opt-in and isolated**: imported servers stay disabled until tested, external tools are namespaced, destructive MCP tools require approval, and broken MCP servers degrade to diagnostics instead of startup failure
 - **Prompt-injection defence** — 5-layer scanning protects against injection attacks in tool outputs and user inputs: instruction override detection, role impersonation, data exfiltration, encoding evasion, and social engineering patterns
 - **Tools can be individually disabled** from Settings to reduce model decision complexity
 
@@ -312,7 +320,7 @@ Thoth's agent has access to 28 core tool modules. Many of them expose multiple o
 │                    NiceGUI Frontend (app.py + ui/ package)              │
 │  ┌────────────┐  ┌──────────────────────┐  ┌───────────────────┐   │
 │  │  Sidebar   │  │   Chat Interface     │  │   Settings Dialog │   │
-│  │  Threads   │  │   Streaming Tokens   │  │   13 Tabs         │   │
+│  │  Threads   │  │   Streaming Tokens   │  │   14 Tabs         │   │
 │  │  Controls  │  │   Tool Status        │  │   Tool Config     │   │
 │  │ Knowledge  │  │ Knowledge Graph View │  │   Cloud Settings  │   │
 │  │ Approvals  │  │   Approval Gates     │  │                   │   │
@@ -333,8 +341,8 @@ Thoth's agent has access to 28 core tool modules. Many of them expose multiple o
 │   Graph-enhanced auto-recall (semantic + 1-hop expansion)           │
 │   Per-thread model override (local or cloud)                        │
 │                                                                      │
-│   28 core tool modules + plugin tools + auto-generated channel      │
-│   tools                                                             │
+│   29 core tool modules + plugin tools + external MCP tools +        │
+│   auto-generated channel tools                                      │
 └───────┬──────────┬──────────┬──────────┬──────────┬─────────────────┘
         │          │          │          │          │
         ▼          ▼          ▼          ▼          ▼

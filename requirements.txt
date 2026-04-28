@@ -19,6 +19,10 @@ langgraph
 langgraph-checkpoint-sqlite
 tiktoken
 
+# ── Model Context Protocol ─────────────────────────────────────────────────
+mcp
+langchain-mcp-adapters
+
 # ── Vector Store & Embeddings ────────────────────────────────────────────────
 faiss-cpu
 sentence-transformers
