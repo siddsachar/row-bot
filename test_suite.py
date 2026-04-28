@@ -60,6 +60,7 @@ py_files = (
     + sorted((PROJECT_ROOT / "tools").glob("*.py"))
     + sorted((PROJECT_ROOT / "channels").glob("*.py"))
     + sorted((PROJECT_ROOT / "mcp_client").glob("*.py"))
+    + sorted((PROJECT_ROOT / "migration").glob("*.py"))
 )
 py_files = [f for f in py_files if f.name != "test_suite.py"]
 
@@ -98,6 +99,13 @@ CORE_MODULES = [
     "mcp_client.config",
     "mcp_client.marketplace",
     "mcp_client.runtime",
+    "migration",
+    "migration.apply",
+    "migration.core",
+    "migration.detection",
+    "migration.fixtures",
+    "migration.planner",
+    "migration.redaction",
 ]
 
 for mod_name in CORE_MODULES:
@@ -13619,6 +13627,11 @@ try:
     _skip_top68 = {
         "debug_tools.py",
         "test_suite.py",
+        "test_migration_apply.py",
+        "test_migration_detection.py",
+        "test_migration_core.py",
+        "test_migration_planner.py",
+        "test_migration_wizard_ui.py",
         "test_memory_e2e.py",
         "test_mcp_client.py",
         "test_mcp_real_world_e2e.py",

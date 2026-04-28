@@ -119,6 +119,15 @@ Source: "..\mcp_client\results.py";     DestDir: "{app}\app\mcp_client"; Flags: 
 Source: "..\mcp_client\runtime.py";     DestDir: "{app}\app\mcp_client"; Flags: ignoreversion
 Source: "..\mcp_client\safety.py";      DestDir: "{app}\app\mcp_client"; Flags: ignoreversion
 
+; ── Migration wizard package ───────────────────────────────────────────────
+Source: "..\migration\__init__.py";     DestDir: "{app}\app\migration"; Flags: ignoreversion
+Source: "..\migration\apply.py";        DestDir: "{app}\app\migration"; Flags: ignoreversion
+Source: "..\migration\core.py";         DestDir: "{app}\app\migration"; Flags: ignoreversion
+Source: "..\migration\detection.py";    DestDir: "{app}\app\migration"; Flags: ignoreversion
+Source: "..\migration\fixtures.py";     DestDir: "{app}\app\migration"; Flags: ignoreversion
+Source: "..\migration\planner.py";      DestDir: "{app}\app\migration"; Flags: ignoreversion
+Source: "..\migration\redaction.py";    DestDir: "{app}\app\migration"; Flags: ignoreversion
+
 ; ── Tools package ────────────────────────────────────────────────────────────
 Source: "..\tools\__init__.py";        DestDir: "{app}\app\tools"; Flags: ignoreversion
 Source: "..\tools\base.py";            DestDir: "{app}\app\tools"; Flags: ignoreversion
@@ -187,6 +196,7 @@ Source: "..\ui\head_html.py";          DestDir: "{app}\app\ui"; Flags: ignorever
 Source: "..\ui\helpers.py";            DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\home.py";               DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\mcp_settings.py";       DestDir: "{app}\app\ui"; Flags: ignoreversion
+Source: "..\ui\migration_wizard.py";   DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\render.py";             DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\settings.py";           DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\setup_wizard.py";       DestDir: "{app}\app\ui"; Flags: ignoreversion

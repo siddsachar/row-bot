@@ -2818,6 +2818,28 @@ def open_settings(
     # PREFERENCES TAB
     # ══════════════════════════════════════════════════════════════════
 
+    def _open_migration_wizard_dialog() -> None:
+        with ui.dialog().props("maximized") as migration_dlg:
+            with ui.card().classes("w-full h-full no-shadow").style(
+                "max-width: 64rem; margin: 0 auto;"
+            ):
+                with ui.row().classes("w-full items-center justify-between px-4 pt-3 pb-1"):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.icon("move_up", size="sm")
+                        ui.label("Migration").classes("text-h5")
+                    ui.button(icon="close", on_click=migration_dlg.close).props("flat round size=sm")
+
+                ui.separator()
+
+                with ui.scroll_area().classes("w-full").style("height: calc(100vh - 76px);"):
+                    with ui.column().classes("w-full px-6 py-4"):
+                        __import__(
+                            "ui.migration_wizard",
+                            fromlist=["build_migration_wizard_tab"],
+                        ).build_migration_wizard_tab()
+
+        migration_dlg.open()
+
     def _build_preferences_tab() -> None:
         from identity import (
             get_identity_config, save_identity_config,
@@ -2932,6 +2954,19 @@ def open_settings(
         except Exception:  # pragma: no cover - defensive
             logger.debug("update section failed to build", exc_info=True)
 
+        ui.separator()
+
+        # ── Migration utility ───────────────────────────────────
+        ui.label("Migration").classes("text-subtitle2")
+        ui.label(
+            "Import selected data from Hermes Agent or OpenClaw when setting up Thoth."
+        ).classes("text-grey-6 text-xs")
+        ui.button(
+            "Open Migration Wizard",
+            icon="move_up",
+            on_click=_open_migration_wizard_dialog,
+        ).props("unelevated no-caps color=primary")
+
     # ══════════════════════════════════════════════════════════════════
     # DIALOG SHELL
     # ══════════════════════════════════════════════════════════════════
@@ -2982,6 +3017,7 @@ def open_settings(
                             "Accounts": tab_accounts,
                             "Channels": tab_channels, "Utilities": tab_utils,
                             "MCP": tab_mcp,
+                            "Migration": tab_prefs,
                             "Plugins": tab_plugins,
                             "Preferences": tab_prefs,
                         }
