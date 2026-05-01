@@ -1,7 +1,7 @@
 """Prepare Thoth release version bumps.
 
 Usage:
-    python scripts/cut_release.py 3.18.0
+    python scripts/cut_release.py 3.19.0
 """
 
 from __future__ import annotations
@@ -24,12 +24,12 @@ def replace_once(path: Path, pattern: str, replacement: str) -> None:
 
 def validate_version(version: str) -> None:
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?", version):
-        raise SystemExit("Version must look like 3.18.0 or 3.18.0-beta.1")
+        raise SystemExit("Version must look like 3.19.0 or 3.19.0-beta.1")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Bump Thoth release version files.")
-    parser.add_argument("version", help="New version, e.g. 3.18.0")
+    parser.add_argument("version", help="New version, e.g. 3.19.0")
     args = parser.parse_args()
     validate_version(args.version)
 

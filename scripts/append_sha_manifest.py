@@ -5,7 +5,7 @@ been uploaded. The manifest is the source of truth used by Thoth's
 in-app updater to verify downloads.
 
 Inputs (env vars / CLI):
-    --tag           release tag, e.g. v3.18.0
+    --tag           release tag, e.g. v3.19.0
     --repo          owner/repo, e.g. siddsachar/Thoth
     --token         GitHub token with `contents: write` (default: $GITHUB_TOKEN)
     --files         space- or comma-separated paths to artifacts to hash

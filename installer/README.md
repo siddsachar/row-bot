@@ -1,6 +1,6 @@
 # Building the Thoth Windows Installer
 
-This guide explains how to build a distributable Windows installer for Thoth v3.18.0.
+This guide explains how to build a distributable Windows installer for Thoth v3.19.0.
 
 For version bumps, CI release workflow expectations, signing, tagging, and publish
 order, use the canonical [release process](../docs/RELEASING.md). This file only
@@ -37,7 +37,7 @@ The installer bundles the embedded Python runtime, pre-installed Python packages
 This will:
 1. Download Python 3.13 embeddable package (~15 MB)
 2. Download `get-pip.py` (~2.5 MB)
-3. Compile everything into `dist\ThothSetup_3.18.0.exe`
+3. Compile everything into `dist\ThothSetup_3.19.0.exe`
 
 ### Options
 
@@ -169,7 +169,7 @@ The Inno Setup installer runs these steps:
 
 ## End-User Experience
 
-1. Run `ThothSetup_3.18.0.exe`
+1. Run `ThothSetup_3.19.0.exe`
 2. Follow the wizard — dependencies download and install automatically (5-15 min)
 3. Launch Thoth from Start Menu or Desktop shortcut
 4. The system tray icon appears; the app opens at `http://localhost:8080`

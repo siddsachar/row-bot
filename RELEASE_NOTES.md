@@ -2,7 +2,7 @@
 
 ---
 
-## Unreleased — Provider Runtime Foundation
+## v3.19.0 — Provider Runtime Foundation & ChatGPT / Codex
 
 - Added the new `providers/` subsystem for provider definitions, metadata-only config, keyring-backed provider secrets, external credential discovery references, catalog normalization, runtime construction, Quick Choices, status summaries, error normalization, custom endpoint stubs, and routing profile foundations.
 - Renamed the Settings `Cloud` surface to `Providers` while keeping the old `Cloud` deep link as a compatibility alias.
