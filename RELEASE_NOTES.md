@@ -56,9 +56,18 @@ This release also adds **ChatGPT / Codex** as a distinct subscription-backed pro
 - **Preview timer cleanup** — Designer preview polling timers deactivate on client disconnect or deleted-parent errors instead of continuing to touch removed NiceGUI clients
 - **Stale-run recovery** — sending a new Designer/chat message can drop stale terminal generation entries while still blocking truly live runs
 
+### 💻 Claude Code Delegation Skill
+
+- **New bundled skill** — `bundled_skills/claude_code_delegation/SKILL.md` teaches Thoth how to coordinate Claude Code CLI as an external coding worker for implementation, review, refactor, and larger repository tasks
+- **Thoth remains coordinator** — the skill keeps Thoth responsible for scoping the request, checking local state, choosing the narrowest Claude Code tool permissions, inspecting diffs, running verification, and explaining results to the user
+- **Approval-gated shell workflow** — Claude Code runs through Thoth's shell workflow with explicit working-directory checks, bounded print-mode commands, `--allowedTools`, `--max-turns`, optional budget limits, and no permission bypass unless the user explicitly asks
+- **Secret and safety boundaries** — the skill warns not to forward API keys, Thoth memory, private notes, or sensitive user data to Claude Code unless explicitly requested, and it forbids destructive git, deploy, production migration, and secret-handling delegation without clear user approval
+- **Interactive mode guidance** — print mode is preferred; interactive/tmux-style Claude Code orchestration is documented as advanced and best suited to macOS/Linux/WSL2 with explicit cleanup
+
 ### 🧪 Tests & Release Checks
 
 - **Focused provider suites** — new provider tests cover config normalization/masking, keyring namespace storage and chunking, provider catalog inference, model selection refs, media model filtering, custom endpoints, runtime construction, and ChatGPT / Codex OAuth/catalog/transport behavior
+- **Bundled skill coverage** — the main suite validates `claude_code_delegation` as a bundled skill and checks the skill parser/discovery path that loads it
 - **Designer regressions** — `test_suite.py` covers detached finalization cleanup, stale terminal generation recovery, deleted-client detach detection, Designer asset canonicalization, preview timer cleanup, and checkpoint hydration for detached final answers
 - **Release smoke** — `test_suite.py` validates v3.19.0 version consistency across `version.py`, Windows installer, macOS app plist, CI release workflow, bug report template, and install dependencies
 - **Packaging smoke** — Windows installer coverage includes recursive `providers/` plus `ui/model_catalog.py` and `ui/provider_settings.py`; macOS app packaging includes `providers` and the full `ui` package
@@ -86,6 +95,7 @@ This release also adds **ChatGPT / Codex** as a distinct subscription-backed pro
 | `channels/telegram.py` | `/model` command uses provider Quick Choices instead of legacy starred cloud models |
 | `tools/image_gen_tool.py`, `tools/video_gen_tool.py`, `tools/thoth_status_tool.py` | Media model provider selection, image/video status reporting, and model-setting updates through shared provider selection helpers |
 | `agent.py` | Current-turn-only checkpoint fallback for empty streaming turns so stale prior answers are not replayed |
+| `bundled_skills/claude_code_delegation/SKILL.md` | **New** — approval-gated Claude Code CLI delegation workflow for coding, review, and refactor tasks |
 | `designer/editor.py`, `designer/preview.py`, `ui/streaming.py` | Designer asset canonicalization, deleted-client detection, detached completion hydration, active-generation cleanup, and preview timer disconnect handling |
 | `ui/setup_wizard.py` | Provider path copy and Quick Choice seeding aligned with Settings → Models ownership |
 | `installer/thoth_setup.iss`, `installer/build_mac_app.sh`, `installer/README.md` | Provider runtime/UI packaging, v3.19.0 installer docs, clean first-run and Codex credential-boundary notes |

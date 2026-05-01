@@ -13922,6 +13922,8 @@ try:
     assert "subscription/internal Codex backend" in _docs_all68m4, "release docs must document Codex backend risk"
     assert "current conversation plus model-visible tool context and tool results" in _docs_all68m4, "release docs must document provider privacy context"
     assert "Settings → Models" in _release_docs68m4["readme"], "README must direct catalog/pinning to Models"
+    assert "Claude Code Delegation" in _docs_all68m4, "release docs must mention Claude Code Delegation"
+    assert "claude_code_delegation" in _docs_all68m4, "release notes must include the Claude Code Delegation skill file"
     assert "../docs/RELEASING.md" in _release_docs68m4["installer_readme"], "installer README must link to the canonical release process"
     assert "installer/thoth_setup.iss" in _release_docs68m4["releasing"], "release process must mention Windows packaging checks"
     assert "installer/build_mac_app.sh" in _release_docs68m4["releasing"], "release process must mention macOS packaging checks"

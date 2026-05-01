@@ -61,7 +61,7 @@ Thoth ships as a desktop app for Windows and macOS with one-click installers, tr
 
 ### Extensible Without Giving Up Control
 
-Plugins add tools and skills through a sandboxed marketplace; MCP servers add external tools with per-server and per-tool review; the migration wizard imports selected Hermes/OpenClaw data with backups and redacted reports. Core and plugin API keys use the OS credential store when available, with metadata-only files in Thoth's data directory.
+Plugins add tools and skills through a sandboxed marketplace; MCP servers add external tools with per-server and per-tool review; Claude Code Delegation can coordinate Claude Code CLI as an approval-gated external coding worker; the migration wizard imports selected Hermes/OpenClaw data with backups and redacted reports. Core and plugin API keys use the OS credential store when available, with metadata-only files in Thoth's data directory.
 
 ## Feature Map
 
@@ -73,7 +73,7 @@ Plugins add tools and skills through a sandboxed marketplace; MCP servers add ex
 | **Tools** | 30 core tools covering search, browser, shell, filesystem, documents, Gmail, Calendar, X, memory, workflows, tracker, image/video, vision, status, MCP, updates, computation, weather, charts, and system info |
 | **Automation** | Scheduled workflows, step pipelines, conditions, approvals, subtasks, webhooks, task-completion triggers, notifications, channel delivery, run history, and safety modes |
 | **Channels & Voice** | Telegram, WhatsApp, Discord, Slack, SMS, local faster-whisper STT, Kokoro TTS, media intake, reactions, streaming, approval routing, and tunnel manager |
-| **Platform & Extensibility** | Native desktop app, one-click installers, auto-updates, plugin marketplace, MCP client, migration wizard, configurable identity, secure API-key storage, 13 manual skills, and 18 tool guides |
+| **Platform & Extensibility** | Native desktop app, one-click installers, auto-updates, plugin marketplace, MCP client, migration wizard, configurable identity, secure API-key storage, 13 manual skills including Claude Code Delegation, and 18 tool guides |
 
 [Detailed architecture and subsystem reference →](docs/ARCHITECTURE.md)
 

@@ -696,6 +696,7 @@ Thoth ships with **13 manual bundled skills** and **18 tool guides**. Manual ski
 | **⚙️ Task Automation** | Design effective workflows with steps, conditions, approvals, triggers, and delivery routing |
 | **🌐 Web Navigator** | Strategic patterns for browser automation, research, forms, and data extraction |
 
+- **Claude Code Delegation** — disabled by default, this skill treats Claude Code CLI as an external coding worker while Thoth remains coordinator. It favors bounded `claude -p` print-mode tasks, explicit working-directory checks, `--allowedTools`, turn/budget limits, diff inspection, Thoth-side verification, and user approval before write-capable or destructive delegation.
 - **User skills** — custom skills live in `~/.thoth/skills/<name>/SKILL.md`; user skills with the same name as a bundled skill override it
 - **In-app skill editor** — skills can be created and edited directly from Settings
 - **Per-skill enablement** — only enabled manual skills are injected into the system prompt
