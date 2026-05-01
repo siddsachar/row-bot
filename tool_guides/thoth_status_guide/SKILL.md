@@ -19,6 +19,7 @@ QUERYING STATUS (thoth_status):
 - Use category='skills' to list enabled and disabled skills.
 - Use category='tools' to list enabled and disabled tools.
 - Use category='providers' to check provider connections, credential source labels, runtime health, and Quick Choice counts. Model catalog browsing, pinning, and defaults live in Settings -> Models.
+- Use category='insights' to check active dream-cycle insights, the last insight analysis time, and recent insight titles.
 - Use category='api_keys' only for legacy/API key storage status. It never shows key values.
 - Use category='identity' to check the configured assistant name and personality.
 - Use category='tasks' to summarise active scheduled tasks.
@@ -28,6 +29,7 @@ QUERYING STATUS (thoth_status):
 - Use category='voice' for TTS voice, speed, enabled state, and Whisper STT model.
 - Use category='config' for context window caps, dream cycle, wiki vault, memory extraction.
 - Use category='designer' to check designer project count and recent projects.
+- Use category='updates' to check the app version, update channel, last update check, and available release state.
 - Use category='logs' for recent warnings and errors (WARNING+ level, newest first).
 - Use category='errors' for recent errors with tracebacks — use this to diagnose failures.
 
@@ -47,7 +49,7 @@ CHANGING SETTINGS (thoth_update_setting):
   - name: change the assistant name (value = new name)
   - personality: change personality text (value = new personality)
   - context_size: set local model context window (value = token count e.g. '65536')
-  - cloud_context_size: set cloud context cap (value = token count e.g. '131072')
+  - cloud_context_size: set provider/cloud context cap (value = token count e.g. '131072')
   - dream_cycle: enable or disable the dream cycle (value = 'on' or 'off')
   - dream_window: set dream cycle time window (value = 'START-END' e.g. '1-5')
   - skill_toggle: enable or disable a skill (value = 'skill_name:on' or 'skill_name:off')

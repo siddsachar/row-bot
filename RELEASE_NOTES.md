@@ -15,6 +15,7 @@ This release also adds **ChatGPT / Codex** as a distinct subscription-backed pro
 - **Stable model refs** — provider-backed picker values use refs such as `model:openai:gpt-5.5` and `model:codex:gpt-5.5`, keeping identical raw model IDs distinct across providers
 - **Provider-aware labels** — duplicate model names now show route labels such as `GPT-5.5 — OpenAI API` and `GPT-5.5 — ChatGPT / Codex` in chat, Designer, workflow, status, and settings pickers
 - **Metadata-only provider config** — `providers.json` stores provider state, Quick Choices, catalog cache, fingerprints, and status metadata; raw API keys and OAuth tokens stay in the OS credential store when available
+- **Status and insight awareness** — Thoth Status now exposes provider-aware model/runtime context and an `insights` category, while Dream Cycle Phase 5 includes model/provider/media context in its system snapshot before generating actionable insights
 - **Custom endpoint foundation** — custom OpenAI-compatible endpoints can be saved, refreshed, and surfaced as provider catalog rows without overloading the built-in OpenAI provider
 
 ### ⚙️ Settings → Providers & Settings → Models
@@ -94,6 +95,7 @@ This release also adds **ChatGPT / Codex** as a distinct subscription-backed pro
 | `ui/chat.py`, `ui/chat_components.py`, `ui/task_dialog.py` | Shared provider-aware model picker options and dynamic provider labels for chat, Designer, and workflow/background overrides |
 | `channels/telegram.py` | `/model` command uses provider Quick Choices instead of legacy starred cloud models |
 | `tools/image_gen_tool.py`, `tools/video_gen_tool.py`, `tools/thoth_status_tool.py` | Media model provider selection, image/video status reporting, and model-setting updates through shared provider selection helpers |
+| `tool_guides/thoth_status_guide/SKILL.md`, `bundled_skills/self_reflection/SKILL.md`, `dream_cycle.py`, `insights.py` | Status guide, self-reflection, and Dream Cycle insight snapshot alignment with provider runtime, media defaults, and active insight status |
 | `agent.py` | Current-turn-only checkpoint fallback for empty streaming turns so stale prior answers are not replayed |
 | `bundled_skills/claude_code_delegation/SKILL.md` | **New** — approval-gated Claude Code CLI delegation workflow for coding, review, and refactor tasks |
 | `designer/editor.py`, `designer/preview.py`, `ui/streaming.py` | Designer asset canonicalization, deleted-client detection, detached completion hydration, active-generation cleanup, and preview timer disconnect handling |

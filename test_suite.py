@@ -7874,6 +7874,9 @@ try:
     _skills48an._skills_cache.clear()
     _skills48an._enabled.clear()
     _snapshot48an = _dc48._collect_system_snapshot()
+    assert "MODEL:" in _snapshot48an, "system snapshot should include current model/provider context"
+    assert "PROVIDERS:" in _snapshot48an, "system snapshot should include provider connection context"
+    assert "MEDIA MODELS:" in _snapshot48an, "system snapshot should include provider media defaults"
     _skills_line48an = next(
         (line for line in _snapshot48an.splitlines() if line.startswith("SKILLS:")),
         "",
@@ -13924,6 +13927,8 @@ try:
     assert "Settings → Models" in _release_docs68m4["readme"], "README must direct catalog/pinning to Models"
     assert "Claude Code Delegation" in _docs_all68m4, "release docs must mention Claude Code Delegation"
     assert "claude_code_delegation" in _docs_all68m4, "release notes must include the Claude Code Delegation skill file"
+    assert "Status and insight awareness" in _release_docs68m4["release_notes"], "release notes must cover Thoth Status insights alignment"
+    assert "provider/model/media configuration" in _release_docs68m4["architecture"], "architecture must cover provider-aware dream insights snapshot"
     assert "../docs/RELEASING.md" in _release_docs68m4["installer_readme"], "installer README must link to the canonical release process"
     assert "installer/thoth_setup.iss" in _release_docs68m4["releasing"], "release process must mention Windows packaging checks"
     assert "installer/build_mac_app.sh" in _release_docs68m4["releasing"], "release process must mention macOS packaging checks"
@@ -14256,8 +14261,8 @@ try:
     import skills as _skills69o
     _expected_cats69o = {
         "overview", "version", "model", "channels", "memory", "skills",
-        "tools", "api_keys", "identity", "tasks", "logs", "errors",
-        "vision", "image_gen", "voice", "config",
+        "tools", "mcp", "providers", "insights", "api_keys", "identity", "tasks", "logs", "errors",
+        "vision", "image_gen", "video_gen", "voice", "config", "designer", "updates",
     }
     _missing_cats69o = _expected_cats69o - set(_qh69o.keys())
     assert not _missing_cats69o, f"Missing query categories: {_missing_cats69o}"
@@ -14273,6 +14278,9 @@ try:
     ]
     assert all(_guide69o not in _skills_block69o for _guide69o in _guide_names69o[:5]), \
         "Thoth Status skill query should exclude tool guides"
+    _insights_block69o = _qh69o["insights"]()
+    assert "**Insights**" in _insights_block69o and "Active:" in _insights_block69o, \
+        "Thoth Status insights query should summarize active insights"
     record("PASS", f"69o: ThothStatusTool has all {len(_expected_cats69o)} query categories")
 except Exception as e:
     record("FAIL", "69o-status-categories", f"{type(e).__name__}: {e}")

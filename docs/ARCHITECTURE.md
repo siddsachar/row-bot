@@ -111,7 +111,7 @@ A 5-phase background daemon refines the knowledge graph during idle hours and en
 - **Phase 2: Description enrichment** — thin entities (<80 chars) appearing in multiple conversations get richer descriptions from conversation context and graph neighborhood
 - **Phase 3: Confidence decay** — stale `dream_infer` relations older than 90 days lose 10% confidence per cycle; very low-confidence edges are pruned automatically
 - **Phase 4: Relationship inference** — co-occurring entity pairs with no meaningful edge are evaluated for a specific typed relation; hub diversity caps, batch rotation, half-overlap reuse, multi-excerpt evidence, and a 7-day rejection cache improve quality and reduce repetition
-- **Phase 5: Insights analysis** — the system captures a snapshot of recent logs, config, channels, designer activity, memory stats, and existing insights, feeds it to `DREAM_INSIGHTS_PROMPT`, and stores actionable results in `insights.py`
+- **Phase 5: Insights analysis** — the system captures a snapshot of recent logs, provider/model/media configuration, channels, task state, memory stats, skills, and existing insights, feeds it to `DREAM_INSIGHTS_PROMPT`, and stores actionable results in `insights.py`
 - **Three-layer anti-contamination** — sentence-level excerpt filtering, deterministic post-enrichment validation, and strengthened prompting prevent cross-entity fact bleed
 - **Ollama busy check** — queries `/api/ps` before starting; defers if Ollama is actively serving a user request to avoid competing for GPU or CPU
 - **Configurable window** — default 1–5 AM local time; checks every 30 minutes if enabled, idle, in window, and not yet run that day
@@ -386,7 +386,7 @@ Thoth now carries an explicit self-description into prompts and uses Dream Cycle
 
 ### Insight Generation & Triage
 
-- **Dream snapshot analysis** — Dream Cycle phase 5 captures logs, config, usage signals, and active insights, then runs `DREAM_INSIGHTS_PROMPT`
+- **Dream snapshot analysis** — Dream Cycle phase 5 captures logs, provider/model/media configuration, usage signals, and active insights, then runs `DREAM_INSIGHTS_PROMPT`
 - **Structured insight store** — `insights.py` persists categorized insights like `error_pattern`, `skill_proposal`, `tool_config`, `knowledge_quality`, `usage_pattern`, and `system_health`
 - **Dedup and pruning** — similar titles and semantically overlapping insights are merged; stale insights are auto-pruned; last-analysis time is tracked
 - **Pin / dismiss / apply actions** — the Workflow Console exposes user actions for curating the insight list without leaving the app

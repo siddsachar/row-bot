@@ -45,6 +45,7 @@ class _StatusQueryInput(BaseModel):
             "'tools' (enabled/disabled tools), "
             "'mcp' (external MCP server/tool status), "
             "'providers' (provider connections, credential sources, and Quick Choices), "
+            "'insights' (active dream-cycle insights and last analysis), "
             "'api_keys' (legacy/API key storage status — never returns key values), "
             "'identity' (configured name and personality), "
             "'tasks' (active scheduled tasks summary), "
@@ -53,6 +54,7 @@ class _StatusQueryInput(BaseModel):
             "'video_gen' (video generation model), "
             "'voice' (TTS and STT settings), "
             "'config' (context window, dream cycle, wiki vault, memory extraction), "
+            "'designer' (Designer project count and recent projects), "
             "'logs' (recent warnings and errors from the log file), "
             "'errors' (recent errors with tracebacks — use to diagnose failures), "
             "'updates' (auto-update channel + last check + available version)."
@@ -68,7 +70,7 @@ class _SettingUpdateInput(BaseModel):
             "'name' (change assistant name), "
             "'personality' (change personality text), "
             "'context_size' (local model context window — value is token count e.g. '65536'), "
-            "'cloud_context_size' (cloud model context cap — value is token count), "
+            "'cloud_context_size' (provider model context cap — value is token count), "
             "'dream_cycle' (enable/disable — value is 'on' or 'off'), "
             "'dream_window' (dream cycle hours — value is 'START-END' e.g. '1-5'), "
             "'skill_toggle' (enable/disable a skill — value is 'skill_name:on' or 'skill_name:off'), "
@@ -188,8 +190,8 @@ def _query_overview() -> str:
     """Full status summary across all categories."""
     from version import __version__
     parts = [f"**Thoth v{__version__}**"]
-    for cat in ("model", "providers", "vision", "image_gen", "voice", "api_keys", "memory",
-                "channels", "skills", "tools", "mcp", "identity", "config", "designer"):
+    for cat in ("model", "providers", "vision", "image_gen", "video_gen", "voice", "api_keys", "memory",
+                "channels", "skills", "tools", "mcp", "identity", "tasks", "insights", "config", "designer", "updates"):
         try:
             parts.append(_QUERY_HANDLERS[cat]())
         except Exception as exc:
@@ -203,23 +205,25 @@ def _query_model() -> str:
                             get_cloud_provider, get_provider_emoji,
                             _active_model_override,
                             get_user_context_size, get_cloud_context_size)
+        from providers.selection import provider_display_label
         default_model = get_current_model()
         override = _active_model_override.get("")
         model = override if override else default_model
         local = is_model_local(model)
         ctx = get_context_size(model)
-        provider = get_cloud_provider(model) if not local else None
+        provider = "local" if local else (get_cloud_provider(model) or "provider")
+        provider_label = provider_display_label(provider)
         emoji = get_provider_emoji(model)
         lines = [
             "**Current Model**",
             f"- Model: {emoji} {model}",
-            f"- Type: {'Local (Ollama)' if local else f'Cloud ({provider})'}",
+            f"- Type: {'Local (Ollama)' if local else f'Provider ({provider_label})'}",
             f"- Effective context: {ctx:,} tokens",
         ]
         if local:
             lines.append(f"- Local context cap: {get_user_context_size():,} tokens")
         else:
-            lines.append(f"- Cloud context cap: {get_cloud_context_size():,} tokens")
+            lines.append(f"- Provider context cap: {get_cloud_context_size():,} tokens")
         if override and override != default_model:
             lines.append(f"- ⚠️ Override active (global default: {default_model})")
         return "\n".join(lines)
@@ -340,6 +344,35 @@ def _query_providers() -> str:
         return summarize_providers()
     except Exception as exc:
         return f"**Providers**\nError: {exc}"
+
+
+def _query_insights() -> str:
+    try:
+        from insights import get_active_insights, get_insights_meta
+
+        active = get_active_insights()
+        meta = get_insights_meta()
+        lines = ["**Insights**"]
+        lines.append(f"- Active: {len(active)}")
+        lines.append(f"- Last analysis: {meta.get('last_analysis') or 'never'}")
+        total = meta.get("total_generated")
+        if total is not None:
+            lines.append(f"- Total generated: {total}")
+        if active:
+            lines.append("- Active insights:")
+            for item in active[:8]:
+                category = item.get("category", "unknown")
+                severity = item.get("severity", "info")
+                status = item.get("status", "new")
+                title = item.get("title", "Untitled insight")
+                lines.append(f"  - [{severity}/{category}/{status}] {title}")
+            if len(active) > 8:
+                lines.append(f"  - … and {len(active) - 8} more")
+        else:
+            lines.append("- No active insights")
+        return "\n".join(lines)
+    except Exception as exc:
+        return f"**Insights**\nError: {exc}"
 
 
 def _query_identity() -> str:
@@ -522,7 +555,7 @@ def _query_config() -> str:
         # Context size caps
         from models import get_user_context_size, get_cloud_context_size
         lines.append(f"- Local context cap: {get_user_context_size():,} tokens")
-        lines.append(f"- Cloud context cap: {get_cloud_context_size():,} tokens")
+        lines.append(f"- Provider context cap: {get_cloud_context_size():,} tokens")
     except Exception:
         pass
     try:
@@ -596,6 +629,7 @@ _QUERY_HANDLERS = {
     "tools": _query_tools,
     "mcp": _query_mcp,
     "providers": _query_providers,
+    "insights": _query_insights,
     "api_keys": _query_api_keys,
     "identity": _query_identity,
     "tasks": _query_tasks,
@@ -762,16 +796,16 @@ def _update_setting(setting: str, value: str) -> str:
             return f"Invalid context size '{value}' — must be an integer (e.g. 131072)."
         approval = interrupt({
             "tool": "thoth_update_setting",
-            "label": "Change cloud context cap",
-            "description": f"Set cloud context cap to {size:,} tokens",
+            "label": "Change provider context cap",
+            "description": f"Set provider context cap to {size:,} tokens",
             "args": {"setting": "cloud_context_size", "value": value},
         })
         if not approval:
-            return "Cloud context size change cancelled."
+            return "Provider context size change cancelled."
         try:
             from models import set_cloud_context_size
             set_cloud_context_size(size)
-            return f"Cloud context cap set to {size:,} tokens."
+            return f"Provider context cap set to {size:,} tokens."
         except Exception as exc:
             return f"Failed to change cloud context size: {exc}"
 
@@ -1229,8 +1263,8 @@ class ThothStatusTool(BaseTool):
                 description=(
                     "Query Thoth's current status and configuration. "
                     "Categories: overview, version, model, channels, memory, skills, "
-                    "tools, api_keys, identity, tasks, vision, image_gen, video_gen, "
-                    "voice, config, logs, errors."
+                    "tools, mcp, providers, insights, api_keys, identity, tasks, vision, "
+                    "image_gen, video_gen, voice, config, designer, updates, logs, errors."
                 ),
                 args_schema=_StatusQueryInput,
             ),

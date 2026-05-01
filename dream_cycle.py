@@ -1115,7 +1115,60 @@ def _collect_system_snapshot() -> str:
     except Exception:
         sections.append("TASKS: (unavailable)")
 
-    # 5. Skills
+    # 5. Active model and provider runtime
+    try:
+        from models import get_current_model, get_context_size, get_cloud_provider, is_model_local
+        from providers.selection import provider_display_label
+
+        model = get_current_model()
+        local = is_model_local(model)
+        provider_id = "local" if local else (get_cloud_provider(model) or "provider")
+        provider_label = provider_display_label(provider_id)
+        sections.append(
+            f"MODEL: {model}; provider={provider_label}; type={'local' if local else 'provider'}; "
+            f"context={get_context_size(model)}"
+        )
+    except Exception:
+        sections.append("MODEL: (unavailable)")
+
+    # 6. Provider connections and Quick Choices
+    try:
+        from providers.status import provider_status_cards
+        from providers.selection import list_quick_choices
+
+        cards = provider_status_cards()
+        configured = [card for card in cards if card.get("configured")]
+        lines = [
+            f"  {card.get('display_name')}: source={card.get('source') or 'unknown'}, "
+            f"runtime_enabled={card.get('runtime_enabled')}, models={card.get('model_count') or 0}"
+            for card in configured[:12]
+        ]
+        quick_count = len([choice for choice in list_quick_choices("status_tool") if choice.get("kind") == "model"])
+        if lines:
+            sections.append(
+                f"PROVIDERS: {len(configured)} configured, {quick_count} status-tool Quick Choice(s)\n"
+                + "\n".join(lines)
+            )
+        else:
+            sections.append(f"PROVIDERS: none configured, {quick_count} status-tool Quick Choice(s)")
+    except Exception:
+        sections.append("PROVIDERS: (unavailable)")
+
+    # 7. Media model defaults
+    try:
+        from tools import registry as tool_registry
+        from tools.image_gen_tool import _get_configured_selection as _image_selection
+        from tools.video_gen_tool import _get_configured_selection as _video_selection
+
+        sections.append(
+            "MEDIA MODELS: "
+            f"image={_image_selection()} (tool={'enabled' if tool_registry.is_enabled('image_gen') else 'disabled'}), "
+            f"video={_video_selection()} (tool={'enabled' if tool_registry.is_enabled('video_gen') else 'disabled'})"
+        )
+    except Exception:
+        sections.append("MEDIA MODELS: (unavailable)")
+
+    # 8. Skills
     try:
         from skills import get_manual_skill_statuses
         skill_statuses = get_manual_skill_statuses()
@@ -1128,7 +1181,7 @@ def _collect_system_snapshot() -> str:
     except Exception:
         sections.append("SKILLS: (unavailable)")
 
-    # 6. Channels
+    # 9. Channels
     try:
         from channels.registry import configured_channels, running_channels
         configured = configured_channels()
@@ -1141,7 +1194,7 @@ def _collect_system_snapshot() -> str:
     except Exception:
         sections.append("CHANNELS: (unavailable)")
 
-    # 7. Last dream cycle
+    # 10. Last dream cycle
     try:
         journal = _load_journal()
         if journal:
@@ -1154,7 +1207,7 @@ def _collect_system_snapshot() -> str:
     except Exception:
         sections.append("LAST DREAM CYCLE: (unavailable)")
 
-    # 8. Existing active insights (so LLM avoids duplicates)
+    # 11. Existing active insights (so LLM avoids duplicates)
     try:
         from insights import get_active_insights
         active = get_active_insights()
