@@ -1,7 +1,7 @@
 """Thoth status / introspection tool — lets the agent query its own configuration.
 
 Provides read operations (always allowed) for settings, channel status,
-memory stats, model info, and API key validity.  Write operations
+memory stats, model info, provider status, and API key validity. Write operations
 (changing settings, toggling channels) require user confirmation via
 LangGraph interrupt().
 """
@@ -44,11 +44,13 @@ class _StatusQueryInput(BaseModel):
             "'skills' (enabled/disabled skills), "
             "'tools' (enabled/disabled tools), "
             "'mcp' (external MCP server/tool status), "
-            "'api_keys' (which providers are configured — never returns key values), "
+            "'providers' (provider connections, credential sources, and Quick Choices), "
+            "'api_keys' (legacy/API key storage status — never returns key values), "
             "'identity' (configured name and personality), "
             "'tasks' (active scheduled tasks summary), "
             "'vision' (vision/camera model and settings), "
             "'image_gen' (image generation model), "
+            "'video_gen' (video generation model), "
             "'voice' (TTS and STT settings), "
             "'config' (context window, dream cycle, wiki vault, memory extraction), "
             "'logs' (recent warnings and errors from the log file), "
@@ -62,7 +64,7 @@ class _SettingUpdateInput(BaseModel):
     setting: str = Field(
         description=(
             "The setting to change. One of: "
-            "'model' (switch active model), "
+            "'model' (switch active model; value may be a local model, provider model, or Quick Choice), "
             "'name' (change assistant name), "
             "'personality' (change personality text), "
             "'context_size' (local model context window — value is token count e.g. '65536'), "
@@ -71,8 +73,8 @@ class _SettingUpdateInput(BaseModel):
             "'dream_window' (dream cycle hours — value is 'START-END' e.g. '1-5'), "
             "'skill_toggle' (enable/disable a skill — value is 'skill_name:on' or 'skill_name:off'), "
             "'tool_toggle' (enable/disable a tool — value is 'tool_name:on' or 'tool_name:off'; use 'mcp:on/off' for the global MCP client), "
-            "'image_gen_model' (set image generation model — value is provider/model-id), "
-            "'video_gen_model' (set video generation model — value is provider/model-id), "
+            "'image_gen_model' (set image generation model — value may be provider/model-id, bare model id, or model label), "
+            "'video_gen_model' (set video generation model — value may be provider/model-id, bare model id, or model label), "
             "'run_dream_cycle' (manually trigger the dream cycle — value is 'now'), "
             "'self_improvement' (enable/disable self-improvement — value is 'on' or 'off')."
         )
@@ -81,32 +83,46 @@ class _SettingUpdateInput(BaseModel):
 
 
 def _normalize_provider_model_value(setting: str, value: str) -> str:
-    """Return a canonical provider/model value when the model id is unique.
-
-    Users naturally ask for models like ``grok-imagine-video`` without the
-    provider prefix. Normalize those shorthands before persisting so the
-    downstream tool resolves the correct provider.
-    """
+    """Return a canonical provider/model value when the media model is unique."""
     normalized = (value or "").strip()
-    if not normalized or "/" in normalized:
+    if not normalized:
         return normalized
 
-    provider_models: dict[str, list[dict]] = {}
     if setting == "image_gen_model":
-        from tools.image_gen_tool import _PROVIDER_MODELS as _IMG_PROVIDER_MODELS
-        provider_models = _IMG_PROVIDER_MODELS
+        from tools.image_gen_tool import get_available_image_models
+        options = get_available_image_models()
     elif setting == "video_gen_model":
-        from tools.video_gen_tool import _PROVIDER_MODELS as _VID_PROVIDER_MODELS
-        provider_models = _VID_PROVIDER_MODELS
+        from tools.video_gen_tool import get_available_video_models
+        options = get_available_video_models()
     else:
         return normalized
 
-    matches = [
-        f"{provider}/{model['id']}"
-        for provider, models in provider_models.items()
-        for model in models
-        if model.get("id") == normalized
-    ]
+    if normalized in options:
+        return normalized
+
+    def _media_lookup_tokens(text: str) -> set[str]:
+        stripped = re.sub(r"^[^A-Za-z0-9]+", "", str(text or "")).strip()
+        stripped = re.sub(r"\s*\([^)]*\)\s*$", "", stripped).strip()
+        tokens = {_normalize_lookup_token(stripped)}
+        if "/" in stripped:
+            tokens.add(_normalize_lookup_token(stripped.split("/", 1)[1]))
+        return {token for token in tokens if token}
+
+    desired = _normalize_lookup_token(normalized)
+    matches: list[str] = []
+    for config_value, label in options.items():
+        provider, _, model_id = config_value.partition("/")
+        candidates = {
+            config_value,
+            model_id or config_value,
+            label,
+            f"{provider} {model_id}",
+            f"{provider} {label}",
+        }
+        tokens = set().union(*(_media_lookup_tokens(candidate) for candidate in candidates))
+        if desired in tokens:
+            matches.append(config_value)
+
     return matches[0] if len(matches) == 1 else normalized
 
 
@@ -172,7 +188,7 @@ def _query_overview() -> str:
     """Full status summary across all categories."""
     from version import __version__
     parts = [f"**Thoth v{__version__}**"]
-    for cat in ("model", "vision", "image_gen", "voice", "api_keys", "memory",
+    for cat in ("model", "providers", "vision", "image_gen", "voice", "api_keys", "memory",
                 "channels", "skills", "tools", "mcp", "identity", "config", "designer"):
         try:
             parts.append(_QUERY_HANDLERS[cat]())
@@ -316,6 +332,14 @@ def _query_api_keys() -> str:
         return "\n".join(lines)
     except Exception as exc:
         return f"**API Keys**\nError: {exc}"
+
+
+def _query_providers() -> str:
+    try:
+        from providers.status import summarize_providers
+        return summarize_providers()
+    except Exception as exc:
+        return f"**Providers**\nError: {exc}"
 
 
 def _query_identity() -> str:
@@ -571,6 +595,7 @@ _QUERY_HANDLERS = {
     "skills": _query_skills,
     "tools": _query_tools,
     "mcp": _query_mcp,
+    "providers": _query_providers,
     "api_keys": _query_api_keys,
     "identity": _query_identity,
     "tasks": _query_tasks,
@@ -648,14 +673,21 @@ def _update_setting(setting: str, value: str) -> str:
         if not approval:
             return "Model change cancelled."
         try:
-            from models import set_model, list_all_models
+            from models import set_model, list_all_models, list_cloud_models
+            from providers.selection import resolve_selection
             from agent import clear_agent_cache
-            available = list_all_models()
-            if value not in available:
-                return f"Model '{value}' not found. Use task_list or check Settings → Models."
-            set_model(value)
+            resolved = resolve_selection(value)
+            if not resolved:
+                return f"Model '{value}' not found. Use Settings → Providers to add it to Quick Choices."
+            if resolved.kind == "route":
+                return f"Route '{value}' is configured but runtime routing is not enabled yet. Choose a direct model Quick Choice."
+            model_value = resolved.model_id
+            available = set(list_all_models()) | set(list_cloud_models())
+            if model_value not in available and resolved.provider_id == "local":
+                return f"Model '{value}' not found. Use Settings → Models or Providers to add it to Quick Choices."
+            set_model(model_value)
             clear_agent_cache()
-            return f"Active model changed to: {value}"
+            return f"Active model changed to: {model_value}"
         except Exception as exc:
             return f"Failed to change model: {exc}"
 
@@ -875,7 +907,9 @@ def _update_setting(setting: str, value: str) -> str:
             return "Image gen model change cancelled."
         try:
             from tools import registry as tool_registry
+            from providers.selection import seed_configured_media_quick_choices
             tool_registry.set_tool_config("image_gen", "model", model_value)
+            seed_configured_media_quick_choices()
             return f"Image generation model set to: {model_value}"
         except Exception as exc:
             return f"Failed to change image gen model: {exc}"
@@ -892,7 +926,9 @@ def _update_setting(setting: str, value: str) -> str:
             return "Video gen model change cancelled."
         try:
             from tools import registry as tool_registry
+            from providers.selection import seed_configured_media_quick_choices
             tool_registry.set_tool_config("video_gen", "model", model_value)
+            seed_configured_media_quick_choices()
             return f"Video generation model set to: {model_value}"
         except Exception as exc:
             return f"Failed to change video gen model: {exc}"

@@ -313,6 +313,14 @@ def _path_with_prefix(bin_dir: str, env: dict[str, str]) -> str:
     return str(bin_dir) + os.pathsep + old_path if old_path else str(bin_dir)
 
 
+def _env_path(env: dict[str, str]) -> str | None:
+    if "PATH" in env:
+        return env["PATH"]
+    if "Path" in env:
+        return env["Path"]
+    return None
+
+
 def check_requirement(requirement: RuntimeRequirement, env: dict[str, str] | None = None) -> RuntimeCheck:
     env = env or os.environ.copy()
     if requirement.id == "playwright-chrome":
@@ -335,7 +343,7 @@ def check_requirement(requirement: RuntimeRequirement, env: dict[str, str] | Non
         )
     paths: dict[str, str] = {}
     missing: list[str] = []
-    system_path = env.get("PATH") or env.get("Path")
+    system_path = _env_path(env)
     managed_bin = _managed_bin_dir(requirement.id)
     for command in requirement.commands:
         found = shutil.which(command, path=system_path)
@@ -372,7 +380,7 @@ def resolve_command(command: str, env: dict[str, str]) -> tuple[str | None, dict
     expanded = os.path.expandvars(os.path.expanduser(command.strip()))
     if not expanded:
         return None, env, None
-    system_path = env.get("PATH") or env.get("Path")
+    system_path = _env_path(env)
     found = shutil.which(expanded, path=system_path)
     if found:
         return found, env, None

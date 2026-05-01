@@ -232,9 +232,11 @@ def _json_schema_type(schema: dict[str, Any]) -> Any:
     if schema_type == "boolean":
         return bool
     if schema_type == "array":
-        return list
+        items = schema.get("items")
+        item_type = _json_schema_type(items) if isinstance(items, dict) else Any
+        return list[item_type]
     if schema_type == "object":
-        return dict
+        return dict[str, Any]
     return str if schema_type == "string" else Any
 
 

@@ -664,8 +664,16 @@ def build_preview(project: DesignerProject, *,
         try:
             _refresh()
         except RuntimeError:
+            try:
+                _refresh_timer.deactivate()
+            except Exception:
+                pass
             pass  # parent slot deleted — page navigated away
-    ui.timer(0.5, _safe_refresh)
+    _refresh_timer = ui.timer(0.5, _safe_refresh)
+    try:
+        ui.context.client.on_disconnect(lambda: _refresh_timer.deactivate())
+    except Exception:
+        pass
 
     # Register parent-side message listener for interactive bridge
     if _authoring_enabled:

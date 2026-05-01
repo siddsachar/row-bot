@@ -38,9 +38,14 @@ def build_chat(
     """Render the full chat view for the current thread."""
     from agent import clear_agent_cache, get_token_usage
     from models import (
-        get_current_model, is_cloud_model, get_provider_emoji,
-        list_local_models, list_starred_cloud_models, get_cloud_provider,
+        get_current_model, is_cloud_model, get_cloud_provider,
         get_model_max_context, get_user_context_size, CONTEXT_SIZE_LABELS,
+    )
+    from providers.selection import (
+        list_model_choice_options,
+        model_choice_value,
+        model_id_from_choice_value,
+        provider_display_label,
     )
     from threads import (
         _save_thread_meta, _set_thread_model_override,
@@ -74,44 +79,35 @@ def build_chat(
 
             # ── Model picker ─────────────────────────────────────────
             _cur_mo = state.thread_model_override or ""
-            _model_display = _cur_mo if _cur_mo else get_current_model()
 
             _cur_default = get_current_model()
-            _prefix = get_provider_emoji(_cur_default)
-            _default_opt = f"{_prefix} {_cur_default} (default)"
-            _picker_opts = [_default_opt]
-            for cid in list_starred_cloud_models():
-                if cid != _cur_default:
-                    _picker_opts.append(f"{get_provider_emoji(cid)} {cid}")
-            for lid in list_local_models():
-                if lid != _cur_default:
-                    _picker_opts.append(f"🖥️ {lid}")
+            _cur_default_value = model_choice_value(_cur_default)
+            _picker_opts = {"__default__": f"Default — {_cur_default}"}
+            for option in list_model_choice_options("chat", include_values=[_cur_mo] if _cur_mo else []):
+                value = str(option.get("value") or "")
+                if value and value != _cur_default_value:
+                    _picker_opts[value] = str(option.get("label") or value)
 
             _MORE_MODELS_SENTINEL = "⚙️ More models…"
-            _picker_opts.append(_MORE_MODELS_SENTINEL)
+            _picker_opts[_MORE_MODELS_SENTINEL] = _MORE_MODELS_SENTINEL
 
-            if _cur_mo and is_cloud_model(_cur_mo):
-                _picker_val = f"{get_provider_emoji(_cur_mo)} {_cur_mo}"
-            elif _cur_mo and not is_cloud_model(_cur_mo) and _cur_mo != _cur_default:
-                _picker_val = f"🖥️ {_cur_mo}"
-            else:
-                _picker_val = _default_opt
+            _cur_mo_value = model_choice_value(_cur_mo)
+            _picker_val = _cur_mo_value if _cur_mo_value and _cur_mo_value in _picker_opts else "__default__"
 
             async def _on_model_pick(e):
                 val = e.value
                 if val == _MORE_MODELS_SENTINEL:
                     e.sender.set_value(_picker_val)
-                    open_settings("Cloud")
+                    open_settings("Models")
                     return
-                if val.endswith(" (default)"):
+                if val == "__default__":
                     state.thread_model_override = ""
                     _set_thread_model_override(state.thread_id, "")
                     _switched_label = "default"
-                elif " " in val:
-                    model_id = val.split(" ", 1)[1]
-                    state.thread_model_override = model_id
-                    _set_thread_model_override(state.thread_id, model_id)
-                    _switched_label = model_id
+                elif val in _picker_opts:
+                    state.thread_model_override = val
+                    _set_thread_model_override(state.thread_id, val)
+                    _switched_label = _picker_opts.get(val, val)
                 else:
                     state.thread_model_override = ""
                     _set_thread_model_override(state.thread_id, "")
@@ -214,12 +210,13 @@ def build_chat(
     _is_active_cloud = is_cloud_model(_active_model)
     if _is_active_cloud:
         _prov = get_cloud_provider(_active_model) or "cloud"
-        _prov_label = {"openai": "OpenAI", "openrouter": "OpenRouter", "anthropic": "Anthropic", "google": "Google AI"}.get(_prov, "cloud")
+        _prov_label = provider_display_label(_prov)
+        _model_label = model_id_from_choice_value(_active_model)
         with ui.row().classes("w-full items-center gap-2 q-px-sm q-py-xs").style(
             "background: rgba(255, 152, 0, 0.08); border-radius: 8px; border: 1px solid rgba(255, 152, 0, 0.25);"
         ):
             ui.icon("cloud", color="orange").style("font-size: 1.1rem;")
-            ui.label(f"Using {_active_model} via {_prov_label} — data is sent to the cloud").classes("text-orange text-sm")
+            ui.label(f"Using {_model_label} via {_prov_label} — data is sent to the cloud").classes("text-orange text-sm")
     else:
         with ui.row().classes("w-full items-center gap-2 q-px-sm q-py-xs").style(
             "background: rgba(76, 175, 80, 0.08); border-radius: 8px; border: 1px solid rgba(76, 175, 80, 0.25);"

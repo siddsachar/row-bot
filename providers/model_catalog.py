@@ -1,0 +1,371 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Iterable
+
+from providers.capabilities import SURFACE_REQUIREMENTS, normalize_snapshot, snapshot_supports_surface
+from providers.catalog import get_provider_definition, model_info_from_legacy, model_info_from_metadata
+from providers.models import ModelInfo
+from providers.selection import model_ref
+
+CATALOG_SURFACES = ("chat", "vision", "image", "video")
+
+
+@dataclass(frozen=True)
+class CatalogModelRow:
+    provider_id: str
+    model_id: str
+    display_name: str
+    categories: tuple[str, ...]
+    capabilities_snapshot: dict[str, Any] = field(default_factory=dict)
+    selection_ref: str = ""
+    provider_display_name: str = ""
+    provider_icon: str = ""
+    context_window: int = 0
+    runtime_ready: bool = True
+    configured: bool = True
+    installed: bool = True
+    downloadable: bool = False
+    pinned_surfaces: tuple[str, ...] = ()
+    default_surfaces: tuple[str, ...] = ()
+    source: str = "catalog"
+    risk_label: str = "api_key"
+    status_reason: str = ""
+
+    def supports(self, surface: str) -> bool:
+        return surface in self.categories
+
+
+def categories_for_snapshot(snapshot: dict[str, Any] | None) -> tuple[str, ...]:
+    normalized = normalize_snapshot(snapshot)
+    has_structured_metadata = bool(
+        normalized.get("tasks")
+        or normalized.get("input_modalities")
+        or normalized.get("output_modalities")
+        or normalized.get("capabilities")
+    )
+    if not has_structured_metadata:
+        return ()
+    return tuple(surface for surface in CATALOG_SURFACES if snapshot_supports_surface(snapshot, surface))
+
+
+def rows_for_surface(rows: Iterable[CatalogModelRow], surface: str) -> list[CatalogModelRow]:
+    return [row for row in rows if row.supports(surface)]
+
+
+def group_rows_by_provider(rows: Iterable[CatalogModelRow]) -> dict[str, list[CatalogModelRow]]:
+    grouped: dict[str, list[CatalogModelRow]] = {}
+    for row in rows:
+        grouped.setdefault(row.provider_id, []).append(row)
+    return {
+        provider_id: sorted(provider_rows, key=lambda row: row.display_name.lower())
+        for provider_id, provider_rows in sorted(grouped.items(), key=lambda item: _provider_sort_label(item[0], item[1]))
+    }
+
+
+def load_ollama_catalog_rows() -> list[dict[str, Any]]:
+    from models import POPULAR_MODELS, fetch_trending_ollama_models, list_local_models
+    from providers.ollama import (
+        DEFAULT_OLLAMA_LIBRARY_FAMILIES,
+        fetch_ollama_library_family_models,
+        fetch_ollama_library_models,
+        ollama_catalog_rows,
+        ollama_provider_catalog_model_ids,
+    )
+
+    local = list_local_models()
+    library_families = fetch_ollama_library_models()
+    family_tag_models: list[str] = []
+    for family in DEFAULT_OLLAMA_LIBRARY_FAMILIES:
+        family_tag_models.extend(fetch_ollama_library_family_models(family))
+    recommended_models = ollama_provider_catalog_model_ids(
+        [],
+        [*POPULAR_MODELS, *fetch_trending_ollama_models()],
+        library_families,
+        family_tag_models,
+    )
+    return ollama_catalog_rows(local, recommended_models)
+
+
+def build_model_catalog_rows(
+    *,
+    cloud_cache: dict[str, dict[str, Any]] | None = None,
+    ollama_rows: Iterable[dict[str, Any]] | None = None,
+    defaults: dict[str, str] | None = None,
+    quick_choices: Iterable[dict[str, Any]] | None = None,
+) -> list[CatalogModelRow]:
+    cloud_cache = dict(_safe_cloud_cache() if cloud_cache is None else cloud_cache)
+    defaults = dict(defaults or {})
+    quick = [choice for choice in (quick_choices if quick_choices is not None else _safe_quick_choices()) if isinstance(choice, dict)]
+    pinned_by_ref = _pinned_surfaces_by_ref(quick)
+    default_refs = _default_refs(defaults)
+    provider_status = _provider_status_by_id()
+
+    rows: dict[str, CatalogModelRow] = {}
+    for model_id, info in cloud_cache.items():
+        provider_id = str(info.get("provider") or "")
+        if provider_id.startswith("custom_openai_"):
+            continue
+        model_info = model_info_from_legacy(str(model_id), info)
+        if model_info:
+            _add_model_info_row(rows, model_info, provider_status, pinned_by_ref, default_refs, installed=True)
+
+    for model_info in _custom_model_infos():
+        _add_model_info_row(rows, model_info, provider_status, pinned_by_ref, default_refs, installed=True)
+
+    for surface in ("image", "video"):
+        for config_value, info in _curated_media_entries(surface).items():
+            provider_id, model_id = config_value.split("/", 1) if "/" in config_value else (str(info.get("provider") or ""), config_value)
+            if not provider_id or not model_id:
+                continue
+            model_info = model_info_from_metadata(
+                provider_id,
+                model_id,
+                info,
+                display_name=str(info.get("label") or model_id),
+                context_window=int(info.get("ctx") or 0),
+                risk_label=str(info.get("risk_label") or "api_key"),
+                source=str(info.get("source") or "curated_media_catalog"),
+            )
+            _add_model_info_row(rows, model_info, provider_status, pinned_by_ref, default_refs, installed=True)
+
+    for row in ollama_rows or []:
+        _add_ollama_row(rows, row, provider_status, pinned_by_ref, default_refs)
+
+    for model_info in _codex_model_infos():
+        _add_model_info_row(rows, model_info, provider_status, pinned_by_ref, default_refs, installed=True)
+
+    return sorted(rows.values(), key=lambda row: (row.provider_display_name.lower(), row.display_name.lower()))
+
+
+def _add_model_info_row(
+    rows: dict[str, CatalogModelRow],
+    model_info: ModelInfo,
+    provider_status: dict[str, dict[str, Any]],
+    pinned_by_ref: dict[str, set[str]],
+    default_refs: dict[str, str],
+    *,
+    installed: bool,
+    downloadable: bool = False,
+) -> None:
+    snapshot = model_info.capability_snapshot()
+    categories = categories_for_snapshot(snapshot)
+    if not categories:
+        return
+    rows[model_info.selection_ref] = _catalog_row(
+        provider_id=model_info.provider_id,
+        model_id=model_info.model_id,
+        display_name=model_info.display_name,
+        categories=categories,
+        capabilities_snapshot=snapshot,
+        provider_status=provider_status,
+        pinned_by_ref=pinned_by_ref,
+        default_refs=default_refs,
+        context_window=model_info.context_window,
+        installed=installed,
+        downloadable=downloadable,
+        source=model_info.source,
+        risk_label=model_info.risk_label,
+    )
+
+
+def _add_ollama_row(
+    rows: dict[str, CatalogModelRow],
+    row: dict[str, Any],
+    provider_status: dict[str, dict[str, Any]],
+    pinned_by_ref: dict[str, set[str]],
+    default_refs: dict[str, str],
+) -> None:
+    model_id = str(row.get("model_id") or "")
+    if not model_id:
+        return
+    snapshot = row.get("capabilities_snapshot") if isinstance(row.get("capabilities_snapshot"), dict) else {}
+    categories = categories_for_snapshot(snapshot)
+    if not categories:
+        return
+    rows[model_ref("ollama", model_id)] = _catalog_row(
+        provider_id="ollama",
+        model_id=model_id,
+        display_name=str(row.get("display_name") or model_id),
+        categories=categories,
+        capabilities_snapshot=snapshot,
+        provider_status=provider_status,
+        pinned_by_ref=pinned_by_ref,
+        default_refs=default_refs,
+        context_window=int(row.get("context_window") or 0),
+        installed=bool(row.get("installed")),
+        downloadable=not bool(row.get("installed")),
+        source="ollama_catalog",
+        risk_label=str(row.get("risk_label") or "local_private"),
+    )
+
+
+def _catalog_row(
+    *,
+    provider_id: str,
+    model_id: str,
+    display_name: str,
+    categories: tuple[str, ...],
+    capabilities_snapshot: dict[str, Any],
+    provider_status: dict[str, dict[str, Any]],
+    pinned_by_ref: dict[str, set[str]],
+    default_refs: dict[str, str],
+    context_window: int,
+    installed: bool,
+    downloadable: bool,
+    source: str,
+    risk_label: str,
+) -> CatalogModelRow:
+    definition = get_provider_definition(provider_id)
+    status = provider_status.get(provider_id, {})
+    configured = bool(status.get("configured")) if status else provider_id == "ollama" or provider_id.startswith("custom_openai_")
+    if provider_id == "ollama":
+        configured = str(status.get("source") or "") != "not_running" if status else True
+    runtime_ready = configured and installed
+    status_reason = ""
+    if not configured:
+        status_reason = "Connect this provider before using this model."
+    elif not installed:
+        status_reason = "Download this Ollama model before using it."
+    if provider_id == "codex" and not bool(status.get("runtime_enabled")):
+        runtime_ready = False
+        status_reason = "Codex account is connected, but direct chat runtime is not enabled yet."
+    ref = model_ref(provider_id, model_id)
+    return CatalogModelRow(
+        provider_id=provider_id,
+        model_id=model_id,
+        display_name=display_name,
+        selection_ref=ref,
+        provider_display_name=definition.display_name if definition else provider_id,
+        provider_icon=definition.icon if definition else "",
+        categories=categories,
+        capabilities_snapshot=dict(capabilities_snapshot),
+        context_window=int(context_window or 0),
+        runtime_ready=runtime_ready,
+        configured=configured,
+        installed=installed,
+        downloadable=downloadable,
+        pinned_surfaces=tuple(sorted(pinned_by_ref.get(ref, set()))),
+        default_surfaces=tuple(sorted(surface for surface, default_ref in default_refs.items() if default_ref == ref)),
+        source=source,
+        risk_label=risk_label,
+        status_reason=status_reason,
+    )
+
+
+def _safe_cloud_cache() -> dict[str, dict[str, Any]]:
+    try:
+        from models import _cloud_model_cache, _sync_custom_model_cache
+
+        _sync_custom_model_cache()
+        return {str(model_id): dict(info) for model_id, info in _cloud_model_cache.items() if isinstance(info, dict)}
+    except Exception:
+        return {}
+
+
+def _safe_quick_choices() -> list[dict[str, Any]]:
+    try:
+        from providers.selection import list_quick_choices
+
+        return list_quick_choices("", include_inactive=True)
+    except Exception:
+        return []
+
+
+def _pinned_surfaces_by_ref(quick: Iterable[dict[str, Any]]) -> dict[str, set[str]]:
+    result: dict[str, set[str]] = {}
+    for choice in quick:
+        ref = str(choice.get("id") or "")
+        if not ref:
+            continue
+        surfaces = set()
+        snapshot = choice.get("capabilities_snapshot") if isinstance(choice.get("capabilities_snapshot"), dict) else {}
+        for surface in CATALOG_SURFACES:
+            if snapshot_supports_surface(snapshot, surface):
+                surfaces.add(surface)
+        visibility = choice.get("visibility")
+        if isinstance(visibility, list):
+            surfaces.update(str(item) for item in visibility if str(item) in CATALOG_SURFACES)
+        if surfaces:
+            result[ref] = surfaces
+    return result
+
+
+def _default_refs(defaults: dict[str, str]) -> dict[str, str]:
+    refs: dict[str, str] = {}
+    for surface, value in defaults.items():
+        raw = str(value or "")
+        if not raw:
+            continue
+        if raw.startswith("model:"):
+            refs[surface] = raw
+            continue
+        if "/" in raw and surface in {"image", "video"}:
+            provider_id, model_id = raw.split("/", 1)
+            refs[surface] = model_ref(provider_id, model_id)
+            continue
+        try:
+            from providers.catalog import infer_provider_id
+
+            provider_id = infer_provider_id(raw) or ("ollama" if surface in {"chat", "vision"} else "")
+        except Exception:
+            provider_id = "ollama" if surface in {"chat", "vision"} else ""
+        if provider_id:
+            refs[surface] = model_ref(provider_id, raw)
+    return refs
+
+
+def _provider_status_by_id() -> dict[str, dict[str, Any]]:
+    try:
+        from providers.status import provider_status_cards
+
+        return {str(card.get("provider_id")): dict(card) for card in provider_status_cards() if isinstance(card, dict)}
+    except Exception:
+        return {}
+
+
+def _curated_media_entries(surface: str) -> dict[str, dict[str, Any]]:
+    try:
+        from providers.media import curated_media_cache_entries
+
+        return curated_media_cache_entries(surface)
+    except Exception:
+        return {}
+
+
+def _custom_model_infos() -> list[ModelInfo]:
+    try:
+        from providers.custom import custom_endpoint_models, list_custom_endpoints
+    except Exception:
+        return []
+    infos: list[ModelInfo] = []
+    for endpoint in list_custom_endpoints():
+        provider_id = str(endpoint.get("provider_id") or "")
+        for model in custom_endpoint_models(str(endpoint.get("id") or provider_id)):
+            model_id = str(model.get("model_id") or model.get("id") or "")
+            if not provider_id or not model_id:
+                continue
+            infos.append(model_info_from_metadata(
+                provider_id,
+                model_id,
+                model,
+                display_name=str(model.get("display_name") or model.get("label") or model_id),
+                context_window=int(model.get("context_window") or model.get("ctx") or 0),
+                risk_label=str(endpoint.get("risk_label") or model.get("risk_label") or "custom_endpoint"),
+                source="custom_openai_catalog",
+            ))
+    return infos
+
+
+def _codex_model_infos() -> list[ModelInfo]:
+    try:
+        from providers.codex import list_codex_model_infos
+
+        return list_codex_model_infos()
+    except Exception:
+        return []
+
+
+def _provider_sort_label(provider_id: str, rows: list[CatalogModelRow]) -> tuple[str, str]:
+    label = rows[0].provider_display_name if rows else provider_id
+    return (label.lower(), provider_id)

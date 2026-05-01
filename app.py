@@ -529,7 +529,7 @@ async def index():
         current = get_current_model()
         if is_cloud_model(current):
             if not is_cloud_available():
-                return False, "Cloud model selected but no API key configured. Open Settings → Cloud."
+                return False, "Provider model selected but no credential configured. Open Settings → Providers."
             return True, ""
         from models import _ollama_reachable
         if not _ollama_reachable():

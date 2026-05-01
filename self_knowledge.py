@@ -313,22 +313,18 @@ def get_dynamic_state() -> str:
     except Exception:
         pass
 
-    # API keys configured
+    # Providers configured
     try:
-        from api_keys import get_key, OPENROUTER_KEY_DEFINITIONS, OPENAI_KEY_DEFINITIONS, ANTHROPIC_KEY_DEFINITIONS, GOOGLE_KEY_DEFINITIONS
-        providers = []
-        if get_key("OPENROUTER_API_KEY"):
-            providers.append("OpenRouter")
-        if get_key("OPENAI_API_KEY"):
-            providers.append("OpenAI")
-        if get_key("ANTHROPIC_API_KEY"):
-            providers.append("Anthropic")
-        if get_key("GOOGLE_API_KEY"):
-            providers.append("Google AI")
+        from providers.catalog import get_provider_definition
+        from providers.runtime import list_configured_provider_ids
+        providers = [
+            (get_provider_definition(provider_id).display_name if get_provider_definition(provider_id) else provider_id)
+            for provider_id in list_configured_provider_ids()
+        ]
         if providers:
-            parts.append(f"- Cloud providers configured: {', '.join(providers)}")
+            parts.append(f"- Providers configured: {', '.join(providers)}")
         else:
-            parts.append("- Cloud providers: none configured (local only)")
+            parts.append("- Providers: none configured (local only)")
     except Exception:
         pass
 

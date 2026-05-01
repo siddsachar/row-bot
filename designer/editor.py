@@ -9,7 +9,7 @@ from typing import Callable
 from nicegui import events, run, ui
 
 from designer.references import delete_project_reference, persist_project_references
-from designer.render_assets import resolve_project_image_sources
+from designer.render_assets import normalize_project_inline_assets
 from designer.state import DesignerProject, normalize_designer_mode
 from designer.storage import save_project
 from designer.briefing import build_initial_design_request, project_has_build_brief
@@ -25,6 +25,11 @@ from designer.ui_theme import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _canonicalize_stored_image_refs(project: DesignerProject) -> bool:
+    """Keep stored project HTML on asset refs, not render-time data URIs."""
+    return normalize_project_inline_assets(project)
 
 
 def build_designer_editor(
@@ -70,16 +75,9 @@ def build_designer_editor(
     set_active_project(project)
 
     def _repair_reference_images() -> None:
-        repaired = 0
-        for page in project.pages:
-            resolved_html = resolve_project_image_sources(page.html, project)
-            if resolved_html != page.html:
-                page.html = resolved_html
-                page.thumbnail_b64 = None
-                repaired += 1
-        if repaired:
+        if _canonicalize_stored_image_refs(project):
             save_project(project)
-            logger.info("Resolved persisted image references on %d page(s)", repaired)
+            logger.info("Canonicalized Designer image references for project %s", project.id)
 
     _repair_reference_images()
 

@@ -4784,6 +4784,8 @@ try:
     _old_xai_key35 = _os35.environ.pop("XAI_API_KEY", None)
     try:
         from api_keys import _load_keys as _lk35, _save_keys as _sk35
+        import providers.runtime as _provider_runtime35
+        _old_list_configured35 = _provider_runtime35.list_configured_provider_ids
         _keys35 = _lk35()
         _saved_oai35 = _keys35.pop("OPENAI_API_KEY", None)
         _saved_or35 = _keys35.pop("OPENROUTER_API_KEY", None)
@@ -4791,11 +4793,14 @@ try:
         _saved_goog35 = _keys35.pop("GOOGLE_API_KEY", None)
         _saved_xai35 = _keys35.pop("XAI_API_KEY", None)
         _sk35(_keys35)
+        _provider_runtime35.list_configured_provider_ids = lambda: []
         assert not is_cloud_available(), "Should be False with no keys"
         assert not is_openai_available(), "Should be False with no OpenAI key"
         assert not is_openrouter_available(), "Should be False with no OR key"
         record("PASS", "cloud: availability returns False without keys")
     finally:
+        if '_old_list_configured35' in locals():
+            _provider_runtime35.list_configured_provider_ids = _old_list_configured35
         if _saved_oai35:
             _keys35["OPENAI_API_KEY"] = _saved_oai35
         if _saved_or35:
@@ -4956,7 +4961,7 @@ try:
     _tg_src35 = Path("channels/telegram.py").read_text(encoding="utf-8")
     assert "_cmd_model" in _tg_src35
     assert 'CommandHandler("model"' in _tg_src35
-    assert "list_starred_cloud_models" in _tg_src35, "telegram should use starred models"
+    assert "list_quick_model_ids" in _tg_src35, "telegram should use Quick Choices"
     assert "get_cloud_provider" in _tg_src35, "telegram should detect provider"
     record("PASS", "cloud: telegram.py has updated /model command")
 
@@ -4968,19 +4973,19 @@ try:
     # ── 35af. email channel removed — test skipped ──────────────────
     record("PASS", "cloud: email channel test removed (channel deleted)")
 
-    # ── 35ag. UI: Cloud tab + dual sections ────────────────────
+    # ── 35ag. UI: Providers tab + dual sections ────────────────────
     _gui_src35 = Path("app.py").read_text(encoding="utf-8") + "".join(
         f.read_text(encoding="utf-8") for f in sorted(Path("ui").glob("*.py"))
     )
     assert "_build_cloud_tab" in _gui_src35
     assert "tab_cloud" in _gui_src35
     assert "OpenAI Direct" in _gui_src35 or "openai" in _gui_src35.lower()
-    record("PASS", "cloud: app.py has Cloud settings tab")
+    record("PASS", "cloud: app.py has Providers settings tab")
 
     # ── 35ah. app.py: chat header model picker ───────────────
     assert "Select model for this thread" in _gui_src35
-    assert "list_starred_cloud_models" in _gui_src35, "picker should use starred models"
-    record("PASS", "cloud: app.py has starred-model picker")
+    assert "list_model_choice_options" in _gui_src35, "picker should use provider-aware Quick Choices"
+    record("PASS", "cloud: app.py has Quick Choices picker")
 
     # ── 35ai. app.py: cloud warning banner ───────────────────
     assert "data is sent to the cloud" in _gui_src35
@@ -5152,9 +5157,10 @@ try:
     assert "text-brown-9" in _gui_src35, "Ollama card headings should use dark text"
     record("PASS", "cloud: Ollama card headings use dark text color")
 
-    # ── 35be. Models tab has API key hint ────────────────────────────
-    assert "Cloud tab" in _gui_src35, "Models tab should mention Cloud tab for API keys"
-    record("PASS", "cloud: Models tab has API keys hint")
+    # ── 35be. Models tab points provider setup out of the model defaults UI ──
+    assert "Provider connections" in _gui_src35, "Models tab should link provider setup out to Providers"
+    assert "Catalog-backed" in _gui_src35, "Models tab should frame defaults as catalog-backed"
+    record("PASS", "cloud: Models tab has provider setup link and catalog-backed defaults")
 
     # ── 35bf. wizard defaults gpt-5 for cloud ────────────────────────
     assert '"gpt-5"' in _gui_src35, "wizard should prefer gpt-5 as default"
@@ -5170,15 +5176,17 @@ try:
     assert "open_settings" in _gui_src35, "More models should open settings"
     record("PASS", "cloud: chat picker has More models entry")
 
-    # ── 35bi. cloud tab layout order ─────────────────────────────────
+    # ── 35bi. Providers tab layout order ─────────────────────────────
     _api_pos = _gui_src35.find("OpenAI Direct")
     _guide_pos = _gui_src35.find("Setup Guide")
-    _avail_pos = _gui_src35.find("Available Models")
-    assert _api_pos < _guide_pos < _avail_pos, "Cloud tab order: API keys → Guide → Models"
-    # The actual model list container must be created *after* the Available Models header
-    _container_pos = _gui_src35.find('_model_list_container = ui.column()')
-    assert _container_pos > _avail_pos, "model list container must be created after Available Models header"
-    record("PASS", "cloud: cloud tab layout in correct order")
+    _custom_pos = _gui_src35.find("Custom / Self-Hosted Endpoints")
+    assert _api_pos >= 0, "Providers tab should include API-key provider sections"
+    assert _guide_pos > _api_pos, "Providers tab should show the setup guide after API key sections"
+    assert _custom_pos >= 0, "Providers tab should include custom endpoint management"
+    assert "Model Catalog" in _gui_src35, "Models tab should include consolidated Model Catalog"
+    assert "build_quick_choices_summary" not in _gui_src35, "Providers tab should not render Quick Choices management"
+    assert "build_ollama_models_section" not in _gui_src35, "Providers tab should not render model catalog rows"
+    record("PASS", "cloud: Providers tab has provider sections, guide, and custom endpoints; Models tab owns catalog")
 
     # ── 35bj. banners have no duplicate emoji ─────────────────────────
     # ui.icon("cloud") is used — the label text must NOT also start with ☁️
@@ -5190,9 +5198,9 @@ try:
     assert 'async def _on_model_pick' in _gui_src35, "model pick handler should be async"
     assert 'Switched to' in _gui_src35, "model switch should show toast notification"
     assert 'Context capped' in _gui_src35, "model switch should check context cap"
-    # Parsing must use split, not hardcoded slice
+    # Picker values must be stable refs, not parsed out of emoji-prefixed labels.
     assert 'val[3:]' not in _gui_src35, "must not use hardcoded val[3:] slice for emoji stripping"
-    assert 'val.split(" ", 1)[1]' in _gui_src35, "must use split for emoji-safe model ID extraction"
+    assert 'model_choice_value' in _gui_src35, "must use provider-aware picker values"
     record("PASS", "cloud: model switch toast and context cap")
 
     # ── 35bl. provider-specific emojis ────────────────────────────────
@@ -5226,11 +5234,11 @@ try:
     assert '_cloud_num_ctx' in _gcs_body, "cloud path must reference _cloud_num_ctx cap"
     assert '_estimate_context_heuristic' in _gcs_body, "cloud fallback should use heuristic"
     # UI: local context dropdown must mention VRAM
-    assert 'Local context window' in _gui_src35, "context dropdown should be labeled for local models"
+    assert 'Local context' in _gui_src35, "context dropdown should be labeled for local models"
     assert 'VRAM' in _gui_src35, "context dropdown tooltip should mention VRAM impact"
     # Cloud context dropdown
-    assert 'Cloud context window' in _gui_src35, \
-        "settings should have a cloud context dropdown"
+    assert 'Provider context' in _gui_src35, \
+        "settings should have a provider context dropdown"
     assert 'rate-limit' in _gui_src35, \
         "cloud dropdown tooltip should mention rate-limit"
     # Token counter should format M for large values
@@ -8735,8 +8743,9 @@ try:
         return None
     with _mock52.patch("api_keys.get_key", _mock_both_keys):
         _avail52 = get_available_image_models()
-    assert len(_avail52) == len(_OPENAI_MODELS), f"expected {len(_OPENAI_MODELS)}, got {len(_avail52)}"
-    assert "openai/gpt-image-1.5" in _avail52
+    assert len(_avail52) >= len(_OPENAI_MODELS), f"expected at least {len(_OPENAI_MODELS)}, got {len(_avail52)}"
+    for _model52 in _OPENAI_MODELS:
+        assert f"openai/{_model52['id']}" in _avail52
     assert not any(k.startswith("openrouter/") for k in _avail52), "OpenRouter should not appear"
     assert not any(k.startswith("google/") for k in _avail52), "Google should not appear w/o key"
     assert "OpenAI" in _avail52["openai/gpt-image-1.5"]
@@ -8947,7 +8956,7 @@ try:
         return None
     with _mock52.patch("api_keys.get_key", _mock_all_keys):
         _avail_all = get_available_image_models()
-    assert len(_avail_all) == 9, f"expected 9 total models, got {len(_avail_all)}"
+    assert len(_avail_all) >= 9, f"expected at least 9 total models, got {len(_avail_all)}"
     assert any(k.startswith("openai/") for k in _avail_all)
     assert any(k.startswith("google/") for k in _avail_all)
     record("PASS", "image_gen: get_available_image_models shows both providers")
@@ -9250,8 +9259,9 @@ try:
         return "gk-test" if k == "GOOGLE_API_KEY" else None
     with _mock52v.patch("api_keys.get_key", _mock_google_key):
         _avail_v = get_available_video_models()
-    assert len(_avail_v) == len(_VG_GOOGLE_MODELS), f"expected {len(_VG_GOOGLE_MODELS)}, got {len(_avail_v)}"
-    assert "google/veo-3.1-generate-preview" in _avail_v
+    assert len(_avail_v) >= len(_VG_GOOGLE_MODELS), f"expected at least {len(_VG_GOOGLE_MODELS)}, got {len(_avail_v)}"
+    for _model52v in _VG_GOOGLE_MODELS:
+        assert f"google/{_model52v['id']}" in _avail_v
     assert not any(k.startswith("xai/") for k in _avail_v)
     record("PASS", "video_gen: get_available_video_models lists Google only")
 
@@ -11803,12 +11813,12 @@ try:
     assert "embed" in _ANTHROPIC_SKIP_SUBSTRINGS
     assert "tokenizer" in _ANTHROPIC_SKIP_SUBSTRINGS
     assert "embed" in _GOOGLE_SKIP_SUBSTRINGS
-    assert "imagen" in _GOOGLE_SKIP_SUBSTRINGS
     assert "tts" in _GOOGLE_SKIP_SUBSTRINGS
     assert "aqa" in _GOOGLE_SKIP_SUBSTRINGS
-    assert "veo" in _GOOGLE_SKIP_SUBSTRINGS
-    assert "grok-imagine" in _XAI_SKIP_SUBSTRINGS
-    record("PASS", "anth+goog+xai: skip substrings defined")
+    assert "imagen" not in _GOOGLE_SKIP_SUBSTRINGS
+    assert "veo" not in _GOOGLE_SKIP_SUBSTRINGS
+    assert "grok-imagine" not in _XAI_SKIP_SUBSTRINGS
+    record("PASS", "anth+goog+xai: skip substrings keep media models in provider catalog")
 
     # ── 52e. Provider emoji mapping ──────────────────────────────────
     assert "anthropic" in _PROVIDER_EMOJI, "anthropic should have emoji"
@@ -11945,40 +11955,43 @@ try:
         if _old_xai_env52:
             _os52.environ["XAI_API_KEY"] = _old_xai_env52
 
-    # ── 52q. models.py source code has ChatAnthropic import ──────────
+    # ── 52q. provider runtime source code has provider chat imports ──
     _mod_src52 = _P52("models.py").read_text(encoding="utf-8")
-    assert "ChatAnthropic" in _mod_src52, "models.py should import ChatAnthropic"
-    assert "ChatGoogleGenerativeAI" in _mod_src52, "models.py should import ChatGoogleGenerativeAI"
-    assert "ChatXAI" in _mod_src52, "models.py should import ChatXAI"
-    record("PASS", "anth+goog+xai: models.py imports ChatAnthropic + ChatGoogleGenerativeAI + ChatXAI")
+    _provider_runtime_src52 = _P52("providers/runtime.py").read_text(encoding="utf-8")
+    assert "ChatAnthropic" in _provider_runtime_src52, "provider runtime should import ChatAnthropic"
+    assert "ChatGoogleGenerativeAI" in _provider_runtime_src52, "provider runtime should import ChatGoogleGenerativeAI"
+    assert "ChatXAI" in _provider_runtime_src52, "provider runtime should import ChatXAI"
+    record("PASS", "anth+goog+xai: provider runtime imports ChatAnthropic + ChatGoogleGenerativeAI + ChatXAI")
 
-    # ── 52r. models.py source has anthropic/google/xai provider branches ─
-    assert 'provider == "anthropic"' in _mod_src52
-    assert 'provider == "google"' in _mod_src52
-    assert 'provider == "xai"' in _mod_src52
-    record("PASS", "anth+goog+xai: _get_cloud_llm has anthropic + google + xai branches")
+    # ── 52r. provider runtime source has anthropic/google/xai branches ─
+    assert 'provider == "anthropic"' in _provider_runtime_src52
+    assert 'provider == "google"' in _provider_runtime_src52
+    assert 'provider == "xai"' in _provider_runtime_src52
+    record("PASS", "anth+goog+xai: provider runtime has anthropic + google + xai branches")
 
-    # ── 52s. is_cloud_available checks new keys ──────────────────────
-    assert "ANTHROPIC_API_KEY" in _mod_src52
-    assert "GOOGLE_API_KEY" in _mod_src52
-    assert "XAI_API_KEY" in _mod_src52
-    record("PASS", "anth+goog+xai: is_cloud_available checks ANTHROPIC + GOOGLE + XAI keys")
+    # ── 52s. provider auth store checks new keys ─────────────────────
+    _auth_store_src52 = _P52("providers/auth_store.py").read_text(encoding="utf-8")
+    assert "ANTHROPIC_API_KEY" in _auth_store_src52
+    assert "GOOGLE_API_KEY" in _auth_store_src52
+    assert "XAI_API_KEY" in _auth_store_src52
+    record("PASS", "anth+goog+xai: provider auth store checks ANTHROPIC + GOOGLE + XAI keys")
 
     # ── 52t. ui/settings.py imports validators ───────────────────────
     _ui_src52 = _P52("ui/settings.py").read_text(encoding="utf-8")
+    _provider_ui_src52 = _ui_src52 + _P52("ui/provider_settings.py").read_text(encoding="utf-8")
     assert "validate_anthropic_key" in _ui_src52, "UI should import validate_anthropic_key"
     assert "validate_google_key" in _ui_src52, "UI should import validate_google_key"
     assert "validate_xai_key" in _ui_src52, "UI should import validate_xai_key"
     record("PASS", "anth+goog+xai: ui/settings.py imports validators")
 
-    # ── 52u. ui/settings.py Cloud tab has provider entries ───────────
-    assert '"Anthropic"' in _ui_src52 or "'Anthropic'" in _ui_src52
-    assert '"Google"' in _ui_src52 or "'Google'" in _ui_src52
-    assert '"xAI"' in _ui_src52 or "'xAI'" in _ui_src52
-    assert '"anthropic"' in _ui_src52
-    assert '"google"' in _ui_src52
-    assert '"xai"' in _ui_src52
-    record("PASS", "anth+goog+xai: Cloud tab includes Anthropic + Google + xAI providers")
+    # ── 52u. ui/settings.py Providers tab has provider entries ───────
+    assert "Anthropic" in _provider_ui_src52
+    assert "Google" in _provider_ui_src52
+    assert "xAI" in _provider_ui_src52
+    assert '"anthropic"' in _provider_ui_src52 or "ANTHROPIC_API_KEY" in _provider_ui_src52
+    assert '"google"' in _provider_ui_src52 or "GOOGLE_API_KEY" in _provider_ui_src52
+    assert '"xai"' in _provider_ui_src52 or "XAI_API_KEY" in _provider_ui_src52
+    record("PASS", "anth+goog+xai: Providers tab includes Anthropic + Google + xAI providers")
 
     # ── 52v. ui/settings.py has key expansion sections ───────────────
     assert "ANTHROPIC_API_KEY" in _ui_src52, "UI should have Anthropic key expansion"
@@ -11986,17 +11999,15 @@ try:
     assert "XAI_API_KEY" in _ui_src52, "UI should have xAI key expansion"
     record("PASS", "anth+goog+xai: UI has Anthropic + Google + xAI key expansions")
 
-    # ── 52w. ui/settings.py mentions Anthropic + Google + xAI in Cloud tab ──
-    assert "Anthropic" in _ui_src52 and "Google" in _ui_src52 and "xAI" in _ui_src52
-    # The image-gen no-key warning should mention supported providers (OpenAI + Google + xAI)
-    _warn_line52 = [l for l in _ui_src52.splitlines() if "No API keys configured" in l]
-    assert _warn_line52, "Should have a no-key warning line"
+    # ── 52w. ui/settings.py mentions Anthropic + Google + xAI in Providers tab ──
+    assert "Anthropic" in _provider_ui_src52 and "Google" in _provider_ui_src52 and "xAI" in _provider_ui_src52
+    # The polished Models tab uses a catalog empty state instead of provider-name warning prose.
+    _warn_line52 = [l for l in _ui_src52.splitlines() if "No pinned image models" in l]
+    assert _warn_line52, "Should have a pinned image-model empty state"
     _wl52 = _warn_line52[0]
-    assert "OpenAI" in _wl52, "Image-gen warning should mention OpenAI"
-    assert "Anthropic" not in _wl52, "Image-gen warning should NOT mention Anthropic"
-    assert "Google" in _wl52, "Image-gen warning should mention Google (image provider)"
-    assert "xAI" in _wl52, "Image-gen warning should mention xAI (image provider)"
-    record("PASS", "anth+goog+xai: image-gen warning mentions OpenAI + Google + xAI")
+    assert "Anthropic" not in _wl52, "Image empty state should NOT mention Anthropic"
+    assert "catalog below" in _wl52, "Image empty state should direct users to the Models catalog"
+    record("PASS", "anth+goog+xai: image-gen empty state routes users to Models catalog")
 
     # ── 52x. Setup guide mentions all 4 providers ────────────────────
     assert "console.anthropic.com" in _ui_src52, "Setup guide should link to Anthropic"
@@ -12149,16 +12160,17 @@ try:
     assert len(_consolidated) == len(_scattered), "Message count must be preserved"
     record("PASS", "anth+goog: consolidation preserves all messages without loss or duplication")
 
-    # ── 52an. Banner maps all 4 cloud providers ─────────────────────
+    # ── 52an. Banner uses dynamic provider labels ───────────────────
     _chat_src52 = _P52("ui/chat.py").read_text(encoding="utf-8")
-    for _kw in ["OpenAI", "OpenRouter", "Anthropic", "Google AI"]:
-        assert _kw in _chat_src52, f"Banner should map provider label '{_kw}'"
-    record("PASS", "anth+goog: banner maps all 4 cloud provider labels")
+    assert "provider_display_label" in _chat_src52, "Banner should use provider metadata labels"
+    assert "model_id_from_choice_value" in _chat_src52, "Banner should display model ids from provider refs"
+    assert "via cloud" not in _chat_src52, "Banner should not fall back to generic cloud provider text"
+    record("PASS", "anth+goog: banner uses dynamic provider metadata labels")
 
-    # ── 52ao. Banner uses dict-based provider lookup ────────────────
-    assert '.get(_prov' in _chat_src52 or '.get( _prov' in _chat_src52, \
-        "Banner should use dict .get() for provider label lookup"
-    record("PASS", "anth+goog: banner uses dict-based provider lookup")
+    # ── 52ao. Banner has no hardcoded provider label map ────────────
+    assert "OpenRouter\": \"OpenRouter" not in _chat_src52, \
+        "Banner should not maintain a hardcoded provider label map"
+    record("PASS", "anth+goog: banner has no hardcoded provider label map")
 
 except Exception as e:
     record("FAIL", "anthropic+google-52", f"{type(e).__name__}: {e}")
@@ -12607,7 +12619,7 @@ try:
     # 59l. pywinpty available on Windows
     if sys.platform == "win32":
         try:
-            import pywinpty
+            import pywinpty  # type: ignore[import-not-found]
             assert hasattr(pywinpty, "PtyProcess"), "pywinpty missing PtyProcess"
             record("PASS", "terminal: pywinpty available on Windows")
         except ImportError:
@@ -13314,6 +13326,160 @@ try:
     assert "cut short" not in _done_events66c[0]
     record("PASS", "66c: absent finish_reason does not append warning")
 
+    # ── 66c2. Empty token stream falls back to checkpoint answer ─────
+    class _FakeHumanMsg66c2:
+        type = "human"
+        content = "Question for this turn."
+
+    class _FakeMsg66c2:
+        type = "ai"
+        content = "Final answer from checkpoint."
+
+    class _FakeState66c2:
+        next = None
+        tasks = []
+        values = {"messages": [_FakeHumanMsg66c2(), _FakeMsg66c2()]}
+
+    class _FakeAgent66c2:
+        def stream(self, input_data, config, stream_mode):
+            return _make_stream66([_Chunk66(content="", response_metadata={"finish_reason": "stop"})])
+        def get_state(self, config):
+            return _FakeState66c2()
+
+    _result66c2 = list(_stream_graph(_FakeAgent66c2(), {}, {"configurable": {"thread_id": "t66c2"}}))
+    _done_events66c2 = [v for k, v in _result66c2 if k == "done"]
+    assert _done_events66c2 == ["Final answer from checkpoint."], _done_events66c2
+    record("PASS", "66c2: empty token stream falls back to checkpoint answer")
+
+    # ── 66c3. Empty current turn does not replay stale checkpoint text ─
+    class _FakeOldAiMsg66c3:
+        type = "ai"
+        content = "Old answer from a previous turn."
+
+    class _FakeHumanMsg66c3:
+        type = "human"
+        content = "New question."
+
+    class _FakeEmptyAiMsg66c3:
+        type = "ai"
+        content = ""
+
+    class _FakeState66c3:
+        next = None
+        tasks = []
+        values = {"messages": [_FakeOldAiMsg66c3(), _FakeHumanMsg66c3(), _FakeEmptyAiMsg66c3()]}
+
+    class _FakeAgent66c3:
+        def stream(self, input_data, config, stream_mode):
+            return _make_stream66([_Chunk66(content="", response_metadata={"finish_reason": "stop"})])
+        def get_state(self, config):
+            return _FakeState66c3()
+
+    _result66c3 = list(_stream_graph(_FakeAgent66c3(), {}, {"configurable": {"thread_id": "t66c3"}}))
+    _done_events66c3 = [v for k, v in _result66c3 if k == "done"]
+    assert _done_events66c3 == [""], _done_events66c3
+    record("PASS", "66c3: empty current turn does not replay stale checkpoint text")
+
+    # ── 66c4. Detached finalization always clears active generation ──
+    import asyncio as _asyncio66
+    import queue as _queue66
+    import threading as _threading66
+    import ui.helpers as _helpers66
+    import ui.streaming as _streaming66
+    from ui.state import AppState as _AppState66, GenerationState as _GenerationState66, P as _P66, _active_generations as _active66
+
+    _gen66c4 = _GenerationState66(
+        thread_id="test-detached-cleanup-66c4",
+        q=_queue66.Queue(),
+        stop_event=_threading66.Event(),
+        config={},
+        enabled_tools=[],
+    )
+    _gen66c4.detached = True
+    _gen66c4.q.put(("done", "Detached final answer"))
+    _gen66c4.q.put(None)
+    _state66c4 = _AppState66()
+    _state66c4.thread_id = "another-thread"
+    _cb66c4 = _streaming66.Callbacks()
+    for _name66c4 in _cb66c4.__slots__:
+        setattr(_cb66c4, _name66c4, lambda *a, **k: None)
+    _orig_persist66c4 = _helpers66.persist_detached_thread_media
+    _helpers66.persist_detached_thread_media = lambda *a, **k: False
+    _active66[_gen66c4.thread_id] = _gen66c4
+    try:
+        _asyncio66.run(_streaming66.consume_generation(_gen66c4, _state66c4, _P66(), _cb66c4))
+        assert _gen66c4.thread_id not in _active66, "terminal detached generation must not stay active"
+        assert _gen66c4.status == "done"
+    finally:
+        _helpers66.persist_detached_thread_media = _orig_persist66c4
+        _active66.pop(_gen66c4.thread_id, None)
+    record("PASS", "66c4: detached finalization clears active generation even without media sidecar attach")
+
+    # ── 66c4b. Active detached finalization reloads checkpoint messages ─
+    _gen66c4b = _GenerationState66(
+        thread_id="test-detached-active-reload-66c4b",
+        q=_queue66.Queue(),
+        stop_event=_threading66.Event(),
+        config={},
+        enabled_tools=[],
+    )
+    _gen66c4b.detached = True
+    _gen66c4b.q.put(("done", "Detached final answer"))
+    _gen66c4b.q.put(None)
+    _state66c4b = _AppState66()
+    _state66c4b.thread_id = _gen66c4b.thread_id
+    _state66c4b.messages = [{"role": "user", "content": "stale user-only state"}]
+    _state66c4b.cache_active_messages()
+    _loaded66c4b = [
+        {"role": "user", "content": "fresh user"},
+        {"role": "assistant", "content": "Detached final answer"},
+    ]
+    _orig_load66c4b = _helpers66.load_thread_messages
+    _helpers66.load_thread_messages = lambda thread_id: list(_loaded66c4b)
+    _cb66c4b = _streaming66.Callbacks()
+    _rebuilt66c4b = {"count": 0}
+    for _name66c4b in _cb66c4b.__slots__:
+        setattr(_cb66c4b, _name66c4b, lambda *a, **k: None)
+    _cb66c4b.rebuild_main = lambda *a, **k: _rebuilt66c4b.update(count=_rebuilt66c4b["count"] + 1)
+    _active66[_gen66c4b.thread_id] = _gen66c4b
+    try:
+        _asyncio66.run(_streaming66.consume_generation(_gen66c4b, _state66c4b, _P66(), _cb66c4b))
+        assert _state66c4b.messages == _loaded66c4b
+        assert _state66c4b.message_cache[_gen66c4b.thread_id] == _loaded66c4b
+        assert _gen66c4b.thread_id not in _state66c4b.message_cache_dirty
+        assert _rebuilt66c4b["count"] >= 1
+    finally:
+        _helpers66.load_thread_messages = _orig_load66c4b
+        _active66.pop(_gen66c4b.thread_id, None)
+    record("PASS", "66c4b: active detached finalization reloads checkpoint messages before rebuild")
+
+    # ── 66c5. Stale terminal generations are recoverable; live ones stay blocked ──
+    _done_gen66c5 = _GenerationState66("test-terminal-66c5", _queue66.Queue(), _threading66.Event(), {}, [])
+    _done_gen66c5.status = "done"
+    _active66[_done_gen66c5.thread_id] = _done_gen66c5
+    assert _streaming66._drop_terminal_active_generation(_done_gen66c5.thread_id) is True
+    assert _done_gen66c5.thread_id not in _active66
+
+    _live_gen66c5 = _GenerationState66("test-live-66c5", _queue66.Queue(), _threading66.Event(), {}, [])
+    _active66[_live_gen66c5.thread_id] = _live_gen66c5
+    try:
+        assert _streaming66._drop_terminal_active_generation(_live_gen66c5.thread_id) is False
+        assert _active66.get(_live_gen66c5.thread_id) is _live_gen66c5
+    finally:
+        _active66.pop(_live_gen66c5.thread_id, None)
+
+    class _Client66c5:
+        _deleted = True
+
+    class _Handle66c5:
+        client = _Client66c5()
+
+    _deleted_gen66c5 = _GenerationState66("test-deleted-client-66c5", _queue66.Queue(), _threading66.Event(), {}, [])
+    _deleted_gen66c5.wrapper = _Handle66c5()
+    assert _streaming66._detach_if_ui_client_deleted(_deleted_gen66c5, _AppState66(), "test") is True
+    assert _deleted_gen66c5.detached is True
+    record("PASS", "66c5: active-generation recovery keeps live runs and detaches deleted clients")
+
     # ── 66d. logger.warning is emitted on length ─────────────────────
     _chunks66d = [
         _Chunk66(content="Partial"),
@@ -13704,6 +13870,64 @@ try:
         assert _f68 in _iss68, f"{_f68} not found in thoth_setup.iss"
     record("PASS", f"68m: all {len(_new_iss_files68)} new files in thoth_setup.iss")
 
+    # ── 68m2. Provider runtime packaging smoke ─────────────────────
+    assert 'Source: "..\\providers\\*"' in _iss68 and "recursesubdirs" in _iss68, "providers package must be recursively included in Windows installer"
+    assert 'Source: "..\\ui\\model_catalog.py"' in _iss68, "ui/model_catalog.py must be included in Windows installer"
+    assert 'Source: "..\\ui\\provider_settings.py"' in _iss68, "ui/provider_settings.py must be included in Windows installer"
+    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer scripts utils providers mcp_client migration" in _mac68, "mac app bundle must copy providers package"
+    record("PASS", "68m2: Windows and mac packaging include provider runtime and UI files")
+
+    # ── 68m3. Clean data-dir first-run setup smoke ─────────────────
+    import os as _os68m3
+    import subprocess as _subprocess68m3
+    import sys as _sys68m3
+    import tempfile as _tempfile68m3
+    with _tempfile68m3.TemporaryDirectory(prefix="thoth_clean_first_run_") as _td68m3:
+        _env68m3 = dict(_os68m3.environ)
+        _env68m3["THOTH_DATA_DIR"] = _td68m3
+        _probe68m3 = (
+            "from ui.helpers import is_first_run, is_setup_complete, load_app_config; "
+            "from providers.config import load_provider_config; "
+            "import ui.setup_wizard; "
+            "assert load_app_config() == {}; "
+            "assert is_first_run() is True; "
+            "assert is_setup_complete() is False; "
+            "cfg = load_provider_config(); "
+            "assert cfg['providers'] == {}; "
+            "assert isinstance(cfg['quick_choices'], list); "
+            "print('clean-first-run-ok')"
+        )
+        _res68m3 = _subprocess68m3.run(
+            [_sys68m3.executable, "-c", _probe68m3],
+            cwd=str(_P68(".").resolve()),
+            env=_env68m3,
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+        assert _res68m3.returncode == 0, (_res68m3.stdout, _res68m3.stderr)
+    record("PASS", "68m3: clean data-dir imports setup wizard and provider config without preexisting state")
+
+    # ── 68m4. Codex release docs include risk/privacy notes ────────
+    _release_docs68m4 = {
+        "release_notes": _P68("RELEASE_NOTES.md").read_text(encoding="utf-8"),
+        "readme": _P68("README.md").read_text(encoding="utf-8"),
+        "architecture": _P68("docs/ARCHITECTURE.md").read_text(encoding="utf-8"),
+        "installer_readme": _P68("installer/README.md").read_text(encoding="utf-8"),
+        "releasing": _P68("docs/RELEASING.md").read_text(encoding="utf-8"),
+    }
+    _docs_all68m4 = "\n".join(_release_docs68m4.values())
+    assert "in-app ChatGPT sign-in" in _docs_all68m4, "release docs must mention in-app ChatGPT sign-in"
+    assert "metadata/reference" in _docs_all68m4, "release docs must document external Codex CLI metadata-only behavior"
+    assert "subscription/internal Codex backend" in _docs_all68m4, "release docs must document Codex backend risk"
+    assert "current conversation plus model-visible tool context and tool results" in _docs_all68m4, "release docs must document provider privacy context"
+    assert "Settings → Models" in _release_docs68m4["readme"], "README must direct catalog/pinning to Models"
+    assert "../docs/RELEASING.md" in _release_docs68m4["installer_readme"], "installer README must link to the canonical release process"
+    assert "installer/thoth_setup.iss" in _release_docs68m4["releasing"], "release process must mention Windows packaging checks"
+    assert "installer/build_mac_app.sh" in _release_docs68m4["releasing"], "release process must mention macOS packaging checks"
+    assert "clean data directory" in _release_docs68m4["releasing"], "release process must mention clean first-run smoke"
+    record("PASS", "68m4: Codex release docs cover sign-in, CLI boundary, backend risk, privacy, and release checklist")
+
     # ── 68n. requirements.txt has v3.15.0 deps ─────────────────────
     _reqs68 = _P68("requirements.txt").read_text(encoding="utf-8")
     _req_pkgs68 = ["pyngrok", "discord.py", "slack-bolt", "twilio", "python-telegram-bot"]
@@ -13736,6 +13960,15 @@ try:
         "test_memory_e2e.py",
         "test_mcp_client.py",
         "test_mcp_real_world_e2e.py",
+        "test_provider_auth_store.py",
+        "test_provider_catalog.py",
+        "test_provider_config.py",
+        "test_provider_custom.py",
+        "test_provider_media.py",
+        "test_provider_runtime.py",
+        "test_provider_selection.py",
+        "test_provider_subscription_auth.py",
+        "test_thoth_status_media.py",
         "integration_tests.py",
     }
     _top_files68 = [f.name for f in _P68(".").glob("*.py") if f.name not in _skip_top68]
@@ -14710,6 +14943,16 @@ try:
 except Exception as e:
     record("FAIL", "72a-designer-imports", f"{type(e).__name__}: {e}")
 
+# ── 72a2. Preview poll timer deactivates on disconnect ───────────────
+try:
+    _preview_src72a2 = (Path(PROJECT_ROOT) / "designer" / "preview.py").read_text(encoding="utf-8")
+    assert "_refresh_timer = ui.timer" in _preview_src72a2
+    assert "ui.context.client.on_disconnect" in _preview_src72a2
+    assert "_refresh_timer.deactivate()" in _preview_src72a2
+    record("PASS", "72a2: preview poll timer deactivates on disconnect")
+except Exception as e:
+    record("FAIL", "72a2-preview-timer-disconnect", f"{type(e).__name__}: {e}")
+
 # ── 72b. State — ASPECT_RATIOS is populated, DesignerProject defaults ────
 try:
     assert len(ASPECT_RATIOS) >= 5, f"Expected >=5 aspect ratios, got {len(ASPECT_RATIOS)}"
@@ -14881,6 +15124,18 @@ try:
     assert _out_changed is True
     assert "data:" not in _out_html or "asset://" in _out_html
 
+    # Designer editor open path must canonicalize stored HTML to asset refs,
+    # not persist render-time data URIs into project JSON.
+    from designer.editor import _canonicalize_stored_image_refs
+    _p21b_canon = _DP21b(id="__test72b-phase21b-canon__", name="Canon")
+    _p21b_canon.pages = [_DPg21b(
+        html='<img data-asset-id="asset-canon" src="data:image/png;base64,iVBORw0KGgo=" />',
+        title="Canonical",
+    )]
+    assert _canonicalize_stored_image_refs(_p21b_canon) is True
+    assert 'src="asset://asset-canon"' in _p21b_canon.pages[0].html, _p21b_canon.pages[0].html
+    assert "data:image" not in _p21b_canon.pages[0].html
+
     # resolve_project_media_sources — inlines video bytes as data URI
     _p21b = _DP21b(id="__test72b-phase21b__", name="Media Resolve")
     _vbytes = b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00"  # not real mp4, just bytes
@@ -14902,6 +15157,7 @@ try:
     try:
         delete_project(_p21b.id)
         delete_project(_p21b_shim.id)
+        delete_project(_p21b_canon.id)
     except Exception:
         pass
 
@@ -19125,4 +19381,5 @@ if FAIL == 0:
 else:
     print(f"⛔ {FAIL} TEST(S) FAILED")
 
-sys.exit(1 if FAIL > 0 else 0)
+if __name__ == "__main__":
+    sys.exit(1 if FAIL > 0 else 0)

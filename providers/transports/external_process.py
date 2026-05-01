@@ -1,0 +1,2 @@
+class ExternalProcessTransportNotEnabled(NotImplementedError):
+    pass

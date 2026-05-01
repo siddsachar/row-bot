@@ -1,0 +1,2 @@
+class GoogleCloudCodeTransportNotEnabled(NotImplementedError):
+    pass

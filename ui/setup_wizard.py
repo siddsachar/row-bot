@@ -55,6 +55,26 @@ async def show_setup_wizard(
     from api_keys import set_key
     from agent import clear_agent_cache
     from ui.helpers import mark_setup_complete
+    from providers.selection import add_quick_choice_for_model
+
+    def _open_first_run_migration_wizard() -> None:
+        with ui.dialog().props("maximized") as migration_dlg:
+            with ui.card().classes("w-full h-full no-shadow").style(
+                "max-width: 64rem; margin: 0 auto;"
+            ):
+                with ui.row().classes("w-full items-center justify-between px-4 pt-3 pb-1"):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.icon("move_up", size="sm")
+                        ui.label("Import from Hermes/OpenClaw").classes("text-h5")
+                    ui.button(icon="close", on_click=migration_dlg.close).props("flat round size=sm")
+                ui.separator()
+                with ui.scroll_area().classes("w-full").style("height: calc(100vh - 76px);"):
+                    with ui.column().classes("w-full px-6 py-4"):
+                        __import__(
+                            "ui.migration_wizard",
+                            fromlist=["build_migration_wizard_tab"],
+                        ).build_migration_wizard_tab()
+        migration_dlg.open()
 
     setup_dlg = ui.dialog().props(
         "persistent maximized transition-show=fade transition-hide=fade"
@@ -70,16 +90,30 @@ async def show_setup_wizard(
                 sanitize=False,
             )
             ui.label(
-                "Let's get you set up. This will only take a minute."
+                "Let's get your default mode, providers, and Quick Choices ready."
             ).classes("text-center text-grey-6")
 
             ui.separator()
 
+            ui.label("Import from an existing setup").classes("text-h6")
+            ui.label(
+                "Migration runs before provider setup so imported defaults and provider settings can shape the recommendations."
+            ).classes("text-grey-6 text-sm")
+            with ui.row().classes("w-full gap-2 q-my-sm"):
+                ui.button(
+                    "Open Migration Wizard",
+                    icon="move_up",
+                    on_click=_open_first_run_migration_wizard,
+                ).props("outline color=primary")
+                ui.button("Skip migration", icon="skip_next").props("flat color=grey")
+
+            ui.separator()
+
             # ── Setup Path Toggle ────────────────────────────────────
-            ui.label("⚡ How will you run Thoth?").classes("text-h6")
+            ui.label("Choose an AI account or local model").classes("text-h6")
             ui.label(
                 "Choose Local if you have a GPU and want full privacy. "
-                "Choose Cloud if you prefer using OpenAI, Claude, or other cloud APIs."
+                "Choose Provider if you prefer using OpenAI, Claude, Gemini, xAI, or OpenRouter API keys."
             ).classes("text-grey-6 text-sm")
 
             setup_path: dict[str, str | None] = {"mode": None}
@@ -100,7 +134,7 @@ async def show_setup_wizard(
                 ui.button("🖥️ Local (Ollama)", on_click=_pick_local).props(
                     "color=primary outline"
                 ).classes("flex-grow")
-                ui.button("☁️ Cloud (API key)", on_click=_pick_cloud).props(
+                ui.button("Providers (API key)", on_click=_pick_cloud).props(
                     "color=cyan outline"
                 ).classes("flex-grow")
 
@@ -109,11 +143,11 @@ async def show_setup_wizard(
             _local_section = ui.column().classes("w-full")
             _local_section.visible = False
 
-            # ── Cloud Setup Path ─────────────────────────────────────
+            # ── Provider Setup Path ──────────────────────────────────
             cloud_done: dict[str, bool] = {"value": False}
             with _cloud_section:
                 ui.label(
-                    "Enter at least one API key. OpenAI gives direct access to GPT models. "
+                    "Enter at least one provider API key. OpenAI gives direct access to GPT models. "
                     "Anthropic gives direct access to Claude. Google AI gives direct access to Gemini. "
                     "xAI gives direct access to Grok. "
                     "OpenRouter gives access to 100+ models from all providers."
@@ -143,7 +177,7 @@ async def show_setup_wizard(
                 cloud_status = ui.label("").classes("text-sm")
                 cloud_status.visible = False
                 cloud_model_select = ui.select(
-                    label="Default cloud model",
+                    label="Default provider model",
                     options=[],
                 ).classes("w-full").props("use-input input-debounce=300")
                 cloud_model_select.visible = False
@@ -220,10 +254,11 @@ async def show_setup_wizard(
                         cloud_vision_select.set_value(v_first)
                         cloud_vision_select.visible = True
                     cloud_status.text = f"✅ Found {count} models"
+                    add_quick_choice_for_model(first, source="setup_default")
                     cloud_done["value"] = True
                     _update_finish()
 
-                ui.button("🔑 Validate & Fetch Models", on_click=_validate_cloud_keys).props(
+                ui.button("Validate & Fetch Models", icon="key", on_click=_validate_cloud_keys).props(
                     "color=cyan"
                 )
 
@@ -530,16 +565,16 @@ async def show_setup_wizard(
                     "Settings → Channels to connect Telegram or Email so I can respond even when the app is closed.",
                 ),
             ]
-            # If cloud path was selected, add a tips entry for starring models
+            # If provider path was selected, add a tips entry for Quick Choices
             _is_cloud = setup_path["mode"] == "cloud"
             if _is_cloud:
                 tips.insert(
                     1,
                     (
-                        "⭐",
-                        "Star Models",
-                        "Head to Settings → Cloud to star your favorite models. "
-                        "Starred models appear in the quick-switch picker in the chat header.",
+                        "📌",
+                        "Quick Choices",
+                        "Head to Settings → Models to pin exact models. "
+                        "Quick Choices appear in chat, workflow, channel, and Designer pickers.",
                     ),
                 )
             for icon, title, desc in tips:
@@ -572,6 +607,7 @@ async def show_setup_wizard(
                     if sel:
                         set_model(sel)
                         state.current_model = sel
+                        add_quick_choice_for_model(sel, source="setup_default")
                         clear_agent_cache()
                     vsel = cloud_vision_select.value
                     if vsel:

@@ -18,7 +18,8 @@ QUERYING STATUS (thoth_status):
 - Use category='memory' for knowledge graph entity/relation counts.
 - Use category='skills' to list enabled and disabled skills.
 - Use category='tools' to list enabled and disabled tools.
-- Use category='api_keys' to check which providers are configured (never shows key values).
+- Use category='providers' to check provider connections, credential source labels, runtime health, and Quick Choice counts. Model catalog browsing, pinning, and defaults live in Settings -> Models.
+- Use category='api_keys' only for legacy/API key storage status. It never shows key values.
 - Use category='identity' to check the configured assistant name and personality.
 - Use category='tasks' to summarise active scheduled tasks.
 - Use category='vision' to check vision model, enabled state, and camera config.
@@ -42,7 +43,7 @@ CHANGING SETTINGS (thoth_update_setting):
 - After explaining the change, call thoth_update_setting directly so the approval prompt collects the confirmation.
 - Do NOT ask for a separate plain-text confirmation instead of calling the tool.
 - Supported settings:
-  - model: switch the active LLM (value = model name)
+  - model: switch the active LLM (value = local model name, provider model id, model:provider:id ref, or Quick Choice label/ref)
   - name: change the assistant name (value = new name)
   - personality: change personality text (value = new personality)
   - context_size: set local model context window (value = token count e.g. '65536')
@@ -51,12 +52,15 @@ CHANGING SETTINGS (thoth_update_setting):
   - dream_window: set dream cycle time window (value = 'START-END' e.g. '1-5')
   - skill_toggle: enable or disable a skill (value = 'skill_name:on' or 'skill_name:off')
   - tool_toggle: enable or disable a tool (value = 'tool_name:on' or 'tool_name:off'); for MCP use 'mcp:on' or 'mcp:off', which controls the global MCP client as well as the parent External MCP Tools toggle.
-  - image_gen_model: set the image generation model (value = provider/model-id)
-  - video_gen_model: set the video generation model (value = provider/model-id)
+  - image_gen_model: set the image generation model (value = provider/model-id, bare model id, or exact model label from Settings -> Models)
+  - video_gen_model: set the video generation model (value = provider/model-id, bare model id, or exact model label from Settings -> Models)
   - run_dream_cycle: manually trigger the dream cycle now (value = 'now')
   - self_improvement: enable or disable self-improvement (value = 'on' or 'off')
 - When the user asks to turn on/off a tool or skill, use tool_toggle or skill_toggle.
   Do NOT pretend to make the change — you MUST call thoth_update_setting.
+- When changing the active model to a provider model, prefer an existing Quick Choice from the Models catalog. Route selections may be visible in config but are not executable until routing runtime is enabled.
+- When changing image/video generation models, values are resolved against the dynamic provider media catalog used by Settings -> Models. Prefer canonical provider/model-id when available, but unique bare IDs and labels such as "GPT Image 2" or "Veo 3.1" are acceptable. After a media default changes, the corresponding Image/Video Quick Choice is updated automatically when the provider key is configured.
+- Credential source labels mean: "Saved in keyring" for Thoth-saved secrets, "Using environment variable" for external env overrides, "Using session key" for non-persistent fallback, and "Using legacy plaintext key" only for pre-migration data.
 - When the user asks to disable MCP, external MCP tools, Model Context Protocol, or the MCP client, call thoth_update_setting with setting='tool_toggle' and value='mcp:off'. Do not only report that the External MCP Tools parent tool is disabled; verify with thoth_status category='mcp' when needed.
 
 SKILL SELF-IMPROVEMENT (when enabled):

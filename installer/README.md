@@ -2,14 +2,18 @@
 
 This guide explains how to build a distributable Windows installer for Thoth v3.18.0.
 
+For version bumps, CI release workflow expectations, signing, tagging, and publish
+order, use the canonical [release process](../docs/RELEASING.md). This file only
+covers the Windows installer payload and local build flow.
+
 ## Architecture
 
-The installer bundles the embedded Python runtime, pre-installed Python packages, and app source code. Kokoro TTS model files are auto-downloaded on first use. Ollama and Playwright Chromium are handled by the build/runtime flow, and Ollama is optional because Thoth can run entirely with cloud models.
+The installer bundles the embedded Python runtime, pre-installed Python packages, and app source code. Kokoro TTS model files are auto-downloaded on first use. Ollama and Playwright Chromium are handled by the build/runtime flow, and Ollama is optional because Thoth can run entirely with provider models.
 
 | Bundled in .exe | Downloaded or created outside install |
 |----------------|--------------------------------------|
 | Python 3.13 embeddable runtime | Ollama installer is optional for local models |
-| App source code, tools, plugins, MCP client, migration wizard, UI, Designer, static assets, and sounds | Kokoro TTS model + voices auto-download on first TTS use |
+| App source code, tools, providers, plugins, MCP client, migration wizard, UI, Designer, static assets, and sounds | Kokoro TTS model + voices auto-download on first TTS use |
 | Python packages from `requirements.txt` | Playwright Chromium is bundled during build when available, otherwise installed on first browser use |
 
 ## Prerequisites
@@ -67,7 +71,7 @@ C:\Program Files\Thoth\            # Installation directory
     ├── wiki_vault.py               # Obsidian-compatible markdown vault export
     ├── dream_cycle.py              # Nightly knowledge refinement daemon
     ├── document_extraction.py      # Document knowledge extraction (map-reduce LLM pipeline)
-    ├── models.py                   # Ollama + cloud model management
+    ├── models.py                   # Compatibility facade for local + provider model management
     ├── documents.py                # Document ingestion
     ├── threads.py                  # Thread/conversation persistence
     ├── api_keys.py                 # API key management
@@ -102,6 +106,7 @@ C:\Program Files\Thoth\            # Installation directory
     │   ├── web_search_tool.py
     │   ├── ...
     │   └── youtube_tool.py
+    ├── providers/                  # Provider config, auth metadata, catalog, runtime, Quick Choices
     ├── mcp_client/                 # External MCP server client/runtime
     ├── migration/                  # Hermes/OpenClaw migration wizard backend
     └── plugins/                    # Plugin system & marketplace
@@ -126,7 +131,8 @@ C:\Program Files\Thoth\            # Installation directory
 ├── dream_journal.json              # Dream Cycle operation log
 ├── api_keys.json                   # API key metadata only; raw keys use the OS credential store when available
 ├── plugin_secrets.json             # Plugin API-key metadata only; raw keys use the OS credential store when available
-├── cloud_config.json               # Cloud model favorites and settings
+├── providers.json                  # Provider metadata, status, Quick Choices, and masked fingerprints
+├── cloud_config.json               # Legacy cloud model favorites/settings compatibility
 ├── app_config.json                 # Onboarding / first-run state
 ├── tools_config.json               # Tool enable/disable state
 ├── model_settings.json             # Selected model & context size
@@ -167,11 +173,12 @@ The Inno Setup installer runs these steps:
 2. Follow the wizard — dependencies download and install automatically (5-15 min)
 3. Launch Thoth from Start Menu or Desktop shortcut
 4. The system tray icon appears; the app opens at `http://localhost:8080`
-5. First launch shows a setup wizard — choose **Local** (download an Ollama model) or **Cloud** (enter an API key and pick a cloud model)
+5. First launch shows a setup wizard — choose **Local** (download an Ollama model) or **Providers** (enter an API key and pick a provider model)
 
 ## Notes
 
 - **CPU-only PyTorch**: `requirements.txt` uses CPU-only torch. Users with NVIDIA GPUs can upgrade to CUDA torch after install.
-- **Ollama is optional**: `install_deps.bat` offers to install Ollama, but it can be skipped for cloud-only setups. Thoth works entirely with cloud models (OpenAI / OpenRouter) and no local GPU.
+- **Ollama is optional**: `install_deps.bat` offers to install Ollama, but it can be skipped for provider-only setups. Thoth works with API-key provider models (OpenAI, Anthropic, Google AI, xAI, OpenRouter) and ChatGPT / Codex subscription models after in-app ChatGPT sign-in.
+- **Codex credential boundary**: external Codex CLI auth files are metadata/reference only. Direct ChatGPT / Codex runtime in the packaged app requires the in-app ChatGPT sign-in and stores Thoth-owned tokens in the OS credential store.
 - **Launcher**: Uses `launcher.py` (system tray icon + native window + splash screen) instead of running NiceGUI directly. The tray icon shows app status (running/stopped) and provides graceful shutdown.
 - **Uninstall**: Registered with Windows Add/Remove Programs. The uninstaller removes the installation directory but does **not** delete user data in `~/.thoth/` — users can remove it manually if desired.

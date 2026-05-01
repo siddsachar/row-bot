@@ -2,6 +2,25 @@
 
 ---
 
+## Unreleased — Provider Runtime Foundation
+
+- Added the new `providers/` subsystem for provider definitions, metadata-only config, keyring-backed provider secrets, external credential discovery references, catalog normalization, runtime construction, Quick Choices, status summaries, error normalization, custom endpoint stubs, and routing profile foundations.
+- Renamed the Settings `Cloud` surface to `Providers` while keeping the old `Cloud` deep link as a compatibility alias.
+- Migrated existing OpenAI, OpenRouter, Anthropic, Google AI, and xAI API-key runtime construction behind the provider runtime facade while preserving the public `models.py` API.
+- Added ChatGPT / Codex as a subscription-backed provider. Direct Codex chat runtime requires signing in through Thoth's in-app ChatGPT device-flow sign-in; an external Codex CLI login can be referenced for display-safe metadata only and is not copied or used as runnable Thoth credentials.
+- Replaced everyday picker sourcing with Quick Choices for chat, workflow, Telegram `/model`, Thoth Status model updates, and the Models tab, so raw provider catalogs no longer flood normal model selectors.
+- Updated first-run setup copy to offer migration before provider setup and seed the selected provider default into Quick Choices.
+- Added focused provider tests for config normalization/masking, keyring namespace storage, provider catalog inference, and legacy `starred_models` migration.
+
+### Release notes and risk notes
+
+- **Codex runtime sign-in** — ChatGPT / Codex models only run after an in-app ChatGPT sign-in stores Thoth-owned OAuth tokens in the local OS credential store. External Codex CLI auth files are detected only as metadata/reference hints; Thoth does not copy tokens out of `~/.codex/auth.json`.
+- **Subscription backend risk** — ChatGPT / Codex uses ChatGPT's subscription/internal Codex backend rather than the public OpenAI API. The endpoint, catalog shape, auth requirements, rate limits, and model availability may change upstream without the same stability guarantees as the public API.
+- **Privacy** — when a ChatGPT / Codex model is selected, the current conversation plus model-visible tool context and tool results are sent to ChatGPT / Codex for that turn. Durable Thoth data such as memories, documents, files, and other conversations stay local unless they are explicitly included in the active conversation or exposed through a tool result.
+- **Packaging smoke** — Windows installer coverage includes the recursive `providers/` package plus `ui/model_catalog.py` and `ui/provider_settings.py`; macOS app bundle coverage includes `providers/` through the package-copy list. Clean data-dir first-run setup remains gated by the setup wizard so a fresh install can launch before any provider config exists.
+
+---
+
 ## v3.18.0 — External MCP Tools, Migration Wizard & Secure API Keys
 
 Thoth now has a full **Model Context Protocol client** for connecting external MCP servers as native dynamic tools without letting a broken server take down the app. This release also adds a guarded **Hermes/OpenClaw migration wizard** in Preferences, moves normal core and plugin API-key saves into the OS credential store, and fixes a cloud-model default regression where a saved GPT/Claude/Gemini/Grok/OpenRouter model could be replaced by a local Ollama fallback when the cloud-model cache was empty.

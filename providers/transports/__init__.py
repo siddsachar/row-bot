@@ -1,0 +1,1 @@
+"""Transport adapters for provider-backed chat models."""

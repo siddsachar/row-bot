@@ -116,14 +116,8 @@ def show_task_dialog(
     *task=None* → create mode (blank fields).
     *task=dict* → edit mode (pre-populated).
     """
-    from models import (
-        list_local_models,
-        is_tool_compatible,
-        is_cloud_available,
-        list_starred_cloud_models,
-        get_current_model,
-        get_provider_emoji,
-    )
+    from models import get_current_model
+    from providers.selection import list_model_choice_options, model_choice_value
     from tasks import (
         get_run_history,
         create_task,
@@ -254,15 +248,14 @@ def show_task_dialog(
                     )
 
                 # Model override dropdown
-                _local = list_local_models()
-                _compat = [m for m in _local if is_tool_compatible(m)]
-                if is_cloud_available():
-                    _compat.extend(list_starred_cloud_models())
-                _default_label = f"Default ({get_current_model()})"
-                _model_opts_map = {_default_label: _default_label}
-                for _m in sorted(_compat):
-                    _model_opts_map[_m] = f"{get_provider_emoji(_m)} {_m}"
-                _model_val = _model_ov if _model_ov in _compat else _default_label
+                _default_label = "__default__"
+                _model_opts_map = {_default_label: f"Default — {get_current_model()}"}
+                for _option in list_model_choice_options("workflow", include_values=[_model_ov] if _model_ov else []):
+                    _value = str(_option.get("value") or "")
+                    if _value:
+                        _model_opts_map[_value] = str(_option.get("label") or _value)
+                _model_ov_value = model_choice_value(_model_ov)
+                _model_val = _model_ov_value if _model_ov_value in _model_opts_map else _default_label
                 model_sel = ui.select(
                     _model_opts_map, value=_model_val, label="Model",
                 ).classes("w-full").tooltip(
@@ -1679,8 +1672,7 @@ def show_task_dialog(
                     cur_channels = [
                         n for n, cb in _ch_checkboxes.items() if cb.value
                     ]
-                _def_label = f"Default ({get_current_model()})"
-                cur_model_ov = model_sel.value if model_sel.value != _def_label else None
+                cur_model_ov = model_sel.value if model_sel.value != "__default__" else None
 
                 # Parse tools override (advanced mode only)
                 cur_tools_override = None

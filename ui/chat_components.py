@@ -235,12 +235,6 @@ def build_chat_input_bar(
         Whether to render the model override dropdown.  ``True`` in normal
         chat and Designer.  ``False`` only if explicitly suppressed.
     """
-    from models import (
-        get_current_model, is_cloud_model, get_provider_emoji,
-        list_local_models, list_starred_cloud_models, get_cloud_provider,
-        get_model_max_context, get_user_context_size, CONTEXT_SIZE_LABELS,
-    )
-
     # ── Attach handler ───────────────────────────────────────────────
     async def _on_attach():
         if (sys.platform == "darwin" and os.environ.get("THOTH_NATIVE") == "1"
@@ -372,51 +366,41 @@ def _build_inline_model_picker(
 ) -> None:
     """Compact model picker rendered inside the input bar."""
     from agent import clear_agent_cache
-    from models import (
-        get_current_model, is_cloud_model, get_provider_emoji,
-        list_local_models, list_starred_cloud_models,
-        get_model_max_context, get_user_context_size, CONTEXT_SIZE_LABELS,
-    )
+    from models import get_current_model
+    from providers.selection import list_model_choice_options, model_choice_value
 
     _cur_default = get_current_model()
-    _prefix = get_provider_emoji(_cur_default)
-    _default_opt = f"{_prefix} {_cur_default}"
-    _picker_opts = [_default_opt]
+    _cur_default_value = model_choice_value(_cur_default)
+    _default_opt = "__default__"
+    _picker_opts = {_default_opt: f"Default — {_cur_default}"}
 
-    for cid in list_starred_cloud_models():
-        if cid != _cur_default:
-            _picker_opts.append(f"{get_provider_emoji(cid)} {cid}")
-    for lid in list_local_models():
-        if lid != _cur_default:
-            _picker_opts.append(f"🖥️ {lid}")
+    _cur_mo = state.thread_model_override or ""
+    for option in list_model_choice_options("chat", include_values=[_cur_mo] if _cur_mo else []):
+        value = str(option.get("value") or "")
+        if value and value != _cur_default_value:
+            _picker_opts[value] = str(option.get("label") or value)
 
     _MORE = "⚙️ More models…"
     if open_settings:
-        _picker_opts.append(_MORE)
+        _picker_opts[_MORE] = _MORE
 
-    _cur_mo = state.thread_model_override or ""
-    if _cur_mo and is_cloud_model(_cur_mo):
-        _picker_val = f"{get_provider_emoji(_cur_mo)} {_cur_mo}"
-    elif _cur_mo and not is_cloud_model(_cur_mo) and _cur_mo != _cur_default:
-        _picker_val = f"🖥️ {_cur_mo}"
-    else:
-        _picker_val = _default_opt
+    _cur_mo_value = model_choice_value(_cur_mo)
+    _picker_val = _cur_mo_value if _cur_mo_value and _cur_mo_value in _picker_opts else _default_opt
 
     async def _on_pick(e):
         val = e.value
         if val == _MORE:
             e.sender.set_value(_picker_val)
             if open_settings:
-                open_settings("Cloud")
+                open_settings("Models")
             return
         from threads import _set_thread_model_override
         if val == _default_opt:
             state.thread_model_override = ""
             _set_thread_model_override(state.thread_id, "")
-        elif " " in val:
-            model_id = val.split(" ", 1)[1]
-            state.thread_model_override = model_id
-            _set_thread_model_override(state.thread_id, model_id)
+        elif val in _picker_opts:
+            state.thread_model_override = val
+            _set_thread_model_override(state.thread_id, val)
         else:
             state.thread_model_override = ""
             _set_thread_model_override(state.thread_id, "")

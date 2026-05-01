@@ -12,7 +12,7 @@
 - [Wiki Vault](#wiki-vault)
 - [Dream Cycle](#dream-cycle)
 - [Document Knowledge Extraction](#document-knowledge-extraction)
-- [Brain Model & Cloud Models](#brain-model--cloud-models)
+- [Brain Model & Providers](#brain-model--providers)
 - [Voice Input & Text-to-Speech](#voice-input--text-to-speech)
 - [Shell Access](#shell-access)
 - [Browser Automation](#browser-automation)
@@ -141,24 +141,30 @@ Uploaded documents are processed through a three-phase **map-reduce LLM pipeline
 
 ---
 
-## Brain Model & Cloud Models
+## Brain Model & Providers
 
-The brain model is Thoth's default LLM — the model used for conversations, memory extraction, dream analysis, and any thread or workflow without a specific override. It can be a local Ollama model or an opt-in cloud model.
+The brain model is Thoth's default LLM — the model used for conversations, memory extraction, dream analysis, and any thread or workflow without a specific override. It can be a local Ollama model or an opt-in provider model.
 
 Thoth is built and tested for local models first. Every feature supports local models, and that remains the priority. Local models already handle tool calling, multi-step reasoning, memory extraction, and long conversations well with a 14B+ model.
 
-Cloud models are supported for users without a dedicated GPU, for frontier reasoning on demand, or for trying many providers without downloading large local weights. Thoth supports opt-in cloud models through **OpenAI** (direct API), **Anthropic** (Claude), **Google AI** (Gemini), **xAI** (Grok), and **OpenRouter** (many third-party models), all configured from the GUI.
+Provider models are supported for users without a dedicated GPU, for frontier reasoning on demand, or for trying many providers without downloading large local weights. Thoth supports opt-in provider models through **OpenAI** (direct API), **Anthropic** (Claude), **Google AI** (Gemini), **xAI** (Grok), **OpenRouter** (many third-party models), and **ChatGPT / Codex** (subscription-backed Codex models). Provider connections, health, and credential sources are configured from Settings -> Providers; model catalog browsing, pinning, and defaults live in Settings -> Models.
 
-- **Dynamic model switching** — change the brain model from Settings; choose from curated local models or any connected cloud model
+The `providers/` subsystem now owns provider config, auth metadata, model catalog normalization, runtime construction, display-safe status, and Quick Choices. Existing public functions in `models.py` remain as compatibility facades while provider-backed selection is rolled through the app.
+
+ChatGPT / Codex is deliberately modeled as a subscription provider, not as another OpenAI API-key route. Direct Codex runtime requires Thoth's in-app ChatGPT device-flow sign-in so Thoth stores its own runnable OAuth tokens in the local OS credential store. Existing Codex CLI auth files can be referenced only as display-safe metadata: Thoth records that the external login exists, path/fingerprint metadata, and broad auth-file shape, but it does not copy runnable tokens from `~/.codex/auth.json`.
+
+Codex runtime uses ChatGPT's subscription/internal Codex backend rather than the public OpenAI API. That means endpoint behavior, catalog shape, auth requirements, rate limits, and model availability may change upstream. When a ChatGPT / Codex model is selected, the current conversation plus model-visible tool context and tool results are sent to ChatGPT / Codex for that turn. Durable Thoth data such as memories, documents, files, and other conversations remain local unless explicitly included in the active conversation or surfaced by a tool result.
+
+- **Dynamic model switching** — change the brain model from Settings; choose from pinned local/provider Quick Choices managed in the Models catalog
 - **Per-thread & per-workflow model override** — conversations and workflows can each run on a different model, with overrides persisted locally
-- **Starred models** — favorite cloud models appear alongside local models in the inline picker for quick switching
+- **Quick Choices** — models pinned from the consolidated Models catalog appear in chat, workflow, channel, Designer, and status-tool pickers
 - **Cost-efficient context management** — smart context trimming compresses older conversation turns and shrinks oversized tool outputs, reducing token usage and API costs for cloud models
 - **Curated local models** — only tool-calling-capable local models are surfaced prominently
 - **Tool-support validation** — unsupported local models are warned about and can be auto-reverted if they fail a live tool-call check
 - **Download buttons** — local models not yet present show download actions with progress
-- **Configurable context window** — local and cloud context caps can be set independently; actual model limits are still respected
-- **Local & cloud indicators** — the UI clearly distinguishes downloaded local models, missing local models, and connected cloud models
-- **Cloud vision detection** — cloud models with image capability are detected and reused by the Vision feature when available
+- **Configurable context window** — local and provider context caps can be set independently; actual model limits are still respected
+- **Local & provider indicators** — the UI clearly distinguishes downloaded local models, missing local models, and connected provider models
+- **Provider vision detection** — provider models with image capability are detected and reused by the Vision feature when available
 
 ---
 
@@ -636,7 +642,7 @@ A sandboxed, hot-reloadable extension system lets plugins add new tools and skil
 - **Native window** — runs in a desktop window via pywebview rather than depending on a browser tab
 - **System tray** — `launcher.py` exposes open and quit controls plus running-state feedback
 - **Splash screen** — Tk-based splash with console fallback during startup
-- **First-launch setup wizard** — guides the user through Local or Cloud setup paths without touching config files
+- **First-launch setup wizard** — guides the user through migration, Local, or Providers setup paths without touching config files
 - **Self-contained installers** — Windows and macOS releases bundle dependencies for one-click setup
 - **Auto-restart flow** — closing the native window does not kill the tray-managed app process; reopen is fast
 - **Release pipeline** — build, sign, notarize, and publish automation lives in CI
@@ -647,7 +653,7 @@ A sandboxed, hot-reloadable extension system lets plugins add new tools and skil
 
 - **Multi-turn threads** — conversation history is stored in SQLite via LangGraph checkpointing and local thread metadata
 - **Auto-naming and switching** — threads are named from the conversation and can be reopened, exported, or deleted individually
-- **Per-thread model override** — conversations can pin a different local or cloud model than the global default
+- **Per-thread model override** — conversations can pin a different local or provider model than the global default
 - **File attachments** — drag-and-drop, clipboard paste, and standard upload flows handle images, PDFs, spreadsheets, JSON, and text
 - **Media persistence** — chat media is stored per thread on disk with sidecar metadata; generated content persists more aggressively than transient capture artifacts
 - **Inline rich rendering** — Plotly charts, Mermaid diagrams, YouTube embeds, syntax-highlighted code, and images render directly in the transcript
@@ -712,7 +718,7 @@ Thoth ships with **13 manual bundled skills** and **18 tool guides**. Manual ski
 | **`wiki_vault.py`** | Obsidian-compatible markdown vault export, indexing, search, and conversation export |
 | **`dream_cycle.py`** | Nightly graph refinement engine: merges, enrichment, decay, relation inference, insights analysis, and journal logging |
 | **`document_extraction.py`** | Background document map-reduce extraction pipeline with provenance-aware graph writes |
-| **`models.py`** | Local and cloud model management, context caps, starred models, provider detection, and model factories |
+| **`models.py`** | Local model management plus compatibility facades for provider model catalogs, context caps, Quick Choices, provider detection, and model factories |
 | **`documents.py`** | Document ingestion, chunking, embedding, vector-store persistence, and per-document cleanup |
 | **`voice.py`** | Faster-whisper-based speech input pipeline and voice-state management |
 | **`tts.py`** | Kokoro text-to-speech integration, voice catalog, and streaming playback |
@@ -759,7 +765,8 @@ All user data is stored under `~/.thoth/` (or `%USERPROFILE%\\.thoth\\` on Windo
 ├── dream_rejections.json          # Rejected inference-pair cache
 ├── insights.json                  # Structured insight store
 ├── api_keys.json                  # API key metadata only; raw key values live in the OS credential store when available
-├── cloud_config.json              # Starred cloud models and cloud settings
+├── cloud_config.json              # Legacy provider-model pinning compatibility data
+├── providers.json                 # Provider metadata, Quick Choices, routing profiles, and credential fingerprints only
 ├── app_config.json                # Onboarding and first-run flags
 ├── user_config.json               # Avatar preferences, identity, and self-improvement settings
 ├── channels_config.json           # Channel enablement and per-channel config

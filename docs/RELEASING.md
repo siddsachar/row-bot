@@ -39,7 +39,12 @@ Thoth uses semantic versioning:
    report version placeholder.
 
 5. Update `RELEASE_NOTES.md` with human-readable notes.
-6. Open and merge the release-prep PR.
+6. Confirm new shipped runtime files are covered by platform packaging:
+   Windows `installer/thoth_setup.iss`, macOS `installer/build_mac_app.sh`,
+   and the installer payload notes in `installer/README.md`.
+7. Smoke-test first-run behavior against a clean data directory before building
+   artifacts, especially setup wizard imports and provider config defaults.
+8. Open and merge the release-prep PR.
 
 ## Build artifacts
 

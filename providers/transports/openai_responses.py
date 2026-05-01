@@ -1,0 +1,2 @@
+class ResponsesTransportNotEnabled(NotImplementedError):
+    pass

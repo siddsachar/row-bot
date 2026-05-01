@@ -1941,6 +1941,28 @@ def resume_invoke_agent(enabled_tool_names: list[str], config: dict, approved: b
     return "I wasn't able to generate a response."
 
 
+def _latest_ai_text_from_state(agent, config: dict) -> str:
+    try:
+        state = agent.get_state(config)
+    except Exception:
+        return ""
+    if not state or not getattr(state, "values", None):
+        return ""
+    messages = list(state.values.get("messages", []))
+    latest_human_idx = -1
+    for idx in range(len(messages) - 1, -1, -1):
+        if getattr(messages[idx], "type", None) == "human":
+            latest_human_idx = idx
+            break
+    current_turn_messages = messages[latest_human_idx + 1:] if latest_human_idx >= 0 else messages
+    for msg in reversed(current_turn_messages):
+        if hasattr(msg, "type") and msg.type == "ai" and getattr(msg, "content", None):
+            text = _content_to_str(msg.content)
+            if text.strip():
+                return text
+    return ""
+
+
 def _stream_graph(agent, input_data, config: dict,
                   *, stop_event: threading.Event | None = None):
     """Shared streaming logic for both initial invocation and resume."""
@@ -2259,6 +2281,11 @@ def _stream_graph(agent, input_data, config: dict,
         if all_interrupts:
             yield ("interrupt", all_interrupts)
             return
+
+    if not full_answer:
+        fallback_text = _latest_ai_text_from_state(agent, config)
+        if fallback_text:
+            full_answer.append(fallback_text)
 
     # Warn if the model stopped due to output token limit
     if _finish_reason == "length" and full_answer:

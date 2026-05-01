@@ -149,6 +149,48 @@ def _handle_ui_runtime_error(
     return True
 
 
+def _ui_handle_client_deleted(handle: Any) -> bool:
+    client = getattr(handle, "client", None)
+    if client is None:
+        return False
+    return bool(getattr(client, "_deleted", False))
+
+
+def _detach_if_ui_client_deleted(
+    gen: GenerationState,
+    state: AppState,
+    reason: str,
+) -> bool:
+    if gen.detached:
+        return False
+    for handle in (
+        gen.wrapper,
+        gen.assistant_md,
+        gen.thinking_label,
+        gen.thinking_md,
+        gen.tool_col,
+    ):
+        if handle is not None and _ui_handle_client_deleted(handle):
+            _detach_generation(gen, state, reason)
+            return True
+    return False
+
+
+def _generation_is_terminal(gen: GenerationState) -> bool:
+    return str(getattr(gen, "status", "")).lower() in {"done", "error", "stopped"}
+
+
+def _drop_terminal_active_generation(thread_id: str | None) -> bool:
+    if not thread_id:
+        return False
+    existing = _active_generations.get(thread_id)
+    if existing is None or not _generation_is_terminal(existing):
+        return False
+    _active_generations.pop(thread_id, None)
+    logger.info("Cleared terminal active generation for thread %s", thread_id)
+    return True
+
+
 # ── Type alias for the callback bundle ───────────────────────────────
 class _Callbacks:
     """Container for all cross-cutting callbacks.
@@ -191,7 +233,7 @@ async def consume_generation(
     """
     from agent import get_agent_graph, repair_orphaned_tool_calls
     from langchain_core.messages import AIMessage
-    from ui.helpers import persist_detached_thread_media, persist_thread_media_state
+    from ui.helpers import load_thread_messages, persist_detached_thread_media, persist_thread_media_state
 
     _stopped_shown = False
     _drain_deadline = 0.0
@@ -215,7 +257,8 @@ async def consume_generation(
                     if gen.assistant_md:
                         gen.assistant_md.set_visibility(True)
                         gen.assistant_md.set_content(_format_assistant_markdown(gen.accumulated))
-                except Exception:
+                except Exception as exc:
+                    _handle_ui_runtime_error(gen, state, exc, "stop-handling UI cleanup")
                     logger.debug("Stop-handling UI cleanup failed", exc_info=True)
             if gen.tts_active:
                 state.tts_service.stop()
@@ -237,6 +280,8 @@ async def consume_generation(
 
         event_type, payload = event
         _break_loop = False
+        if not gen.detached:
+            _detach_if_ui_client_deleted(gen, state, f"before {event_type} UI update")
 
         # ── First content transition ─────────────────────────────────
         if not gen.first_content and event_type in ("token", "done"):
@@ -427,6 +472,9 @@ async def consume_generation(
 
     try:
         if not gen.detached:
+            _detach_if_ui_client_deleted(gen, state, "post-stream finalization")
+
+        if not gen.detached:
             if gen.tts_active:
                 state.tts_service.flush_streaming(gen.tts_buffer)
 
@@ -492,23 +540,38 @@ async def consume_generation(
             state.cache_active_messages()
             _persisted_detached = True
         else:
-            _persisted_detached = persist_detached_thread_media(
-                gen.thread_id,
-                gen.accumulated,
-                images=gen.captured_images,
-                image_persist_flags=gen.captured_images_persist,
-                videos=gen.captured_videos,
-            )
+            _has_detached_media = bool(gen.captured_images or gen.captured_videos)
+            if _has_detached_media:
+                _persisted_detached = persist_detached_thread_media(
+                    gen.thread_id,
+                    gen.accumulated,
+                    images=gen.captured_images,
+                    image_persist_flags=gen.captured_images_persist,
+                    videos=gen.captured_videos,
+                )
             # Detached run wrote straight to the checkpoint; mark its
             # cached message list stale so the next select re-reads.
             state.mark_thread_dirty(gen.thread_id)
+            if _has_detached_media and not _persisted_detached:
+                logger.warning(
+                    "Detached generation for thread %s completed but media sidecar persistence did not attach anything",
+                    gen.thread_id,
+                )
+            if state.thread_id == gen.thread_id:
+                try:
+                    state.messages = load_thread_messages(gen.thread_id)
+                    state.cache_active_messages()
+                except Exception:
+                    logger.debug("Failed to reload detached final messages for active thread %s", gen.thread_id, exc_info=True)
 
     # Cleanup
-    if not _has_final_output or _persisted_detached:
+    if _active_generations.get(gen.thread_id) is gen:
         _active_generations.pop(gen.thread_id, None)
 
     # Update UI if this is still the active thread
     if state.thread_id == gen.thread_id:
+        if not gen.detached:
+            _detach_if_ui_client_deleted(gen, state, "final active-thread UI update")
         # If we detached mid-stream but the client came back and is
         # still looking at this thread, the in-DOM element handles are
         # stale.  Rebuild the chat view so the persisted final message
@@ -518,7 +581,7 @@ async def consume_generation(
                 cb.rebuild_main()
             except Exception:
                 logger.debug("rebuild_main after detached finalize failed", exc_info=True)
-        if p.stop_btn:
+        if p.stop_btn and not _ui_handle_client_deleted(p.stop_btn):
             try:
                 p.stop_btn.props('icon=stop')
                 p.stop_btn.disable()
@@ -558,6 +621,9 @@ async def _handle_tool_done(
         # content may be a list of content-blocks (e.g. Anthropic cache_control format)
         tool_content = " ".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in tool_content) if isinstance(tool_content, list) else str(tool_content)
 
+    if not gen.detached:
+        _detach_if_ui_client_deleted(gen, state, f"tool {tool_name} result rendering")
+
     # Chart detection
     if tool_content and tool_content.startswith("__CHART__:"):
         marker_end = tool_content.find("\n\n", 10)
@@ -574,7 +640,8 @@ async def _handle_tool_done(
                 fig = _pio.from_json(fig_json)
                 with gen.tool_col:
                     ui.plotly(fig).classes("w-full")
-            except Exception:
+            except Exception as exc:
+                _handle_ui_runtime_error(gen, state, exc, "chart rendering")
                 logger.debug("Chart rendering failed", exc_info=True)
         tool_content = display_text
 
@@ -594,7 +661,8 @@ async def _handle_tool_done(
             try:
                 with gen.tool_col:
                     render_image_with_save(_img_b64)
-            except Exception:
+            except Exception as exc:
+                _handle_ui_runtime_error(gen, state, exc, "image marker rendering")
                 logger.debug("Image marker rendering failed", exc_info=True)
         tool_content = display_text
 
@@ -611,7 +679,8 @@ async def _handle_tool_done(
             try:
                 with gen.tool_col:
                     ui.html(_html_content).classes("w-full")
-            except Exception:
+            except Exception as exc:
+                _handle_ui_runtime_error(gen, state, exc, "HTML widget rendering")
                 logger.debug("HTML widget rendering failed", exc_info=True)
         tool_content = display_text
 
@@ -640,7 +709,8 @@ async def _handle_tool_done(
                             if len(tool_content) > 5_000:
                                 display += "\n\n\u2026 (truncated)"
                             ui.code(display).classes("w-full text-xs")
-        except Exception:
+        except Exception as exc:
+            _handle_ui_runtime_error(gen, state, exc, "tool expansion update")
             logger.debug("Tool expansion update failed for %s", tool_name, exc_info=True)
 
     gen.tool_results.append({"name": tool_name, "content": tool_content})
@@ -657,7 +727,8 @@ async def _handle_tool_done(
                 try:
                     with gen.tool_col:
                         render_image_with_save(b64_img)
-                except Exception:
+                except Exception as exc:
+                    _handle_ui_runtime_error(gen, state, exc, "vision capture rendering")
                     logger.debug("Vision capture rendering failed", exc_info=True)
             vsvc.last_capture = None
 
@@ -684,7 +755,8 @@ async def _handle_tool_done(
                                 _b64_ss,
                                 extra_style="border: 1px solid #333; margin-top: 4px;",
                             )
-        except Exception:
+        except Exception as exc:
+            _handle_ui_runtime_error(gen, state, exc, "browser screenshot rendering")
             logger.debug("Browser screenshot rendering failed", exc_info=True)
 
     # Filesystem image display (workspace_read_file on image files)
@@ -699,7 +771,8 @@ async def _handle_tool_done(
                 if not gen.detached and gen.tool_col:
                     with gen.tool_col:
                         render_image_with_save(_fs_img["b64"])
-        except Exception:
+        except Exception as exc:
+            _handle_ui_runtime_error(gen, state, exc, "filesystem image rendering")
             logger.debug("Filesystem image rendering failed", exc_info=True)
 
     # Image generation display (generate_image / edit_image)
@@ -714,7 +787,8 @@ async def _handle_tool_done(
                 if not gen.detached and gen.tool_col:
                     with gen.tool_col:
                         render_image_with_save(_gen_img)
-        except Exception:
+        except Exception as exc:
+            _handle_ui_runtime_error(gen, state, exc, "image generation rendering")
             logger.debug("Image generation rendering failed", exc_info=True)
 
     # Video generation display (generate_video / animate_image)
@@ -729,7 +803,8 @@ async def _handle_tool_done(
                     with gen.tool_col:
                         from ui.render import render_video_with_save
                         render_video_with_save(_gen_vid["path"])
-        except Exception:
+        except Exception as exc:
+            _handle_ui_runtime_error(gen, state, exc, "video generation rendering")
             logger.debug("Video generation rendering failed", exc_info=True)
 
 
@@ -754,7 +829,8 @@ async def send_message(
     if not text.strip() and not p.pending_files:
         return
     if state.thread_id and state.thread_id in _active_generations:
-        return
+        if not _drop_terminal_active_generation(state.thread_id):
+            return
 
     # Ensure a thread exists
     if state.thread_id is None:

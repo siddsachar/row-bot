@@ -77,12 +77,16 @@ def open_settings(
     # ── Recursive reopen helper ──
     def _reopen(tab: str = initial_tab):
         p.settings_dlg.close()
+        if tab == "Cloud":
+            tab = "Providers"
         open_settings(state, p, initial_tab=tab)
 
     # ── Lazy helpers (deferred to avoid slow import on panel open) ──
     def clear_agent_cache():
         from agent import clear_agent_cache as _cac
         _cac()
+
+    _model_tab_sync = {"callback": None}
 
     def _secret_status_text(env_var: str) -> str:
         status = key_status(env_var)
@@ -235,41 +239,33 @@ def open_settings(
 
     # ── Models Tab ───────────────────────────────────────────────────
 
-    def _build_models_tab() -> None:
-        _ollama_up = _ollama_reachable()
-        fetch_trending_ollama_models()
-        trending = get_trending_models()
+    def _render_models_tab_content(preloaded: dict | None = None) -> None:
+        from providers.selection import (
+            list_model_choice_options,
+            model_choice_options_map,
+            model_choice_value,
+            model_id_from_choice_value,
+        )
 
-        ui.label("🤖 Models").classes("text-h6")
-        ui.label(
-            "Thoth uses two models: a Brain model for reasoning, tool use, "
-            "and conversation, and a Vision model for camera-based image "
-            "analysis. Local models are served through Ollama; cloud models "
-            "use your configured API keys."
-        ).classes("text-grey-6 text-sm")
-
-        ui.label("✅ Downloaded  ⬇️ Available  🆕 Trending  ⬡ OpenAI  🌐 OpenRouter").classes("text-xs text-grey-5 q-mt-xs")
-        ui.label("🔑 API keys can be managed in the Cloud tab.").classes("text-xs text-grey-5")
-
-        ui.separator()
-        ui.label("🧠 Brain Model").classes("text-h6")
-        ui.label(
-            "The main reasoning model that powers Thoth's conversations and "
-            "tool use. Recommended: 14B+ for best accuracy. "
-            "Minimum: 8B — smaller models may struggle with complex tasks."
-        ).classes("text-grey-6 text-sm")
-
-        local = list_local_models()
-        cloud = list_cloud_models()
-        current = state.current_model
-
-        if _ollama_up:
-            all_models = sorted(set(list_all_models() + cloud))
+        if preloaded is None:
+            _ollama_up = _ollama_reachable()
+            fetch_trending_ollama_models()
+            trending = get_trending_models()
+            local_models = list_local_models()
+            chat_options = list_model_choice_options("chat", include_values=[get_current_model()])
+            vision_options = list_model_choice_options("vision", include_values=[state.vision_service.model])
+            catalog_rows = []
         else:
-            all_models = sorted(set(cloud + ([current] if not is_cloud_model(current) else [])))
+            _ollama_up = bool(preloaded.get("ollama_up"))
+            trending = list(preloaded.get("trending") or [])
+            local_models = list(preloaded.get("local") or [])
+            chat_options = list(preloaded.get("chat_options") or [])
+            vision_options = list(preloaded.get("vision_options") or [])
+            catalog_rows = list(preloaded.get("catalog_rows") or [])
 
-        if current not in all_models:
-            all_models = sorted(set(all_models + [current]))
+        local = local_models
+        current = state.current_model
+        current_value = model_choice_value(current)
 
         def _model_label(m, local_override=None):
             loc = local_override if local_override is not None else local
@@ -283,16 +279,242 @@ def open_settings(
             warn = '' if is_tool_compatible(m) else '  ⚠️ may not support tools'
             return f"⬇️  {m}{warn}"
 
-        model_opts = {m: _model_label(m) for m in all_models}
+        model_opts = {str(option["value"]): str(option["label"]) for option in chat_options}
+        if current_value and current_value not in model_opts:
+            model_opts.update(model_choice_options_map("chat", include_values=[current]))
 
-        model_select = ui.select(
-            label="Select model",
-            options=model_opts,
-            value=current,
-        ).classes("w-full").props('use-input input-debounce=300')
+        _is_cloud_ctx = is_cloud_model(state.current_model)
+        ctx_opts = {v: CONTEXT_SIZE_LABELS.get(v, str(v)) for v in CONTEXT_SIZE_OPTIONS}
+        cloud_ctx_opts = {v: CLOUD_CONTEXT_SIZE_LABELS.get(v, str(v))
+                         for v in CLOUD_CONTEXT_SIZE_OPTIONS}
 
-        brain_dl_btn = ui.button(f"⬇️ Download {current}").props("color=primary outline")
-        brain_dl_btn.visible = _ollama_up and not is_cloud_model(current) and current not in local
+        def _fmt_ctx(val):
+            if val and val >= 1_000_000:
+                return f"{val // 1_000_000}M"
+            if val and val >= 1_000:
+                return f"{val // 1_000}K"
+            return "?"
+
+        def _model_source_label(model_id: str) -> str:
+            if is_cloud_model(model_id):
+                return "Provider"
+            if model_id in local:
+                return "Downloaded"
+            if model_id in trending:
+                return "Trending"
+            return "Available"
+
+        def _model_source_color(model_id: str) -> str:
+            if is_cloud_model(model_id):
+                return "blue-grey"
+            if model_id in local:
+                return "green"
+            if model_id in trending:
+                return "purple"
+            return "orange"
+
+        def _surface_row(icon: str, title: str, subtitle: str):
+            with ui.column().classes("w-full gap-1 q-pa-sm rounded-borders").style(
+                "border: 1px solid rgba(148, 163, 184, 0.16); "
+                "background: rgba(15, 23, 42, 0.10);"
+            ):
+                with ui.row().classes("items-center gap-2 w-full no-wrap"):
+                    ui.icon(icon, size="sm").classes("text-primary")
+                    with ui.column().classes("gap-0").style("min-width: 0; flex: 1;"):
+                        ui.label(title).classes("text-sm text-weight-medium")
+                        ui.label(subtitle).classes("text-grey-6 text-xs")
+                    header_actions = ui.row().classes("items-center gap-1 no-wrap")
+                controls = ui.row().classes("items-end gap-2 w-full")
+            return header_actions, controls
+
+        def _on_cloud_ctx_change(e):
+            set_cloud_context_size(e.value)
+            clear_agent_cache()
+            _update_ctx_note()
+
+        def _on_ctx_change(e):
+            set_context_size(e.value)
+            state.context_size = e.value
+            clear_agent_cache()
+            _update_ctx_note()
+            model_max = get_model_max_context()
+            if model_max is not None and e.value > model_max:
+                max_lbl = CONTEXT_SIZE_LABELS.get(model_max, f"{model_max:,}")
+                usr_lbl = CONTEXT_SIZE_LABELS.get(e.value, f"{e.value:,}")
+                ui.notify(
+                    f"Context capped: model max is {max_lbl} (you selected {usr_lbl}).",
+                    type="warning", close_button=True, timeout=8000,
+                )
+
+        vsvc = state.vision_service
+        vision_value = model_choice_value(vsvc.model)
+
+        def _vision_label(m, local_override=None):
+            loc = local_override if local_override is not None else local
+            if is_cloud_model(m):
+                return f"{get_provider_emoji(m)}  {m}"
+            if m in loc:
+                return f"✅  {m}"
+            if m in trending:
+                return f"🆕  {m}"
+            return f"⬇️  {m}"
+
+        vision_opts = {str(option["value"]): str(option["label"]) for option in vision_options}
+        if vision_value and vision_value not in vision_opts:
+            vision_opts.update(model_choice_options_map("vision", include_values=[vsvc.model]))
+
+        from tools.image_gen_tool import get_available_image_models, DEFAULT_MODEL
+        from providers.selection import list_quick_choices, seed_configured_media_quick_choices
+        _ig_tool = tool_registry.get_tool("image_gen")
+        _ig_enabled = tool_registry.is_enabled("image_gen") if _ig_tool else False
+        _ig_model = _ig_tool.get_config("model", DEFAULT_MODEL) if _ig_tool else DEFAULT_MODEL
+        image_select_ref = [None]
+        image_empty_ref = [None]
+
+        def _set_image_model(value: str) -> None:
+            if _ig_tool and value:
+                _ig_tool.set_config("model", value)
+                seed_configured_media_quick_choices()
+
+        def _pinned_media_options(surface: str, available: dict[str, str], current_value: str) -> dict[str, str]:
+            allowed = {
+                f"{choice.get('provider_id')}/{choice.get('model_id')}"
+                for choice in list_quick_choices(surface)
+                if choice.get("kind") == "model" and choice.get("provider_id") and choice.get("model_id")
+            }
+            options = {key: label for key, label in available.items() if key in allowed}
+            if current_value in available:
+                options[current_value] = available[current_value]
+            return options
+
+        _ig_model_opts = _pinned_media_options("image", get_available_image_models(), _ig_model)
+        if _ig_model_opts and _ig_model not in _ig_model_opts:
+            _ig_model = next(iter(_ig_model_opts))
+            _set_image_model(_ig_model)
+
+        from tools.video_gen_tool import get_available_video_models, DEFAULT_MODEL as _VG_DEFAULT
+        _vg_tool = tool_registry.get_tool("video_gen")
+        _vg_enabled = tool_registry.is_enabled("video_gen") if _vg_tool else False
+        _vg_model = _vg_tool.get_config("model", _VG_DEFAULT) if _vg_tool else _VG_DEFAULT
+        video_select_ref = [None]
+        video_empty_ref = [None]
+
+        def _set_video_model(value: str) -> None:
+            if _vg_tool and value:
+                _vg_tool.set_config("model", value)
+                seed_configured_media_quick_choices()
+
+        _vg_model_opts = _pinned_media_options("video", get_available_video_models(), _vg_model)
+        if _vg_model_opts and _vg_model not in _vg_model_opts:
+            _vg_model = next(iter(_vg_model_opts))
+            _set_video_model(_vg_model)
+
+        ui.label("Models").classes("text-h6 q-mb-xs")
+        with ui.row().classes("items-center justify-between w-full q-mb-sm"):
+            ui.label("Defaults and pinned model choices").classes("text-grey-6 text-sm")
+            with ui.row().classes("items-center gap-1"):
+                ui.button(icon="refresh", on_click=lambda: _reopen("Models")).props("flat dense round size=sm").tooltip("Refresh model settings")
+                ui.button(icon="hub", on_click=lambda: _reopen("Providers")).props("flat dense round size=sm").tooltip("Provider connections")
+
+        with ui.column().classes("w-full gap-2 q-pa-sm rounded-borders q-mb-md").style(
+            "border: 1px solid rgba(148, 163, 184, 0.22); "
+            "background: rgba(148, 163, 184, 0.045);"
+        ):
+            with ui.row().classes("items-center justify-between w-full"):
+                with ui.row().classes("items-center gap-2"):
+                    ui.icon("tune", size="sm")
+                    ui.label("Defaults").classes("text-subtitle2")
+                ui.badge("Catalog-backed", color="blue-grey").props("outline dense")
+
+            brain_actions, brain_controls = _surface_row("psychology", "Brain", "Conversation, tool use, memory, and workflows")
+            with brain_actions:
+                brain_source_badge = ui.badge(_model_source_label(current), color=_model_source_color(current)).props("outline dense")
+                if not is_tool_compatible(current):
+                    ui.badge("tools uncertain", color="orange").props("outline dense")
+            with brain_controls:
+                model_select = ui.select(
+                    label="Default model",
+                    options=model_opts,
+                    value=current_value,
+                ).classes("col-grow").props('use-input input-debounce=300 dense outlined')
+                cloud_ctx_select = ui.select(
+                    label="Provider context",
+                    options=cloud_ctx_opts,
+                    value=get_cloud_context_size(),
+                    on_change=_on_cloud_ctx_change,
+                ).classes("min-w-[180px]").props("dense outlined").tooltip(
+                    "Caps how much conversation history is sent to the provider model; higher values may increase cost and rate-limit pressure."
+                )
+                cloud_ctx_select.visible = _is_cloud_ctx
+                ctx_select = ui.select(
+                    label="Local context",
+                    options=ctx_opts,
+                    value=state.context_size,
+                    on_change=_on_ctx_change,
+                ).classes("min-w-[180px]").props("dense outlined").tooltip(
+                    "Controls how many tokens the local model can process; higher values use more VRAM."
+                )
+                ctx_select.visible = not _is_cloud_ctx
+                brain_dl_btn = ui.button(icon="download").props("flat dense round size=sm color=primary").tooltip("Download selected model")
+                brain_dl_btn.visible = _ollama_up and not is_cloud_model(current) and current not in local
+            ctx_note = ui.label("").classes("text-xs text-grey-6 q-ml-lg")
+            ctx_note.visible = False
+
+            vision_actions, vision_controls = _surface_row("visibility", "Vision", "Camera and screen capture analysis")
+            with vision_actions:
+                ui.switch("Enabled", value=vsvc.enabled,
+                    on_change=lambda e: setattr(vsvc, "enabled", e.value)
+                ).props("dense")
+            with vision_controls:
+                vision_select = ui.select(label="Vision model", options=vision_opts, value=vision_value).classes("col-grow").props('use-input input-debounce=300 dense outlined')
+                from vision import list_cameras
+                cameras = list_cameras()
+                if cameras:
+                    cam_opts = {i: f"Camera {i}" for i in cameras}
+                    ui.select(label="Camera", options=cam_opts, value=vsvc.camera_index,
+                              on_change=lambda e: setattr(vsvc, "camera_index", e.value)).classes("min-w-[150px]").props("dense outlined")
+                else:
+                    ui.label("No cameras detected").classes("text-grey-6 text-xs q-pb-sm")
+                vision_dl_btn = ui.button(icon="download").props("flat dense round size=sm color=primary").tooltip("Download selected model")
+                vision_dl_btn.visible = _ollama_up and not is_cloud_model(vsvc.model) and vsvc.model not in local
+
+            image_actions, image_controls = _surface_row("palette", "Image", "Image generation and editing")
+            with image_actions:
+                ui.switch("Enabled", value=_ig_enabled,
+                    on_change=lambda e: tool_registry.set_enabled("image_gen", e.value),
+                ).props("dense")
+            with image_controls:
+                image_select = ui.select(
+                    label="Image model",
+                    options=_ig_model_opts,
+                    value=_ig_model if _ig_model in _ig_model_opts else None,
+                    on_change=lambda e: _set_image_model(e.value),
+                ).classes("w-full").props("dense outlined")
+                image_select_ref[0] = image_select
+                if not _ig_model_opts:
+                    image_select.disable()
+                image_empty = ui.label("No pinned image models. Pin one in the catalog below.").classes("text-grey-6 text-xs q-pb-sm")
+                image_empty.visible = not bool(_ig_model_opts)
+                image_empty_ref[0] = image_empty
+
+            video_actions, video_controls = _surface_row("movie", "Video", "Video generation and image animation")
+            with video_actions:
+                ui.switch("Enabled", value=_vg_enabled,
+                    on_change=lambda e: tool_registry.set_enabled("video_gen", e.value),
+                ).props("dense")
+            with video_controls:
+                video_select = ui.select(
+                    label="Video model",
+                    options=_vg_model_opts,
+                    value=_vg_model if _vg_model in _vg_model_opts else None,
+                    on_change=lambda e: _set_video_model(e.value),
+                ).classes("w-full").props("dense outlined")
+                video_select_ref[0] = video_select
+                if not _vg_model_opts:
+                    video_select.disable()
+                video_empty = ui.label("No pinned video models. Pin one in the catalog below.").classes("text-grey-6 text-xs q-pb-sm")
+                video_empty.visible = not bool(_vg_model_opts)
+                video_empty_ref[0] = video_empty
 
         import sys as _sys
         if _sys.platform == "win32":
@@ -325,42 +547,64 @@ def open_settings(
 
         async def _download_brain(e=None):
             sel = model_select.value
+            runtime_model = model_id_from_choice_value(sel)
             if is_cloud_model(sel):
                 ui.notify(f"{get_provider_emoji(sel)} {sel} is a cloud model — no download needed.", type="info")
                 brain_dl_btn.visible = False
                 return
-            if is_model_local(sel):
-                ui.notify(f"✅ {sel} is already downloaded.", type="info")
+            if is_model_local(runtime_model):
+                ui.notify(f"✅ {runtime_model} is already downloaded.", type="info")
                 brain_dl_btn.visible = False
                 return
             if not _ollama_reachable():
                 ui.notify("❌ Ollama is not running.", type="negative", close_button=True)
                 return
             brain_dl_btn.disable()
-            n = ui.notification(f"Downloading {sel}…", type="ongoing", spinner=True, timeout=None)
-            await run.io_bound(lambda: list(pull_model(sel)))
+            n = ui.notification(f"Downloading {runtime_model}…", type="ongoing", spinner=True, timeout=None)
+            await run.io_bound(lambda: list(pull_model(runtime_model)))
             n.dismiss()
-            ui.notify(f"✅ {sel} ready!", type="positive")
+            ui.notify(f"✅ {runtime_model} ready!", type="positive")
             brain_dl_btn.visible = False
             brain_dl_btn.enable()
             ollama_guide.visible = False
             refreshed_local = list_local_models()
-            model_select.options = {m: _model_label(m, refreshed_local) for m in all_models}
+            model_select.options = dict(model_select.options)
+            model_select.options[sel] = _model_label(runtime_model, refreshed_local)
             model_select.update()
-            set_model(sel)
-            state.current_model = sel
+            set_model(runtime_model)
+            state.current_model = runtime_model
             clear_agent_cache()
 
         brain_dl_btn.on_click(_download_brain)
 
         _ctx_note_updater = [None]
 
+        def _sync_models_tab_current_model(model_id: str | None = None) -> None:
+            current_model = model_id or get_current_model()
+            state.current_model = current_model
+            current_model_value = model_choice_value(current_model)
+            if current_model_value not in model_select.options:
+                updated_options = dict(model_select.options)
+                updated_options.update(model_choice_options_map("chat", include_values=[current_model]))
+                model_select.options = updated_options
+            model_select.value = current_model_value
+            model_select.update()
+            brain_source_badge.text = _model_source_label(current_model)
+            brain_source_badge.update()
+            brain_dl_btn.visible = _ollama_up and not is_cloud_model(current_model) and not is_model_local(current_model)
+            brain_dl_btn.update()
+            if _ctx_note_updater[0]:
+                _ctx_note_updater[0]()
+
+        _model_tab_sync["callback"] = _sync_models_tab_current_model
+
         async def _on_model_change(e):
             sel = e.value
-            if sel == state.current_model:
+            if sel == model_choice_value(state.current_model):
                 return
             prev = state.current_model
-            brain_dl_btn.text = f"⬇️ Download {sel}"
+            brain_source_badge.text = _model_source_label(sel)
+            brain_source_badge.update()
             brain_dl_btn.visible = _ollama_up and not is_cloud_model(sel) and not is_model_local(sel)
             if is_cloud_model(sel):
                 set_model(sel)
@@ -369,29 +613,30 @@ def open_settings(
                 if _ctx_note_updater[0]:
                     _ctx_note_updater[0]()
                 return
-            if not is_model_local(sel):
+            runtime_model = model_id_from_choice_value(sel)
+            if not is_model_local(runtime_model):
                 return
-            if not is_tool_compatible(sel):
-                ui.notify(f"Checking tool support for {sel}…", type="info")
-                ok = await run.io_bound(lambda: check_tool_support(sel))
+            if not is_tool_compatible(runtime_model):
+                ui.notify(f"Checking tool support for {runtime_model}…", type="info")
+                ok = await run.io_bound(lambda: check_tool_support(runtime_model))
                 if not ok:
                     ui.notify(
-                        f"⚠️ {sel} does not support tool calling. Reverting to {prev}.",
+                        f"⚠️ {runtime_model} does not support tool calling. Reverting to {prev}.",
                         type="negative", close_button=True, timeout=10000,
                     )
-                    model_select.value = prev
+                    model_select.value = model_choice_value(prev)
                     return
-            set_model(sel)
-            state.current_model = sel
+            set_model(runtime_model)
+            state.current_model = runtime_model
             clear_agent_cache()
-            if not is_cloud_model(sel):
-                model_max = await run.io_bound(lambda: get_model_max_context(sel))
+            if not is_cloud_model(runtime_model):
+                model_max = await run.io_bound(lambda: get_model_max_context(runtime_model))
                 user_val = get_user_context_size()
                 if model_max is not None and user_val > model_max:
                     max_lbl = CONTEXT_SIZE_LABELS.get(model_max, f"{model_max:,}")
                     usr_lbl = CONTEXT_SIZE_LABELS.get(user_val, f"{user_val:,}")
                     ui.notify(
-                        f"Context capped: {sel} max is {max_lbl} (you selected {usr_lbl}).",
+                        f"Context capped: {runtime_model} max is {max_lbl} (you selected {usr_lbl}).",
                         type="warning", close_button=True, timeout=8000,
                     )
             if _ctx_note_updater[0]:
@@ -399,146 +644,54 @@ def open_settings(
 
         model_select.on_value_change(_on_model_change)
 
-        ui.separator()
-
-        # Context window
-        _is_cloud_ctx = is_cloud_model(state.current_model)
-        ctx_opts = {v: CONTEXT_SIZE_LABELS.get(v, str(v)) for v in CONTEXT_SIZE_OPTIONS}
-        cloud_ctx_opts = {v: CLOUD_CONTEXT_SIZE_LABELS.get(v, str(v))
-                         for v in CLOUD_CONTEXT_SIZE_OPTIONS}
-
-        ctx_note = ui.label("").classes("text-xs text-warning")
-        ctx_note.visible = False
-
-        def _fmt_ctx(val):
-            if val and val >= 1_000_000:
-                return f"{val // 1_000_000}M"
-            if val and val >= 1_000:
-                return f"{val // 1_000}K"
-            return "?"
-
         def _update_ctx_note():
             _cloud = is_cloud_model(state.current_model)
             cloud_ctx_select.visible = _cloud
             ctx_select.visible = not _cloud
             native_max = get_model_max_context()
             if _cloud:
-                # Show effective context info below cloud dropdown
                 effective = min(get_cloud_context_size(), native_max) if native_max else get_cloud_context_size()
                 native_lbl = _fmt_ctx(native_max) if native_max else "?"
-                ctx_note.text = f"ℹ️ Model native max: {native_lbl} — effective: {_fmt_ctx(effective)}"
+                ctx_note.text = f"Native max {native_lbl} · effective {_fmt_ctx(effective)}"
                 ctx_note.visible = True
             else:
                 user_val = get_user_context_size()
                 if native_max is not None and user_val > native_max:
                     max_label = CONTEXT_SIZE_LABELS.get(native_max, f"{native_max:,}")
-                    ctx_note.text = f"ℹ️ Model max is {max_label} — trimming will use {max_label}"
+                    ctx_note.text = f"Model max {max_label}; trimming applies"
                     ctx_note.visible = True
                 else:
                     ctx_note.visible = False
 
-        def _on_cloud_ctx_change(e):
-            set_cloud_context_size(e.value)
-            clear_agent_cache()
-            _update_ctx_note()
-
-        def _on_ctx_change(e):
-            set_context_size(e.value)
-            state.context_size = e.value
-            clear_agent_cache()
-            _update_ctx_note()
-            model_max = get_model_max_context()
-            if model_max is not None and e.value > model_max:
-                max_lbl = CONTEXT_SIZE_LABELS.get(model_max, f"{model_max:,}")
-                usr_lbl = CONTEXT_SIZE_LABELS.get(e.value, f"{e.value:,}")
-                ui.notify(
-                    f"Context capped: model max is {max_lbl} (you selected {usr_lbl}).",
-                    type="warning", close_button=True, timeout=8000,
-                )
-
-        cloud_ctx_select = ui.select(
-            label="☁️ Cloud context window",
-            options=cloud_ctx_opts,
-            value=get_cloud_context_size(),
-            on_change=_on_cloud_ctx_change,
-        ).classes("w-full").tooltip(
-            "Caps how much conversation history is sent to the cloud model. "
-            "Lower values reduce cost and rate-limit pressure."
-        )
-        cloud_ctx_select.visible = _is_cloud_ctx
-
-        ctx_select = ui.select(
-            label="Local context window",
-            options=ctx_opts,
-            value=state.context_size,
-            on_change=_on_ctx_change,
-        ).classes("w-full").tooltip(
-            "Controls how many tokens the local model can process. Higher values use more VRAM."
-        )
-        ctx_select.visible = not _is_cloud_ctx
-
         _update_ctx_note()
         _ctx_note_updater[0] = _update_ctx_note
 
-        ui.separator()
-        ui.label("👁️ Vision Model").classes("text-h6")
-        ui.label(
-            "The model used for camera and screen capture analysis."
-        ).classes("text-grey-6 text-sm")
-
-        vsvc = state.vision_service
-        cloud_vision = list_cloud_vision_models()
-
-        if _ollama_up:
-            all_vision = sorted(set(
-                POPULAR_VISION_MODELS
-                + cloud_vision
-                + ([vsvc.model] if vsvc.model not in POPULAR_VISION_MODELS and vsvc.model not in cloud_vision else [])
-            ))
-        else:
-            extras = [vsvc.model] if not is_cloud_model(vsvc.model) else []
-            all_vision = sorted(set(cloud_vision + extras))
-
-        def _vision_label(m, local_override=None):
-            loc = local_override if local_override is not None else local
-            if is_cloud_model(m):
-                return f"{get_provider_emoji(m)}  {m}"
-            if m in loc:
-                return f"✅  {m}"
-            if m in trending:
-                return f"🆕  {m}"
-            return f"⬇️  {m}"
-
-        vision_opts = {m: _vision_label(m) for m in all_vision}
-        vision_select = ui.select(options=vision_opts, value=vsvc.model).classes("w-full").props('use-input input-debounce=300')
-
-        vision_dl_btn = ui.button(f"⬇️ Download {vsvc.model}").props("color=primary outline")
-        vision_dl_btn.visible = _ollama_up and not is_cloud_model(vsvc.model) and vsvc.model not in local
-
         async def _download_vision(e=None):
             sel = vision_select.value
+            runtime_model = model_id_from_choice_value(sel)
             if is_cloud_model(sel):
                 ui.notify(f"{get_provider_emoji(sel)} {sel} is a cloud model — no download needed.", type="info")
                 vision_dl_btn.visible = False
                 return
-            if is_model_local(sel):
-                ui.notify(f"✅ {sel} is already downloaded.", type="info")
+            if is_model_local(runtime_model):
+                ui.notify(f"✅ {runtime_model} is already downloaded.", type="info")
                 vision_dl_btn.visible = False
                 return
             if not _ollama_reachable():
                 ui.notify("❌ Ollama is not running.", type="negative", close_button=True)
                 return
             vision_dl_btn.disable()
-            n = ui.notification(f"Downloading {sel}…", type="ongoing", spinner=True, timeout=None)
-            await run.io_bound(lambda: list(pull_model(sel)))
+            n = ui.notification(f"Downloading {runtime_model}…", type="ongoing", spinner=True, timeout=None)
+            await run.io_bound(lambda: list(pull_model(runtime_model)))
             n.dismiss()
-            ui.notify(f"✅ {sel} ready!", type="positive")
+            ui.notify(f"✅ {runtime_model} ready!", type="positive")
             vision_dl_btn.visible = False
             vision_dl_btn.enable()
             refreshed_local = list_local_models()
-            vision_select.options = {m: _vision_label(m, refreshed_local) for m in all_vision}
+            vision_select.options = dict(vision_select.options)
+            vision_select.options[sel] = _vision_label(runtime_model, refreshed_local)
             vision_select.update()
-            vsvc.model = sel
+            vsvc.model = runtime_model
             clear_agent_cache()
 
         vision_dl_btn.on_click(_download_vision)
@@ -546,186 +699,224 @@ def open_settings(
         async def _on_vision_change(e):
             sel = e.value
             is_cloud = is_cloud_model(sel)
-            vision_dl_btn.text = f"⬇️ Download {sel}"
             vision_dl_btn.visible = _ollama_up and not is_cloud and not is_model_local(sel)
-            if sel != vsvc.model:
+            if sel != model_choice_value(vsvc.model):
                 if is_cloud:
                     vsvc.model = sel
                     clear_agent_cache()
                     return
-                if not is_model_local(sel):
+                runtime_model = model_id_from_choice_value(sel)
+                if not is_model_local(runtime_model):
                     return
-                vsvc.model = sel
+                vsvc.model = runtime_model
                 clear_agent_cache()
 
         vision_select.on_value_change(_on_vision_change)
 
-        from vision import list_cameras
-        cameras = list_cameras()
-        if cameras:
-            cam_opts = {i: f"Camera {i}" for i in cameras}
-            ui.select(label="Camera", options=cam_opts, value=vsvc.camera_index,
-                      on_change=lambda e: setattr(vsvc, "camera_index", e.value)).classes("w-full")
-        else:
-            ui.label("No cameras detected.").classes("text-grey-6 text-sm")
+        from ui.model_catalog import build_model_catalog_section
 
-        ui.switch("Enable vision", value=vsvc.enabled,
-                  on_change=lambda e: setattr(vsvc, "enabled", e.value)
-        ).tooltip("Allow the agent to capture images from your webcam.")
+        with ui.row().classes("items-center justify-between w-full q-mt-md q-mb-xs"):
+            with ui.column().classes("gap-0"):
+                ui.label("Catalog").classes("text-subtitle2")
+                ui.label("Browse, pin, set defaults, and download compatible models.").classes("text-grey-6 text-xs")
 
-        # ── Image Generation ─────────────────────────────────────────
-        ui.separator()
-        ui.label("🎨 Image Generation").classes("text-h6")
-        ui.label(
-            "Generate and edit images using AI models. Requires an OpenAI, Google, or xAI API key."
-        ).classes("text-grey-6 text-sm")
+        def _refresh_top_picker_options() -> None:
+            current_chat = state.current_model
+            model_select.options = model_choice_options_map("chat", include_values=[current_chat])
+            if model_select.value not in model_select.options:
+                model_select.value = model_choice_value(current_chat)
+            model_select.update()
 
-        from tools.image_gen_tool import get_available_image_models, DEFAULT_MODEL
-        _ig_tool = tool_registry.get_tool("image_gen")
-        _ig_enabled = tool_registry.is_enabled("image_gen") if _ig_tool else False
-        _ig_model = _ig_tool.get_config("model", DEFAULT_MODEL) if _ig_tool else DEFAULT_MODEL
+            current_vision = vsvc.model
+            vision_select.options = model_choice_options_map("vision", include_values=[current_vision])
+            if vision_select.value not in vision_select.options:
+                vision_select.value = model_choice_value(current_vision)
+            vision_select.update()
 
-        _ig_model_opts = get_available_image_models()
-        if not _ig_model_opts:
-            ui.label(
-                "⚠️ No API keys configured. Add an OpenAI, Google, or xAI key in the Cloud tab."
-            ).classes("text-warning text-sm")
-        else:
-            # Ensure the current value is in the options (may be from another provider)
-            if _ig_model not in _ig_model_opts:
-                _ig_model = next(iter(_ig_model_opts))
-                if _ig_tool:
-                    _ig_tool.set_config("model", _ig_model)
-            ui.select(
-                label="Image model",
-                options=_ig_model_opts,
-                value=_ig_model,
-                on_change=lambda e: _ig_tool.set_config("model", e.value) if _ig_tool else None,
-            ).classes("w-full")
+            image_select = image_select_ref[0]
+            if image_select is not None:
+                available_image = get_available_image_models()
+                current_image = _ig_tool.get_config("model", DEFAULT_MODEL) if _ig_tool else DEFAULT_MODEL
+                image_options = _pinned_media_options("image", available_image, current_image)
+                image_select.options = image_options
+                if image_options:
+                    image_select.enable()
+                else:
+                    image_select.disable()
+                    image_select.value = None
+                if current_image in image_options:
+                    image_select.value = current_image
+                image_empty = image_empty_ref[0]
+                if image_empty is not None:
+                    image_empty.visible = not bool(image_options)
+                    image_empty.update()
+                image_select.update()
+            video_select = video_select_ref[0]
+            if video_select is not None:
+                available_video = get_available_video_models()
+                current_video = _vg_tool.get_config("model", _VG_DEFAULT) if _vg_tool else _VG_DEFAULT
+                video_options = _pinned_media_options("video", available_video, current_video)
+                video_select.options = video_options
+                if video_options:
+                    video_select.enable()
+                else:
+                    video_select.disable()
+                    video_select.value = None
+                if current_video in video_options:
+                    video_select.value = current_video
+                video_empty = video_empty_ref[0]
+                if video_empty is not None:
+                    video_empty.visible = not bool(video_options)
+                    video_empty.update()
+                video_select.update()
 
-        ui.switch(
-            "Enable image generation",
-            value=_ig_enabled,
-            on_change=lambda e: tool_registry.set_enabled("image_gen", e.value),
-        ).tooltip("Allow the agent to generate and edit images.")
+        def _set_catalog_default(surface: str, row) -> None:
+            if surface == "chat":
+                value = model_choice_value(row.selection_ref)
+                set_model(value)
+                state.current_model = value
+                clear_agent_cache()
+                _sync_models_tab_current_model(value)
+                ui.notify(f"Default Brain model set to {row.display_name}", type="positive")
+            elif surface == "vision":
+                value = model_choice_value(row.selection_ref)
+                vsvc.model = value
+                if value not in vision_select.options:
+                    vision_select.options = {**dict(vision_select.options), **model_choice_options_map("vision", include_values=[value])}
+                vision_select.value = value
+                vision_select.update()
+                clear_agent_cache()
+                ui.notify(f"Default Vision model set to {row.display_name}", type="positive")
+            elif surface == "image":
+                value = f"{row.provider_id}/{row.model_id}"
+                _set_image_model(value)
+                image_select = image_select_ref[0]
+                if image_select is not None:
+                    if value not in image_select.options:
+                        image_select.options = {**dict(image_select.options), value: row.display_name}
+                    image_select.value = value
+                    image_select.enable()
+                    image_empty = image_empty_ref[0]
+                    if image_empty is not None:
+                        image_empty.visible = False
+                        image_empty.update()
+                    image_select.update()
+                ui.notify(f"Default Image model set to {row.display_name}", type="positive")
+            elif surface == "video":
+                value = f"{row.provider_id}/{row.model_id}"
+                _set_video_model(value)
+                video_select = video_select_ref[0]
+                if video_select is not None:
+                    if value not in video_select.options:
+                        video_select.options = {**dict(video_select.options), value: row.display_name}
+                    video_select.value = value
+                    video_select.enable()
+                    video_empty = video_empty_ref[0]
+                    if video_empty is not None:
+                        video_empty.visible = False
+                        video_empty.update()
+                    video_select.update()
+                ui.notify(f"Default Video model set to {row.display_name}", type="positive")
 
-        # ── Video Generation ─────────────────────────────────────────
-        ui.separator()
-        ui.label("🎬 Video Generation").classes("text-h6")
-        ui.label(
-            "Generate videos and animate images using AI models. Requires a Google or xAI API key."
-        ).classes("text-grey-6 text-sm")
+        def _download_catalog_model(row) -> None:
+            list(pull_model(row.model_id))
 
-        from tools.video_gen_tool import get_available_video_models, DEFAULT_MODEL as _VG_DEFAULT
-        _vg_tool = tool_registry.get_tool("video_gen")
-        _vg_enabled = tool_registry.is_enabled("video_gen") if _vg_tool else False
-        _vg_model = _vg_tool.get_config("model", _VG_DEFAULT) if _vg_tool else _VG_DEFAULT
+        build_model_catalog_section(
+            catalog_rows,
+            on_set_default=_set_catalog_default,
+            on_download=_download_catalog_model,
+            on_change=_refresh_top_picker_options,
+        )
 
-        _vg_model_opts = get_available_video_models()
-        if not _vg_model_opts:
-            ui.label(
-                "⚠️ No API keys configured. Add a Google or xAI key in the Cloud tab."
-            ).classes("text-warning text-sm")
-        else:
-            if _vg_model not in _vg_model_opts:
-                _vg_model = next(iter(_vg_model_opts))
-                if _vg_tool:
-                    _vg_tool.set_config("model", _vg_model)
-            ui.select(
-                label="Video model",
-                options=_vg_model_opts,
-                value=_vg_model,
-                on_change=lambda e: _vg_tool.set_config("model", e.value) if _vg_tool else None,
-            ).classes("w-full")
+    def _collect_models_tab_data() -> dict:
+        from providers.model_catalog import build_model_catalog_rows, load_ollama_catalog_rows
+        from providers.selection import list_model_choice_options, list_quick_choices
 
-        ui.switch(
-            "Enable video generation",
-            value=_vg_enabled,
-            on_change=lambda e: tool_registry.set_enabled("video_gen", e.value),
-        ).tooltip("Allow the agent to generate videos and animate images.")
+        ollama_up = _ollama_reachable()
+        fetch_trending_ollama_models()
+        local_models = list_local_models()
+        try:
+            from tools.image_gen_tool import DEFAULT_MODEL as _IMAGE_DEFAULT
+            image_tool = tool_registry.get_tool("image_gen")
+            image_model = image_tool.get_config("model", _IMAGE_DEFAULT) if image_tool else _IMAGE_DEFAULT
+        except Exception:
+            image_model = ""
+        try:
+            from tools.video_gen_tool import DEFAULT_MODEL as _VIDEO_DEFAULT
+            video_tool = tool_registry.get_tool("video_gen")
+            video_model = video_tool.get_config("model", _VIDEO_DEFAULT) if video_tool else _VIDEO_DEFAULT
+        except Exception:
+            video_model = ""
+        ollama_catalog_rows = load_ollama_catalog_rows() if ollama_up else []
+        defaults = {
+            "chat": get_current_model(),
+            "vision": state.vision_service.model,
+            "image": image_model,
+            "video": video_model,
+        }
+        return {
+            "ollama_up": ollama_up,
+            "trending": get_trending_models(),
+            "local": local_models,
+            "chat_options": list_model_choice_options("chat", include_values=[get_current_model()]),
+            "vision_options": list_model_choice_options("vision", include_values=[state.vision_service.model]),
+            "catalog_rows": build_model_catalog_rows(
+                cloud_cache=_cloud_model_cache,
+                ollama_rows=ollama_catalog_rows,
+                defaults=defaults,
+                quick_choices=list_quick_choices("", include_inactive=True),
+            ),
+        }
 
-    # ── Cloud Tab ────────────────────────────────────────────────────
+    def _build_models_tab() -> None:
+        container = ui.column().classes("w-full gap-0")
+
+        async def _load() -> None:
+            container.clear()
+            with container:
+                with ui.row().classes("items-center gap-2 text-grey-6 text-sm"):
+                    ui.spinner(size="sm")
+                    ui.label("Loading model settings...")
+            try:
+                data = await run.io_bound(_collect_models_tab_data)
+                container.clear()
+                with container:
+                    _render_models_tab_content(data)
+            except Exception as exc:
+                container.clear()
+                with container:
+                    ui.label(f"Could not load model settings: {exc}").classes("text-warning text-sm")
+                    ui.button(icon="refresh", on_click=lambda: ui.timer(0.01, _load, once=True)).props("flat dense round size=sm").tooltip("Retry")
+
+        with container:
+            ui.label("🤖 Models").classes("text-h6")
+            with ui.row().classes("items-center gap-2 text-grey-6 text-sm"):
+                ui.spinner(size="sm")
+                ui.label("Preparing model settings...")
+        ui.timer(0.01, _load, once=True)
+
+    # ── Providers Tab ────────────────────────────────────────────────
 
     def _build_cloud_tab() -> None:
-        ui.label("☁️ Cloud Models").classes("text-h6")
+        from ui.provider_settings import build_custom_endpoints_section, build_provider_summary_cards
+
+        ui.label("Providers").classes("text-h6")
         ui.label(
-            "Connect to cloud LLMs via OpenAI, Anthropic, Google, or OpenRouter (100+ models)."
+            "Connect model providers, review credential sources, refresh catalogs, and check provider health. Model pinning and defaults live in the Models tab."
         ).classes("text-grey-6 text-sm")
-
-        _model_list_container = None
-        _search_term = {"value": ""}
-
-        def _refresh_model_list():
-            nonlocal _model_list_container
-            _model_list_container.clear()
-            _starred_now = set(get_cloud_config().get("starred_models", []))
-            all_models = list_cloud_models()
-            if not all_models:
-                with _model_list_container:
-                    ui.label("No cloud models loaded. Enter a key and click Refresh.").classes("text-grey-6 text-sm")
-                return
-            q = _search_term["value"].strip().lower()
-            if q:
-                all_models = [m for m in all_models if q in m.lower()]
-            with _model_list_container:
-                if q and not all_models:
-                    ui.label(f'No models matching "{q}"').classes("text-grey-6 text-sm")
-                    return
-                for prov_label, prov_key in [("OpenAI", "openai"), ("Anthropic", "anthropic"), ("Google", "google"), ("xAI", "xai"), ("OpenRouter", "openrouter")]:
-                    prov_models = [(m, _cloud_model_cache[m]) for m in all_models
-                                   if _cloud_model_cache[m]["provider"] == prov_key]
-                    if not prov_models:
-                        continue
-                    ui.label(f"{prov_label} ({len(prov_models)} models)").style(
-                        "font-weight: 600; margin-top: 8px;"
-                    )
-                    for mid, info in prov_models:
-                        with ui.row().classes("items-center gap-1 q-py-xs"):
-                            is_starred = mid in _starred_now
-                            ui.button(
-                                icon="star" if is_starred else "star_border",
-                                on_click=lambda _, m=mid: _toggle_star(m),
-                            ).props("flat dense round size=sm").style(
-                                f"color: {'gold' if is_starred else 'grey'};"
-                            )
-                            _emoji = get_provider_emoji(mid)
-                            ui.label(_emoji).style("font-size: 1rem;")
-                            ui.label(mid).style("font-weight: 500; font-size: 0.85rem;")
-                            ctx_k = info["ctx"] // 1000 if info["ctx"] >= 1000 else info["ctx"]
-                            ctx_label = f"{ctx_k}K" if info["ctx"] < 1_000_000 else f"{info['ctx'] // 1_000_000}M"
-                            ui.label(f"({ctx_label} ctx)").classes("text-grey-6 text-xs")
-                            if mid == get_current_model():
-                                ui.badge("DEFAULT", color="cyan").props("dense")
-                            else:
-                                ui.button(
-                                    "Set default", icon="check",
-                                    on_click=lambda _, m=mid: _set_default_model(m),
-                                ).props("flat dense size=xs")
-
-        def _toggle_star(model_id):
-            starred_now = set(get_cloud_config().get("starred_models", []))
-            if model_id in starred_now:
-                unstar_cloud_model(model_id)
-            else:
-                star_cloud_model(model_id)
-            _refresh_model_list()
-
-        def _set_default_model(model_id):
-            set_model(model_id)
-            state.current_model = model_id
-            clear_agent_cache()
-            ui.notify(f"Default model set to {model_id}", type="positive")
-            _refresh_model_list()
+        build_provider_summary_cards()
 
         async def _do_refresh():
             n = ui.notification("Fetching models…", type="ongoing", spinner=True, timeout=None)
             count = await run.io_bound(refresh_cloud_models)
             n.dismiss()
-            ui.notify(f"Found {count} cloud models", type="positive")
-            _refresh_model_list()
+            ui.notify(f"Found {count} provider models", type="positive")
 
         # API Keys
         ui.separator()
+        ui.label("Cloud API Providers").classes("text-subtitle2")
+        with ui.row().classes("items-center gap-2"):
+            ui.button(icon="refresh", on_click=_do_refresh).props("flat round dense").tooltip("Refresh model catalogs from configured providers")
         with ui.expansion("🔑 OpenAI Direct", icon="key", value=False).classes("w-full"):
             ui.label("Direct access to OpenAI models.").classes("text-grey-6 text-sm")
             oai_input, oai_refresh = _secret_input("OpenAI API Key", "OPENAI_API_KEY")
@@ -740,7 +931,6 @@ def open_settings(
                 oai_refresh()
                 ui.notify("OpenAI key saved ✅", type="positive")
                 await run.io_bound(refresh_cloud_models)
-                _refresh_model_list()
             with ui.row().classes("gap-2"):
                 ui.button("Save Key", icon="save", on_click=_save_oai).props("flat dense")
                 ui.button("Clear", icon="delete", on_click=lambda: _clear_secret("OPENAI_API_KEY", "OpenAI key", oai_refresh)).props("flat dense color=negative")
@@ -763,7 +953,6 @@ def open_settings(
                 or_refresh()
                 ui.notify("OpenRouter key saved ✅", type="positive")
                 await run.io_bound(refresh_cloud_models)
-                _refresh_model_list()
             with ui.row().classes("gap-2"):
                 ui.button("Save Key", icon="save", on_click=_save_or).props("flat dense")
                 ui.button("Clear", icon="delete", on_click=lambda: _clear_secret("OPENROUTER_API_KEY", "OpenRouter key", or_refresh)).props("flat dense color=negative")
@@ -786,7 +975,6 @@ def open_settings(
                 anth_refresh()
                 ui.notify("Anthropic key saved ✅", type="positive")
                 await run.io_bound(refresh_cloud_models)
-                _refresh_model_list()
             with ui.row().classes("gap-2"):
                 ui.button("Save Key", icon="save", on_click=_save_anth).props("flat dense")
                 ui.button("Clear", icon="delete", on_click=lambda: _clear_secret("ANTHROPIC_API_KEY", "Anthropic key", anth_refresh)).props("flat dense color=negative")
@@ -809,7 +997,6 @@ def open_settings(
                 goog_refresh()
                 ui.notify("Google AI key saved ✅", type="positive")
                 await run.io_bound(refresh_cloud_models)
-                _refresh_model_list()
             with ui.row().classes("gap-2"):
                 ui.button("Save Key", icon="save", on_click=_save_goog).props("flat dense")
                 ui.button("Clear", icon="delete", on_click=lambda: _clear_secret("GOOGLE_API_KEY", "Google AI key", goog_refresh)).props("flat dense color=negative")
@@ -833,10 +1020,12 @@ def open_settings(
                 xai_refresh()
                 ui.notify("xAI key saved ✅", type="positive")
                 await run.io_bound(refresh_cloud_models)
-                _refresh_model_list()
             with ui.row().classes("gap-2"):
                 ui.button("Save Key", icon="save", on_click=_save_xai).props("flat dense")
                 ui.button("Clear", icon="delete", on_click=lambda: _clear_secret("XAI_API_KEY", "xAI key", xai_refresh)).props("flat dense color=negative")
+
+        ui.separator()
+        build_custom_endpoints_section(on_change=lambda: _reopen("Providers"))
 
         # Setup Guide
         ui.separator()
@@ -858,39 +1047,12 @@ def open_settings(
                 "1. Go to [openrouter.ai](https://openrouter.ai) and create an account\n"
                 "2. Navigate to **Keys** → **Create Key** and paste it above\n\n"
                 "### Usage\n\n"
-                "- ⭐ **Star** models to add them to the chat header model picker\n"
-                "- Click **Set default** to use a cloud model as your app-wide default\n"
+                "- Use **Settings → Models → Model Catalog** to pin models to everyday pickers\n"
+                "- Set Brain, Vision, Image, and Video defaults from the Models tab\n"
                 "- Use `/model <id>` in Telegram to switch models per-chat\n"
-                "- Cloud models appear with provider-specific icons in the sidebar\n"
+                "- Provider models appear with provider-specific icons in the sidebar\n"
                 "- All API keys are stored locally and never shared"
             )
-
-        # Available Models
-        ui.separator()
-        with ui.row().classes("items-center gap-2"):
-            ui.label("Available Models").style("font-weight: 600;")
-            ui.button(icon="refresh", on_click=_do_refresh).props("flat round dense").tooltip(
-                "Refresh model list from cloud providers"
-            )
-        ui.label(
-            "⭐ Star models to show them in the thread model picker."
-        ).classes("text-grey-6 text-sm")
-
-        def _on_search(e):
-            _search_term["value"] = e.value or ""
-            _refresh_model_list()
-
-        ui.input(
-            placeholder="Search models…",
-            on_change=_on_search,
-        ).classes("w-full").props("outlined dense clearable").style("max-width: 400px;")
-
-        _model_list_container = ui.column().classes("w-full")
-
-        async def _initial_fetch():
-            await run.io_bound(refresh_cloud_models)
-            _refresh_model_list()
-        ui.timer(0.5, _initial_fetch, once=True)
 
     # ── Skills Tab ───────────────────────────────────────────────────
 
@@ -3067,7 +3229,7 @@ def open_settings(
                 with splitter.before:
                     with ui.tabs().props("vertical").classes("w-full h-full") as tabs:
                         tab_models = ui.tab("Models", icon="smart_toy")
-                        tab_cloud = ui.tab("Cloud", icon="cloud")
+                        tab_cloud = ui.tab("Providers", icon="cloud")
                         tab_knowledge = ui.tab("Knowledge", icon="psychology")
                         tab_voice = ui.tab("Voice", icon="mic")
                         tab_fs = ui.tab("System", icon="terminal")
@@ -3082,7 +3244,7 @@ def open_settings(
                         tab_plugins = ui.tab("Plugins", icon="extension")
                         tab_prefs = ui.tab("Preferences", icon="tune")
                         _tab_map = {
-                            "Models": tab_models, "Cloud": tab_cloud,
+                            "Models": tab_models, "Cloud": tab_cloud, "Providers": tab_cloud,
                             "Knowledge": tab_knowledge,
                             "Voice": tab_voice,
                             "System": tab_fs, "Tracker": tab_tracker,
@@ -3104,7 +3266,7 @@ def open_settings(
                 _tab_defs = [
                     (tab_docs, "Documents", _build_documents_tab),
                     (tab_models, "Models", _build_models_tab),
-                    (tab_cloud, "Cloud", _build_cloud_tab),
+                    (tab_cloud, "Providers", _build_cloud_tab),
                     (tab_tools, "Search", _build_tools_tab),
                     (tab_skills, "Skills", _build_skills_tab),
                     (tab_fs, "System", _build_system_access_tab),

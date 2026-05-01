@@ -200,16 +200,22 @@ def get_available_image_models() -> dict[str, str]:
 
     Used by the Settings UI to populate the model dropdown.
     """
-    from api_keys import get_key
+    try:
+        from models import _cloud_model_cache, _sync_custom_model_cache
+        from providers.media import media_model_options
+        _sync_custom_model_cache()
+        return media_model_options("image", _cloud_model_cache)
+    except Exception:
+        from api_keys import get_key
 
-    opts: dict[str, str] = {}
-    for prov_id, prov in _PROVIDERS.items():
-        if not get_key(prov["key"]):
-            continue
-        for m in _PROVIDER_MODELS.get(prov_id, []):
-            config_val = f"{prov_id}/{m['id']}"
-            opts[config_val] = f"{prov['emoji']}  {m['label']}  ({prov['label']})"
-    return opts
+        opts: dict[str, str] = {}
+        for prov_id, prov in _PROVIDERS.items():
+            if not get_key(prov["key"]):
+                continue
+            for m in _PROVIDER_MODELS.get(prov_id, []):
+                config_val = f"{prov_id}/{m['id']}"
+                opts[config_val] = f"{prov['emoji']}  {m['label']}  ({prov['label']})"
+        return opts
 
 
 def _get_client() -> tuple:
@@ -232,7 +238,7 @@ def _get_client() -> tuple:
     if not api_key:
         raise RuntimeError(
             f"No API key for {prov_info['label']}. "
-            f"Please add your {prov_info['label']} API key in Settings → Cloud."
+            f"Please add your {prov_info['label']} API key in Settings → Providers."
         )
 
     if provider == "google":

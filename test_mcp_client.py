@@ -261,6 +261,43 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertTrue(text.startswith("MCP tool error:"))
         self.assertIn("Truncated MCP output", text)
 
+    def test_mcp_array_schema_preserves_items_for_gemini_tools(self) -> None:
+        import mcp_client.runtime as runtime
+
+        tool_info = runtime.McpToolInfo(
+            server_name="playwright",
+            name="browser_fill_form",
+            prefixed_name="mcp_playwright_browser_fill_form",
+            description="Fill multiple form fields.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "fields": {
+                        "type": "array",
+                        "description": "Fields to fill.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "value": {"type": "string"},
+                            },
+                        },
+                    },
+                    "modifiers": {"type": "array", "items": {"type": "string"}},
+                    "values": {"type": "array"},
+                },
+            },
+            destructive=False,
+            requires_approval=False,
+            enabled=True,
+        )
+        schema = runtime._schema_to_model(tool_info).model_json_schema()
+        properties = schema["properties"]
+        self.assertEqual(properties["fields"]["type"], "array")
+        self.assertIn("items", properties["fields"])
+        self.assertIn("items", properties["modifiers"])
+        self.assertIn("items", properties["values"])
+
     def test_stdio_command_resolution_handles_missing_launchers(self) -> None:
         self._reload_config()
         import mcp_client.requirements as requirements

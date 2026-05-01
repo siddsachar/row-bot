@@ -73,11 +73,26 @@ def _estimate_context_heuristic(model_name: str) -> int:
     Strips any ``provider/`` prefix (e.g. ``openai/gpt-4o`` → ``gpt-4o``)
     before matching.  Returns ``_CLOUD_CONTEXT_FALLBACK`` if nothing matches.
     """
-    bare = model_name.split("/")[-1]          # strip provider/ slug
+    bare = _runtime_model_name(model_name).split("/")[-1]          # strip provider/ slug
     for prefix, ctx in _CONTEXT_HEURISTICS:
         if bare.startswith(prefix):
             return ctx
     return _CLOUD_CONTEXT_FALLBACK
+
+
+def _parse_provider_model_ref(model_name: str | None) -> tuple[str, str] | None:
+    try:
+        from providers.selection import parse_model_ref
+
+        return parse_model_ref(model_name)
+    except Exception:
+        return None
+
+
+def _runtime_model_name(model_name: str | None) -> str:
+    raw = str(model_name or "")
+    parsed = _parse_provider_model_ref(raw)
+    return parsed[1] if parsed else raw
 
 # Prefixes considered chat-capable when filtering OpenAI /v1/models
 _OPENAI_CHAT_PREFIXES = ("gpt-", "o1", "o3", "o4", "chatgpt-")
@@ -252,8 +267,9 @@ def get_llm():
         if is_cloud_model(_current_model):
             _llm_instance = _get_cloud_llm(_current_model)
         else:
-            logger.info("Creating LLM instance: model=%s, num_ctx=%s", _current_model, _num_ctx)
-            _llm_instance = ChatOllama(model=_current_model, num_ctx=_num_ctx, reasoning=True)
+            runtime_model = _runtime_model_name(_current_model)
+            logger.info("Creating LLM instance: model=%s, num_ctx=%s", runtime_model, _num_ctx)
+            _llm_instance = ChatOllama(model=runtime_model, num_ctx=_num_ctx, reasoning=True)
     return _llm_instance
 
 
@@ -270,16 +286,17 @@ def get_llm_for(model_name: str, num_ctx: int | None = None):
     if is_cloud_model(model_name):
         return _get_cloud_llm(model_name)
 
+    runtime_model = _runtime_model_name(model_name)
     if num_ctx is None:
-        model_max = get_model_max_context(model_name)
+        model_max = get_model_max_context(runtime_model)
         if model_max is not None:
             num_ctx = min(model_max, _num_ctx)
         else:
             num_ctx = _num_ctx
-    key = (model_name, num_ctx)
+    key = (runtime_model, num_ctx)
     if key not in _override_llm_cache:
-        logger.info("Creating override LLM: model=%s, num_ctx=%s", model_name, num_ctx)
-        _override_llm_cache[key] = ChatOllama(model=model_name, num_ctx=num_ctx, reasoning=True)
+        logger.info("Creating override LLM: model=%s, num_ctx=%s", runtime_model, num_ctx)
+        _override_llm_cache[key] = ChatOllama(model=runtime_model, num_ctx=num_ctx, reasoning=True)
     return _override_llm_cache[key]
 
 
@@ -290,9 +307,10 @@ def get_model_max_context(model_name: str | None = None) -> int | None:
     Returns the context_length from model metadata, or *None* if it
     cannot be determined.  Results are cached per model name.
     """
-    name = model_name or _current_model
-    if is_cloud_model(name):
-        return get_cloud_model_context(name)
+    raw_name = model_name or _current_model
+    if is_cloud_model(raw_name):
+        return get_cloud_model_context(raw_name)
+    name = _runtime_model_name(raw_name)
     if name in _model_max_ctx_cache:
         return _model_max_ctx_cache[name]
     if not _ollama_mod:
@@ -322,14 +340,14 @@ def set_model(model_name: str):
         # Unload previous local model from Ollama memory
         if not is_cloud_model(_current_model) and _ollama_mod:
             try:
-                _ollama_mod.generate(model=_current_model, prompt="", keep_alive=0)
+                _ollama_mod.generate(model=_runtime_model_name(_current_model), prompt="", keep_alive=0)
             except Exception:
                 logger.debug("Could not unload previous model %s", _current_model, exc_info=True)
     _current_model = model_name
     if is_cloud_model(model_name):
         _llm_instance = _get_cloud_llm(model_name)
     else:
-        _llm_instance = ChatOllama(model=model_name, num_ctx=_num_ctx, reasoning=True)
+        _llm_instance = ChatOllama(model=_runtime_model_name(model_name), num_ctx=_num_ctx, reasoning=True)
     _save_settings({"model": _current_model, "context_size": _num_ctx,
                     "cloud_context_size": _cloud_num_ctx})
 
@@ -414,7 +432,7 @@ def set_context_size(size: int):
     if is_cloud_model(_current_model):
         _llm_instance = _get_cloud_llm(_current_model)
     else:
-        _llm_instance = ChatOllama(model=_current_model, num_ctx=_num_ctx, reasoning=True)
+        _llm_instance = ChatOllama(model=_runtime_model_name(_current_model), num_ctx=_num_ctx, reasoning=True)
     _save_settings({"model": _current_model, "context_size": _num_ctx,
                     "cloud_context_size": _cloud_num_ctx})
 
@@ -485,11 +503,15 @@ def fetch_trending_ollama_models() -> list[str]:
 
 def is_model_local(model_name: str) -> bool:
     """Check whether a model is already downloaded."""
+    parsed = _parse_provider_model_ref(model_name)
+    if parsed and parsed[0] not in {"local", "ollama"}:
+        return False
+    runtime_model = _runtime_model_name(model_name)
     local = list_local_models()
     return any(
-        model_name == m
-        or f"{model_name}:latest" == m
-        or model_name == m.split(":")[0]
+        runtime_model == m
+        or f"{runtime_model}:latest" == m
+        or runtime_model == m.split(":")[0]
         for m in local
     )
 
@@ -513,6 +535,12 @@ def _looks_like_cloud_model(model_name: str) -> bool:
 
 def _infer_cloud_provider(model_name: str) -> str | None:
     """Infer a cloud provider from a model ID when the cache is unavailable."""
+    parsed = _parse_provider_model_ref(model_name)
+    if parsed:
+        provider_id, _model_id = parsed
+        return None if provider_id in {"local", "ollama"} else provider_id
+    model_name = _runtime_model_name(model_name)
+    _sync_custom_model_cache()
     if model_name in _cloud_model_cache:
         return _cloud_model_cache[model_name]["provider"]
     if "/" in model_name:
@@ -550,6 +578,7 @@ def get_cloud_provider(model_name: str) -> str | None:
 # ── Provider emoji mapping ───────────────────────────────────────────────────
 _PROVIDER_EMOJI: dict[str | None, str] = {
     "openai": "⬡",
+    "codex": "C",
     "openrouter": "🌐",
     "anthropic": "🔶",
     "google": "💎",
@@ -571,14 +600,8 @@ def get_provider_emoji(model_name: str) -> str:
 
 def is_cloud_available() -> bool:
     """Return True if any cloud API key is configured."""
-    from api_keys import get_key
-    return bool(
-        get_key("OPENAI_API_KEY")
-        or get_key("OPENROUTER_API_KEY")
-        or get_key("ANTHROPIC_API_KEY")
-        or get_key("GOOGLE_API_KEY")
-        or get_key("XAI_API_KEY")
-    )
+    from providers.runtime import list_configured_provider_ids
+    return bool(list_configured_provider_ids())
 
 
 def is_openai_available() -> bool:
@@ -613,14 +636,33 @@ def is_xai_available() -> bool:
 
 def list_cloud_models(provider: str | None = None) -> list[str]:
     """Return cached cloud model IDs, optionally filtered by provider."""
+    _sync_custom_model_cache()
     if provider:
         return [m for m, info in _cloud_model_cache.items() if info["provider"] == provider]
     return list(_cloud_model_cache.keys())
 
 
+def _sync_custom_model_cache() -> None:
+    try:
+        from providers.custom import custom_model_cache_entries
+        entries = custom_model_cache_entries()
+    except Exception:
+        return
+    if not entries:
+        return
+    with _cloud_cache_lock:
+        _cloud_model_cache.update(entries)
+
+
 def list_starred_cloud_models() -> list[str]:
     """Return cloud models the user has starred (for the thread picker)."""
+    from providers.selection import list_quick_model_ids, migrate_legacy_starred_models
     from api_keys import get_cloud_config
+    _sync_custom_model_cache()
+    migrate_legacy_starred_models(cloud_models=_cloud_model_cache.keys())
+    quick_models = [m for m in list_quick_model_ids("chat") if m in _cloud_model_cache]
+    if quick_models:
+        return quick_models
     starred = set(get_cloud_config().get("starred_models", []))
     return [m for m in _cloud_model_cache if m in starred]
 
@@ -628,19 +670,23 @@ def list_starred_cloud_models() -> list[str]:
 def star_cloud_model(model_id: str) -> None:
     """Add a model to the starred list."""
     from api_keys import get_cloud_config, set_cloud_config
+    from providers.selection import add_quick_choice_for_model
     starred = list(get_cloud_config().get("starred_models", []))
     if model_id not in starred:
         starred.append(model_id)
         set_cloud_config("starred_models", starred)
+    add_quick_choice_for_model(model_id, source="legacy_starred_cloud")
 
 
 def unstar_cloud_model(model_id: str) -> None:
     """Remove a model from the starred list."""
     from api_keys import get_cloud_config, set_cloud_config
+    from providers.selection import remove_quick_choice_for_model
     starred = list(get_cloud_config().get("starred_models", []))
     if model_id in starred:
         starred.remove(model_id)
         set_cloud_config("starred_models", starred)
+    remove_quick_choice_for_model(model_id)
 
 
 def get_cloud_model_context(model_name: str) -> int:
@@ -652,21 +698,47 @@ def get_cloud_model_context(model_name: str) -> int:
     3. Prefix-based heuristic covering OpenAI / Anthropic / Gemini.
     4. Safe fallback (256K).
     """
-    info = _cloud_model_cache.get(model_name)
-    if info:
+    parsed = _parse_provider_model_ref(model_name)
+    provider_id = parsed[0] if parsed else None
+    runtime_model = _runtime_model_name(model_name)
+    info = _cloud_model_cache.get(runtime_model)
+    if info and (not provider_id or info.get("provider") == provider_id):
         return info["ctx"]
-    return _catalog_or_heuristic(model_name)
+    if provider_id == "codex":
+        try:
+            from providers.codex import list_codex_model_infos
+
+            for model_info in list_codex_model_infos():
+                if model_info.model_id == runtime_model and model_info.context_window:
+                    return int(model_info.context_window)
+        except Exception:
+            pass
+    return _catalog_or_heuristic(runtime_model)
 
 
 def list_cloud_vision_models() -> list[str]:
     """Return cloud model IDs that support vision / image input."""
-    return [m for m, info in _cloud_model_cache.items() if info.get("vision")]
+    from providers.capabilities import snapshot_supports_surface
+    return [
+        m for m, info in _cloud_model_cache.items()
+        if info.get("vision")
+        or (isinstance(info.get("capabilities_snapshot"), dict) and bool(info.get("capabilities_snapshot"))
+            and snapshot_supports_surface(info.get("capabilities_snapshot"), "vision"))
+    ]
 
 
 def is_cloud_vision_model(model_name: str) -> bool:
     """Return True if *model_name* is a cloud model with vision support."""
-    info = _cloud_model_cache.get(model_name)
-    return bool(info and info.get("vision"))
+    runtime_model = _runtime_model_name(model_name)
+    info = _cloud_model_cache.get(runtime_model)
+    if not info:
+        return False
+    from providers.capabilities import snapshot_supports_surface
+    snapshot = info.get("capabilities_snapshot")
+    return bool(
+        info.get("vision")
+        or (isinstance(snapshot, dict) and bool(snapshot) and snapshot_supports_surface(snapshot, "vision"))
+    )
 
 
 def _get_cloud_llm(model_name: str):
@@ -676,51 +748,18 @@ def _get_cloud_llm(model_name: str):
     ``ChatOpenRouter`` which correctly surfaces ``reasoning_content``
     in ``additional_kwargs`` for reasoning models.
     """
-    from api_keys import get_key
+    from providers.runtime import create_chat_model
 
     provider = get_cloud_provider(model_name)
+    runtime_model = _runtime_model_name(model_name)
     ctx = get_cloud_model_context(model_name)
-    key = (model_name, ctx)
+    key = (f"{provider or 'openrouter'}:{runtime_model}", ctx)
     if key in _override_llm_cache:
         return _override_llm_cache[key]
 
-    logger.info("Creating cloud LLM: model=%s via %s", model_name, provider or "openrouter")
+    logger.info("Creating cloud LLM: model=%s via %s", runtime_model, provider or "openrouter")
 
-    if provider == "openai":
-        from langchain_openai import ChatOpenAI
-        api_key = get_key("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OpenAI API key not configured. Set it in Settings → Cloud.")
-        _override_llm_cache[key] = ChatOpenAI(model=model_name, api_key=api_key)
-    elif provider == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-        api_key = get_key("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise ValueError("Anthropic API key not configured. Set it in Settings → Cloud.")
-        _override_llm_cache[key] = ChatAnthropic(model=model_name, api_key=api_key)
-    elif provider == "google":
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        api_key = get_key("GOOGLE_API_KEY")
-        if not api_key:
-            raise ValueError("Google AI API key not configured. Set it in Settings → Cloud.")
-        _override_llm_cache[key] = ChatGoogleGenerativeAI(
-            model=model_name, google_api_key=api_key,
-        )
-    elif provider == "xai":
-        from langchain_xai import ChatXAI
-        api_key = get_key("XAI_API_KEY")
-        if not api_key:
-            raise ValueError("xAI API key not configured. Set it in Settings → Cloud.")
-        _override_llm_cache[key] = ChatXAI(model=model_name, api_key=api_key)
-    else:
-        from langchain_openrouter import ChatOpenRouter
-        api_key = get_key("OPENROUTER_API_KEY")
-        if not api_key:
-            raise ValueError("OpenRouter API key not configured. Set it in Settings → Cloud.")
-        _override_llm_cache[key] = ChatOpenRouter(
-            model_name=model_name,
-            openrouter_api_key=api_key,
-        )
+    _override_llm_cache[key] = create_chat_model(runtime_model, provider)
     return _override_llm_cache[key]
 
 
@@ -862,7 +901,7 @@ def _catalog_or_heuristic(model_id: str) -> int:
 _ANTHROPIC_SKIP_SUBSTRINGS = ("embed", "tokenizer")
 
 # Google model substrings to skip
-_GOOGLE_SKIP_SUBSTRINGS = ("embed", "aqa", "imagen", "veo", "tts")
+_GOOGLE_SKIP_SUBSTRINGS = ("embed", "aqa", "tts")
 
 
 def fetch_cloud_models(provider: str) -> int:
@@ -874,6 +913,8 @@ def fetch_cloud_models(provider: str) -> int:
     """
     import httpx
     from api_keys import get_key
+    from providers.capabilities import model_supports_surface
+    from providers.catalog import model_info_from_metadata, model_info_to_cache_entry
 
     if provider == "openai":
         api_key = get_key("OPENAI_API_KEY")
@@ -918,15 +959,15 @@ def fetch_cloud_models(provider: str) -> int:
         if provider == "openai":
             for m in data:
                 mid = m.get("id", "")
-                if not any(mid.startswith(p) for p in _OPENAI_CHAT_PREFIXES):
+                model_info = model_info_from_metadata(
+                    "openai", mid, m,
+                    display_name=mid,
+                    context_window=_catalog_or_heuristic(mid),
+                )
+                if not any(model_supports_surface(model_info, surface) for surface in ("chat", "image", "video")):
                     continue
-                if any(s in mid for s in _OPENAI_SKIP_SUBSTRINGS):
-                    continue
-                ctx = _catalog_or_heuristic(mid)
-                _cloud_model_cache[mid] = {
-                    "label": mid, "ctx": ctx, "provider": "openai",
-                    "vision": True,   # all current OpenAI chat models are multimodal
-                }
+                entry = model_info_to_cache_entry(model_info)
+                _cloud_model_cache[mid] = entry
                 count += 1
         else:  # openrouter
             for m in data:
@@ -936,13 +977,14 @@ def fetch_cloud_models(provider: str) -> int:
                 # Only include models with a '/' (provider/model format)
                 if "/" not in mid:
                     continue
-                # Detect vision capability from architecture.modality
-                modality = m.get("architecture", {}).get("modality", "")
-                has_vision = "image" in modality
-                _cloud_model_cache[mid] = {
-                    "label": name, "ctx": ctx, "provider": "openrouter",
-                    "vision": has_vision,
-                }
+                model_info = model_info_from_metadata(
+                    "openrouter", mid, m,
+                    display_name=name,
+                    context_window=ctx,
+                )
+                if not any(model_supports_surface(model_info, surface) for surface in ("chat", "image", "video")):
+                    continue
+                _cloud_model_cache[mid] = model_info_to_cache_entry(model_info)
                 count += 1
     logger.info("Fetched %d %s models", count, provider)
     return count
@@ -955,6 +997,7 @@ def _fetch_anthropic_models(api_key: str) -> int:
     context size when available, falling back to ``_catalog_or_heuristic``.
     """
     import httpx
+    from providers.catalog import model_info_from_metadata, model_info_to_cache_entry
 
     headers = {
         "x-api-key": api_key,
@@ -992,10 +1035,13 @@ def _fetch_anthropic_models(api_key: str) -> int:
                     has_vision = bool(
                         caps.get("image_input", {}).get("supported")
                     )
-                    _cloud_model_cache[mid] = {
-                        "label": display, "ctx": ctx,
-                        "provider": "anthropic", "vision": has_vision,
-                    }
+                    metadata = dict(m)
+                    metadata["vision"] = has_vision
+                    _cloud_model_cache[mid] = model_info_to_cache_entry(model_info_from_metadata(
+                        "anthropic", mid, metadata,
+                        display_name=display,
+                        context_window=ctx,
+                    ))
                     count += 1
 
             if not body.get("has_more"):
@@ -1013,10 +1059,14 @@ def _fetch_anthropic_models(api_key: str) -> int:
 def _fetch_google_models(api_key: str) -> int:
     """Fetch models from the Google Generative AI ``models.list`` endpoint.
 
-    Only includes models that support ``generateContent``.
+    Includes chat, image, and video-capable models. Media generation models are
+    often exposed through non-chat APIs, so they must stay in the provider cache
+    for the image/video tools even when they are hidden from chat pickers.
     Uses ``inputTokenLimit`` for context size.
     """
     import httpx
+    from providers.capabilities import model_supports_surface
+    from providers.catalog import model_info_from_metadata, model_info_to_cache_entry
 
     count = 0
     page_token: str | None = None
@@ -1040,20 +1090,20 @@ def _fetch_google_models(api_key: str) -> int:
                     mid = name.removeprefix("models/")  # → "gemini-2.5-flash"
                     if not mid:
                         continue
-                    # Only chat-capable models
                     methods = m.get("supportedGenerationMethods", [])
-                    if "generateContent" not in methods:
-                        continue
                     if any(s in mid for s in _GOOGLE_SKIP_SUBSTRINGS):
                         continue
                     display = m.get("displayName", mid)
                     ctx = m.get("inputTokenLimit", 0)
                     if not ctx or ctx <= 0:
                         ctx = _catalog_or_heuristic(mid)
-                    _cloud_model_cache[mid] = {
-                        "label": display, "ctx": ctx,
-                        "provider": "google", "vision": True,
-                    }
+                    metadata = dict(m)
+                    metadata["supportedGenerationMethods"] = methods
+                    metadata["vision"] = "generateContent" in methods
+                    model_info = model_info_from_metadata("google", mid, metadata, display_name=display, context_window=ctx)
+                    if not any(model_supports_surface(model_info, surface) for surface in ("chat", "image", "video")):
+                        continue
+                    _cloud_model_cache[mid] = model_info_to_cache_entry(model_info)
                     count += 1
 
             page_token = body.get("nextPageToken")
@@ -1066,8 +1116,8 @@ def _fetch_google_models(api_key: str) -> int:
     return count
 
 
-# Substrings that mark non-chat xAI models (image/video generation).
-_XAI_SKIP_SUBSTRINGS = ("grok-imagine",)
+# Substrings that mark non-chat xAI models to drop from the provider cache.
+_XAI_SKIP_SUBSTRINGS: tuple[str, ...] = ()
 
 
 def _fetch_xai_models(api_key: str) -> int:
@@ -1078,6 +1128,7 @@ def _fetch_xai_models(api_key: str) -> int:
     context window sizes).
     """
     import httpx
+    from providers.catalog import model_info_from_metadata, model_info_to_cache_entry
 
     try:
         resp = httpx.get(
@@ -1103,10 +1154,13 @@ def _fetch_xai_models(api_key: str) -> int:
             display = mid  # xAI doesn't return a display name
             ctx = _catalog_or_heuristic(mid)
             has_vision = "image" in m.get("input_modalities", [])
-            _cloud_model_cache[mid] = {
-                "label": display, "ctx": ctx,
-                "provider": "xai", "vision": has_vision,
-            }
+            metadata = dict(m)
+            metadata["vision"] = has_vision
+            _cloud_model_cache[mid] = model_info_to_cache_entry(model_info_from_metadata(
+                "xai", mid, metadata,
+                display_name=display,
+                context_window=ctx,
+            ))
             count += 1
 
     logger.info("Fetched %d xai models", count)
@@ -1157,7 +1211,16 @@ def is_tool_compatible(model_name: str) -> bool:
 
     All cloud models (fetched dynamically) support tool calling."""
     if is_cloud_model(model_name):
+        info = _cloud_model_cache.get(model_name, {})
+        snapshot = info.get("capabilities_snapshot") if isinstance(info, dict) else {}
+        if isinstance(snapshot, dict) and snapshot:
+            return snapshot.get("tool_calling") is not False
         return True
+    try:
+        from providers.ollama import is_ollama_tool_capable
+        return is_ollama_tool_capable(model_name)
+    except Exception:
+        pass
     family = model_name.split(":")[0]
     return family in _TOOL_COMPATIBLE_FAMILIES
 

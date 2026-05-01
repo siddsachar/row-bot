@@ -108,6 +108,9 @@ Source: "..\utils\__init__.py";        DestDir: "{app}\app\utils"; Flags: ignore
 Source: "..\utils\text.py";            DestDir: "{app}\app\utils"; Flags: ignoreversion
 Source: "..\utils\media.py";           DestDir: "{app}\app\utils"; Flags: ignoreversion
 
+; ── Providers package ───────────────────────────────────────────────────────
+Source: "..\providers\*";              DestDir: "{app}\app\providers"; Flags: ignoreversion recursesubdirs createallsubdirs
+
 ; ── MCP client package ───────────────────────────────────────────────────────
 Source: "..\mcp_client\__init__.py";    DestDir: "{app}\app\mcp_client"; Flags: ignoreversion
 Source: "..\mcp_client\conflicts.py";   DestDir: "{app}\app\mcp_client"; Flags: ignoreversion
@@ -198,6 +201,8 @@ Source: "..\ui\helpers.py";            DestDir: "{app}\app\ui"; Flags: ignorever
 Source: "..\ui\home.py";               DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\mcp_settings.py";       DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\migration_wizard.py";   DestDir: "{app}\app\ui"; Flags: ignoreversion
+Source: "..\ui\model_catalog.py";      DestDir: "{app}\app\ui"; Flags: ignoreversion
+Source: "..\ui\provider_settings.py";  DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\render.py";             DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\settings.py";           DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\setup_wizard.py";       DestDir: "{app}\app\ui"; Flags: ignoreversion

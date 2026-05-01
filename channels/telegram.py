@@ -520,14 +520,15 @@ async def _cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     from models import (
-        is_cloud_model, is_cloud_available, list_starred_cloud_models,
-        get_current_model, get_cloud_provider,
+        is_cloud_model, is_cloud_available,
+        get_current_model, get_cloud_provider, get_provider_emoji,
     )
+    from providers.selection import list_quick_model_ids, resolve_selection
     from threads import _set_thread_model_override
 
     args = (update.message.text or "").split(maxsplit=1)
     if len(args) < 2:
-        # Show current model + list available starred cloud models
+        # Show current model + channel-visible Quick Choices
         config = context.chat_data.get("thread_config") or {}
         current_ov = (config.get("configurable") or {}).get("model_override", "")
         _def = get_current_model()
@@ -540,17 +541,17 @@ async def _cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             _tag = "☁️" if _prov else "🖥️"
             current_display = f"{_tag} {_def} (default)"
         lines = [f"<b>Current model:</b> {_escape_html(current_display)}\n"]
-        starred = list_starred_cloud_models()
-        if starred:
-            lines.append("<b>Starred cloud models:</b>")
-            for cid in starred:
-                lines.append(f"• <code>{cid}</code>")
+        choices = list(dict.fromkeys([get_current_model()] + list_quick_model_ids("channels")))
+        if choices:
+            lines.append("<b>Channel Quick Choices:</b>")
+            for cid in choices:
+                lines.append(f"• {_escape_html(get_provider_emoji(cid))} <code>{cid}</code>")
             lines.append("\nUsage: <code>/model gpt-4o</code>")
             lines.append("Reset to default: <code>/model default</code>")
         elif is_cloud_available():
-            lines.append("No starred cloud models. Star models in Thoth → Settings → Cloud.")
+            lines.append("No provider Quick Choices. Pin models in Thoth → Settings → Providers.")
         else:
-            lines.append("⚠️ No cloud API keys configured.\nSet them in Thoth → Settings → Cloud.")
+            lines.append("No provider API keys configured.\nSet them in Thoth → Settings → Providers.")
         await _send_html(update.message, "\n".join(lines))
         return
 
@@ -567,15 +568,24 @@ async def _cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text(f"✅ Switched to default: {get_current_model()}")
         return
 
-    if not is_cloud_model(model_id):
+    resolved = resolve_selection(model_id)
+    if not resolved or resolved.kind != "model" or not resolved.model_id:
         await update.message.reply_text(
-            f"⚠️ Unknown cloud model: {model_id}\n"
-            "Use /model to see available models."
+            f"Unknown model choice: {model_id}\n"
+            "Use /model to see available Quick Choices."
         )
         return
 
-    if not is_cloud_available():
-        await update.message.reply_text("⚠️ No cloud API keys configured.")
+    model_id = resolved.model_id
+    channel_choices = set(list_quick_model_ids("channels")) | {get_current_model()}
+    if model_id not in channel_choices and not resolved.legacy_value.startswith("model:"):
+        await update.message.reply_text(
+            f"{model_id} is not a channel Quick Choice. Pin it in Settings → Providers first."
+        )
+        return
+
+    if is_cloud_model(model_id) and not is_cloud_available():
+        await update.message.reply_text("No provider API keys configured.")
         return
 
     # Set the model override
@@ -588,7 +598,7 @@ async def _cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     _set_thread_model_override(tid, model_id)
     context.chat_data["thread_config"] = config
 
-    await update.message.reply_text(f"☁️ Switched to {model_id}")
+    await update.message.reply_text(f"Switched to {model_id}")
 
 
 async def _cmd_tools(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
