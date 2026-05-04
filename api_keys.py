@@ -55,6 +55,11 @@ XAI_KEY_DEFINITIONS = {
     "xAI API Key": "XAI_API_KEY",
 }
 
+# MiniMax API credentials – managed in the Providers settings tab.
+MINIMAX_KEY_DEFINITIONS = {
+    "MiniMax API Key": "MINIMAX_API_KEY",
+}
+
 # ── Cloud provider configuration ────────────────────────────────────────────
 _CLOUD_CONFIG_PATH = DATA_DIR / "cloud_config.json"
 

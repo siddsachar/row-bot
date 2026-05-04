@@ -4,7 +4,7 @@ from typing import Any
 
 from providers.capabilities import snapshot_supports_surface
 from providers.auth_store import get_provider_secret, provider_secret_status
-from providers.catalog import model_info_from_metadata
+from providers.catalog import get_provider_definition, model_info_from_metadata
 from providers.custom import custom_endpoint_secret, get_custom_endpoint, is_custom_openai_provider
 
 
@@ -166,10 +166,12 @@ def create_chat_model(model_name: str, provider_id: str | None = None):
         api_key = get_provider_secret("minimax")
         if not api_key:
             raise ValueError("MiniMax API key not configured. Set it in Settings → Providers.")
+        definition = get_provider_definition("minimax")
+        api_url = definition.base_url if definition and definition.base_url else "https://api.minimax.io/anthropic"
         return ChatAnthropic(
             model=model_name,
             api_key=api_key,
-            anthropic_api_url="https://api.minimax.io/anthropic",
+            base_url=api_url,
         )
 
     from langchain_openrouter import ChatOpenRouter

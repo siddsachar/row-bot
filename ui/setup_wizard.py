@@ -86,6 +86,7 @@ async def show_setup_wizard(
         validate_anthropic_key,
         validate_google_key,
         validate_xai_key,
+        validate_minimax_key,
         refresh_cloud_models,
         list_cloud_models,
         get_provider_emoji,
@@ -214,7 +215,7 @@ async def show_setup_wizard(
                 ui.label(
                     "Enter at least one provider API key. OpenAI gives direct access to GPT models. "
                     "Anthropic gives direct access to Claude. Google AI gives direct access to Gemini. "
-                    "xAI gives direct access to Grok. "
+                    "xAI gives direct access to Grok. MiniMax gives direct access to M2 models. "
                     "OpenRouter gives access to 100+ models from all providers."
                 ).classes("text-grey-6 text-sm")
 
@@ -232,6 +233,10 @@ async def show_setup_wizard(
                 ).classes("w-full")
                 setup_xai_key = ui.input(
                     "xAI API Key (optional)",
+                    password=True, password_toggle_button=True,
+                ).classes("w-full")
+                setup_minimax_key = ui.input(
+                    "MiniMax API Key (optional)",
                     password=True, password_toggle_button=True,
                 ).classes("w-full")
                 setup_or_key = ui.input(
@@ -258,8 +263,9 @@ async def show_setup_wizard(
                     anth_val = setup_anth_key.value.strip()
                     goog_val = setup_goog_key.value.strip()
                     xai_val = setup_xai_key.value.strip()
+                    minimax_val = setup_minimax_key.value.strip()
                     or_val = setup_or_key.value.strip()
-                    if not oai_val and not anth_val and not goog_val and not xai_val and not or_val:
+                    if not oai_val and not anth_val and not goog_val and not xai_val and not minimax_val and not or_val:
                         ui.notify("Enter at least one API key", type="warning")
                         return
                     cloud_status.text = "⏳ Validating key(s)…"
@@ -296,6 +302,15 @@ async def show_setup_wizard(
                             _update_finish()
                             return
                         set_key("XAI_API_KEY", xai_val)
+                    if minimax_val:
+                        minimax_valid = await run.io_bound(validate_minimax_key, minimax_val)
+                        if not minimax_valid:
+                            ui.notify(
+                                "MiniMax key validation failed — saving anyway so the catalog can be prepared.",
+                                type="warning",
+                                timeout=5000,
+                            )
+                        set_key("MINIMAX_API_KEY", minimax_val)
                     if oai_val:
                         set_key("OPENAI_API_KEY", oai_val)
                     cloud_status.text = "⏳ Fetching available models…"

@@ -11,7 +11,8 @@ This release also adds **ChatGPT / Codex** as a distinct subscription-backed pro
 ### 🧠 Provider Runtime Foundation
 
 - **New `providers/` subsystem** — provider definitions, metadata-only config, keyring-backed provider secrets, catalog normalization, runtime construction, status summaries, error normalization, Quick Choices, custom endpoint support, and routing-profile foundations now live in one dedicated package
-- **Provider runtime facade** — OpenAI, OpenRouter, Anthropic, Google AI, xAI, custom OpenAI-compatible endpoints, Ollama catalog rows, and ChatGPT / Codex all route through a shared runtime layer while preserving the public `models.py` compatibility API
+- **Provider runtime facade** — OpenAI, OpenRouter, Anthropic, Google AI, xAI, MiniMax, custom OpenAI-compatible endpoints, Ollama catalog rows, and ChatGPT / Codex all route through a shared runtime layer while preserving the public `models.py` compatibility API
+- **MiniMax provider support** — MiniMax M2 models can be connected as a first-class API-key provider through MiniMax's Anthropic-compatible endpoint, with catalog rows, provider labels, setup/settings key entry, and runtime routing through the existing Anthropic transport
 - **Stable model refs** — provider-backed picker values use refs such as `model:openai:gpt-5.5` and `model:codex:gpt-5.5`, keeping identical raw model IDs distinct across providers
 - **Provider-aware labels** — duplicate model names now show route labels such as `GPT-5.5 — OpenAI API` and `GPT-5.5 — ChatGPT / Codex` in chat, Designer, workflow, status, and settings pickers
 - **Metadata-only provider config** — `providers.json` stores provider state, Quick Choices, catalog cache, fingerprints, and status metadata; raw API keys and OAuth tokens stay in the OS credential store when available
@@ -73,13 +74,13 @@ This release also adds **ChatGPT / Codex** as a distinct subscription-backed pro
 
 ### 🧪 Tests & Release Checks
 
-- **Focused provider suites** — new provider tests cover config normalization/masking, keyring namespace storage and chunking, provider catalog inference, model selection refs, media model filtering, custom endpoints, runtime construction, and ChatGPT / Codex OAuth/catalog/transport behavior
+- **Focused provider suites** — new provider tests cover config normalization/masking, keyring namespace storage and chunking, provider catalog inference, model selection refs, media model filtering, custom endpoints, runtime construction, MiniMax provider wiring, and ChatGPT / Codex OAuth/catalog/transport behavior
 - **Bundled skill coverage** — the main suite validates `claude_code_delegation` as a bundled skill and checks the skill parser/discovery path that loads it
 - **Designer regressions** — `test_suite.py` covers detached finalization cleanup, stale terminal generation recovery, deleted-client detach detection, Designer asset canonicalization, preview timer cleanup, and checkpoint hydration for detached final answers
 - **Release smoke** — `test_suite.py` validates v3.19.0 version consistency across `version.py`, Windows installer, macOS app plist, CI release workflow, bug report template, and install dependencies
 - **Packaging smoke** — Windows installer coverage includes recursive `providers/` plus `ui/model_catalog.py` and `ui/provider_settings.py`; macOS app packaging includes `providers` and the full `ui` package
 - **Clean first-run smoke** — a temporary `THOTH_DATA_DIR` import/config check confirms setup wizard and provider config load cleanly before any provider state exists
-- **Final validation** — direct `test_suite.py` passes with the release-smoke checks, and full `pytest -q` passes with `171 passed, 1 skipped`
+- **Final validation** — direct `test_suite.py` passes with the release-smoke checks, and full `pytest -q` passes with `181 passed, 1 skipped`
 
 ### ⚠️ Release Notes & Risk Notes
 
@@ -97,7 +98,7 @@ This release also adds **ChatGPT / Codex** as a distinct subscription-backed pro
 | **`providers/transports/codex_responses.py`** | **New** — ChatGPT / Codex Responses transport with SSE streaming, tool-call chunks, tool-call replay, and auth-refresh retry support |
 | **`ui/provider_settings.py`** | **New** — Settings → Providers connection, credential, ChatGPT sign-in, health, refresh, setup, and custom endpoint UI |
 | **`ui/model_catalog.py`** | **New** — consolidated Settings → Models catalog UI for provider/local rows, pinning, defaults, downloads, and surface filtering |
-| `models.py` | Provider-aware model refs, runtime/provider/context resolution, Quick Choice compatibility, legacy selection handling, and local/provider facade updates |
+| `models.py` | Provider-aware model refs, runtime/provider/context resolution, MiniMax static catalog rows, Quick Choice compatibility, legacy selection handling, and local/provider facade updates |
 | `ui/settings.py` | Providers/Models split, polished model defaults panel, catalog embedding, media defaults, and provider-aware picker wiring |
 | `ui/chat.py`, `ui/chat_components.py`, `ui/task_dialog.py` | Shared provider-aware model picker options and dynamic provider labels for chat, Designer, and workflow/background overrides |
 | `channels/telegram.py` | `/model` command uses provider Quick Choices instead of legacy starred cloud models |
@@ -106,7 +107,7 @@ This release also adds **ChatGPT / Codex** as a distinct subscription-backed pro
 | `agent.py` | Current-turn-only checkpoint fallback for empty streaming turns so stale prior answers are not replayed |
 | `bundled_skills/claude_code_delegation/SKILL.md` | **New** — approval-gated Claude Code CLI delegation workflow for coding, review, and refactor tasks |
 | `designer/editor.py`, `designer/preview.py`, `ui/streaming.py` | Designer asset canonicalization, deleted-client detection, detached completion hydration, active-generation cleanup, and preview timer disconnect handling |
-| `ui/setup_wizard.py` | Provider path copy and Quick Choice seeding aligned with Settings → Models ownership |
+| `ui/setup_wizard.py` | Provider path copy, MiniMax key entry, and Quick Choice seeding aligned with Settings → Models ownership |
 | `app_port.py`, `launcher.py`, `app.py` | Dynamic app-port selection, `THOTH_PORT` propagation, Thoth identity probing, and active-port NiceGUI startup |
 | `installer/thoth_setup.iss`, `installer/build_mac_app.sh`, `installer/README.md` | Provider runtime/UI packaging, v3.19.0 installer docs, clean first-run and Codex credential-boundary notes |
 | `channels/sms.py`, `designer/publish.py`, `ui/settings.py` | Main-app tunnel, SMS webhook, Designer published-link, and Settings tunnel controls now follow the active app port |

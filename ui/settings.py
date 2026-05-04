@@ -62,6 +62,7 @@ def open_settings(
         validate_anthropic_key,
         validate_google_key,
         validate_xai_key,
+        validate_minimax_key,
         CONTEXT_SIZE_OPTIONS,
         CONTEXT_SIZE_LABELS,
         CLOUD_CONTEXT_SIZE_OPTIONS,
@@ -1024,6 +1025,29 @@ def open_settings(
                 ui.button("Save Key", icon="save", on_click=_save_xai).props("flat dense")
                 ui.button("Clear", icon="delete", on_click=lambda: _clear_secret("XAI_API_KEY", "xAI key", xai_refresh)).props("flat dense color=negative")
 
+        with ui.expansion("MiniMax", icon="bolt", value=False).classes("w-full"):
+            ui.label("Access MiniMax M2 models through the Anthropic-compatible API.").classes("text-grey-6 text-sm")
+            minimax_input, minimax_refresh = _secret_input("MiniMax API Key", "MINIMAX_API_KEY")
+
+            async def _save_minimax():
+                val = _secret_value_or_notify(minimax_input.value, "MiniMax key")
+                if not val:
+                    return
+                valid = await run.io_bound(validate_minimax_key, val)
+                if not valid:
+                    ui.notify("⚠️ MiniMax key validation failed — saving anyway. "
+                              "Models will appear if the key is valid.",
+                              type="warning", timeout=5000)
+                set_key("MINIMAX_API_KEY", val)
+                minimax_input.value = ""
+                minimax_input.update()
+                minimax_refresh()
+                ui.notify("MiniMax key saved ✅", type="positive")
+                await run.io_bound(refresh_cloud_models)
+            with ui.row().classes("gap-2"):
+                ui.button("Save Key", icon="save", on_click=_save_minimax).props("flat dense")
+                ui.button("Clear", icon="delete", on_click=lambda: _clear_secret("MINIMAX_API_KEY", "MiniMax key", minimax_refresh)).props("flat dense color=negative")
+
         ui.separator()
         build_custom_endpoints_section(on_change=lambda: _reopen("Providers"))
 
@@ -1042,6 +1066,9 @@ def open_settings(
                 "2. Create a new key and paste it above\n\n"
                 "### xAI (Grok)\n\n"
                 "1. Go to [console.x.ai](https://console.x.ai) → API Keys\n"
+                "2. Create a new key and paste it above\n\n"
+                "### MiniMax\n\n"
+                "1. Go to [platform.minimax.io](https://platform.minimax.io/) → API Keys\n"
                 "2. Create a new key and paste it above\n\n"
                 "### OpenRouter\n\n"
                 "1. Go to [openrouter.ai](https://openrouter.ai) and create an account\n"

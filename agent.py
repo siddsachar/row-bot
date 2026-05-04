@@ -20,6 +20,19 @@ class TaskStoppedError(Exception):
 
 apply_keys()
 
+
+def _provider_uses_anthropic_messages(provider_id: str | None) -> bool:
+    if not provider_id:
+        return False
+    try:
+        from providers.catalog import get_provider_definition
+        from providers.models import TransportMode
+
+        definition = get_provider_definition(provider_id)
+        return bool(definition and definition.default_transport == TransportMode.ANTHROPIC_MESSAGES)
+    except Exception:
+        return provider_id == "anthropic"
+
 # ── Contextual compression: extract only query-relevant content per doc ──────
 _compressor = None
 
@@ -879,17 +892,19 @@ def _pre_model_trim(state: dict) -> dict:
     except Exception:
         pass  # Non-fatal — don't break the agent if this fails
 
-    # ── Anthropic: consolidate system messages ────────────────────────
-    # Anthropic's API requires all system messages to be consecutive at
-    # the start of the message list.  The recall and wind-down messages
-    # above are injected mid-conversation as SystemMessages, which works
-    # fine for Ollama / OpenAI / OpenRouter / Google but causes a
-    # "multiple non-consecutive system messages" error on direct
-    # Anthropic.  Fix: move all SystemMessages to the front so
-    # langchain-anthropic's _merge_messages() can merge them into one.
+    # ── Anthropic-compatible: consolidate system messages ─────────────
+    # Anthropic Messages transports require all system messages to be
+    # consecutive at the start of the message list.  The recall and
+    # wind-down messages above are injected mid-conversation as
+    # SystemMessages, which works fine for Ollama / OpenAI / OpenRouter /
+    # Google but causes a "multiple non-consecutive system messages"
+    # error on Anthropic-compatible providers.  Fix: move all
+    # SystemMessages to the front so langchain-anthropic's
+    # _merge_messages() can merge them into one.
     try:
         _cur = _active_model_override.get() or get_current_model()
-        if is_cloud_model(_cur) and get_cloud_provider(_cur) == "anthropic":
+        _provider_id = get_cloud_provider(_cur) if is_cloud_model(_cur) else None
+        if _provider_uses_anthropic_messages(_provider_id):
             _sys = [m for m in trimmed if isinstance(m, SystemMessage)]
             _rest = [m for m in trimmed if not isinstance(m, SystemMessage)]
             trimmed = _sys + _rest
@@ -901,6 +916,8 @@ def _pre_model_trim(state: dict) -> dict:
             # blocks.  We place up to 2 cache breakpoints:
             #   1. The last SystemMessage (covers system prompt + metadata)
             #   2. The 3rd non-system message (covers early conversation)
+            if _provider_id != "anthropic":
+                return {"llm_input_messages": trimmed}
             _CACHE_MARKER = {"type": "ephemeral"}
             # Breakpoint 1: last system message
             _last_sys_idx = -1

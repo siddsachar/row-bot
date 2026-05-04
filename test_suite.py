@@ -12099,10 +12099,10 @@ try:
         "agent.py should have Anthropic system message consolidation block"
     record("PASS", "anth+goog: agent.py has Anthropic system-message consolidation")
 
-    # ── 52ai. Consolidation only activates for Anthropic provider ────
-    assert 'get_cloud_provider(' in _agent_src52 and '"anthropic"' in _agent_src52, \
-        "Consolidation should be guarded by get_cloud_provider == anthropic"
-    record("PASS", "anth+goog: consolidation guarded by provider == anthropic")
+    # ── 52ai. Consolidation activates for Anthropic Messages transport ─
+    assert 'get_cloud_provider(' in _agent_src52 and 'TransportMode.ANTHROPIC_MESSAGES' in _agent_src52, \
+        "Consolidation should be guarded by Anthropic Messages transport"
+    record("PASS", "anth+goog: consolidation guarded by Anthropic Messages transport")
 
     # ── 52ai2. Consolidation uses _active_model_override for model detection
     assert '_active_model_override.get()' in _agent_src52, \
@@ -19409,7 +19409,9 @@ try:
     from providers.catalog import infer_provider_id as _infer75
     assert _infer75("MiniMax-M2.7") == "minimax", "MiniMax-M2.7 should infer to minimax provider"
     assert _infer75("MiniMax-M2.7-highspeed") == "minimax", "MiniMax-M2.7-highspeed should infer to minimax provider"
-    record("PASS", "75d: infer_provider_id routes MiniMax-M2.7 and MiniMax-M2.7-highspeed to minimax")
+    assert _infer75("MiniMax-M2.5") == "minimax", "MiniMax-M2.5 should infer to minimax provider"
+    assert _infer75("MiniMax-M2.1-highspeed") == "minimax", "MiniMax-M2.1-highspeed should infer to minimax provider"
+    record("PASS", "75d: infer_provider_id routes MiniMax M2 model IDs to minimax")
 
     # ── 75e. minimax provider definition is well-formed ───────────────
     from providers.catalog import get_provider_definition as _gpd75
@@ -19419,6 +19421,21 @@ try:
     assert _mm_def75.default_transport == _TM75.ANTHROPIC_MESSAGES, "minimax should use ANTHROPIC_MESSAGES transport"
     assert _mm_def75.base_url == "https://api.minimax.io/anthropic"
     record("PASS", "75e: minimax provider definition uses ANTHROPIC_MESSAGES transport")
+
+    # ── 75f. MiniMax is wired through the model facade/catalog ────────
+    import models as _models75
+    assert "MINIMAX_ANTHROPIC_BASE_URL" in _P75("models.py").read_text(encoding="utf-8")
+    assert _models75.get_cloud_provider("MiniMax-M2.7") == "minimax"
+    assert _models75.get_cloud_model_context("MiniMax-M2.7") == 204800
+    assert _models75.get_provider_emoji("MiniMax-M2.7") == "M"
+    record("PASS", "75f: models.py recognizes MiniMax model IDs and context")
+
+    # ── 75g. Settings and setup wizard expose MiniMax key entry ──────
+    _settings_src75 = _P75("ui/settings.py").read_text(encoding="utf-8")
+    _wizard_src75 = _P75("ui/setup_wizard.py").read_text(encoding="utf-8")
+    assert "MINIMAX_API_KEY" in _settings_src75, "Settings should expose MiniMax API key"
+    assert "MINIMAX_API_KEY" in _wizard_src75, "Setup wizard should expose MiniMax API key"
+    record("PASS", "75g: Settings and setup wizard expose MiniMax API key")
 
 except Exception as e:
     record("FAIL", "minimax-provider-75", f"{type(e).__name__}: {e}")

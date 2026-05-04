@@ -210,7 +210,99 @@ def test_minimax_provider_creates_chat_anthropic_with_minimax_base_url(monkeypat
 
     assert model.kwargs["model"] == "MiniMax-M2.7"
     assert model.kwargs["api_key"] == "test-minimax-key"
-    assert model.kwargs["anthropic_api_url"] == "https://api.minimax.io/anthropic"
+    assert model.kwargs["base_url"] == "https://api.minimax.io/anthropic"
+
+
+def test_minimax_model_facade_recognizes_static_catalog(monkeypatch):
+    import api_keys
+    import models
+
+    old_cache = dict(models._cloud_model_cache)
+    monkeypatch.setattr(api_keys, "get_key", lambda key: "test-minimax-key" if key == "MINIMAX_API_KEY" else "")
+    try:
+        models._cloud_model_cache.clear()
+        count = models.fetch_cloud_models("minimax")
+
+        assert count == 7
+        assert models.is_cloud_model("MiniMax-M2.7") is True
+        assert models.get_cloud_provider("MiniMax-M2.7") == "minimax"
+        assert models.get_cloud_model_context("MiniMax-M2.7") == 204_800
+        assert models.get_provider_emoji("MiniMax-M2.7") == "M"
+        assert models._cloud_model_cache["MiniMax-M2.7"]["provider"] == "minimax"
+    finally:
+        models._cloud_model_cache.clear()
+        models._cloud_model_cache.update(old_cache)
+
+
+def test_minimax_validation_treats_insufficient_balance_as_accepted_key(monkeypatch):
+    import httpx
+    import models
+
+    captured = {}
+
+    class _Response:
+        status_code = 500
+        text = '{"type":"error","error":{"type":"api_error","message":"insufficient balance (1008)"}}'
+
+    def _fake_post(url, **kwargs):
+        captured["url"] = url
+        captured["json"] = kwargs.get("json")
+        return _Response()
+
+    monkeypatch.setattr(httpx, "post", _fake_post)
+
+    assert models.validate_minimax_key("test-minimax-key") is True
+    assert captured["url"] == "https://api.minimax.io/anthropic/v1/messages"
+    assert captured["json"]["model"] == "MiniMax-M2.7"
+
+
+def test_minimax_validation_rejects_auth_failure(monkeypatch):
+    import httpx
+    import models
+
+    class _Response:
+        status_code = 401
+        text = '{"type":"error","error":{"message":"invalid api key"}}'
+
+    monkeypatch.setattr(httpx, "post", lambda *args, **kwargs: _Response())
+
+    assert models.validate_minimax_key("bad-key") is False
+
+
+def test_minimax_pre_model_trim_uses_anthropic_message_consolidation(monkeypatch):
+    import agent
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
+    monkeypatch.setattr(agent, "get_context_size", lambda: 200_000)
+    monkeypatch.setattr(agent, "trim_messages", lambda messages, **kwargs: list(messages))
+    monkeypatch.setattr(agent, "get_current_model", lambda: "MiniMax-M2.7")
+    monkeypatch.setattr(agent, "is_cloud_model", lambda model: True)
+    monkeypatch.setattr(agent, "get_cloud_provider", lambda model: "minimax")
+    monkeypatch.setattr(agent, "is_background_workflow", lambda: False)
+
+    agent.set_active_model_override("MiniMax-M2.7")
+    try:
+        result = agent._pre_model_trim({
+            "messages": [
+                SystemMessage(content="Root system"),
+                HumanMessage(content="Hello"),
+                AIMessage(content="Hi"),
+                SystemMessage(content="Late recall"),
+                HumanMessage(content="Continue"),
+            ]
+        })["llm_input_messages"]
+    finally:
+        agent.set_active_model_override("")
+
+    first_non_system = next(i for i, msg in enumerate(result) if not isinstance(msg, SystemMessage))
+    assert all(isinstance(msg, SystemMessage) for msg in result[:first_non_system])
+    assert not any(isinstance(msg, SystemMessage) for msg in result[first_non_system:])
+    assert result[first_non_system].content == "Hello"
+    assert not any(
+        isinstance(msg.content, list)
+        and any(isinstance(block, dict) and "cache_control" in block for block in msg.content)
+        for msg in result
+    )
 
 
 def test_minimax_provider_raises_when_api_key_missing(monkeypatch):

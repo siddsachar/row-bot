@@ -23,6 +23,7 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"
 GOOGLE_GENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 XAI_BASE_URL = "https://api.x.ai/v1"
+MINIMAX_ANTHROPIC_BASE_URL = "https://api.minimax.io/anthropic"
 
 # ── Context-size heuristics (prefix-match, checked top-to-bottom) ───────────
 # Used when the provider API doesn't expose context_length (e.g. OpenAI) and
@@ -62,6 +63,8 @@ _CONTEXT_HEURISTICS: list[tuple[str, int]] = [
     ("grok-3",           131_072),  # Grok 3 & 3-mini         — 131K
     ("grok-2",           131_072),  # Grok 2 family           — 131K
     ("grok",             131_072),  # Catch-all Grok          — 131K
+    # ── MiniMax ──────────────────────────────────────────────────────
+    ("minimax-m2",       204_800),  # MiniMax M2.x Anthropic-compatible models
 ]
 
 _CLOUD_CONTEXT_FALLBACK = 256_000   # safe default for totally unknown models
@@ -73,7 +76,7 @@ def _estimate_context_heuristic(model_name: str) -> int:
     Strips any ``provider/`` prefix (e.g. ``openai/gpt-4o`` → ``gpt-4o``)
     before matching.  Returns ``_CLOUD_CONTEXT_FALLBACK`` if nothing matches.
     """
-    bare = _runtime_model_name(model_name).split("/")[-1]          # strip provider/ slug
+    bare = _runtime_model_name(model_name).split("/")[-1].lower()  # strip provider/ slug
     for prefix, ctx in _CONTEXT_HEURISTICS:
         if bare.startswith(prefix):
             return ctx
@@ -543,6 +546,8 @@ def _looks_like_cloud_model(model_name: str) -> bool:
         if family in _TOOL_COMPATIBLE_FAMILIES:
             return False
         return True
+    if model_name.split("/")[-1].lower().startswith("minimax"):
+        return True
     return False
 
 
@@ -570,6 +575,8 @@ def _infer_cloud_provider(model_name: str) -> str | None:
         return "google"
     if bare_name.startswith("grok"):
         return "xai"
+    if bare_name.lower().startswith("minimax"):
+        return "minimax"
     return None
 
 
@@ -584,7 +591,7 @@ def is_cloud_model(model_name: str) -> bool:
 
 
 def get_cloud_provider(model_name: str) -> str | None:
-    """Return ``'openai'``, ``'openrouter'``, ``'anthropic'``, ``'google'``, or ``None``."""
+    """Return the cloud provider id for a model, or ``None`` for local models."""
     return _infer_cloud_provider(model_name)
 
 
@@ -596,6 +603,7 @@ _PROVIDER_EMOJI: dict[str | None, str] = {
     "anthropic": "🔶",
     "google": "💎",
     "xai": "𝕏",
+    "minimax": "M",
     None: "☁️",  # fallback for unknown cloud
 }
 
@@ -645,6 +653,12 @@ def is_xai_available() -> bool:
     """Return True if an xAI API key is configured."""
     from api_keys import get_key
     return bool(get_key("XAI_API_KEY"))
+
+
+def is_minimax_available() -> bool:
+    """Return True if a MiniMax API key is configured."""
+    from api_keys import get_key
+    return bool(get_key("MINIMAX_API_KEY"))
 
 
 def list_cloud_models(provider: str | None = None) -> list[str]:
@@ -892,6 +906,50 @@ def validate_xai_key(api_key: str) -> bool:
         return False
 
 
+def validate_minimax_key(api_key: str) -> bool:
+    """Validate a MiniMax API key with the Anthropic-compatible messages API.
+
+    MiniMax's Anthropic-compatible docs do not expose a model-list endpoint, so
+    validation uses the smallest possible message request. MiniMax reports a
+    valid key with no available balance as ``insufficient balance (1008)``;
+    treat that as accepted credentials so the UI does not mislabel the key as
+    invalid.
+    """
+    import httpx
+
+    try:
+        resp = httpx.post(
+            f"{MINIMAX_ANTHROPIC_BASE_URL}/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "MiniMax-M2.7",
+                "max_tokens": 1,
+                "messages": [{"role": "user", "content": [{"type": "text", "text": "Hi"}]}],
+            },
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            return True
+        body = resp.text[:500]
+        lower_body = body.lower()
+        if "insufficient balance" in lower_body or "1008" in lower_body:
+            logger.warning(
+                "MiniMax key validation accepted credentials but account is not billable: %d — %s",
+                resp.status_code,
+                resp.text[:200],
+            )
+            return True
+        logger.warning("MiniMax key validation: %d — %s", resp.status_code, resp.text[:200])
+        return False
+    except Exception as exc:
+        logger.warning("MiniMax key validation error: %s", exc)
+        return False
+
+
 def _catalog_or_heuristic(model_id: str) -> int:
     """Resolve context size for any model via catalog → heuristic → fallback.
 
@@ -921,7 +979,7 @@ def fetch_cloud_models(provider: str) -> int:
     """Fetch available models from *provider*.
 
     Supported providers: ``'openai'``, ``'openrouter'``, ``'anthropic'``,
-    ``'google'``.  Populates ``_cloud_model_cache``.  Returns the number
+    ``'google'``, ``'xai'``, and ``'minimax'``.  Populates ``_cloud_model_cache``.  Returns the number
     of models found.  Safe to call from background threads.
     """
     import httpx
@@ -956,6 +1014,11 @@ def fetch_cloud_models(provider: str) -> int:
         if not api_key:
             return 0
         return _fetch_xai_models(api_key)
+    elif provider == "minimax":
+        api_key = get_key("MINIMAX_API_KEY")
+        if not api_key:
+            return 0
+        return _fetch_minimax_models(api_key)
     else:
         return 0
 
@@ -1132,6 +1195,16 @@ def _fetch_google_models(api_key: str) -> int:
 # Substrings that mark non-chat xAI models to drop from the provider cache.
 _XAI_SKIP_SUBSTRINGS: tuple[str, ...] = ()
 
+_MINIMAX_SUPPORTED_MODELS: tuple[tuple[str, int], ...] = (
+    ("MiniMax-M2.7", 204_800),
+    ("MiniMax-M2.7-highspeed", 204_800),
+    ("MiniMax-M2.5", 204_800),
+    ("MiniMax-M2.5-highspeed", 204_800),
+    ("MiniMax-M2.1", 204_800),
+    ("MiniMax-M2.1-highspeed", 204_800),
+    ("MiniMax-M2", 204_800),
+)
+
 
 def _fetch_xai_models(api_key: str) -> int:
     """Fetch language models from the xAI ``/v1/language-models`` endpoint.
@@ -1180,6 +1253,28 @@ def _fetch_xai_models(api_key: str) -> int:
     return count
 
 
+def _fetch_minimax_models(api_key: str) -> int:
+    """Populate MiniMax Anthropic-compatible models from the documented catalog."""
+    if not api_key:
+        return 0
+    from providers.catalog import model_info_from_metadata, model_info_to_cache_entry
+
+    count = 0
+    with _cloud_cache_lock:
+        for model_id, context_window in _MINIMAX_SUPPORTED_MODELS:
+            _cloud_model_cache[model_id] = model_info_to_cache_entry(model_info_from_metadata(
+                "minimax",
+                model_id,
+                {"max_input_tokens": context_window},
+                display_name=model_id,
+                context_window=context_window,
+                source="provider_static_catalog",
+            ))
+            count += 1
+    logger.info("Fetched %d minimax models", count)
+    return count
+
+
 def refresh_cloud_models() -> int:
     """Clear cache and re-fetch from all configured providers.
 
@@ -1203,6 +1298,7 @@ def refresh_cloud_models() -> int:
     total += fetch_cloud_models("anthropic")
     total += fetch_cloud_models("google")
     total += fetch_cloud_models("xai")
+    total += fetch_cloud_models("minimax")
     _save_cloud_cache()
 
     # Do not rewrite the user's default just because a provider refresh missed

@@ -14,7 +14,7 @@
 
 Thoth is a **local-first AI assistant for personal AI sovereignty**: a desktop agent with memory, tools, workflows, design creation, messaging, plugins, and optional cloud models while your durable data stays on your machine.
 
-It runs fully local through [Ollama](https://ollama.com/) with 39 curated tool-calling models, or you can opt into OpenAI, Anthropic, Google AI, xAI, OpenRouter, and ChatGPT / Codex when you want frontier reasoning or do not have a GPU. API keys and in-app subscription tokens are stored in the OS credential store when available; Thoth has no account system, server, or telemetry pipeline.
+It runs fully local through [Ollama](https://ollama.com/) with 39 curated tool-calling models, or you can opt into OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, and ChatGPT / Codex when you want frontier reasoning or do not have a GPU. API keys and in-app subscription tokens are stored in the OS credential store when available; Thoth has no account system, server, or telemetry pipeline.
 
 > **🖥️ One-click install on Windows & macOS** — download, run, done. No terminal, Docker, or config files required. [Get it here.](https://github.com/siddsachar/Thoth/releases)
 
@@ -67,7 +67,7 @@ Plugins add tools and skills through a sandboxed marketplace; MCP servers add ex
 
 | Area | What Thoth Includes |
 |------|---------------------|
-| **Agent & Models** | LangGraph ReAct agent, streaming, thinking bubbles, smart context trimming, 39 curated Ollama models, opt-in OpenAI/Anthropic/Google/xAI/OpenRouter provider models plus ChatGPT / Codex subscription models, per-thread and per-workflow model overrides |
+| **Agent & Models** | LangGraph ReAct agent, streaming, thinking bubbles, smart context trimming, 39 curated Ollama models, opt-in OpenAI/Anthropic/Google/xAI/MiniMax/OpenRouter provider models plus ChatGPT / Codex subscription models, per-thread and per-workflow model overrides |
 | **Memory & Knowledge** | Personal knowledge graph, FAISS semantic recall, 67 typed relations, graph visualization, Obsidian wiki export, document extraction, Dream Cycle refinement, self-knowledge, and insights |
 | **Design & Media** | Designer Studio, PDFs/HTML/PNG/PPTX export, published interactive links, image generation/editing, video generation, chart insertion, Mermaid/Plotly rendering, and media persistence |
 | **Tools** | 30 core tools covering search, browser, shell, filesystem, documents, Gmail, Calendar, X, memory, workflows, tracker, image/video, vision, status, MCP, updates, computation, weather, charts, and system info |
@@ -247,7 +247,7 @@ Thoth's agent has access to 30 core tool modules. Many of them expose multiple o
 | **GPU** | Not needed |
 | **Internet** | Required (LLM inference happens on the provider's servers) |
 
-> You still need an API key from [OpenAI](https://platform.openai.com/), [Anthropic](https://console.anthropic.com/), [Google AI](https://aistudio.google.com/), [xAI](https://console.x.ai/), or [OpenRouter](https://openrouter.ai/), or an in-app ChatGPT sign-in for ChatGPT / Codex. API providers are billed per-token by the upstream provider; ChatGPT / Codex uses your ChatGPT subscription access.
+> You still need an API key from [OpenAI](https://platform.openai.com/), [Anthropic](https://console.anthropic.com/), [Google AI](https://aistudio.google.com/), [xAI](https://console.x.ai/), [MiniMax](https://platform.minimax.io/), or [OpenRouter](https://openrouter.ai/), or an in-app ChatGPT sign-in for ChatGPT / Codex. API providers are billed per-token by the upstream provider; ChatGPT / Codex uses your ChatGPT subscription access.
 
 ---
 
@@ -317,7 +317,7 @@ Thoth's agent has access to 30 core tool modules. Many of them expose multiple o
    ```
    Direct app launches default to `http://localhost:8080`; set `THOTH_PORT` to choose a different port.
 
-> **First launch:** A setup wizard lets you choose between **Local** (Ollama), **Providers** (API key), and **Custom/Self-hosted** setup paths. For local, the default brain model (`qwen3:14b`, ~9 GB) is recommended. For Providers, enter your API key (OpenAI, Anthropic, Google AI, xAI, or OpenRouter), pick a default model, and seed Quick Choices for everyday pickers. For Custom/Self-hosted, enter an OpenAI-compatible base URL such as LM Studio's `http://127.0.0.1:1234/v1`, leave the API key blank for no-auth local servers, fetch models, and pick a default. ChatGPT / Codex sign-in is available after launch in **Settings → Providers**.
+> **First launch:** A setup wizard lets you choose between **Local** (Ollama), **Providers** (API key), and **Custom/Self-hosted** setup paths. For local, the default brain model (`qwen3:14b`, ~9 GB) is recommended. For Providers, enter your API key (OpenAI, Anthropic, Google AI, xAI, MiniMax, or OpenRouter), pick a default model, and seed Quick Choices for everyday pickers. For Custom/Self-hosted, enter an OpenAI-compatible base URL such as LM Studio's `http://127.0.0.1:1234/v1`, leave the API key blank for no-auth local servers, fetch models, and pick a default. ChatGPT / Codex sign-in is available after launch in **Settings → Providers**.
 
 ---
 
@@ -334,6 +334,7 @@ Most tools work without any API keys. For provider models and enhanced functiona
 | **Anthropic** | `ANTHROPIC_API_KEY` | Claude models (direct API) | [console.anthropic.com](https://console.anthropic.com/) |
 | **Google AI** | `GOOGLE_API_KEY` | Gemini models (direct API) | [aistudio.google.com](https://aistudio.google.com/) |
 | **xAI** | `XAI_API_KEY` | Grok models (direct API) | [console.x.ai](https://console.x.ai/) |
+| **MiniMax** | `MINIMAX_API_KEY` | MiniMax M2 models through the Anthropic-compatible API | [platform.minimax.io](https://platform.minimax.io/) |
 | **OpenRouter** | `OPENROUTER_API_KEY` | 100+ models from all major providers (Claude, Gemini, Llama, etc.) | [openrouter.ai](https://openrouter.ai/) |
 
 Configure provider keys and subscription accounts in **Settings → Providers**. Keys and in-app ChatGPT / Codex tokens are stored in your OS credential store (Windows Credential Manager, macOS Keychain, or Linux Secret Service/KWallet where available); `~/.thoth/api_keys.json` and `~/.thoth/providers.json` keep only local metadata such as saved-state, provider status, Quick Choices, and masked fingerprints. External Codex CLI login files are metadata/reference only: Thoth can show that a CLI login exists, but direct Codex runtime requires the in-app ChatGPT sign-in and does not copy runnable tokens from `~/.codex/auth.json`.
@@ -388,7 +389,7 @@ For **Gmail** and **Google Calendar**, you'll need a Google Cloud OAuth `credent
 ### Provider Models (No GPU? Start Here)
 
 1. **Launch Thoth** → on the setup wizard, choose **Providers**
-2. **Enter your API key** (OpenAI, Anthropic, Google AI, xAI, or OpenRouter) → Thoth validates and fetches available models
+2. **Enter your API key** (OpenAI, Anthropic, Google AI, xAI, MiniMax, or OpenRouter) → Thoth validates and fetches available models
 3. **Pick a default model** and add the models you actually use to Quick Choices — no downloads, no GPU needed
 4. Optional: open **Settings → Providers** to sign in to ChatGPT / Codex for subscription-backed Codex models
 5. Switch models per conversation anytime from the chat header dropdown; raw provider catalogs and pinning live in **Settings → Models**
@@ -409,7 +410,7 @@ For LM Studio, load the model with a context window large enough for Thoth's age
 
 **Local models (default):** All LLM inference runs on your machine via Ollama. Documents, memories, and conversations stored locally in `~/.thoth/`. External network calls only when using online tools (web search, Gmail, Calendar) — each individually disableable. No telemetry, no tracking.
 
-**Provider and custom models (opt-in):** The current conversation plus model-visible tool context and tool results are sent to the selected model endpoint (OpenAI, Anthropic, Google AI, xAI, OpenRouter, ChatGPT / Codex, or your configured OpenAI-compatible custom endpoint). Memories, knowledge graph, documents, files, and other conversations never leave your machine unless you explicitly include them in the active conversation or expose them through a tool result. API-key providers connect directly to the provider; ChatGPT / Codex uses your in-app ChatGPT sign-in and ChatGPT subscription/internal Codex backend; custom endpoints connect directly to the base URL you configure. Thoth has no servers and no middleman.
+**Provider and custom models (opt-in):** The current conversation plus model-visible tool context and tool results are sent to the selected model endpoint (OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, ChatGPT / Codex, or your configured OpenAI-compatible custom endpoint). Memories, knowledge graph, documents, files, and other conversations never leave your machine unless you explicitly include them in the active conversation or expose them through a tool result. API-key providers connect directly to the provider; ChatGPT / Codex uses your in-app ChatGPT sign-in and ChatGPT subscription/internal Codex backend; custom endpoints connect directly to the base URL you configure. Thoth has no servers and no middleman.
 
 **Always:** Core and plugin API keys are stored locally in your OS credential store when available, with only masked metadata in Thoth's data folder. No Thoth account required; no sign-up; no server to phone home to. Tools can be individually disabled to control what the agent can access.
 

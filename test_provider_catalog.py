@@ -30,8 +30,16 @@ def test_minimax_provider_definition_and_model_inference():
 
 
 def test_minimax_model_ids_infer_to_minimax_provider():
-    assert infer_provider_id("MiniMax-M2.7") == "minimax"
-    assert infer_provider_id("MiniMax-M2.7-highspeed") == "minimax"
+    for model_id in (
+        "MiniMax-M2.7",
+        "MiniMax-M2.7-highspeed",
+        "MiniMax-M2.5",
+        "MiniMax-M2.5-highspeed",
+        "MiniMax-M2.1",
+        "MiniMax-M2.1-highspeed",
+        "MiniMax-M2",
+    ):
+        assert infer_provider_id(model_id) == "minimax"
 
 
 def test_minimax_model_capabilities_classified_as_chat():
