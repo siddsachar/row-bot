@@ -12,15 +12,61 @@ The wizard is self-contained except for two callbacks:
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import sys
 from typing import Callable
+from urllib.parse import urlparse
 
 from nicegui import run, ui
 
 from ui.state import AppState
 
 logger = logging.getLogger(__name__)
+
+
+def _custom_endpoint_host_label(base_url: str) -> str:
+    parsed = urlparse(base_url if "://" in str(base_url) else f"http://{base_url}")
+    host = parsed.hostname or str(base_url or "").strip().rstrip("/")
+    if parsed.port and parsed.hostname:
+        return f"{parsed.hostname}:{parsed.port}"
+    return host or "endpoint"
+
+
+def _custom_endpoint_execution_location(base_url: str) -> str:
+    host = urlparse(base_url if "://" in str(base_url) else f"http://{base_url}").hostname or ""
+    normalized = host.strip().lower()
+    if normalized in {"localhost", "127.0.0.1", "::1"} or normalized.endswith(".local"):
+        return "local"
+    try:
+        ip = ipaddress.ip_address(normalized)
+    except ValueError:
+        return "remote"
+    return "local" if ip.is_private or ip.is_loopback else "remote"
+
+
+def build_custom_endpoint_setup_payload(base_url: str, api_key: str = "") -> dict[str, str | bool]:
+    clean_url = str(base_url or "").strip().rstrip("/")
+    clean_key = str(api_key or "").strip()
+    host_label = _custom_endpoint_host_label(clean_url)
+    name = f"Self-hosted ({host_label})"
+    return {
+        "id": host_label,
+        "name": name,
+        "base_url": clean_url,
+        "api_key": clean_key,
+        "auth_required": bool(clean_key),
+        "execution_location": _custom_endpoint_execution_location(clean_url),
+        "transport": "openai_chat",
+    }
+
+
+def custom_endpoint_model_options(model_infos: list) -> dict[str, str]:
+    return {
+        info.selection_ref: f"↔ {info.display_name or info.model_id}"
+        for info in model_infos
+        if getattr(info, "selection_ref", "") and getattr(info, "model_id", "")
+    }
 
 
 async def show_setup_wizard(
@@ -56,6 +102,11 @@ async def show_setup_wizard(
     from agent import clear_agent_cache
     from ui.helpers import mark_setup_complete
     from providers.selection import add_quick_choice_for_model
+    from providers.custom import (
+        endpoint_id_from_provider_id,
+        refresh_custom_endpoint_models,
+        save_custom_endpoint,
+    )
 
     def _open_first_run_migration_wizard() -> None:
         with ui.dialog().props("maximized") as migration_dlg:
@@ -123,12 +174,21 @@ async def show_setup_wizard(
                     setup_path["mode"] = "local"
                     _local_section.visible = True
                     _cloud_section.visible = False
+                    _custom_section.visible = False
                     _update_finish()
 
                 def _pick_cloud():
                     setup_path["mode"] = "cloud"
                     _local_section.visible = False
                     _cloud_section.visible = True
+                    _custom_section.visible = False
+                    _update_finish()
+
+                def _pick_custom():
+                    setup_path["mode"] = "custom"
+                    _local_section.visible = False
+                    _cloud_section.visible = False
+                    _custom_section.visible = True
                     _update_finish()
 
                 ui.button("🖥️ Local (Ollama)", on_click=_pick_local).props(
@@ -137,9 +197,14 @@ async def show_setup_wizard(
                 ui.button("Providers (API key)", on_click=_pick_cloud).props(
                     "color=cyan outline"
                 ).classes("flex-grow")
+                ui.button("Custom/Self-hosted", on_click=_pick_custom).props(
+                    "color=teal outline"
+                ).classes("flex-grow")
 
             _cloud_section = ui.column().classes("w-full")
             _cloud_section.visible = False
+            _custom_section = ui.column().classes("w-full")
+            _custom_section.visible = False
             _local_section = ui.column().classes("w-full")
             _local_section.visible = False
 
@@ -268,6 +333,83 @@ async def show_setup_wizard(
                         _update_finish()
 
                 cloud_model_select.on_value_change(_on_cloud_model_change)
+
+            # ── Custom/Self-hosted Provider Setup Path ───────────────
+            custom_done: dict[str, bool] = {"value": False}
+            custom_models_by_ref: dict[str, object] = {}
+            with _custom_section:
+                ui.label(
+                    "Connect an OpenAI-compatible endpoint such as vLLM, LocalAI, LM Studio, "
+                    "or a private gateway. Leave the API key empty for no-auth endpoints."
+                ).classes("text-grey-6 text-sm")
+
+                custom_url_input = ui.input(
+                    "Base URL",
+                    placeholder="http://127.0.0.1:8000/v1",
+                ).classes("w-full")
+                custom_api_key_input = ui.input(
+                    "API Key (optional)",
+                    password=True,
+                    password_toggle_button=True,
+                ).classes("w-full")
+
+                custom_status = ui.label("").classes("text-sm")
+                custom_status.visible = False
+                custom_model_select = ui.select(
+                    label="Default self-hosted model",
+                    options=[],
+                ).classes("w-full").props("use-input input-debounce=300")
+                custom_model_select.visible = False
+
+                async def _connect_custom_endpoint():
+                    base_url = str(custom_url_input.value or "").strip()
+                    api_key = str(custom_api_key_input.value or "").strip()
+                    if not base_url:
+                        ui.notify("Enter a custom endpoint base URL", type="warning")
+                        return
+                    payload = build_custom_endpoint_setup_payload(base_url, api_key)
+                    custom_status.text = "⏳ Connecting to custom endpoint…"
+                    custom_status.visible = True
+                    custom_model_select.visible = False
+                    custom_done["value"] = False
+                    _update_finish()
+                    try:
+                        await run.io_bound(save_custom_endpoint, payload)
+                        infos = await run.io_bound(
+                            refresh_custom_endpoint_models,
+                            endpoint_id_from_provider_id(str(payload["id"])),
+                        )
+                    except Exception as exc:
+                        logger.warning("Custom endpoint setup failed", exc_info=True)
+                        custom_status.text = f"❌ Could not fetch models: {exc}"
+                        _update_finish()
+                        return
+                    opts = custom_endpoint_model_options(infos)
+                    if not opts:
+                        custom_status.text = "❌ No models found at this endpoint."
+                        _update_finish()
+                        return
+                    custom_models_by_ref.clear()
+                    custom_models_by_ref.update({info.selection_ref: info for info in infos})
+                    custom_model_select.options = opts
+                    first = next(iter(opts))
+                    custom_model_select.set_value(first)
+                    custom_model_select.visible = True
+                    custom_status.text = f"✅ Found {len(opts)} models"
+                    custom_done["value"] = True
+                    _update_finish()
+
+                ui.button(
+                    "Connect & Fetch Models",
+                    icon="hub",
+                    on_click=_connect_custom_endpoint,
+                ).props("color=teal")
+
+                def _on_custom_model_change(e):
+                    custom_done["value"] = bool(e.value)
+                    _update_finish()
+
+                custom_model_select.on_value_change(_on_custom_model_change)
 
             # ── Brain Model (Local path) ─────────────────────────────
             with _local_section:
@@ -566,7 +708,7 @@ async def show_setup_wizard(
                 ),
             ]
             # If provider path was selected, add a tips entry for Quick Choices
-            _is_cloud = setup_path["mode"] == "cloud"
+            _is_cloud = setup_path["mode"] in {"cloud", "custom"}
             if _is_cloud:
                 tips.insert(
                     1,
@@ -596,6 +738,8 @@ async def show_setup_wizard(
                     finish_btn.set_enabled(False)
                 elif setup_path["mode"] == "cloud":
                     finish_btn.set_enabled(cloud_done["value"])
+                elif setup_path["mode"] == "custom":
+                    finish_btn.set_enabled(custom_done["value"])
                 else:
                     finish_btn.set_enabled(brain_done["value"])
 
@@ -612,6 +756,20 @@ async def show_setup_wizard(
                     vsel = cloud_vision_select.value
                     if vsel:
                         state.vision_service.model = vsel
+                elif setup_path["mode"] == "custom":
+                    sel = custom_model_select.value
+                    info = custom_models_by_ref.get(sel)
+                    if sel and info:
+                        set_model(sel)
+                        state.current_model = sel
+                        add_quick_choice_for_model(
+                            info.model_id,
+                            provider_id=info.provider_id,
+                            display_name=info.display_name,
+                            source="setup_default",
+                            capabilities_snapshot=info.capability_snapshot(),
+                        )
+                        clear_agent_cache()
                 mark_setup_complete()
                 setup_dlg.close()
                 await on_finish()
