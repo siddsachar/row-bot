@@ -7,9 +7,9 @@ This is the end-to-end release checklist for Thoth.
 Thoth uses semantic versioning:
 
 - Patch: `3.17.1` for bug fixes
-- Minor: `3.19.0` for new backwards-compatible features
+- Minor: `3.20.0` for new backwards-compatible features
 - Major: `4.0.0` for breaking changes
-- Beta/RC: `3.19.0-beta.1`, `3.19.0-rc.1`
+- Beta/RC: `3.20.0-beta.1`, `3.20.0-rc.1`
 
 ## Before release
 
