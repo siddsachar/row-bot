@@ -57,12 +57,24 @@ def test_thoth_process_passes_selected_port_to_app(monkeypatch, tmp_path):
     monkeypatch.setattr(launcher.subprocess, "Popen", _fake_popen)
     monkeypatch.setattr(launcher.Path, "home", classmethod(lambda cls: tmp_path))
 
-    process = launcher._ThothProcess(port=8125)
+    process = launcher._ThothProcess(port=8125, host="127.0.0.1")
     process.start()
 
     assert captured["env"][app_port.THOTH_PORT_ENV] == "8125"
+    assert captured["env"][app_port.THOTH_HOST_ENV] == "127.0.0.1"
     assert captured["env"]["THOTH_NATIVE"] == "1"
     assert captured["cmd"][-1].endswith("app.py")
+
+
+def test_launcher_display_detection_on_headless_linux(monkeypatch):
+    monkeypatch.setattr(launcher.sys, "platform", "linux")
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+
+    assert launcher._has_display_server() is False
+
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    assert launcher._has_display_server() is True
 
 
 def test_designer_publish_uses_active_app_port(monkeypatch):
@@ -97,4 +109,4 @@ def test_port_consumers_no_longer_lookup_main_tunnel_on_literal_8080():
     assert "get_url(8080)" not in sms_source
     assert "app_port = get_app_port()" in settings_source
     assert "/api/launcher-ping" in app_source
-    assert "port=_APP_PORT" in app_source.replace(" ", "")
+    assert '"port": _APP_PORT' in app_source
