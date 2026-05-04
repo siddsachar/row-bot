@@ -106,7 +106,8 @@ def create_chat_model(model_name: str, provider_id: str | None = None):
     ensure_chat_model_compatible(model_name, provider)
     if provider == "ollama":
         from langchain_ollama import ChatOllama
-        return ChatOllama(model=model_name, reasoning=True)
+        from models import _ollama_base_url
+        return ChatOllama(model=model_name, base_url=_ollama_base_url(), reasoning=True)
     if is_custom_openai_provider(provider):
         from langchain_openai import ChatOpenAI
         endpoint = get_custom_endpoint(provider)

@@ -278,7 +278,11 @@ class VisionService:
         """Send image to a local Ollama vision model."""
         if _ollama_mod is None:
             return "Ollama is not installed. Install it or switch to a cloud vision model."
-        response = _ollama_mod.chat(
+        from models import _ollama_client
+        client = _ollama_client()
+        if client is None:
+            return "Ollama is not installed. Install it or switch to a cloud vision model."
+        response = client.chat(
             model=self._model,
             messages=[{
                 "role": "user",

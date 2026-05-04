@@ -241,7 +241,8 @@ def _is_ollama_busy() -> bool:
     """
     try:
         import urllib.request
-        req = urllib.request.Request("http://127.0.0.1:11434/api/ps", method="GET")
+        from models import _ollama_base_url
+        req = urllib.request.Request(f"{_ollama_base_url()}/api/ps", method="GET")
         with urllib.request.urlopen(req, timeout=2) as resp:
             import json as _json
             data = _json.loads(resp.read())

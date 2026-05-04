@@ -106,6 +106,7 @@ def test_cache_entry_includes_capability_snapshot():
 def test_ollama_provider_definition_and_model_capabilities():
     definition = get_provider_definition("ollama")
     info = ollama_model_info("qwen3:14b", installed=True, context_window=32768)
+    vision_info = ollama_model_info("llava-phi3:3.8b", installed=True)
 
     assert definition is not None
     assert definition.default_transport == TransportMode.OLLAMA_CHAT
@@ -116,6 +117,8 @@ def test_ollama_provider_definition_and_model_capabilities():
     assert info.tool_calling is True
     assert model_supports_surface(info, "chat") is True
     assert model_supports_surface(info, "vision") is False
+    assert vision_info.tool_calling is False
+    assert model_supports_surface(vision_info, "vision") is True
 
 
 def test_direct_and_routed_multimodal_chat_models_support_vision_surface():
@@ -242,17 +245,22 @@ def test_ollama_embedding_model_is_not_chat_surface():
 
 def test_ollama_catalog_rows_merge_installed_and_recommended():
     rows = ollama_catalog_rows(
-        ["qwen3:14b", "gemma3:4b"],
-        ["qwen3:14b", "mistral:7b", "mistral:7b", "phi4:14b"],
+        ["qwen3:14b", "gemma3:4b", "llava-phi3:3.8b"],
+        ["qwen3:14b", "mistral:7b", "mistral:7b", "moondream:latest", "phi4:14b"],
         context_windows={"qwen3:14b": 32768},
     )
 
     by_id = {row["model_id"]: row for row in rows}
-    assert list(by_id) == ["qwen3:14b", "mistral:7b"]
+    assert list(by_id) == ["gemma3:4b", "llava-phi3:3.8b", "qwen3:14b", "mistral:7b", "moondream:latest"]
     assert by_id["qwen3:14b"]["installed"] is True
     assert by_id["qwen3:14b"]["context_window"] == 32768
+    assert by_id["gemma3:4b"]["installed"] is True
+    assert "image" in by_id["gemma3:4b"]["capabilities_snapshot"]["input_modalities"]
+    assert "image" in by_id["llava-phi3:3.8b"]["capabilities_snapshot"]["input_modalities"]
     assert by_id["mistral:7b"]["installed"] is False
     assert by_id["mistral:7b"]["capabilities_snapshot"]["tasks"] == ["chat"]
+    assert by_id["moondream:latest"]["recommended"] is True
+    assert "image" in by_id["moondream:latest"]["capabilities_snapshot"]["input_modalities"]
 
 
 def test_preferred_ollama_tag_models_filters_variant_noise():
@@ -268,18 +276,18 @@ def test_preferred_ollama_tag_models_filters_variant_noise():
         "gemma3:4b",
     ]
 
-    assert preferred_ollama_tag_models(tags) == ["qwen3.6:27b", "qwen3.6:35b", "qwen3.6:35b-a3b"]
+    assert preferred_ollama_tag_models(tags) == ["qwen3.6:27b", "qwen3.6:35b", "qwen3.6:35b-a3b", "gemma3:4b"]
 
 
-def test_ollama_provider_catalog_model_ids_keeps_tool_capable_choices_only():
+def test_ollama_provider_catalog_model_ids_keeps_tool_and_vision_choices():
     ids = ollama_provider_catalog_model_ids(
         installed_models=["qwen3.6:27b", "gemma3:4b"],
-        curated_models=["mistral:7b", "phi4:14b"],
-        library_families=["qwen3.6", "granite4.1", "gemma4"],
+        curated_models=["mistral:7b", "llava-phi3:3.8b", "phi4:14b"],
+        library_families=["qwen3.6", "granite4.1", "gemma4", "moondream"],
         family_tag_models=["qwen3.6:27b", "qwen3.6:27b-q4_K_M", "qwen3.6:35b"],
     )
 
-    assert ids == ["qwen3.6:27b", "mistral:7b", "qwen3.6:35b"]
+    assert ids == ["qwen3.6:27b", "gemma3:4b", "mistral:7b", "llava-phi3:3.8b", "moondream", "qwen3.6:35b"]
 
 
 def test_extract_ollama_library_model_ids_includes_small_qwen_tags():

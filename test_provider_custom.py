@@ -37,6 +37,39 @@ def test_custom_endpoint_catalog_parses_vllm_models(tmp_path, monkeypatch):
     assert model_supports_surface(infos[1], "embeddings") is True
 
 
+def test_custom_endpoint_catalog_infers_lmstudio_vision_models(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    endpoint = {
+        "id": "lmstudio",
+        "name": "LM Studio",
+        "base_url": "http://127.0.0.1:1234/v1",
+        "auth_required": False,
+        "execution_location": "local",
+    }
+    payload = {"data": [{"id": "llava-phi3:3.8b"}, {"id": "google/gemma-3-4b-it"}, {"id": "qwen2.5-vl-7b-instruct"}]}
+
+    infos = model_infos_from_openai_compatible_catalog(endpoint, payload)
+
+    assert [info.model_id for info in infos] == ["llava-phi3:3.8b", "google/gemma-3-4b-it", "qwen2.5-vl-7b-instruct"]
+    assert all(model_supports_surface(info, "vision") for info in infos)
+
+
+def test_custom_endpoint_catalog_applies_manual_vision_capabilities(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    endpoint = {
+        "id": "manual-vision",
+        "name": "Manual Vision",
+        "base_url": "http://127.0.0.1:1234/v1",
+        "auth_required": False,
+        "manual_capabilities": {"vision": True},
+    }
+    payload = {"data": [{"id": "local-model-with-sparse-metadata"}]}
+
+    infos = model_infos_from_openai_compatible_catalog(endpoint, payload)
+
+    assert model_supports_surface(infos[0], "vision") is True
+
+
 def test_custom_endpoint_definitions_include_saved_endpoint(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
 

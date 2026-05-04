@@ -1,9 +1,11 @@
 import contextvars
+import ipaddress
 import json
 import logging
 import os
 import pathlib
 import threading
+from urllib.parse import urlparse
 
 try:
     import ollama as _ollama_mod
@@ -259,6 +261,57 @@ _llm_instance = None
 _model_max_ctx_cache: dict[str, int | None] = {}  # model_name → max context
 
 
+def _normalize_ollama_client_host(host: str) -> str:
+    normalized = (host or "127.0.0.1").strip()
+    if normalized == "0.0.0.0":
+        return "127.0.0.1"
+    if normalized == "::":
+        return "::1"
+    return normalized
+
+
+def _format_ollama_base_url(host: str, port: int, scheme: str = "http") -> str:
+    formatted_host = host
+    try:
+        if isinstance(ipaddress.ip_address(host), ipaddress.IPv6Address):
+            formatted_host = f"[{host}]"
+    except ValueError:
+        pass
+    return f"{scheme or 'http'}://{formatted_host}:{port}"
+
+
+def _ollama_endpoint_parts() -> tuple[str, int, str]:
+    raw = (os.environ.get("OLLAMA_HOST") or "127.0.0.1").strip() or "127.0.0.1"
+    parsed = urlparse(raw if "://" in raw else f"//{raw}")
+    host = _normalize_ollama_client_host(parsed.hostname or raw)
+    try:
+        port = parsed.port or 11434
+    except ValueError:
+        port = 11434
+    return host, port, parsed.scheme or "http"
+
+
+def _ollama_base_url() -> str:
+    """Return a client-safe Ollama base URL derived from OLLAMA_HOST."""
+    host, port, scheme = _ollama_endpoint_parts()
+    return _format_ollama_base_url(host, port, scheme)
+
+
+def _ollama_client():
+    if not _ollama_mod:
+        return None
+    client_factory = getattr(_ollama_mod, "Client", None)
+    if callable(client_factory):
+        return client_factory(host=_ollama_base_url())
+    return _ollama_mod
+
+
+def _chat_ollama(model: str, **kwargs):
+    if ChatOllama is None:
+        raise RuntimeError("langchain-ollama is not installed")
+    return ChatOllama(model=model, base_url=_ollama_base_url(), **kwargs)
+
+
 def get_llm():
     """Return the current LLM instance, creating one if needed.
 
@@ -272,7 +325,7 @@ def get_llm():
         else:
             runtime_model = _runtime_model_name(_current_model)
             logger.info("Creating LLM instance: model=%s, num_ctx=%s", runtime_model, _num_ctx)
-            _llm_instance = ChatOllama(model=runtime_model, num_ctx=_num_ctx, reasoning=True)
+            _llm_instance = _chat_ollama(model=runtime_model, num_ctx=_num_ctx, reasoning=True)
     return _llm_instance
 
 
@@ -299,7 +352,7 @@ def get_llm_for(model_name: str, num_ctx: int | None = None):
     key = (runtime_model, num_ctx)
     if key not in _override_llm_cache:
         logger.info("Creating override LLM: model=%s, num_ctx=%s", runtime_model, num_ctx)
-        _override_llm_cache[key] = ChatOllama(model=runtime_model, num_ctx=num_ctx, reasoning=True)
+        _override_llm_cache[key] = _chat_ollama(model=runtime_model, num_ctx=num_ctx, reasoning=True)
     return _override_llm_cache[key]
 
 
@@ -316,11 +369,12 @@ def get_model_max_context(model_name: str | None = None) -> int | None:
     name = _runtime_model_name(raw_name)
     if name in _model_max_ctx_cache:
         return _model_max_ctx_cache[name]
-    if not _ollama_mod:
+    client = _ollama_client()
+    if not client:
         _model_max_ctx_cache[name] = None
         return None
     try:
-        info = _ollama_mod.show(name)
+        info = client.show(name)
         mi = info.modelinfo or {}
         arch = mi.get("general.architecture", "")
         ctx = mi.get(f"{arch}.context_length") if arch else None
@@ -341,16 +395,17 @@ def set_model(model_name: str):
     if model_name != _current_model:
         logger.info("Switching model: %s → %s", _current_model, model_name)
         # Unload previous local model from Ollama memory
-        if not is_cloud_model(_current_model) and _ollama_mod:
+        client = _ollama_client()
+        if not is_cloud_model(_current_model) and client:
             try:
-                _ollama_mod.generate(model=_runtime_model_name(_current_model), prompt="", keep_alive=0)
+                client.generate(model=_runtime_model_name(_current_model), prompt="", keep_alive=0)
             except Exception:
                 logger.debug("Could not unload previous model %s", _current_model, exc_info=True)
     _current_model = model_name
     if is_cloud_model(model_name):
         _llm_instance = _get_cloud_llm(model_name)
     else:
-        _llm_instance = ChatOllama(model=_runtime_model_name(model_name), num_ctx=_num_ctx, reasoning=True)
+        _llm_instance = _chat_ollama(model=_runtime_model_name(model_name), num_ctx=_num_ctx, reasoning=True)
     _save_settings({"model": _current_model, "context_size": _num_ctx,
                     "cloud_context_size": _cloud_num_ctx})
 
@@ -435,7 +490,7 @@ def set_context_size(size: int):
     if is_cloud_model(_current_model):
         _llm_instance = _get_cloud_llm(_current_model)
     else:
-        _llm_instance = ChatOllama(model=_runtime_model_name(_current_model), num_ctx=_num_ctx, reasoning=True)
+        _llm_instance = _chat_ollama(model=_runtime_model_name(_current_model), num_ctx=_num_ctx, reasoning=True)
     _save_settings({"model": _current_model, "context_size": _num_ctx,
                     "cloud_context_size": _cloud_num_ctx})
 
@@ -446,15 +501,7 @@ def get_current_model() -> str:
 
 def _ollama_host_port() -> tuple[str, int]:
     """Return the TCP host/port configured for the local Ollama daemon."""
-    from urllib.parse import urlparse
-
-    raw = (os.environ.get("OLLAMA_HOST") or "127.0.0.1").strip() or "127.0.0.1"
-    parsed = urlparse(raw if "://" in raw else f"//{raw}")
-    host = parsed.hostname or raw
-    try:
-        port = parsed.port or 11434
-    except ValueError:
-        port = 11434
+    host, port, _scheme = _ollama_endpoint_parts()
     return host, port
 
 
@@ -471,10 +518,11 @@ def _ollama_reachable(timeout: float = 1.0) -> bool:
 
 def list_local_models() -> list[str]:
     """Return names of models already downloaded in Ollama."""
-    if not _ollama_mod or not _ollama_reachable():
+    client = _ollama_client()
+    if not client or not _ollama_reachable():
         return []
     try:
-        response = _ollama_mod.list()
+        response = client.list()
         return sorted({m.model for m in response.models})
     except Exception:
         logger.debug("Could not list local Ollama models", exc_info=True)
@@ -1339,10 +1387,11 @@ def check_tool_support(model_name: str) -> bool:
 
     Returns True if the model accepts tools, False if it rejects them (400).
     """
-    if not _ollama_mod:
+    client = _ollama_client()
+    if not client:
         return False
     try:
-        _ollama_mod.chat(
+        client.chat(
             model=model_name,
             messages=[{"role": "user", "content": "hi"}],
             tools=[{
@@ -1364,6 +1413,7 @@ def check_tool_support(model_name: str) -> bool:
 
 def pull_model(model_name: str):
     """Download a model from Ollama. Yields progress dicts when streamed."""
-    if not _ollama_mod:
+    client = _ollama_client()
+    if not client:
         raise RuntimeError("Ollama is not installed")
-    return _ollama_mod.pull(model_name, stream=True)
+    return client.pull(model_name, stream=True)

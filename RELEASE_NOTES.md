@@ -2,6 +2,52 @@
 
 ---
 
+## v3.20.0 — MiniMax, Custom Setup & Ollama Reliability
+
+This release extends the provider runtime work with **MiniMax** as a first-class API-key provider, a cleaner first-run path for custom OpenAI-compatible endpoints, and stronger local Ollama connection handling for Windows and custom host setups.
+
+### 🧠 Providers & Setup
+
+- **MiniMax provider support** — MiniMax M2 models can be connected as a first-class API-key provider through MiniMax's Anthropic-compatible endpoint, with catalog rows, provider labels, setup/settings key entry, `MINIMAX_API_KEY` support, and runtime routing through the existing Anthropic transport
+- **Anthropic-compatible transport cleanup** — MiniMax now uses the same consolidated system-message handling required by Anthropic-style Messages APIs, avoiding failures from multiple non-consecutive system messages
+- **MiniMax key validation** — credentials accepted by MiniMax but blocked by the documented insufficient-balance response are treated as valid credentials with a billing/account warning instead of as invalid keys
+- **Custom/Self-hosted setup path** — first-run setup now supports Custom/Self-hosted OpenAI-compatible endpoints such as LM Studio alongside the normal Providers path for API-key users
+
+### 🖥️ Ollama & Native Launcher Reliability
+
+- **Ollama host parsing** — `OLLAMA_HOST` values with explicit ports and URL forms are parsed correctly for local daemon checks instead of assuming the default `11434` port
+- **Ollama wildcard-host compatibility** — when `OLLAMA_HOST` is set to a bind wildcard such as `0.0.0.0` or `::`, Thoth now connects through a loopback client endpoint while preserving the configured port, so setup, model listing, downloads, local chat, vision, and dream-cycle busy checks do not incorrectly report Ollama as disconnected
+- **Local vision model catalog restore** — Ollama and Custom/Self-hosted OpenAI-compatible catalogs now infer vision support for local model families such as Gemma 3, LLaVA variants, Moondream, MiniCPM-V, and Qwen-VL, so LM Studio and installed Ollama vision models appear in the Vision tab again
+- **Free-port launcher startup** — the desktop launcher now verifies that a listener on `8080` is actually Thoth before reusing it; if another local service owns the port, Thoth starts on the next available local port instead of opening the foreign service
+- **Session port source of truth** — the launcher passes the selected port through `THOTH_PORT`, and the NiceGUI app, main-app tunnel, SMS webhook registration, workflow webhook route, Settings tunnel toggle, and Designer published-link fallback all use that active app port
+- **Launcher identity probe** — `/api/launcher-ping` lets the tray distinguish an existing Thoth instance from unrelated services while preserving direct `python app.py` launches on port `8080` by default
+
+### 🧪 Tests & Release Checks
+
+- **MiniMax provider coverage** — focused tests cover provider catalog wiring, runtime construction, key validation behavior, setup/settings surfaces, static model rows, and Anthropic-compatible message consolidation
+- **Ollama endpoint regressions** — provider runtime tests cover `OLLAMA_HOST` variants including custom ports, URL forms, `0.0.0.0`, and IPv6 wildcard binds
+- **Vision catalog regressions** — provider catalog tests cover installed/recommended Ollama vision rows plus LM Studio-style custom endpoint models with sparse OpenAI-compatible metadata
+- **Launcher/app-port coverage** — app-port tests validate dynamic port selection, Thoth identity probing, and active-port propagation
+- **Final validation** — direct `test_suite.py` passes, and full `pytest -q` passes with `184 passed, 1 skipped`
+
+### ⚠️ Release Notes & Risk Notes
+
+- **LM Studio custom endpoint smoke** — when testing LM Studio through the Custom/Self-hosted setup path, load the selected model with enough context for Thoth's agent prompt and enabled tool schemas. A `4096` context can fail with a misleading prompt-template error such as `No user query found in messages`; `32768` is a practical smoke-test baseline.
+
+### 📁 Files Changed
+
+| File | Change |
+|------|--------|
+| `models.py` | MiniMax static catalog rows, normalized Ollama endpoint handling, explicit Ollama client/base URL routing, local model listing/download/tool checks, and context lookup fixes |
+| `providers/catalog.py`, `providers/auth_store.py`, `providers/runtime.py`, `providers/ollama.py` | MiniMax provider definition, `MINIMAX_API_KEY` mapping, Anthropic-compatible runtime routing, normalized Ollama runtime base URL construction, and local/custom vision catalog inference |
+| `ui/setup_wizard.py`, `ui/settings.py` | MiniMax key entry plus Custom/Self-hosted setup and settings alignment |
+| `vision.py`, `dream_cycle.py` | Local Ollama vision and busy-check calls now use the normalized client endpoint |
+| `app_port.py`, `launcher.py`, `app.py` | Dynamic app-port selection, `THOTH_PORT` propagation, Thoth identity probing, and active-port NiceGUI startup |
+| `channels/sms.py`, `designer/publish.py`, `ui/settings.py` | Main-app tunnel, SMS webhook, Designer published-link, and Settings tunnel controls now follow the active app port |
+| `test_provider_*.py`, `test_app_port.py`, `test_suite.py` | MiniMax, custom setup, Ollama endpoint, and app-port regression coverage |
+
+---
+
 ## v3.19.0 — Provider Runtime Foundation & ChatGPT / Codex
 
 Thoth's model layer has been rebuilt around a first-class **provider runtime**. API-key providers, local Ollama models, custom OpenAI-compatible endpoints, media providers, and ChatGPT / Codex subscription access now flow through one provider-aware catalog and picker system instead of a mix of legacy cloud lists, starred models, and per-screen dropdown logic.
@@ -11,8 +57,7 @@ This release also adds **ChatGPT / Codex** as a distinct subscription-backed pro
 ### 🧠 Provider Runtime Foundation
 
 - **New `providers/` subsystem** — provider definitions, metadata-only config, keyring-backed provider secrets, catalog normalization, runtime construction, status summaries, error normalization, Quick Choices, custom endpoint support, and routing-profile foundations now live in one dedicated package
-- **Provider runtime facade** — OpenAI, OpenRouter, Anthropic, Google AI, xAI, MiniMax, custom OpenAI-compatible endpoints, Ollama catalog rows, and ChatGPT / Codex all route through a shared runtime layer while preserving the public `models.py` compatibility API
-- **MiniMax provider support** — MiniMax M2 models can be connected as a first-class API-key provider through MiniMax's Anthropic-compatible endpoint, with catalog rows, provider labels, setup/settings key entry, and runtime routing through the existing Anthropic transport
+- **Provider runtime facade** — OpenAI, OpenRouter, Anthropic, Google AI, xAI, custom OpenAI-compatible endpoints, Ollama catalog rows, and ChatGPT / Codex all route through a shared runtime layer while preserving the public `models.py` compatibility API
 - **Stable model refs** — provider-backed picker values use refs such as `model:openai:gpt-5.5` and `model:codex:gpt-5.5`, keeping identical raw model IDs distinct across providers
 - **Provider-aware labels** — duplicate model names now show route labels such as `GPT-5.5 — OpenAI API` and `GPT-5.5 — ChatGPT / Codex` in chat, Designer, workflow, status, and settings pickers
 - **Metadata-only provider config** — `providers.json` stores provider state, Quick Choices, catalog cache, fingerprints, and status metadata; raw API keys and OAuth tokens stay in the OS credential store when available
@@ -25,7 +70,7 @@ This release also adds **ChatGPT / Codex** as a distinct subscription-backed pro
 - **Models tab ownership** — model browsing, raw provider catalogs, local Ollama catalog rows, pin/unpin actions, defaults, and Quick Choices now live in **Settings → Models**
 - **Consolidated Model Catalog** — a category-first catalog groups Brain, Vision, Image, and Video-capable rows by provider, with inline actions for pinning, setting defaults, downloading local models, and clearing disabled reasons
 - **Polished Defaults panel** — Brain, Vision, Image, and Video defaults use compact provider/local badges, context controls, enable switches, and empty states that point users to the catalog instead of scattering model controls across tabs
-- **First-run setup alignment** — setup now offers migration before model setup, supports Providers for API-key users plus Custom/Self-hosted OpenAI-compatible endpoints such as LM Studio, and points users to Settings → Models for exact model pinning after launch
+- **First-run setup alignment** — setup now offers migration before model setup, supports the Providers path for API-key users, and points users to Settings → Models for exact model pinning after launch
 
 ### 💬 Picker Unification
 
@@ -58,12 +103,6 @@ This release also adds **ChatGPT / Codex** as a distinct subscription-backed pro
 - **Preview timer cleanup** — Designer preview polling timers deactivate on client disconnect or deleted-parent errors instead of continuing to touch removed NiceGUI clients
 - **Stale-run recovery** — sending a new Designer/chat message can drop stale terminal generation entries while still blocking truly live runs
 
-### 🖥️ Native Launcher & Local Port Selection
-
-- **Free-port launcher startup** — the desktop launcher now verifies that a listener on `8080` is actually Thoth before reusing it; if another local service owns the port, Thoth starts on the next available local port instead of opening the foreign service
-- **Session port source of truth** — the launcher passes the selected port through `THOTH_PORT`, and the NiceGUI app, main-app tunnel, SMS webhook registration, workflow webhook route, Settings tunnel toggle, and Designer published-link fallback all use that active app port
-- **Launcher identity probe** — `/api/launcher-ping` lets the tray distinguish an existing Thoth instance from unrelated services while preserving direct `python app.py` launches on port `8080` by default
-
 ### 💻 Claude Code Delegation Skill
 
 - **New bundled skill** — `bundled_skills/claude_code_delegation/SKILL.md` teaches Thoth how to coordinate Claude Code CLI as an external coding worker for implementation, review, refactor, and larger repository tasks
@@ -74,13 +113,13 @@ This release also adds **ChatGPT / Codex** as a distinct subscription-backed pro
 
 ### 🧪 Tests & Release Checks
 
-- **Focused provider suites** — new provider tests cover config normalization/masking, keyring namespace storage and chunking, provider catalog inference, model selection refs, media model filtering, custom endpoints, runtime construction, MiniMax provider wiring, and ChatGPT / Codex OAuth/catalog/transport behavior
+- **Focused provider suites** — new provider tests cover config normalization/masking, keyring namespace storage and chunking, provider catalog inference, model selection refs, media model filtering, custom endpoints, runtime construction, and ChatGPT / Codex OAuth/catalog/transport behavior
 - **Bundled skill coverage** — the main suite validates `claude_code_delegation` as a bundled skill and checks the skill parser/discovery path that loads it
 - **Designer regressions** — `test_suite.py` covers detached finalization cleanup, stale terminal generation recovery, deleted-client detach detection, Designer asset canonicalization, preview timer cleanup, and checkpoint hydration for detached final answers
 - **Release smoke** — `test_suite.py` validates v3.19.0 version consistency across `version.py`, Windows installer, macOS app plist, CI release workflow, bug report template, and install dependencies
 - **Packaging smoke** — Windows installer coverage includes recursive `providers/` plus `ui/model_catalog.py` and `ui/provider_settings.py`; macOS app packaging includes `providers` and the full `ui` package
 - **Clean first-run smoke** — a temporary `THOTH_DATA_DIR` import/config check confirms setup wizard and provider config load cleanly before any provider state exists
-- **Final validation** — direct `test_suite.py` passes with the release-smoke checks, and full `pytest -q` passes with `181 passed, 1 skipped`
+- **Final validation** — direct `test_suite.py` passes with the release-smoke checks, and full `pytest -q` passes with `159 passed, 1 skipped`
 
 ### ⚠️ Release Notes & Risk Notes
 
@@ -88,7 +127,6 @@ This release also adds **ChatGPT / Codex** as a distinct subscription-backed pro
 - **Subscription backend risk** — ChatGPT / Codex uses ChatGPT's subscription/internal Codex backend rather than the public OpenAI API. The endpoint, catalog shape, auth requirements, rate limits, and model availability may change upstream without the same stability guarantees as the public API
 - **Privacy** — when a ChatGPT / Codex model is selected, the current conversation plus model-visible tool context and tool results are sent to ChatGPT / Codex for that turn. Durable Thoth data such as memories, documents, files, and other conversations stay local unless explicitly included in the active conversation or exposed through a tool result
 - **Manual smoke still required** — before publishing installers, run clean-machine Windows/macOS smoke for first launch, Settings → Providers, Settings → Models catalog/pinning/defaults, ChatGPT / Codex sign-in/status, shared model pickers, and a long Designer/browser task with reconnect
-- **LM Studio custom endpoint smoke** — when testing LM Studio through the Custom/Self-hosted setup path, load the selected model with enough context for Thoth's agent prompt and enabled tool schemas. A `4096` context can fail with a misleading prompt-template error such as `No user query found in messages`; `32768` is a practical smoke-test baseline.
 
 ### 📁 Files Changed
 
@@ -98,7 +136,7 @@ This release also adds **ChatGPT / Codex** as a distinct subscription-backed pro
 | **`providers/transports/codex_responses.py`** | **New** — ChatGPT / Codex Responses transport with SSE streaming, tool-call chunks, tool-call replay, and auth-refresh retry support |
 | **`ui/provider_settings.py`** | **New** — Settings → Providers connection, credential, ChatGPT sign-in, health, refresh, setup, and custom endpoint UI |
 | **`ui/model_catalog.py`** | **New** — consolidated Settings → Models catalog UI for provider/local rows, pinning, defaults, downloads, and surface filtering |
-| `models.py` | Provider-aware model refs, runtime/provider/context resolution, MiniMax static catalog rows, Quick Choice compatibility, legacy selection handling, and local/provider facade updates |
+| `models.py` | Provider-aware model refs, runtime/provider/context resolution, Quick Choice compatibility, legacy selection handling, and local/provider facade updates |
 | `ui/settings.py` | Providers/Models split, polished model defaults panel, catalog embedding, media defaults, and provider-aware picker wiring |
 | `ui/chat.py`, `ui/chat_components.py`, `ui/task_dialog.py` | Shared provider-aware model picker options and dynamic provider labels for chat, Designer, and workflow/background overrides |
 | `channels/telegram.py` | `/model` command uses provider Quick Choices instead of legacy starred cloud models |
@@ -107,12 +145,10 @@ This release also adds **ChatGPT / Codex** as a distinct subscription-backed pro
 | `agent.py` | Current-turn-only checkpoint fallback for empty streaming turns so stale prior answers are not replayed |
 | `bundled_skills/claude_code_delegation/SKILL.md` | **New** — approval-gated Claude Code CLI delegation workflow for coding, review, and refactor tasks |
 | `designer/editor.py`, `designer/preview.py`, `ui/streaming.py` | Designer asset canonicalization, deleted-client detection, detached completion hydration, active-generation cleanup, and preview timer disconnect handling |
-| `ui/setup_wizard.py` | Provider path copy, MiniMax key entry, and Quick Choice seeding aligned with Settings → Models ownership |
-| `app_port.py`, `launcher.py`, `app.py` | Dynamic app-port selection, `THOTH_PORT` propagation, Thoth identity probing, and active-port NiceGUI startup |
+| `ui/setup_wizard.py` | Provider path copy and Quick Choice seeding aligned with Settings → Models ownership |
 | `installer/thoth_setup.iss`, `installer/build_mac_app.sh`, `installer/README.md` | Provider runtime/UI packaging, v3.19.0 installer docs, clean first-run and Codex credential-boundary notes |
-| `channels/sms.py`, `designer/publish.py`, `ui/settings.py` | Main-app tunnel, SMS webhook, Designer published-link, and Settings tunnel controls now follow the active app port |
 | `README.md`, `docs/ARCHITECTURE.md`, `docs/RELEASING.md`, `docs/index.html` | User-facing provider/Codex docs, architecture notes, release checklist updates, and v3.19.0 download/version references |
-| `test_provider_*.py`, `test_thoth_status_media.py`, `test_app_port.py`, `test_suite.py`, `pytest.ini`, `scripts/dummy_openai_endpoint.py` | Focused provider/media/runtime/Codex/app-port tests, release smoke checks, pytest ignore config, and local OpenAI-compatible dummy endpoint for manual custom-provider testing |
+| `test_provider_*.py`, `test_thoth_status_media.py`, `test_suite.py`, `pytest.ini`, `scripts/dummy_openai_endpoint.py` | Focused provider/media/runtime/Codex tests, release smoke checks, pytest ignore config, and local OpenAI-compatible dummy endpoint for manual custom-provider testing |
 
 ---
 

@@ -146,10 +146,15 @@ def test_ollama_provider_runtime_constructs_chat_ollama(monkeypatch):
 
     fake_module.ChatOllama = _FakeChatOllama
     monkeypatch.setitem(sys.modules, "langchain_ollama", fake_module)
+    monkeypatch.setenv("OLLAMA_HOST", "0.0.0.0:11435")
 
     model = runtime.create_chat_model("qwen3:14b", provider_id="ollama")
 
-    assert model.kwargs == {"model": "qwen3:14b", "reasoning": True}
+    assert model.kwargs == {
+        "model": "qwen3:14b",
+        "base_url": "http://127.0.0.1:11435",
+        "reasoning": True,
+    }
 
 
 def test_ollama_reachable_parses_ollama_host_variants(monkeypatch):
@@ -171,14 +176,18 @@ def test_ollama_reachable_parses_ollama_host_variants(monkeypatch):
     monkeypatch.setattr(socket, "create_connection", _fake_create_connection)
 
     cases = [
-        (None, ("127.0.0.1", 11434)),
-        ("127.0.0.1", ("127.0.0.1", 11434)),
-        ("127.0.0.1:11435", ("127.0.0.1", 11435)),
-        ("http://127.0.0.1:11436", ("127.0.0.1", 11436)),
-        ("localhost:notaport", ("localhost", 11434)),
-        ("[::1]:11437", ("::1", 11437)),
+        (None, ("127.0.0.1", 11434), "http://127.0.0.1:11434"),
+        ("127.0.0.1", ("127.0.0.1", 11434), "http://127.0.0.1:11434"),
+        ("127.0.0.1:11435", ("127.0.0.1", 11435), "http://127.0.0.1:11435"),
+        ("http://127.0.0.1:11436", ("127.0.0.1", 11436), "http://127.0.0.1:11436"),
+        ("localhost:notaport", ("localhost", 11434), "http://localhost:11434"),
+        ("[::1]:11437", ("::1", 11437), "http://[::1]:11437"),
+        ("0.0.0.0", ("127.0.0.1", 11434), "http://127.0.0.1:11434"),
+        ("0.0.0.0:11438", ("127.0.0.1", 11438), "http://127.0.0.1:11438"),
+        ("http://0.0.0.0:11439", ("127.0.0.1", 11439), "http://127.0.0.1:11439"),
+        ("[::]:11440", ("::1", 11440), "http://[::1]:11440"),
     ]
-    for value, expected_address in cases:
+    for value, expected_address, expected_base_url in cases:
         if value is None:
             monkeypatch.delenv("OLLAMA_HOST", raising=False)
         else:
@@ -186,6 +195,27 @@ def test_ollama_reachable_parses_ollama_host_variants(monkeypatch):
         calls.clear()
         assert models._ollama_reachable(timeout=0.25) is True
         assert calls == [(expected_address, 0.25)]
+        assert models._ollama_base_url() == expected_base_url
+
+
+def test_ollama_client_uses_normalized_base_url(monkeypatch):
+    import models
+
+    hosts = []
+
+    class _FakeClient:
+        def __init__(self, host=None):
+            hosts.append(host)
+
+    fake_module = ModuleType("ollama")
+    fake_module.Client = _FakeClient
+    monkeypatch.setattr(models, "_ollama_mod", fake_module)
+    monkeypatch.setenv("OLLAMA_HOST", "http://0.0.0.0:11435")
+
+    client = models._ollama_client()
+
+    assert isinstance(client, _FakeClient)
+    assert hosts == ["http://127.0.0.1:11435"]
 
 
 def test_provider_errors_normalize_unsupported_capability():

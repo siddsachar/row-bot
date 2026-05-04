@@ -40,7 +40,8 @@ TOOL_CAPABLE_FAMILIES = {
     "firefunction-v2", "glm-4.7-flash", "rnj-1", "qwen3-next",
 }
 
-VISION_FAMILIES = {"llava", "bakllava", "moondream", "minicpm-v", "llama3.2-vision", "qwen3-vl"}
+VISION_FAMILIES = {"bakllava", "gemma3", "llama3.2-vision", "minicpm-v", "moondream", "qwen3-vl"}
+VISION_FAMILY_PREFIXES = ("llava", "qwen-vl", "qwen2-vl", "qwen2.5-vl", "qwen3-vl")
 
 
 def normalize_ollama_family(model_or_family: str) -> str:
@@ -52,8 +53,13 @@ def is_ollama_tool_capable(model_id: str) -> bool:
     return normalize_ollama_family(model_id) in TOOL_CAPABLE_FAMILIES
 
 
+def is_ollama_vision_capable(model_id: str) -> bool:
+    family = normalize_ollama_family(model_id)
+    return family in VISION_FAMILIES or family.startswith(VISION_FAMILY_PREFIXES)
+
+
 def is_preferred_ollama_tag(model_id: str) -> bool:
-    if not is_ollama_tool_capable(model_id):
+    if not (is_ollama_tool_capable(model_id) or is_ollama_vision_capable(model_id)):
         return False
     if ":" not in model_id:
         return True
@@ -156,12 +162,13 @@ def ollama_provider_catalog_model_ids(
     represented_families = {
         normalize_ollama_family(model_id)
         for model_id in [*installed_models, *curated_models, *preferred_tags]
-        if is_ollama_tool_capable(model_id)
+        if is_ollama_tool_capable(model_id) or is_ollama_vision_capable(model_id)
     }
     library_choices = [
         family
         for family in library_families
-        if is_ollama_tool_capable(family) and normalize_ollama_family(family) not in represented_families
+        if (is_ollama_tool_capable(family) or is_ollama_vision_capable(family))
+        and normalize_ollama_family(family) not in represented_families
     ]
     ordered: list[str] = []
     seen: set[str] = set()
@@ -171,7 +178,7 @@ def ollama_provider_catalog_model_ids(
         *library_choices,
         *preferred_tags,
     ]:
-        if not is_ollama_tool_capable(model_id) or model_id in seen:
+        if not (is_ollama_tool_capable(model_id) or is_ollama_vision_capable(model_id)) or model_id in seen:
             continue
         seen.add(model_id)
         ordered.append(model_id)
@@ -188,8 +195,8 @@ def ollama_model_info(
 ) -> ModelInfo:
     metadata = dict(metadata or {})
     family = str(model_id or "").split(":", 1)[0]
-    metadata.setdefault("tool_calling", family in TOOL_CAPABLE_FAMILIES)
-    metadata.setdefault("vision", family in VISION_FAMILIES)
+    metadata.setdefault("tool_calling", is_ollama_tool_capable(model_id))
+    metadata.setdefault("vision", is_ollama_vision_capable(model_id))
     metadata.setdefault("installed", installed)
     return model_info_from_metadata(
         "ollama",
@@ -228,11 +235,11 @@ def ollama_catalog_rows(
     context_windows: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     installed = set(installed_models)
-    recommended = {model_id for model_id in recommended_models if is_ollama_tool_capable(model_id)}
+    recommended = {model_id for model_id in recommended_models if is_ollama_tool_capable(model_id) or is_ollama_vision_capable(model_id)}
     seen = set(installed)
-    ordered = sorted(model_id for model_id in installed if is_ollama_tool_capable(model_id))
+    ordered = sorted(model_id for model_id in installed if is_ollama_tool_capable(model_id) or is_ollama_vision_capable(model_id))
     for model_id in recommended_models:
-        if is_ollama_tool_capable(model_id) and model_id not in seen:
+        if (is_ollama_tool_capable(model_id) or is_ollama_vision_capable(model_id)) and model_id not in seen:
             seen.add(model_id)
             ordered.append(model_id)
     rows: list[dict[str, Any]] = []

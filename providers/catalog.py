@@ -78,6 +78,24 @@ PROVIDER_DEFINITIONS: dict[str, ProviderDefinition] = {
 _OPENAI_CHAT_PREFIXES = ("gpt-", "o1", "o3", "o4", "chatgpt-")
 _OPENAI_VISION_PREFIXES = ("gpt-4o", "gpt-4.1", "gpt-5", "o3", "o4")
 _ANTHROPIC_VISION_PREFIXES = ("claude-3", "claude-sonnet-4", "claude-opus-4")
+_LOCAL_VISION_MARKERS = (
+    "bakllava",
+    "gemma-3",
+    "gemma3",
+    "llama3.2-vision",
+    "llava",
+    "minicpm-v",
+    "moondream",
+    "qwen-vl",
+    "qwen2-vl",
+    "qwen2.5-vl",
+    "qwen3-vl",
+)
+
+
+def _name_suggests_vision_model(model_id: str) -> bool:
+    normalized = str(model_id or "").split(":", 1)[0].split("/", 1)[-1].lower().replace("_", "-")
+    return any(marker in normalized for marker in _LOCAL_VISION_MARKERS)
 
 
 def list_provider_definitions() -> list[ProviderDefinition]:
@@ -220,7 +238,7 @@ def classify_model_capabilities(
         default_transport = TransportMode.OLLAMA_CHAT
         endpoint_compatibility = {TransportMode.OLLAMA_CHAT}
         family = bare.split(":", 1)[0]
-        if metadata.get("vision") or family in {"llava", "bakllava", "moondream", "minicpm-v", "llama3.2-vision"}:
+        if metadata.get("vision") or _name_suggests_vision_model(family):
             input_modalities.add(ModelModality.IMAGE.value)
             capabilities.add("vision")
         if metadata.get("tool_calling") is False:
@@ -240,6 +258,7 @@ def classify_model_capabilities(
         or (provider_id == "openai" and bare.startswith(_OPENAI_VISION_PREFIXES))
         or (provider_id == "google" and bare.startswith("gemini"))
         or (provider_id == "anthropic" and bare.startswith(_ANTHROPIC_VISION_PREFIXES))
+        or (provider_id.startswith("custom_openai_") and _name_suggests_vision_model(model_id))
         or (
             provider_id == "openrouter"
             and (
