@@ -30,6 +30,7 @@ import time
 from typing import Any
 
 import agent as agent_mod
+from app_port import get_app_port
 from channels.base import Channel, ChannelCapabilities, ConfigField
 from channels import commands as ch_commands
 from channels import auth as ch_auth
@@ -531,9 +532,9 @@ async def start_bot() -> bool:
         if tunnel_enabled:
             try:
                 from tunnel import tunnel_manager
-                # Use the main-app tunnel (port 8080) rather than a
+                # Use the main-app tunnel rather than a
                 # dedicated SMS port — avoids the ngrok one-tunnel limit.
-                public_url = tunnel_manager.get_url(8080)
+                public_url = tunnel_manager.get_url(get_app_port())
                 if public_url:
                     _webhook_public_url = public_url
                     log.info("SMS using main-app tunnel: %s/sms", public_url)

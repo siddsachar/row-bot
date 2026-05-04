@@ -57,6 +57,12 @@ This release also adds **ChatGPT / Codex** as a distinct subscription-backed pro
 - **Preview timer cleanup** — Designer preview polling timers deactivate on client disconnect or deleted-parent errors instead of continuing to touch removed NiceGUI clients
 - **Stale-run recovery** — sending a new Designer/chat message can drop stale terminal generation entries while still blocking truly live runs
 
+### 🖥️ Native Launcher & Local Port Selection
+
+- **Free-port launcher startup** — the desktop launcher now verifies that a listener on `8080` is actually Thoth before reusing it; if another local service owns the port, Thoth starts on the next available local port instead of opening the foreign service
+- **Session port source of truth** — the launcher passes the selected port through `THOTH_PORT`, and the NiceGUI app, main-app tunnel, SMS webhook registration, workflow webhook route, Settings tunnel toggle, and Designer published-link fallback all use that active app port
+- **Launcher identity probe** — `/api/launcher-ping` lets the tray distinguish an existing Thoth instance from unrelated services while preserving direct `python app.py` launches on port `8080` by default
+
 ### 💻 Claude Code Delegation Skill
 
 - **New bundled skill** — `bundled_skills/claude_code_delegation/SKILL.md` teaches Thoth how to coordinate Claude Code CLI as an external coding worker for implementation, review, refactor, and larger repository tasks
@@ -73,7 +79,7 @@ This release also adds **ChatGPT / Codex** as a distinct subscription-backed pro
 - **Release smoke** — `test_suite.py` validates v3.19.0 version consistency across `version.py`, Windows installer, macOS app plist, CI release workflow, bug report template, and install dependencies
 - **Packaging smoke** — Windows installer coverage includes recursive `providers/` plus `ui/model_catalog.py` and `ui/provider_settings.py`; macOS app packaging includes `providers` and the full `ui` package
 - **Clean first-run smoke** — a temporary `THOTH_DATA_DIR` import/config check confirms setup wizard and provider config load cleanly before any provider state exists
-- **Final validation** — direct `test_suite.py` passes with the release-smoke checks, and full `pytest -q` passes with `159 passed, 1 skipped`
+- **Final validation** — direct `test_suite.py` passes with the release-smoke checks, and full `pytest -q` passes with `171 passed, 1 skipped`
 
 ### ⚠️ Release Notes & Risk Notes
 
@@ -101,9 +107,11 @@ This release also adds **ChatGPT / Codex** as a distinct subscription-backed pro
 | `bundled_skills/claude_code_delegation/SKILL.md` | **New** — approval-gated Claude Code CLI delegation workflow for coding, review, and refactor tasks |
 | `designer/editor.py`, `designer/preview.py`, `ui/streaming.py` | Designer asset canonicalization, deleted-client detection, detached completion hydration, active-generation cleanup, and preview timer disconnect handling |
 | `ui/setup_wizard.py` | Provider path copy and Quick Choice seeding aligned with Settings → Models ownership |
+| `app_port.py`, `launcher.py`, `app.py` | Dynamic app-port selection, `THOTH_PORT` propagation, Thoth identity probing, and active-port NiceGUI startup |
 | `installer/thoth_setup.iss`, `installer/build_mac_app.sh`, `installer/README.md` | Provider runtime/UI packaging, v3.19.0 installer docs, clean first-run and Codex credential-boundary notes |
+| `channels/sms.py`, `designer/publish.py`, `ui/settings.py` | Main-app tunnel, SMS webhook, Designer published-link, and Settings tunnel controls now follow the active app port |
 | `README.md`, `docs/ARCHITECTURE.md`, `docs/RELEASING.md`, `docs/index.html` | User-facing provider/Codex docs, architecture notes, release checklist updates, and v3.19.0 download/version references |
-| `test_provider_*.py`, `test_thoth_status_media.py`, `test_suite.py`, `pytest.ini`, `scripts/dummy_openai_endpoint.py` | Focused provider/media/runtime/Codex tests, release smoke checks, pytest ignore config, and local OpenAI-compatible dummy endpoint for manual custom-provider testing |
+| `test_provider_*.py`, `test_thoth_status_media.py`, `test_app_port.py`, `test_suite.py`, `pytest.ini`, `scripts/dummy_openai_endpoint.py` | Focused provider/media/runtime/Codex/app-port tests, release smoke checks, pytest ignore config, and local OpenAI-compatible dummy endpoint for manual custom-provider testing |
 
 ---
 

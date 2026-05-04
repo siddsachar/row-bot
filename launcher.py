@@ -20,9 +20,13 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 import webbrowser
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from app_port import DEFAULT_APP_PORT, THOTH_PORT_ENV
 
 if TYPE_CHECKING:
     from PIL import Image as _PILImage
@@ -32,8 +36,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 # ── Constants ────────────────────────────────────────────────────────────────
-_PORT = 8080
-_URL = f"http://localhost:{_PORT}"
+_PORT = DEFAULT_APP_PORT
 _OLLAMA_PORT = 11434          # Ollama default API port
 _STARTUP_GRACE = 15           # seconds to wait for NiceGUI before opening browser
 _ICON_SIZE = 64               # px for generated tray icons
@@ -146,16 +149,60 @@ def _is_port_in_use(port: int = _PORT) -> bool:
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
+def _url_for_port(port: int) -> str:
+    return f"http://localhost:{port}"
+
+
+def _is_thoth_server(port: int, timeout: float = 0.75) -> bool:
+    """Return True if *port* is serving this Thoth app."""
+    url = f"http://127.0.0.1:{port}/api/launcher-ping"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            if getattr(response, "status", 200) != 200:
+                return False
+            data = response.read(512).decode("utf-8", errors="replace")
+    except (OSError, urllib.error.URLError, TimeoutError):
+        return False
+    return '"app":"thoth"' in data.replace(" ", "").lower()
+
+
+def _find_existing_thoth_port(start: int = _PORT, max_tries: int = 50) -> int | None:
+    """Return an already-running Thoth port in the session range, if any."""
+    for port in range(start, start + max_tries):
+        if _is_port_in_use(port) and _is_thoth_server(port):
+            return port
+    return None
+
+
+def _find_free_port(start: int = _PORT, max_tries: int = 50) -> int:
+    """Return the first free localhost port at or above *start*."""
+    for port in range(start, start + max_tries):
+        if not _is_port_in_use(port):
+            return port
+    raise RuntimeError(f"No free Thoth app port found in {start}-{start + max_tries - 1}")
+
+
+def _select_app_port(preferred: int = _PORT, max_tries: int = 50) -> tuple[int, bool]:
+    """Choose the app port and whether it belongs to an existing Thoth."""
+    existing = _find_existing_thoth_port(preferred, max_tries=max_tries)
+    if existing is not None:
+        return existing, True
+    if not _is_port_in_use(preferred):
+        return preferred, False
+    return _find_free_port(preferred + 1, max_tries=max(1, max_tries - 1)), False
+
+
 # ── NiceGUI subprocess management ───────────────────────────────────────────
 
 class _ThothProcess:
     """Wraps the NiceGUI app subprocess."""
 
-    def __init__(self) -> None:
+    def __init__(self, port: int = _PORT) -> None:
         self._proc: subprocess.Popen | None = None
         self._log_file: Path | None = None
+        self.port = port
 
-    def start(self) -> None:
+    def start(self, port: int | None = None) -> None:
         """Launch ``python app.py`` as a headless server.
 
         The server runs without ``--native`` so it stays alive
@@ -164,6 +211,8 @@ class _ThothProcess:
         """
         app_dir = Path(__file__).resolve().parent
         app_py = app_dir / "app.py"
+        if port is not None:
+            self.port = port
 
         # Use the same Python that's running this launcher
         python = sys.executable
@@ -196,6 +245,7 @@ class _ThothProcess:
             "PYTHONNOUSERSITE": "1",
             "PYTHONIOENCODING": "utf-8",
             "THOTH_NATIVE": "1",
+            THOTH_PORT_ENV: str(self.port),
         }
 
         self._proc = subprocess.Popen(
@@ -620,13 +670,13 @@ def _ask_window_mode() -> str:
     return "native"
 
 
-def _open_in_browser() -> None:
+def _open_in_browser(port: int = _PORT) -> None:
     """Open the Thoth UI in the default system browser."""
-    webbrowser.open(_URL)
-    logger.info("Opened Thoth in system browser")
+    webbrowser.open(_url_for_port(port))
+    logger.info("Opened Thoth in system browser on port %s", port)
 
 
-def _open_window() -> subprocess.Popen | None:
+def _open_window(port: int = _PORT) -> subprocess.Popen | None:
     """Open a pywebview native window pointing at the running server.
 
     Returns the subprocess handle, or None on failure.
@@ -636,22 +686,22 @@ def _open_window() -> subprocess.Popen | None:
     try:
         proc = subprocess.Popen(
             [sys.executable, "-c", _WINDOW_SCRIPT,
-             _URL, "Thoth", "1280", "900"],
+             _url_for_port(port), "Thoth", "1280", "900"],
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-        logger.info("Native window opened (PID %s)", proc.pid)
+        logger.info("Native window opened (PID %s, port %s)", proc.pid, port)
         return proc
     except Exception as exc:
         logger.warning("Could not open native window: %s — falling back to browser", exc)
-        webbrowser.open(_URL)
+        webbrowser.open(_url_for_port(port))
         return None
 
 
-def _wait_for_server(timeout: float = 60.0) -> bool:
+def _wait_for_server(port: int = _PORT, timeout: float = 60.0) -> bool:
     """Block until the NiceGUI server is reachable, or *timeout* expires."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if _is_port_in_use(_PORT):
+        if _is_thoth_server(port):
             return True
         time.sleep(0.3)
     return False
@@ -665,7 +715,8 @@ class ThothTray:
     def __init__(self) -> None:
         import pystray
 
-        self._server = _ThothProcess()
+        self._port = _PORT
+        self._server = _ThothProcess(self._port)
         self._owns_server = False          # True if *we* started it
         self._window_proc: subprocess.Popen | None = None
         self._stop_event = threading.Event()
@@ -748,38 +799,38 @@ class ThothTray:
             logger.info("Server not running — restarting before opening window")
             self._server.stop()
             for _ in range(10):
-                if not _is_port_in_use(_PORT):
+                if not _is_port_in_use(self._port):
                     break
                 time.sleep(0.5)
-            self._server.start()
-            _wait_for_server()
+            self._server.start(self._port)
+            _wait_for_server(self._port)
 
-        if not self._owns_server and not _is_port_in_use(_PORT):
+        if not self._owns_server and not _is_thoth_server(self._port):
             # External server died — just open browser and hope
-            webbrowser.open(_URL)
+            webbrowser.open(_url_for_port(self._port))
             return
 
         logger.info("Opening Thoth window")
-        self._window_proc = _open_window()
+        self._window_proc = _open_window(self._port)
 
     def _on_open_browser(self, icon=None, item=None) -> None:   # noqa: ARG002
         """Open the Thoth UI in the default system browser."""
-        if _is_port_in_use(_PORT):
-            _open_in_browser()
+        if _is_thoth_server(self._port):
+            _open_in_browser(self._port)
         elif self._owns_server:
             logger.info("Server not running — restarting before opening browser")
             self._server.stop()
             for _ in range(10):
-                if not _is_port_in_use(_PORT):
+                if not _is_port_in_use(self._port):
                     break
                 time.sleep(0.5)
-            self._server.start()
-            if _wait_for_server():
-                _open_in_browser()
+            self._server.start(self._port)
+            if _wait_for_server(self._port):
+                _open_in_browser(self._port)
             else:
                 logger.warning("Server did not restart — cannot open browser")
         else:
-            _open_in_browser()
+            _open_in_browser(self._port)
 
     def _on_quit(self, icon=None, item=None) -> None:    # noqa: ARG002
         logger.info("Quit requested")
@@ -807,7 +858,7 @@ class ThothTray:
                 self._icon.icon = _get_icon("running")
                 self._icon.title = "Thoth — running"
                 _crash_logged = False
-            elif not self._owns_server and _is_port_in_use(_PORT):
+            elif not self._owns_server and _is_thoth_server(self._port):
                 self._icon.icon = _get_icon("running")
                 self._icon.title = "Thoth — running"
             else:
@@ -844,35 +895,36 @@ class ThothTray:
         # Ensure Ollama is running before we start the app
         _start_ollama()
 
-        already_running = _is_port_in_use(_PORT)
+        self._port, already_running = _select_app_port()
+        self._server.port = self._port
 
         if already_running:
-            logger.info("Thoth already running on port %s", _PORT)
+            logger.info("Thoth already running on port %s", self._port)
         else:
-            self._server.start()
+            self._server.start(self._port)
             self._owns_server = True
             # Register cleanup in case launcher crashes
             atexit.register(self._server.stop)
 
             # Show splash screen while the server starts up
-            _show_splash()
+            _show_splash(self._port)
 
         # Start the status-polling thread
         poller = threading.Thread(target=self._poll_loop, daemon=True, name="tray-poll")
         poller.start()
 
         # Wait for server to be ready, then open UI in the preferred mode
-        if _wait_for_server():
+        if _wait_for_server(self._port):
             mode = _load_window_mode()
             if mode == "ask":
                 mode = _ask_window_mode()
             if mode == "browser":
-                _open_in_browser()
+                _open_in_browser(self._port)
             else:
-                self._window_proc = _open_window()
+                self._window_proc = _open_window(self._port)
         else:
             logger.warning("Server did not start in time — opening browser as fallback")
-            webbrowser.open(_URL)
+            webbrowser.open(_url_for_port(self._port))
 
         # Blocking — runs the tray icon's event loop on the main thread
         logger.info("Thoth tray running  (Ctrl+C or Quit menu to exit)")

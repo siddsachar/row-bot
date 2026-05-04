@@ -58,6 +58,7 @@ Source: "..\data_reader.py";            DestDir: "{app}\app"; Flags: ignoreversi
 Source: "..\documents.py";             DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\threads.py";               DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\api_keys.py";              DestDir: "{app}\app"; Flags: ignoreversion
+Source: "..\app_port.py";              DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\secret_store.py";          DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\voice.py";                 DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\tts.py";                   DestDir: "{app}\app"; Flags: ignoreversion

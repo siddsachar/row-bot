@@ -14,12 +14,12 @@ from designer.preview import (
 )
 from designer.state import DesignerProject
 from designer.storage import DESIGNER_DIR, save_project
+from app_port import get_app_port
 from tunnel import tunnel_manager
 
 logger = logging.getLogger(__name__)
 
 PUBLISHED_DIR = DESIGNER_DIR / "published"
-APP_PORT = 8080
 
 
 def ensure_published_dir() -> pathlib.Path:
@@ -35,15 +35,16 @@ def resolve_publish_path(project: DesignerProject) -> pathlib.Path:
 
 def resolve_publish_base_url(ensure_public: bool = True) -> tuple[str, bool]:
     """Return the base URL for published links and whether it is public."""
-    public_url = tunnel_manager.get_url(APP_PORT)
+    app_port = get_app_port()
+    public_url = tunnel_manager.get_url(app_port)
     if ensure_public and not public_url and tunnel_manager.is_available():
         try:
-            public_url = tunnel_manager.start_tunnel(APP_PORT, label="designer publish")
+            public_url = tunnel_manager.start_tunnel(app_port, label="designer publish")
         except Exception:
             logger.warning("Could not open a public tunnel for designer publishing", exc_info=True)
     if public_url:
         return public_url.rstrip("/"), True
-    return f"http://127.0.0.1:{APP_PORT}", False
+    return f"http://127.0.0.1:{app_port}", False
 
 
 def build_publish_bytes(project: DesignerProject, pages: str | None = None) -> bytes:

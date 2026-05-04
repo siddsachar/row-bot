@@ -4,6 +4,7 @@
 Refactored UI using the ``ui/`` package.
 
 Run:   python app.py          →   http://localhost:8080
+    THOTH_PORT=8081 python app.py → http://localhost:8081
 """
 
 from __future__ import annotations
@@ -47,6 +48,9 @@ if _app_dir not in sys.path:
     sys.path.insert(0, _app_dir)
 
 from nicegui import ui, app, run
+from app_port import get_app_port
+
+_APP_PORT = get_app_port()
 
 
 # ── Patch NiceGUI JSON serializer for surrogate safety ───────────────────────
@@ -326,8 +330,8 @@ async def on_startup():
         try:
             from tunnel import tunnel_manager
             if tunnel_manager.is_available():
-                tunnel_manager.start_tunnel(8080, label="main_app")
-                print("[startup] ✅ Main-app tunnel auto-started")
+                tunnel_manager.start_tunnel(_APP_PORT, label="main_app")
+                print(f"[startup] ✅ Main-app tunnel auto-started on port {_APP_PORT}")
         except Exception as exc:
             _st.startup_warnings.append(f"⚠️ Tunnel failed to auto-start: {exc}")
 
@@ -395,6 +399,11 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 
+async def _launcher_ping_handler(request: Request) -> JSONResponse:  # noqa: ARG001
+    """Identify this process to the desktop launcher."""
+    return JSONResponse({"app": "thoth", "version": _thoth_version, "port": _APP_PORT})
+
+
 async def _webhook_handler(request: Request) -> JSONResponse:
     """Handle POST /api/webhook/{task_id} for webhook-triggered tasks."""
     task_id = request.path_params.get("task_id", "")
@@ -409,6 +418,7 @@ async def _webhook_handler(request: Request) -> JSONResponse:
     return JSONResponse(result, status_code=status_code)
 
 
+app.add_route("/api/launcher-ping", _launcher_ping_handler, methods=["GET"])
 app.add_route("/api/webhook/{task_id}", _webhook_handler, methods=["POST"])
 
 
@@ -843,7 +853,7 @@ if __name__ in {"__main__", "__mp_main__"}:
 
     ui.run(
         title="Thoth",
-        port=8080,
+        port=_APP_PORT,
         dark=True,
         favicon="𓁟",
         reload=False,

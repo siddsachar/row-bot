@@ -309,12 +309,13 @@ Thoth's agent has access to 30 core tool modules. Many of them expose multiple o
    ```bash
    python launcher.py
    ```
-   This starts the system tray icon and opens the app at `http://localhost:8080`.
+   This starts the system tray icon and opens the app on the first available local port, normally `http://localhost:8080`. If another service is already using 8080, Thoth automatically picks the next free port.
 
    Alternatively, run directly without the tray:
    ```bash
    python app.py
    ```
+   Direct app launches default to `http://localhost:8080`; set `THOTH_PORT` to choose a different port.
 
 > **First launch:** A setup wizard lets you choose between **Local** (Ollama), **Providers** (API key), and **Custom/Self-hosted** setup paths. For local, the default brain model (`qwen3:14b`, ~9 GB) is recommended. For Providers, enter your API key (OpenAI, Anthropic, Google AI, xAI, or OpenRouter), pick a default model, and seed Quick Choices for everyday pickers. For Custom/Self-hosted, enter an OpenAI-compatible base URL such as LM Studio's `http://127.0.0.1:1234/v1`, leave the API key blank for no-auth local servers, fetch models, and pick a default. ChatGPT / Codex sign-in is available after launch in **Settings → Providers**.
 

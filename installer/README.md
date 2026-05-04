@@ -172,7 +172,7 @@ The Inno Setup installer runs these steps:
 1. Run `ThothSetup_3.19.0.exe`
 2. Follow the wizard — dependencies download and install automatically (5-15 min)
 3. Launch Thoth from Start Menu or Desktop shortcut
-4. The system tray icon appears; the app opens at `http://localhost:8080`
+4. The system tray icon appears; the app opens on the first available local port, normally `http://localhost:8080`
 5. First launch shows a setup wizard — choose **Local** (download an Ollama model), **Providers** (enter an API key and pick a provider model), or **Custom/Self-hosted** (enter an OpenAI-compatible endpoint such as LM Studio, fetch models, and pick a default)
 
 ## Notes

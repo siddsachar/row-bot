@@ -13959,6 +13959,7 @@ try:
         "debug_tools.py",
         "test_suite.py",
         "test_api_key_storage.py",
+        "test_app_port.py",
         "test_migration_apply.py",
         "test_migration_detection.py",
         "test_migration_core.py",

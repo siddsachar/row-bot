@@ -2730,10 +2730,12 @@ def open_settings(
             main_app_url_container = ui.column().classes("w-full")
 
             async def _on_main_app_toggle(e):
+                from app_port import get_app_port
+
                 _ch_config.set("tunnel", "tunnel_main_app", e.args)
                 if e.args and tunnel_manager.is_available():
                     try:
-                        app_port = 8080
+                        app_port = get_app_port()
                         url = tunnel_manager.start_tunnel(app_port, label="main_app")
                         main_app_url_container.clear()
                         with main_app_url_container:
@@ -2756,7 +2758,7 @@ def open_settings(
                         ui.notify(f"Tunnel error: {exc}", type="negative")
                 elif not e.args:
                     try:
-                        app_port = 8080
+                        app_port = get_app_port()
                         tunnel_manager.stop_tunnel(app_port)
                     except Exception:
                         pass
