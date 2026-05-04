@@ -65,6 +65,14 @@ PROVIDER_DEFINITIONS: dict[str, ProviderDefinition] = {
         base_url="https://api.x.ai/v1",
         icon="X",
     ),
+    "minimax": ProviderDefinition(
+        id="minimax",
+        display_name="MiniMax API",
+        auth_methods=(AuthMethod.API_KEY,),
+        default_transport=TransportMode.ANTHROPIC_MESSAGES,
+        base_url="https://api.minimax.io/anthropic",
+        icon="M",
+    ),
 }
 
 _OPENAI_CHAT_PREFIXES = ("gpt-", "o1", "o3", "o4", "chatgpt-")
@@ -101,6 +109,8 @@ def infer_provider_id(model_id: str, cached_provider: str | None = None) -> str 
         return "google"
     if bare.startswith("grok"):
         return "xai"
+    if bare.lower().startswith("minimax"):
+        return "minimax"
     return None
 
 

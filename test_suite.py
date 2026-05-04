@@ -19375,6 +19375,56 @@ except Exception as e:
     record("FAIL", "74b-ast-bare-generic", f"{type(e).__name__}: {e}")
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# 75. MINIMAX PROVIDER
+# ═════════════════════════════════════════════════════════════════════════════
+print()
+print("─" * 60)
+print("SECTION 75: MiniMax Provider")
+print("─" * 60)
+
+try:
+    from pathlib import Path as _P75
+
+    # ── 75a. providers/catalog.py registers minimax ───────────────────
+    _catalog_src75 = _P75("providers/catalog.py").read_text(encoding="utf-8")
+    assert '"minimax"' in _catalog_src75, "catalog.py should register minimax provider"
+    assert "MiniMax API" in _catalog_src75, "catalog.py should set MiniMax display name"
+    assert "https://api.minimax.io/anthropic" in _catalog_src75, "catalog.py should have MiniMax base URL"
+    record("PASS", "75a: providers/catalog.py registers minimax with correct base URL")
+
+    # ── 75b. providers/auth_store.py has MINIMAX_API_KEY ─────────────
+    _auth_src75 = _P75("providers/auth_store.py").read_text(encoding="utf-8")
+    assert "MINIMAX_API_KEY" in _auth_src75, "auth_store.py should map minimax to MINIMAX_API_KEY"
+    record("PASS", "75b: providers/auth_store.py maps minimax to MINIMAX_API_KEY")
+
+    # ── 75c. providers/runtime.py has minimax branch ──────────────────
+    _runtime_src75 = _P75("providers/runtime.py").read_text(encoding="utf-8")
+    assert 'provider == "minimax"' in _runtime_src75, "runtime.py should have minimax branch"
+    assert "https://api.minimax.io/anthropic" in _runtime_src75, "runtime.py should use MiniMax Anthropic-compatible URL"
+    assert "minimax" in _runtime_src75, "runtime.py should include minimax in configured providers list"
+    record("PASS", "75c: providers/runtime.py has minimax branch with correct URL")
+
+    # ── 75d. infer_provider_id routes MiniMax model IDs correctly ─────
+    from providers.catalog import infer_provider_id as _infer75
+    assert _infer75("MiniMax-M2.7") == "minimax", "MiniMax-M2.7 should infer to minimax provider"
+    assert _infer75("MiniMax-M2.7-highspeed") == "minimax", "MiniMax-M2.7-highspeed should infer to minimax provider"
+    record("PASS", "75d: infer_provider_id routes MiniMax-M2.7 and MiniMax-M2.7-highspeed to minimax")
+
+    # ── 75e. minimax provider definition is well-formed ───────────────
+    from providers.catalog import get_provider_definition as _gpd75
+    from providers.models import TransportMode as _TM75
+    _mm_def75 = _gpd75("minimax")
+    assert _mm_def75 is not None, "minimax provider definition should exist"
+    assert _mm_def75.default_transport == _TM75.ANTHROPIC_MESSAGES, "minimax should use ANTHROPIC_MESSAGES transport"
+    assert _mm_def75.base_url == "https://api.minimax.io/anthropic"
+    record("PASS", "75e: minimax provider definition uses ANTHROPIC_MESSAGES transport")
+
+except Exception as e:
+    record("FAIL", "minimax-provider-75", f"{type(e).__name__}: {e}")
+    traceback.print_exc()
+
+
 print(f"  ✅ PASS: {PASS}")
 print(f"  ❌ FAIL: {FAIL}")
 print(f"  ⚠️  WARN: {WARN}")

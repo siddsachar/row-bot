@@ -16,6 +16,7 @@ PROVIDER_API_KEY_ENV: dict[str, str] = {
     "anthropic": "ANTHROPIC_API_KEY",
     "google": "GOOGLE_API_KEY",
     "xai": "XAI_API_KEY",
+    "minimax": "MINIMAX_API_KEY",
 }
 PROVIDER_SECRET_CHUNK_SIZE = 512
 CHUNK_MARKER_SUFFIX = "__chunks"

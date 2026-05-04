@@ -20,6 +20,28 @@ def test_provider_catalog_infers_existing_api_key_providers():
     assert infer_provider_id("anthropic/claude-sonnet-4") == "openrouter"
 
 
+def test_minimax_provider_definition_and_model_inference():
+    definition = get_provider_definition("minimax")
+    assert definition is not None
+    assert definition.display_name == "MiniMax API"
+    assert definition.default_transport == TransportMode.ANTHROPIC_MESSAGES
+    assert definition.base_url == "https://api.minimax.io/anthropic"
+    assert definition.auth_methods[0].value == "api_key"
+
+
+def test_minimax_model_ids_infer_to_minimax_provider():
+    assert infer_provider_id("MiniMax-M2.7") == "minimax"
+    assert infer_provider_id("MiniMax-M2.7-highspeed") == "minimax"
+
+
+def test_minimax_model_capabilities_classified_as_chat():
+    classified = classify_model_capabilities("minimax", "MiniMax-M2.7")
+    assert "chat" in classified["tasks"]
+    assert classified["transport"] == TransportMode.ANTHROPIC_MESSAGES
+    assert "text" in classified["input_modalities"]
+    assert "text" in classified["output_modalities"]
+
+
 def test_legacy_cache_to_model_infos_preserves_context_and_capabilities():
     infos = legacy_cache_to_model_infos({
         "gpt-4o": {"label": "GPT-4o", "ctx": 128000, "provider": "openai", "vision": True},

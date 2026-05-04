@@ -14,7 +14,7 @@ def is_provider_available(provider_id: str) -> bool:
 
 def list_configured_provider_ids() -> list[str]:
     configured = [
-        provider_id for provider_id in ("openai", "openrouter", "anthropic", "google", "xai")
+        provider_id for provider_id in ("openai", "openrouter", "anthropic", "google", "xai", "minimax")
         if is_provider_available(provider_id)
     ]
     try:
@@ -161,6 +161,16 @@ def create_chat_model(model_name: str, provider_id: str | None = None):
         if not api_key:
             raise ValueError("xAI API key not configured. Set it in Settings → Providers.")
         return ChatXAI(model=model_name, api_key=api_key)
+    if provider == "minimax":
+        from langchain_anthropic import ChatAnthropic
+        api_key = get_provider_secret("minimax")
+        if not api_key:
+            raise ValueError("MiniMax API key not configured. Set it in Settings → Providers.")
+        return ChatAnthropic(
+            model=model_name,
+            api_key=api_key,
+            anthropic_api_url="https://api.minimax.io/anthropic",
+        )
 
     from langchain_openrouter import ChatOpenRouter
     api_key = get_provider_secret("openrouter")

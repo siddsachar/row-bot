@@ -193,3 +193,40 @@ def test_provider_errors_normalize_unsupported_capability():
 
     assert normalized.kind == ProviderErrorKind.UNSUPPORTED_CAPABILITY
     assert normalized.next_action == "Choose a model whose capability badges match this surface."
+
+
+def test_minimax_provider_creates_chat_anthropic_with_minimax_base_url(monkeypatch):
+    fake_langchain_anthropic = ModuleType("langchain_anthropic")
+
+    class _FakeChatAnthropic:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    fake_langchain_anthropic.ChatAnthropic = _FakeChatAnthropic
+    monkeypatch.setitem(sys.modules, "langchain_anthropic", fake_langchain_anthropic)
+    monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id: "test-minimax-key")
+
+    model = runtime.create_chat_model("MiniMax-M2.7", provider_id="minimax")
+
+    assert model.kwargs["model"] == "MiniMax-M2.7"
+    assert model.kwargs["api_key"] == "test-minimax-key"
+    assert model.kwargs["anthropic_api_url"] == "https://api.minimax.io/anthropic"
+
+
+def test_minimax_provider_raises_when_api_key_missing(monkeypatch):
+    fake_langchain_anthropic = ModuleType("langchain_anthropic")
+
+    class _FakeChatAnthropic:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    fake_langchain_anthropic.ChatAnthropic = _FakeChatAnthropic
+    monkeypatch.setitem(sys.modules, "langchain_anthropic", fake_langchain_anthropic)
+    monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id: "")
+
+    try:
+        runtime.create_chat_model("MiniMax-M2.7", provider_id="minimax")
+    except ValueError as exc:
+        assert "MiniMax" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError when MiniMax API key is missing")
