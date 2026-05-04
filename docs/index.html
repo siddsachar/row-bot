@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>&#x1305F; Thoth - Local-First AI Assistant</title>
-    <meta name="description" content="Thoth is a local-first desktop AI assistant with memory, 30 core tools, Designer Studio, workflows, messaging channels, plugins, MCP tools, optional provider models, and ChatGPT / Codex subscription access. Your durable data stays on your machine.">
+    <meta name="description" content="Thoth is a local-first desktop AI assistant for Windows, macOS, and Linux with memory, 30 core tools, Designer Studio, workflows, messaging channels, plugins, MCP tools, provider models, and ChatGPT / Codex subscription access. Your durable data stays on your machine.">
 
     <!-- Canonical -->
     <link rel="canonical" href="https://get-thoth.com/">
@@ -13,7 +13,7 @@
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://get-thoth.com/">
     <meta property="og:title" content="Thoth - Local-First AI Assistant">
-    <meta property="og:description" content="A desktop AI assistant with memory, tools, Designer Studio, workflows, channels, plugins, MCP tools, optional provider models, and ChatGPT / Codex subscription access. Your durable data stays on your machine.">
+    <meta property="og:description" content="A desktop AI assistant for Windows, macOS, and Linux with memory, tools, Designer Studio, workflows, channels, plugins, MCP tools, provider models, and ChatGPT / Codex subscription access. Your durable data stays on your machine.">
     <meta property="og:image" content="https://img.youtube.com/vi/ansfEqAr6g0/maxresdefault.jpg">
     <meta property="og:image:width" content="1280">
     <meta property="og:image:height" content="720">
@@ -21,7 +21,7 @@
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Thoth - Local-First AI Assistant">
-    <meta name="twitter:description" content="A desktop AI assistant with memory, tools, Designer Studio, workflows, channels, plugins, MCP tools, optional provider models, and ChatGPT / Codex subscription access. Your durable data stays on your machine.">
+    <meta name="twitter:description" content="A desktop AI assistant for Windows, macOS, and Linux with memory, tools, Designer Studio, workflows, channels, plugins, MCP tools, provider models, and ChatGPT / Codex subscription access. Your durable data stays on your machine.">
     <meta name="twitter:image" content="https://img.youtube.com/vi/ansfEqAr6g0/maxresdefault.jpg">
 
     <!-- Favicon (inline SVG) -->
@@ -33,9 +33,9 @@
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
         "name": "Thoth",
-        "description": "A local-first desktop AI assistant with memory, 30 core tools, Designer Studio, workflows, messaging channels, plugins, MCP tools, secure provider credential storage, optional provider models, and ChatGPT / Codex subscription access.",
+        "description": "A local-first desktop AI assistant for Windows, macOS, and Linux with memory, 30 core tools, Designer Studio, workflows, messaging channels, plugins, MCP tools, secure provider credential storage, provider models, and ChatGPT / Codex subscription access.",
         "applicationCategory": "UtilitiesApplication",
-        "operatingSystem": "Windows 10/11, macOS",
+        "operatingSystem": "Windows 10/11, macOS, Linux",
         "offers": {
             "@type": "Offer",
             "price": "0",
@@ -44,7 +44,7 @@
         "license": "https://www.apache.org/licenses/LICENSE-2.0",
         "url": "https://get-thoth.com/",
         "downloadUrl": "https://github.com/siddsachar/Thoth/releases",
-        "softwareVersion": "3.19.0",
+        "softwareVersion": "3.20.0",
         "author": {
             "@type": "Person",
             "name": "siddsachar",
@@ -603,6 +603,77 @@
             color: var(--accent);
         }
 
+        .architecture-teaser { padding: 5rem 0; }
+
+        .architecture-teaser-inner {
+            display: grid;
+            grid-template-columns: 0.95fr 1.05fr;
+            gap: 3rem;
+            align-items: center;
+        }
+
+        .architecture-teaser-text h2 {
+            font-family: var(--serif);
+            font-size: 2.35rem;
+            font-weight: 400;
+            line-height: 1.2;
+            margin-bottom: 1rem;
+        }
+
+        .architecture-teaser-text h2 em { color: var(--accent); font-style: italic; }
+
+        .architecture-teaser-text p {
+            color: var(--text-dim);
+            font-size: 0.96rem;
+            line-height: 1.7;
+            margin-bottom: 1.2rem;
+        }
+
+        .architecture-points {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.65rem;
+            margin: 1.4rem 0 1.75rem;
+        }
+
+        .architecture-point {
+            padding: 0.75rem 0.85rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--surface);
+            color: var(--text-dim);
+            font-family: var(--mono);
+            font-size: 0.74rem;
+        }
+
+        .architecture-preview {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+            background: var(--surface);
+            transition: transform 0.2s, border-color 0.2s;
+        }
+
+        .architecture-preview:hover {
+            transform: translateY(-3px);
+            border-color: var(--accent);
+        }
+
+        .architecture-preview img {
+            display: block;
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            object-fit: cover;
+            background: var(--bg-alt);
+        }
+
+        .architecture-preview-caption {
+            padding: 0.85rem 1rem;
+            color: var(--text-faint);
+            font-family: var(--mono);
+            font-size: 0.74rem;
+        }
+
         .highlight { padding: 5rem 0; }
 
         .highlight-inner {
@@ -782,6 +853,74 @@
             border-radius: 4px;
         }
 
+        .linux-install-callout {
+            margin: 1.5rem auto 0;
+            max-width: 820px;
+            padding: 1.2rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--surface);
+        }
+
+        .linux-install-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 1rem;
+            align-items: flex-start;
+            margin-bottom: 0.85rem;
+        }
+
+        .linux-install-label {
+            display: block;
+            font-family: var(--mono);
+            font-size: 0.72rem;
+            color: var(--accent);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 0.35rem;
+        }
+
+        .linux-install-callout p {
+            margin: 0;
+            color: var(--text-dim);
+            font-size: 0.88rem;
+            line-height: 1.6;
+        }
+
+        .linux-install-callout a { color: var(--accent); }
+
+        .linux-command {
+            display: block;
+            overflow-x: auto;
+            white-space: nowrap;
+            padding: 0.85rem 1rem;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--bg-alt);
+            color: var(--text);
+            font-family: var(--mono);
+            font-size: 0.82rem;
+        }
+
+        .copy-command {
+            min-width: 92px;
+            padding: 0.55rem 0.9rem;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--surface-raised);
+            color: var(--text-dim);
+            font-family: var(--sans);
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: border-color 0.2s, color 0.2s;
+        }
+
+        .copy-command:hover {
+            border-color: var(--accent);
+            color: var(--text);
+        }
+
         .privacy { padding: 5rem 0; text-align: center; }
 
         .privacy h2 {
@@ -897,11 +1036,14 @@
             .section-heading { font-size: 2rem; }
             .paths-grid { grid-template-columns: 1fr; }
             .feature-row { grid-template-columns: 1fr; }
+            .architecture-teaser-inner { grid-template-columns: 1fr; gap: 2rem; }
             .highlight-inner { grid-template-columns: 1fr; gap: 2rem; }
             .highlight--reverse .highlight-inner { direction: ltr; }
             .install-steps { grid-template-columns: 1fr; }
             .manifesto blockquote { font-size: 1.3rem; }
             .comparison td:first-child { white-space: normal; }
+            .linux-install-head { flex-direction: column; }
+            .copy-command { width: 100%; }
 
             .nav-hamburger { display: flex; }
             .nav-links {
@@ -941,6 +1083,7 @@
         @media (max-width: 480px) {
             .hero h1 { font-size: 2.2rem; }
             .hero-meta { flex-direction: column; gap: 0.4rem; }
+            .architecture-points { grid-template-columns: 1fr; }
             .comparison th, .comparison td { padding: 0.6rem 0.5rem; }
             .privacy-facts { flex-direction: column; align-items: center; gap: 0.5rem; }
         }
@@ -956,13 +1099,15 @@
         <label class="nav-hamburger" for="nav-toggle"><span></span><span></span><span></span></label>
         <div class="nav-links">
             <a href="#features">Features</a>
+            <a href="architecture.html">Architecture</a>
             <a href="#tools">Tools</a>
             <a href="#privacy">Privacy</a>
             <a href="#comparison">Compare</a>
             <a href="contact.html">Contact</a>
             <a href="https://github.com/siddsachar/Thoth" target="_blank">GitHub</a>
-            <a href="https://github.com/siddsachar/Thoth/releases/download/v3.19.0/ThothSetup_3.19.0.exe" class="nav-dl" data-download="windows">Windows</a>
-            <a href="https://github.com/siddsachar/Thoth/releases/download/v3.19.0/Thoth-3.19.0-macOS-arm64.dmg" class="nav-dl" data-download="macos">macOS</a>
+            <a href="https://github.com/siddsachar/Thoth/releases/download/v3.20.0/ThothSetup_3.20.0.exe" class="nav-dl" data-download="windows">Windows</a>
+            <a href="https://github.com/siddsachar/Thoth/releases/download/v3.20.0/Thoth-3.20.0-macOS-arm64.dmg" class="nav-dl" data-download="macos">macOS</a>
+            <a href="#linux-install" class="nav-dl" data-download="linux">Linux</a>
         </div>
     </nav>
 
@@ -977,8 +1122,9 @@
             Your durable data stays on your machine.
         </p>
         <div class="hero-actions">
-            <a href="https://github.com/siddsachar/Thoth/releases/download/v3.19.0/ThothSetup_3.19.0.exe" class="btn btn--primary" data-download="windows">Download for Windows <span class="btn-hint">.exe</span></a>
-            <a href="https://github.com/siddsachar/Thoth/releases/download/v3.19.0/Thoth-3.19.0-macOS-arm64.dmg" class="btn btn--primary" data-download="macos">Download for macOS <span class="btn-hint">.dmg</span></a>
+            <a href="https://github.com/siddsachar/Thoth/releases/download/v3.20.0/ThothSetup_3.20.0.exe" class="btn btn--primary" data-download="windows">Download for Windows <span class="btn-hint">.exe</span></a>
+            <a href="https://github.com/siddsachar/Thoth/releases/download/v3.20.0/Thoth-3.20.0-macOS-arm64.dmg" class="btn btn--primary" data-download="macos">Download for macOS <span class="btn-hint">.dmg</span></a>
+            <a href="#linux-install" class="btn btn--primary" data-download="linux">Install on Linux <span class="btn-hint">curl</span></a>
             <a href="https://github.com/siddsachar/Thoth" class="btn btn--ghost" target="_blank">View on GitHub</a>
         </div>
         <div class="hero-meta">
@@ -1068,9 +1214,38 @@
                 <div class="feature-item">
                     <span class="feature-icon">&#x26BF;</span>
                     <h3>Provider Runtime &amp; Models</h3>
-                    <p>OpenAI, Anthropic, Google AI, xAI, OpenRouter, custom endpoints, local Ollama rows, and ChatGPT / Codex all flow through one catalog with provider-aware labels.</p>
-                    <span class="feature-tag">New in 3.19</span>
+                    <p>OpenAI, Anthropic, Google AI, xAI, OpenRouter, MiniMax, custom endpoints, local Ollama rows, and ChatGPT / Codex all flow through one catalog with provider-aware labels.</p>
+                    <span class="feature-tag">Updated in 3.20</span>
                 </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="section-divider"></div>
+
+    <section class="architecture-teaser reveal">
+        <div class="container">
+            <div class="architecture-teaser-inner">
+                <div class="architecture-teaser-text">
+                    <p class="hero-eyebrow">System maps</p>
+                    <h2>Explore the architecture behind <em>local-first control.</em></h2>
+                    <p>
+                        The visual architecture gallery shows how Thoth connects its agent orchestrator,
+                        context assembly, memory graph, background workflows, channels, Designer Studio,
+                        safety boundaries, and self-awareness layer without giving up user control.
+                    </p>
+                    <div class="architecture-points">
+                        <div class="architecture-point">8 subsystem diagrams</div>
+                        <div class="architecture-point">Local-first data boundaries</div>
+                        <div class="architecture-point">Tool and provider routing</div>
+                        <div class="architecture-point">Safety and approval flows</div>
+                    </div>
+                    <a href="architecture.html" class="btn btn--primary">View architecture</a>
+                </div>
+                <a class="architecture-preview" href="architecture.html">
+                    <img src="Core_Agent_arch.jpg" alt="Thoth core agent architecture preview">
+                    <div class="architecture-preview-caption">Core Agent Architecture plus seven subsystem maps</div>
+                </a>
             </div>
         </div>
     </section>
@@ -1106,7 +1281,7 @@
         <div class="container">
             <div class="two-paths-header">
                 <h2 class="section-heading">Local when you can. Providers when you want.</h2>
-                <p class="section-sub">One assistant, local models, API providers, custom endpoints, and ChatGPT / Codex</p>
+                <p class="section-sub">One assistant, local models, API providers, custom endpoints, MiniMax, and ChatGPT / Codex</p>
             </div>
 
             <div class="paths-grid">
@@ -1123,7 +1298,7 @@
                 <div class="path-block">
                     <div class="path-label">Providers &amp; subscriptions &middot; Opt-in</div>
                     <h3>Frontier reasoning on demand</h3>
-                    <p>Add OpenAI, Anthropic, Google AI, xAI, OpenRouter, custom OpenAI-compatible endpoints, or ChatGPT / Codex when you need frontier reasoning or do not have a GPU.</p>
+                    <p>Add OpenAI, Anthropic, Google AI, xAI, OpenRouter, MiniMax, custom OpenAI-compatible endpoints, or ChatGPT / Codex when you need frontier reasoning or do not have a GPU.</p>
                     <ul class="path-list">
                         <li>Settings &rarr; Providers handles sign-in, health, and keys</li>
                         <li>Settings &rarr; Models handles catalogs, defaults, and Quick Choices</li>
@@ -1326,7 +1501,7 @@
                 <div class="install-step">
                     <div class="install-step-num">&#x2193; 01</div>
                     <h3>Download &amp; install</h3>
-                    <p>One-click <strong>Windows installer</strong> or <strong>macOS DMG</strong> - both set up Python and all dependencies automatically. Or clone the repo and run from source in 5 commands.</p>
+                    <p>Use the one-click <strong>Windows installer</strong>, <strong>macOS DMG</strong>, or verified <strong>Linux one-line installer</strong>. Each release ships self-contained runtime assets for the supported platform.</p>
                 </div>
                 <div class="install-step">
                     <div class="install-step-num">&#x2194; 02</div>
@@ -1338,6 +1513,17 @@
                     <h3>Start talking</h3>
                     <p>Ask anything in natural language - the agent handles the rest. Search the web, check email, analyze your screen, track a medication, schedule a workflow.</p>
                 </div>
+            </div>
+
+            <div class="linux-install-callout" id="linux-install">
+                <div class="linux-install-head">
+                    <div>
+                        <span class="linux-install-label">Linux install</span>
+                        <p>Installs the latest verified XDG user tarball, creates <code>~/.local/bin/thoth</code>, and uses the same release manifest as in-app updates. Manual tarballs remain available from <a href="https://github.com/siddsachar/Thoth/releases/latest" target="_blank">GitHub Releases</a>.</p>
+                    </div>
+                    <button class="copy-command" type="button" data-copy-linux>Copy</button>
+                </div>
+                <code class="linux-command">curl -fsSL https://raw.githubusercontent.com/siddsachar/Thoth/main/installer/install-linux.sh | bash</code>
             </div>
         </div>
     </section>
@@ -1369,14 +1555,14 @@
 
     <section class="whats-new reveal">
         <div class="container--narrow">
-            <h2>What&rsquo;s new in <em>v3.19</em></h2>
+            <h2>What&rsquo;s new in <em>v3.20</em></h2>
             <ul class="whats-new-list">
-                <li><strong>Provider runtime foundation.</strong> OpenAI, Anthropic, Google AI, xAI, OpenRouter, custom endpoints, Ollama catalog rows, and ChatGPT / Codex now share one provider-aware runtime and catalog.</li>
-                <li><strong>Settings split cleaned up.</strong> The Providers tab owns connection state, keys, health, and ChatGPT / Codex sign-in; the Models tab owns catalog browsing, pinning, defaults, and Quick Choices.</li>
-                <li><strong>ChatGPT / Codex provider.</strong> Subscription-backed Codex models use Thoth's in-app ChatGPT sign-in, live catalog discovery, provider-aware labels, streaming, and tool-call replay.</li>
-                <li><strong>Unified pickers.</strong> Chat, live overrides, workflows, Designer, Telegram, and Thoth Status all draw from the same Quick Choice model list with stable provider refs.</li>
-                <li><strong>Designer stream reliability.</strong> Long browser sessions recover from disconnects, hydrate final responses from checkpoints, and clean up preview timers and active-run bookkeeping.</li>
-                <li><strong>Delegation and insight polish.</strong> Claude Code Delegation is bundled as an approval-gated skill, and Thoth Status/Dream Cycle now surface provider-aware insight context.</li>
+                <li><strong>Linux support.</strong> A verified one-line installer now installs the self-contained XDG tarball, launches browser-first by default, and supports the same in-app update path as the packaged release.</li>
+                <li><strong>MiniMax provider.</strong> MiniMax M2 models join the provider catalog through MiniMax's Anthropic-compatible endpoint, with setup, key validation, labels, and runtime routing built in.</li>
+                <li><strong>Custom setup path.</strong> First-run setup now supports Custom/Self-hosted OpenAI-compatible endpoints such as LM Studio alongside normal API-key providers.</li>
+                <li><strong>Ollama reliability.</strong> Custom <code>OLLAMA_HOST</code> ports, URL forms, wildcard binds, local vision catalog rows, and busy checks now resolve through the normalized local endpoint.</li>
+                <li><strong>Launcher port safety.</strong> Thoth verifies that port <code>8080</code> is really Thoth before reusing it, moves to the next free port when needed, and keeps Windows/macOS tray behavior intact while Linux defaults to browser/no-tray.</li>
+                <li><strong>Release smoke coverage.</strong> CI now validates Linux runtime launch, packaged tarball smoke, root UI loading, installer script syntax, app-port selection, and update-manifest coverage.</li>
             </ul>
             <p class="whats-new-foot">
                 <a href="https://github.com/siddsachar/Thoth/blob/main/RELEASE_NOTES.md" target="_blank">Read the full release notes &rarr;</a>
@@ -1391,8 +1577,9 @@
             <h2>Take back your <em>AI sovereignty</em></h2>
             <p>Free, open source, and yours to keep. No Thoth account. No Thoth subscription. No data harvesting.</p>
             <div class="cta-buttons">
-                <a href="https://github.com/siddsachar/Thoth/releases/download/v3.19.0/ThothSetup_3.19.0.exe" class="btn btn--primary" data-download="windows">Download for Windows <span class="btn-hint">.exe</span></a>
-                <a href="https://github.com/siddsachar/Thoth/releases/download/v3.19.0/Thoth-3.19.0-macOS-arm64.dmg" class="btn btn--primary" data-download="macos">Download for macOS <span class="btn-hint">.dmg</span></a>
+                <a href="https://github.com/siddsachar/Thoth/releases/download/v3.20.0/ThothSetup_3.20.0.exe" class="btn btn--primary" data-download="windows">Download for Windows <span class="btn-hint">.exe</span></a>
+                <a href="https://github.com/siddsachar/Thoth/releases/download/v3.20.0/Thoth-3.20.0-macOS-arm64.dmg" class="btn btn--primary" data-download="macos">Download for macOS <span class="btn-hint">.dmg</span></a>
+                <a href="#linux-install" class="btn btn--primary" data-download="linux">Install on Linux <span class="btn-hint">curl</span></a>
                 <a href="https://github.com/siddsachar/Thoth" class="btn btn--ghost" target="_blank">Star on GitHub</a>
             </div>
         </div>
@@ -1409,7 +1596,7 @@
 
     <footer>
         <p>
-            &#x1305F; Thoth &middot; v3.19.0 &middot; Apache 2.0 &middot;
+            &#x1305F; Thoth &middot; v3.20.0 &middot; Apache 2.0 &middot;
             <a href="https://github.com/siddsachar/Thoth" target="_blank">GitHub</a> &middot;
             <a href="contact.html">Contact</a>
         </p>
@@ -1436,10 +1623,15 @@
         document.querySelectorAll('[data-download]').forEach(link => {
             link.addEventListener('click', event => {
                 const isStandardClick = event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
+                const isSamePageHash = link.hash && link.origin === window.location.origin && link.pathname === window.location.pathname;
                 trackSiteEvent('download_click', {
                     platform: link.dataset.download,
                     link_url: link.href
                 });
+                if (isSamePageHash) {
+                    trackAdsConversion({ platform: link.dataset.download });
+                    return;
+                }
                 if (!isStandardClick || link.target === '_blank') {
                     trackAdsConversion({ platform: link.dataset.download });
                     return;
@@ -1459,6 +1651,20 @@
                     event_callback: navigate
                 });
                 window.setTimeout(navigate, 800);
+            });
+        });
+
+        const linuxInstallCommand = 'curl -fsSL https://raw.githubusercontent.com/siddsachar/Thoth/main/installer/install-linux.sh | bash';
+        document.querySelectorAll('[data-copy-linux]').forEach(button => {
+            button.addEventListener('click', async () => {
+                const previous = button.textContent;
+                try {
+                    await navigator.clipboard.writeText(linuxInstallCommand);
+                    button.textContent = 'Copied';
+                } catch (_err) {
+                    button.textContent = 'Select text';
+                }
+                window.setTimeout(() => { button.textContent = previous; }, 1600);
             });
         });
 

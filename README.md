@@ -178,46 +178,29 @@ Thoth's agent has access to 30 core tool modules. Many of them expose multiple o
 
 ## 🏗️ Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                    NiceGUI Frontend (app.py + ui/ package)              │
-│  ┌────────────┐  ┌──────────────────────┐  ┌───────────────────┐   │
-│  │  Sidebar   │  │   Chat Interface     │  │   Settings Dialog │   │
-│  │  Threads   │  │   Streaming Tokens   │  │   14 Tabs         │   │
-│  │  Controls  │  │   Tool Status        │  │   Tool Config     │   │
-│  │ Knowledge  │  │ Knowledge Graph View │  │ Provider Settings │   │
-│  │ Approvals  │  │   Approval Gates     │  │                   │   │
-│  └────────────┘  └──────────────────────┘  └───────────────────┘   │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  Status Monitor — Avatar · 17 Health Pills · Diagnosis Btn  │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-└──────────────────────────┬───────────────────────────────────────────┘
-                           │
-                           ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│               LangGraph ReAct Agent (agent.py)                       │
-│                                                                      │
-│   create_react_agent() with pre-model message trimming              │
-│   System prompt with TOOL USE, MEMORY, SELF-KNOWLEDGE, and CITATION │
-│   guidelines                                                        │
-│   Interrupt mechanism for destructive action confirmation            │
-│   Graph-enhanced auto-recall (semantic + 1-hop expansion)           │
-│   Per-thread model override (local or cloud)                        │
-│                                                                      │
-│   30 core tool modules + plugin tools + external MCP tools +        │
-│   auto-generated channel tools                                      │
-└───────┬──────────┬──────────┬──────────┬──────────┬─────────────────┘
-        │          │          │          │          │
-        ▼          ▼          ▼          ▼          ▼
-  ┌──────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐
-  │   LLMs   │ │Knowledge│ │ SQLite │ │ FAISS  │ │External│
-  │  Ollama  │ │ Graph  │ │Threads │ │ Vector │ │  APIs  │
-   │+Providers│ │(SQLite+│ │(local) │ │ Store  │ │(opt-in)│
-  │ (opt-in) │ │NetworkX)│ │        │ │        │ │        │
-  └──────────┘ └────────┘ └────────┘ └────────┘ └────────┘
-```
+Thoth is organized as a local-first desktop agent with clear boundaries between orchestration, memory, context assembly, workflows, channels, Designer Studio, and safety controls. The diagrams below give a quick visual map of the major subsystems.
 
-> 📖 **Module descriptions, data storage layout, and full system internals →** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#core-modules)
+> 📖 **Explore the visual architecture gallery →** [docs/architecture.html](docs/architecture.html)<br>
+> 📚 **Module descriptions, data storage layout, and full system internals →** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#core-modules)
+
+<table>
+   <tr>
+      <td align="center"><a href="docs/Core_Agent_arch.jpg"><img src="docs/Core_Agent_arch.jpg" width="360" alt="Thoth core agent architecture"></a><br><strong>Core Agent</strong></td>
+      <td align="center"><a href="docs/Context_arch.jpg"><img src="docs/Context_arch.jpg" width="360" alt="Thoth context architecture"></a><br><strong>Context Assembly</strong></td>
+   </tr>
+   <tr>
+      <td align="center"><a href="docs/Memory_arch.jpg"><img src="docs/Memory_arch.jpg" width="360" alt="Thoth memory system architecture"></a><br><strong>Memory System</strong></td>
+      <td align="center"><a href="docs/Workflows_arch.jpg"><img src="docs/Workflows_arch.jpg" width="360" alt="Thoth background workflow architecture"></a><br><strong>Background Workflows</strong></td>
+   </tr>
+   <tr>
+      <td align="center"><a href="docs/Channels_arch.jpg"><img src="docs/Channels_arch.jpg" width="360" alt="Thoth multi-channel architecture"></a><br><strong>Multi-Channel Runtime</strong></td>
+      <td align="center"><a href="docs/Designer_arch.jpg"><img src="docs/Designer_arch.jpg" width="360" alt="Thoth Designer Studio architecture"></a><br><strong>Designer Studio</strong></td>
+   </tr>
+   <tr>
+      <td align="center"><a href="docs/Safety_arch.jpg"><img src="docs/Safety_arch.jpg" width="360" alt="Thoth safety privacy and control architecture"></a><br><strong>Safety, Privacy &amp; Control</strong></td>
+      <td align="center"><a href="docs/Self_Aware_arch.jpg"><img src="docs/Self_Aware_arch.jpg" width="360" alt="Thoth self-awareness and self-management architecture"></a><br><strong>Self-Awareness</strong></td>
+   </tr>
+</table>
 
 ---
 
