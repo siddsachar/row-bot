@@ -713,6 +713,7 @@ Thoth ships with **13 manual bundled skills** and **18 tool guides**. Manual ski
 | File | Purpose |
 |------|---------|
 | **`app.py`** + **`ui/`** | NiceGUI application shell, chat surfaces, home tabs, status monitor, workflow console, settings dialog, and native-webview integration points |
+| **`buddy/`** + **`ui/buddy.py`** | Buddy companion event bus, behavior brain, config, asset validation, Hatch generation, in-app docked/undocked presence, and optional desktop overlay helpers |
 | **`designer/`** | Designer Studio subsystem: gallery, editor, tooling, storage, exports, presentation mode, publishing, and asset hydration |
 | **`ui/chat_components.py`** | Shared chat input, upload, and message-area components reused by main chat and Designer Studio |
 | **`agent.py`** | LangGraph ReAct agent, prompt assembly, streaming event generation, tool routing, interrupt handling, cache clearing, and background execution integration |
@@ -748,7 +749,7 @@ Thoth ships with **13 manual bundled skills** and **18 tool guides**. Manual ski
 | **`plugins/`** | Plugin runtime, marketplace client, manifest validation, security scanner, and settings integration |
 | **`mcp_client/`** | External Model Context Protocol client: config, runtime sessions, marketplace search, requirements, safety classification, diagnostics, and result normalization |
 | **`migration/`** | Hermes/OpenClaw migration models, redaction, source detection, dry-run planning, realistic fixtures, and guarded apply/report generation |
-| **`static/`** | Bundled frontend assets such as Mermaid and graph/visualization helpers |
+| **`static/`** | Bundled frontend assets such as Mermaid, graph/visualization helpers, and Buddy runtime/motion assets |
 | **`version.py`** | Single source of truth for the current Thoth version |
 
 ---
