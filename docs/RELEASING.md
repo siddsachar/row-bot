@@ -115,6 +115,22 @@ The bootstrapper resolves the latest GitHub Release, downloads the matching
 `Thoth-X.Y.Z-Linux-ARCH.tar.gz`, verifies its SHA256 from the release manifest,
 and then runs the tarball's bundled `install.sh`.
 
+For unreleased Linux hotfix validation from a checkout, use the build script,
+not the one-line bootstrapper. The bootstrapper always resolves published
+GitHub Release assets. From the repository root:
+
+```bash
+bash installer/build_linux_app.sh 3.20.0
+tar -xzf dist/Thoth-3.20.0-Linux-*.tar.gz
+cd Thoth-3.20.0-Linux-*
+./install.sh
+~/.local/bin/thoth
+```
+
+The root-level `build_linux_app.sh` wrapper delegates to
+`installer/build_linux_app.sh` so support snippets run from the checkout root do
+not fail with a missing-script error.
+
 The tarball installs under `~/.local/share/thoth/releases/<version>`, updates
 `~/.local/share/thoth/current`, creates `~/.local/bin/thoth`, and installs a
 freedesktop `.desktop` file plus icon into user XDG locations. In-app updates

@@ -133,8 +133,19 @@ def test_linux_build_script_declares_expected_package_contract():
     assert "--browser --no-tray" in script
     assert "share/applications/com.thoth.Thoth.desktop" in script
     assert "install_kind\": \"xdg-user-tarball" in script
+    assert "LAUNCH_CMD=\"thoth\"" in script
+    assert "THOTH_SUPPRESS_INSTALL_PATH_HINT" in script
+    assert "export PATH=\"$HOME/.local/bin:$PATH\"" in script
+    assert "Run: $LAUNCH_CMD" in script
     for package in ("tools", "channels", "bundled_skills", "providers", "mcp_client", "migration"):
         assert package in script
+
+
+def test_linux_root_build_wrapper_delegates_to_installer_script():
+    script = Path("build_linux_app.sh").read_text(encoding="utf-8")
+
+    assert "installer/build_linux_app.sh" in script
+    assert 'exec "$SCRIPT_DIR/installer/build_linux_app.sh" "$@"' in script
 
 
 def test_linux_launcher_resolves_installed_symlink_chain(tmp_path):
@@ -197,9 +208,13 @@ def test_linux_one_line_installer_declares_verified_release_contract():
     assert "thoth-update-manifest" in script
     assert "sha256sum -c" in script
     assert "bash \"$PACKAGE_ROOT/install.sh\"" in script
+    assert "THOTH_SUPPRESS_INSTALL_PATH_HINT=1 bash \"$PACKAGE_ROOT/install.sh\"" in script
     assert "META_FILE" in script
     assert "x86_64" in script
     assert "aarch64" in script
+    assert "LAUNCH_CMD=\"thoth\"" in script
+    assert "Run: ${LAUNCH_CMD}" in script
+    assert "export PATH=\"$HOME/.local/bin:$PATH\"" in script
 
 
 def test_thread_list_initializes_missing_thread_meta(monkeypatch, tmp_path):
@@ -243,6 +258,8 @@ def test_release_workflows_reference_linux_artifact():
 
     assert "build-linux" in release
     assert "installer/build_linux_app.sh" in release
+    assert "bash -n build_linux_app.sh installer/build_linux_app.sh installer/install-linux.sh" in release
+    assert "bash -n build_linux_app.sh installer/build_linux_app.sh installer/install-linux.sh" in ci
     assert "installer/install-linux.sh" in release
     assert "installer/install-linux.sh" in ci
     assert "Thoth-*-Linux-*.tar.gz" in release
@@ -253,3 +270,6 @@ def test_release_workflows_reference_linux_artifact():
     assert "\"$HOME/.local/bin/thoth\" --server --no-open --port 8091 --no-ollama" in linux_smoke
     assert "Thoth-*-Linux-*.tar.gz" in manifest
     assert "curl -fsSL https://raw.githubusercontent.com/siddsachar/Thoth/main/installer/install-linux.sh | bash" in installer_docs
+    assert "published GitHub Release assets" in installer_docs
+    assert "bash installer/build_linux_app.sh 3.20.0" in installer_docs
+    assert "bash build_linux_app.sh 3.20.0" in installer_docs

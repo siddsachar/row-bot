@@ -23,6 +23,10 @@ version, pass it as an argument:
 curl -fsSL https://raw.githubusercontent.com/siddsachar/Thoth/main/installer/install-linux.sh | bash -s -- 3.20.0
 ```
 
+The bootstrapper installs published GitHub Release assets. It is not a way to
+test an unreleased checkout from `main` or a hotfix branch before a release is
+published.
+
 Linux release tarballs are built with `installer/build_linux_app.sh`. The script mirrors
 the macOS python-build-standalone approach, but emits a user-installable XDG
 tarball instead of a native app bundle:
@@ -30,6 +34,24 @@ tarball instead of a native app bundle:
 ```bash
 ./installer/build_linux_app.sh
 ./installer/build_linux_app.sh 3.20.0
+```
+
+From a source checkout, this root-level wrapper is also supported for support
+snippets and maintainer hotfixes:
+
+```bash
+bash build_linux_app.sh 3.20.0
+```
+
+To test an unreleased Linux fix locally, build the tarball from the checkout and
+install the tarball it produced:
+
+```bash
+bash installer/build_linux_app.sh 3.20.0
+tar -xzf dist/Thoth-3.20.0-Linux-*.tar.gz
+cd Thoth-3.20.0-Linux-*
+./install.sh
+~/.local/bin/thoth
 ```
 
 The output is `dist/Thoth-X.Y.Z-Linux-x86_64.tar.gz` on x86_64 runners. It

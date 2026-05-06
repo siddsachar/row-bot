@@ -137,11 +137,17 @@ if [ -z "$PACKAGE_ROOT" ] || [ ! -f "$PACKAGE_ROOT/install.sh" ]; then
 fi
 
 info "Installing Thoth ${VERSION}..."
-bash "$PACKAGE_ROOT/install.sh"
+THOTH_SUPPRESS_INSTALL_PATH_HINT=1 bash "$PACKAGE_ROOT/install.sh"
 
+LAUNCH_CMD="thoth"
 case ":${PATH}:" in
     *":${HOME}/.local/bin:"*) ;;
-    *) warn "${HOME}/.local/bin is not on PATH. Add it to your shell profile or run ${HOME}/.local/bin/thoth." ;;
+    *)
+        LAUNCH_CMD="${HOME}/.local/bin/thoth"
+        warn "${HOME}/.local/bin is not on PATH. Run ${HOME}/.local/bin/thoth now, or add this to your shell profile:"
+        printf '       export PATH="$HOME/.local/bin:$PATH"\n'
+        info "Open a new terminal after updating your profile."
+        ;;
 esac
 
-ok "Thoth ${VERSION} installed. Run: thoth"
+ok "Thoth ${VERSION} installed. Run: ${LAUNCH_CMD}"

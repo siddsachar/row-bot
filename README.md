@@ -287,6 +287,8 @@ Manual tarball flow:
 
 Linux installs under `~/.local/share/thoth`, creates `~/.local/bin/thoth`, and leaves user data in `~/.thoth`. The supported Linux baseline opens Thoth in your system browser and does not require a system tray or pywebview backend. Optional native window/tray mode depends on your desktop having the relevant GTK/Qt/AppIndicator libraries. In-app auto-update uses the same verified tarball format, installs the new version into the XDG release tree, and flips `~/.local/share/thoth/current`. Saved provider secrets use Linux Secret Service/KWallet when a desktop keyring is available; WSL and headless servers without a keyring still run, but new secrets are kept session-only until secure storage is configured.
 
+If your shell does not include `~/.local/bin` on `PATH`, launch with `~/.local/bin/thoth` or add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile and open a new terminal.
+
 For browser automation tools on Linux, Chromium may require distro packages the tarball cannot install automatically. If Playwright reports missing dependencies, run the command it prints, or use `python -m playwright install --with-deps chromium` from a source checkout.
 
 ---

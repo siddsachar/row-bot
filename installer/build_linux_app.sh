@@ -234,7 +234,20 @@ chmod +x "$TARGET/install.sh" "$TARGET/uninstall.sh" 2>/dev/null || true
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$DESKTOP_HOME" >/dev/null 2>&1 || true
 command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor" >/dev/null 2>&1 || true
 
-echo "Thoth $VERSION installed. Run: thoth"
+if [ "${THOTH_SUPPRESS_INSTALL_PATH_HINT:-0}" != "1" ]; then
+    LAUNCH_CMD="thoth"
+    case ":${PATH}:" in
+        *":${BIN_HOME}:"*) ;;
+        *)
+            LAUNCH_CMD="$BIN_HOME/thoth"
+            echo "[WARN] $BIN_HOME is not on PATH. Run $BIN_HOME/thoth now, or add this to your shell profile:"
+            echo '       export PATH="$HOME/.local/bin:$PATH"'
+            echo "       Open a new terminal after updating your profile."
+            ;;
+    esac
+
+    echo "Thoth $VERSION installed. Run: $LAUNCH_CMD"
+fi
 INSTALL
 chmod +x "$PACKAGE_ROOT/install.sh"
 
