@@ -1105,7 +1105,8 @@ def build_buddy_settings_tab(_reopen=None) -> None:
         buddy_notes = sanitize_personality(str(buddy_description.value or ""))
         in_app_enabled = bool(in_app.value)
         desktop_enabled = bool(desktop.value)
-        cfg.update({
+        latest_cfg = get_buddy_config()
+        latest_cfg.update({
             "enabled": in_app_enabled or desktop_enabled,
             "sidebar_enabled": in_app_enabled,
             "floating_enabled": False,
@@ -1118,15 +1119,17 @@ def build_buddy_settings_tab(_reopen=None) -> None:
             "hatch_generation_prompt": _compose_hatch_prompt(str(prompt.value or ""), str(buddy_personality.value or "warm_mystical"), buddy_notes),
         })
         if pack_selection_touched["value"]:
-            _clear_hatch_media_overrides(cfg)
-        save_buddy_config(cfg)
+            _clear_hatch_media_overrides(latest_cfg)
+        save_buddy_config(latest_cfg)
+        cfg.clear()
+        cfg.update(latest_cfg)
         if buddy_notes != str(buddy_description.value or ""):
             buddy_description.set_value(buddy_notes)
             ui.notify("Some companion personality text was removed", type="warning")
             return
         emit_buddy_event(BuddyEventType.APP_READY, source="buddy.settings", payload={"label": "Buddy settings saved"})
         _refresh_existing_buddy_surfaces()
-        _apply_buddy_surface_settings(cfg)
+        _apply_buddy_surface_settings(latest_cfg)
         ui.notify("Buddy settings saved", type="positive")
         if _reopen:
             _reopen("Buddy")

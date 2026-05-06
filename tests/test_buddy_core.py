@@ -339,7 +339,7 @@ def test_buddy_hatch_buddy_generation_activates_motion(monkeypatch, tmp_path):
         }
         assert pathlib.Path(image_source).exists()
         assert aspect_ratio == "1:1"
-        assert duration_seconds == 4
+        assert duration_seconds == 5
         return "Video generated"
 
     monkeypatch.setattr("tools.video_gen_tool._animate_image", _fake_animate)
@@ -537,6 +537,12 @@ def test_buddy_hatch_motion_map_keeps_denial_out_of_approval_clip():
     assert hatch_mod.MOTION_ANIMATION_MAP["pause"] == "error"
     assert "pause" not in approval_spec.animations
     assert "pause" in error_spec.animations
+
+
+def test_buddy_hatch_motion_specs_use_provider_supported_duration():
+    import buddy.hatch as hatch_mod
+
+    assert all(spec.duration_seconds >= 5 for spec in hatch_mod.MOTION_CLIP_SPECS)
 
 
 def test_buddy_brain_decays_stale_event_to_idle(monkeypatch):

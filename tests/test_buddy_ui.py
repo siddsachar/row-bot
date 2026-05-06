@@ -200,6 +200,17 @@ def test_buddy_settings_uses_visual_pack_picker():
     assert "pack_select = ui.select" not in buddy_ui_src
 
 
+def test_buddy_settings_save_preserves_latest_hatch_media():
+    buddy_ui_src = _read("ui/buddy.py")
+    save_section = buddy_ui_src.split("def _save()", 1)[1].split("async def _hatch()", 1)[0]
+
+    assert "latest_cfg = get_buddy_config()" in save_section
+    assert "latest_cfg.update({" in save_section
+    assert "_clear_hatch_media_overrides(latest_cfg)" in save_section
+    assert "save_buddy_config(latest_cfg)" in save_section
+    assert "_apply_buddy_surface_settings(latest_cfg)" in save_section
+
+
 def test_buddy_settings_visibility_controls_are_not_redundant():
     buddy_ui_src = _read("ui/buddy.py")
 
