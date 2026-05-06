@@ -568,11 +568,26 @@ def test_buddy_hatch_motion_specs_use_provider_supported_duration():
     assert all(spec.duration_seconds >= 5 for spec in hatch_mod.MOTION_CLIP_SPECS)
 
 
+def test_buddy_hatch_image_prompt_requests_single_avatar_not_pose_sheet():
+    import buddy.hatch as hatch_mod
+
+    prompt = hatch_mod._buddy_image_prompt("A tiny dog named Honey")
+
+    assert "exactly one" in prompt
+    assert "single centered avatar portrait" in prompt
+    assert "Do not create a sprite sheet" in prompt
+    assert "contact sheet" in prompt
+    assert "grid" in prompt
+    assert "multiple poses" in prompt
+    assert "idle, thinking" not in prompt
+
+
 def test_buddy_hatch_motion_prompt_keeps_avatar_framing_stable():
     import buddy.hatch as hatch_mod
 
     prompt = hatch_mod._buddy_motion_prompt("A tiny dog named Honey", "idle")
 
+    assert "Create one video clip only" in prompt
     assert "single identity and framing reference" in prompt
     assert "Lock the virtual camera" in prompt
     assert "no zooming" in prompt
@@ -581,6 +596,44 @@ def test_buddy_hatch_motion_prompt_keeps_avatar_framing_stable():
     assert "no flicker" in prompt
     assert "no background pulsing" in prompt
     assert "no size changes" in prompt
+    assert "Do not create a sprite sheet" in prompt
+
+
+def test_buddy_hatch_background_job_starts_without_blocking(monkeypatch):
+    import buddy.hatch as hatch_mod
+
+    with hatch_mod._JOB_LOCK:
+        hatch_mod._CURRENT_JOB.clear()
+
+    started = {"value": False}
+
+    class FakeThread:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+        def start(self):
+            started["value"] = True
+
+    monkeypatch.setattr(hatch_mod.threading, "Thread", FakeThread)
+
+    queued = hatch_mod.start_hatch_generation_job("A tiny dog named Honey", pack_id="glyph")
+    running = hatch_mod.get_hatch_generation_status()
+
+    assert started["value"] is True
+    assert queued["status"] == "queued"
+    assert running["status"] == "running"
+    assert running["mode"] == "full"
+    assert running["total_clips"] == len(hatch_mod.MOTION_CLIP_SPECS)
+    try:
+        hatch_mod.start_hatch_generation_job("Another Buddy", pack_id="glyph")
+    except RuntimeError as exc:
+        assert "already running" in str(exc)
+    else:
+        raise AssertionError("start_hatch_generation_job allowed overlapping generation")
+
+    with hatch_mod._JOB_LOCK:
+        hatch_mod._CURRENT_JOB.clear()
 
 
 def test_buddy_hatch_can_switch_user_pack_back_to_still_only(monkeypatch, tmp_path):

@@ -132,6 +132,12 @@ def test_buddy_runtime_supports_generated_art_as_primary_path():
 def test_buddy_hatch_prompts_request_keyable_motion_assets():
     hatch_src = _read("buddy/hatch.py")
 
+    assert "Create exactly one animated-app companion character" in hatch_src
+    assert "single centered avatar portrait" in hatch_src
+    assert "Do not create a sprite sheet" in hatch_src
+    assert "contact sheet" in hatch_src
+    assert "multiple poses" in hatch_src
+    assert "Create one video clip only" in hatch_src
     assert "flat solid keyable" in hatch_src
     assert "18 percent empty margin" in hatch_src
     assert "frame edge" in hatch_src
@@ -155,14 +161,15 @@ def test_buddy_settings_keeps_rive_import_out_of_normal_ux():
     assert "accept='.riv'" not in buddy_ui_src
     assert "Open Preferences" not in buddy_ui_src
     assert "Generate full Buddy" in buddy_ui_src
-    assert "generate_hatch_buddy" in buddy_ui_src
-    assert "generate_hatch_motion_pack" in buddy_ui_src
+    assert "start_hatch_generation_job" in buddy_ui_src
+    assert "get_hatch_generation_status" in buddy_ui_src
     assert "Retry motion" in buddy_ui_src
     assert "Use still only" in buddy_ui_src
     assert 'ui.tab("Preferences"' in settings_src
     assert "Save Buddy preferences" not in settings_src
     assert "Companion personality" in buddy_ui_src
-    assert "Generation guidance and personality notes" in buddy_ui_src
+    assert "Style notes (optional)" in buddy_ui_src
+    assert "Thoth handles sizing and motion automatically" in buddy_ui_src
     assert "_compose_hatch_prompt" in buddy_ui_src
     assert "hatch_generation_prompt" in buddy_ui_src
     assert "bubble_verbosity" in buddy_ui_src
@@ -220,11 +227,22 @@ def test_buddy_settings_can_retry_motion_for_existing_hatch_art():
     retry_section = buddy_ui_src.split("async def _retry_motion()", 1)[1].split("with ui.row().classes", 1)[0]
 
     assert "_selected_generated_pack_preview(latest_cfg)" in retry_section
-    assert "generate_hatch_motion_pack" in retry_section
+    assert "start_hatch_generation_job" in retry_section
     assert "pack_id=target_pack_id" in retry_section
     assert "reuse_existing=False" in retry_section
-    assert "_refresh_existing_buddy_surfaces()" in retry_section
-    assert "Buddy motion pack generated" in retry_section
+    assert "mode=\"motion\"" in retry_section
+    assert "Buddy motion regeneration started in the background" in retry_section
+
+
+def test_buddy_settings_starts_full_hatch_generation_in_background():
+    buddy_ui_src = _read("ui/buddy.py")
+    hatch_section = buddy_ui_src.split("async def _hatch()", 1)[1].split("async def _retry_motion()", 1)[0]
+
+    assert "start_hatch_generation_job" in hatch_section
+    assert "mode=\"full\"" in hatch_section
+    assert "Generating Buddy art and motion pack" not in hatch_section
+    assert "Buddy generation started in the background" in hatch_section
+    assert "await run.io_bound(\n                start_hatch_generation_job" in hatch_section
 
 
 def test_buddy_settings_can_retry_motion_for_selected_generated_pack():
@@ -262,6 +280,16 @@ def test_buddy_settings_can_delete_generated_pack_from_picker():
     assert "hatch_motion.set_content(\"\")" in delete_section
     assert "Delete generated look" in buddy_ui_src
     assert "Deleted generated Buddy look" in delete_section
+
+
+def test_home_status_bar_shows_buddy_hatch_progress():
+    status_src = _read("ui/status_bar.py")
+
+    assert "get_hatch_generation_status" in status_src
+    assert "thoth-buddy-hatch-progress" in status_src
+    assert "Buddy Hatch generation status" in status_src
+    assert "completed_clips" in status_src
+    assert "safe_timer(2.0, _poll_buddy_hatch_status)" in status_src
 
 
 def test_buddy_settings_visibility_controls_are_not_redundant():

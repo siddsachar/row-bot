@@ -12,14 +12,19 @@ import os
 import pathlib
 import re
 import shutil
+import threading
 import time
 import base64
+import uuid
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from .config import get_buddy_config, save_buddy_config
 
 _DATA_DIR = pathlib.Path(os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")) / "buddy_hatches"
+_JOB_LOCK = threading.Lock()
+_CURRENT_JOB: dict[str, Any] = {}
+_RUNNING_JOB_STATES = {"queued", "running"}
 
 
 @dataclass(frozen=True)
@@ -126,9 +131,206 @@ def create_hatch_draft(prompt: str, *, pack_id: str = "glyph") -> HatchDraft:
     return draft
 
 
+def _job_snapshot_unlocked() -> dict[str, Any]:
+    return dict(_CURRENT_JOB)
+
+
+def get_hatch_generation_status() -> dict[str, Any]:
+    """Return the current background Buddy Hatch generation status."""
+
+    with _JOB_LOCK:
+        return _job_snapshot_unlocked()
+
+
+def mark_hatch_generation_status_seen(job_id: str) -> None:
+    """Mark a terminal Hatch job as handled by a UI surface."""
+
+    with _JOB_LOCK:
+        if _CURRENT_JOB.get("id") == job_id:
+            _CURRENT_JOB["settings_refresh_seen"] = True
+            _CURRENT_JOB["updated_at"] = time.time()
+
+
+def _update_hatch_job(job_id: str, **updates: Any) -> dict[str, Any]:
+    with _JOB_LOCK:
+        if _CURRENT_JOB.get("id") != job_id:
+            return _job_snapshot_unlocked()
+        _CURRENT_JOB.update(updates)
+        _CURRENT_JOB["updated_at"] = time.time()
+        return _job_snapshot_unlocked()
+
+
+def _motion_progress_updater(job_id: str) -> Callable[[str, MotionClipSpec, int, int], None]:
+    def _progress(event: str, spec: MotionClipSpec, completed: int, total: int) -> None:
+        if event == "clip_started":
+            _update_hatch_job(
+                job_id,
+                phase="motion",
+                current_clip_id=spec.id,
+                current_clip_label=spec.label,
+                completed_clips=completed,
+                total_clips=total,
+                message=f"Generating {spec.label.lower()} motion ({completed + 1}/{total})",
+            )
+        elif event == "clip_completed":
+            _update_hatch_job(
+                job_id,
+                phase="motion",
+                current_clip_id=spec.id,
+                current_clip_label=spec.label,
+                completed_clips=completed,
+                total_clips=total,
+                message=f"Generated {completed}/{total} Buddy motion clips",
+            )
+
+    return _progress
+
+
+def _finish_hatch_job(job_id: str, draft: HatchDraft, *, status: str, message: str) -> None:
+    _update_hatch_job(
+        job_id,
+        status=status,
+        phase="complete" if status == "completed" else status,
+        message=message,
+        pack_id=draft.pack_id,
+        draft_id=draft.id,
+        result_status=draft.status,
+        preview_path=draft.preview_path,
+        motion_pack_path=draft.motion_pack_path,
+        completed_clips=len(draft.motion_clips or {}),
+        total_clips=len(MOTION_CLIP_SPECS),
+        finished_at=time.time(),
+    )
+
+
+def _run_hatch_generation_job(job_id: str, prompt: str, pack_id: str, mode: str, preview_path: str, reuse_existing: bool) -> None:
+    try:
+        if mode == "motion":
+            _update_hatch_job(job_id, phase="motion", message="Preparing Buddy motion regeneration")
+            draft = generate_hatch_motion_pack(
+                prompt,
+                preview_path,
+                pack_id=pack_id,
+                reuse_existing=reuse_existing,
+                progress_callback=_motion_progress_updater(job_id),
+            )
+            _finish_hatch_job(job_id, draft, status="completed", message="Buddy motion pack generated")
+            try:
+                from notifications import notify
+                notify("Buddy motion ready", "Generated motion clips for the selected Buddy.", sound="workflow", icon="🎬")
+            except Exception:
+                pass
+            return
+
+        _update_hatch_job(job_id, phase="image", message="Generating one Buddy character still")
+        preview = generate_hatch_preview(prompt, pack_id=pack_id)
+        _update_hatch_job(
+            job_id,
+            phase="motion",
+            pack_id=preview.pack_id,
+            draft_id=preview.id,
+            preview_path=preview.preview_path,
+            message="Buddy still is ready; generating motion clips",
+        )
+        try:
+            draft = generate_hatch_motion_pack(
+                prompt,
+                preview.preview_path,
+                pack_id=preview.pack_id,
+                reuse_existing=reuse_existing,
+                progress_callback=_motion_progress_updater(job_id),
+            )
+            _finish_hatch_job(job_id, draft, status="completed", message="Buddy art and motion pack generated")
+            try:
+                from notifications import notify
+                notify("Buddy generated", "Generated Buddy art and motion clips.", sound="workflow", icon="✨")
+            except Exception:
+                pass
+        except Exception as exc:
+            _finish_hatch_job(
+                job_id,
+                preview,
+                status="partial",
+                message=f"Buddy still is ready; motion failed: {exc}",
+            )
+            cfg = get_buddy_config()
+            cfg["latest_hatch_motion_error"] = str(exc)
+            save_buddy_config(cfg)
+            try:
+                from notifications import notify
+                notify("Buddy still ready", f"Motion generation failed: {exc}", sound="default", icon="⚠️", toast_type="warning")
+            except Exception:
+                pass
+    except Exception as exc:
+        _update_hatch_job(
+            job_id,
+            status="failed",
+            phase="failed",
+            message=f"Buddy generation failed: {exc}",
+            error=str(exc),
+            finished_at=time.time(),
+        )
+        try:
+            from notifications import notify
+            notify("Buddy generation failed", str(exc), sound="default", icon="⚠️", toast_type="negative")
+        except Exception:
+            pass
+
+
+def start_hatch_generation_job(
+    prompt: str,
+    *,
+    pack_id: str = "glyph",
+    mode: str = "full",
+    preview_path: str | pathlib.Path = "",
+    reuse_existing: bool = False,
+) -> dict[str, Any]:
+    """Start Buddy Hatch still/motion generation in a background thread."""
+
+    safe_prompt = (prompt or "A cute tiny app companion named Buddy").strip()
+    safe_mode = mode if mode in {"full", "motion"} else "full"
+    safe_preview = str(pathlib.Path(preview_path).expanduser().resolve()) if preview_path else ""
+    if safe_mode == "motion" and not safe_preview:
+        raise ValueError("Buddy art preview is required before regenerating motion")
+
+    with _JOB_LOCK:
+        if _CURRENT_JOB.get("status") in _RUNNING_JOB_STATES:
+            raise RuntimeError("Buddy generation is already running")
+        job_id = f"buddy-hatch-{uuid.uuid4().hex[:10]}"
+        _CURRENT_JOB.clear()
+        _CURRENT_JOB.update(
+            {
+                "id": job_id,
+                "status": "queued",
+                "mode": safe_mode,
+                "phase": "queued",
+                "message": "Queued Buddy generation",
+                "pack_id": pack_id,
+                "preview_path": safe_preview,
+                "completed_clips": 0,
+                "total_clips": len(MOTION_CLIP_SPECS),
+                "started_at": time.time(),
+                "updated_at": time.time(),
+                "finished_at": 0.0,
+                "error": "",
+            }
+        )
+        snapshot = _job_snapshot_unlocked()
+
+    thread = threading.Thread(
+        target=_run_hatch_generation_job,
+        args=(job_id, safe_prompt, pack_id, safe_mode, safe_preview, reuse_existing),
+        daemon=True,
+        name=f"buddy-hatch-{safe_mode}",
+    )
+    thread.start()
+    _update_hatch_job(job_id, status="running", phase="starting", message="Starting Buddy generation")
+    return snapshot
+
+
 def _buddy_image_prompt(prompt: str) -> str:
     return (
-        "Create a single animated-app companion character named Buddy. "
+        "Create exactly one animated-app companion character named Buddy as a single centered avatar portrait. "
         "The user concept is the source of truth for the theme, palette, materials, and era; "
         "do not force ancient, mystical, ink, gold, teal, glyph, or Thoth-like motifs unless "
         "the user explicitly asks for them. The character should be warm, expressive, compact, "
@@ -138,6 +340,7 @@ def _buddy_image_prompt(prompt: str) -> str:
         "background if supported; otherwise use a flat solid keyable background color "
         "that is clearly distinct from the character. No body, robe, feet, glow, or shadow may "
         "touch the image frame edge. "
+        "Do not create a sprite sheet, contact sheet, turnaround sheet, storyboard, comic panel, grid, collage, or multiple poses. "
         "No text, no UI, no logo, no extra characters. User concept: "
         f"{prompt}"
     )
@@ -192,7 +395,7 @@ def _wait_for_motion_request_slot(previous_request_started_at: float | None, ani
 def _buddy_motion_prompt(prompt: str, clip_id: str = "idle") -> str:
     spec = _motion_clip_spec(clip_id)
     return (
-        f"Animate this exact Buddy character as the {spec.label} state in a seamless app companion loop. "
+        f"Create one video clip only: animate this exact Buddy character as the {spec.label} state in a seamless app companion loop. "
         "Use the source image as the single identity and framing reference for the whole clip. "
         "Keep the same character identity, proportions, silhouette, costume details, centered composition, "
         "and apparent scale from the source image. Lock the virtual camera: no zooming, cropping, panning, "
@@ -206,6 +409,7 @@ def _buddy_motion_prompt(prompt: str, clip_id: str = "idle") -> str:
         "light or outline around dark body edges. Use only small, controlled character motion; no flicker, "
         "no warping, no morphing, no identity drift, no jitter, no background pulsing, no exposure flashing, "
         "and no size changes. "
+        "Do not create a sprite sheet, contact sheet, storyboard, grid, collage, or multiple poses in one frame. "
         "No scene cuts, no text, no logo, no extra characters, no dramatic camera movement, no background clutter. "
         "The motion should feel alive, loopable, and suitable for a small sidebar avatar. User concept: "
         f"{prompt}"
@@ -575,6 +779,7 @@ def generate_hatch_motion_pack(
     *,
     pack_id: str = "glyph",
     reuse_existing: bool = True,
+    progress_callback: Callable[[str, MotionClipSpec, int, int], None] | None = None,
 ) -> HatchDraft:
     """Generate and activate a compact state-specific Buddy motion pack."""
 
@@ -590,15 +795,20 @@ def generate_hatch_motion_pack(
     generated_clips: dict[str, pathlib.Path] = {}
     result_lines: list[str] = []
     previous_request_started_at: float | None = None
+    total_clips = len(MOTION_CLIP_SPECS)
     for spec in MOTION_CLIP_SPECS:
         existing_clip = motion_dir / spec.filename
         if reuse_existing and existing_clip.exists() and existing_clip.stat().st_size > 0:
             generated_clips[spec.id] = existing_clip
             result_lines.append(f"{spec.label}: reused existing clip at {existing_clip}")
+            if progress_callback:
+                progress_callback("clip_completed", spec, len(generated_clips), total_clips)
             continue
 
         result = ""
         clip_path = ""
+        if progress_callback:
+            progress_callback("clip_started", spec, len(generated_clips), total_clips)
         for attempt in range(2):
             _wait_for_motion_request_slot(previous_request_started_at, _animate_image)
             previous_request_started_at = time.time()
@@ -624,6 +834,8 @@ def generate_hatch_motion_pack(
             raise RuntimeError(result or f"Buddy {spec.label} motion generation did not return a video")
         generated_clips[spec.id] = pathlib.Path(clip_path)
         result_lines.append(f"{spec.label}: {result}")
+        if progress_callback:
+            progress_callback("clip_completed", spec, len(generated_clips), total_clips)
 
     created_at = time.time()
     manifest_path = _write_motion_pack_manifest(
