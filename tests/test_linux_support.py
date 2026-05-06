@@ -287,3 +287,15 @@ def test_release_workflows_reference_linux_artifact():
     assert "published GitHub Release assets" in installer_docs
     assert "bash installer/build_linux_app.sh 3.21.0" in installer_docs
     assert "bash build_linux_app.sh 3.21.0" in installer_docs
+
+
+def test_packagers_exclude_tests_directory():
+    windows_installer = Path("installer/thoth_setup.iss").read_text(encoding="utf-8")
+    linux_builder = Path("installer/build_linux_app.sh").read_text(encoding="utf-8")
+    mac_builder = Path("installer/build_mac_app.sh").read_text(encoding="utf-8")
+
+    assert "tests" not in windows_installer
+    assert " tests" not in linux_builder
+    assert " tests" not in mac_builder
+    assert "test_*.py|test_suite.py|test_memory_e2e.py|integration_tests.py" in linux_builder
+    assert "test_*.py|test_suite.py|test_memory_e2e.py|integration_tests.py" in mac_builder

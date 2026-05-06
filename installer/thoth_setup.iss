@@ -82,8 +82,6 @@ Source: "..\self_knowledge.py";        DestDir: "{app}\app"; Flags: ignoreversio
 Source: "..\startup_diagnostics.py";   DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\version.py";               DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\updater.py";               DestDir: "{app}\app"; Flags: ignoreversion
-Source: "..\test_buddy_core.py";        DestDir: "{app}\app"; Flags: ignoreversion
-Source: "..\test_buddy_ui.py";          DestDir: "{app}\app"; Flags: ignoreversion
 ; ── Static assets (JS libraries) ──────────────────────────────────────────────
 Source: "..\static\*";                 DestDir: "{app}\app\static"; Flags: ignoreversion recursesubdirs createallsubdirs
 

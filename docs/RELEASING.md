@@ -17,7 +17,7 @@ Thoth uses semantic versioning:
 2. Run the full suite locally:
 
    ```bash
-   python test_suite.py
+   python tests/test_suite.py
    ```
 
 3. Cut a release-prep branch:
@@ -51,7 +51,7 @@ Thoth uses semantic versioning:
 8. Run focused startup and packaging hardening tests:
 
    ```bash
-   python -m pytest test_startup_hardening.py test_app_port.py test_linux_support.py
+   python -m pytest tests/test_startup_hardening.py tests/test_app_port.py tests/test_linux_support.py
    ```
 
 9. Open and merge the release-prep PR.

@@ -48,7 +48,8 @@ This release adds Thoth's **Buddy companion foundation**, a local-first animated
 - **Reliability coverage** — startup hardening tests cover broken TorchCodec detection, Linux native dependency recovery hints, launcher log-tail diagnostics, Windows installer embedded-Python replacement, app import smoke, Settings -> Models catalog bounds and picker guidance, status-tool model validation, safe timer cleanup, and installed Linux launcher symlink/default invocation resolution.
 - **Provider/Vision coverage** — provider tests cover ChatGPT / Codex Vision Quick Choice capability retention and Codex Responses multimodal image payload preservation.
 - **Release smoke** — release and CI workflows build Windows, macOS, and Linux artifacts for v3.21.0, run focused startup/provider suites before installer builds, and smoke the installed Linux launcher path.
-- **Current validation** — focused release tests pass (`109 passed, 2 skipped`), the legacy release smoke suite reports `ALL TESTS PASSED!`, full `pytest -q` passes (`254 passed, 3 skipped`), `git diff --check` is clean, stale-version search only finds the previous release's historical changelog section, and `docs/index.html` remains untouched.
+- **Test layout cleanup** — root-level test files now live under `tests/`, pytest discovers that folder by default, CI/release workflows call the moved paths, and installer regressions assert the `tests/` tree is not shipped in Windows, Linux, or macOS packages.
+- **Current validation** — focused release tests pass (`110 passed, 2 skipped`), the legacy release smoke suite reports `ALL TESTS PASSED!`, full `pytest -q` passes (`255 passed, 3 skipped`), `git diff --check` is clean, stale-version search only finds the previous release's historical changelog section, and `docs/index.html` remains untouched.
 
 ### Release Notes & Risk Notes
 
@@ -67,7 +68,7 @@ This release adds Thoth's **Buddy companion foundation**, a local-first animated
 | `launcher.py`, `startup_diagnostics.py`, `installer/thoth_setup.iss`, `installer/install_deps.bat` | Startup diagnostics, Linux readiness failure context, Windows embedded-Python repair, and optional native package recovery hints |
 | `installer/build_linux_app.sh`, `installer/install-linux.sh`, `build_linux_app.sh`, `.github/workflows/release.yml`, `.github/workflows/ci.yml` | Linux launcher symlink resolution, root build wrapper, installed launcher smoke, and release/CI packaging checks |
 | `docs/RELEASING.md`, `installer/README.md`, `README.md`, `docs/ARCHITECTURE.md` | Release checklist, installer, architecture, and user-facing Linux/provider/model guidance updates |
-| `test_startup_hardening.py`, `test_linux_support.py`, `test_app_port.py`, `test_provider_*.py`, `test_thoth_status_media.py`, `test_suite.py` | Focused startup/Linux/provider/model-selection regressions plus release-smoke coverage |
+| `tests/`, `pytest.ini` | Focused startup/Linux/provider/model-selection regressions, release-smoke coverage, moved test discovery, and installer exclusion guards |
 
 ---
 
