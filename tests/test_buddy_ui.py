@@ -121,6 +121,7 @@ def test_buddy_runtime_supports_generated_art_as_primary_path():
     assert "data-preview" in buddy_ui_src
     assert "data-motion" in buddy_ui_src
     assert "data-riv" not in buddy_ui_src
+    assert '{"generated_motion_pack", "generated_still"}' in buddy_ui_src
     assert "@rive-app/canvas" not in buddy_ui_src
     assert "background: transparent" in buddy_ui_src
     assert '"runtime": "generated_motion_pack"' in manifest_src
@@ -219,6 +220,7 @@ def test_buddy_settings_can_retry_motion_for_existing_hatch_art():
 
     assert 'latest_cfg.get("latest_hatch_preview") or latest_cfg.get("active_hatch_preview")' in retry_section
     assert "generate_hatch_motion_pack" in retry_section
+    assert "parent.name" in retry_section
     assert "reuse_existing=False" in retry_section
     assert "_refresh_existing_buddy_surfaces()" in retry_section
     assert "Buddy motion pack generated" in retry_section

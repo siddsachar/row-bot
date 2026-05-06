@@ -288,6 +288,13 @@ def test_buddy_hatch_preview_generation_saves_preview(monkeypatch, tmp_path):
     monkeypatch.setattr(config_mod, "_BUDDY_CONFIG_PATH", tmp_path / "buddy_config.json")
     monkeypatch.setattr(hatch_mod, "_DATA_DIR", tmp_path / "hatches")
     monkeypatch.setattr(assets_mod, "_BUDDY_STATIC_DIR", tmp_path / "buddy_static")
+    monkeypatch.setattr(assets_mod, "_USER_PACKS_DIR", tmp_path / "buddy_static" / "packs")
+    config_mod.save_buddy_config({
+        "active_hatch_motion": "old.mp4",
+        "active_hatch_motion_pack": "old-manifest.json",
+        "latest_hatch_motion": "old-source.mp4",
+        "latest_hatch_motion_pack": "old-source-manifest.json",
+    })
 
     def _fake_generate(prompt: str, size: str = "auto", quality: str = "auto") -> str:
         return "Image generated successfully"
@@ -302,6 +309,15 @@ def test_buddy_hatch_preview_generation_saves_preview(monkeypatch, tmp_path):
     assert "tiny gold owl" in draft.prompt
     assert pathlib.Path(draft.preview_path).exists()
     assert (tmp_path / "buddy_static" / "generated" / "current.png").exists()
+    assert (tmp_path / "buddy_static" / "packs" / draft.pack_id / "manifest.json").exists()
+    pack = assets_mod.load_buddy_pack(draft.pack_id)
+    assert pack.runtime == "generated_still"
+    assert pack.status == "available"
+    assert assets_mod.static_url_for_path(pack.preview_path) == f"/_buddy/packs/{draft.pack_id}/preview.png"
+    cfg = config_mod.get_buddy_config()
+    assert cfg["pack_id"] == draft.pack_id
+    assert "active_hatch_motion_pack" not in cfg
+    assert "latest_hatch_motion_pack" not in cfg
 
 
 def test_buddy_hatch_buddy_generation_activates_motion(monkeypatch, tmp_path):
@@ -314,6 +330,7 @@ def test_buddy_hatch_buddy_generation_activates_motion(monkeypatch, tmp_path):
     monkeypatch.setattr(config_mod, "_BUDDY_CONFIG_PATH", tmp_path / "buddy_config.json")
     monkeypatch.setattr(hatch_mod, "_DATA_DIR", tmp_path / "hatches")
     monkeypatch.setattr(assets_mod, "_BUDDY_STATIC_DIR", tmp_path / "buddy_static")
+    monkeypatch.setattr(assets_mod, "_USER_PACKS_DIR", tmp_path / "buddy_static" / "packs")
 
     monkeypatch.setattr("tools.image_gen_tool._generate_image", lambda *args, **kwargs: "Image generated")
     monkeypatch.setattr("tools.image_gen_tool.get_and_clear_last_image", lambda: "iVBORw0KGgo=")
@@ -359,6 +376,12 @@ def test_buddy_hatch_buddy_generation_activates_motion(monkeypatch, tmp_path):
     assert cfg["active_hatch_motion"].endswith("current.mp4")
     assert cfg["active_hatch_motion_pack"].endswith("manifest.json")
     assert cfg["active_hatch_motion_clips"]["thinking"].endswith("thinking.mp4")
+    assert cfg["pack_id"] == draft.pack_id
+    pack = assets_mod.load_buddy_pack(draft.pack_id)
+    assert pack.runtime == "generated_motion_pack"
+    assert pack.status == "available"
+    assert (tmp_path / "buddy_static" / "packs" / draft.pack_id / "preview.png").exists()
+    assert (tmp_path / "buddy_static" / "packs" / draft.pack_id / "motions" / "idle.mp4").exists()
 
 
 def test_buddy_hatch_motion_pack_can_force_fresh_generation(monkeypatch, tmp_path):

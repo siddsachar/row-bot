@@ -62,16 +62,21 @@ class BuddyPack:
             "status": self.status,
             "message": self.message,
         }
-        if self.runtime == "generated_motion_pack":
+        if self.runtime in {"generated_motion_pack", "generated_still"}:
             manifest.update(
                 {
                     "preview": str(self.preview_path).replace("\\", "/"),
-                    "motion_pack": str(self.motion_pack_path).replace("\\", "/"),
-                    "default_clip": self.default_clip,
-                    "animation_map": dict(self.animation_map),
-                    "clips": {clip_id: str(path).replace("\\", "/") for clip_id, path in self.motion_clips.items()},
                 }
             )
+            if self.runtime == "generated_motion_pack":
+                manifest.update(
+                    {
+                        "motion_pack": str(self.motion_pack_path).replace("\\", "/"),
+                        "default_clip": self.default_clip,
+                        "animation_map": dict(self.animation_map),
+                        "clips": {clip_id: str(path).replace("\\", "/") for clip_id, path in self.motion_clips.items()},
+                    }
+                )
         else:
             manifest.update(
                 {
@@ -199,9 +204,10 @@ def install_buddy_rive_bytes(data: bytes, filename: str, pack_id: str = "glyph")
 
 def validate_buddy_pack(pack: BuddyPack) -> BuddyPack:
     problems: list[str] = []
-    if pack.runtime == "generated_motion_pack":
+    if pack.runtime in {"generated_motion_pack", "generated_still"}:
         if not pack.preview_path.exists() or not pack.preview_path.is_file() or pack.preview_path.stat().st_size == 0:
             problems.append("preview image is missing or empty")
+    if pack.runtime == "generated_motion_pack":
         if not pack.motion_pack_path.exists() or not pack.motion_pack_path.is_file():
             problems.append("motion pack manifest is missing")
         missing_clips = sorted(REQUIRED_MOTION_CLIPS.difference(pack.motion_clips))

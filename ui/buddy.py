@@ -476,13 +476,13 @@ def _surface_html(surface: str) -> str:
             motion_pack_path = str(cfg.get("latest_hatch_motion_pack") or "")
     if not preview_path and not motion_pack_path:
         pack = load_buddy_pack(str(cfg.get("pack_id") or "glyph"))
-        if pack.runtime == "generated_motion_pack" and pack.status == "available":
+        if pack.runtime in {"generated_motion_pack", "generated_still"} and pack.status == "available":
             preview_path = str(pack.preview_path)
             preview_url = static_url_for_path(preview_path)
-            if not motion_path and pack.default_clip in pack.motion_clips:
+            if pack.runtime == "generated_motion_pack" and not motion_path and pack.default_clip in pack.motion_clips:
                 motion_path = str(pack.motion_clips[pack.default_clip])
                 motion_url = static_url_for_path(motion_path)
-            motion_pack_path = str(pack.motion_pack_path)
+                motion_pack_path = str(pack.motion_pack_path)
     motion_pack_json = json.dumps(_motion_pack_payload(motion_pack_path), separators=(",", ":")) if motion_pack_path else "{}"
     element_id = f"buddy-{surface}-{uuid.uuid4().hex[:10]}"
     unavailable = "Loading motion pack" if motion_pack_json != "{}" else ("Loading motion" if motion_url else ("Loading companion" if preview_url else "Generate a companion look to activate animation"))
@@ -1158,8 +1158,9 @@ def build_buddy_settings_tab(_reopen=None) -> None:
                 "personality": str(buddy_personality.value or "warm_mystical"),
                 "personality_description": buddy_notes,
                 "bubble_verbosity": str(buddy_bubbles.value or "normal"),
-                "pack_id": str(selected_pack_id.get("value") or "glyph"),
+                "pack_id": str(draft.pack_id or selected_pack_id.get("value") or "glyph"),
             })
+            selected_pack_id["value"] = str(draft.pack_id or selected_pack_id.get("value") or "glyph")
             save_buddy_config(latest_cfg)
             preview_path = str(draft.preview_path or "")
             if preview_path:
@@ -1234,7 +1235,7 @@ def build_buddy_settings_tab(_reopen=None) -> None:
                 generate_hatch_motion_pack,
                 composed_prompt,
                 preview_path,
-                pack_id=str(selected_pack_id.get("value") or latest_cfg.get("pack_id") or "glyph"),
+                pack_id=pathlib.Path(preview_path).expanduser().resolve().parent.name,
                 reuse_existing=False,
             )
             labels = {spec.id: spec.label for spec in motion_clip_specs()}
@@ -1262,7 +1263,9 @@ def build_buddy_settings_tab(_reopen=None) -> None:
                 "personality": str(buddy_personality.value or "warm_mystical"),
                 "personality_description": buddy_notes,
                 "bubble_verbosity": str(buddy_bubbles.value or "normal"),
+                "pack_id": str(draft.pack_id or latest_cfg.get("pack_id") or "glyph"),
             })
+            selected_pack_id["value"] = str(draft.pack_id or latest_cfg.get("pack_id") or "glyph")
             save_buddy_config(latest_cfg)
             hatch_status.set_text(f"Generated motion pack for current Buddy art {draft.id}")
             emit_buddy_event(BuddyEventType.NOTIFICATION, source="buddy.hatch", payload={"label": "Buddy motion pack generated"})

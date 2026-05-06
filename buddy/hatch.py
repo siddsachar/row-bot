@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import shutil
 import time
 import base64
@@ -246,6 +247,107 @@ def _read_motion_pack_manifest(manifest_path: str | pathlib.Path) -> dict[str, A
     return raw if isinstance(raw, dict) else {}
 
 
+def _safe_pack_id(value: str, fallback: str) -> str:
+    safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in str(value or "").lower())
+    safe = "-".join(part for part in safe.split("-") if part).strip("-_")
+    return safe or fallback
+
+
+def _hatch_pack_name(prompt: str, draft_id: str) -> str:
+    first_line = " ".join(str(prompt or "").strip().splitlines()[0:1]).strip()
+    named = re.search(r"\bnamed\s+([A-Za-z0-9_-]+)", first_line, flags=re.IGNORECASE)
+    if named:
+        return named.group(1).replace("_", " ").replace("-", " ").title()
+    words = first_line.split()
+    if words:
+        return "Generated " + " ".join(words[:4]).strip(" .,;:")
+    return f"Generated {draft_id}"
+
+
+def _install_hatch_still_pack(
+    preview_path: str | pathlib.Path,
+    *,
+    pack_id: str,
+    prompt: str,
+    created_at: float,
+) -> str:
+    source_preview = pathlib.Path(preview_path).expanduser().resolve()
+    if not source_preview.exists() or source_preview.stat().st_size == 0:
+        raise ValueError("Buddy art preview is missing or empty")
+
+    from buddy import assets as assets_mod
+
+    safe_pack_id = _safe_pack_id(pack_id, f"hatch-{int(created_at)}")
+    pack_dir = assets_mod.buddy_static_dir() / "packs" / safe_pack_id
+    pack_dir.mkdir(parents=True, exist_ok=True)
+    target_preview = pack_dir / "preview.png"
+    if source_preview != target_preview.resolve():
+        shutil.copy2(source_preview, target_preview)
+    manifest = {
+        "schema": 1,
+        "id": safe_pack_id,
+        "name": _hatch_pack_name(prompt, safe_pack_id),
+        "version": "1.0.0",
+        "runtime": "generated_still",
+        "preview": "preview.png",
+        "prompt": prompt,
+        "created_at": created_at,
+    }
+    (pack_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+    return safe_pack_id
+
+
+def _install_hatch_motion_pack(
+    preview_path: str | pathlib.Path,
+    manifest_path: str | pathlib.Path,
+    *,
+    pack_id: str,
+    prompt: str,
+    created_at: float,
+) -> str:
+    source_manifest = pathlib.Path(manifest_path).expanduser().resolve()
+    source_preview = pathlib.Path(preview_path).expanduser().resolve()
+    manifest = _read_motion_pack_manifest(source_manifest)
+    clips = manifest.get("clips") if isinstance(manifest.get("clips"), dict) else {}
+    if not clips:
+        raise ValueError("Buddy motion pack has no clips")
+
+    from buddy import assets as assets_mod
+
+    safe_pack_id = _install_hatch_still_pack(source_preview, pack_id=pack_id, prompt=prompt, created_at=created_at)
+    pack_dir = assets_mod.buddy_static_dir() / "packs" / safe_pack_id
+    motion_dir = pack_dir / "motions"
+    motion_dir.mkdir(parents=True, exist_ok=True)
+    pack_manifest = dict(manifest)
+    pack_manifest.update(
+        {
+            "schema": 1,
+            "id": safe_pack_id,
+            "name": _hatch_pack_name(prompt, safe_pack_id),
+            "version": "1.0.0",
+            "runtime": "generated_motion_pack",
+            "preview": "preview.png",
+            "prompt": prompt,
+            "created_at": created_at,
+        }
+    )
+    pack_manifest["clips"] = {}
+    for clip_id, entry in clips.items():
+        if not isinstance(entry, dict):
+            continue
+        source_clip = (source_manifest.parent / pathlib.Path(str(entry.get("path") or f"{clip_id}.mp4"))).resolve()
+        if not source_clip.exists() or source_clip.stat().st_size == 0:
+            raise ValueError(f"Buddy motion clip is missing: {clip_id}")
+        target_clip = motion_dir / f"{clip_id}.mp4"
+        if source_clip != target_clip.resolve():
+            shutil.copy2(source_clip, target_clip)
+        pack_entry = dict(entry)
+        pack_entry["path"] = f"motions/{clip_id}.mp4"
+        pack_manifest["clips"][str(clip_id)] = pack_entry
+    (pack_dir / "manifest.json").write_text(json.dumps(pack_manifest, indent=2, sort_keys=True), encoding="utf-8")
+    return safe_pack_id
+
+
 def activate_hatch_art(preview_path: str | pathlib.Path) -> pathlib.Path:
     """Copy a generated Hatch preview into the served live Buddy art slot."""
 
@@ -357,10 +459,12 @@ def generate_hatch_preview(prompt: str, *, pack_id: str = "glyph") -> HatchDraft
 
     active_path = activate_hatch_art(preview_path)
 
+    user_pack_id = _install_hatch_still_pack(preview_path, pack_id=draft_id, prompt=safe_prompt, created_at=created_at)
+
     draft = HatchDraft(
         id=draft_id,
         prompt=safe_prompt,
-        pack_id=pack_id,
+        pack_id=user_pack_id,
         status="preview_generated",
         created_at=created_at,
         notes="Preview generated and activated as Buddy's live procedural animation art.",
@@ -373,6 +477,16 @@ def generate_hatch_preview(prompt: str, *, pack_id: str = "glyph") -> HatchDraft
     cfg["latest_hatch_preview"] = str(preview_path)
     cfg["active_hatch_preview"] = str(active_path)
     cfg["active_hatch_prompt"] = safe_prompt
+    cfg["pack_id"] = user_pack_id
+    for key in (
+        "active_hatch_motion",
+        "active_hatch_motion_pack",
+        "active_hatch_motion_clips",
+        "latest_hatch_motion",
+        "latest_hatch_motion_pack",
+        "latest_hatch_motion_error",
+    ):
+        cfg.pop(key, None)
     save_buddy_config(cfg)
     return draft
 
@@ -492,6 +606,7 @@ def generate_hatch_motion_pack(
         clips=generated_clips,
         created_at=created_at,
     )
+    user_pack_id = _install_hatch_motion_pack(preview, manifest_path, pack_id=pack_id, prompt=safe_prompt, created_at=created_at)
     active_manifest = activate_hatch_motion_pack(manifest_path)
     cfg = get_buddy_config()
     active_motion = str(cfg.get("active_hatch_motion") or "")
@@ -500,7 +615,7 @@ def generate_hatch_motion_pack(
     draft = HatchDraft(
         id=draft_dir.name,
         prompt=safe_prompt,
-        pack_id=pack_id,
+        pack_id=user_pack_id,
         status="motion_pack_generated",
         created_at=created_at,
         notes="Buddy art and generated state motion pack are active as the live Buddy animation.",
@@ -520,6 +635,7 @@ def generate_hatch_motion_pack(
     cfg["latest_hatch_motion_pack"] = str(manifest_path)
     cfg["active_hatch_motion_pack"] = str(active_manifest)
     cfg["active_hatch_prompt"] = safe_prompt
+    cfg["pack_id"] = user_pack_id
     cfg.pop("latest_hatch_motion_error", None)
     save_buddy_config(cfg)
     return draft
@@ -530,7 +646,7 @@ def generate_hatch_buddy(prompt: str, *, pack_id: str = "glyph") -> HatchDraft:
 
     preview = generate_hatch_preview(prompt, pack_id=pack_id)
     try:
-        return generate_hatch_motion_pack(prompt, preview.preview_path, pack_id=pack_id)
+        return generate_hatch_motion_pack(prompt, preview.preview_path, pack_id=preview.pack_id)
     except Exception as exc:
         draft_dir = pathlib.Path(preview.preview_path).expanduser().resolve().parent
         failed = HatchDraft(
