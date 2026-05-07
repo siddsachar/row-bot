@@ -8,6 +8,7 @@ from pathlib import Path
 import launcher
 import pytest
 import updater
+from scripts import check_linux_native_baseline
 
 
 def _linux_launcher_template() -> str:
@@ -123,6 +124,7 @@ def test_linux_tarball_installs_into_xdg_tree(monkeypatch, tmp_path):
 
 def test_linux_build_script_declares_expected_package_contract():
     script = Path("installer/build_linux_app.sh").read_text(encoding="utf-8")
+    requirements = Path("requirements.txt").read_text(encoding="utf-8")
 
     assert "unknown-linux-gnu-install_only" in script
     assert 'PACKAGE_NAME="Thoth-${VERSION}-Linux-${PACKAGE_ARCH}"' in script
@@ -137,8 +139,39 @@ def test_linux_build_script_declares_expected_package_contract():
     assert "THOTH_SUPPRESS_INSTALL_PATH_HINT" in script
     assert "export PATH=\"$HOME/.local/bin:$PATH\"" in script
     assert "Run: $LAUNCH_CMD" in script
+    assert 'numpy<2.3; python_version < "3.14"' in requirements
+    assert "scripts/check_linux_native_baseline.py" in script
+    assert "Checking native CPU baselines" in script
     for package in ("tools", "channels", "bundled_skills", "providers", "mcp_client", "migration"):
         assert package in script
+
+
+def test_linux_native_baseline_check_blocks_x86_v2_metadata():
+    blocked = check_linux_native_baseline._blocked_x86_baselines(["SSE", "SSE2", "X86_V2"])
+
+    assert blocked == ["X86_V2"]
+
+
+def test_linux_native_baseline_check_allows_legacy_x86_metadata():
+    blocked = check_linux_native_baseline._blocked_x86_baselines(["SSE", "SSE2"])
+
+    assert blocked == []
+
+
+def test_linux_native_baseline_check_blocks_readelf_x86_v3_output():
+    output = "Properties: x86 ISA needed: x86-64-baseline, x86-64-v3"
+
+    blocked = check_linux_native_baseline._blocked_readelf_baselines(output)
+
+    assert blocked == ["X86_V3"]
+
+
+def test_linux_native_baseline_check_allows_readelf_baseline_output():
+    output = "Properties: x86 ISA needed: x86-64-baseline"
+
+    blocked = check_linux_native_baseline._blocked_readelf_baselines(output)
+
+    assert blocked == []
 
 
 def test_linux_root_build_wrapper_delegates_to_installer_script():
@@ -276,6 +309,7 @@ def test_release_workflows_reference_linux_artifact():
     assert "installer/install-linux.sh" in ci
     assert "Thoth-*-Linux-*.tar.gz" in release
     assert "libxcb-cursor0" in release
+    assert "binutils" in release
     linux_smoke = release[release.index("Smoke Linux package"):]
     assert "--no-root-check" not in linux_smoke
     assert "HOME=\"$RUNNER_TEMP/thoth-linux-home\"" in linux_smoke

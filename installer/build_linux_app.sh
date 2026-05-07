@@ -85,6 +85,12 @@ info "[2/6] Installing Python packages from requirements.txt..."
 "$PYTHON_PREFIX/bin/python3" -m pip install -r "$PROJECT_DIR/requirements.txt" --quiet 2>&1 | tail -5
 ok "Python packages installed"
 
+if [ "$PACKAGE_ARCH" = "x86_64" ]; then
+    info "Checking native CPU baselines for older x86_64 compatibility..."
+    "$PYTHON_PREFIX/bin/python3" "$PROJECT_DIR/scripts/check_linux_native_baseline.py" --arch "$PACKAGE_ARCH"
+    ok "Native CPU baselines are package-compatible"
+fi
+
 if [ "$BUNDLE_PLAYWRIGHT" = "1" ]; then
     info "Installing Playwright Chromium into package..."
     export PLAYWRIGHT_BROWSERS_PATH="$PYTHON_PREFIX/playwright-browsers"

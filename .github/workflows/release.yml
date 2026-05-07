@@ -132,7 +132,7 @@ jobs:
       - name: Install Linux build/runtime libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends rsync libgl1 libegl1 libglib2.0-0 libxcb-cursor0
+          sudo apt-get install -y --no-install-recommends rsync binutils libgl1 libegl1 libglib2.0-0 libxcb-cursor0
 
       - name: Validate Linux installer scripts
         run: bash -n build_linux_app.sh installer/build_linux_app.sh installer/install-linux.sh

@@ -221,10 +221,16 @@ def _startup_failure_hints(log_text: str, python_executable: str | None = None) 
             "Detected a FAISS native import failure during startup.",
             "Recovery: reinstall Thoth's packaged runtime or install the Linux libraries named in the traceback.",
         ])
-    if "numpy.dtype size changed" in text or "numpy.core.multiarray failed to import" in text:
+    if (
+        "numpy.dtype size changed" in text
+        or "numpy.core.multiarray failed to import" in text
+        or "numpy was built with baseline optimizations" in text
+        or "x86_v2" in text
+    ):
         hints.extend([
-            "Detected a NumPy/native wheel ABI mismatch during startup.",
-            "Recovery: reinstall or repair Thoth so the embedded Python runtime and wheels are replaced together.",
+            "Detected a NumPy/native wheel startup failure.",
+            "On older x86_64 CPUs this can happen if the packaged NumPy wheel requires x86-64-v2 instructions.",
+            "Recovery: install a Thoth Linux build that pins NumPy below the x86-64-v2 wheel line, or rebuild the Linux tarball from this checkout.",
         ])
     return hints
 

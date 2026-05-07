@@ -72,7 +72,11 @@ plyer
 youtube-search
 
 # ── Common (used directly, also pulled transitively) ────────────────────────
-numpy
+# NumPy 2.3+ Linux x86_64 wheels can require x86-64-v2 CPU instructions. Keep
+# packaged Python 3.12/3.13 builds on the older baseline; Python 3.14 needs the
+# current line while wheel support is still catching up.
+numpy<2.3; python_version < "3.14"
+numpy; python_version >= "3.14"
 requests
 pydantic
 pyyaml

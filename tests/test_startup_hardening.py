@@ -56,6 +56,16 @@ def test_launcher_hints_for_linux_opencv_native_failure():
     assert any("libgl1" in hint for hint in hints)
 
 
+def test_launcher_hints_for_numpy_x86_v2_failure():
+    hints = launcher._startup_failure_hints(
+        "RuntimeError: NumPy was built with baseline optimizations: "
+        "(X86_V2) but your machine doesn't support: (X86_V2)."
+    )
+
+    assert any("NumPy/native wheel startup failure" in hint for hint in hints)
+    assert any("x86-64-v2" in hint for hint in hints)
+
+
 def test_launcher_logs_app_tail_on_startup_failure(tmp_path, caplog):
     log_path = tmp_path / "thoth_app.log"
     log_path.write_text("line one\nTraceback\nImportError: libGL.so.1 missing\n", encoding="utf-8")
