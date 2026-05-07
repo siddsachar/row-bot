@@ -184,7 +184,12 @@ def test_buddy_settings_keeps_rive_import_out_of_normal_ux():
     assert "Style notes (optional)" in buddy_ui_src
     assert "Thoth handles sizing and motion automatically" in buddy_ui_src
     assert "_compose_hatch_prompt" in buddy_ui_src
+    assert "_clean_hatch_concept" in buddy_ui_src
     assert "hatch_generation_prompt" in buddy_ui_src
+    assert 'value=_clean_hatch_concept(str(cfg.get("hatch_prompt") or cfg.get("hatch_generation_prompt")' in buddy_ui_src
+    assert '"hatch_prompt": concept_prompt' in buddy_ui_src
+    assert "display_prompt=concept_prompt" in buddy_ui_src
+    assert 'str(latest_cfg.get("hatch_generation_prompt") or "") or _compose_hatch_prompt' not in buddy_ui_src
     assert "bubble_verbosity" in buddy_ui_src
     assert "Buddy name" not in buddy_ui_src
     assert "buddy_name_input" not in buddy_ui_src

@@ -205,7 +205,7 @@ def _finish_hatch_job(job_id: str, draft: HatchDraft, *, status: str, message: s
     )
 
 
-def _run_hatch_generation_job(job_id: str, prompt: str, pack_id: str, mode: str, preview_path: str, reuse_existing: bool) -> None:
+def _run_hatch_generation_job(job_id: str, prompt: str, pack_id: str, mode: str, preview_path: str, reuse_existing: bool, display_prompt: str) -> None:
     try:
         if mode == "motion":
             _update_hatch_job(job_id, phase="motion", message="Preparing Buddy motion regeneration")
@@ -214,6 +214,7 @@ def _run_hatch_generation_job(job_id: str, prompt: str, pack_id: str, mode: str,
                 preview_path,
                 pack_id=pack_id,
                 reuse_existing=reuse_existing,
+                display_prompt=display_prompt,
                 progress_callback=_motion_progress_updater(job_id),
             )
             _finish_hatch_job(job_id, draft, status="completed", message="Buddy motion pack generated")
@@ -225,7 +226,7 @@ def _run_hatch_generation_job(job_id: str, prompt: str, pack_id: str, mode: str,
             return
 
         _update_hatch_job(job_id, phase="image", message="Generating one Buddy character still")
-        preview = generate_hatch_preview(prompt, pack_id=pack_id)
+        preview = generate_hatch_preview(prompt, pack_id=pack_id, display_prompt=display_prompt)
         _update_hatch_job(
             job_id,
             phase="motion",
@@ -240,6 +241,7 @@ def _run_hatch_generation_job(job_id: str, prompt: str, pack_id: str, mode: str,
                 preview.preview_path,
                 pack_id=preview.pack_id,
                 reuse_existing=reuse_existing,
+                display_prompt=display_prompt,
                 progress_callback=_motion_progress_updater(job_id),
             )
             _finish_hatch_job(job_id, draft, status="completed", message="Buddy art and motion pack generated")
@@ -285,11 +287,13 @@ def start_hatch_generation_job(
     pack_id: str = "glyph",
     mode: str = "full",
     preview_path: str | pathlib.Path = "",
+    display_prompt: str = "",
     reuse_existing: bool = False,
 ) -> dict[str, Any]:
     """Start Buddy Hatch still/motion generation in a background thread."""
 
     safe_prompt = (prompt or "A cute tiny app companion named Buddy").strip()
+    safe_display_prompt = (display_prompt or safe_prompt).strip()
     safe_mode = mode if mode in {"full", "motion"} else "full"
     safe_preview = str(pathlib.Path(preview_path).expanduser().resolve()) if preview_path else ""
     if safe_mode == "motion" and not safe_preview:
@@ -321,7 +325,7 @@ def start_hatch_generation_job(
 
     thread = threading.Thread(
         target=_run_hatch_generation_job,
-        args=(job_id, safe_prompt, pack_id, safe_mode, safe_preview, reuse_existing),
+        args=(job_id, safe_prompt, pack_id, safe_mode, safe_preview, reuse_existing, safe_display_prompt),
         daemon=True,
         name=f"buddy-hatch-{safe_mode}",
     )
@@ -698,10 +702,11 @@ def activate_hatch_motion_pack(manifest_path: str | pathlib.Path) -> pathlib.Pat
     return active_manifest_path
 
 
-def generate_hatch_preview(prompt: str, *, pack_id: str = "glyph") -> HatchDraft:
+def generate_hatch_preview(prompt: str, *, pack_id: str = "glyph", display_prompt: str = "") -> HatchDraft:
     """Generate and persist one Buddy character image and activate it as live art."""
 
     safe_prompt = (prompt or "A cute tiny app companion named Buddy").strip()
+    safe_display_prompt = (display_prompt or safe_prompt).strip()
     from tools.image_gen_tool import _generate_image, get_and_clear_last_image
 
     result = _generate_image(_buddy_image_prompt(safe_prompt), size="1024x1024", quality="auto")
@@ -732,10 +737,10 @@ def generate_hatch_preview(prompt: str, *, pack_id: str = "glyph") -> HatchDraft
     )
     (draft_dir / "manifest.json").write_text(json.dumps(draft.to_dict(), indent=2), encoding="utf-8")
     cfg = get_buddy_config()
-    cfg["hatch_prompt"] = safe_prompt
+    cfg["hatch_prompt"] = safe_display_prompt
     cfg["latest_hatch_preview"] = str(preview_path)
     cfg["active_hatch_preview"] = str(active_path)
-    cfg["active_hatch_prompt"] = safe_prompt
+    cfg["active_hatch_prompt"] = safe_display_prompt
     cfg["pack_id"] = user_pack_id
     for key in (
         "active_hatch_motion",
@@ -750,10 +755,11 @@ def generate_hatch_preview(prompt: str, *, pack_id: str = "glyph") -> HatchDraft
     return draft
 
 
-def generate_hatch_motion(prompt: str, preview_path: str | pathlib.Path, *, pack_id: str = "glyph") -> HatchDraft:
+def generate_hatch_motion(prompt: str, preview_path: str | pathlib.Path, *, pack_id: str = "glyph", display_prompt: str = "") -> HatchDraft:
     """Generate and activate an image-to-video Buddy motion loop."""
 
     safe_prompt = (prompt or "A cute tiny app companion named Buddy").strip()
+    safe_display_prompt = (display_prompt or safe_prompt).strip()
     preview = pathlib.Path(preview_path).expanduser().resolve()
     if not preview.exists() or not preview.is_file() or preview.stat().st_size == 0:
         raise ValueError("Buddy art preview is required before generating motion")
@@ -792,11 +798,11 @@ def generate_hatch_motion(prompt: str, preview_path: str | pathlib.Path, *, pack
     )
     (draft_dir / "manifest.json").write_text(json.dumps(draft.to_dict(), indent=2), encoding="utf-8")
     cfg = get_buddy_config()
-    cfg["hatch_prompt"] = safe_prompt
+    cfg["hatch_prompt"] = safe_display_prompt
     cfg["latest_hatch_preview"] = str(preview)
     cfg["latest_hatch_motion"] = str(motion_path)
     cfg["active_hatch_motion"] = str(active_motion)
-    cfg["active_hatch_prompt"] = safe_prompt
+    cfg["active_hatch_prompt"] = safe_display_prompt
     cfg.pop("latest_hatch_motion_error", None)
     save_buddy_config(cfg)
     return draft
@@ -808,11 +814,13 @@ def generate_hatch_motion_pack(
     *,
     pack_id: str = "glyph",
     reuse_existing: bool = True,
+    display_prompt: str = "",
     progress_callback: Callable[[str, MotionClipSpec, int, int], None] | None = None,
 ) -> HatchDraft:
     """Generate and activate a compact state-specific Buddy motion pack."""
 
     safe_prompt = (prompt or "A cute tiny app companion named Buddy").strip()
+    safe_display_prompt = (display_prompt or safe_prompt).strip()
     preview = pathlib.Path(preview_path).expanduser().resolve()
     if not preview.exists() or not preview.is_file() or preview.stat().st_size == 0:
         raise ValueError("Buddy art preview is required before generating a motion pack")
@@ -898,24 +906,24 @@ def generate_hatch_motion_pack(
     )
     (draft_dir / "manifest.json").write_text(json.dumps(draft.to_dict(), indent=2), encoding="utf-8")
     cfg = get_buddy_config()
-    cfg["hatch_prompt"] = safe_prompt
+    cfg["hatch_prompt"] = safe_display_prompt
     cfg["latest_hatch_preview"] = str(preview)
     cfg["latest_hatch_motion"] = str(generated_clips.get("idle", ""))
     cfg["latest_hatch_motion_pack"] = str(manifest_path)
     cfg["active_hatch_motion_pack"] = str(active_manifest)
-    cfg["active_hatch_prompt"] = safe_prompt
+    cfg["active_hatch_prompt"] = safe_display_prompt
     cfg["pack_id"] = user_pack_id
     cfg.pop("latest_hatch_motion_error", None)
     save_buddy_config(cfg)
     return draft
 
 
-def generate_hatch_buddy(prompt: str, *, pack_id: str = "glyph") -> HatchDraft:
+def generate_hatch_buddy(prompt: str, *, pack_id: str = "glyph", display_prompt: str = "") -> HatchDraft:
     """Generate Buddy art, then generate and activate a full motion pack."""
 
-    preview = generate_hatch_preview(prompt, pack_id=pack_id)
+    preview = generate_hatch_preview(prompt, pack_id=pack_id, display_prompt=display_prompt)
     try:
-        return generate_hatch_motion_pack(prompt, preview.preview_path, pack_id=preview.pack_id)
+        return generate_hatch_motion_pack(prompt, preview.preview_path, pack_id=preview.pack_id, display_prompt=display_prompt)
     except Exception as exc:
         draft_dir = pathlib.Path(preview.preview_path).expanduser().resolve().parent
         failed = HatchDraft(

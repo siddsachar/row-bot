@@ -392,7 +392,7 @@ _BUBBLE_OPTIONS = {
 
 
 def _compose_hatch_prompt(concept: str, personality: str, notes: str) -> str:
-    safe_concept = (concept or "A cute tiny mystical coding familiar for Thoth").strip()
+    safe_concept = _clean_hatch_concept(concept)
     personality_id = personality if personality in _PERSONALITY_OPTIONS else "warm_mystical"
     hint = _PERSONALITY_GENERATION_HINTS.get(personality_id, _PERSONALITY_GENERATION_HINTS["warm_mystical"])
     parts = [
@@ -403,6 +403,20 @@ def _compose_hatch_prompt(concept: str, personality: str, notes: str) -> str:
     if safe_notes:
         parts.append(f"User style notes: {safe_notes}")
     return "\n\n".join(parts)
+
+
+def _clean_hatch_concept(value: str) -> str:
+    text = (value or "").strip()
+    if not text:
+        return "A cute tiny mystical coding familiar for Thoth"
+    for marker in ("Personality style:", "User style notes:"):
+        if text.startswith(marker):
+            return "A cute tiny mystical coding familiar for Thoth"
+        marker_index = text.find(f"\n{marker}")
+        if marker_index >= 0:
+            text = text[:marker_index].strip()
+    return text or "A cute tiny mystical coding familiar for Thoth"
+
 
 def inject_buddy_head() -> None:
     client = getattr(ui.context, "client", None)
@@ -1149,7 +1163,7 @@ def build_buddy_settings_tab(_reopen=None) -> None:
     with generation_body:
         prompt = ui.textarea(
             label="Concept",
-            value=str(cfg.get("hatch_prompt", "A cute tiny mystical coding familiar for Thoth")),
+            value=_clean_hatch_concept(str(cfg.get("hatch_prompt") or cfg.get("hatch_generation_prompt") or "A cute tiny mystical coding familiar for Thoth")),
         ).classes("w-full").props("outlined autogrow")
         buddy_description = ui.textarea(
             label="Style notes (optional)",
@@ -1165,6 +1179,9 @@ def build_buddy_settings_tab(_reopen=None) -> None:
         in_app_enabled = bool(in_app.value)
         desktop_enabled = bool(desktop.value)
         latest_cfg = get_buddy_config()
+        concept_prompt = _clean_hatch_concept(str(prompt.value or ""))
+        if concept_prompt != str(prompt.value or "").strip():
+            prompt.set_value(concept_prompt)
         latest_cfg.update({
             "enabled": in_app_enabled or desktop_enabled,
             "sidebar_enabled": in_app_enabled,
@@ -1174,8 +1191,8 @@ def build_buddy_settings_tab(_reopen=None) -> None:
             "personality": str(buddy_personality.value or "warm_mystical"),
             "personality_description": buddy_notes,
             "bubble_verbosity": str(buddy_bubbles.value or "normal"),
-            "hatch_prompt": str(prompt.value or ""),
-            "hatch_generation_prompt": _compose_hatch_prompt(str(prompt.value or ""), str(buddy_personality.value or "warm_mystical"), buddy_notes),
+            "hatch_prompt": concept_prompt,
+            "hatch_generation_prompt": _compose_hatch_prompt(concept_prompt, str(buddy_personality.value or "warm_mystical"), buddy_notes),
         })
         if pack_selection_touched["value"]:
             _clear_hatch_media_overrides(latest_cfg)
@@ -1216,7 +1233,9 @@ def build_buddy_settings_tab(_reopen=None) -> None:
             buddy_description.set_value(buddy_notes)
             ui.notify("Some companion personality text was removed", type="warning")
             return
-        concept_prompt = str(prompt.value or "")
+        concept_prompt = _clean_hatch_concept(str(prompt.value or ""))
+        if concept_prompt != str(prompt.value or "").strip():
+            prompt.set_value(concept_prompt)
         composed_prompt = _compose_hatch_prompt(concept_prompt, str(buddy_personality.value or "warm_mystical"), buddy_notes)
         hatch_status.set_text("Starting Buddy generation in the background...")
         hatch_button.props(add="loading")
@@ -1235,6 +1254,7 @@ def build_buddy_settings_tab(_reopen=None) -> None:
                 composed_prompt,
                 pack_id=str(selected_pack_id.get("value") or "glyph"),
                 mode="full",
+                display_prompt=concept_prompt,
                 reuse_existing=False,
             )
             _set_hatch_job_status_text(job)
@@ -1257,8 +1277,10 @@ def build_buddy_settings_tab(_reopen=None) -> None:
         if not preview_path or not pathlib.Path(preview_path).expanduser().exists():
             ui.notify("Select or generate a Hatch look before retrying motion", type="warning")
             return
-        concept_prompt = str(prompt.value or latest_cfg.get("hatch_prompt") or "")
-        composed_prompt = str(latest_cfg.get("hatch_generation_prompt") or "") or _compose_hatch_prompt(
+        concept_prompt = _clean_hatch_concept(str(prompt.value or latest_cfg.get("hatch_prompt") or latest_cfg.get("hatch_generation_prompt") or ""))
+        if concept_prompt != str(prompt.value or "").strip():
+            prompt.set_value(concept_prompt)
+        composed_prompt = _compose_hatch_prompt(
             concept_prompt,
             str(buddy_personality.value or "warm_mystical"),
             buddy_notes,
@@ -1281,6 +1303,7 @@ def build_buddy_settings_tab(_reopen=None) -> None:
                 pack_id=target_pack_id,
                 mode="motion",
                 preview_path=preview_path,
+                display_prompt=concept_prompt,
                 reuse_existing=False,
             )
             _set_hatch_job_status_text(job)
@@ -1333,7 +1356,7 @@ def build_buddy_settings_tab(_reopen=None) -> None:
             still_pack_id = use_hatch_still_only(
                 pack_id,
                 preview_path,
-                prompt=str(latest_cfg.get("hatch_generation_prompt") or latest_cfg.get("hatch_prompt") or prompt.value or ""),
+                prompt=_clean_hatch_concept(str(latest_cfg.get("hatch_prompt") or prompt.value or latest_cfg.get("hatch_generation_prompt") or "")),
             )
         except Exception as exc:
             ui.notify(str(exc), type="negative")
