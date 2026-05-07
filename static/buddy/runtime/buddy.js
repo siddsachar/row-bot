@@ -236,17 +236,22 @@
     return state.keyCtx;
   }
 
+  function drawSourceForFit(ctx, state, source, x, y, width, height) {
+    if (state.fitMode === 'contain') drawContainSource(ctx, source, x, y, width, height);
+    else drawCoverSource(ctx, source, x, y, width, height);
+  }
+
   function drawTransparentSource(ctx, state, source, x, y, width, height) {
     const outputWidth = Math.max(1, Math.round(width));
     const outputHeight = Math.max(1, Math.round(height));
     const keyCtx = ensureKeyCanvas(state, outputWidth, outputHeight);
     keyCtx.clearRect(0, 0, outputWidth, outputHeight);
-    drawContainSource(keyCtx, source, 0, 0, outputWidth, outputHeight);
+    drawSourceForFit(keyCtx, state, source, 0, 0, outputWidth, outputHeight);
     let frame;
     try {
       frame = keyCtx.getImageData(0, 0, outputWidth, outputHeight);
     } catch (error) {
-      drawContainSource(ctx, source, x, y, width, height);
+      drawSourceForFit(ctx, state, source, x, y, width, height);
       return;
     }
     const data = frame.data;
@@ -506,7 +511,7 @@
     const idleStill = useIdleStill(state, snapshot);
     const bounce = idleStill ? 0 : Math.sin(phase * (1.4 + energy * 2.2));
     const shake = idleStill ? 0 : (isApproval ? Math.sin(phase * 2.1) * 0.7 : (alert > 0.55 ? Math.sin(phase * 16) * alert * 1.4 : 0));
-    const imageSize = size * 0.76;
+    const imageSize = size * (state.fitMode === 'contain' ? 0.76 : 0.84);
     const x = (size - imageSize) / 2 + shake;
     const y = (size - imageSize) / 2;
 
@@ -600,7 +605,7 @@
 
   function initGeneratedRoot(root, canvas, preview, motion, motionPack) {
     const ctx = canvas.getContext('2d');
-    const state = { root, canvas, ctx, image: null, video: null, videos: {}, motionPack: motionPack || null, activeClip: '', snapshot: {}, frame: null, keyCanvas: null, keyCtx: null, idleStillUntil: 0, idlePlaybackMode: '', currentSource: null, transitionFromSource: null, transitionStartedAt: 0, transitionUntil: 0 };
+    const state = { root, canvas, ctx, image: null, video: null, videos: {}, motionPack: motionPack || null, activeClip: '', snapshot: {}, frame: null, keyCanvas: null, keyCtx: null, idleStillUntil: 0, idlePlaybackMode: '', currentSource: null, transitionFromSource: null, transitionStartedAt: 0, transitionUntil: 0, fitMode: root.dataset.generatedFit === 'contain' ? 'contain' : 'cover' };
     generated.set(canvas.id, state);
 
     if (preview) {

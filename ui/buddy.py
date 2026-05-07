@@ -473,9 +473,11 @@ def _surface_html(surface: str) -> str:
             motion_pack_path = str(activate_hatch_motion_pack(str(cfg.get("latest_hatch_motion_pack") or "")))
         except Exception:
             motion_pack_path = str(cfg.get("latest_hatch_motion_pack") or "")
+    render_fit = "contain" if (str(cfg.get("pack_id") or "").startswith("hatch-") or preview_path or motion_path or motion_pack_path) else "cover"
     if not preview_path and not motion_pack_path:
         pack = load_buddy_pack(str(cfg.get("pack_id") or "glyph"))
         if pack.runtime in {"generated_motion_pack", "generated_still"} and pack.status == "available":
+            render_fit = "contain" if pack.id.startswith("hatch-") else "cover"
             preview_path = str(pack.preview_path)
             preview_url = static_url_for_path(preview_path)
             if pack.runtime == "generated_motion_pack" and not motion_path and pack.default_clip in pack.motion_clips:
@@ -486,7 +488,7 @@ def _surface_html(surface: str) -> str:
     element_id = f"buddy-{surface}-{uuid.uuid4().hex[:10]}"
     unavailable = "Loading motion pack" if motion_pack_json != "{}" else ("Loading motion" if motion_url else ("Loading companion" if preview_url else "Generate a companion look to activate animation"))
     return f"""
-    <div id="{element_id}" class="thoth-buddy-wrap" data-thoth-buddy data-surface="{html.escape(surface)}" data-personality="{html.escape(personality)}" data-bubble-verbosity="{html.escape(bubble_verbosity)}" data-preview="{html.escape(preview_url)}" data-motion="{html.escape(motion_url)}" data-motion-pack="{html.escape(motion_pack_json, quote=True)}">
+    <div id="{element_id}" class="thoth-buddy-wrap" data-thoth-buddy data-surface="{html.escape(surface)}" data-personality="{html.escape(personality)}" data-bubble-verbosity="{html.escape(bubble_verbosity)}" data-preview="{html.escape(preview_url)}" data-motion="{html.escape(motion_url)}" data-motion-pack="{html.escape(motion_pack_json, quote=True)}" data-generated-fit="{html.escape(render_fit)}">
       <div class="thoth-buddy-stage">
         <canvas id="{element_id}-canvas" width="220" height="220" aria-label="Companion animation"></canvas>
         <div class="thoth-buddy-fallback" aria-hidden="true">*</div>
