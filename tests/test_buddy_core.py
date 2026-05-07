@@ -425,6 +425,50 @@ def test_buddy_hatch_motion_pack_can_force_fresh_generation(monkeypatch, tmp_pat
     assert set(generated_filenames) == {"idle.mp4", "thinking.mp4", "working.mp4", "approval.mp4", "success.mp4", "error.mp4"}
 
 
+def test_buddy_hatch_retry_motion_preserves_user_pack_manifest(monkeypatch, tmp_path):
+    import json
+    import buddy.assets as assets_mod
+    import buddy.config as config_mod
+    import buddy.hatch as hatch_mod
+    import tools.video_gen_tool as video_mod
+
+    monkeypatch.setattr(config_mod, "_DATA_DIR", tmp_path)
+    monkeypatch.setattr(config_mod, "_BUDDY_CONFIG_PATH", tmp_path / "buddy_config.json")
+    monkeypatch.setattr(hatch_mod, "_DATA_DIR", tmp_path / "hatches")
+    monkeypatch.setattr(assets_mod, "_BUDDY_STATIC_DIR", tmp_path / "buddy_static")
+    monkeypatch.setattr(assets_mod, "_USER_PACKS_DIR", tmp_path / "buddy_static" / "packs")
+
+    pack_dir = tmp_path / "buddy_static" / "packs" / "hatch-existing"
+    pack_dir.mkdir(parents=True)
+    preview = pack_dir / "preview.png"
+    preview.write_bytes(b"PNG")
+
+    def _fake_animate(prompt: str, image_source: str = "last", duration_seconds: int = 8, aspect_ratio: str = "16:9", resolution: str = "720p") -> str:
+        output_dir = video_mod._video_output_dir_var.get()
+        output_filename = video_mod._video_output_filename_var.get()
+        assert output_dir is not None
+        assert output_filename is not None
+        output_dir.mkdir(parents=True, exist_ok=True)
+        motion_path = output_dir / output_filename
+        motion_path.write_bytes(f"MP4:{output_filename}".encode("utf-8"))
+        video_mod._last_generated_video = {"path": str(motion_path), "filename": motion_path.name}
+        return "Video generated"
+
+    monkeypatch.setattr("tools.video_gen_tool._animate_image", _fake_animate)
+
+    draft = hatch_mod.generate_hatch_motion_pack("A tiny dog named Honey", preview, pack_id="hatch-existing", reuse_existing=False)
+
+    pack_manifest = json.loads((pack_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert draft.status == "motion_pack_generated"
+    assert pack_manifest["runtime"] == "generated_motion_pack"
+    assert set(pack_manifest["clips"]) == {"idle", "thinking", "working", "approval", "success", "error"}
+    assert (tmp_path / "hatches" / "hatch-existing" / "manifest.json").exists()
+    pack = assets_mod.load_buddy_pack("hatch-existing")
+    assert pack.runtime == "generated_motion_pack"
+    assert pack.status == "available"
+    assert len(pack.motion_clips) == 6
+
+
 def test_buddy_hatch_google_pacing_only_applies_to_real_google_generator(monkeypatch):
     import buddy.hatch as hatch_mod
 
@@ -433,6 +477,42 @@ def test_buddy_hatch_google_pacing_only_applies_to_real_google_generator(monkeyp
 
     assert hatch_mod._motion_request_spacing_seconds() == 15
     assert hatch_mod._motion_request_spacing_seconds(lambda: None) == 0
+
+
+def test_buddy_loader_recovers_overwritten_hatch_motion_pack_manifest(monkeypatch, tmp_path):
+    import json
+    import buddy.assets as assets_mod
+
+    monkeypatch.setattr(assets_mod, "_BUDDY_STATIC_DIR", tmp_path / "buddy_static")
+    monkeypatch.setattr(assets_mod, "_USER_PACKS_DIR", tmp_path / "buddy_static" / "packs")
+
+    pack_dir = tmp_path / "buddy_static" / "packs" / "hatch-legacy"
+    motion_dir = pack_dir / "motions"
+    motion_dir.mkdir(parents=True)
+    (pack_dir / "preview.png").write_bytes(b"PNG")
+    clips = {}
+    for clip_id in assets_mod.REQUIRED_MOTION_CLIPS:
+        (motion_dir / f"{clip_id}.mp4").write_bytes(b"MP4")
+        clips[clip_id] = {"id": clip_id, "label": clip_id.title(), "path": f"{clip_id}.mp4", "animations": [clip_id], "duration_seconds": 5}
+    (motion_dir / "manifest.json").write_text(json.dumps({"default_clip": "idle", "clips": clips}), encoding="utf-8")
+    (pack_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "id": "hatch-legacy",
+                "status": "motion_pack_generated",
+                "preview_path": str(pack_dir / "preview.png"),
+                "motion_pack_path": str(motion_dir / "manifest.json"),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    pack = assets_mod.load_buddy_pack("hatch-legacy")
+
+    assert pack.runtime == "generated_motion_pack"
+    assert pack.status == "available"
+    assert pack.preview_path == (pack_dir / "preview.png").resolve()
+    assert set(pack.motion_clips) == assets_mod.REQUIRED_MOTION_CLIPS
 
 
 def test_buddy_hatch_motion_pack_activation_copies_manifest_and_clips(monkeypatch, tmp_path):

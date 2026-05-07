@@ -489,6 +489,22 @@ def _write_motion_pack_manifest(
     return manifest_path
 
 
+def _write_hatch_draft_manifest(draft_dir: pathlib.Path, draft: HatchDraft) -> pathlib.Path:
+    target_dir = pathlib.Path(draft_dir).expanduser().resolve()
+    try:
+        from buddy import assets as assets_mod
+
+        packs_root = (assets_mod.buddy_static_dir() / "packs").resolve()
+        target_dir.relative_to(packs_root)
+        target_dir = _DATA_DIR / draft.id
+    except Exception:
+        pass
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / "manifest.json"
+    target_path.write_text(json.dumps(draft.to_dict(), indent=2), encoding="utf-8")
+    return target_path
+
+
 def _read_motion_pack_manifest(manifest_path: str | pathlib.Path) -> dict[str, Any]:
     path = pathlib.Path(manifest_path).expanduser().resolve()
     raw = json.loads(path.read_text(encoding="utf-8"))
@@ -742,7 +758,7 @@ def generate_hatch_preview(prompt: str, *, pack_id: str = "glyph", display_promp
         preview_path=str(preview_path),
         generation_result=result,
     )
-    (draft_dir / "manifest.json").write_text(json.dumps(draft.to_dict(), indent=2), encoding="utf-8")
+    _write_hatch_draft_manifest(draft_dir, draft)
     cfg = get_buddy_config()
     cfg["hatch_prompt"] = safe_display_prompt
     cfg["latest_hatch_preview"] = str(preview_path)
@@ -803,7 +819,7 @@ def generate_hatch_motion(prompt: str, preview_path: str | pathlib.Path, *, pack
         active_motion_path=str(active_motion),
         generation_result=result,
     )
-    (draft_dir / "manifest.json").write_text(json.dumps(draft.to_dict(), indent=2), encoding="utf-8")
+    _write_hatch_draft_manifest(draft_dir, draft)
     cfg = get_buddy_config()
     cfg["hatch_prompt"] = safe_display_prompt
     cfg["latest_hatch_preview"] = str(preview)
@@ -911,7 +927,7 @@ def generate_hatch_motion_pack(
         generation_result="\n".join(result_lines),
         motion_clips={str(k): str(v) for k, v in active_clips.items()},
     )
-    (draft_dir / "manifest.json").write_text(json.dumps(draft.to_dict(), indent=2), encoding="utf-8")
+    _write_hatch_draft_manifest(draft_dir, draft)
     cfg = get_buddy_config()
     cfg["hatch_prompt"] = safe_display_prompt
     cfg["latest_hatch_preview"] = str(preview)
