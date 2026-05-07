@@ -603,7 +603,26 @@ def test_buddy_hatch_motion_prompt_keeps_avatar_framing_stable():
     assert "no white checkerboard pattern" in prompt
 
 
-def test_buddy_hatch_prepares_padded_solid_motion_source(tmp_path):
+def test_buddy_hatch_preserves_opaque_full_frame_motion_source(tmp_path):
+    import buddy.hatch as hatch_mod
+    from PIL import Image
+
+    preview = tmp_path / "preview.png"
+    image = Image.new("RGBA", (1024, 1024), (235, 235, 235, 255))
+    image.paste((240, 120, 30, 255), (430, 320, 590, 720))
+    image.save(preview)
+
+    motion_source = hatch_mod._prepare_motion_source_image(preview)
+
+    assert motion_source.name == "motion_source.png"
+    with Image.open(motion_source) as prepared:
+        assert prepared.mode == "RGB"
+        assert prepared.size == (1024, 1024)
+        assert prepared.getpixel((0, 0)) == (235, 235, 235)
+        assert prepared.getpixel((512, 512)) == (240, 120, 30)
+
+
+def test_buddy_hatch_composites_transparent_motion_source(tmp_path):
     import buddy.hatch as hatch_mod
     from PIL import Image
 

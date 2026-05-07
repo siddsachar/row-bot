@@ -115,8 +115,8 @@ def test_buddy_runtime_supports_generated_art_as_primary_path():
     assert "BACKGROUND_SEED_RATIO = 0.05" in runtime_src
     assert "distance < BACKGROUND_COLOR_DISTANCE_THRESHOLD" in runtime_src
     assert "drawSourceForFit(keyCtx" in runtime_src
-    assert "state.fitMode === 'contain' ? 0.76 : 0.84" in runtime_src
-    assert "root.dataset.generatedFit === 'contain'" in runtime_src
+    assert "const imageSize = size * 0.84" in runtime_src
+    assert "root.dataset.generatedFit === 'contain'" not in runtime_src
     assert "Generated motion ready" in runtime_src
     assert "Generated motion pack ready" in runtime_src
     assert "clipForSnapshot" in runtime_src
@@ -126,8 +126,8 @@ def test_buddy_runtime_supports_generated_art_as_primary_path():
     assert "data-preview" in buddy_ui_src
     assert "data-motion" in buddy_ui_src
     assert "data-generated-fit" in buddy_ui_src
-    assert "preview_path or motion_path or motion_pack_path" in buddy_ui_src
-    assert 'render_fit = "contain" if pack.id.startswith("hatch-") else "cover"' in buddy_ui_src
+    assert 'render_fit = "cover"' in buddy_ui_src
+    assert 'render_fit = "contain"' not in buddy_ui_src
     assert "data-riv" not in buddy_ui_src
     assert '{"generated_motion_pack", "generated_still"}' in buddy_ui_src
     assert "@rive-app/canvas" not in buddy_ui_src

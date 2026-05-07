@@ -26,7 +26,6 @@ _JOB_LOCK = threading.Lock()
 _CURRENT_JOB: dict[str, Any] = {}
 _RUNNING_JOB_STATES = {"queued", "running"}
 _MOTION_SOURCE_BACKGROUND = (10, 18, 20, 255)
-_MOTION_SOURCE_MAX_SCALE = 0.76
 
 
 @dataclass(frozen=True)
@@ -424,7 +423,7 @@ def _buddy_motion_prompt(prompt: str, clip_id: str = "idle") -> str:
 
 
 def _prepare_motion_source_image(preview_path: str | pathlib.Path) -> pathlib.Path:
-    """Composite a generated still onto a stable padded background for video generation."""
+    """Prepare a full-frame motion source without adding nested letterbox backgrounds."""
 
     source_preview = pathlib.Path(preview_path).expanduser().resolve()
     target = source_preview.parent / "motion_source.png"
@@ -434,8 +433,16 @@ def _prepare_motion_source_image(preview_path: str | pathlib.Path) -> pathlib.Pa
         with Image.open(source_preview) as image:
             source = image.convert("RGBA")
             canvas_size = max(1024, source.width, source.height)
-            max_sprite = max(1, int(canvas_size * _MOTION_SOURCE_MAX_SCALE))
-            scale = min(max_sprite / source.width, max_sprite / source.height, 1.0)
+            alpha_min = source.getchannel("A").getextrema()[0]
+            if alpha_min == 255:
+                scale = max(canvas_size / source.width, canvas_size / source.height)
+                opaque_size = (max(1, int(source.width * scale)), max(1, int(source.height * scale)))
+                opaque = source.resize(opaque_size, Image.Resampling.LANCZOS)
+                left = max(0, (opaque.width - canvas_size) // 2)
+                top = max(0, (opaque.height - canvas_size) // 2)
+                opaque.crop((left, top, left + canvas_size, top + canvas_size)).convert("RGB").save(target)
+                return target
+            scale = min(canvas_size / source.width, canvas_size / source.height)
             sprite_size = (max(1, int(source.width * scale)), max(1, int(source.height * scale)))
             sprite = source.resize(sprite_size, Image.Resampling.LANCZOS)
             canvas = Image.new("RGBA", (canvas_size, canvas_size), _MOTION_SOURCE_BACKGROUND)

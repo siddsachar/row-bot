@@ -487,11 +487,10 @@ def _surface_html(surface: str) -> str:
             motion_pack_path = str(activate_hatch_motion_pack(str(cfg.get("latest_hatch_motion_pack") or "")))
         except Exception:
             motion_pack_path = str(cfg.get("latest_hatch_motion_pack") or "")
-    render_fit = "contain" if (str(cfg.get("pack_id") or "").startswith("hatch-") or preview_path or motion_path or motion_pack_path) else "cover"
+    render_fit = "cover"
     if not preview_path and not motion_pack_path:
         pack = load_buddy_pack(str(cfg.get("pack_id") or "glyph"))
         if pack.runtime in {"generated_motion_pack", "generated_still"} and pack.status == "available":
-            render_fit = "contain" if pack.id.startswith("hatch-") else "cover"
             preview_path = str(pack.preview_path)
             preview_url = static_url_for_path(preview_path)
             if pack.runtime == "generated_motion_pack" and not motion_path and pack.default_clip in pack.motion_clips:
