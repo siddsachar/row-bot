@@ -62,16 +62,21 @@ class BuddyPack:
             "status": self.status,
             "message": self.message,
         }
-        if self.runtime == "generated_motion_pack":
+        if self.runtime in {"generated_motion_pack", "generated_still"}:
             manifest.update(
                 {
                     "preview": str(self.preview_path).replace("\\", "/"),
-                    "motion_pack": str(self.motion_pack_path).replace("\\", "/"),
-                    "default_clip": self.default_clip,
-                    "animation_map": dict(self.animation_map),
-                    "clips": {clip_id: str(path).replace("\\", "/") for clip_id, path in self.motion_clips.items()},
                 }
             )
+            if self.runtime == "generated_motion_pack":
+                manifest.update(
+                    {
+                        "motion_pack": str(self.motion_pack_path).replace("\\", "/"),
+                        "default_clip": self.default_clip,
+                        "animation_map": dict(self.animation_map),
+                        "clips": {clip_id: str(path).replace("\\", "/") for clip_id, path in self.motion_clips.items()},
+                    }
+                )
         else:
             manifest.update(
                 {
@@ -109,13 +114,23 @@ def load_buddy_pack(pack_id: str = "glyph") -> BuddyPack:
     pack_dir = _pack_dir_for(pack_id)
     manifest_path = pack_dir / "manifest.json"
     manifest = _load_manifest(manifest_path)
-    runtime = str(manifest.get("runtime") or ("generated_motion_pack" if isinstance(manifest.get("clips"), dict) else "rive"))
+    runtime = str(manifest.get("runtime") or "")
+    if not runtime:
+        has_motion_manifest = bool(manifest.get("motion_pack_path")) or (pack_dir / "motions" / "manifest.json").exists()
+        if isinstance(manifest.get("clips"), dict) or str(manifest.get("status") or "") == "motion_pack_generated" or has_motion_manifest:
+            runtime = "generated_motion_pack"
+        elif pack_id.startswith("hatch-") and (manifest.get("preview_path") or (pack_dir / "preview.png").exists()):
+            runtime = "generated_still"
+        else:
+            runtime = "rive"
     riv_name = str(manifest.get("riv") or manifest.get("rive_file") or "buddy.riv")
     riv_path = pack_dir / riv_name
     inputs = manifest.get("inputs") if isinstance(manifest.get("inputs"), dict) else {}
     if not inputs:
         inputs = {name: name for name in REQUIRED_INPUTS}
-    motion_manifest_path = (pack_dir / str(manifest.get("motion_pack") or "manifest.json")).resolve()
+    motion_manifest_value = str(manifest.get("motion_pack") or manifest.get("motion_pack_path") or ("motions/manifest.json" if runtime == "generated_motion_pack" and (pack_dir / "motions" / "manifest.json").exists() else "manifest.json"))
+    motion_manifest_candidate = pathlib.Path(motion_manifest_value).expanduser()
+    motion_manifest_path = (motion_manifest_candidate if motion_manifest_candidate.is_absolute() else pack_dir / motion_manifest_candidate).resolve()
     motion_manifest = _load_manifest(motion_manifest_path) if motion_manifest_path != manifest_path.resolve() else manifest
     clips = motion_manifest.get("clips") if isinstance(motion_manifest.get("clips"), dict) else {}
     motion_clips: dict[str, pathlib.Path] = {}
@@ -124,7 +139,9 @@ def load_buddy_pack(pack_id: str = "glyph") -> BuddyPack:
             continue
         clip_path = (motion_manifest_path.parent / str(entry.get("path") or f"{clip_id}.mp4")).resolve()
         motion_clips[str(clip_id)] = clip_path
-    preview_name = str(manifest.get("preview") or "preview.png")
+    preview_value = str(manifest.get("preview") or manifest.get("preview_path") or "preview.png")
+    preview_candidate = pathlib.Path(preview_value).expanduser()
+    preview_path = (preview_candidate if preview_candidate.is_absolute() else pack_dir / preview_candidate).resolve()
     animation_map = motion_manifest.get("animation_map") if isinstance(motion_manifest.get("animation_map"), dict) else {}
     pack = BuddyPack(
         id=str(manifest.get("id") or pack_id),
@@ -134,7 +151,7 @@ def load_buddy_pack(pack_id: str = "glyph") -> BuddyPack:
         state_machine=str(manifest.get("state_machine") or REQUIRED_STATE_MACHINE),
         inputs={str(k): str(v) for k, v in inputs.items()},
         runtime=runtime,
-        preview_path=(pack_dir / preview_name).resolve(),
+        preview_path=preview_path,
         motion_pack_path=motion_manifest_path,
         default_clip=str(motion_manifest.get("default_clip") or manifest.get("default_clip") or "idle"),
         animation_map={str(k): str(v) for k, v in animation_map.items()},
@@ -152,6 +169,32 @@ def list_buddy_packs() -> list[BuddyPack]:
     for pack_id in sorted(pack_ids):
         packs.append(load_buddy_pack(pack_id))
     return packs
+
+
+def delete_generated_buddy_pack(pack_id: str) -> str:
+    """Delete a user-generated Hatch pack from the Buddy picker."""
+
+    safe_pack_id = "".join(ch for ch in str(pack_id or "") if ch.isalnum() or ch in {"-", "_"}).strip("-_")
+    if not safe_pack_id.startswith("hatch-"):
+        raise ValueError("Only generated Hatch packs can be deleted")
+
+    user_root = _USER_PACKS_DIR.resolve()
+    pack_dir = (_USER_PACKS_DIR / safe_pack_id).resolve()
+    try:
+        pack_dir.relative_to(user_root)
+    except ValueError as exc:
+        raise ValueError("Generated Buddy pack path is invalid") from exc
+
+    manifest_path = pack_dir / "manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError("Generated Buddy pack was not found")
+
+    runtime = load_buddy_pack(safe_pack_id).runtime
+    if runtime not in {"generated_motion_pack", "generated_still"}:
+        raise ValueError("Only generated Hatch packs can be deleted")
+
+    shutil.rmtree(pack_dir)
+    return safe_pack_id
 
 
 def install_buddy_rive_asset(source_path: str | pathlib.Path, pack_id: str = "glyph") -> BuddyPack:
@@ -199,9 +242,10 @@ def install_buddy_rive_bytes(data: bytes, filename: str, pack_id: str = "glyph")
 
 def validate_buddy_pack(pack: BuddyPack) -> BuddyPack:
     problems: list[str] = []
-    if pack.runtime == "generated_motion_pack":
+    if pack.runtime in {"generated_motion_pack", "generated_still"}:
         if not pack.preview_path.exists() or not pack.preview_path.is_file() or pack.preview_path.stat().st_size == 0:
             problems.append("preview image is missing or empty")
+    if pack.runtime == "generated_motion_pack":
         if not pack.motion_pack_path.exists() or not pack.motion_pack_path.is_file():
             problems.append("motion pack manifest is missing")
         missing_clips = sorted(REQUIRED_MOTION_CLIPS.difference(pack.motion_clips))

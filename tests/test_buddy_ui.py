@@ -104,6 +104,8 @@ def test_buddy_runtime_supports_generated_art_as_primary_path():
     assert "initGeneratedRoot" in runtime_src
     assert "drawGeneratedBuddy" in runtime_src
     assert "drawCoverSource" in runtime_src
+    assert "drawContainSource" in runtime_src
+    assert "drawSourceForFit" in runtime_src
     assert "drawTransparentSource" in runtime_src
     assert "sampleBackgroundColor" in runtime_src
     assert "isVideoBackgroundPixel" in runtime_src
@@ -112,6 +114,9 @@ def test_buddy_runtime_supports_generated_art_as_primary_path():
     assert "BACKGROUND_LUMA_DELTA_THRESHOLD = 15" in runtime_src
     assert "BACKGROUND_SEED_RATIO = 0.05" in runtime_src
     assert "distance < BACKGROUND_COLOR_DISTANCE_THRESHOLD" in runtime_src
+    assert "drawSourceForFit(keyCtx" in runtime_src
+    assert "const imageSize = size * 0.84" in runtime_src
+    assert "root.dataset.generatedFit === 'contain'" not in runtime_src
     assert "Generated motion ready" in runtime_src
     assert "Generated motion pack ready" in runtime_src
     assert "clipForSnapshot" in runtime_src
@@ -120,7 +125,11 @@ def test_buddy_runtime_supports_generated_art_as_primary_path():
     assert "Generate a companion look in Settings to activate animation" in runtime_src
     assert "data-preview" in buddy_ui_src
     assert "data-motion" in buddy_ui_src
+    assert "data-generated-fit" in buddy_ui_src
+    assert 'render_fit = "cover"' in buddy_ui_src
+    assert 'render_fit = "contain"' not in buddy_ui_src
     assert "data-riv" not in buddy_ui_src
+    assert '{"generated_motion_pack", "generated_still"}' in buddy_ui_src
     assert "@rive-app/canvas" not in buddy_ui_src
     assert "background: transparent" in buddy_ui_src
     assert '"runtime": "generated_motion_pack"' in manifest_src
@@ -131,7 +140,18 @@ def test_buddy_runtime_supports_generated_art_as_primary_path():
 def test_buddy_hatch_prompts_request_keyable_motion_assets():
     hatch_src = _read("buddy/hatch.py")
 
-    assert "flat solid keyable" in hatch_src
+    assert "Create exactly one animated-app companion character" in hatch_src
+    assert "single centered avatar portrait" in hatch_src
+    assert "Do not create a sprite sheet" in hatch_src
+    assert "contact sheet" in hatch_src
+    assert "multiple poses" in hatch_src
+    assert "Create one video clip only" in hatch_src
+    assert "flat solid" in hatch_src
+    assert "keyable background" in hatch_src
+    assert "no transparent background" in hatch_src
+    assert "no alpha checkerboard" in hatch_src
+    assert "motion_source.png" in hatch_src
+    assert "_prepare_motion_source_image" in hatch_src
     assert "18 percent empty margin" in hatch_src
     assert "frame edge" in hatch_src
     assert "rim light or outline" in hatch_src
@@ -154,13 +174,22 @@ def test_buddy_settings_keeps_rive_import_out_of_normal_ux():
     assert "accept='.riv'" not in buddy_ui_src
     assert "Open Preferences" not in buddy_ui_src
     assert "Generate full Buddy" in buddy_ui_src
-    assert "generate_hatch_buddy" in buddy_ui_src
+    assert "start_hatch_generation_job" in buddy_ui_src
+    assert "get_hatch_generation_status" in buddy_ui_src
+    assert "Retry motion" in buddy_ui_src
+    assert "Use still only" in buddy_ui_src
     assert 'ui.tab("Preferences"' in settings_src
     assert "Save Buddy preferences" not in settings_src
     assert "Companion personality" in buddy_ui_src
-    assert "Generation guidance and personality notes" in buddy_ui_src
+    assert "Style notes (optional)" in buddy_ui_src
+    assert "Thoth handles sizing and motion automatically" in buddy_ui_src
     assert "_compose_hatch_prompt" in buddy_ui_src
+    assert "_clean_hatch_concept" in buddy_ui_src
     assert "hatch_generation_prompt" in buddy_ui_src
+    assert 'value=_clean_hatch_concept(str(cfg.get("hatch_prompt") or cfg.get("hatch_generation_prompt")' in buddy_ui_src
+    assert '"hatch_prompt": concept_prompt' in buddy_ui_src
+    assert "display_prompt=concept_prompt" in buddy_ui_src
+    assert 'str(latest_cfg.get("hatch_generation_prompt") or "") or _compose_hatch_prompt' not in buddy_ui_src
     assert "bubble_verbosity" in buddy_ui_src
     assert "Buddy name" not in buddy_ui_src
     assert "buddy_name_input" not in buddy_ui_src
@@ -198,6 +227,87 @@ def test_buddy_settings_uses_visual_pack_picker():
     assert 'latest_cfg["pack_id"] = pack_id' in buddy_ui_src
     assert "0.20),\n.thoth-buddy-pack-grid" not in buddy_ui_src
     assert "pack_select = ui.select" not in buddy_ui_src
+
+
+def test_buddy_settings_save_preserves_latest_hatch_media():
+    buddy_ui_src = _read("ui/buddy.py")
+    save_section = buddy_ui_src.split("def _save()", 1)[1].split("async def _hatch()", 1)[0]
+
+    assert "latest_cfg = get_buddy_config()" in save_section
+    assert "latest_cfg.update({" in save_section
+    assert "_clear_hatch_media_overrides(latest_cfg)" in save_section
+    assert "save_buddy_config(latest_cfg)" in save_section
+    assert "_apply_buddy_surface_settings(latest_cfg)" in save_section
+
+
+def test_buddy_settings_can_retry_motion_for_existing_hatch_art():
+    buddy_ui_src = _read("ui/buddy.py")
+    retry_section = buddy_ui_src.split("async def _retry_motion()", 1)[1].split("with ui.row().classes", 1)[0]
+
+    assert "_selected_generated_pack_preview(latest_cfg)" in retry_section
+    assert "start_hatch_generation_job" in retry_section
+    assert "pack_id=target_pack_id" in retry_section
+    assert "reuse_existing=False" in retry_section
+    assert "mode=\"motion\"" in retry_section
+    assert "Buddy motion regeneration started in the background" in retry_section
+
+
+def test_buddy_settings_starts_full_hatch_generation_in_background():
+    buddy_ui_src = _read("ui/buddy.py")
+    hatch_section = buddy_ui_src.split("async def _hatch()", 1)[1].split("async def _retry_motion()", 1)[0]
+
+    assert "start_hatch_generation_job" in hatch_section
+    assert "mode=\"full\"" in hatch_section
+    assert "Generating Buddy art and motion pack" not in hatch_section
+    assert "Buddy generation started in the background" in hatch_section
+    assert "await run.io_bound(\n                start_hatch_generation_job" in hatch_section
+
+
+def test_buddy_settings_can_retry_motion_for_selected_generated_pack():
+    buddy_ui_src = _read("ui/buddy.py")
+    preview_section = buddy_ui_src.split("def _selected_generated_pack_preview", 1)[1].split("def _select_pack", 1)[0]
+
+    assert "selected_pack_id" in preview_section
+    assert "pack_id.startswith(\"hatch-\")" in preview_section
+    assert "load_buddy_pack(pack_id)" in preview_section
+    assert "pack.preview_path.exists()" in preview_section
+    assert "latest_hatch_preview" in preview_section
+    assert "active_hatch_preview" in preview_section
+
+
+def test_buddy_settings_can_switch_generated_pack_to_still_only():
+    buddy_ui_src = _read("ui/buddy.py")
+    still_section = buddy_ui_src.split("def _use_still_only()", 1)[1].split("with ui.row().classes", 1)[0]
+
+    assert "use_hatch_still_only" in still_section
+    assert "pack_id.startswith(\"hatch-\")" in still_section
+    assert 'latest_cfg.pop(key, None)' in still_section
+    assert "hatch_motion.set_content(\"\")" in still_section
+    assert "Using still image only" in still_section
+
+
+def test_buddy_settings_can_delete_generated_pack_from_picker():
+    buddy_ui_src = _read("ui/buddy.py")
+    delete_section = buddy_ui_src.split("def _delete_selected_generated_pack()", 1)[1].split("with ui.row().classes", 1)[0]
+
+    assert "delete_generated_buddy_pack" in buddy_ui_src
+    assert "confirm_destructive" in delete_section
+    assert "pack_id.startswith(\"hatch-\")" in delete_section
+    assert 'pack.runtime not in {"generated_motion_pack", "generated_still"}' in delete_section
+    assert "_clear_hatch_media_overrides(latest_cfg)" in delete_section
+    assert "hatch_motion.set_content(\"\")" in delete_section
+    assert "Delete generated look" in buddy_ui_src
+    assert "Deleted generated Buddy look" in delete_section
+
+
+def test_home_status_bar_shows_buddy_hatch_progress():
+    status_src = _read("ui/status_bar.py")
+
+    assert "get_hatch_generation_status" in status_src
+    assert "thoth-buddy-hatch-progress" in status_src
+    assert "Buddy Hatch generation status" in status_src
+    assert "completed_clips" in status_src
+    assert "safe_timer(2.0, _poll_buddy_hatch_status)" in status_src
 
 
 def test_buddy_settings_visibility_controls_are_not_redundant():

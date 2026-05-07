@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import html
 import json
-import base64
 import pathlib
 import uuid
 
 from nicegui import run, ui
 
-from buddy.assets import list_buddy_packs, load_buddy_pack, static_url_for_path
+from buddy.assets import delete_generated_buddy_pack, list_buddy_packs, load_buddy_pack, static_url_for_path
 from buddy.brain import get_buddy_snapshot
 from buddy.config import get_buddy_config, save_buddy_config, set_buddy_config
 from buddy.events import BuddyEventType, emit_buddy_event
@@ -18,10 +17,12 @@ from buddy.hatch import (
     activate_hatch_art,
     activate_hatch_motion,
     activate_hatch_motion_pack,
-    create_hatch_draft,
-    generate_hatch_buddy,
-    motion_clip_specs,
+    get_hatch_generation_status,
+    mark_hatch_generation_status_seen,
+    start_hatch_generation_job,
+    use_hatch_still_only,
 )
+from ui.confirm import confirm_destructive
 
 _BUDDY_HEAD = """
 <script>
@@ -391,7 +392,7 @@ _BUBBLE_OPTIONS = {
 
 
 def _compose_hatch_prompt(concept: str, personality: str, notes: str) -> str:
-    safe_concept = (concept or "A cute tiny mystical coding familiar for Thoth").strip()
+    safe_concept = _clean_hatch_concept(concept)
     personality_id = personality if personality in _PERSONALITY_OPTIONS else "warm_mystical"
     hint = _PERSONALITY_GENERATION_HINTS.get(personality_id, _PERSONALITY_GENERATION_HINTS["warm_mystical"])
     parts = [
@@ -400,9 +401,22 @@ def _compose_hatch_prompt(concept: str, personality: str, notes: str) -> str:
     ]
     safe_notes = (notes or "").strip()
     if safe_notes:
-        parts.append(f"Generation guidance from the user: {safe_notes}")
-    parts.append("Keep the character readable as a compact desktop companion across idle, thinking, working, approval, success, and error motion states.")
+        parts.append(f"User style notes: {safe_notes}")
     return "\n\n".join(parts)
+
+
+def _clean_hatch_concept(value: str) -> str:
+    text = (value or "").strip()
+    if not text:
+        return "A cute tiny mystical coding familiar for Thoth"
+    for marker in ("Personality style:", "User style notes:"):
+        if text.startswith(marker):
+            return "A cute tiny mystical coding familiar for Thoth"
+        marker_index = text.find(f"\n{marker}")
+        if marker_index >= 0:
+            text = text[:marker_index].strip()
+    return text or "A cute tiny mystical coding familiar for Thoth"
+
 
 def inject_buddy_head() -> None:
     client = getattr(ui.context, "client", None)
@@ -473,20 +487,21 @@ def _surface_html(surface: str) -> str:
             motion_pack_path = str(activate_hatch_motion_pack(str(cfg.get("latest_hatch_motion_pack") or "")))
         except Exception:
             motion_pack_path = str(cfg.get("latest_hatch_motion_pack") or "")
+    render_fit = "cover"
     if not preview_path and not motion_pack_path:
         pack = load_buddy_pack(str(cfg.get("pack_id") or "glyph"))
-        if pack.runtime == "generated_motion_pack" and pack.status == "available":
+        if pack.runtime in {"generated_motion_pack", "generated_still"} and pack.status == "available":
             preview_path = str(pack.preview_path)
             preview_url = static_url_for_path(preview_path)
-            if not motion_path and pack.default_clip in pack.motion_clips:
+            if pack.runtime == "generated_motion_pack" and not motion_path and pack.default_clip in pack.motion_clips:
                 motion_path = str(pack.motion_clips[pack.default_clip])
                 motion_url = static_url_for_path(motion_path)
-            motion_pack_path = str(pack.motion_pack_path)
+                motion_pack_path = str(pack.motion_pack_path)
     motion_pack_json = json.dumps(_motion_pack_payload(motion_pack_path), separators=(",", ":")) if motion_pack_path else "{}"
     element_id = f"buddy-{surface}-{uuid.uuid4().hex[:10]}"
     unavailable = "Loading motion pack" if motion_pack_json != "{}" else ("Loading motion" if motion_url else ("Loading companion" if preview_url else "Generate a companion look to activate animation"))
     return f"""
-    <div id="{element_id}" class="thoth-buddy-wrap" data-thoth-buddy data-surface="{html.escape(surface)}" data-personality="{html.escape(personality)}" data-bubble-verbosity="{html.escape(bubble_verbosity)}" data-preview="{html.escape(preview_url)}" data-motion="{html.escape(motion_url)}" data-motion-pack="{html.escape(motion_pack_json, quote=True)}">
+    <div id="{element_id}" class="thoth-buddy-wrap" data-thoth-buddy data-surface="{html.escape(surface)}" data-personality="{html.escape(personality)}" data-bubble-verbosity="{html.escape(bubble_verbosity)}" data-preview="{html.escape(preview_url)}" data-motion="{html.escape(motion_url)}" data-motion-pack="{html.escape(motion_pack_json, quote=True)}" data-generated-fit="{html.escape(render_fit)}">
       <div class="thoth-buddy-stage">
         <canvas id="{element_id}-canvas" width="220" height="220" aria-label="Companion animation"></canvas>
         <div class="thoth-buddy-fallback" aria-hidden="true">*</div>
@@ -1034,6 +1049,21 @@ def build_buddy_settings_tab(_reopen=None) -> None:
         def _pack_preview_url(pack) -> str:
             return static_url_for_path(pack.preview_path) if pack.preview_path and pack.preview_path.exists() else ""
 
+        def _selected_generated_pack_preview(latest_cfg: dict | None = None) -> tuple[str, str]:
+            current_cfg = latest_cfg or get_buddy_config()
+            pack_id = str(selected_pack_id.get("value") or current_cfg.get("pack_id") or "")
+            if pack_id.startswith("hatch-"):
+                try:
+                    pack = load_buddy_pack(pack_id)
+                    if pack.runtime in {"generated_motion_pack", "generated_still"} and pack.preview_path.exists():
+                        return pack_id, str(pack.preview_path)
+                except Exception:
+                    pass
+            preview_path = str(current_cfg.get("latest_hatch_preview") or current_cfg.get("active_hatch_preview") or "")
+            if preview_path and pathlib.Path(preview_path).expanduser().exists():
+                return pathlib.Path(preview_path).expanduser().resolve().parent.name, preview_path
+            return pack_id, ""
+
         def _select_pack(pack_id: str) -> None:
             pack = packs_by_id.get(pack_id)
             if not pack or pack.status != "available":
@@ -1060,9 +1090,51 @@ def build_buddy_settings_tab(_reopen=None) -> None:
             _apply_buddy_surface_settings(latest_cfg)
             ui.notify(f"{pack_label} selected", type="positive")
 
+        def _delete_selected_generated_pack() -> None:
+            pack_id = str(selected_pack_id.get("value") or get_buddy_config().get("pack_id") or "")
+            try:
+                pack = load_buddy_pack(pack_id)
+            except Exception:
+                pack = None
+            if not pack_id.startswith("hatch-") or not pack or pack.runtime not in {"generated_motion_pack", "generated_still"}:
+                ui.notify("Delete is available for generated Hatch looks", type="warning")
+                return
+            pack_label = _display_pack_name(pack.name)
+
+            def _confirm_delete() -> None:
+                try:
+                    deleted_pack_id = delete_generated_buddy_pack(pack_id)
+                except Exception as exc:
+                    ui.notify(str(exc), type="negative")
+                    return
+                remaining_packs = [candidate for candidate in list_buddy_packs() if candidate.id != deleted_pack_id and candidate.status == "available"]
+                fallback_pack_id = "glyph" if any(candidate.id == "glyph" for candidate in remaining_packs) else (remaining_packs[0].id if remaining_packs else "glyph")
+                latest_cfg = get_buddy_config()
+                latest_cfg["pack_id"] = fallback_pack_id
+                _clear_hatch_media_overrides(latest_cfg)
+                save_buddy_config(latest_cfg)
+                selected_pack_id["value"] = fallback_pack_id
+                hatch_motion.set_content("")
+                hatch_status.set_text(f"Deleted generated Buddy look {pack_label}")
+                emit_buddy_event(BuddyEventType.APP_READY, source="buddy.settings", payload={"label": "Generated Buddy look deleted"})
+                _refresh_existing_buddy_surfaces()
+                _apply_buddy_surface_settings(latest_cfg)
+                ui.notify(f"Deleted {pack_label}", type="positive")
+                if _reopen:
+                    _reopen("Buddy")
+
+            confirm_destructive(
+                f"Delete {pack_label}?",
+                "This removes the generated look from the Buddy picker. Bundled looks are not affected.",
+                confirm_label="Delete generated look",
+                on_confirm=_confirm_delete,
+            )
+
         with ui.row().classes("items-center justify-between w-full"):
             ui.label("Look").classes("text-sm text-weight-medium")
-            ui.button(icon="refresh", on_click=lambda: _reopen("Buddy") if _reopen else None).props("flat dense round size=sm").tooltip("Refresh packs")
+            with ui.row().classes("items-center gap-1 no-wrap"):
+                ui.button(icon="delete", on_click=_delete_selected_generated_pack).props("flat dense round size=sm color=negative").tooltip("Delete generated look")
+                ui.button(icon="refresh", on_click=lambda: _reopen("Buddy") if _reopen else None).props("flat dense round size=sm").tooltip("Refresh packs")
         with ui.element("div").classes("thoth-buddy-pack-grid"):
             for pack in packs:
                 is_selected = pack.id == selected_pack_id["value"]
@@ -1084,16 +1156,16 @@ def build_buddy_settings_tab(_reopen=None) -> None:
         if not packs:
             ui.label("No packs found. Generate one or refresh after installing assets.").classes("text-grey-6 text-xs")
 
-    generation_actions, generation_body = _section("Generate Look", "auto_fix_high", "Concept and generation guidance used when creating the full motion pack.")
+    generation_actions, generation_body = _section("Generate Look", "auto_fix_high", "Describe the Buddy. Thoth handles sizing and motion automatically.")
     with generation_actions:
-        ui.badge("prompt-generated", color="purple").props("outline dense")
+        ui.badge("background", color="purple").props("outline dense")
     with generation_body:
         prompt = ui.textarea(
             label="Concept",
-            value=str(cfg.get("hatch_prompt", "A cute tiny mystical coding familiar for Thoth")),
+            value=_clean_hatch_concept(str(cfg.get("hatch_prompt") or cfg.get("hatch_generation_prompt") or "A cute tiny mystical coding familiar for Thoth")),
         ).classes("w-full").props("outlined autogrow")
         buddy_description = ui.textarea(
-            label="Generation guidance and personality notes",
+            label="Style notes (optional)",
             value=str(cfg.get("personality_description") or ""),
         ).props(f"maxlength={_PERSONALITY_MAX_LEN} counter outlined autogrow").classes("w-full")
         hatch_status = ui.label("").classes("text-grey-6 text-xs")
@@ -1105,7 +1177,11 @@ def build_buddy_settings_tab(_reopen=None) -> None:
         buddy_notes = sanitize_personality(str(buddy_description.value or ""))
         in_app_enabled = bool(in_app.value)
         desktop_enabled = bool(desktop.value)
-        cfg.update({
+        latest_cfg = get_buddy_config()
+        concept_prompt = _clean_hatch_concept(str(prompt.value or ""))
+        if concept_prompt != str(prompt.value or "").strip():
+            prompt.set_value(concept_prompt)
+        latest_cfg.update({
             "enabled": in_app_enabled or desktop_enabled,
             "sidebar_enabled": in_app_enabled,
             "floating_enabled": False,
@@ -1114,22 +1190,41 @@ def build_buddy_settings_tab(_reopen=None) -> None:
             "personality": str(buddy_personality.value or "warm_mystical"),
             "personality_description": buddy_notes,
             "bubble_verbosity": str(buddy_bubbles.value or "normal"),
-            "hatch_prompt": str(prompt.value or ""),
-            "hatch_generation_prompt": _compose_hatch_prompt(str(prompt.value or ""), str(buddy_personality.value or "warm_mystical"), buddy_notes),
+            "hatch_prompt": concept_prompt,
+            "hatch_generation_prompt": _compose_hatch_prompt(concept_prompt, str(buddy_personality.value or "warm_mystical"), buddy_notes),
         })
         if pack_selection_touched["value"]:
-            _clear_hatch_media_overrides(cfg)
-        save_buddy_config(cfg)
+            _clear_hatch_media_overrides(latest_cfg)
+        save_buddy_config(latest_cfg)
+        cfg.clear()
+        cfg.update(latest_cfg)
         if buddy_notes != str(buddy_description.value or ""):
             buddy_description.set_value(buddy_notes)
             ui.notify("Some companion personality text was removed", type="warning")
             return
         emit_buddy_event(BuddyEventType.APP_READY, source="buddy.settings", payload={"label": "Buddy settings saved"})
         _refresh_existing_buddy_surfaces()
-        _apply_buddy_surface_settings(cfg)
+        _apply_buddy_surface_settings(latest_cfg)
         ui.notify("Buddy settings saved", type="positive")
         if _reopen:
             _reopen("Buddy")
+
+    def _set_hatch_job_status_text(status: dict) -> None:
+        if not status:
+            return
+        state = str(status.get("status") or "")
+        message = str(status.get("message") or "")
+        completed = int(status.get("completed_clips") or 0)
+        total = int(status.get("total_clips") or 0)
+        if state in {"queued", "running"}:
+            suffix = f" ({completed}/{total} clips)" if total else ""
+            hatch_status.set_text((message or "Generating Buddy in the background") + suffix)
+        elif state == "completed":
+            hatch_status.set_text(message or "Buddy generation complete")
+        elif state == "partial":
+            hatch_status.set_text(message or "Buddy still is ready; motion needs attention")
+        elif state == "failed":
+            hatch_status.set_text(message or "Buddy generation failed")
 
     async def _hatch() -> None:
         buddy_notes = sanitize_personality(str(buddy_description.value or ""))
@@ -1137,16 +1232,13 @@ def build_buddy_settings_tab(_reopen=None) -> None:
             buddy_description.set_value(buddy_notes)
             ui.notify("Some companion personality text was removed", type="warning")
             return
-        concept_prompt = str(prompt.value or "")
+        concept_prompt = _clean_hatch_concept(str(prompt.value or ""))
+        if concept_prompt != str(prompt.value or "").strip():
+            prompt.set_value(concept_prompt)
         composed_prompt = _compose_hatch_prompt(concept_prompt, str(buddy_personality.value or "warm_mystical"), buddy_notes)
-        hatch_status.set_text("Generating Buddy art and motion pack...")
+        hatch_status.set_text("Starting Buddy generation in the background...")
         hatch_button.props(add="loading")
         try:
-            draft = await run.io_bound(
-                generate_hatch_buddy,
-                composed_prompt,
-                pack_id=str(selected_pack_id.get("value") or "glyph"),
-            )
             latest_cfg = get_buddy_config()
             latest_cfg.update({
                 "hatch_prompt": concept_prompt,
@@ -1154,61 +1246,144 @@ def build_buddy_settings_tab(_reopen=None) -> None:
                 "personality": str(buddy_personality.value or "warm_mystical"),
                 "personality_description": buddy_notes,
                 "bubble_verbosity": str(buddy_bubbles.value or "normal"),
-                "pack_id": str(selected_pack_id.get("value") or "glyph"),
             })
             save_buddy_config(latest_cfg)
-            preview_path = str(draft.preview_path or "")
-            if preview_path:
-                with open(preview_path, "rb") as preview_file:
-                    preview_b64 = base64.b64encode(preview_file.read()).decode("ascii")
-                hatch_preview.set_source(f"data:image/png;base64,{preview_b64}")
-                hatch_preview.style("display: block;")
-            if draft.motion_clips:
-                labels = {spec.id: spec.label for spec in motion_clip_specs()}
-                videos = []
-                for clip_id, clip_path in draft.motion_clips.items():
-                    motion_url = static_url_for_path(clip_path)
-                    label = html.escape(labels.get(clip_id, clip_id.title()))
-                    videos.append(
-                        '<div style="display:flex;flex-direction:column;gap:4px;width:118px;">'
-                        f'<video src="{html.escape(motion_url)}" autoplay loop muted playsinline controls '
-                        'style="width:118px;height:118px;object-fit:cover;border-radius:8px;background:#070a0e;"></video>'
-                        f'<span style="font-size:10px;color:#8f9baa;text-align:center;">{label}</span>'
-                        '</div>'
-                    )
-                hatch_motion.set_content(
-                    '<div style="display:flex;flex-wrap:wrap;gap:8px;max-width:390px;">'
-                    + "".join(videos)
-                    + '</div>'
-                )
-            elif draft.active_motion_path:
-                motion_url = static_url_for_path(draft.active_motion_path)
-                hatch_motion.set_content(
-                    f'<video src="{html.escape(motion_url)}" autoplay loop muted playsinline controls '
-                    'style="width:160px;max-width:100%;border-radius:8px;background:#070a0e;"></video>'
-                )
-            if draft.status == "motion_pack_generated":
-                hatch_status.set_text(f"Generated live Buddy art and motion pack {draft.id}")
-                emit_buddy_event(BuddyEventType.NOTIFICATION, source="buddy.hatch", payload={"label": "Buddy motion pack generated"})
-                ui.notify("Buddy motion pack generated", type="positive")
-            else:
-                hatch_status.set_text(f"Generated companion art, but motion pack failed for {draft.id}")
-                emit_buddy_event(BuddyEventType.NOTIFICATION, source="buddy.hatch", payload={"label": "Buddy art generated"})
-                ui.notify("Buddy art generated; motion pack needs video provider setup", type="warning")
+            job = await run.io_bound(
+                start_hatch_generation_job,
+                composed_prompt,
+                pack_id=str(selected_pack_id.get("value") or "glyph"),
+                mode="full",
+                display_prompt=concept_prompt,
+                reuse_existing=False,
+            )
+            _set_hatch_job_status_text(job)
+            emit_buddy_event(BuddyEventType.NOTIFICATION, source="buddy.hatch", payload={"label": "Buddy generation started"})
+            ui.notify("Buddy generation started in the background", type="info")
         except Exception as exc:
-            draft = create_hatch_draft(composed_prompt, pack_id=str(selected_pack_id.get("value") or "glyph"))
-            latest_cfg = get_buddy_config()
-            latest_cfg["hatch_prompt"] = concept_prompt
-            latest_cfg["hatch_generation_prompt"] = composed_prompt
-            save_buddy_config(latest_cfg)
-            hatch_status.set_text(f"Buddy art generation failed. Saved draft {draft.id}")
+            hatch_status.set_text("Buddy generation could not start")
             ui.notify(str(exc), type="negative")
         finally:
             hatch_button.props(remove="loading")
 
+    async def _retry_motion() -> None:
+        buddy_notes = sanitize_personality(str(buddy_description.value or ""))
+        if buddy_notes != str(buddy_description.value or ""):
+            buddy_description.set_value(buddy_notes)
+            ui.notify("Some companion personality text was removed", type="warning")
+            return
+        latest_cfg = get_buddy_config()
+        target_pack_id, preview_path = _selected_generated_pack_preview(latest_cfg)
+        if not preview_path or not pathlib.Path(preview_path).expanduser().exists():
+            ui.notify("Select or generate a Hatch look before retrying motion", type="warning")
+            return
+        concept_prompt = _clean_hatch_concept(str(prompt.value or latest_cfg.get("hatch_prompt") or latest_cfg.get("hatch_generation_prompt") or ""))
+        if concept_prompt != str(prompt.value or "").strip():
+            prompt.set_value(concept_prompt)
+        composed_prompt = _compose_hatch_prompt(
+            concept_prompt,
+            str(buddy_personality.value or "warm_mystical"),
+            buddy_notes,
+        )
+        hatch_status.set_text("Generating motion pack for current Buddy art...")
+        retry_motion_button.props(add="loading")
+        try:
+            latest_cfg = get_buddy_config()
+            latest_cfg.update({
+                "hatch_prompt": concept_prompt,
+                "hatch_generation_prompt": composed_prompt,
+                "personality": str(buddy_personality.value or "warm_mystical"),
+                "personality_description": buddy_notes,
+                "bubble_verbosity": str(buddy_bubbles.value or "normal"),
+            })
+            save_buddy_config(latest_cfg)
+            job = await run.io_bound(
+                start_hatch_generation_job,
+                composed_prompt,
+                pack_id=target_pack_id,
+                mode="motion",
+                preview_path=preview_path,
+                display_prompt=concept_prompt,
+                reuse_existing=False,
+            )
+            _set_hatch_job_status_text(job)
+            emit_buddy_event(BuddyEventType.NOTIFICATION, source="buddy.hatch", payload={"label": "Buddy motion generation started"})
+            ui.notify("Buddy motion regeneration started in the background", type="info")
+        except Exception as exc:
+            hatch_status.set_text("Buddy motion generation could not start")
+            ui.notify(str(exc), type="negative")
+        finally:
+            retry_motion_button.props(remove="loading")
+
+    seen_hatch_job = {"id": "", "terminal": False}
+
+    def _poll_hatch_job_status() -> None:
+        status = get_hatch_generation_status()
+        job_id = str(status.get("id") or "")
+        if not job_id:
+            return
+        state = str(status.get("status") or "")
+        if job_id != seen_hatch_job["id"]:
+            seen_hatch_job["id"] = job_id
+            seen_hatch_job["terminal"] = False
+        _set_hatch_job_status_text(status)
+        if state in {"completed", "partial", "failed"} and not seen_hatch_job["terminal"]:
+            seen_hatch_job["terminal"] = True
+            latest_cfg = get_buddy_config()
+            pack_id = str(status.get("pack_id") or latest_cfg.get("pack_id") or selected_pack_id.get("value") or "glyph")
+            selected_pack_id["value"] = pack_id
+            _refresh_existing_buddy_surfaces()
+            _apply_buddy_surface_settings(latest_cfg)
+            if _reopen and state in {"completed", "partial"} and not status.get("settings_refresh_seen"):
+                mark_hatch_generation_status_seen(job_id)
+                _reopen("Buddy")
+
+    def _use_still_only() -> None:
+        latest_cfg = get_buddy_config()
+        pack_id = str(latest_cfg.get("pack_id") or selected_pack_id.get("value") or "")
+        preview_path = str(latest_cfg.get("latest_hatch_preview") or latest_cfg.get("active_hatch_preview") or "")
+        if not preview_path:
+            try:
+                pack = load_buddy_pack(pack_id)
+                if pack.id.startswith("hatch-") and pack.preview_path.exists():
+                    preview_path = str(pack.preview_path)
+            except Exception:
+                preview_path = ""
+        if not pack_id.startswith("hatch-") or not preview_path:
+            ui.notify("Still-only mode is available for generated Hatch looks", type="warning")
+            return
+        try:
+            still_pack_id = use_hatch_still_only(
+                pack_id,
+                preview_path,
+                prompt=_clean_hatch_concept(str(latest_cfg.get("hatch_prompt") or prompt.value or latest_cfg.get("hatch_generation_prompt") or "")),
+            )
+        except Exception as exc:
+            ui.notify(str(exc), type="negative")
+            return
+        latest_cfg["pack_id"] = still_pack_id
+        for key in (
+            "active_hatch_motion",
+            "active_hatch_motion_pack",
+            "active_hatch_motion_clips",
+            "latest_hatch_motion",
+            "latest_hatch_motion_pack",
+            "latest_hatch_motion_error",
+        ):
+            latest_cfg.pop(key, None)
+        save_buddy_config(latest_cfg)
+        selected_pack_id["value"] = still_pack_id
+        hatch_motion.set_content("")
+        hatch_status.set_text("Using current Buddy art as a still image")
+        _refresh_existing_buddy_surfaces()
+        _apply_buddy_surface_settings(latest_cfg)
+        ui.notify("Using still image only", type="positive")
+
     with ui.row().classes("items-center justify-end gap-2 w-full q-mt-md"):
         ui.button("Save", icon="save", on_click=_save).props("unelevated no-caps color=primary")
+        ui.button("Use still only", icon="image", on_click=_use_still_only).props("outline no-caps")
+        retry_motion_button = ui.button("Retry motion", icon="movie", on_click=_retry_motion).props("outline no-caps")
         hatch_button = ui.button("Generate full Buddy", icon="auto_fix_high", on_click=_hatch).props("outline no-caps")
+    ui.timer(2.0, _poll_hatch_job_status)
 
 
 def set_floating_enabled(enabled: bool) -> dict:

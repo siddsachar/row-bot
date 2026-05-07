@@ -193,6 +193,36 @@ _AVATAR_CSS = """
     display: inline-block;
     flex-shrink: 0;
 }
+.thoth-buddy-hatch-progress {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid #AB47BC;
+    border-radius: 12px;
+    padding: 3px 11px;
+    font-size: 0.75rem;
+    color: #CE93D8;
+    background: rgba(171, 71, 188, 0.10);
+    animation: pulse-border 2s infinite;
+}
+.thoth-buddy-hatch-progress.done {
+    border-color: #66bb6a;
+    color: #a5d6a7;
+    background: rgba(102, 187, 106, 0.10);
+    animation: none;
+}
+.thoth-buddy-hatch-progress.warn {
+    border-color: #FFA726;
+    color: #FFCC80;
+    background: rgba(255, 167, 38, 0.10);
+    animation: none;
+}
+.thoth-buddy-hatch-progress.error {
+    border-color: #ef5350;
+    color: #ef9a9a;
+    background: rgba(239, 83, 80, 0.10);
+    animation: none;
+}
 .status-pill.inactive { opacity: 0.4; font-size: 0.75rem; }
 .thoth-gear-btn {
     width: 44px; height: 44px;
@@ -417,6 +447,46 @@ def build_status_bar(
           extraction_pill.set_visibility(True)
 
       safe_timer(2.0, _poll_extraction_status)
+
+      # ── BUDDY HATCH PROGRESS pill ─────────────────────────────
+      buddy_hatch_pill = ui.html("", sanitize=False)
+      buddy_hatch_pill.set_visibility(False)
+      buddy_hatch_pill.style("text-align: center; margin-top: 4px;")
+
+      def _poll_buddy_hatch_status() -> None:
+          try:
+              from buddy.hatch import get_hatch_generation_status
+          except Exception:
+              buddy_hatch_pill.set_visibility(False)
+              return
+          status = get_hatch_generation_status()
+          if not status:
+              buddy_hatch_pill.set_visibility(False)
+              return
+          state = str(status.get("status") or "")
+          if state not in {"queued", "running", "completed", "partial", "failed"}:
+              buddy_hatch_pill.set_visibility(False)
+              return
+          finished_at = float(status.get("finished_at") or 0.0)
+          if finished_at and time.time() - finished_at > 90:
+              buddy_hatch_pill.set_visibility(False)
+              return
+          completed = int(status.get("completed_clips") or 0)
+          total = int(status.get("total_clips") or 0)
+          pct = int(completed / total * 100) if total else 0
+          bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
+          message = str(status.get("message") or "Buddy generation")
+          css_state = {"completed": " done", "partial": " warn", "failed": " error"}.get(state, "")
+          clip_text = f" · {bar} {completed}/{total}" if total and state in {"queued", "running"} else ""
+          buddy_hatch_pill.set_content(
+              f'<span class="thoth-buddy-hatch-progress{css_state}" title="Buddy Hatch generation status">'
+              f'<span class="material-icons" style="font-size:14px;">auto_fix_high</span>'
+              f'{message}{clip_text}'
+              f'</span>'
+          )
+          buddy_hatch_pill.set_visibility(True)
+
+      safe_timer(2.0, _poll_buddy_hatch_status)
 
       # Wire the stop button via JavaScript delegation
       ui.run_javascript('''

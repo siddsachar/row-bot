@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import pathlib
+import threading
 
 
 def test_buddy_event_bus_assigns_ids_and_retains_recent_events():
@@ -288,6 +289,13 @@ def test_buddy_hatch_preview_generation_saves_preview(monkeypatch, tmp_path):
     monkeypatch.setattr(config_mod, "_BUDDY_CONFIG_PATH", tmp_path / "buddy_config.json")
     monkeypatch.setattr(hatch_mod, "_DATA_DIR", tmp_path / "hatches")
     monkeypatch.setattr(assets_mod, "_BUDDY_STATIC_DIR", tmp_path / "buddy_static")
+    monkeypatch.setattr(assets_mod, "_USER_PACKS_DIR", tmp_path / "buddy_static" / "packs")
+    config_mod.save_buddy_config({
+        "active_hatch_motion": "old.mp4",
+        "active_hatch_motion_pack": "old-manifest.json",
+        "latest_hatch_motion": "old-source.mp4",
+        "latest_hatch_motion_pack": "old-source-manifest.json",
+    })
 
     def _fake_generate(prompt: str, size: str = "auto", quality: str = "auto") -> str:
         return "Image generated successfully"
@@ -302,6 +310,15 @@ def test_buddy_hatch_preview_generation_saves_preview(monkeypatch, tmp_path):
     assert "tiny gold owl" in draft.prompt
     assert pathlib.Path(draft.preview_path).exists()
     assert (tmp_path / "buddy_static" / "generated" / "current.png").exists()
+    assert (tmp_path / "buddy_static" / "packs" / draft.pack_id / "manifest.json").exists()
+    pack = assets_mod.load_buddy_pack(draft.pack_id)
+    assert pack.runtime == "generated_still"
+    assert pack.status == "available"
+    assert assets_mod.static_url_for_path(pack.preview_path) == f"/_buddy/packs/{draft.pack_id}/preview.png"
+    cfg = config_mod.get_buddy_config()
+    assert cfg["pack_id"] == draft.pack_id
+    assert "active_hatch_motion_pack" not in cfg
+    assert "latest_hatch_motion_pack" not in cfg
 
 
 def test_buddy_hatch_buddy_generation_activates_motion(monkeypatch, tmp_path):
@@ -314,6 +331,7 @@ def test_buddy_hatch_buddy_generation_activates_motion(monkeypatch, tmp_path):
     monkeypatch.setattr(config_mod, "_BUDDY_CONFIG_PATH", tmp_path / "buddy_config.json")
     monkeypatch.setattr(hatch_mod, "_DATA_DIR", tmp_path / "hatches")
     monkeypatch.setattr(assets_mod, "_BUDDY_STATIC_DIR", tmp_path / "buddy_static")
+    monkeypatch.setattr(assets_mod, "_USER_PACKS_DIR", tmp_path / "buddy_static" / "packs")
 
     monkeypatch.setattr("tools.image_gen_tool._generate_image", lambda *args, **kwargs: "Image generated")
     monkeypatch.setattr("tools.image_gen_tool.get_and_clear_last_image", lambda: "iVBORw0KGgo=")
@@ -339,7 +357,7 @@ def test_buddy_hatch_buddy_generation_activates_motion(monkeypatch, tmp_path):
         }
         assert pathlib.Path(image_source).exists()
         assert aspect_ratio == "1:1"
-        assert duration_seconds == 4
+        assert duration_seconds == 5
         return "Video generated"
 
     monkeypatch.setattr("tools.video_gen_tool._animate_image", _fake_animate)
@@ -359,6 +377,12 @@ def test_buddy_hatch_buddy_generation_activates_motion(monkeypatch, tmp_path):
     assert cfg["active_hatch_motion"].endswith("current.mp4")
     assert cfg["active_hatch_motion_pack"].endswith("manifest.json")
     assert cfg["active_hatch_motion_clips"]["thinking"].endswith("thinking.mp4")
+    assert cfg["pack_id"] == draft.pack_id
+    pack = assets_mod.load_buddy_pack(draft.pack_id)
+    assert pack.runtime == "generated_motion_pack"
+    assert pack.status == "available"
+    assert (tmp_path / "buddy_static" / "packs" / draft.pack_id / "preview.png").exists()
+    assert (tmp_path / "buddy_static" / "packs" / draft.pack_id / "motions" / "idle.mp4").exists()
 
 
 def test_buddy_hatch_motion_pack_can_force_fresh_generation(monkeypatch, tmp_path):
@@ -401,6 +425,50 @@ def test_buddy_hatch_motion_pack_can_force_fresh_generation(monkeypatch, tmp_pat
     assert set(generated_filenames) == {"idle.mp4", "thinking.mp4", "working.mp4", "approval.mp4", "success.mp4", "error.mp4"}
 
 
+def test_buddy_hatch_retry_motion_preserves_user_pack_manifest(monkeypatch, tmp_path):
+    import json
+    import buddy.assets as assets_mod
+    import buddy.config as config_mod
+    import buddy.hatch as hatch_mod
+    import tools.video_gen_tool as video_mod
+
+    monkeypatch.setattr(config_mod, "_DATA_DIR", tmp_path)
+    monkeypatch.setattr(config_mod, "_BUDDY_CONFIG_PATH", tmp_path / "buddy_config.json")
+    monkeypatch.setattr(hatch_mod, "_DATA_DIR", tmp_path / "hatches")
+    monkeypatch.setattr(assets_mod, "_BUDDY_STATIC_DIR", tmp_path / "buddy_static")
+    monkeypatch.setattr(assets_mod, "_USER_PACKS_DIR", tmp_path / "buddy_static" / "packs")
+
+    pack_dir = tmp_path / "buddy_static" / "packs" / "hatch-existing"
+    pack_dir.mkdir(parents=True)
+    preview = pack_dir / "preview.png"
+    preview.write_bytes(b"PNG")
+
+    def _fake_animate(prompt: str, image_source: str = "last", duration_seconds: int = 8, aspect_ratio: str = "16:9", resolution: str = "720p") -> str:
+        output_dir = video_mod._video_output_dir_var.get()
+        output_filename = video_mod._video_output_filename_var.get()
+        assert output_dir is not None
+        assert output_filename is not None
+        output_dir.mkdir(parents=True, exist_ok=True)
+        motion_path = output_dir / output_filename
+        motion_path.write_bytes(f"MP4:{output_filename}".encode("utf-8"))
+        video_mod._last_generated_video = {"path": str(motion_path), "filename": motion_path.name}
+        return "Video generated"
+
+    monkeypatch.setattr("tools.video_gen_tool._animate_image", _fake_animate)
+
+    draft = hatch_mod.generate_hatch_motion_pack("A tiny dog named Honey", preview, pack_id="hatch-existing", reuse_existing=False)
+
+    pack_manifest = json.loads((pack_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert draft.status == "motion_pack_generated"
+    assert pack_manifest["runtime"] == "generated_motion_pack"
+    assert set(pack_manifest["clips"]) == {"idle", "thinking", "working", "approval", "success", "error"}
+    assert (tmp_path / "hatches" / "hatch-existing" / "manifest.json").exists()
+    pack = assets_mod.load_buddy_pack("hatch-existing")
+    assert pack.runtime == "generated_motion_pack"
+    assert pack.status == "available"
+    assert len(pack.motion_clips) == 6
+
+
 def test_buddy_hatch_google_pacing_only_applies_to_real_google_generator(monkeypatch):
     import buddy.hatch as hatch_mod
 
@@ -409,6 +477,42 @@ def test_buddy_hatch_google_pacing_only_applies_to_real_google_generator(monkeyp
 
     assert hatch_mod._motion_request_spacing_seconds() == 15
     assert hatch_mod._motion_request_spacing_seconds(lambda: None) == 0
+
+
+def test_buddy_loader_recovers_overwritten_hatch_motion_pack_manifest(monkeypatch, tmp_path):
+    import json
+    import buddy.assets as assets_mod
+
+    monkeypatch.setattr(assets_mod, "_BUDDY_STATIC_DIR", tmp_path / "buddy_static")
+    monkeypatch.setattr(assets_mod, "_USER_PACKS_DIR", tmp_path / "buddy_static" / "packs")
+
+    pack_dir = tmp_path / "buddy_static" / "packs" / "hatch-legacy"
+    motion_dir = pack_dir / "motions"
+    motion_dir.mkdir(parents=True)
+    (pack_dir / "preview.png").write_bytes(b"PNG")
+    clips = {}
+    for clip_id in assets_mod.REQUIRED_MOTION_CLIPS:
+        (motion_dir / f"{clip_id}.mp4").write_bytes(b"MP4")
+        clips[clip_id] = {"id": clip_id, "label": clip_id.title(), "path": f"{clip_id}.mp4", "animations": [clip_id], "duration_seconds": 5}
+    (motion_dir / "manifest.json").write_text(json.dumps({"default_clip": "idle", "clips": clips}), encoding="utf-8")
+    (pack_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "id": "hatch-legacy",
+                "status": "motion_pack_generated",
+                "preview_path": str(pack_dir / "preview.png"),
+                "motion_pack_path": str(motion_dir / "manifest.json"),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    pack = assets_mod.load_buddy_pack("hatch-legacy")
+
+    assert pack.runtime == "generated_motion_pack"
+    assert pack.status == "available"
+    assert pack.preview_path == (pack_dir / "preview.png").resolve()
+    assert set(pack.motion_clips) == assets_mod.REQUIRED_MOTION_CLIPS
 
 
 def test_buddy_hatch_motion_pack_activation_copies_manifest_and_clips(monkeypatch, tmp_path):
@@ -537,6 +641,193 @@ def test_buddy_hatch_motion_map_keeps_denial_out_of_approval_clip():
     assert hatch_mod.MOTION_ANIMATION_MAP["pause"] == "error"
     assert "pause" not in approval_spec.animations
     assert "pause" in error_spec.animations
+
+
+def test_buddy_hatch_motion_specs_use_provider_supported_duration():
+    import buddy.hatch as hatch_mod
+
+    assert all(spec.duration_seconds >= 5 for spec in hatch_mod.MOTION_CLIP_SPECS)
+
+
+def test_buddy_hatch_image_prompt_requests_single_avatar_not_pose_sheet():
+    import buddy.hatch as hatch_mod
+
+    prompt = hatch_mod._buddy_image_prompt("A tiny dog named Honey")
+
+    assert "exactly one" in prompt
+    assert "single centered avatar portrait" in prompt
+    assert "Do not create a sprite sheet" in prompt
+    assert "contact sheet" in prompt
+    assert "grid" in prompt
+    assert "multiple poses" in prompt
+    assert "idle, thinking" not in prompt
+
+
+def test_buddy_hatch_motion_prompt_keeps_avatar_framing_stable():
+    import buddy.hatch as hatch_mod
+
+    prompt = hatch_mod._buddy_motion_prompt("A tiny dog named Honey", "idle")
+
+    assert "Create one video clip only" in prompt
+    assert "single identity and framing reference" in prompt
+    assert "Lock the virtual camera" in prompt
+    assert "no zooming" in prompt
+    assert "fit inside a rounded avatar border" in prompt
+    assert "at least 18 percent empty margin" in prompt
+    assert "no flicker" in prompt
+    assert "no background pulsing" in prompt
+    assert "no size changes" in prompt
+    assert "Do not create a sprite sheet" in prompt
+    assert "no transparent background" in prompt
+    assert "no alpha checkerboard" in prompt
+    assert "no white checkerboard pattern" in prompt
+
+
+def test_buddy_hatch_preserves_opaque_full_frame_motion_source(tmp_path):
+    import buddy.hatch as hatch_mod
+    from PIL import Image
+
+    preview = tmp_path / "preview.png"
+    image = Image.new("RGBA", (1024, 1024), (235, 235, 235, 255))
+    image.paste((240, 120, 30, 255), (430, 320, 590, 720))
+    image.save(preview)
+
+    motion_source = hatch_mod._prepare_motion_source_image(preview)
+
+    assert motion_source.name == "motion_source.png"
+    with Image.open(motion_source) as prepared:
+        assert prepared.mode == "RGB"
+        assert prepared.size == (1024, 1024)
+        assert prepared.getpixel((0, 0)) == (235, 235, 235)
+        assert prepared.getpixel((512, 512)) == (240, 120, 30)
+
+
+def test_buddy_hatch_composites_transparent_motion_source(tmp_path):
+    import buddy.hatch as hatch_mod
+    from PIL import Image
+
+    preview = tmp_path / "preview.png"
+    image = Image.new("RGBA", (300, 600), (0, 0, 0, 0))
+    image.paste((240, 120, 30, 255), (60, 80, 240, 560))
+    image.save(preview)
+
+    motion_source = hatch_mod._prepare_motion_source_image(preview)
+
+    assert motion_source.name == "motion_source.png"
+    with Image.open(motion_source) as prepared:
+        assert prepared.mode == "RGB"
+        assert prepared.size == (1024, 1024)
+        assert prepared.getpixel((0, 0)) == hatch_mod._MOTION_SOURCE_BACKGROUND[:3]
+
+
+def test_stop_task_emits_buddy_cancel_immediately(monkeypatch):
+    import tasks as tasks_mod
+
+    seen: list[tuple[str, dict[str, str]]] = []
+
+    def _fake_emit(status: str, **payload: str) -> None:
+        seen.append((status, payload))
+
+    stop_event = threading.Event()
+    monkeypatch.setattr(tasks_mod, "_emit_buddy_workflow_event", _fake_emit)
+    with tasks_mod._active_lock:
+        tasks_mod._active_runs["thread-1"] = {
+            "task_id": "task-1",
+            "name": "Daily Briefing",
+            "stop_event": stop_event,
+        }
+    try:
+        assert tasks_mod.stop_task("thread-1") is True
+    finally:
+        with tasks_mod._active_lock:
+            tasks_mod._active_runs.pop("thread-1", None)
+
+    assert stop_event.is_set()
+    assert seen == [("cancelled", {"task_id": "task-1", "thread_id": "thread-1", "label": "Stopping Daily Briefing"})]
+
+
+def test_buddy_hatch_background_job_starts_without_blocking(monkeypatch):
+    import buddy.hatch as hatch_mod
+
+    with hatch_mod._JOB_LOCK:
+        hatch_mod._CURRENT_JOB.clear()
+
+    started = {"value": False}
+
+    class FakeThread:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+        def start(self):
+            started["value"] = True
+
+    monkeypatch.setattr(hatch_mod.threading, "Thread", FakeThread)
+
+    queued = hatch_mod.start_hatch_generation_job("A tiny dog named Honey", pack_id="glyph")
+    running = hatch_mod.get_hatch_generation_status()
+
+    assert started["value"] is True
+    assert queued["status"] == "queued"
+    assert running["status"] == "running"
+    assert running["mode"] == "full"
+    assert running["total_clips"] == len(hatch_mod.MOTION_CLIP_SPECS)
+    try:
+        hatch_mod.start_hatch_generation_job("Another Buddy", pack_id="glyph")
+    except RuntimeError as exc:
+        assert "already running" in str(exc)
+    else:
+        raise AssertionError("start_hatch_generation_job allowed overlapping generation")
+
+    with hatch_mod._JOB_LOCK:
+        hatch_mod._CURRENT_JOB.clear()
+
+
+def test_buddy_hatch_can_switch_user_pack_back_to_still_only(monkeypatch, tmp_path):
+    import buddy.assets as assets_mod
+    import buddy.hatch as hatch_mod
+
+    monkeypatch.setattr(assets_mod, "_BUDDY_STATIC_DIR", tmp_path / "buddy_static")
+    monkeypatch.setattr(assets_mod, "_USER_PACKS_DIR", tmp_path / "buddy_static" / "packs")
+
+    preview = tmp_path / "preview.png"
+    preview.write_bytes(b"PNG")
+    pack_id = hatch_mod.use_hatch_still_only("hatch-123", preview, prompt="A tiny dog named Honey")
+
+    assert pack_id == "hatch-123"
+    pack = assets_mod.load_buddy_pack(pack_id)
+    assert pack.runtime == "generated_still"
+    assert pack.status == "available"
+    assert pack.name == "Honey"
+    assert not pack.motion_clips
+
+
+def test_buddy_can_delete_generated_hatch_pack(monkeypatch, tmp_path):
+    import buddy.assets as assets_mod
+    import buddy.hatch as hatch_mod
+
+    monkeypatch.setattr(assets_mod, "_BUDDY_STATIC_DIR", tmp_path / "buddy_static")
+    monkeypatch.setattr(assets_mod, "_USER_PACKS_DIR", tmp_path / "buddy_static" / "packs")
+
+    preview = tmp_path / "preview.png"
+    preview.write_bytes(b"PNG")
+    pack_id = hatch_mod.use_hatch_still_only("hatch-123", preview, prompt="A tiny dog named Honey")
+    pack_dir = assets_mod._USER_PACKS_DIR / pack_id
+
+    assert pack_dir.exists()
+    assert assets_mod.delete_generated_buddy_pack(pack_id) == pack_id
+    assert not pack_dir.exists()
+
+
+def test_buddy_delete_generated_pack_rejects_bundled_pack_ids():
+    import buddy.assets as assets_mod
+
+    try:
+        assets_mod.delete_generated_buddy_pack("glyph")
+    except ValueError as exc:
+        assert "Only generated Hatch packs" in str(exc)
+    else:
+        raise AssertionError("delete_generated_buddy_pack accepted a bundled pack id")
 
 
 def test_buddy_brain_decays_stale_event_to_idle(monkeypatch):

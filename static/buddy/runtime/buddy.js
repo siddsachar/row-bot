@@ -130,6 +130,23 @@
     ctx.drawImage(source, sx, sy, sw, sh, x, y, width, height);
   }
 
+  function drawContainSource(ctx, source, x, y, width, height) {
+    const sourceWidth = source.videoWidth || source.naturalWidth || width;
+    const sourceHeight = source.videoHeight || source.naturalHeight || height;
+    const sourceRatio = sourceWidth / sourceHeight;
+    const targetRatio = width / height;
+    let dw = width;
+    let dh = height;
+    if (sourceRatio > targetRatio) {
+      dh = width / sourceRatio;
+    } else if (sourceRatio < targetRatio) {
+      dw = height * sourceRatio;
+    }
+    const dx = x + (width - dw) / 2;
+    const dy = y + (height - dh) / 2;
+    ctx.drawImage(source, dx, dy, dw, dh);
+  }
+
   function colorDistance(red, green, blue, color) {
     const dr = red - color.red;
     const dg = green - color.green;
@@ -219,17 +236,21 @@
     return state.keyCtx;
   }
 
+  function drawSourceForFit(ctx, state, source, x, y, width, height) {
+    drawCoverSource(ctx, source, x, y, width, height);
+  }
+
   function drawTransparentSource(ctx, state, source, x, y, width, height) {
     const outputWidth = Math.max(1, Math.round(width));
     const outputHeight = Math.max(1, Math.round(height));
     const keyCtx = ensureKeyCanvas(state, outputWidth, outputHeight);
     keyCtx.clearRect(0, 0, outputWidth, outputHeight);
-    drawCoverSource(keyCtx, source, 0, 0, outputWidth, outputHeight);
+    drawSourceForFit(keyCtx, state, source, 0, 0, outputWidth, outputHeight);
     let frame;
     try {
       frame = keyCtx.getImageData(0, 0, outputWidth, outputHeight);
     } catch (error) {
-      drawCoverSource(ctx, source, x, y, width, height);
+      drawSourceForFit(ctx, state, source, x, y, width, height);
       return;
     }
     const data = frame.data;
