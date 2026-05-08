@@ -13,7 +13,6 @@ from designer.state import DesignerProject, ASPECT_RATIOS, CANVAS_PRESETS
 from designer.storage import save_project
 from designer.thumbnail import compute_thumbnail_dimensions, render_static_page_thumbnail
 from designer.ui_theme import dialog_card_style, style_ghost_button, style_primary_button
-from ui.timer_utils import safe_timer
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +79,7 @@ def _deferred(fn):
                 pass  # parent slot deleted — page navigated away
         try:
             ui.context.client.safe_invoke(
-                lambda: safe_timer(0.05, _safe, once=True)
+                lambda: ui.timer(0.05, _safe, once=True)
             )
         except RuntimeError:
             pass
