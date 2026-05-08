@@ -12,6 +12,7 @@ from designer.render_assets import resolve_project_image_sources, resolve_projec
 from designer.storage import load_asset_bytes
 from designer.state import DesignerProject, BrandConfig
 from designer.interaction import inject_bridge_js
+from ui.timer_utils import safe_timer
 
 logger = logging.getLogger(__name__)
 
@@ -669,7 +670,7 @@ def build_preview(project: DesignerProject, *,
             except Exception:
                 pass
             pass  # parent slot deleted — page navigated away
-    _refresh_timer = ui.timer(0.5, _safe_refresh)
+    _refresh_timer = safe_timer(0.5, _safe_refresh)
     try:
         ui.context.client.on_disconnect(lambda: _refresh_timer.deactivate())
     except Exception:
