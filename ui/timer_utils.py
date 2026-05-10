@@ -116,13 +116,24 @@ def defer_ui(callback: Callable[..., Any], *, delay: float = 0.01) -> asyncio.Ta
     wrapper never gets a chance to catch the benign error.
     """
 
+    try:
+        client = ui.context.client
+    except Exception:
+        client = None
+
     async def _runner() -> None:
         if delay > 0:
             await asyncio.sleep(delay)
         try:
-            result = callback()
-            if asyncio.iscoroutine(result):
-                await result
+            if client is not None:
+                with client:
+                    result = callback()
+                    if asyncio.iscoroutine(result):
+                        await result
+            else:
+                result = callback()
+                if asyncio.iscoroutine(result):
+                    await result
         except Exception as exc:
             if _is_benign_dead_ui_error(exc):
                 logger.debug("defer_ui: skipped after dead-UI error: %s", exc)

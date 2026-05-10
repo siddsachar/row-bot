@@ -83,6 +83,7 @@ def test_stability_source_contracts_are_wired():
     agent_src = Path("agent.py").read_text(encoding="utf-8")
     head_src = Path("ui/head_html.py").read_text(encoding="utf-8")
     timer_src = Path("ui/timer_utils.py").read_text(encoding="utf-8")
+    defer_src = timer_src.split("def defer_ui", 1)[1].split("def safe_ui_task", 1)[0]
     settings_src = Path("ui/settings.py").read_text(encoding="utf-8")
     catalog_src = Path("ui/model_catalog.py").read_text(encoding="utf-8")
     dialog_src = Path("ui/task_dialog.py").read_text(encoding="utf-8")
@@ -96,6 +97,8 @@ def test_stability_source_contracts_are_wired():
     assert "thothReportClientEvent" in head_src
     assert "connection_state" in head_src
     assert "def safe_ui_task(" in timer_src
+    assert "client = ui.context.client" in defer_src
+    assert "with client:" in defer_src
     assert "safe_ui_task(_load, context=\"models settings load\")" in settings_src
     assert "_render_provider_summaries" in catalog_src
     assert "Open one provider or search" in catalog_src
