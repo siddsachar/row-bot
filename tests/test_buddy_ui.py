@@ -65,8 +65,10 @@ def test_buddy_desktop_and_packaging_hooks_exist():
     assert "Hide Buddy" in launcher_src
     assert "_send_window_command" in launcher_src
     assert "ThreadingHTTPServer" in launcher_src
-    assert 'path.startswith("/buddy/show")' in launcher_src
-    assert 'path.startswith("/buddy/hide")' in launcher_src
+    assert 'parsed.path.startswith("/buddy/show")' in launcher_src
+    assert 'parsed.path.startswith("/buddy/hide")' in launcher_src
+    assert "parse_qs(parsed.query or \"\")" in launcher_src
+    assert "manual = str((qs.get(\"manual\") or [\"1\"])[0]).lower()" in launcher_src
     assert "_buddy_overlay_url" in launcher_src
     assert '"transparent": True' in launcher_src
     assert '"background_color": "#000000"' in launcher_src
@@ -83,6 +85,17 @@ def test_buddy_desktop_and_packaging_hooks_exist():
     assert "_BUDDY_WINDOW_READY = False" in launcher_src
     assert "if not _BUDDY_WINDOW_READY:" in launcher_src
     assert "_BUDDY_MANUALLY_HIDDEN" in launcher_src
+    assert "_BUDDY_DESKTOP_ENABLED = False" in launcher_src
+    assert "thoth_window.log" in launcher_src
+    assert "[buddy.window]" in launcher_src
+    assert "set_buddy_desktop_enabled" in launcher_src
+    assert "_install_main_window_buddy_events(main_window)" in launcher_src
+    assert "window.events.minimized += lambda *_args: _auto_show_buddy_window(\"main_window_minimized\")" in launcher_src
+    assert "window.events.restored += lambda *_args: _auto_hide_buddy_window(\"main_window_restored\")" in launcher_src
+    assert "window.events.shown += lambda *_args: _auto_hide_buddy_window(\"main_window_shown\")" in launcher_src
+    assert "window.events.closed += lambda *_args: _close_buddy_window_for_main_close()" in launcher_src
+    assert "_JS_API.show_buddy_window(False, _APP_PORT, 260, 260)" in launcher_src
+    assert "_JS_API.hide_buddy_window(False)" in launcher_src
     assert "cache_bust=False" in launcher_src
     assert "buddy_refresh" in launcher_src
     assert "_WINDOW_SCRIPT = r'''\nimport sys\nimport time" in launcher_src
@@ -413,6 +426,7 @@ def test_buddy_status_bubbles_and_hot_apply_are_wired():
     assert "pump_timer.cancel(with_current_invocation=True)" in buddy_ui_src
     assert "_apply_buddy_surface_settings" in buddy_ui_src
     assert "window.pywebview.api" in buddy_ui_src
+    assert "api.set_buddy_desktop_enabled" in buddy_ui_src
     assert "open_buddy_window" in buddy_ui_src
     assert "show_buddy_window" in buddy_ui_src
     assert "hide_buddy_window" in buddy_ui_src

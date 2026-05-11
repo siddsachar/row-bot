@@ -6544,8 +6544,8 @@ try:
     record("PASS", "status_checks: CheckResult inactive properties")
 
     # ── 41c. Check registry completeness ─────────────────────────────
-    assert len(ALL_CHECKS) == 20, f"Expected 20 checks, got {len(ALL_CHECKS)}"
-    record("PASS", "status_checks: 20 checks registered in ALL_CHECKS")
+    assert len(ALL_CHECKS) == 26, f"Expected 26 checks, got {len(ALL_CHECKS)}"
+    record("PASS", "status_checks: 26 checks registered in ALL_CHECKS")
 
     assert set(LIGHT_CHECKS).issubset(set(ALL_CHECKS)), "LIGHT_CHECKS not subset"
     assert set(HEAVY_CHECKS).issubset(set(ALL_CHECKS)), "HEAVY_CHECKS not subset"
@@ -6654,19 +6654,35 @@ try:
 
     # ── 41l. Check settings_tab mapping ──────────────────────────────
     _tabs_expected = {
-        "Ollama": "Models", "Model": "Models", "Cloud API": "Cloud",
+        "Ollama": "Models", "Model": "Models", "Cloud API": "Providers",
         "Email": "Channels", "Telegram": "Channels",
-        "Gmail OAuth": "Gmail", "Calendar OAuth": "Calendar",
-        "Knowledge": "Knowledge", "FAISS Index": "",
+        "Gmail OAuth": "Accounts", "Calendar OAuth": "Accounts",
+        "Knowledge": "Knowledge", "FAISS Index": "Knowledge",
         "Dream Cycle": "Preferences", "TTS": "Voice",
         "Wiki Vault": "Knowledge", "Disk": "System",
-        "Documents": "Documents", "Threads DB": "",
+        "Documents": "Documents", "Threads DB": "System",
+        "Network": "System", "Tools": "Utilities",
+        "Search": "Search", "Skills": "Skills",
+        "Tracker": "Tracker", "Buddy": "Buddy",
+        "MCP": "MCP", "Plugins": "Plugins",
     }
     for r in all_results:
         if r.name in _tabs_expected:
             assert r.settings_tab == _tabs_expected[r.name], \
                 f"{r.name}: expected tab '{_tabs_expected[r.name]}', got '{r.settings_tab}'"
     record("PASS", "status_checks: settings_tab mapping correct")
+
+    _sc_src41 = Path("ui/status_checks.py").read_text(encoding="utf-8")
+    assert "load_processed_files" in _sc_src41, \
+        "Documents status must use processed document count, not vector-store file count"
+    assert 'CheckResult("Workflows"' in _sc_src41, \
+        "Workflow status pill must surface scheduler/running/approval state"
+    assert 'settings_tab="Utilities"' in _sc_src41, \
+        "Tools status should route to the current Utilities tab"
+    for _tab41 in ("Search", "Skills", "Tracker", "Buddy", "MCP", "Plugins"):
+        assert f'settings_tab="{_tab41}"' in _sc_src41, \
+            f"Status pills must include a {_tab41} aggregate"
+    record("PASS", "status_checks: home pills use current sources and tabs")
 
     # ── 41m. build_status_bar callable signature ─────────────────────
     import inspect as _insp41
@@ -6679,6 +6695,22 @@ try:
     sig_home = _insp41.signature(_bh41)
     assert "open_settings" in sig_home.parameters
     record("PASS", "home: build_home accepts open_settings kwarg")
+
+    _cc_src41 = Path("ui/command_center.py").read_text(encoding="utf-8")
+    assert "workflow_console_collapsed" in _cc_src41, \
+        "Command Center must persist collapsed/expanded workflow console state"
+    assert "workflow-console-rail" in _cc_src41, \
+        "Command Center must render a collapsed workflow rail"
+    assert "workflow-console-approval-alert" in _cc_src41 and "workflow-console-alert-flash" in _cc_src41, \
+        "Collapsed workflow rail must surface pending approval attention"
+    record("PASS", "command_center: collapsed rail and approval attention contract")
+
+    _buddy_brain_src41 = Path("buddy/brain.py").read_text(encoding="utf-8")
+    assert "owner_id" in _buddy_brain_src41 and "_dominant_activity" in _buddy_brain_src41, \
+        "Buddy brain must use owned activities and deterministic priority"
+    assert "_reconcile_durable_activity" in _buddy_brain_src41, \
+        "Buddy brain must reconcile durable workflow/approval facts"
+    record("PASS", "buddy: owned state-machine contract")
 
     # ── 41o. Sidebar avatar CSS and helper ───────────────────────────
     from ui.sidebar import _SIDEBAR_AVATAR_CSS

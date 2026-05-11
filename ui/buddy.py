@@ -659,6 +659,9 @@ def _apply_buddy_surface_settings(cfg: dict) -> None:
             }});
             const api = window.pywebview && window.pywebview.api ? window.pywebview.api : null;
             if (api) {{
+                if (api.set_buddy_desktop_enabled) {{
+                    Promise.resolve(api.set_buddy_desktop_enabled({json.dumps(desktop_enabled)})).catch(() => {{}});
+                }}
                 if ({json.dumps(desktop_enabled)} && api.open_buddy_window) {{
                     Promise.resolve(api.open_buddy_window(Number(window.location.port || 8080), 260, 260)).then((ok) => {{
                         if (!ok) notify('Desktop overlay is available only in the native window', 'warning');
@@ -684,6 +687,9 @@ def _install_desktop_overlay_focus_sync(cfg: dict) -> None:
             const api = window.pywebview && window.pywebview.api ? window.pywebview.api : null;
             window.__THOTH_BUDDY_DESKTOP_ENABLED = {json.dumps(enabled)};
             if (!api) return;
+            if (api.set_buddy_desktop_enabled) {{
+                Promise.resolve(api.set_buddy_desktop_enabled({json.dumps(enabled)})).catch(() => {{}});
+            }}
             const port = Number(window.location.port || 8080);
             const hideForFocus = () => {{
                 if (!window.__THOTH_BUDDY_DESKTOP_ENABLED || !api.hide_buddy_window) return;

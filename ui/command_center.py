@@ -18,6 +18,115 @@ from ui.state import AppState, P, _active_generations
 
 logger = logging.getLogger(__name__)
 
+_COMMAND_CENTER_EXPANDED_WIDTH = 440
+_COMMAND_CENTER_COLLAPSED_WIDTH = 64
+_COMMAND_CENTER_CONFIG_KEY = "workflow_console_collapsed"
+
+_COMMAND_CENTER_CSS = """
+<style>
+.thoth-command-center-drawer {
+    transition: width 180ms ease, max-width 180ms ease;
+    overflow: hidden;
+}
+.workflow-console-rail {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 58px;
+    z-index: 2;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 6px;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(20, 20, 20, 0.88);
+}
+.workflow-console-toggle.q-btn {
+    width: 42px;
+    height: 42px;
+    border: 1px solid rgba(255, 215, 0, 0.28);
+    color: #ffd54f;
+    background: rgba(255, 215, 0, 0.08);
+}
+.workflow-console-rail-label {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    color: #bdbdbd;
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-top: 4px;
+}
+.workflow-console-rail-badges {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    align-items: center;
+}
+.workflow-console-rail-badge {
+    min-width: 30px;
+    border-radius: 999px;
+    padding: 2px 6px;
+    font-size: 0.70rem;
+    font-weight: 700;
+    text-align: center;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+}
+.workflow-console-rail-badge.running {
+    color: #90caf9;
+    background: rgba(33, 150, 243, 0.16);
+}
+.workflow-console-rail-badge.approval {
+    color: #ffcc80;
+    background: rgba(255, 167, 38, 0.16);
+}
+.workflow-console-rail-badge.insights {
+    color: #ce93d8;
+    background: rgba(156, 39, 176, 0.16);
+}
+.workflow-console-rail.workflow-console-approval-alert {
+    border-right-color: rgba(255, 193, 7, 0.85);
+    box-shadow: inset 0 0 0 1px rgba(255, 193, 7, 0.32), 0 0 18px rgba(255, 193, 7, 0.24);
+}
+.workflow-console-rail.workflow-console-alert-flash {
+    animation: workflow-console-approval-flash 1.2s ease-out 0s 3;
+}
+@keyframes workflow-console-approval-flash {
+    0% { box-shadow: inset 0 0 0 1px rgba(255, 193, 7, 0.2), 0 0 0 rgba(255, 193, 7, 0.0); }
+    45% { box-shadow: inset 0 0 0 2px rgba(255, 193, 7, 0.95), 0 0 24px rgba(255, 193, 7, 0.55); }
+    100% { box-shadow: inset 0 0 0 1px rgba(255, 193, 7, 0.32), 0 0 18px rgba(255, 193, 7, 0.24); }
+}
+.workflow-console-scroll {
+    width: 100%;
+}
+.thoth-command-center-drawer.workflow-console-collapsed .workflow-console-rail {
+    display: flex;
+}
+.thoth-command-center-drawer.workflow-console-collapsed .workflow-console-scroll {
+    display: none;
+}
+</style>
+"""
+
+
+def _load_command_center_collapsed() -> bool:
+    try:
+        from ui.helpers import load_app_config
+        return bool(load_app_config().get(_COMMAND_CENTER_CONFIG_KEY, False))
+    except Exception:
+        logger.debug("Failed to load workflow console collapse preference", exc_info=True)
+        return False
+
+
+def _save_command_center_collapsed(collapsed: bool) -> None:
+    try:
+        from ui.helpers import load_app_config, save_app_config
+        cfg = load_app_config()
+        cfg[_COMMAND_CENTER_CONFIG_KEY] = bool(collapsed)
+        save_app_config(cfg)
+    except Exception:
+        logger.debug("Failed to save workflow console collapse preference", exc_info=True)
+
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 _STATUS_DOT: dict[str, tuple[str, str]] = {
@@ -98,22 +207,124 @@ def build_command_center(
     )
     from memory_extraction import set_active_thread
 
+    ui.html(_COMMAND_CENTER_CSS, sanitize=False)
+    collapsed_state = {"value": _load_command_center_collapsed()}
+    last_pending_count = {"value": 0}
+
+    def _drawer_width() -> int:
+        return _COMMAND_CENTER_COLLAPSED_WIDTH if collapsed_state["value"] else _COMMAND_CENTER_EXPANDED_WIDTH
+
     with ui.right_drawer(value=True, fixed=True).style(
-        "width: 440px; padding: 0;"
-    ).classes("thoth-panel-card").props('no-swipe-open no-swipe-close width=440'):
-        with ui.scroll_area().classes("w-full h-full"):
+        f"width: {_drawer_width()}px; padding: 0; position: relative;"
+    ).classes("thoth-panel-card thoth-command-center-drawer").props(
+        f"no-swipe-open no-swipe-close width={_drawer_width()}"
+    ) as drawer:
+        drawer._props["data-workflow-console-drawer"] = "1"
+
+        with ui.element("div").classes("workflow-console-rail") as rail_shell:
+            rail_shell._props["data-workflow-console-rail"] = "1"
+            toggle_btn = ui.button(icon="chevron_right").classes(
+                "workflow-console-toggle"
+            ).props("round flat dense").tooltip("Toggle workflow console")
+            ui.html('<div class="workflow-console-rail-label">Workflows</div>', sanitize=False)
+            with ui.element("div").classes("workflow-console-rail-badges"):
+                running_badge = ui.html(
+                    '<div class="workflow-console-rail-badge running" title="Running workflows">0</div>',
+                    sanitize=False,
+                )
+                approval_badge = ui.html(
+                    '<div class="workflow-console-rail-badge approval" title="Pending approvals">0</div>',
+                    sanitize=False,
+                )
+                insights_badge = ui.html(
+                    '<div class="workflow-console-rail-badge insights" title="Active insights">0</div>',
+                    sanitize=False,
+                )
+
+        def _apply_drawer_state(*, persist: bool = False) -> None:
+            width = _drawer_width()
+            drawer._props["width"] = width
+            drawer.style(replace=f"width: {width}px; padding: 0; position: relative;")
+            if collapsed_state["value"]:
+                drawer.classes(add="workflow-console-collapsed")
+                toggle_btn._props["icon"] = "chevron_left"
+            else:
+                drawer.classes(remove="workflow-console-collapsed")
+                toggle_btn._props["icon"] = "chevron_right"
+            drawer.update()
+            toggle_btn.update()
+            if persist:
+                _save_command_center_collapsed(collapsed_state["value"])
+
+        def _toggle_drawer() -> None:
+            collapsed_state["value"] = not collapsed_state["value"]
+            _apply_drawer_state(persist=True)
+
+        toggle_btn.on("click", _toggle_drawer)
+        toggle_btn.on("click", js_handler="(e) => e.stopPropagation()")
+        rail_shell.on("click", lambda: collapsed_state["value"] and _toggle_drawer())
+        _apply_drawer_state()
+
+        def _refresh_rail_counts() -> None:
+            try:
+                running_count = len(get_running_tasks())
+            except Exception:
+                running_count = 0
+            try:
+                pending_count = len(get_pending_approvals())
+            except Exception:
+                pending_count = 0
+            try:
+                from insights import get_active_insights
+                insights_count = len(get_active_insights())
+            except Exception:
+                insights_count = 0
+
+            running_badge.set_content(
+                f'<div class="workflow-console-rail-badge running" title="Running workflows">{running_count}</div>'
+            )
+            approval_badge.set_content(
+                f'<div class="workflow-console-rail-badge approval" title="Pending approvals">{pending_count}</div>'
+            )
+            insights_badge.set_content(
+                f'<div class="workflow-console-rail-badge insights" title="Active insights">{insights_count}</div>'
+            )
+            if collapsed_state["value"] and pending_count > 0:
+                rail_shell.classes(add="workflow-console-approval-alert")
+                if pending_count > last_pending_count["value"]:
+                    rail_shell.classes(add="workflow-console-alert-flash")
+                    safe_timer(
+                        4.0,
+                        lambda: rail_shell.classes(remove="workflow-console-alert-flash"),
+                        once=True,
+                    )
+            else:
+                rail_shell.classes(remove="workflow-console-approval-alert")
+                rail_shell.classes(remove="workflow-console-alert-flash")
+            last_pending_count["value"] = pending_count
+
+        _refresh_rail_counts()
+        safe_timer(3.0, _refresh_rail_counts)
+
+        with ui.scroll_area().classes("w-full h-full workflow-console-scroll"):
           with ui.column().classes("w-full gap-2").style(
               "overflow: hidden; padding: 6px 8px;"
           ):
             with ui.column().classes("w-full gap-2 thoth-inner-panel"):
-                with ui.column().classes("w-full gap-0"):
-                    ui.label("Workflow Console").classes(
-                        "text-subtitle1 font-bold"
-                    ).style("color: gold; letter-spacing: 0.5px;")
-                    ui.label(
-                        "Background Agents"
-                    ).classes("text-xs text-grey-6").style(
-                        "margin-top: -2px; letter-spacing: 0.3px;"
+                with ui.row().classes("w-full items-start justify-between no-wrap"):
+                    with ui.column().classes("gap-0"):
+                        ui.label("Workflow Console").classes(
+                            "text-subtitle1 font-bold"
+                        ).style("color: gold; letter-spacing: 0.5px;")
+                        ui.label(
+                            "Background Agents"
+                        ).classes("text-xs text-grey-6").style(
+                            "margin-top: -2px; letter-spacing: 0.3px;"
+                        )
+                    ui.button(icon="chevron_right", on_click=_toggle_drawer).props(
+                        "round flat dense"
+                    ).tooltip("Collapse workflow console").style(
+                        "color: #ffd54f; margin-top: -2px;"
                     )
 
                 # ════════════════════════════════════════════════════

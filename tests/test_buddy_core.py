@@ -132,6 +132,72 @@ def test_buddy_brain_clears_approval_on_resolution(monkeypatch):
     assert idle.animation == "idle_breathe"
 
 
+def test_buddy_brain_clears_legacy_generic_approval_after_resolution(monkeypatch):
+    import buddy.brain as brain_mod
+    from buddy.brain import BuddyBrain
+    from buddy.events import BuddyEvent, BuddyEventType
+
+    now = 1000.0
+    monkeypatch.setattr(
+        brain_mod,
+        "get_buddy_config",
+        lambda: {"enabled": True, "mode": "sidebar", "pack_id": "glyph"},
+    )
+    monkeypatch.setattr(brain_mod.time, "time", lambda: now)
+    brain = BuddyBrain()
+
+    brain.resolve(BuddyEvent(BuddyEventType.WORKFLOW_STARTED, source="test", payload={"thread_id": "thread-1", "label": "Approval Flow"}, id=30))
+    brain.resolve(BuddyEvent(BuddyEventType.APPROVAL_NEEDED, source="test", payload={"approval_id": "approval-1", "run_id": "run-1", "task_id": "task-1", "label": "Real approval"}, id=31))
+    brain.resolve(BuddyEvent(BuddyEventType.APPROVAL_NEEDED, source="test", payload={"task_id": "task-1", "thread_id": "thread-1", "label": "Needs approval"}, id=32))
+    approved = brain.resolve(BuddyEvent(BuddyEventType.APPROVAL_APPROVED, source="test", payload={"approval_id": "approval-1", "run_id": "run-1", "task_id": "task-1", "label": "Approved"}, id=33))
+
+    assert approved.animation == "nod"
+
+    done = brain.resolve(BuddyEvent(BuddyEventType.WORKFLOW_DONE, source="test", payload={"thread_id": "thread-1", "label": "Approval Flow done"}, id=34))
+    assert done.animation == "celebrate_big"
+
+    now = 1004.0
+    idle = brain.resolve(None)
+
+    assert idle.animation == "idle_breathe"
+    assert idle.message == "Idle"
+
+
+def test_buddy_tick_processes_approval_resolution_before_later_workflow_events(monkeypatch):
+    import buddy.brain as brain_mod
+    from buddy.brain import BuddyBrain
+    from buddy.events import BuddyEventBus, BuddyEventType
+
+    now = 1000.0
+    bus = BuddyEventBus()
+    monkeypatch.setattr(
+        brain_mod,
+        "get_buddy_config",
+        lambda: {"enabled": True, "mode": "sidebar", "pack_id": "glyph"},
+    )
+    monkeypatch.setattr(brain_mod, "get_buddy_event_bus", lambda: bus)
+    monkeypatch.setattr(brain_mod.time, "time", lambda: now)
+    brain = BuddyBrain()
+
+    bus.emit(BuddyEventType.WORKFLOW_STARTED, source="test", payload={"thread_id": "thread-1", "label": "Approval Flow"})
+    bus.emit(BuddyEventType.APPROVAL_NEEDED, source="test", payload={"approval_id": "approval-1", "run_id": "run-1", "task_id": "task-1", "label": "Real approval"})
+    bus.emit(BuddyEventType.APPROVAL_APPROVED, source="test", payload={"approval_id": "approval-1", "run_id": "run-1", "task_id": "task-1", "label": "Approved"})
+    bus.emit(BuddyEventType.WORKFLOW_STARTED, source="test", payload={"thread_id": "thread-1", "label": "Approval Flow"})
+    state = bus.emit(BuddyEventType.WORKFLOW_DONE, source="test", payload={"thread_id": "thread-1", "label": "Approval Flow done"})
+
+    done = brain.tick()
+
+    assert done.event_id == state.id
+    assert done.animation == "celebrate_big"
+    assert done.message == "Approval Flow done"
+
+    now = 1004.0
+    idle = brain.tick()
+
+    assert idle.animation == "idle_breathe"
+    assert idle.message == "Idle"
+
+
 def test_buddy_brain_clears_workflow_after_denied_workflow_cancelled(monkeypatch):
     import buddy.brain as brain_mod
     from buddy.brain import BuddyBrain

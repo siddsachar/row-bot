@@ -29,6 +29,9 @@ vector_store/
 # Backups
 *.bak*
 .tmp/
+.testtmp/
+.pytest_cache/
+pytest_tmp_codex/
 .backups/
 .copilot_backups/
 

@@ -611,11 +611,12 @@ import webview
 import webbrowser
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 _NAMED_WINDOWS = {}
 _BUDDY_MANUALLY_HIDDEN = False
 _BUDDY_WINDOW_READY = False
+_BUDDY_DESKTOP_ENABLED = False
 
 def _port_from_url(url):
     try:
@@ -630,8 +631,31 @@ def _buddy_overlay_url(port, cache_bust=False):
         return f"{url}?buddy_refresh={int(time.time() * 1000)}"
     return url
 
+def _buddy_window_log(message):
+    line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} [buddy.window] {message}"
+    try:
+        data_dir = os.environ.get("THOTH_DATA_DIR") or os.path.join(os.path.expanduser("~"), ".thoth")
+        log_dir = os.path.join(data_dir, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        with open(os.path.join(log_dir, "thoth_window.log"), "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except Exception:
+        pass
+    try:
+        print(f"Buddy overlay lifecycle: {message}", file=sys.stderr, flush=True)
+    except Exception:
+        pass
+
 class _JsApi:
     """Expose Python helpers to JavaScript via window.pywebview.api."""
+    def set_buddy_desktop_enabled(self, enabled=False):
+        global _BUDDY_DESKTOP_ENABLED
+        _BUDDY_DESKTOP_ENABLED = bool(enabled)
+        _buddy_window_log(f"desktop_enabled={_BUDDY_DESKTOP_ENABLED}")
+        if not _BUDDY_DESKTOP_ENABLED:
+            self.close_buddy_window(False)
+        return True
+
     def open_url(self, url):
         if isinstance(url, str) and url.lower().startswith(("https://", "http://")):
             webbrowser.open(url)
@@ -873,6 +897,7 @@ class _JsApi:
         if bool(manual):
             _BUDDY_MANUALLY_HIDDEN = False
         elif _BUDDY_MANUALLY_HIDDEN:
+            _buddy_window_log("auto-show skipped; manually_hidden=true")
             return False
         window = _NAMED_WINDOWS.get("buddy")
         if window is None:
@@ -972,6 +997,38 @@ def _on_loaded(window):
 
 _JS_API = _JsApi()
 
+def _auto_show_buddy_window(reason):
+    if not _BUDDY_DESKTOP_ENABLED:
+        _buddy_window_log(f"auto-show skipped; reason={reason} desktop_enabled=false")
+        return False
+    ok = _JS_API.show_buddy_window(False, _APP_PORT, 260, 260)
+    _buddy_window_log(f"auto-show reason={reason} ok={bool(ok)}")
+    return ok
+
+def _auto_hide_buddy_window(reason):
+    if not _BUDDY_DESKTOP_ENABLED:
+        return False
+    ok = _JS_API.hide_buddy_window(False)
+    _buddy_window_log(f"auto-hide reason={reason} ok={bool(ok)}")
+    return ok
+
+def _close_buddy_window_for_main_close():
+    ok = _JS_API.close_buddy_window(False)
+    _buddy_window_log(f"main-window-closed close-buddy ok={bool(ok)}")
+    return ok
+
+def _install_main_window_buddy_events(window):
+    try:
+        window.events.minimized += lambda *_args: _auto_show_buddy_window("main_window_minimized")
+        window.events.restored += lambda *_args: _auto_hide_buddy_window("main_window_restored")
+        window.events.shown += lambda *_args: _auto_hide_buddy_window("main_window_shown")
+        window.events.closed += lambda *_args: _close_buddy_window_for_main_close()
+        _buddy_window_log("main-window native event sync installed")
+        return True
+    except Exception as exc:
+        _buddy_window_log(f"main-window native event sync failed: {exc}")
+        return False
+
 def _start_control_server(control_port):
     try:
         control_port = int(control_port or 0)
@@ -992,12 +1049,15 @@ def _start_control_server(control_port):
 
         def do_GET(self):
             path = str(getattr(self, "path", ""))
-            if path.startswith("/buddy/show"):
-                self._send(_JS_API.show_buddy_window(True, _APP_PORT, 260, 260))
-            elif path.startswith("/buddy/hide"):
-                self._send(_JS_API.hide_buddy_window(True))
-            elif path.startswith("/buddy/close"):
-                self._send(_JS_API.close_buddy_window(True))
+            parsed = urlparse(path)
+            qs = parse_qs(parsed.query or "")
+            manual = str((qs.get("manual") or ["1"])[0]).lower() not in {"0", "false", "no"}
+            if parsed.path.startswith("/buddy/show"):
+                self._send(_JS_API.show_buddy_window(manual, _APP_PORT, 260, 260))
+            elif parsed.path.startswith("/buddy/hide"):
+                self._send(_JS_API.hide_buddy_window(manual))
+            elif parsed.path.startswith("/buddy/close"):
+                self._send(_JS_API.close_buddy_window(manual))
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -1013,7 +1073,8 @@ _APP_PORT = _port_from_url(url)
 w, h = int(sys.argv[3]), int(sys.argv[4])
 _CONTROL_PORT = int(sys.argv[5]) if len(sys.argv) > 5 else 0
 _start_control_server(_CONTROL_PORT)
-webview.create_window(title, url, width=w, height=h, js_api=_JS_API)
+main_window = webview.create_window(title, url, width=w, height=h, js_api=_JS_API)
+_install_main_window_buddy_events(main_window)
 webview.start(func=_on_loaded)
 '''
 

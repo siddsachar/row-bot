@@ -44,6 +44,34 @@ _RING_COLORS = [
     "#f44336", "#3f51b5", "#009688", "#cddc39", "#795548",
 ]
 
+_STATUS_ICON_MAP = {
+    "Ollama": "dns",
+    "Model": "memory",
+    "Cloud API": "cloud",
+    "Tunnel": "settings_ethernet",
+    "Gmail OAuth": "email",
+    "Calendar OAuth": "event",
+    "X OAuth": "alternate_email",
+    "Workflows": "flash_on",
+    "Knowledge": "device_hub",
+    "Dream Cycle": "brightness_3",
+    "TTS": "volume_up",
+    "Wiki Vault": "description",
+    "Logging": "assignment",
+    "Disk": "save",
+    "Threads DB": "storage",
+    "FAISS Index": "bubble_chart",
+    "Documents": "folder",
+    "Search": "search",
+    "Skills": "extension",
+    "Tracker": "playlist_add_check",
+    "Buddy": "android",
+    "MCP": "power",
+    "Plugins": "widgets",
+    "Network": "wifi",
+    "Tools": "build",
+}
+
 
 def _load_avatar_config() -> dict:
     """Load avatar preferences from user_config.json."""
@@ -177,21 +205,82 @@ _AVATAR_CSS = """
     justify-content: center;
 }
 .status-pill {
-    display: inline-flex; align-items: center; gap: 5px;
-    padding: 3px 10px;
-    border-radius: 12px;
+    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    min-width: 34px;
+    height: 30px;
+    padding: 0 8px;
+    border-radius: 999px;
     font-size: 0.8rem;
     border: 1px solid rgba(255,255,255,0.1);
     cursor: pointer;
-    transition: background 0.2s;
+    transition: background 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.2s;
     white-space: nowrap;
+    position: relative;
+    background: rgba(255, 255, 255, 0.035);
+    color: rgba(255, 255, 255, 0.86);
 }
-.status-pill:hover { background: rgba(255,255,255,0.1); }
+.status-pill:hover {
+    background: rgba(255,255,255,0.1);
+    transform: translateY(-1px);
+}
 .status-pill .dot {
     width: 9px; height: 9px;
     border-radius: 50%;
     display: inline-block;
     flex-shrink: 0;
+}
+.status-pill.status-icon-pill {
+    width: 34px;
+    padding: 0;
+}
+.status-pill.status-icon-pill .material-icons {
+    font-size: 17px;
+    line-height: 1;
+}
+.status-pill.status-icon-pill .dot {
+    width: 7px;
+    height: 7px;
+    position: absolute;
+    right: 5px;
+    bottom: 5px;
+    border: 1px solid rgba(20, 20, 20, 0.95);
+}
+.status-pill.status-warn {
+    border-color: rgba(255, 167, 38, 0.65);
+    box-shadow: 0 0 11px rgba(255, 167, 38, 0.30);
+    color: #FFCC80;
+}
+.status-pill.status-error {
+    border-color: rgba(239, 83, 80, 0.75);
+    box-shadow: 0 0 13px rgba(239, 83, 80, 0.34);
+    color: #EF9A9A;
+}
+.status-pill.status-inactive {
+    color: rgba(255, 255, 255, 0.45);
+}
+.status-alert-badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    min-width: 13px;
+    height: 13px;
+    padding: 0 3px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    line-height: 13px;
+    font-weight: 800;
+    color: #171717;
+    background: #FFA726;
+    border: 1px solid rgba(20, 20, 20, 0.9);
+    box-shadow: 0 0 7px rgba(255, 167, 38, 0.55);
+}
+.status-pill.status-error .status-alert-badge {
+    color: #fff;
+    background: #EF5350;
+    box-shadow: 0 0 8px rgba(239, 83, 80, 0.65);
 }
 .thoth-buddy-hatch-progress {
     display: inline-flex;
@@ -299,7 +388,7 @@ def build_status_bar(
             sanitize=False,
         ).on("click", lambda: open_settings(""))
 
-        # ── CENTER: Status pills (two rows) ──────────────────────
+        # ── CENTER: Status icons ─────────────────────────────────
         pills_container = ui.column().classes("flex-grow gap-1 items-center").style(
             "min-width: 0;"
         )
@@ -316,27 +405,34 @@ def build_status_bar(
             container.clear()
             with container:
                 items = [r for r in result_map.values() if r.name not in _channel_names]
-                mid = (len(items) + 1) // 2  # even-ish split
-                for row_items in (items[:mid], items[mid:]):
-                    with ui.element("div").classes("status-pills-row"):
-                        for r in row_items:
-                            inactive_cls = " inactive" if r.status == "inactive" else ""
+                with ui.element("div").classes("status-pills-row"):
+                    for r in items:
+                        inactive_cls = " inactive" if r.status == "inactive" else ""
+                        status_cls = f" status-{r.status}"
+                        icon_name = _STATUS_ICON_MAP.get(r.name, "radio_button_checked")
+                        alert_html = (
+                            '<span class="status-alert-badge">!</span>'
+                            if r.status in {"warn", "error"} else ""
+                        )
 
-                            def _pill_click(tab=r.settings_tab, nm=r.name):
-                                if tab:
-                                    open_settings(tab)
+                        def _pill_click(tab=r.settings_tab, nm=r.name):
+                            if tab:
+                                open_settings(tab)
 
-                            pill_html = (
-                                f'<span class="dot" style="background:{r.dot_color};"></span>'
-                                f'{r.name}'
-                            )
-                            pill = ui.html(
-                                f'<span class="status-pill{inactive_cls}">{pill_html}</span>',
-                                sanitize=False,
-                            ).tooltip(f"{r.name}: {r.status_label} — {r.detail}")
+                        pill_html = (
+                            f'<span class="material-icons" aria-hidden="true">{icon_name}</span>'
+                            f'<span class="dot" style="background:{r.dot_color};"></span>'
+                            f'{alert_html}'
+                        )
+                        pill = ui.html(
+                            f'<span class="status-pill status-icon-pill{status_cls}{inactive_cls}" '
+                            f'aria-label="{r.name}: {r.status_label} - {r.detail}">'
+                            f'{pill_html}</span>',
+                            sanitize=False,
+                        ).tooltip(f"{r.name}: {r.status_label} - {r.detail}")
 
-                            if r.settings_tab:
-                                pill.on("click", _pill_click)
+                        if r.settings_tab:
+                            pill.on("click", _pill_click)
 
         _render_pills(pills_container, result_map)
 

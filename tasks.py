@@ -2006,15 +2006,6 @@ def run_task_background(
 
             # ── Handle paused task (waiting for approval) ─────────────
             if paused:
-                try:
-                    from buddy.events import BuddyEventType, emit_buddy_event
-                    emit_buddy_event(
-                        BuddyEventType.APPROVAL_NEEDED,
-                        source="tasks",
-                        payload={"task_id": task_id, "thread_id": thread_id, "label": "Needs approval"},
-                    )
-                except Exception:
-                    logger.debug("Buddy approval event failed", exc_info=True)
                 _finish_run(run_id, "paused",
                             status_message="Waiting for approval")
                 if _thread_exists(thread_id):
