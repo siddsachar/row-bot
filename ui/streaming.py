@@ -1116,7 +1116,7 @@ async def send_message(
     voice_mode: bool = False,
 ) -> None:
     """Send a message and stream the agent response."""
-    from agent import stream_agent, repair_orphaned_tool_calls, RECURSION_LIMIT_CHAT
+    from agent import stream_agent, repair_orphaned_tool_calls, recursion_limit_for_mode
     from threads import _save_thread_meta
     from tools import registry as tool_registry
     from ui.helpers import process_attached_files, persist_thread_media_state
@@ -1299,6 +1299,8 @@ async def send_message(
             _img_cache[f["name"]] = f["data"]
 
     _thread_mo = state.thread_model_override or ""
+    is_developer = bool(getattr(state, "active_developer_workspace_id", None))
+    recursion_limit = recursion_limit_for_mode(is_developer=is_developer)
     config = {
         "configurable": {
             "thread_id": gen_thread_id,
@@ -1306,8 +1308,14 @@ async def send_message(
             **({"developer_workspace_id": state.active_developer_workspace_id} if getattr(state, "active_developer_workspace_id", None) else {}),
             **({"developer_context": developer_context} if developer_context else {}),
         },
-        "recursion_limit": RECURSION_LIMIT_CHAT,
+        "recursion_limit": recursion_limit,
     }
+    logger.info(
+        "send_message: thread=%s developer=%s recursion_limit=%d",
+        gen_thread_id[:8] if gen_thread_id else "?",
+        is_developer,
+        recursion_limit,
+    )
     enabled_tools = [t.name for t in tool_registry.get_enabled_tools()]
     if getattr(state, "active_developer_workspace_id", None):
         from developer.profile import effective_tool_names
@@ -1378,7 +1386,7 @@ async def resume_after_interrupt(
     p: P,
     cb: _Callbacks,
 ) -> None:
-    from agent import resume_stream_agent, repair_orphaned_tool_calls, RECURSION_LIMIT_CHAT
+    from agent import resume_stream_agent, repair_orphaned_tool_calls, recursion_limit_for_mode
     from buddy.events import BuddyEventType, emit_buddy_event
     from tools import registry as tool_registry
 
@@ -1420,6 +1428,8 @@ async def resume_after_interrupt(
             )
         except Exception:
             logger.debug("Failed to build Developer Studio context for resume", exc_info=True)
+    is_developer = bool(getattr(state, "active_developer_workspace_id", None))
+    recursion_limit = recursion_limit_for_mode(is_developer=is_developer)
     config = {
         "configurable": {
             "thread_id": gen_thread_id,
@@ -1427,8 +1437,14 @@ async def resume_after_interrupt(
             **({"developer_workspace_id": state.active_developer_workspace_id} if getattr(state, "active_developer_workspace_id", None) else {}),
             **({"developer_context": developer_context} if developer_context else {}),
         },
-        "recursion_limit": RECURSION_LIMIT_CHAT,
+        "recursion_limit": recursion_limit,
     }
+    logger.info(
+        "resume_after_interrupt: thread=%s developer=%s recursion_limit=%d",
+        gen_thread_id[:8] if gen_thread_id else "?",
+        is_developer,
+        recursion_limit,
+    )
     enabled_tools = [t.name for t in tool_registry.get_enabled_tools()]
     if getattr(state, "active_developer_workspace_id", None):
         from developer.profile import effective_tool_names

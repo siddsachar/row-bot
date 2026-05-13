@@ -589,6 +589,36 @@ def test_docker_runtime_reports_installed_but_engine_inaccessible(tmp_path, monk
     assert "permission denied" in probe.message
 
 
+def test_docker_runtime_reports_stopped_docker_desktop_clearly(tmp_path, monkeypatch):
+    _storage, _tool_context, _edits, _ledger, sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
+
+    monkeypatch.setattr(sandbox_runtime, "resolve_docker", lambda: r"C:\Program Files\Docker\Docker\resources\bin\docker.exe")
+    monkeypatch.setattr(sandbox_runtime, "resolve_executable", lambda _name: "")
+
+    def fake_run(args, **_kwargs):
+        if args[1:] == ["--version"]:
+            return SimpleNamespace(returncode=0, stdout="Docker version 29.4.2, build test\n", stderr="")
+        if args[1:3] == ["info", "--format"]:
+            return SimpleNamespace(
+                returncode=1,
+                stdout="",
+                stderr=(
+                    "error during connect: Get "
+                    "\"http://%2F%2F.%2Fpipe%2FdockerDesktopLinuxEngine/v1.51/info\": "
+                    "open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified."
+                ),
+            )
+        raise AssertionError(f"unexpected command: {args}")
+
+    monkeypatch.setattr(sandbox_runtime.subprocess, "run", fake_run)
+
+    probe = sandbox_runtime.detect_container_runtime()
+
+    assert probe.available is False
+    assert "Docker Desktop is installed but not running" in probe.message
+    assert "file specified" not in probe.message
+
+
 def test_docker_sandbox_missing_runtime_does_not_run_or_touch_repo(tmp_path, monkeypatch):
     storage, _tool_context, _edits, _ledger, sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
     repo = tmp_path / "repo"

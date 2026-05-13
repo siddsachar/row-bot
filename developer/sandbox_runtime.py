@@ -172,9 +172,10 @@ def detect_container_runtime() -> SandboxProbe:
                         check=False,
                     )
                 except Exception as exc:
-                    return SandboxProbe(False, binary=binary, version=version, message=f"Docker CLI is installed but the engine is not accessible: {exc}")
+                    message = _friendly_docker_engine_error(str(exc))
+                    return SandboxProbe(False, binary=binary, version=version, message=f"Docker CLI is installed but the engine is not accessible: {message}")
                 if server_proc.returncode != 0:
-                    message = (server_proc.stderr or server_proc.stdout or "Docker engine is not accessible.").strip()
+                    message = _friendly_docker_engine_error(server_proc.stderr or server_proc.stdout or "Docker engine is not accessible.")
                     return SandboxProbe(False, binary=binary, version=version, message=f"Docker CLI is installed but the engine is not accessible: {message}")
                 server_version = (server_proc.stdout or "").strip()
                 if server_version:
@@ -822,6 +823,28 @@ def _friendly_docker_error(message: str) -> str:
             text
             + "\n\nThe sandbox image is not available locally. Start Docker Desktop and "
             "pull the image, or choose an image that already exists locally."
+        )
+    return text
+
+
+def _friendly_docker_engine_error(message: str) -> str:
+    text = (message or "Docker engine is not accessible.").strip()
+    lowered = text.lower()
+    if "permission denied" in lowered:
+        return text
+    stopped_markers = (
+        "dockerdesktoplinuxengine",
+        "the system cannot find the file specified",
+        "open //./pipe/docker",
+        "open \\\\.\\pipe\\docker",
+        "error during connect",
+        "is the docker daemon running",
+        "cannot connect to the docker daemon",
+    )
+    if any(marker in lowered for marker in stopped_markers):
+        return (
+            "Docker Desktop is installed but not running. Start Docker Desktop and wait "
+            "until the engine is ready, then retry the Docker Sandbox command."
         )
     return text
 

@@ -90,6 +90,26 @@ from datetime import datetime as _datetime
 # = 2 steps).  50 ≈ 25 tool invocations for interactive; 100 ≈ 50 for tasks.
 RECURSION_LIMIT_CHAT = 50
 RECURSION_LIMIT_TASK = 100
+RECURSION_LIMIT_DEVELOPER = 120
+
+
+def recursion_limit_for_mode(
+    *,
+    is_background: bool = False,
+    is_developer: bool = False,
+) -> int:
+    """Return the LangGraph step budget for the active execution mode."""
+    if bool(is_background):
+        return RECURSION_LIMIT_TASK
+    if is_developer:
+        return RECURSION_LIMIT_DEVELOPER
+    return RECURSION_LIMIT_CHAT
+
+
+def recursion_wind_down_threshold(limit: int, *, is_developer: bool = False) -> int:
+    """Return when to ask the model to checkpoint before the hard limit."""
+    ratio = 0.85 if is_developer else 0.75
+    return max(1, int(limit * ratio))
 
 
 def _looks_like_custom_tool_creation_request(text: str) -> bool:
@@ -152,6 +172,15 @@ def _friendly_api_error(exc_str: str) -> str:
     if _is_transient_stream_disconnect(exc_str):
         return "⚠️ The AI provider closed the streaming connection before the reply finished. Please retry the message."
     if "recursion" in s or "recursion limit" in s:
+        try:
+            if _developer_context_var.get(""):
+                return (
+                    "I reached the Developer Studio step budget for this turn. "
+                    "Your workspace state, todos, and diffs are preserved; ask me to continue "
+                    "and I can pick up from the current checkpoint."
+                )
+        except Exception:
+            pass
         return "⚠️ I got stuck in a tool loop and had to stop. Try rephrasing your request or starting a new conversation."
     if "insufficient_quota" in s or "exceeded your current quota" in s:
         return "⚠️ API quota exceeded — please check your billing dashboard."
@@ -929,8 +958,19 @@ def _pre_model_trim(state: dict) -> dict:
                 _is_bg = is_background_workflow()
             except Exception:
                 _is_bg = False
-            _limit = RECURSION_LIMIT_TASK if _is_bg else RECURSION_LIMIT_CHAT
-            _threshold = int(_limit * 0.75)
+            try:
+                _is_developer = bool(_developer_context_var.get(""))
+            except Exception:
+                _is_developer = False
+            _limit = recursion_limit_for_mode(
+                is_background=_is_bg,
+                is_developer=_is_developer,
+            )
+            _developer_wind_down = _is_developer and not _is_bg
+            _threshold = recursion_wind_down_threshold(
+                _limit,
+                is_developer=_developer_wind_down,
+            )
             _browser_tool_steps = sum(
                 1 for _m in _orig_msgs[_last_human + 1:]
                 if _m.type == "tool" and _is_browser_tool_name(getattr(_m, "name", "") or "")
@@ -950,15 +990,32 @@ def _pre_model_trim(state: dict) -> dict:
                 trimmed.append(_wind_down)
             elif _steps >= _threshold:
                 from langchain_core.messages import SystemMessage as _WDMsg
-                _wind_down = _WDMsg(
-                    content=(
-                        "[IMPORTANT: You are approaching the tool call limit "
-                        f"({_steps} of {_limit} steps used). "
-                        "Wrap up your current task NOW and provide a final "
-                        "answer with what you have so far. Do NOT start new "
-                        "tool calls unless absolutely critical.]"
+                if _developer_wind_down:
+                    _wind_down = _WDMsg(
+                        content=(
+                            "[IMPORTANT: You are approaching the Developer Studio step budget "
+                            f"({_steps} of {_limit} LangGraph steps used). "
+                            "Checkpoint the coding task now: update todos if useful, summarize "
+                            "files inspected or changed, tests run and results, remaining risks, "
+                            "and the exact next step. Do not start another broad exploration loop; "
+                            "only make a final tiny tool call if it is essential to leave the "
+                            "workspace in a coherent state.]"
+                        )
                     )
-                )
+                    logger.info(
+                        "Developer Studio wind-down injected: steps=%d limit=%d",
+                        _steps, _limit,
+                    )
+                else:
+                    _wind_down = _WDMsg(
+                        content=(
+                            "[IMPORTANT: You are approaching the tool call limit "
+                            f"({_steps} of {_limit} steps used). "
+                            "Wrap up your current task NOW and provide a final "
+                            "answer with what you have so far. Do NOT start new "
+                            "tool calls unless absolutely critical.]"
+                        )
+                    )
                 trimmed.append(_wind_down)
     except Exception:
         pass  # Non-fatal — don't break the agent if this fails
