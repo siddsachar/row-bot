@@ -297,7 +297,7 @@ find "$APP_BUNDLE" -name '*.pyc' -delete 2>/dev/null || true
 rm -rf "$PYTHON_PREFIX/lib/python"*/ensurepip 2>/dev/null || true
 rm -rf "$PYTHON_PREFIX/lib/python"*/test 2>/dev/null || true
 rm -rf "$PYTHON_PREFIX/lib/python"*/unittest/test 2>/dev/null || true
-# Do not blanket-delete package-internal tests directories under site-packages:
+# Keep package-internal test dirs under site-packages:
 # some runtime packages import private helpers from those modules.
 
 # Strip debug symbols from native libraries to reduce bundle size
