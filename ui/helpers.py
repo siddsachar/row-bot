@@ -16,6 +16,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import time
 from datetime import datetime
 from typing import Any
 
@@ -385,16 +386,139 @@ def process_attached_files(
     return "\n\n".join(context_parts), images_b64, warnings
 
 
+def langchain_messages_to_ui_messages(messages: list) -> list[dict]:
+    """Convert raw LangChain checkpoint messages into Thoth UI messages."""
+    import re as _re
+
+    msgs: list[dict] = []
+    pending_tool_results: list[dict] = []
+    pending_charts: list[str] = []
+    for m in messages:
+        m_type = getattr(m, "type", "")
+        if m_type == "tool":
+            tool_name = getattr(m, "name", "") or "tool"
+            content_value = getattr(m, "content", "")
+            tool_content = content_value if isinstance(content_value, str) else str(content_value)
+            if tool_content and tool_content.startswith("__CHART__:"):
+                marker_end = tool_content.find("\n\n", 10)
+                if marker_end == -1:
+                    fig_json = tool_content[10:]
+                    display_text = "Chart created"
+                else:
+                    fig_json = tool_content[10:marker_end]
+                    display_text = tool_content[marker_end + 2:]
+                pending_charts.append(fig_json)
+                tool_content = display_text
+            pending_tool_results.append({"name": tool_name, "content": tool_content})
+        elif m_type == "human" and getattr(m, "content", None):
+            pending_tool_results.clear()
+            pending_charts.clear()
+            user_images: list[str] = []
+            content_value = getattr(m, "content", "")
+            if isinstance(content_value, list):
+                text_parts = []
+                for part in content_value:
+                    if isinstance(part, dict):
+                        if part.get("type") == "text":
+                            text_parts.append(part["text"])
+                        elif part.get("type") == "image_url":
+                            url = part.get("image_url", {}).get("url", "")
+                            if url.startswith("data:image"):
+                                b64 = url.split(",", 1)[1] if "," in url else ""
+                                if b64:
+                                    user_images.append(b64)
+                content = "\n".join(text_parts)
+            else:
+                content = content_value
+            msg_dict: dict = {"role": "user", "content": strip_file_context(str(content or ""))}
+            if user_images:
+                msg_dict["images"] = user_images
+            msgs.append(msg_dict)
+        elif m_type == "ai":
+            ai_content = getattr(m, "content", "") or ""
+            if isinstance(ai_content, list):
+                text_parts = []
+                for block in ai_content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        text_parts.append(block.get("text", ""))
+                    elif isinstance(block, str):
+                        text_parts.append(block)
+                ai_content = "\n".join(text_parts)
+            if not isinstance(ai_content, str):
+                ai_content = str(ai_content) if ai_content else ""
+            if not ai_content.strip():
+                if pending_tool_results and not getattr(m, "tool_calls", []):
+                    msg_dict = {"role": "assistant", "content": "", "tool_results": list(pending_tool_results)}
+                    if pending_charts:
+                        msg_dict["charts"] = list(pending_charts)
+                        pending_charts = []
+                    pending_tool_results = []
+                    msgs.append(msg_dict)
+                continue
+            thinking = ""
+            ak = getattr(m, "additional_kwargs", None) or {}
+            if ak.get("reasoning_content"):
+                thinking = ak["reasoning_content"]
+            think_parts = _re.findall(r"<think>(.*?)</think>", ai_content, flags=_re.DOTALL)
+            if think_parts:
+                thinking = (thinking + "\n" + "\n".join(think_parts)).strip()
+                ai_content = _re.sub(r"<think>.*?</think>", "", ai_content, flags=_re.DOTALL).strip()
+            if not ai_content:
+                continue
+            msg_dict = {"role": "assistant", "content": ai_content}
+            if thinking:
+                msg_dict["thinking"] = thinking
+            if pending_tool_results:
+                msg_dict["tool_results"] = list(pending_tool_results)
+                pending_tool_results = []
+            if pending_charts:
+                msg_dict["charts"] = list(pending_charts)
+                pending_charts = []
+            msgs.append(msg_dict)
+    if pending_tool_results:
+        msgs.append({"role": "assistant", "content": "", "tool_results": list(pending_tool_results)})
+    return msgs
+
+
 def load_thread_messages(thread_id: str) -> list[dict]:
+    """Rebuild the message list from checkpoint storage without agent startup."""
+    started = time.perf_counter()
+    try:
+        from threads import get_latest_checkpoint_messages
+
+        read_t0 = time.perf_counter()
+        raw_messages = get_latest_checkpoint_messages(thread_id)
+        read_elapsed = time.perf_counter() - read_t0
+        convert_t0 = time.perf_counter()
+        msgs = langchain_messages_to_ui_messages(raw_messages)
+        convert_elapsed = time.perf_counter() - convert_t0
+        media_t0 = time.perf_counter()
+        hydrated = _hydrate_thread_media(thread_id, msgs)
+        media_elapsed = time.perf_counter() - media_t0
+        logger.info(
+            "perf: load_thread_messages total=%.3fs checkpoint=%.3fs convert=%.3fs media=%.3fs thread=%s raw=%d ui=%d",
+            time.perf_counter() - started,
+            read_elapsed,
+            convert_elapsed,
+            media_elapsed,
+            str(thread_id)[:8],
+            len(raw_messages),
+            len(hydrated),
+        )
+        return hydrated
+    except Exception:
+        logger.debug("Failed to load thread messages for %s", thread_id, exc_info=True)
+        return []
+
     """Rebuild the message list from the LangGraph checkpoint."""
     import re as _re
-    from agent import get_agent_graph
-    from langchain_core.messages import AIMessage
+    # Legacy body below is intentionally unreachable; transcript loading now
+    # uses direct checkpoint reads above.
 
     config = {"configurable": {"thread_id": thread_id}}
     try:
-        agent = get_agent_graph()
-        snapshot = agent.get_state(config)
+        agent = None
+        snapshot = None
         if snapshot and snapshot.values and "messages" in snapshot.values:
             msgs: list[dict] = []
             pending_tool_results: list[dict] = []

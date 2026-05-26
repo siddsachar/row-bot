@@ -381,8 +381,17 @@ def _build_inline_model_picker(
 ) -> None:
     """Compact model picker rendered inside the input bar."""
     from agent import clear_agent_cache
-    from models import get_current_model, get_model_max_context, get_user_context_size, CONTEXT_SIZE_LABELS
-    from providers.selection import list_model_choice_options, model_choice_value
+    from models import (
+        get_current_model,
+        get_context_policy,
+        CONTEXT_SIZE_LABELS,
+    )
+    from providers.selection import (
+        list_model_choice_options,
+        model_choice_value,
+        model_id_from_choice_value,
+        provider_id_from_choice_value,
+    )
 
     _cur_default = get_current_model()
     _cur_default_value = model_choice_value(_cur_default)
@@ -401,13 +410,17 @@ def _build_inline_model_picker(
 
     _cur_mo_value = model_choice_value(_cur_mo)
     _picker_val = _cur_mo_value if _cur_mo_value and _cur_mo_value in _picker_opts else _default_opt
+    _current_picker_value = [_picker_val]
 
     async def _on_model_pick(e):
         val = e.value
+        if val == _current_picker_value[0]:
+            return
+        _picker_val = _current_picker_value[0]
         if val == _picker_val:
             return
         if val == _MORE_MODELS_SENTINEL:
-            e.sender.set_value(_picker_val)
+            e.sender.set_value(_current_picker_value[0])
             if open_settings:
                 open_settings("Models")
             return
@@ -416,20 +429,36 @@ def _build_inline_model_picker(
             state.thread_model_override = ""
             _set_thread_model_override(state.thread_id, "")
         elif val in _picker_opts:
+            runtime_model = model_id_from_choice_value(val)
+            if getattr(state, "active_developer_workspace_id", None) or getattr(state, "active_designer_project", None):
+                from providers.readiness import evaluate_agent_readiness
+
+                readiness = await run.io_bound(lambda: evaluate_agent_readiness(val))
+                if not readiness.ready:
+                    e.sender.set_value(_current_picker_value[0])
+                    ui.notify(
+                        f"{runtime_model} is Chat Only or unavailable. This surface requires an Agent-ready model.",
+                        type="negative",
+                        close_button=True,
+                        timeout=10000,
+                    )
+                    return
             state.thread_model_override = val
             _set_thread_model_override(state.thread_id, val)
         else:
             state.thread_model_override = ""
             _set_thread_model_override(state.thread_id, "")
+            val = _default_opt
+        _current_picker_value[0] = val
+        e.sender.set_value(val)
         clear_agent_cache()
         _eff = state.thread_model_override or get_current_model()
         if on_model_switch:
             on_model_switch()
-        _mmax = await run.io_bound(lambda: get_model_max_context(_eff))
-        _uval = get_user_context_size()
-        if _mmax is not None and _uval > _mmax:
-            _ml = CONTEXT_SIZE_LABELS.get(_mmax, f"{_mmax:,}")
-            _ul = CONTEXT_SIZE_LABELS.get(_uval, f"{_uval:,}")
+        _policy = await run.io_bound(lambda: get_context_policy(_eff))
+        if _policy.native_max is not None and _policy.user_cap > _policy.native_max:
+            _ml = CONTEXT_SIZE_LABELS.get(_policy.native_max, f"{_policy.native_max:,}")
+            _ul = CONTEXT_SIZE_LABELS.get(_policy.user_cap, f"{_policy.user_cap:,}")
             ui.notify(
                 f"Context capped: {_eff} max is {_ml} (you selected {_ul}). "
                 f"Trimming will use {_ml}.",

@@ -151,6 +151,16 @@ def _suppress_stderr():
     return _redirect()
 
 
+def _runtime_vision_model(model_name: str) -> str:
+    """Return the provider runtime model id for local Vision calls."""
+    try:
+        from providers.selection import model_id_from_choice_value
+
+        return model_id_from_choice_value(model_name) or model_name
+    except Exception:
+        return model_name
+
+
 def list_cameras(max_check: int = 5) -> list[int]:
     """Return indices of available camera devices (checks 0..max_check-1)."""
     cv2 = _load_cv2()
@@ -343,8 +353,9 @@ class VisionService:
         client = _ollama_client()
         if client is None:
             return "Ollama is not installed. Install it or switch to a cloud vision model."
+        runtime_model = _runtime_vision_model(self._model)
         response = client.chat(
-            model=self._model,
+            model=runtime_model,
             messages=[{
                 "role": "user",
                 "content": question,

@@ -20,9 +20,18 @@ import traceback
 import uuid
 from pathlib import Path
 
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # ── Ensure project root is on sys.path ──────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 os.chdir(PROJECT_ROOT)
+_TEST_DATA_DIR = PROJECT_ROOT / ".tmp" / "test_suite_thoth"
+_TEST_DATA_DIR.mkdir(parents=True, exist_ok=True)
+os.environ["THOTH_DATA_DIR"] = str(_TEST_DATA_DIR)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -929,9 +938,12 @@ except Exception as e:
     record("FAIL", "launcher: cross-platform splash", str(e))
 
 
-# ── 15f. Ollama auto-start helpers ──────────────────────────────────────────
+# ── 15f. Conditional Ollama auto-start helpers ──────────────────────────────
 try:
-    from launcher import _is_ollama_running, _start_ollama, _OLLAMA_PORT
+    from launcher import (
+        _is_ollama_running, _maybe_start_ollama, _model_ref_requires_ollama,
+        _should_auto_start_ollama, _start_ollama, _OLLAMA_PORT,
+    )
 
     # _is_ollama_running returns a bool
     result = _is_ollama_running()
@@ -941,6 +953,9 @@ try:
     # _start_ollama is callable
     assert callable(_start_ollama)
     record("PASS", "launcher: _start_ollama is callable")
+    assert callable(_maybe_start_ollama)
+    assert callable(_should_auto_start_ollama)
+    record("PASS", "launcher: conditional Ollama auto-start helpers exist")
 
     # _OLLAMA_PORT is 11434
     assert _OLLAMA_PORT == 11434, f"Expected 11434, got {_OLLAMA_PORT}"
@@ -953,8 +968,16 @@ try:
         _start_ollama()
         record("PASS", "launcher: _start_ollama no-op when already running")
 
+    # Provider-only selections must not trigger Ollama startup.
+    assert not _model_ref_requires_ollama("model:codex:gpt-5.5")
+    assert not _model_ref_requires_ollama("model:openai:gpt-5.5")
+    assert not _model_ref_requires_ollama("model:custom_openai_lmstudio:qwen-local")
+    assert _model_ref_requires_ollama("model:ollama:qwen3:14b")
+    assert _model_ref_requires_ollama("huihui_ai/deepseek-r1-abliterated:14b")
+    record("PASS", "launcher: model refs classify Ollama dependency correctly")
+
 except Exception as e:
-    record("FAIL", "launcher: ollama auto-start helpers", str(e))
+    record("FAIL", "launcher: conditional Ollama auto-start helpers", str(e))
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -4072,7 +4095,7 @@ try:
     record("PASS", "v3.6: interrupt gate uses ContextVar for bg check")
 
     # ── 32d. get_agent_graph uses ContextVar ─────────────────────────
-    _gag_section = _src_agent32[_src_agent32.index("def get_agent_graph"):][:1500]
+    _gag_section = _src_agent32[_src_agent32.index("def get_agent_graph"):][:2500]
     assert "_background_workflow_var.get()" in _gag_section, \
         "get_agent_graph must read _background_workflow_var"
     record("PASS", "v3.6: get_agent_graph uses ContextVar for bg check")
@@ -4112,7 +4135,7 @@ try:
     record("PASS", "v3.12: run_command not in shell destructive_tool_names")
 
     # ── 32e5. invoke_agent returns str | dict with interrupt detection ─
-    _ia_section = _src_agent32[_src_agent32.index("def invoke_agent"):][:6000]
+    _ia_section = _src_agent32[_src_agent32.index("def invoke_agent"):][:10000]
     assert "state.next" in _ia_section, \
         "invoke_agent must check state.next for interrupt detection"
     assert '"type": "interrupt"' in _ia_section or "'type': 'interrupt'" in _ia_section, \
@@ -4905,11 +4928,14 @@ try:
     assert _cloud_count35 >= 4, f"Expected ≥4 is_cloud_model refs, got {_cloud_count35}"
     record("PASS", "cloud: agent.py has cloud-aware guards")
 
-    # ── 35ac. launcher.py: simple Ollama auto-start ──────────────────
+    # ── 35ac. launcher.py: conditional Ollama auto-start ─────────────
     _launcher_src35 = Path("launcher.py").read_text(encoding="utf-8")
     assert "_start_ollama" in _launcher_src35, "launcher should have _start_ollama"
     assert "_is_ollama_running" in _launcher_src35, "launcher should check if Ollama is running"
-    record("PASS", "cloud: launcher.py has simple Ollama auto-start")
+    assert "_should_auto_start_ollama" in _launcher_src35, "launcher should gate Ollama startup on saved local runtime"
+    assert "_maybe_start_ollama" in _launcher_src35, "launcher should use conditional Ollama startup wrapper"
+    assert "no saved local Ollama runtime selected" in _launcher_src35, "provider-only startup should skip Ollama"
+    record("PASS", "cloud: launcher.py has conditional Ollama auto-start")
 
     # ── 35ad. telegram: /model command handler ───────────────────────
     _tg_src35 = Path("channels/telegram.py").read_text(encoding="utf-8")
@@ -5065,31 +5091,35 @@ try:
 
     # ── 35aw. trending Ollama models: source code checks ─────────────
     _models_src35 = open("models.py", encoding="utf-8").read()
-    assert "_trending_ollama_cache" in _models_src35, "models.py should have trending cache var"
-    assert "fetch_trending_ollama_models" in _models_src35, "models.py should have trending fetch function"
-    assert "get_trending_models" in _models_src35, "models.py should have get_trending_models"
-    assert "ollama.com/api/tags" in _models_src35, "trending fetch should use ollama.com/api/tags"
-    record("PASS", "cloud: models.py has trending Ollama model support")
+    assert "def list_all_models" in _models_src35, "models.py should have daemon model list facade"
+    assert "return sorted(set(list_local_models()))" in _models_src35, \
+        "list_all_models should only return daemon-exposed Ollama models"
+    assert "ollama.com/api/tags" not in _models_src35, "Thoth should not fetch public Ollama tags"
+    assert "def pull_model" not in _models_src35, "Thoth should not download Ollama models"
+    record("PASS", "cloud: Ollama model management is daemon-only")
 
     # ── 35ax. fetch_trending_ollama_models is importable ─────────────
     from models import fetch_trending_ollama_models as _ftom, get_trending_models as _gtm
     assert callable(_ftom), "fetch_trending_ollama_models should be callable"
     assert callable(_gtm), "get_trending_models should be callable"
-    record("PASS", "cloud: trending functions importable and callable")
+    assert _ftom() == [], "deprecated trending fetch should be a no-op"
+    record("PASS", "cloud: deprecated trending functions are inert")
 
     # ── 35ay. get_trending_models returns a list ─────────────────────
     _trending = _gtm()
-    assert isinstance(_trending, list), "get_trending_models should return a list"
-    record("PASS", "cloud: get_trending_models returns list")
+    assert _trending == [], "get_trending_models should not expose non-daemon Ollama rows"
+    record("PASS", "cloud: get_trending_models returns daemon-only empty list")
 
     # ── 35az. app.py uses trending models + Ollama-aware logic
     assert "build_cached_model_catalog_rows" in _gui_src35, "settings should render model catalog from cache"
     assert "start_model_catalog_refresh_background" in _gui_src35, "settings should refresh catalog in the background"
-    assert "get_trending_models" in _gui_src35, "app.py should import get_trending_models"
-    assert "🆕" in _gui_src35, "app.py should show trending icon"
+    assert "pull_model" not in _gui_src35, "settings/wizard should not download Ollama models"
+    assert "on_download" not in _gui_src35, "model catalog should not expose download actions"
+    assert "fetch_ollama_library" not in Path("providers/ollama.py").read_text(encoding="utf-8"), \
+        "Ollama provider should not fetch public library rows"
     assert "_ollama_up" in _gui_src35, "app.py should track Ollama reachability"
     assert "ollama.com/download" in _gui_src35, "app.py should link to Ollama download"
-    record("PASS", "cloud: settings has cached catalog + Ollama-aware model lists")
+    record("PASS", "cloud: settings has cached daemon-only catalog + Ollama-aware model lists")
 
     # ── 35ba. cross-platform install instructions in app ─────
     assert "brew install ollama" in _gui_src35, "app.py should have macOS install hint"
@@ -5097,7 +5127,7 @@ try:
     record("PASS", "cloud: app.py has cross-platform Ollama install instructions")
 
     # ── 35bb. cloud/local chat banners in app ────────────────
-    assert "complete privacy" in _gui_src35, "local banner should mention privacy"
+    assert "local/private" in _gui_src35, "local banner should identify local/private execution"
     assert "data is sent to the cloud" in _gui_src35, "cloud banner should warn about data"
     assert 'icon("lock"' in _gui_src35, "local banner should use lock icon"
     assert 'icon("cloud"' in _gui_src35, "cloud banner should use cloud icon"
@@ -5183,11 +5213,15 @@ try:
     record("PASS", "cloud: sidebar context counter model-aware")
 
     # ── 35bo. cloud context configurable, local VRAM-controlled ──────────
-    # get_context_size must cap cloud models at user-selected limit
-    _gcs_body = _mod_src35.split("def get_context_size")[1][:1200]
-    assert 'is_cloud_model' in _gcs_body, "get_context_size must branch on cloud vs local"
-    assert '_cloud_num_ctx' in _gcs_body, "cloud path must reference _cloud_num_ctx cap"
-    assert '_estimate_context_heuristic' in _gcs_body, "cloud fallback should use heuristic"
+    # get_context_size delegates to get_context_policy, which caps cloud
+    # models at the user-selected provider context limit and local models at
+    # the VRAM-sensitive local context setting.
+    _gcp_body = _mod_src35.split("def get_context_policy")[1][:3500]
+    _gcs_body = _mod_src35.split("def get_context_size")[1][:700]
+    assert 'get_context_policy' in _gcs_body, "get_context_size must use context policy"
+    assert 'is_cloud_model' in _gcp_body, "context policy must branch on cloud vs local"
+    assert '_cloud_num_ctx' in _gcp_body, "cloud path must reference _cloud_num_ctx cap"
+    assert '_estimate_context_heuristic' in _gcp_body, "cloud fallback should use heuristic"
     # UI: local context dropdown must mention VRAM
     assert 'Local context' in _gui_src35, "context dropdown should be labeled for local models"
     assert 'VRAM' in _gui_src35, "context dropdown tooltip should mention VRAM impact"
@@ -14388,14 +14422,17 @@ try:
     assert 'def set_cloud_context_size' in _mod_src69t, "must have set_cloud_context_size()"
 
     # set_cloud_context_size persists to settings
-    _set_cloud_body = _mod_src69t.split('def set_cloud_context_size')[1][:500]
+    _set_cloud_body = _mod_src69t.split('def set_cloud_context_size')[1][:900]
     assert 'cloud_context_size' in _set_cloud_body, "must persist cloud_context_size key"
     assert '_save_settings' in _set_cloud_body, "must call _save_settings"
 
-    # get_context_size uses _cloud_num_ctx for cloud path
-    _gcs_body69t = _mod_src69t.split('def get_context_size')[1][:1200]
-    assert '_cloud_num_ctx' in _gcs_body69t, "cloud path must use _cloud_num_ctx"
-    assert 'min(' in _gcs_body69t, "cloud context must be min(cap, native)"
+    # get_context_size uses context policy; context policy uses _cloud_num_ctx
+    # for cloud paths and caps effective context to min(user cap, native).
+    _gcs_body69t = _mod_src69t.split('def get_context_size')[1][:700]
+    _gcp_body69t = _mod_src69t.split('def get_context_policy')[1][:3500]
+    assert 'get_context_policy' in _gcs_body69t, "get_context_size must use context policy"
+    assert '_cloud_num_ctx' in _gcp_body69t, "cloud path must use _cloud_num_ctx"
+    assert 'min(' in _gcp_body69t, "cloud context must be min(cap, native)"
 
     # UI imports the new symbols
     _gui_src69t = Path("ui/settings.py").read_text(encoding="utf-8")

@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 from types import SimpleNamespace
 
 import app_port
@@ -62,6 +63,79 @@ def test_run_direct_reuses_existing_server_without_child_exit_check(monkeypatch)
     launcher._run_direct(args)
 
     assert captured["server"] is None
+
+
+def test_launcher_skips_ollama_autostart_for_provider_model(monkeypatch, tmp_path):
+    (tmp_path / "model_settings.json").write_text(
+        json.dumps({"model": "model:codex:gpt-5.5"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("THOTH_AUTO_START_OLLAMA", raising=False)
+    monkeypatch.setattr(
+        launcher,
+        "_start_ollama",
+        lambda: (_ for _ in ()).throw(AssertionError("should not start Ollama")),
+    )
+
+    assert launcher._should_auto_start_ollama() is False
+    launcher._maybe_start_ollama()
+
+
+def test_launcher_starts_ollama_for_saved_local_model(monkeypatch, tmp_path):
+    (tmp_path / "model_settings.json").write_text(
+        json.dumps({"model": "model:ollama:qwen3:14b"}),
+        encoding="utf-8",
+    )
+    calls = []
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("THOTH_AUTO_START_OLLAMA", raising=False)
+    monkeypatch.setattr(launcher, "_start_ollama", lambda: calls.append("start"))
+
+    assert launcher._should_auto_start_ollama() is True
+    launcher._maybe_start_ollama()
+    assert calls == ["start"]
+
+
+def test_launcher_starts_ollama_for_legacy_bare_local_model(monkeypatch, tmp_path):
+    (tmp_path / "model_settings.json").write_text(
+        json.dumps({"model": "huihui_ai/deepseek-r1-abliterated:14b"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("THOTH_AUTO_START_OLLAMA", raising=False)
+
+    assert launcher._should_auto_start_ollama() is True
+
+
+def test_launcher_vision_setting_can_request_ollama(monkeypatch, tmp_path):
+    (tmp_path / "model_settings.json").write_text(
+        json.dumps({"model": "model:openai:gpt-5.5"}),
+        encoding="utf-8",
+    )
+    (tmp_path / "vision_settings.json").write_text(
+        json.dumps({"model": "gemma3:4b"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("THOTH_AUTO_START_OLLAMA", raising=False)
+
+    assert launcher._should_auto_start_ollama() is True
+
+
+def test_launcher_no_ollama_forces_skip(monkeypatch, tmp_path):
+    (tmp_path / "model_settings.json").write_text(
+        json.dumps({"model": "model:ollama:qwen3:14b"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        launcher,
+        "_start_ollama",
+        lambda: (_ for _ in ()).throw(AssertionError("should not start Ollama")),
+    )
+
+    launcher._maybe_start_ollama(no_ollama=True)
 
 
 def test_launcher_skips_foreign_ports_and_picks_next_free(monkeypatch):

@@ -40,6 +40,14 @@ def resume_agent_sync(
     from tools import registry as tool_registry
 
     enabled = [t.name for t in tool_registry.get_enabled_tools()]
+    config = {
+        **config,
+        "configurable": {
+            **(config.get("configurable") or {}),
+            "runtime_surface": "approval",
+            "runtime_mode": "agent",
+        },
+    }
     answer_tokens: list[str] = []
     interrupt_data: Any = None
 

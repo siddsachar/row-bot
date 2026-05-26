@@ -5,6 +5,7 @@ import uuid
 import os
 import pathlib
 import json
+import time
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
@@ -673,6 +674,158 @@ def clear_thread_summary(thread_id: str) -> None:
 
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 checkpointer = SqliteSaver(conn)
+
+
+def _version_to_int(value) -> int:
+    try:
+        if isinstance(value, int):
+            return value
+        text = str(value or "")
+        return int(text.split(".", 1)[0]) if text else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def _normalize_checkpoint_version(value):
+    if isinstance(value, int):
+        return f"{value:032}.0000000000000000"
+    if isinstance(value, str) and value.isdigit():
+        return f"{int(value):032}.0000000000000000"
+    return value
+
+
+def _normalize_checkpoint_versions(checkpoint: dict | None) -> tuple[dict | None, bool]:
+    if not isinstance(checkpoint, dict):
+        return checkpoint, False
+    changed = False
+    normalized = dict(checkpoint)
+    versions = dict(normalized.get("channel_versions") or {})
+    normalized_versions = {}
+    for key, value in versions.items():
+        next_value = _normalize_checkpoint_version(value)
+        changed = changed or next_value != value
+        normalized_versions[key] = next_value
+    normalized["channel_versions"] = normalized_versions
+
+    versions_seen = {}
+    for node, seen in dict(normalized.get("versions_seen") or {}).items():
+        if not isinstance(seen, dict):
+            versions_seen[node] = seen
+            continue
+        next_seen = {}
+        for key, value in seen.items():
+            next_value = _normalize_checkpoint_version(value)
+            changed = changed or next_value != value
+            next_seen[key] = next_value
+        versions_seen[node] = next_seen
+    normalized["versions_seen"] = versions_seen
+    return normalized, changed
+
+
+def repair_thread_checkpoint_versions(thread_id: str) -> bool:
+    """Append a normalized checkpoint if the latest one has legacy int versions."""
+    if not thread_id:
+        return False
+    try:
+        from langgraph.checkpoint.base import empty_checkpoint
+
+        config = {"configurable": {"thread_id": str(thread_id), "checkpoint_ns": ""}}
+        checkpoint_tuple = checkpointer.get_tuple(config)
+        checkpoint = getattr(checkpoint_tuple, "checkpoint", None) if checkpoint_tuple else None
+        normalized, changed = _normalize_checkpoint_versions(checkpoint)
+        if not changed or not isinstance(normalized, dict):
+            return False
+        next_checkpoint = empty_checkpoint()
+        next_checkpoint["channel_values"] = dict(normalized.get("channel_values", {}))
+        next_checkpoint["channel_versions"] = dict(normalized.get("channel_versions", {}))
+        next_checkpoint["versions_seen"] = dict(normalized.get("versions_seen", {}))
+        next_checkpoint["pending_sends"] = list(normalized.get("pending_sends", []))
+        put_config = getattr(checkpoint_tuple, "config", None) or config
+        put_config.setdefault("configurable", {})
+        put_config["configurable"].setdefault("thread_id", str(thread_id))
+        put_config["configurable"].setdefault("checkpoint_ns", "")
+        metadata = dict(getattr(checkpoint_tuple, "metadata", None) or {})
+        metadata["source"] = metadata.get("source") or "checkpoint_repair"
+        metadata["writes"] = metadata.get("writes") or {}
+        checkpointer.put(put_config, next_checkpoint, metadata, {})
+        logger.info("Repaired checkpoint channel version types for thread %s", str(thread_id)[:8])
+        return True
+    except Exception:
+        logger.warning("Failed to repair checkpoint channel versions for thread %s", thread_id, exc_info=True)
+        return False
+
+
+def get_latest_checkpoint_messages(thread_id: str) -> list:
+    """Return raw LangGraph messages for a thread without building the agent graph."""
+    if not thread_id:
+        return []
+    started = time.perf_counter()
+    config = {"configurable": {"thread_id": str(thread_id), "checkpoint_ns": ""}}
+    try:
+        checkpoint_tuple = checkpointer.get_tuple(config)
+        checkpoint = getattr(checkpoint_tuple, "checkpoint", None) if checkpoint_tuple else None
+        channel_values = checkpoint.get("channel_values", {}) if isinstance(checkpoint, dict) else {}
+        messages = channel_values.get("messages", [])
+        if isinstance(messages, list):
+            logger.debug(
+                "perf: checkpoint messages read in %.3fs thread=%s count=%d",
+                time.perf_counter() - started,
+                str(thread_id)[:8],
+                len(messages),
+            )
+            return list(messages)
+    except Exception:
+        logger.debug("Failed to read checkpoint messages for thread %s", thread_id, exc_info=True)
+    logger.debug(
+        "perf: checkpoint messages read in %.3fs thread=%s count=0",
+        time.perf_counter() - started,
+        str(thread_id)[:8],
+    )
+    return []
+
+
+def append_checkpoint_messages(thread_id: str, messages: list) -> bool:
+    """Append simple chat messages to checkpoint storage without constructing a graph."""
+    if not thread_id or not messages:
+        return False
+    try:
+        from langgraph.checkpoint.base import empty_checkpoint
+
+        config = {"configurable": {"thread_id": str(thread_id), "checkpoint_ns": ""}}
+        checkpoint_tuple = checkpointer.get_tuple(config)
+        parent_config = getattr(checkpoint_tuple, "config", None) if checkpoint_tuple else None
+        checkpoint = getattr(checkpoint_tuple, "checkpoint", None) if checkpoint_tuple else None
+        checkpoint, _changed = _normalize_checkpoint_versions(checkpoint)
+        channel_values = dict(checkpoint.get("channel_values", {})) if isinstance(checkpoint, dict) else {}
+        existing = channel_values.get("messages", [])
+        if not isinstance(existing, list):
+            existing = []
+        channel_values["messages"] = [*existing, *messages]
+
+        next_checkpoint = empty_checkpoint()
+        next_checkpoint["channel_values"] = channel_values
+        channel_versions = dict(checkpoint.get("channel_versions", {})) if isinstance(checkpoint, dict) else {}
+        current_version = channel_versions.get("messages")
+        next_version = checkpointer.get_next_version(current_version, None)
+        channel_versions["messages"] = next_version
+        next_checkpoint["channel_versions"] = channel_versions
+        next_checkpoint["versions_seen"] = dict(checkpoint.get("versions_seen", {})) if isinstance(checkpoint, dict) else {}
+
+        put_config = parent_config or config
+        put_config.setdefault("configurable", {})
+        put_config["configurable"].setdefault("thread_id", str(thread_id))
+        put_config["configurable"].setdefault("checkpoint_ns", "")
+        checkpointer.put(
+            put_config,
+            next_checkpoint,
+            {"source": "chat_only", "step": _version_to_int(next_version), "writes": {"messages": len(messages)}},
+            {"messages": next_version},
+        )
+        logger.debug("Appended %d checkpoint message(s) for thread %s", len(messages), str(thread_id)[:8])
+        return True
+    except Exception:
+        logger.warning("Failed to append checkpoint messages for thread %s", thread_id, exc_info=True)
+        return False
 
 
 def pick_or_create_thread() -> dict:

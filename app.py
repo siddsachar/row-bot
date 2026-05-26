@@ -717,7 +717,7 @@ async def index():
         if not _ollama_reachable():
             return False, "Cannot connect to Ollama. Make sure it is running (`ollama serve`)."
         if not is_model_local(current):
-            return False, f"Model {current} is not downloaded. Open Settings → Models to download it."
+            return False, f"Model {current} is not exposed by the Ollama daemon. Manage local models in Ollama, then refresh."
         return True, ""
 
     try:

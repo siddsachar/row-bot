@@ -118,6 +118,13 @@ class ModelInfo:
     risk_label: str = "api_key"
     source: str = "catalog"
 
+    def __post_init__(self) -> None:
+        try:
+            context_window = int(self.context_window or 0)
+        except (TypeError, ValueError):
+            context_window = 0
+        object.__setattr__(self, "context_window", context_window)
+
     @property
     def selection_ref(self) -> str:
         return f"model:{self.provider_id}:{self.model_id}"

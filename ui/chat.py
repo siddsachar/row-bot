@@ -148,11 +148,30 @@ def build_chat(
     # ── Cloud/local model banner ─────────────────────────────────────
     def _model_surface():
         active_model = state.thread_model_override or get_current_model()
-        active_cloud = is_cloud_model(active_model)
-        if active_cloud:
-            prov = get_cloud_provider(active_model) or "cloud"
-            model_label = model_id_from_choice_value(active_model)
-            prov_label = provider_display_label(prov)
+        model_label = model_id_from_choice_value(active_model)
+        prov = get_cloud_provider(active_model) or "ollama"
+        prov_label = provider_display_label(prov)
+        local_execution = False
+        mode_label = "Agent Mode"
+        try:
+            from providers.resolution import resolve_provider_config
+            from providers.readiness import evaluate_runtime_readiness
+
+            resolved = resolve_provider_config(active_model, allow_legacy_local=True)
+            prov = resolved.provider_id
+            prov_label = resolved.provider_display_name
+            model_label = resolved.runtime_model
+            local_execution = resolved.execution_location == "local" or resolved.risk_label == "local_private"
+            runtime = evaluate_runtime_readiness(resolved)
+            if runtime.selected_mode == "agent":
+                mode_label = "Agent Mode"
+            elif runtime.selected_mode == "chat_only":
+                mode_label = "Chat Only - tools and actions are off"
+            else:
+                mode_label = "Unavailable - " + runtime.selection_reason
+        except Exception:
+            local_execution = not is_cloud_model(active_model)
+        if not local_execution and is_cloud_model(active_model):
             try:
                 from providers.ollama import is_ollama_cloud_offload_model
                 if prov == "ollama" and is_ollama_cloud_offload_model(model_label):
@@ -162,6 +181,7 @@ def build_chat(
             return {
                 "model": active_model,
                 "cloud": True,
+                "mode": mode_label,
                 "icon": "cloud",
                 "icon_color": "orange",
                 "text": f"Using {model_label} via {prov_label} — data is sent to the cloud",
@@ -175,9 +195,10 @@ def build_chat(
         return {
             "model": active_model,
             "cloud": False,
+            "mode": mode_label,
             "icon": "lock",
             "icon_color": "green",
-            "text": f"Using {active_model} via Ollama — complete privacy",
+            "text": f"Using {model_label} via {prov_label} — local/private",
             "text_class": "text-green text-sm",
             "banner_style": (
                 "background: rgba(76, 175, 80, 0.08); "
@@ -198,6 +219,7 @@ def build_chat(
                 else:
                     ui.icon("lock", color=surface["icon_color"]).style("font-size: 1.1rem;")
                 ui.label(surface["text"]).classes(surface["text_class"])
+                ui.badge(surface.get("mode") or "Agent Mode", color="blue-grey").props("outline dense")
 
     def _refresh_model_surface() -> None:
         _render_model_banner()

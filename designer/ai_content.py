@@ -26,6 +26,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _designer_text_llm():
+    """Return the Agent-ready LLM selected for the active Designer run."""
+    from models import _active_model_override, get_current_model, get_llm_for
+    from providers.readiness import ensure_agent_ready
+
+    model_label = str(_active_model_override.get() or get_current_model() or "").strip()
+    ensure_agent_ready(model_label)
+    return get_llm_for(model_label)
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # BRAND & THEME ENFORCEMENT (Phase 2.1.C)
 # ═══════════════════════════════════════════════════════════════════════
@@ -925,9 +935,8 @@ def refine_text(
     user_prompt = f"INSTRUCTION: {instruction}\n\nTEXT TO REFINE:\n{text}"
 
     try:
-        from models import get_llm
         from langchain_core.messages import SystemMessage, HumanMessage
-        llm = get_llm()
+        llm = _designer_text_llm()
         resp = llm.invoke([SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)])
         refined = resp.content.strip() if resp and resp.content else text
         return refined if refined else text
@@ -977,10 +986,9 @@ def generate_speaker_notes(
     )
 
     try:
-        from models import get_llm
         from langchain_core.messages import HumanMessage, SystemMessage
 
-        llm = get_llm()
+        llm = _designer_text_llm()
         resp = llm.invoke([
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt),

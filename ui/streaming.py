@@ -38,6 +38,34 @@ from ui.tool_trace import canonical_tool_name, display_tool_content, is_browser_
 logger = logging.getLogger(__name__)
 
 
+async def _agent_ready_forced_surface(model_ref: str, surface: str) -> bool:
+    """Return whether a forced-Agent surface can run the selected model."""
+    try:
+        from providers.readiness import evaluate_agent_readiness
+        from providers.selection import model_id_from_choice_value
+
+        readiness = await run.io_bound(lambda: evaluate_agent_readiness(model_ref))
+        if readiness.ready:
+            return True
+        model_id = model_id_from_choice_value(model_ref)
+        details = "; ".join(readiness.errors) or readiness.user_message()
+        ui.notify(
+            f"{model_id} cannot run {surface}: this area requires an Agent-ready model. {details}",
+            type="negative",
+            close_button=True,
+            timeout=12000,
+        )
+        return False
+    except Exception as exc:
+        ui.notify(
+            f"Could not verify Agent Mode readiness for {surface}: {exc}",
+            type="negative",
+            close_button=True,
+            timeout=12000,
+        )
+        return False
+
+
 # ── Captured-image memory cap ────────────────────────────────────────
 # During long tool-heavy runs (dozens of browser snapshots) the per-gen
 # ``captured_images`` list can hold hundreds of megabytes of base64.  We
@@ -516,15 +544,25 @@ async def consume_generation(
                     _handle_ui_runtime_error(gen, state, exc, "error-event cleanup")
                     logger.debug("Error-event UI cleanup failed", exc_info=True)
             try:
-                repair_orphaned_tool_calls(gen.enabled_tools, gen.config)
-            except Exception:
-                logger.debug("repair_orphaned_tool_calls failed", exc_info=True)
-            try:
-                _agent = get_agent_graph()
-                _agent.update_state(
-                    gen.config,
-                    {"messages": [AIMessage(content=gen.accumulated)]},
-                )
+                configurable = gen.config.get("configurable", {}) if isinstance(gen.config, dict) else {}
+                if configurable.get("runtime_mode") == "agent":
+                    try:
+                        repair_orphaned_tool_calls(gen.enabled_tools, gen.config)
+                    except Exception:
+                        logger.debug("repair_orphaned_tool_calls failed", exc_info=True)
+                if configurable.get("runtime_mode") == "agent":
+                    _agent = get_agent_graph(
+                        gen.enabled_tools,
+                        model_override=configurable.get("model_override"),
+                    )
+                    _agent.update_state(
+                        gen.config,
+                        {"messages": [AIMessage(content=gen.accumulated)]},
+                    )
+                else:
+                    from threads import append_checkpoint_messages
+
+                    append_checkpoint_messages(gen.thread_id, [AIMessage(content=gen.accumulated)])
             except Exception:
                 logger.debug("Failed to persist error to checkpoint", exc_info=True)
             _break_loop = True
@@ -1300,10 +1338,20 @@ async def send_message(
 
     _thread_mo = state.thread_model_override or ""
     is_developer = bool(getattr(state, "active_developer_workspace_id", None))
+    is_designer = bool(getattr(state, "active_designer_project", None))
+    runtime_surface = "developer" if is_developer else "designer" if is_designer else "normal_chat"
+    runtime_mode = "agent" if is_developer or is_designer else "auto"
+    if runtime_mode == "agent":
+        from models import get_current_model
+
+        if not await _agent_ready_forced_surface(_thread_mo or get_current_model(), runtime_surface):
+            return
     recursion_limit = recursion_limit_for_mode(is_developer=is_developer)
     config = {
         "configurable": {
             "thread_id": gen_thread_id,
+            "runtime_surface": runtime_surface,
+            "runtime_mode": runtime_mode,
             **({"model_override": _thread_mo} if _thread_mo else {}),
             **({"developer_workspace_id": state.active_developer_workspace_id} if getattr(state, "active_developer_workspace_id", None) else {}),
             **({"developer_context": developer_context} if developer_context else {}),
@@ -1429,10 +1477,18 @@ async def resume_after_interrupt(
         except Exception:
             logger.debug("Failed to build Developer Studio context for resume", exc_info=True)
     is_developer = bool(getattr(state, "active_developer_workspace_id", None))
+    is_designer = bool(getattr(state, "active_designer_project", None))
+    runtime_surface = "developer" if is_developer else "designer" if is_designer else "approval"
+    from models import get_current_model
+
+    if not await _agent_ready_forced_surface(_thread_mo or get_current_model(), runtime_surface):
+        return
     recursion_limit = recursion_limit_for_mode(is_developer=is_developer)
     config = {
         "configurable": {
             "thread_id": gen_thread_id,
+            "runtime_surface": runtime_surface,
+            "runtime_mode": "agent",
             **({"model_override": _thread_mo} if _thread_mo else {}),
             **({"developer_workspace_id": state.active_developer_workspace_id} if getattr(state, "active_developer_workspace_id", None) else {}),
             **({"developer_context": developer_context} if developer_context else {}),

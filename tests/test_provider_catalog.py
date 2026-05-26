@@ -5,15 +5,10 @@ from providers.catalog import classify_model_capabilities, get_provider_definiti
 from providers.model_catalog import CatalogModelRow, build_model_catalog_rows, rows_for_surface
 from providers.models import ModelInfo, TransportMode
 from providers.ollama import (
-    extract_ollama_library_family_ids,
-    extract_ollama_library_model_ids,
-    preferred_ollama_cloud_offload_models,
     is_ollama_cloud_offload_model,
     is_ollama_chat_candidate,
     ollama_catalog_rows,
     ollama_model_info,
-    ollama_provider_catalog_model_ids,
-    preferred_ollama_tag_models,
 )
 
 
@@ -55,8 +50,58 @@ def test_settings_models_uses_cached_catalog_and_defers_camera_probe():
     assert "load_ollama_catalog_rows" not in render_section
     assert "build_model_catalog_rows" not in collect_section
     assert "fetch_trending_ollama_models" not in collect_section
+    assert "pull_model" not in source
+    assert "on_download" not in (ROOT / "ui" / "model_catalog.py").read_text(encoding="utf-8")
     assert "cameras = list_cameras()" not in render_section
     assert "await run.io_bound(list_cameras)" in render_section
+
+
+def test_setup_wizard_does_not_manage_ollama_downloads():
+    source = (ROOT / "ui" / "setup_wizard.py").read_text(encoding="utf-8")
+
+    assert "pull_model" not in source
+    assert "list_all_models" not in source
+    assert "POPULAR_MODELS" not in source
+    assert "POPULAR_VISION_MODELS" not in source
+    assert "setup_brain_dl" not in source
+    assert "setup_vision_dl" not in source
+
+
+def test_ollama_provider_public_catalog_discovery_removed():
+    source = (ROOT / "providers" / "ollama.py").read_text(encoding="utf-8")
+
+    assert "fetch_ollama_library" not in source
+    assert "ollama_provider_catalog_model_ids" not in source
+    assert "preferred_ollama_tag_models" not in source
+    assert "OLLAMA_LIBRARY_URL" not in source
+
+
+def test_settings_models_initial_render_is_snapshot_only():
+    source = (ROOT / "ui" / "settings.py").read_text(encoding="utf-8")
+    render_section = source.split("def _render_models_tab_content", 1)[1].split("def _collect_models_tab_data", 1)[0]
+    initial_build = render_section.split('ui.label("Models")', 1)[0]
+
+    assert "_ollama_reachable()" not in initial_build
+    assert "list_local_models()" not in initial_build
+    assert "get_context_policy(" not in initial_build
+    assert "get_model_max_context(" not in initial_build
+    assert "get_available_image_models()" not in initial_build
+    assert "get_available_video_models()" not in initial_build
+    assert 'snapshot.get("context_policy")' in initial_build
+    assert 'snapshot.get("image_options")' in initial_build
+    assert 'snapshot.get("video_options")' in initial_build
+
+
+def test_model_catalog_pin_refresh_is_async_safe():
+    catalog_source = (ROOT / "ui" / "model_catalog.py").read_text(encoding="utf-8")
+    settings_source = (ROOT / "ui" / "settings.py").read_text(encoding="utf-8")
+
+    assert "async def _run_catalog_callback" in catalog_source
+    assert "await _run_catalog_callback(on_change)" in catalog_source
+    assert "await _run_catalog_callback(on_set_default, surface, row)" in catalog_source
+    assert "async def _refresh_top_picker_options" in settings_source
+    assert "await run.io_bound(_collect_top_picker_options)" in settings_source
+    assert "if inspect.isawaitable(result):" in settings_source
 
 
 def test_minimax_model_ids_infer_to_minimax_provider():
@@ -297,6 +342,108 @@ def test_model_catalog_splits_media_from_chat_and_preserves_pins(monkeypatch):
     assert "image" in by_id["gpt-image-1"].default_surfaces
 
 
+def test_model_catalog_keeps_agent_incompatible_models_visible_as_chat_only(monkeypatch):
+    import providers.model_catalog as catalog_view
+
+    monkeypatch.setattr(catalog_view, "_provider_status_by_id", lambda: {"openrouter": {"configured": True}})
+    monkeypatch.setattr(catalog_view, "_custom_model_infos", lambda: [])
+    monkeypatch.setattr(catalog_view, "_codex_model_infos", lambda: [])
+    monkeypatch.setattr(catalog_view, "_curated_media_entries", lambda surface: {})
+
+    rows = build_model_catalog_rows(
+        cloud_cache={
+            "vendor/chat-no-tools": {
+                "label": "No Tools",
+                "ctx": 128_000,
+                "provider": "openrouter",
+                "capabilities_snapshot": {
+                    "tasks": ["chat"],
+                    "input_modalities": ["text"],
+                    "output_modalities": ["text"],
+                    "tool_calling": None,
+                    "transport": "openai_chat",
+                },
+            },
+        },
+        ollama_rows=[],
+    )
+
+    assert len(rows) == 1
+    assert rows[0].supports("chat") is True
+    assert rows[0].runtime_ready is True
+    assert rows[0].runtime_mode == "chat_only"
+    assert "Chat Only" in rows[0].status_reason
+
+
+def test_openrouter_cached_tool_metadata_makes_agent_ready(monkeypatch):
+    import providers.model_catalog as catalog_view
+
+    monkeypatch.setattr(catalog_view, "_provider_status_by_id", lambda: {"openrouter": {"configured": True}})
+    monkeypatch.setattr(catalog_view, "_custom_model_infos", lambda: [])
+    monkeypatch.setattr(catalog_view, "_codex_model_infos", lambda: [])
+    monkeypatch.setattr(catalog_view, "_curated_media_entries", lambda surface: {})
+
+    rows = build_model_catalog_rows(
+        cloud_cache={
+            "vendor/chat-tools": {
+                "label": "Tools",
+                "ctx": 128_000,
+                "provider": "openrouter",
+                "capabilities_snapshot": {
+                    "tasks": ["chat"],
+                    "input_modalities": ["text"],
+                    "output_modalities": ["text"],
+                    "tool_calling": True,
+                    "streaming": True,
+                    "transport": "openai_chat",
+                    "endpoint_compatibility": ["openai_chat"],
+                },
+            },
+        },
+        ollama_rows=[],
+    )
+
+    assert len(rows) == 1
+    assert rows[0].capabilities_snapshot["tool_calling"] is True
+    assert rows[0].runtime_ready is True
+    assert rows[0].status_reason == ""
+
+
+def test_openrouter_cached_no_tool_metadata_is_chat_only(monkeypatch):
+    import providers.model_catalog as catalog_view
+
+    monkeypatch.setattr(catalog_view, "_provider_status_by_id", lambda: {"openrouter": {"configured": True}})
+    monkeypatch.setattr(catalog_view, "_custom_model_infos", lambda: [])
+    monkeypatch.setattr(catalog_view, "_codex_model_infos", lambda: [])
+    monkeypatch.setattr(catalog_view, "_curated_media_entries", lambda surface: {})
+
+    rows = build_model_catalog_rows(
+        cloud_cache={
+            "vendor/chat-no-tools": {
+                "label": "No Tools",
+                "ctx": 128_000,
+                "provider": "openrouter",
+                "capabilities_snapshot": {
+                    "tasks": ["chat"],
+                    "input_modalities": ["text"],
+                    "output_modalities": ["text"],
+                    "tool_calling": False,
+                    "streaming": True,
+                    "transport": "openai_chat",
+                    "endpoint_compatibility": ["openai_chat"],
+                },
+            },
+        },
+        ollama_rows=[],
+    )
+
+    assert len(rows) == 1
+    assert rows[0].capabilities_snapshot["tool_calling"] is False
+    assert rows[0].runtime_ready is True
+    assert rows[0].runtime_mode == "chat_only"
+    assert "Chat Only" in rows[0].status_reason
+
+
 def test_model_catalog_ui_filters_and_bounds_large_provider_groups():
     from ui.model_catalog import CATALOG_PROVIDER_ROW_LIMIT, _filter_catalog_rows, _visible_provider_rows
 
@@ -329,7 +476,7 @@ def test_model_catalog_ui_filters_and_bounds_large_provider_groups():
     assert [row.model_id for row in special_vision_rows] == ["gemini-vision-special"]
 
 
-def test_model_catalog_includes_downloadable_ollama_rows(monkeypatch):
+def test_model_catalog_excludes_non_daemon_ollama_rows(monkeypatch):
     import providers.model_catalog as catalog_view
 
     monkeypatch.setattr(catalog_view, "_provider_status_by_id", lambda: {"ollama": {"configured": True, "source": "local_daemon"}})
@@ -344,12 +491,7 @@ def test_model_catalog_includes_downloadable_ollama_rows(monkeypatch):
         quick_choices=[],
     )
 
-    assert len(rows) == 1
-    assert rows[0].provider_id == "ollama"
-    assert rows[0].model_id == "qwen3.6:27b"
-    assert rows[0].downloadable is True
-    assert rows[0].runtime_ready is False
-    assert rows[0].status_reason.startswith("Download")
+    assert rows == []
 
 
 def test_legacy_model_facade_uses_ollama_tool_capability_catalog():
@@ -357,6 +499,42 @@ def test_legacy_model_facade_uses_ollama_tool_capability_catalog():
 
     assert is_tool_compatible("qwen3.6:27b") is True
     assert is_tool_compatible("qwen3.6:35b-a3b") is True
+
+
+def test_local_ollama_discovery_uses_http_fallback(monkeypatch):
+    import models
+
+    monkeypatch.setattr(models, "_ollama_reachable", lambda: True)
+    monkeypatch.setattr(models, "_ollama_client", lambda: None)
+    monkeypatch.setattr(
+        models,
+        "_ollama_http_json",
+        lambda path, payload=None, **kwargs: {
+            "models": [{"name": "vendor/non-tool-chat:14b"}]
+        } if path == "/api/tags" else {},
+    )
+
+    assert models.list_local_models() == ["vendor/non-tool-chat:14b"]
+
+
+def test_local_ollama_context_uses_http_show_fallback(monkeypatch):
+    import models
+
+    models._model_max_ctx_cache.clear()
+    monkeypatch.setattr(models, "is_cloud_model", lambda model_name: False)
+    monkeypatch.setattr(models, "_ollama_client", lambda: None)
+    monkeypatch.setattr(
+        models,
+        "_ollama_http_json",
+        lambda path, payload=None, **kwargs: {
+            "model_info": {
+                "general.architecture": "llama",
+                "llama.context_length": 131072,
+            }
+        } if path == "/api/show" else {},
+    )
+
+    assert models.get_model_max_context("model:ollama:vendor/non-tool-chat:14b") == 131072
 
 
 def test_ollama_embedding_model_is_not_chat_surface():
@@ -391,7 +569,7 @@ def test_ollama_catalog_includes_installed_unknown_chat_models(monkeypatch):
     assert by_id["gemma4:e4b"].downloadable is False
 
 
-def test_ollama_catalog_rows_merge_installed_and_recommended():
+def test_ollama_catalog_rows_are_daemon_only():
     rows = ollama_catalog_rows(
         ["qwen3:14b", "gemma3:4b", "llava-phi3:3.8b"],
         ["qwen3:14b", "mistral:7b", "mistral:7b", "moondream:latest", "phi4:14b"],
@@ -399,69 +577,11 @@ def test_ollama_catalog_rows_merge_installed_and_recommended():
     )
 
     by_id = {row["model_id"]: row for row in rows}
-    assert list(by_id) == ["gemma3:4b", "llava-phi3:3.8b", "qwen3:14b", "mistral:7b", "moondream:latest"]
+    assert list(by_id) == ["gemma3:4b", "llava-phi3:3.8b", "qwen3:14b"]
     assert by_id["qwen3:14b"]["installed"] is True
     assert by_id["qwen3:14b"]["context_window"] == 32768
     assert by_id["gemma3:4b"]["installed"] is True
     assert "image" in by_id["gemma3:4b"]["capabilities_snapshot"]["input_modalities"]
     assert "image" in by_id["llava-phi3:3.8b"]["capabilities_snapshot"]["input_modalities"]
-    assert by_id["mistral:7b"]["installed"] is False
-    assert by_id["mistral:7b"]["capabilities_snapshot"]["tasks"] == ["chat"]
-    assert by_id["moondream:latest"]["recommended"] is True
-    assert "image" in by_id["moondream:latest"]["capabilities_snapshot"]["input_modalities"]
-
-
-def test_preferred_ollama_tag_models_filters_variant_noise():
-    tags = [
-        "qwen3.6:latest",
-        "qwen3.6:27b",
-        "qwen3.6:35b",
-        "qwen3.6:27b-coding-mxfp8",
-        "qwen3.6:27b-cloud",
-        "qwen3.6:27b-q4_K_M",
-        "qwen3.6:35b-a3b",
-        "qwen3.6:35b-a3b-q8_0",
-        "gemma3:4b",
-    ]
-
-    assert preferred_ollama_tag_models(tags) == ["qwen3.6:27b", "qwen3.6:35b", "qwen3.6:35b-a3b", "gemma3:4b"]
-    assert preferred_ollama_cloud_offload_models(tags) == ["qwen3.6:27b-cloud"]
-
-
-def test_ollama_provider_catalog_model_ids_keeps_tool_and_vision_choices():
-    ids = ollama_provider_catalog_model_ids(
-        installed_models=["qwen3.6:27b", "gemma3:4b"],
-        curated_models=["mistral:7b", "llava-phi3:3.8b", "phi4:14b"],
-        library_families=["qwen3.6", "granite4.1", "gemma4", "moondream"],
-        family_tag_models=["qwen3.6:27b", "qwen3.6:27b-q4_K_M", "qwen3.6:35b", "gemma4:31b-cloud"],
-    )
-
-    assert ids == ["qwen3.6:27b", "gemma3:4b", "mistral:7b", "llava-phi3:3.8b", "moondream", "qwen3.6:35b", "gemma4:31b-cloud"]
-
-
-def test_extract_ollama_library_model_ids_includes_small_qwen_tags():
-    html = '''
-        <a href="/library/qwen3:latest">qwen3:latest</a>
-        <a href="https://ollama.com/library/qwen3:0.6b">qwen3:0.6b</a>
-        <a href="/library/qwen3:1.7b">qwen3:1.7b</a>
-        <a href="/library/qwen3:4b-instruct-2507-q4_K_M">qwen3:4b-instruct-2507-q4_K_M</a>
-        <a href="/library/qwen3:0.6b">duplicate</a>
-    '''
-
-    assert extract_ollama_library_model_ids(html, "qwen3") == [
-        "qwen3:latest",
-        "qwen3:0.6b",
-        "qwen3:1.7b",
-        "qwen3:4b-instruct-2507-q4_K_M",
-    ]
-
-
-def test_extract_ollama_library_family_ids_includes_latest_qwen_family():
-    html = '''
-        <a href="/library/qwen3.6">qwen3.6</a>
-        <a href="https://ollama.com/library/granite4.1">granite4.1</a>
-        <a href="/library/qwen3.6">duplicate</a>
-        <a href="/library/qwen3:0.6b">tag page should not be a family row</a>
-    '''
-
-    assert extract_ollama_library_family_ids(html) == ["qwen3.6", "granite4.1"]
+    assert all(row["downloadable"] is False for row in rows)
+    assert all(row["recommended"] is False for row in rows)

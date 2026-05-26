@@ -176,9 +176,25 @@ def _run_agent_sync(user_text: str, config: dict,
     for live streaming.  Pushes ``None`` sentinel when done.
     """
     # Ensure recursion limit matches the web UI (default is too low)
-    config = {**config, "recursion_limit": agent_mod.RECURSION_LIMIT_CHAT}
+    config = {
+        **config,
+        "configurable": {
+            **(config.get("configurable") or {}),
+            "runtime_surface": "channel",
+            "runtime_mode": "auto",
+        },
+        "recursion_limit": agent_mod.RECURSION_LIMIT_CHAT,
+    }
 
     enabled = [t.name for t in tool_registry.get_enabled_tools()]
+    config = {
+        **config,
+        "configurable": {
+            **(config.get("configurable") or {}),
+            "runtime_surface": "approval",
+            "runtime_mode": "agent",
+        },
+    }
     full_answer: list[str] = []
     tool_reports: list[str] = []
     interrupt_data: dict | None = None

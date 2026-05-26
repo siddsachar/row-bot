@@ -225,6 +225,43 @@ def get_agent_system_prompt() -> str:
         return AGENT_SYSTEM_PROMPT
 
 
+def get_plain_chat_system_prompt() -> str:
+    """Build a compact prompt for local/custom models without tool calling."""
+    try:
+        from self_knowledge import build_identity_line
+        identity = build_identity_line().replace(" with access to tools", "")
+    except Exception:
+        identity = "You are Thoth, a helpful personal assistant."
+    return (
+        f"{identity}\n"
+        "Respond directly to the user. Be concise unless the user asks for detail. "
+        "Do not claim to use tools or live data unless tool results are present in the conversation."
+    )
+
+
+def get_chat_only_system_prompt() -> str:
+    """Build the compact prompt used by the dedicated Chat Only runtime."""
+    try:
+        from identity import get_identity_config, _DEFAULT_NAME
+
+        cfg = get_identity_config()
+        name = cfg.get("name") or _DEFAULT_NAME
+        personality = str(cfg.get("personality") or "").strip()
+        identity = f"You are {name}, a knowledgeable personal assistant."
+        if personality:
+            identity += f" {personality}"
+    except Exception:
+        identity = "You are Thoth, a helpful personal assistant."
+    return (
+        f"{identity}\n"
+        "Answer only the user's latest message, using only the visible conversation. "
+        "Do not answer an imagined or unrelated task. If the user only greets you, "
+        "greet them back naturally. You cannot use tools or live data in this chat. "
+        "If asked whether you can see or use tools, say that this chat is Chat Only "
+        "and tools are not available here."
+    )
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # Background override — injected as an additional SystemMessage when the
 # agent is running inside a background task (no interactive user present).

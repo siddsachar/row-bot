@@ -14,6 +14,14 @@ CATALOG_SURFACES = ("chat", "vision", "image", "video")
 logger = logging.getLogger(__name__)
 
 
+def _positive_int(value: Any, default: int = 0) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
 @dataclass(frozen=True)
 class CatalogModelRow:
     provider_id: str
@@ -35,6 +43,7 @@ class CatalogModelRow:
     risk_label: str = "api_key"
     status_reason: str = ""
     availability: str = ""
+    runtime_mode: str = ""
 
     def supports(self, surface: str) -> bool:
         return surface in self.categories
@@ -68,53 +77,22 @@ def group_rows_by_provider(rows: Iterable[CatalogModelRow]) -> dict[str, list[Ca
 
 
 def load_ollama_catalog_rows() -> list[dict[str, Any]]:
-    from models import POPULAR_MODELS, fetch_trending_ollama_models, list_local_models
-    from providers.ollama import (
-        DEFAULT_OLLAMA_LIBRARY_FAMILIES,
-        fetch_ollama_cloud_library_models,
-        fetch_ollama_library_family_models,
-        fetch_ollama_library_models,
-        is_ollama_cloud_offload_model,
-        ollama_catalog_rows,
-        ollama_provider_catalog_model_ids,
-    )
+    from models import list_local_models
+    from providers.ollama import ollama_catalog_rows
 
     started = time.perf_counter()
     local = list_local_models()
-    library_families = fetch_ollama_library_models()
-    cloud_families = fetch_ollama_cloud_library_models()
-    family_tag_models: list[str] = []
-    families_to_expand = _unique_ordered([
-        *DEFAULT_OLLAMA_LIBRARY_FAMILIES,
-        *cloud_families[:24],
-    ])
-    for family in families_to_expand:
-        family_tag_models.extend(fetch_ollama_library_family_models(family))
-    cloud_candidates = [
-        model_id for model_id in family_tag_models
-        if is_ollama_cloud_offload_model(model_id) and model_id not in local
-    ]
-    cloud_show_metadata = _probe_ollama_show_metadata(cloud_candidates[:40])
-    recommended_models = ollama_provider_catalog_model_ids(
-        [],
-        [*POPULAR_MODELS, *fetch_trending_ollama_models()],
-        _unique_ordered([*library_families, *cloud_families]),
-        family_tag_models,
-    )
+    metadata = _probe_ollama_show_metadata(local)
     rows = ollama_catalog_rows(
         local,
-        recommended_models,
-        ready_cloud_offload=set(cloud_show_metadata),
-        metadata_by_model=cloud_show_metadata,
+        [],
+        metadata_by_model=metadata,
     )
     logger.info(
-        "perf: ollama catalog rows loaded in %.3fs (local=%d families=%d tags=%d cloud_candidates=%d show_ready=%d rows=%d)",
+        "perf: ollama catalog rows loaded in %.3fs (daemon_models=%d show_metadata=%d rows=%d)",
         time.perf_counter() - started,
         len(local),
-        len(families_to_expand),
-        len(family_tag_models),
-        len(cloud_candidates),
-        len(cloud_show_metadata),
+        len(metadata),
         len(rows),
     )
     return rows
@@ -338,6 +316,7 @@ def _catalog_row(
 ) -> CatalogModelRow:
     definition = get_provider_definition(provider_id)
     status = provider_status.get(provider_id, {})
+    ref = model_ref(provider_id, model_id)
     configured = bool(status.get("configured")) if status else provider_id == "ollama" or provider_id.startswith("custom_openai_")
     if provider_id == "ollama":
         configured = str(status.get("source") or "") != "not_running" if status else True
@@ -345,14 +324,35 @@ def _catalog_row(
     status_reason = ""
     if not configured:
         status_reason = "Connect this provider before using this model."
-    elif provider_id == "ollama" and availability == "cloud_offload_available":
-        status_reason = "Sign in to Ollama and pull this cloud model before using it."
     elif not installed:
-        status_reason = "Download this Ollama model before using it."
+        status_reason = "This model is not currently available from the provider."
     if provider_id == "codex" and not bool(status.get("runtime_enabled")):
         runtime_ready = False
         status_reason = "Codex account is connected, but direct chat runtime is not enabled yet."
-    ref = model_ref(provider_id, model_id)
+    if "chat" in categories and runtime_ready:
+        try:
+            from providers.readiness import evaluate_runtime_readiness
+
+            readiness = evaluate_runtime_readiness(
+                ref,
+                capability_snapshot=capabilities_snapshot,
+                status=status,
+                context_window_override=context_window,
+                probe_ollama_tools=False,
+            )
+            runtime_ready = readiness.selected_mode != "blocked"
+            availability = availability or readiness.selected_mode
+            if readiness.selected_mode == "chat_only":
+                details = "; ".join(readiness.agent.errors).lower()
+                if provider_id == "ollama" and "tool" in details:
+                    status_reason = "Tools unverified: Agent Mode will probe this Ollama model when selected."
+                else:
+                    status_reason = "Chat Only: tools and actions are off."
+            elif readiness.selected_mode == "blocked":
+                status_reason = readiness.selection_reason or "No supported runtime is available."
+                availability = availability or "blocked_agent_mode"
+        except Exception:
+            logger.debug("Could not evaluate runtime readiness for %s", ref, exc_info=True)
     return CatalogModelRow(
         provider_id=provider_id,
         model_id=model_id,
@@ -362,7 +362,7 @@ def _catalog_row(
         provider_icon=definition.icon if definition else "",
         categories=categories,
         capabilities_snapshot=dict(capabilities_snapshot),
-        context_window=int(context_window or 0),
+        context_window=_positive_int(context_window),
         runtime_ready=runtime_ready,
         configured=configured,
         installed=installed,
@@ -373,6 +373,7 @@ def _catalog_row(
         risk_label=risk_label,
         status_reason=status_reason,
         availability=availability,
+        runtime_mode=availability if availability in {"agent", "chat_only", "blocked"} else "",
     )
 
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import logging
 import os
 import pathlib
@@ -27,6 +28,73 @@ from ui.timer_utils import defer_ui, safe_ui_task
 logger = logging.getLogger(__name__)
 
 
+def _agent_mode_badge_state(
+    model_value: str,
+    *,
+    capability_snapshot: dict[str, Any] | None = None,
+    status: dict[str, Any] | None = None,
+    context_window_override: int | None = None,
+) -> dict[str, str | bool]:
+    """Return a compact UI badge for the selected Brain runtime."""
+    try:
+        from providers.readiness import evaluate_runtime_readiness
+
+        runtime = evaluate_runtime_readiness(
+            str(model_value or ""),
+            capability_snapshot=capability_snapshot,
+            status=status,
+            context_window_override=context_window_override,
+            probe_ollama_tools=False,
+        )
+    except Exception as exc:
+        return {
+            "visible": True,
+            "label": "runtime unknown",
+            "color": "orange",
+            "tooltip": f"Could not evaluate runtime readiness: {exc}",
+        }
+
+    if runtime.selected_mode == "agent":
+        return {"visible": False, "label": "", "color": "green", "tooltip": runtime.agent.user_message()}
+    if runtime.selected_mode == "chat_only":
+        blocked_details = "; ".join(runtime.agent.errors)
+        if runtime.agent.provider_id == "ollama" and "tool" in blocked_details.lower():
+            return {
+                "visible": True,
+                "label": "tools unverified",
+                "color": "orange",
+                "tooltip": (
+                    "Normal chat can use this model. Agent Mode will run an Ollama tool probe when selected; "
+                    "tools, workflows, Developer, and Designer require that probe to pass."
+                ),
+            }
+        suffix = f" Agent Mode is unavailable: {blocked_details}" if blocked_details else ""
+        return {
+            "visible": True,
+            "label": "chat only",
+            "color": "blue",
+            "tooltip": "Normal chat can use this model, but tools, workflows, Developer, and Designer require Agent Mode." + suffix,
+        }
+
+    details = "; ".join(runtime.chat.errors or runtime.agent.errors) or runtime.selection_reason
+    lower = details.lower()
+    if "context window" in lower:
+        label = "context too small"
+    elif "credentials" in lower or "not configured" in lower:
+        label = "connect provider"
+    elif "tool-result round trip" in lower or "proven by endpoint probe" in lower:
+        label = "probe required"
+    elif "openrouter tool metadata" in lower:
+        label = "tools uncertain"
+    elif "does not support structured tools" in lower or "tool-capable catalog" in lower:
+        label = "no tools"
+    elif "tool" in lower:
+        label = "tools uncertain"
+    else:
+        label = "agent blocked"
+    return {"visible": True, "label": label, "color": "orange", "tooltip": details}
+
+
 def open_settings(
     state: AppState,
     p: P,
@@ -43,22 +111,15 @@ def open_settings(
     from tools import registry as tool_registry
     from models import (
         _ollama_reachable,
-        get_trending_models,
         list_local_models,
         list_cloud_models,
         list_cloud_vision_models,
-        list_all_models,
         get_current_model,
         is_cloud_model,
-        is_model_local,
-        is_tool_compatible,
-        check_tool_support,
-        pull_model,
         set_model,
         get_provider_emoji,
-        get_user_context_size,
+        get_context_policy,
         set_context_size,
-        get_model_max_context,
         validate_ollama_cloud_key,
         star_cloud_model,
         unstar_cloud_model,
@@ -71,6 +132,7 @@ def open_settings(
         CONTEXT_SIZE_LABELS,
         CLOUD_CONTEXT_SIZE_OPTIONS,
         CLOUD_CONTEXT_SIZE_LABELS,
+        _coerce_context_size,
         get_cloud_context_size,
         set_cloud_context_size,
         is_cloud_available,
@@ -83,7 +145,6 @@ def open_settings(
         read_model_catalog_cache,
         start_model_catalog_refresh_background,
     )
-    from vision import POPULAR_VISION_MODELS
     from documents import (
         document_vector_status,
         load_processed_files,
@@ -268,7 +329,9 @@ def open_settings(
             else:
                 ui.notify("Catalog refresh failed. Showing last cached catalog.", type="negative")
             if on_done:
-                on_done()
+                result = on_done()
+                if inspect.isawaitable(result):
+                    await result
 
         safe_ui_task(_watch, context="model catalog refresh watcher")
 
@@ -847,40 +910,53 @@ def open_settings(
             model_id_from_choice_value,
         )
 
-        if preloaded is None:
-            _ollama_up = _ollama_reachable()
-            trending = get_trending_models()
-            local_models = list_local_models()
-            chat_options = list_model_choice_options("chat", include_values=[get_current_model()])
-            vision_options = list_model_choice_options("vision", include_values=[state.vision_service.model])
-        else:
-            _ollama_up = bool(preloaded.get("ollama_up"))
-            trending = list(preloaded.get("trending") or [])
-            local_models = list(preloaded.get("local") or [])
-            chat_options = list(preloaded.get("chat_options") or [])
-            vision_options = list(preloaded.get("vision_options") or [])
+        snapshot = preloaded or {}
+        _ollama_up = bool(snapshot.get("ollama_up"))
+        trending: list[str] = []
+        local_models = list(snapshot.get("local") or [])
+        chat_options = list(snapshot.get("chat_options") or [])
+        vision_options = list(snapshot.get("vision_options") or [])
 
         local = local_models
+        local_ref = [set(local_models)]
         current = state.current_model
         current_value = model_choice_value(current)
 
+        def _is_local_runtime(runtime_model: str | None, local_override=None) -> bool:
+            runtime = model_id_from_choice_value(runtime_model or "")
+            if not runtime:
+                return False
+            loc = set(local_override) if local_override is not None else local_ref[0]
+            return any(
+                runtime == model
+                or f"{runtime}:latest" == model
+                or runtime == str(model).split(":", 1)[0]
+                for model in loc
+            )
+
+        def _is_local_selection(value: object, local_override=None) -> bool:
+            selected = str(value or "")
+            if selected.startswith("model:"):
+                parts = selected.split(":", 2)
+                if len(parts) == 3 and parts[1] not in {"local", "ollama"}:
+                    return False
+            return _is_local_runtime(model_id_from_choice_value(selected), local_override)
+
         def _model_label(m, local_override=None):
-            loc = local_override if local_override is not None else local
+            runtime = model_id_from_choice_value(m)
             if is_cloud_model(m):
                 return f"{get_provider_emoji(m)}  {m}"
-            if m in loc:
-                warn = '' if is_tool_compatible(m) else '  ⚠️ may not support tools'
-                return f"✅  {m}{warn}"
-            if m in trending:
-                return f"🆕  {m}"
-            warn = '' if is_tool_compatible(m) else '  ⚠️ may not support tools'
-            return f"⬇️  {m}{warn}"
+            if _is_local_runtime(runtime, local_override):
+                return f"✅  {runtime}"
+            return f"⚠️  {runtime}"
 
         model_opts = {str(option["value"]): str(option["label"]) for option in chat_options}
         if current_value and current_value not in model_opts:
             model_opts.update(model_choice_options_map("chat", include_values=[current]))
 
-        _is_cloud_ctx = is_cloud_model(state.current_model)
+        initial_policy = snapshot.get("context_policy")
+        _policy_ref = [initial_policy]
+        _is_cloud_ctx = getattr(initial_policy, "policy_kind", "local") == "provider"
         ctx_opts = {v: CONTEXT_SIZE_LABELS.get(v, str(v)) for v in CONTEXT_SIZE_OPTIONS}
         cloud_ctx_opts = {v: CLOUD_CONTEXT_SIZE_LABELS.get(v, str(v))
                          for v in CLOUD_CONTEXT_SIZE_OPTIONS}
@@ -893,22 +969,65 @@ def open_settings(
             return "?"
 
         def _model_source_label(model_id: str) -> str:
+            runtime = model_id_from_choice_value(model_id)
             if is_cloud_model(model_id):
                 return "Provider"
-            if model_id in local:
-                return "Downloaded"
-            if model_id in trending:
-                return "Trending"
-            return "Available"
+            if _is_local_runtime(runtime):
+                return "Local"
+            return "Missing"
 
         def _model_source_color(model_id: str) -> str:
+            runtime = model_id_from_choice_value(model_id)
             if is_cloud_model(model_id):
                 return "blue-grey"
-            if model_id in local:
+            if _is_local_runtime(runtime):
                 return "green"
-            if model_id in trending:
-                return "purple"
             return "orange"
+
+        def _agent_status_for(model_id: str) -> dict[str, Any] | None:
+            try:
+                from providers.resolution import resolve_provider_config
+
+                resolved = resolve_provider_config(model_id, allow_legacy_local=True)
+            except Exception:
+                return None
+            if resolved.provider_id == "ollama":
+                return {
+                    "configured": _ollama_up,
+                    "source": "local_daemon" if _ollama_up else "not_running",
+                }
+            return None
+
+        def _agent_context_override_for(model_id: str) -> int | None:
+            policy = _policy_ref[0]
+            if policy is None:
+                return None
+            try:
+                if model_choice_value(policy.model_ref) != model_choice_value(model_id):
+                    return None
+            except Exception:
+                return None
+            return int(policy.effective_context or 0) or None
+
+        brain_readiness_slot_ref = [None]
+
+        def _render_brain_readiness_badge(model_id: str | None = None) -> None:
+            slot = brain_readiness_slot_ref[0]
+            if slot is None:
+                return
+            selected_model = model_id or state.current_model
+            badge = _agent_mode_badge_state(
+                selected_model,
+                status=_agent_status_for(selected_model),
+                context_window_override=_agent_context_override_for(selected_model),
+            )
+            slot.clear()
+            if not badge.get("visible"):
+                return
+            with slot:
+                ui.badge(str(badge.get("label") or "agent blocked"), color=str(badge.get("color") or "orange")).props(
+                    "outline dense"
+                ).tooltip(str(badge.get("tooltip") or "Agent Mode readiness requirements were not met."))
 
         def _surface_row(icon: str, title: str, subtitle: str):
             with ui.column().classes("w-full gap-1 q-pa-sm rounded-borders").style(
@@ -925,36 +1044,56 @@ def open_settings(
             return header_actions, controls
 
         def _on_cloud_ctx_change(e):
-            set_cloud_context_size(e.value)
+            value = _coerce_context_size(e.value, get_cloud_context_size(), allowed=CLOUD_CONTEXT_SIZE_OPTIONS)
+            set_cloud_context_size(value)
             clear_agent_cache()
+            if _policy_ref[0] is not None:
+                from dataclasses import replace
+
+                native_max = _policy_ref[0].native_max
+                _policy_ref[0] = replace(
+                    _policy_ref[0],
+                    user_cap=value,
+                    effective_context=min(value, native_max) if native_max else value,
+                )
             _update_ctx_note()
+            _render_brain_readiness_badge(state.current_model)
 
         def _on_ctx_change(e):
-            set_context_size(e.value)
-            state.context_size = e.value
+            value = _coerce_context_size(e.value, state.context_size, allowed=CONTEXT_SIZE_OPTIONS)
+            set_context_size(value)
+            state.context_size = value
             clear_agent_cache()
+            if _policy_ref[0] is not None:
+                from dataclasses import replace
+
+                native_max = _policy_ref[0].native_max
+                _policy_ref[0] = replace(
+                    _policy_ref[0],
+                    user_cap=value,
+                    effective_context=min(value, native_max) if native_max else value,
+                )
             _update_ctx_note()
-            model_max = get_model_max_context()
-            if model_max is not None and e.value > model_max:
-                max_lbl = CONTEXT_SIZE_LABELS.get(model_max, f"{model_max:,}")
-                usr_lbl = CONTEXT_SIZE_LABELS.get(e.value, f"{e.value:,}")
+            policy = _policy_ref[0]
+            if policy is not None and policy.native_max is not None and value > policy.native_max:
+                max_lbl = CONTEXT_SIZE_LABELS.get(policy.native_max, f"{policy.native_max:,}")
+                usr_lbl = CONTEXT_SIZE_LABELS.get(value, f"{value:,}")
                 ui.notify(
                     f"Context capped: model max is {max_lbl} (you selected {usr_lbl}).",
                     type="warning", close_button=True, timeout=8000,
                 )
+            _render_brain_readiness_badge(state.current_model)
 
         vsvc = state.vision_service
         vision_value = model_choice_value(vsvc.model)
 
         def _vision_label(m, local_override=None):
-            loc = local_override if local_override is not None else local
+            runtime = model_id_from_choice_value(m)
             if is_cloud_model(m):
                 return f"{get_provider_emoji(m)}  {m}"
-            if m in loc:
-                return f"✅  {m}"
-            if m in trending:
-                return f"🆕  {m}"
-            return f"⬇️  {m}"
+            if _is_local_runtime(runtime, local_override):
+                return f"✅  {runtime}"
+            return f"⚠️  {runtime}"
 
         vision_opts = {str(option["value"]): str(option["label"]) for option in vision_options}
         if vision_value and vision_value not in vision_opts:
@@ -963,11 +1102,11 @@ def open_settings(
         def _has_pinned_picker_choice(options: list[dict]) -> bool:
             return any(str(option.get("source") or "") != "included_value" for option in options)
 
-        from tools.image_gen_tool import get_available_image_models, DEFAULT_MODEL
+        from tools.image_gen_tool import DEFAULT_MODEL
         from providers.selection import list_quick_choices, seed_configured_media_quick_choices
         _ig_tool = tool_registry.get_tool("image_gen")
         _ig_enabled = tool_registry.is_enabled("image_gen") if _ig_tool else False
-        _ig_model = _ig_tool.get_config("model", DEFAULT_MODEL) if _ig_tool else DEFAULT_MODEL
+        _ig_model = str(snapshot.get("image_model") or (_ig_tool.get_config("model", DEFAULT_MODEL) if _ig_tool else DEFAULT_MODEL))
         image_select_ref = [None]
         image_empty_ref = [None]
 
@@ -987,15 +1126,15 @@ def open_settings(
                 options[current_value] = available[current_value]
             return options
 
-        _ig_model_opts = _pinned_media_options("image", get_available_image_models(), _ig_model)
+        _ig_model_opts = dict(snapshot.get("image_options") or {})
         if _ig_model_opts and _ig_model not in _ig_model_opts:
             _ig_model = next(iter(_ig_model_opts))
             _set_image_model(_ig_model)
 
-        from tools.video_gen_tool import get_available_video_models, DEFAULT_MODEL as _VG_DEFAULT
+        from tools.video_gen_tool import DEFAULT_MODEL as _VG_DEFAULT
         _vg_tool = tool_registry.get_tool("video_gen")
         _vg_enabled = tool_registry.is_enabled("video_gen") if _vg_tool else False
-        _vg_model = _vg_tool.get_config("model", _VG_DEFAULT) if _vg_tool else _VG_DEFAULT
+        _vg_model = str(snapshot.get("video_model") or (_vg_tool.get_config("model", _VG_DEFAULT) if _vg_tool else _VG_DEFAULT))
         video_select_ref = [None]
         video_empty_ref = [None]
 
@@ -1004,7 +1143,7 @@ def open_settings(
                 _vg_tool.set_config("model", value)
                 seed_configured_media_quick_choices()
 
-        _vg_model_opts = _pinned_media_options("video", get_available_video_models(), _vg_model)
+        _vg_model_opts = dict(snapshot.get("video_options") or {})
         if _vg_model_opts and _vg_model not in _vg_model_opts:
             _vg_model = next(iter(_vg_model_opts))
             _set_video_model(_vg_model)
@@ -1030,8 +1169,8 @@ def open_settings(
             brain_actions, brain_controls = _surface_row("psychology", "Brain", "Conversation, tool use, memory, and workflows")
             with brain_actions:
                 brain_source_badge = ui.badge(_model_source_label(current), color=_model_source_color(current)).props("outline dense")
-                if not is_tool_compatible(current):
-                    ui.badge("tools uncertain", color="orange").props("outline dense")
+                brain_readiness_slot_ref[0] = ui.row().classes("items-center gap-1 no-wrap")
+                _render_brain_readiness_badge(current)
             with brain_controls:
                 model_select = ui.select(
                     label="Default model",
@@ -1056,8 +1195,7 @@ def open_settings(
                     "Controls how many tokens the local model can process; higher values use more VRAM."
                 )
                 ctx_select.visible = not _is_cloud_ctx
-                brain_dl_btn = ui.button(icon="download").props("flat dense round size=sm color=primary").tooltip("Download selected model")
-                brain_dl_btn.visible = _ollama_up and not is_cloud_model(current) and current not in local
+                brain_refresh_btn = ui.button(icon="refresh", on_click=lambda: _reopen("Models")).props("flat dense round size=sm color=primary").tooltip("Refresh after managing Ollama models outside Thoth")
                 brain_empty = ui.label("No pinned Brain choices yet. Pin Chat models in the catalog below.").classes("text-grey-6 text-xs q-pb-sm")
                 brain_empty.visible = not _has_pinned_picker_choice(chat_options)
             ctx_note = ui.label("").classes("text-xs text-grey-6 q-ml-lg")
@@ -1107,12 +1245,11 @@ def open_settings(
                     refresh_cameras_btn.enable()
 
                 refresh_cameras_btn.on_click(_refresh_cameras)
-                vision_dl_btn = ui.button(icon="download").props("flat dense round size=sm color=primary").tooltip("Download selected model")
-                vision_dl_btn.visible = _ollama_up and not is_cloud_model(vsvc.model) and vsvc.model not in local
+                vision_refresh_btn = ui.button(icon="refresh", on_click=lambda: _reopen("Models")).props("flat dense round size=sm color=primary").tooltip("Refresh after managing Ollama models outside Thoth")
                 vision_empty = ui.label("No pinned Vision choices yet. Pin Vision models in the catalog below.").classes("text-grey-6 text-xs q-pb-sm")
                 vision_empty.visible = not _has_pinned_picker_choice(vision_options)
-                vision_missing = ui.label("Current Vision model is not installed. Download it or pin another Vision model below.").classes("text-warning text-xs q-pb-sm")
-                vision_missing.visible = bool(vsvc.model) and not is_cloud_model(vsvc.model) and not is_model_local(vsvc.model)
+                vision_missing = ui.label("Current Vision model is not exposed by Ollama. Manage local models in Ollama, then refresh or pin another Vision model below.").classes("text-warning text-xs q-pb-sm")
+                vision_missing.visible = bool(vsvc.model) and not is_cloud_model(vsvc.model) and not _is_local_selection(vsvc.model)
 
             image_actions, image_controls = _surface_row("palette", "Image", "Image generation and editing")
             with image_actions:
@@ -1186,41 +1323,9 @@ def open_settings(
                 if len(parts) == 3 and parts[1] != "ollama":
                     return False
             runtime_model = model_id_from_choice_value(selected)
-            return bool(selected and not is_cloud_model(selected) and not is_model_local(runtime_model))
+            return bool(selected and not is_cloud_model(selected) and not _is_local_runtime(runtime_model))
 
         ollama_guide.visible = (not _ollama_up) and _model_needs_ollama(model_select.value)
-
-        async def _download_brain(e=None):
-            sel = model_select.value
-            runtime_model = model_id_from_choice_value(sel)
-            if is_cloud_model(sel):
-                ui.notify(f"{get_provider_emoji(sel)} {sel} is a cloud model — no download needed.", type="info")
-                brain_dl_btn.visible = False
-                return
-            if is_model_local(runtime_model):
-                ui.notify(f"✅ {runtime_model} is already downloaded.", type="info")
-                brain_dl_btn.visible = False
-                return
-            if not _ollama_reachable():
-                ui.notify("❌ Ollama is not running.", type="negative", close_button=True)
-                return
-            brain_dl_btn.disable()
-            n = ui.notification(f"Downloading {runtime_model}…", type="ongoing", spinner=True, timeout=None)
-            await run.io_bound(lambda: list(pull_model(runtime_model)))
-            n.dismiss()
-            ui.notify(f"✅ {runtime_model} ready!", type="positive")
-            brain_dl_btn.visible = False
-            brain_dl_btn.enable()
-            ollama_guide.visible = False
-            refreshed_local = list_local_models()
-            model_select.options = dict(model_select.options)
-            model_select.options[sel] = _model_label(runtime_model, refreshed_local)
-            model_select.update()
-            set_model(runtime_model)
-            state.current_model = runtime_model
-            clear_agent_cache()
-
-        brain_dl_btn.on_click(_download_brain)
 
         _ctx_note_updater = [None]
 
@@ -1236,8 +1341,7 @@ def open_settings(
             model_select.update()
             brain_source_badge.text = _model_source_label(current_model)
             brain_source_badge.update()
-            brain_dl_btn.visible = _ollama_up and not is_cloud_model(current_model) and not is_model_local(current_model)
-            brain_dl_btn.update()
+            _render_brain_readiness_badge(current_model)
             ollama_guide.visible = (not _ollama_up) and _model_needs_ollama(model_choice_value(current_model))
             if _ctx_note_updater[0]:
                 _ctx_note_updater[0]()
@@ -1251,111 +1355,109 @@ def open_settings(
             prev = state.current_model
             brain_source_badge.text = _model_source_label(sel)
             brain_source_badge.update()
-            brain_dl_btn.visible = _ollama_up and not is_cloud_model(sel) and not is_model_local(sel)
+            _render_brain_readiness_badge(sel)
             ollama_guide.visible = (not _ollama_up) and _model_needs_ollama(sel)
-            if is_cloud_model(sel):
-                set_model(sel)
-                state.current_model = sel
-                clear_agent_cache()
-                if _ctx_note_updater[0]:
-                    _ctx_note_updater[0]()
-                return
             runtime_model = model_id_from_choice_value(sel)
-            if not is_model_local(runtime_model):
+            if not is_cloud_model(sel) and not _is_local_runtime(runtime_model):
+                ui.notify(
+                    f"{runtime_model} is not exposed by the Ollama daemon. Manage local models in Ollama, then refresh.",
+                    type="warning", close_button=True, timeout=9000,
+                )
+                model_select.value = model_choice_value(prev)
+                model_select.update()
+                _render_brain_readiness_badge(prev)
                 return
-            if not is_tool_compatible(runtime_model):
-                ui.notify(f"Checking tool support for {runtime_model}…", type="info")
-                ok = await run.io_bound(lambda: check_tool_support(runtime_model))
-                if not ok:
-                    ui.notify(
-                        f"⚠️ {runtime_model} does not support tool calling. Reverting to {prev}.",
-                        type="negative", close_button=True, timeout=10000,
-                    )
-                    model_select.value = model_choice_value(prev)
-                    return
-            set_model(runtime_model)
-            state.current_model = runtime_model
+            try:
+                from providers.readiness import evaluate_runtime_readiness
+
+                runtime_readiness = await run.io_bound(lambda: evaluate_runtime_readiness(sel))
+            except Exception as exc:
+                ui.notify(
+                    f"Could not evaluate {runtime_model}: {exc}. Reverting to {prev}.",
+                    type="negative", close_button=True, timeout=10000,
+                )
+                model_select.value = model_choice_value(prev)
+                model_select.update()
+                _render_brain_readiness_badge(prev)
+                return
+            if runtime_readiness.selected_mode == "blocked":
+                ui.notify(
+                    f"{runtime_model} is unavailable: {runtime_readiness.selection_reason}. Reverting to {prev}.",
+                    type="negative", close_button=True, timeout=10000,
+                )
+                model_select.value = model_choice_value(prev)
+                model_select.update()
+                _render_brain_readiness_badge(prev)
+                return
+            set_model(sel)
+            state.current_model = sel
             clear_agent_cache()
-            if not is_cloud_model(runtime_model):
-                model_max = await run.io_bound(lambda: get_model_max_context(runtime_model))
-                user_val = get_user_context_size()
-                if model_max is not None and user_val > model_max:
-                    max_lbl = CONTEXT_SIZE_LABELS.get(model_max, f"{model_max:,}")
-                    usr_lbl = CONTEXT_SIZE_LABELS.get(user_val, f"{user_val:,}")
-                    ui.notify(
-                        f"Context capped: {runtime_model} max is {max_lbl} (you selected {usr_lbl}).",
-                        type="warning", close_button=True, timeout=8000,
-                    )
+            if runtime_readiness.selected_mode == "chat_only":
+                ui.notify(
+                    f"{runtime_model} set as Chat Only. Tools, workflows, Developer, and Designer require an Agent-ready model.",
+                    type="info", close_button=True, timeout=9000,
+                )
+            try:
+                policy = await run.io_bound(lambda: get_context_policy(sel))
+            except Exception:
+                logger.debug("Could not refresh context policy for %s", sel, exc_info=True)
+                policy = None
+            _policy_ref[0] = policy
+            _render_brain_readiness_badge(sel)
+            if policy is not None and policy.native_max is not None and policy.user_cap > policy.native_max:
+                max_lbl = CONTEXT_SIZE_LABELS.get(policy.native_max, f"{policy.native_max:,}")
+                usr_lbl = CONTEXT_SIZE_LABELS.get(policy.user_cap, f"{policy.user_cap:,}")
+                ui.notify(
+                    f"Context capped: {runtime_model} max is {max_lbl} (you selected {usr_lbl}).",
+                    type="warning", close_button=True, timeout=8000,
+                )
             if _ctx_note_updater[0]:
                 _ctx_note_updater[0]()
 
         model_select.on_value_change(_on_model_change)
 
         def _update_ctx_note():
-            _cloud = is_cloud_model(state.current_model)
-            cloud_ctx_select.visible = _cloud
-            ctx_select.visible = not _cloud
-            native_max = get_model_max_context()
-            if _cloud:
-                effective = min(get_cloud_context_size(), native_max) if native_max else get_cloud_context_size()
-                native_lbl = _fmt_ctx(native_max) if native_max else "?"
-                ctx_note.text = f"Native max {native_lbl} · effective {_fmt_ctx(effective)}"
+            policy = _policy_ref[0]
+            if policy is None:
+                cloud_ctx_select.visible = False
+                ctx_select.visible = True
+                ctx_note.visible = False
+                return
+            provider_policy = policy.policy_kind == "provider"
+            cloud_ctx_select.visible = provider_policy
+            ctx_select.visible = not provider_policy
+            if provider_policy:
+                native_lbl = _fmt_ctx(policy.native_max) if policy.native_max else "?"
+                ctx_note.text = f"Native max {native_lbl} · effective {_fmt_ctx(policy.effective_context)}"
+                ctx_note.visible = True
+            elif policy.native_max is not None and policy.user_cap > policy.native_max:
+                max_label = CONTEXT_SIZE_LABELS.get(policy.native_max, f"{policy.native_max:,}")
+                ctx_note.text = f"Model max {max_label}; trimming applies"
                 ctx_note.visible = True
             else:
-                user_val = get_user_context_size()
-                if native_max is not None and user_val > native_max:
-                    max_label = CONTEXT_SIZE_LABELS.get(native_max, f"{native_max:,}")
-                    ctx_note.text = f"Model max {max_label}; trimming applies"
-                    ctx_note.visible = True
-                else:
-                    ctx_note.visible = False
+                ctx_note.visible = False
 
         _update_ctx_note()
         _ctx_note_updater[0] = _update_ctx_note
 
-        async def _download_vision(e=None):
-            sel = vision_select.value
-            runtime_model = model_id_from_choice_value(sel)
-            if is_cloud_model(sel):
-                ui.notify(f"{get_provider_emoji(sel)} {sel} is a cloud model — no download needed.", type="info")
-                vision_dl_btn.visible = False
-                return
-            if is_model_local(runtime_model):
-                ui.notify(f"✅ {runtime_model} is already downloaded.", type="info")
-                vision_dl_btn.visible = False
-                return
-            if not _ollama_reachable():
-                ui.notify("❌ Ollama is not running.", type="negative", close_button=True)
-                return
-            vision_dl_btn.disable()
-            n = ui.notification(f"Downloading {runtime_model}…", type="ongoing", spinner=True, timeout=None)
-            await run.io_bound(lambda: list(pull_model(runtime_model)))
-            n.dismiss()
-            ui.notify(f"✅ {runtime_model} ready!", type="positive")
-            vision_dl_btn.visible = False
-            vision_dl_btn.enable()
-            refreshed_local = list_local_models()
-            vision_select.options = dict(vision_select.options)
-            vision_select.options[sel] = _vision_label(runtime_model, refreshed_local)
-            vision_select.update()
-            vsvc.model = runtime_model
-            clear_agent_cache()
-
-        vision_dl_btn.on_click(_download_vision)
-
         async def _on_vision_change(e):
             sel = e.value
             is_cloud = is_cloud_model(sel)
-            vision_dl_btn.visible = _ollama_up and not is_cloud and not is_model_local(sel)
             if sel != model_choice_value(vsvc.model):
                 if is_cloud:
                     vsvc.model = sel
                     clear_agent_cache()
                     return
                 runtime_model = model_id_from_choice_value(sel)
-                if not is_model_local(runtime_model):
+                if not _is_local_runtime(runtime_model):
+                    ui.notify(
+                        f"{runtime_model} is not exposed by the Ollama daemon. Manage local models in Ollama, then refresh.",
+                        type="warning", close_button=True, timeout=9000,
+                    )
+                    vision_select.value = model_choice_value(vsvc.model)
+                    vision_select.update()
                     return
-                vsvc.model = runtime_model
+                vsvc.model = sel
                 clear_agent_cache()
 
         vision_select.on_value_change(_on_vision_change)
@@ -1364,9 +1466,55 @@ def open_settings(
 
         catalog_container = ui.column().classes("w-full gap-2 q-mt-md")
 
-        def _refresh_top_picker_options() -> None:
+        def _collect_top_picker_options() -> dict:
             current_chat = state.current_model
             refreshed_chat_options = list_model_choice_options("chat", include_values=[current_chat])
+            current_vision = vsvc.model
+            refreshed_vision_options = list_model_choice_options("vision", include_values=[current_vision])
+
+            image_options = {}
+            current_image = DEFAULT_MODEL
+            try:
+                from tools.image_gen_tool import get_available_image_models
+
+                available_image = get_available_image_models()
+                current_image = _ig_tool.get_config("model", DEFAULT_MODEL) if _ig_tool else DEFAULT_MODEL
+                image_options = _pinned_media_options("image", available_image, current_image)
+            except Exception:
+                logger.debug("Could not refresh image picker options", exc_info=True)
+
+            video_options = {}
+            current_video = _VG_DEFAULT
+            try:
+                from tools.video_gen_tool import get_available_video_models
+
+                available_video = get_available_video_models()
+                current_video = _vg_tool.get_config("model", _VG_DEFAULT) if _vg_tool else _VG_DEFAULT
+                video_options = _pinned_media_options("video", available_video, current_video)
+            except Exception:
+                logger.debug("Could not refresh video picker options", exc_info=True)
+
+            return {
+                "current_chat": current_chat,
+                "chat_options": refreshed_chat_options,
+                "current_vision": current_vision,
+                "vision_options": refreshed_vision_options,
+                "current_image": current_image,
+                "image_options": image_options,
+                "current_video": current_video,
+                "video_options": video_options,
+            }
+
+        async def _refresh_top_picker_options() -> None:
+            try:
+                data = await run.io_bound(_collect_top_picker_options)
+            except Exception as exc:
+                logger.warning("Could not refresh model picker options", exc_info=True)
+                ui.notify(f"Could not refresh picker options: {exc}", type="negative")
+                return
+
+            current_chat = str(data.get("current_chat") or state.current_model)
+            refreshed_chat_options = list(data.get("chat_options") or [])
             model_select.options = {str(option["value"]): str(option["label"]) for option in refreshed_chat_options}
             if model_select.value not in model_select.options:
                 model_select.value = model_choice_value(current_chat)
@@ -1374,22 +1522,21 @@ def open_settings(
             brain_empty.visible = not _has_pinned_picker_choice(refreshed_chat_options)
             brain_empty.update()
 
-            current_vision = vsvc.model
-            refreshed_vision_options = list_model_choice_options("vision", include_values=[current_vision])
+            current_vision = str(data.get("current_vision") or vsvc.model)
+            refreshed_vision_options = list(data.get("vision_options") or [])
             vision_select.options = {str(option["value"]): str(option["label"]) for option in refreshed_vision_options}
             if vision_select.value not in vision_select.options:
                 vision_select.value = model_choice_value(current_vision)
             vision_select.update()
             vision_empty.visible = not _has_pinned_picker_choice(refreshed_vision_options)
             vision_empty.update()
-            vision_missing.visible = bool(current_vision) and not is_cloud_model(current_vision) and not is_model_local(current_vision)
+            vision_missing.visible = bool(current_vision) and not is_cloud_model(current_vision) and not _is_local_selection(current_vision)
             vision_missing.update()
 
             image_select = image_select_ref[0]
             if image_select is not None:
-                available_image = get_available_image_models()
-                current_image = _ig_tool.get_config("model", DEFAULT_MODEL) if _ig_tool else DEFAULT_MODEL
-                image_options = _pinned_media_options("image", available_image, current_image)
+                current_image = str(data.get("current_image") or DEFAULT_MODEL)
+                image_options = dict(data.get("image_options") or {})
                 image_select.options = image_options
                 if image_options:
                     image_select.enable()
@@ -1405,9 +1552,8 @@ def open_settings(
                 image_select.update()
             video_select = video_select_ref[0]
             if video_select is not None:
-                available_video = get_available_video_models()
-                current_video = _vg_tool.get_config("model", _VG_DEFAULT) if _vg_tool else _VG_DEFAULT
-                video_options = _pinned_media_options("video", available_video, current_video)
+                current_video = str(data.get("current_video") or _VG_DEFAULT)
+                video_options = dict(data.get("video_options") or {})
                 video_select.options = video_options
                 if video_options:
                     video_select.enable()
@@ -1470,9 +1616,6 @@ def open_settings(
                     video_select.update()
                 ui.notify(f"Default Video model set to {row.display_name}", type="positive")
 
-        def _download_catalog_model(row) -> None:
-            list(pull_model(row.model_id))
-
         def _catalog_defaults() -> dict[str, str]:
             image_model = ""
             video_model = ""
@@ -1504,6 +1647,10 @@ def open_settings(
                 quick_choices=list_quick_choices("", include_inactive=True),
             )
 
+        async def _refresh_catalog_status_and_pickers() -> None:
+            _render_catalog_status()
+            await _refresh_top_picker_options()
+
         def _render_catalog_status() -> None:
             snapshot = read_model_catalog_cache()
             catalog_container.clear()
@@ -1530,7 +1677,7 @@ def open_settings(
                             on_click=lambda: _start_catalog_refresh_ui(
                                 reason="manual",
                                 force=True,
-                                on_done=lambda: (_render_catalog_status(), _refresh_top_picker_options()),
+                                on_done=_refresh_catalog_status_and_pickers,
                             ),
                         ).props("flat dense color=primary no-caps")
                 if snapshot.is_empty:
@@ -1538,14 +1685,13 @@ def open_settings(
                 build_lazy_model_catalog_section(
                     _load_catalog_rows_from_cache,
                     on_set_default=_set_catalog_default,
-                    on_download=_download_catalog_model,
                     on_change=_refresh_top_picker_options,
                 )
 
         _render_catalog_status()
 
     def _collect_models_tab_data() -> dict:
-        from providers.selection import list_model_choice_options
+        from providers.selection import list_model_choice_options, list_quick_choices
 
         started = time.perf_counter()
         ollama_up = _ollama_reachable()
@@ -1553,30 +1699,68 @@ def open_settings(
         local_started = time.perf_counter()
         local_models = list_local_models()
         local_elapsed = time.perf_counter() - local_started
+        current_model = get_current_model()
+        vision_model = state.vision_service.model
         try:
-            from tools.image_gen_tool import DEFAULT_MODEL as _IMAGE_DEFAULT
+            from tools.image_gen_tool import DEFAULT_MODEL as _IMAGE_DEFAULT, get_available_image_models
             image_tool = tool_registry.get_tool("image_gen")
             image_model = image_tool.get_config("model", _IMAGE_DEFAULT) if image_tool else _IMAGE_DEFAULT
+            available_image = get_available_image_models()
         except Exception:
             image_model = ""
+            available_image = {}
         try:
-            from tools.video_gen_tool import DEFAULT_MODEL as _VIDEO_DEFAULT
+            from tools.video_gen_tool import DEFAULT_MODEL as _VIDEO_DEFAULT, get_available_video_models
             video_tool = tool_registry.get_tool("video_gen")
             video_model = video_tool.get_config("model", _VIDEO_DEFAULT) if video_tool else _VIDEO_DEFAULT
+            available_video = get_available_video_models()
         except Exception:
             video_model = ""
+            available_video = {}
+        try:
+            allowed_image = {
+                f"{choice.get('provider_id')}/{choice.get('model_id')}"
+                for choice in list_quick_choices("image")
+                if choice.get("kind") == "model" and choice.get("provider_id") and choice.get("model_id")
+            }
+            image_options = {key: label for key, label in available_image.items() if key in allowed_image}
+            if image_model in available_image:
+                image_options[image_model] = available_image[image_model]
+        except Exception:
+            logger.debug("Could not collect image model options", exc_info=True)
+            image_options = {}
+        try:
+            allowed_video = {
+                f"{choice.get('provider_id')}/{choice.get('model_id')}"
+                for choice in list_quick_choices("video")
+                if choice.get("kind") == "model" and choice.get("provider_id") and choice.get("model_id")
+            }
+            video_options = {key: label for key, label in available_video.items() if key in allowed_video}
+            if video_model in available_video:
+                video_options[video_model] = available_video[video_model]
+        except Exception:
+            logger.debug("Could not collect video model options", exc_info=True)
+            video_options = {}
         options_started = time.perf_counter()
-        chat_options = list_model_choice_options("chat", include_values=[get_current_model()])
-        vision_options = list_model_choice_options("vision", include_values=[state.vision_service.model])
+        chat_options = list_model_choice_options("chat", include_values=[current_model])
+        vision_options = list_model_choice_options("vision", include_values=[vision_model])
         options_elapsed = time.perf_counter() - options_started
+        context_started = time.perf_counter()
+        try:
+            context_policy = get_context_policy(current_model)
+        except Exception:
+            logger.debug("Could not collect context policy for %s", current_model, exc_info=True)
+            context_policy = None
+        context_elapsed = time.perf_counter() - context_started
         total_elapsed = time.perf_counter() - started
         logger.info(
             "perf: models settings collect took %.3fs "
-            "(ollama=%.3fs local=%.3fs options=%.3fs local_count=%d chat_options=%d vision_options=%d)",
+            "(ollama=%.3fs local=%.3fs options=%.3fs context=%.3fs local_count=%d chat_options=%d vision_options=%d)",
             total_elapsed,
             ollama_elapsed,
             local_elapsed,
             options_elapsed,
+            context_elapsed,
             len(local_models),
             len(chat_options),
             len(vision_options),
@@ -1584,12 +1768,15 @@ def open_settings(
         log_performance_snapshot("models-settings-collected")
         return {
             "ollama_up": ollama_up,
-            "trending": get_trending_models(),
+            "trending": [],
             "local": local_models,
             "chat_options": chat_options,
             "vision_options": vision_options,
             "image_model": image_model,
+            "image_options": image_options,
             "video_model": video_model,
+            "video_options": video_options,
+            "context_policy": context_policy,
         }
 
     def _build_models_tab() -> None:

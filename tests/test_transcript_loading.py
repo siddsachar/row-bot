@@ -1,0 +1,159 @@
+from types import SimpleNamespace
+
+
+def test_langchain_messages_to_ui_messages_preserves_visible_shapes():
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    from ui.helpers import langchain_messages_to_ui_messages
+
+    messages = [
+        HumanMessage(content=[
+            {"type": "text", "text": "hello"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}},
+        ]),
+        AIMessage(content="", tool_calls=[{"id": "call_1", "name": "chart", "args": {}}]),
+        ToolMessage(
+            content='__CHART__:{"data":[]}\n\nChart created',
+            name="chart",
+            tool_call_id="call_1",
+        ),
+        AIMessage(
+            content="<think>hidden work</think>Here is the chart.",
+            additional_kwargs={"reasoning_content": "provider reasoning"},
+        ),
+    ]
+
+    ui_messages = langchain_messages_to_ui_messages(messages)
+
+    assert ui_messages == [
+        {"role": "user", "content": "hello", "images": ["abc123"]},
+        {
+            "role": "assistant",
+            "content": "Here is the chart.",
+            "thinking": "provider reasoning\nhidden work",
+            "tool_results": [{"name": "chart", "content": "Chart created"}],
+            "charts": ['{"data":[]}'],
+        },
+    ]
+
+
+def test_load_thread_messages_does_not_import_or_call_agent_graph(monkeypatch):
+    from langchain_core.messages import AIMessage, HumanMessage
+    import sys
+    import threads
+    import ui.helpers as helpers
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("get_agent_graph should not be used for transcript loading")
+
+    monkeypatch.setitem(sys.modules, "agent", SimpleNamespace(get_agent_graph=_boom))
+    monkeypatch.setattr(threads, "get_latest_checkpoint_messages", lambda thread_id: [
+        HumanMessage(content="question"),
+        AIMessage(content="answer"),
+    ])
+
+    assert helpers.load_thread_messages("thread-1") == [
+        {"role": "user", "content": "question"},
+        {"role": "assistant", "content": "answer"},
+    ]
+
+
+def test_get_latest_checkpoint_messages_reads_checkpointer_without_graph(monkeypatch):
+    import threads
+
+    raw_messages = [object()]
+
+    class FakeCheckpointer:
+        def get_tuple(self, config):
+            assert config["configurable"]["thread_id"] == "thread-2"
+            return SimpleNamespace(checkpoint={"channel_values": {"messages": raw_messages}})
+
+    monkeypatch.setattr(threads, "checkpointer", FakeCheckpointer())
+
+    assert threads.get_latest_checkpoint_messages("thread-2") == raw_messages
+
+
+def test_get_token_usage_reads_checkpoint_without_agent_graph(tmp_path, monkeypatch):
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
+    from langchain_core.messages import HumanMessage
+    import agent
+    import threads
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("get_agent_graph should not be used for token usage")
+
+    monkeypatch.setattr(agent, "get_agent_graph", _boom)
+    monkeypatch.setattr(threads, "get_latest_checkpoint_messages", lambda thread_id: [HumanMessage(content="hello")])
+
+    used, max_tokens = agent.get_token_usage({"configurable": {"thread_id": "thread-token"}}, model_override="model:ollama:qwen3:14b")
+
+    assert used > 0
+    assert max_tokens > 0
+
+
+def test_append_checkpoint_messages_uses_checkpointer_string_versions(monkeypatch):
+    from langchain_core.messages import HumanMessage
+    import threads
+
+    writes = {}
+
+    class FakeCheckpointer:
+        def get_tuple(self, config):
+            return SimpleNamespace(
+                config={"configurable": {"thread_id": "thread-3", "checkpoint_ns": "", "checkpoint_id": "parent"}},
+                checkpoint={
+                    "channel_values": {"messages": []},
+                    "channel_versions": {"messages": "00000000000000000000000000000001.0000000000000000"},
+                    "versions_seen": {},
+                },
+            )
+
+        def get_next_version(self, current, channel):
+            assert current == "00000000000000000000000000000001.0000000000000000"
+            return "00000000000000000000000000000002.0000000000000000"
+
+        def put(self, config, checkpoint, metadata, new_versions):
+            writes["checkpoint"] = checkpoint
+            writes["metadata"] = metadata
+            writes["new_versions"] = new_versions
+            return config
+
+    monkeypatch.setattr(threads, "checkpointer", FakeCheckpointer())
+
+    assert threads.append_checkpoint_messages("thread-3", [HumanMessage(content="hello")]) is True
+    assert writes["checkpoint"]["channel_versions"]["messages"] == "00000000000000000000000000000002.0000000000000000"
+    assert writes["new_versions"]["messages"] == "00000000000000000000000000000002.0000000000000000"
+    assert isinstance(writes["checkpoint"]["channel_versions"]["messages"], str)
+
+
+def test_append_checkpoint_messages_repairs_legacy_int_versions(monkeypatch):
+    from langchain_core.messages import HumanMessage
+    import threads
+
+    writes = {}
+
+    class FakeCheckpointer:
+        def get_tuple(self, config):
+            return SimpleNamespace(
+                config={"configurable": {"thread_id": "thread-4", "checkpoint_ns": "", "checkpoint_id": "parent"}},
+                checkpoint={
+                    "channel_values": {"messages": []},
+                    "channel_versions": {"messages": 2, "other": "3"},
+                    "versions_seen": {"agent": {"messages": 1}},
+                },
+            )
+
+        def get_next_version(self, current, channel):
+            assert current == "00000000000000000000000000000002.0000000000000000"
+            return "00000000000000000000000000000003.0000000000000000"
+
+        def put(self, config, checkpoint, metadata, new_versions):
+            writes["checkpoint"] = checkpoint
+            writes["new_versions"] = new_versions
+            return config
+
+    monkeypatch.setattr(threads, "checkpointer", FakeCheckpointer())
+
+    assert threads.append_checkpoint_messages("thread-4", [HumanMessage(content="hello")]) is True
+    assert writes["checkpoint"]["channel_versions"]["messages"] == "00000000000000000000000000000003.0000000000000000"
+    assert writes["checkpoint"]["channel_versions"]["other"] == "00000000000000000000000000000003.0000000000000000"
+    assert writes["checkpoint"]["versions_seen"]["agent"]["messages"] == "00000000000000000000000000000001.0000000000000000"

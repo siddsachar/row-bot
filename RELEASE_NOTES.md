@@ -98,6 +98,10 @@ This release turns Thoth into a broader **workbench for chat, workflows, code, d
 
 ### Models, Providers & Embeddings
 
+- **Provider-qualified model selection** — model choices now preserve provider identity across settings, catalog pinning, defaults, thread overrides, status displays, and runtime construction, preventing local/custom models from silently falling back to OpenRouter.
+- **Custom endpoint compatibility profiles** — OpenAI-compatible endpoints now include profile behavior for oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, and generic servers, including message normalization, unsupported tool-parameter dropping, and profile-aware context handling.
+- **Context override consistency** — local and provider context caps now apply through one policy path, cap to known model/provider maximums, invalidate stale override clients when changed, and pass request-time context parameters for custom endpoints that support them.
+- **Non-tool local model guardrails** — native Ollama agent chat now rejects unsupported non-tool models before a broken run, while non-tool custom OpenAI-compatible profiles flatten tool history and omit tool payloads for better server compatibility.
 - **Ollama Cloud support** — adds Ollama Cloud as a provider path with direct cloud API transport and support for Ollama daemon cloud-tagged models.
 - **Ollama daemon catalog improvements** — installed local models, cloud-tagged local daemon models, library models, families, vision capability, tool capability, and embedding markers are handled more consistently.
 - **Ollama vision support paths** — vision-capable Ollama models can be represented through both daemon and direct cloud paths where metadata supports it.

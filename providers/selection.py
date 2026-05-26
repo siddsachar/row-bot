@@ -93,8 +93,8 @@ def model_choice_value(value: str | None, *, provider_id: str | None = None) -> 
     else:
         provider = provider_id or infer_provider_id(raw) or "local"
         model_id = raw
-    if provider in {"local", "ollama"}:
-        return model_id
+    if provider == "local":
+        provider = "ollama"
     return model_ref(provider, model_id)
 
 
@@ -109,7 +109,8 @@ def provider_id_from_choice_value(value: str | None) -> str:
     parsed = parse_model_ref(raw)
     if parsed:
         return parsed[0]
-    return infer_provider_id(raw) or "local"
+    provider = infer_provider_id(raw) or "local"
+    return "ollama" if provider == "local" else provider
 
 
 def format_model_choice_label(
@@ -699,4 +700,4 @@ def resolve_selection(value: str) -> ResolvedSelection | None:
     provider_id = infer_provider_id(raw)
     if provider_id:
         return ResolvedSelection(ref=model_ref(provider_id, raw), kind="model", provider_id=provider_id, model_id=raw, display_name=raw, legacy_value=raw)
-    return ResolvedSelection(ref=f"model:local:{raw}", kind="model", provider_id="local", model_id=raw, display_name=raw, legacy_value=raw)
+    return ResolvedSelection(ref=model_ref("ollama", raw), kind="model", provider_id="ollama", model_id=raw, display_name=raw, legacy_value=raw)

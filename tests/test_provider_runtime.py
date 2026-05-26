@@ -41,14 +41,88 @@ def test_openai_legacy_chat_model_keeps_chat_completions_path(monkeypatch):
     assert "use_responses_api" not in model.kwargs
 
 
+def test_anthropic_provider_constructor_is_preserved(monkeypatch):
+    fake_module = ModuleType("langchain_anthropic")
+
+    class _FakeChatAnthropic:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    fake_module.ChatAnthropic = _FakeChatAnthropic
+    monkeypatch.setitem(sys.modules, "langchain_anthropic", fake_module)
+    monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id: "anthropic-key")
+
+    model = runtime.create_chat_model("claude-sonnet-4-5", provider_id="anthropic")
+
+    assert model.kwargs["model"] == "claude-sonnet-4-5"
+    assert model.kwargs["api_key"] == "anthropic-key"
+
+
+def test_google_provider_constructor_is_preserved(monkeypatch):
+    fake_module = ModuleType("langchain_google_genai")
+
+    class _FakeChatGoogleGenerativeAI:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    fake_module.ChatGoogleGenerativeAI = _FakeChatGoogleGenerativeAI
+    monkeypatch.setitem(sys.modules, "langchain_google_genai", fake_module)
+    monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id: "google-key")
+
+    model = runtime.create_chat_model("gemini-2.5-pro", provider_id="google")
+
+    assert model.kwargs["model"] == "gemini-2.5-pro"
+    assert model.kwargs["google_api_key"] == "google-key"
+
+
+def test_xai_provider_constructor_is_preserved(monkeypatch):
+    fake_module = ModuleType("langchain_xai")
+
+    class _FakeChatXAI:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    fake_module.ChatXAI = _FakeChatXAI
+    monkeypatch.setitem(sys.modules, "langchain_xai", fake_module)
+    monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id: "xai-key")
+
+    model = runtime.create_chat_model("grok-4", provider_id="xai")
+
+    assert model.kwargs["model"] == "grok-4"
+    assert model.kwargs["api_key"] == "xai-key"
+
+
+def test_openrouter_provider_constructor_is_preserved(monkeypatch):
+    fake_module = ModuleType("langchain_openrouter")
+
+    class _FakeChatOpenRouter:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    fake_module.ChatOpenRouter = _FakeChatOpenRouter
+    monkeypatch.setitem(sys.modules, "langchain_openrouter", fake_module)
+    monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id: "openrouter-key")
+
+    model = runtime.create_chat_model("anthropic/claude-sonnet-4", provider_id="openrouter")
+
+    assert model.kwargs["model_name"] == "anthropic/claude-sonnet-4"
+    assert model.kwargs["openrouter_api_key"] == "openrouter-key"
+
+
+def test_codex_provider_constructor_is_preserved(monkeypatch):
+    import providers.codex as codex
+
+    monkeypatch.setattr(codex, "codex_runtime_available", lambda: True)
+
+    model = runtime.create_chat_model("gpt-5.5", provider_id="codex")
+
+    assert model.model_name == "gpt-5.5"
+
+
 def test_custom_openai_endpoint_uses_configured_base_url(tmp_path, monkeypatch):
     import providers.config as provider_config
     from providers.custom import custom_provider_id, save_custom_endpoint
 
-    fake_module = ModuleType("langchain_openai")
-    fake_module.ChatOpenAI = _FakeChatOpenAI
-    _FakeChatOpenAI.calls.clear()
-    monkeypatch.setitem(sys.modules, "langchain_openai", fake_module)
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
 
     save_custom_endpoint({
@@ -61,9 +135,10 @@ def test_custom_openai_endpoint_uses_configured_base_url(tmp_path, monkeypatch):
 
     model = runtime.create_chat_model("meta-llama/Llama-3.1-8B-Instruct", provider_id=custom_provider_id("local-vllm"))
 
-    assert model.kwargs["model"] == "meta-llama/Llama-3.1-8B-Instruct"
-    assert model.kwargs["base_url"] == "http://127.0.0.1:8000/v1"
-    assert model.kwargs["api_key"] == "not-needed"
+    assert model.model_name == "meta-llama/Llama-3.1-8B-Instruct"
+    assert model.base_url == "http://127.0.0.1:8000/v1"
+    assert model.api_key == "not-needed"
+    assert model.endpoint["provider_id"] == custom_provider_id("local-vllm")
 
 
 def test_custom_endpoint_model_syncs_into_model_facade(tmp_path, monkeypatch):
@@ -147,14 +222,44 @@ def test_ollama_provider_runtime_constructs_chat_ollama(monkeypatch):
     fake_module.ChatOllama = _FakeChatOllama
     monkeypatch.setitem(sys.modules, "langchain_ollama", fake_module)
     monkeypatch.setenv("OLLAMA_HOST", "0.0.0.0:11435")
+    monkeypatch.setattr("models.get_context_size", lambda model_ref=None: 65_536)
 
     model = runtime.create_chat_model("qwen3:14b", provider_id="ollama")
 
     assert model.kwargs == {
         "model": "qwen3:14b",
         "base_url": "http://127.0.0.1:11435",
-        "reasoning": True,
+        "num_ctx": 65_536,
     }
+
+
+def test_ollama_provider_ref_unwraps_at_runtime_edge(monkeypatch):
+    fake_module = ModuleType("langchain_ollama")
+
+    class _FakeChatOllama:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    fake_module.ChatOllama = _FakeChatOllama
+    monkeypatch.setitem(sys.modules, "langchain_ollama", fake_module)
+    monkeypatch.setenv("OLLAMA_HOST", "127.0.0.1:11434")
+    monkeypatch.setattr("models.get_context_size", lambda model_ref=None: 32_768)
+
+    model = runtime.create_chat_model("model:ollama:qwen3:14b")
+
+    assert model.kwargs["model"] == "qwen3:14b"
+    assert model.kwargs["base_url"] == "http://127.0.0.1:11434"
+    assert model.kwargs["num_ctx"] == 32_768
+
+
+def test_runtime_does_not_implicitly_route_unknown_models_to_openrouter():
+    try:
+        runtime.create_chat_model("qwen3:14b")
+    except ValueError as exc:
+        assert "Provider is required" in str(exc)
+        assert "OpenRouter" in str(exc)
+    else:
+        raise AssertionError("Expected unknown bare model to require a provider")
 
 
 def test_ollama_cloud_provider_runtime_constructs_native_client(monkeypatch):
@@ -737,3 +842,22 @@ def test_minimax_provider_raises_when_api_key_missing(monkeypatch):
         assert "MiniMax" in str(exc)
     else:
         raise AssertionError("Expected ValueError when MiniMax API key is missing")
+
+
+def test_ollama_runtime_does_not_force_reasoning(monkeypatch):
+    fake_langchain_ollama = ModuleType("langchain_ollama")
+    captured = {}
+
+    class _FakeChatOllama:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    fake_langchain_ollama.ChatOllama = _FakeChatOllama
+    monkeypatch.setitem(sys.modules, "langchain_ollama", fake_langchain_ollama)
+    monkeypatch.setattr("models._ollama_base_url", lambda: "http://127.0.0.1:11434")
+
+    model = runtime.create_chat_model("vendor/non-tool-chat:14b", provider_id="ollama")
+
+    assert model
+    assert captured["model"] == "vendor/non-tool-chat:14b"
+    assert "reasoning" not in captured

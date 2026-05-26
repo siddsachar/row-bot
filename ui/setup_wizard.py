@@ -47,7 +47,7 @@ def _custom_endpoint_execution_location(base_url: str) -> str:
     return "local" if ip.is_private or ip.is_loopback else "remote"
 
 
-def build_custom_endpoint_setup_payload(base_url: str, api_key: str = "") -> dict[str, str | bool]:
+def build_custom_endpoint_setup_payload(base_url: str, api_key: str = "", profile: str = "generic_openai") -> dict[str, str | bool]:
     clean_url = str(base_url or "").strip().rstrip("/")
     clean_key = str(api_key or "").strip()
     host_label = _custom_endpoint_host_label(clean_url)
@@ -59,6 +59,7 @@ def build_custom_endpoint_setup_payload(base_url: str, api_key: str = "") -> dic
         "api_key": clean_key,
         "auth_required": bool(clean_key),
         "execution_location": _custom_endpoint_execution_location(clean_url),
+        "profile": profile or "generic_openai",
         "transport": "openai_chat",
     }
 
@@ -82,8 +83,6 @@ async def show_setup_wizard(
     """
     # Lazy imports — only needed when the wizard actually runs
     from models import (
-        POPULAR_MODELS,
-        DEFAULT_MODEL,
         validate_ollama_cloud_key,
         validate_openrouter_key,
         validate_anthropic_key,
@@ -94,15 +93,11 @@ async def show_setup_wizard(
         list_cloud_models,
         get_provider_emoji,
         list_cloud_vision_models,
-        list_all_models,
-        is_model_local,
-        pull_model,
         set_model,
         list_local_models,
         _ollama_reachable,
         _cloud_model_cache,
     )
-    from vision import DEFAULT_VISION_MODEL, POPULAR_VISION_MODELS
     from api_keys import set_key
     from agent import clear_agent_cache
     from ui.helpers import mark_setup_complete
@@ -114,6 +109,7 @@ async def show_setup_wizard(
     )
     from providers.selection import add_quick_choice_for_model, model_choice_value, model_id_from_choice_value, parse_model_ref
     from providers.custom import (
+        CUSTOM_ENDPOINT_PROFILES,
         endpoint_id_from_provider_id,
         refresh_custom_endpoint_models,
         save_custom_endpoint,
@@ -576,6 +572,11 @@ async def show_setup_wizard(
                     password=True,
                     password_toggle_button=True,
                 ).classes("w-full")
+                custom_profile_select = ui.select(
+                    {key: str(value.get("display_name") or key) for key, value in CUSTOM_ENDPOINT_PROFILES.items()},
+                    value="generic_openai",
+                    label="Endpoint profile",
+                ).classes("w-full").props("dense outlined")
 
                 custom_status = ui.label("").classes("text-sm")
                 custom_status.visible = False
@@ -591,7 +592,7 @@ async def show_setup_wizard(
                     if not base_url:
                         ui.notify("Enter a custom endpoint base URL", type="warning")
                         return
-                    payload = build_custom_endpoint_setup_payload(base_url, api_key)
+                    payload = build_custom_endpoint_setup_payload(base_url, api_key, str(custom_profile_select.value or "generic_openai"))
                     custom_status.text = "⏳ Connecting to custom endpoint…"
                     custom_status.visible = True
                     custom_model_select.visible = False
@@ -687,85 +688,45 @@ async def show_setup_wizard(
                     "14B+ recommended for best accuracy."
                 ).classes("text-grey-6 text-sm")
 
-                local_now = local_now or []
-                setup_all_models = list_all_models()
-                brain_default = state.current_model
-                if brain_default not in setup_all_models:
-                    brain_default = DEFAULT_MODEL
+                local_now = sorted(set(local_now or []))
+                brain_default = model_id_from_choice_value(state.current_model)
+                if brain_default not in local_now:
+                    brain_default = local_now[0] if local_now else None
 
-                setup_brain_opts = {
-                    m: f"{'✅' if m in local_now else '⬇️'}  {m}"
-                    for m in setup_all_models
-                }
+                setup_brain_opts = {m: f"✅  {m}" for m in local_now}
                 setup_brain_select = ui.select(
                     label="Brain model",
                     options=setup_brain_opts,
                     value=brain_default,
                 ).classes("w-full").props("use-input input-debounce=300")
+                if not setup_brain_opts:
+                    setup_brain_select.disable()
 
                 brain_status = ui.label("").classes("text-sm")
-                brain_status.visible = False
-                brain_done: dict[str, bool] = {"value": brain_default in local_now}
-
-                setup_brain_dl = ui.button(f"⬇️ Download {brain_default}").props(
-                    "color=primary"
-                )
-                setup_brain_dl.visible = brain_default not in local_now
-                if brain_default in local_now:
+                brain_status.visible = True
+                brain_done: dict[str, bool] = {"value": bool(brain_default)}
+                if brain_default:
                     brain_status.text = f"✅ {brain_default} is ready"
-                    brain_status.visible = True
-
-                async def _setup_dl_brain():
-                    sel = setup_brain_select.value
-                    if is_model_local(sel):
-                        brain_status.text = f"✅ {sel} is already downloaded"
-                        brain_status.visible = True
-                        brain_done["value"] = True
-                        setup_brain_dl.visible = False
-                        _update_finish()
-                        return
-                    if not _ollama_reachable():
-                        brain_status.text = (
-                            "❌ Ollama is not running. Install and start Ollama first."
-                        )
-                        brain_status.visible = True
-                        return
-                    setup_brain_dl.disable()
-                    brain_status.text = f"⏳ Downloading {sel}… this may take a few minutes"
-                    brain_status.visible = True
-                    n = ui.notification(
-                        f"Downloading {sel}…",
-                        type="ongoing",
-                        spinner=True,
-                        timeout=None,
-                    )
-                    await run.io_bound(lambda: list(pull_model(sel)))
-                    n.dismiss()
-                    brain_status.text = f"✅ {sel} downloaded successfully!"
-                    setup_brain_dl.visible = False
-                    setup_brain_dl.enable()
-                    brain_done["value"] = True
-                    set_model(sel)
-                    state.current_model = sel
+                    selection = model_choice_value(brain_default, provider_id="ollama")
+                    set_model(selection)
+                    state.current_model = selection
                     clear_agent_cache()
-                    _update_finish()
-
-                setup_brain_dl.on_click(_setup_dl_brain)
+                else:
+                    brain_status.text = "No local models are exposed by Ollama. Manage models in Ollama, then come back here."
 
                 def _on_setup_brain_change(e):
                     sel = e.value
-                    setup_brain_dl.text = f"⬇️ Download {sel}"
-                    already = is_model_local(sel)
-                    setup_brain_dl.visible = not already
-                    brain_done["value"] = already
-                    if already:
+                    brain_done["value"] = bool(sel)
+                    if sel:
                         brain_status.text = f"✅ {sel} is ready"
                         brain_status.visible = True
-                        set_model(sel)
-                        state.current_model = sel
+                        selection = model_choice_value(sel, provider_id="ollama")
+                        set_model(selection)
+                        state.current_model = selection
                         clear_agent_cache()
                     else:
-                        brain_status.visible = False
+                        brain_status.text = "No local models are exposed by Ollama."
+                        brain_status.visible = True
                     _update_finish()
 
                 setup_brain_select.on_value_change(_on_setup_brain_change)
@@ -776,82 +737,39 @@ async def show_setup_wizard(
                 ui.label("👁️ Vision Model").classes("text-h6")
                 ui.label(
                     "Used for camera and screen capture analysis. "
-                    "Optional — you can skip this and download it later."
+                    "Optional — you can skip this and manage local models in Ollama later."
                 ).classes("text-grey-6 text-sm")
 
                 vsvc = state.vision_service
-                setup_vision_opts = {
-                    m: f"{'✅' if m in local_now else '⬇️'}  {m}"
-                    for m in sorted(
-                        set(
-                            POPULAR_VISION_MODELS
-                            + (
-                                [vsvc.model]
-                                if vsvc.model not in POPULAR_VISION_MODELS
-                                else []
-                            )
-                        )
-                    )
-                }
+                vision_default = model_id_from_choice_value(vsvc.model)
+                if vision_default not in local_now:
+                    vision_default = local_now[0] if local_now else None
+                setup_vision_opts = {m: f"✅  {m}" for m in local_now}
                 setup_vision_select = ui.select(
                     label="Vision model",
                     options=setup_vision_opts,
-                    value=vsvc.model,
+                    value=vision_default,
                 ).classes("w-full").props("use-input input-debounce=300")
+                if not setup_vision_opts:
+                    setup_vision_select.disable()
 
                 vision_status = ui.label("").classes("text-sm")
-                vision_status.visible = False
-
-                setup_vision_dl = ui.button(f"⬇️ Download {vsvc.model}").props(
-                    "color=primary outline"
-                )
-                setup_vision_dl.visible = vsvc.model not in local_now
-                if vsvc.model in local_now:
-                    vision_status.text = f"✅ {vsvc.model} is ready"
-                    vision_status.visible = True
-
-                async def _setup_dl_vision():
-                    sel = setup_vision_select.value
-                    if is_model_local(sel):
-                        vision_status.text = f"✅ {sel} is already downloaded"
-                        vision_status.visible = True
-                        setup_vision_dl.visible = False
-                        return
-                    if not _ollama_reachable():
-                        vision_status.text = (
-                            "❌ Ollama is not running. Install and start Ollama first."
-                        )
-                        vision_status.visible = True
-                        return
-                    setup_vision_dl.disable()
-                    vision_status.text = f"⏳ Downloading {sel}… this may take a few minutes"
-                    vision_status.visible = True
-                    n = ui.notification(
-                        f"Downloading {sel}…",
-                        type="ongoing",
-                        spinner=True,
-                        timeout=None,
-                    )
-                    await run.io_bound(lambda: list(pull_model(sel)))
-                    n.dismiss()
-                    vision_status.text = f"✅ {sel} downloaded successfully!"
-                    setup_vision_dl.visible = False
-                    setup_vision_dl.enable()
-                    vsvc.model = sel
-
-                setup_vision_dl.on_click(_setup_dl_vision)
+                vision_status.visible = True
+                if vision_default:
+                    vision_status.text = f"✅ {vision_default} is ready"
+                    vsvc.model = model_choice_value(vision_default, provider_id="ollama")
+                else:
+                    vision_status.text = "No local vision model is exposed by Ollama."
 
                 def _on_setup_vision_change(e):
                     sel = e.value
-                    setup_vision_dl.text = f"⬇️ Download {sel}"
-                    already = is_model_local(sel)
-                    setup_vision_dl.visible = not already
-                    if already:
+                    if sel:
                         vision_status.text = f"✅ {sel} is ready"
                         vision_status.visible = True
-                        vsvc.model = sel
+                        vsvc.model = model_choice_value(sel, provider_id="ollama")
                     else:
-                        vision_status.visible = False
+                        vision_status.text = "No local vision model is exposed by Ollama."
+                        vision_status.visible = True
 
                 setup_vision_select.on_value_change(_on_setup_vision_change)
 

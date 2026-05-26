@@ -212,6 +212,30 @@ def test_model_choice_options_disambiguate_same_model_id_by_provider(tmp_path, m
     assert resolved.model_id == "gpt-5.5"
 
 
+def test_model_choice_value_preserves_ollama_provider_ref():
+    assert model_choice_value("qwen3:14b", provider_id="ollama") == "model:ollama:qwen3:14b"
+    assert model_choice_value("model:ollama:qwen3:14b") == "model:ollama:qwen3:14b"
+    assert model_choice_value("model:local:qwen3:14b") == "model:ollama:qwen3:14b"
+
+
+def test_included_ollama_value_stays_provider_qualified(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+
+    options = list_model_choice_options("chat", include_values=["model:ollama:qwen3:14b"])
+
+    assert options[0]["value"] == "model:ollama:qwen3:14b"
+    assert options[0]["provider_id"] == "ollama"
+
+
+def test_unknown_bare_selection_resolves_to_ollama_not_openrouter():
+    resolved = resolve_selection("qwen3:14b")
+
+    assert resolved is not None
+    assert resolved.ref == "model:ollama:qwen3:14b"
+    assert resolved.provider_id == "ollama"
+
+
 def test_codex_vision_quick_choice_survives_capability_refresh(tmp_path, monkeypatch):
     import providers.runtime as provider_runtime
     from providers.codex import fallback_codex_model_infos

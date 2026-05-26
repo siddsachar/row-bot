@@ -13,6 +13,7 @@ def test_custom_endpoint_setup_payload_uses_api_key_auth() -> None:
     assert payload["api_key"] == "sk-local"
     assert payload["auth_required"] is True
     assert payload["execution_location"] == "local"
+    assert payload["profile"] == "generic_openai"
     assert payload["transport"] == "openai_chat"
 
 
@@ -23,6 +24,12 @@ def test_custom_endpoint_setup_payload_treats_empty_key_as_no_auth() -> None:
     assert payload["api_key"] == ""
     assert payload["auth_required"] is False
     assert payload["execution_location"] == "remote"
+
+
+def test_custom_endpoint_setup_payload_accepts_profile() -> None:
+    payload = build_custom_endpoint_setup_payload("http://127.0.0.1:8000/v1", "", "omlx")
+
+    assert payload["profile"] == "omlx"
 
 
 def test_custom_endpoint_model_options_use_provider_model_refs() -> None:

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import atexit
 import argparse
+import json
 import logging
 import os
 import shutil
@@ -43,6 +44,7 @@ _STARTUP_GRACE = 15           # seconds to wait for NiceGUI before opening brows
 _STARTUP_TIMEOUT_ENV = "THOTH_STARTUP_TIMEOUT"
 _ICON_SIZE = 64               # px for generated tray icons
 _ACTIVE_TRAY: "ThothTray | None" = None
+_OLLAMA_AUTOSTART_ENV = "THOTH_AUTO_START_OLLAMA"
 
 
 # ── Ollama auto-start ────────────────────────────────────────────────────────
@@ -53,6 +55,92 @@ def _is_ollama_running() -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(1)
         return s.connect_ex(("127.0.0.1", _OLLAMA_PORT)) == 0
+
+
+def _thoth_data_dir() -> Path:
+    return Path(os.environ.get("THOTH_DATA_DIR", Path.home() / ".thoth"))
+
+
+def _read_json_file(path: Path) -> dict:
+    try:
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        logger.debug("Could not read launcher settings from %s", path, exc_info=True)
+    return {}
+
+
+def _model_ref_requires_ollama(model_name: str | None) -> bool:
+    """Return True when a saved model selection needs the Ollama daemon.
+
+    This is intentionally lightweight and import-free: the launcher must not
+    construct provider/model runtime state just to decide whether to start.
+    """
+    value = str(model_name or "").strip()
+    if not value:
+        return False
+
+    if value.startswith("model:"):
+        parts = value.split(":", 2)
+        if len(parts) >= 3:
+            provider_id = parts[1].strip().lower()
+            return provider_id in {"ollama", "local"}
+        return False
+
+    lowered = value.lower()
+    if lowered.startswith("gpt-oss"):
+        return True
+
+    cloud_prefixes = (
+        "gpt-", "o1", "o3", "o4", "chatgpt-",
+        "claude", "gemini", "grok", "minimax",
+    )
+    if lowered.startswith(cloud_prefixes):
+        return False
+
+    cloud_provider_slugs = (
+        "openai/", "anthropic/", "google/", "google-ai/",
+        "xai/", "x-ai/", "minimax/", "openrouter/",
+        "codex/", "chatgpt/",
+    )
+    if lowered.startswith(cloud_provider_slugs):
+        return False
+
+    # Bare legacy selections are local Ollama model names.
+    return True
+
+
+def _should_auto_start_ollama() -> bool:
+    """Return True when persisted settings indicate an Ollama runtime is active."""
+    override = os.environ.get(_OLLAMA_AUTOSTART_ENV)
+    if override is not None:
+        return override.strip().lower() in {"1", "true", "yes", "on"}
+
+    data_dir = _thoth_data_dir()
+    model_settings = _read_json_file(data_dir / "model_settings.json")
+    if _model_ref_requires_ollama(model_settings.get("model")):
+        return True
+
+    vision_settings_path = data_dir / "vision_settings.json"
+    if vision_settings_path.exists():
+        vision_settings = _read_json_file(vision_settings_path)
+        if _model_ref_requires_ollama(vision_settings.get("model")):
+            return True
+
+    return False
+
+
+def _maybe_start_ollama(*, no_ollama: bool = False) -> None:
+    """Best-effort Ollama startup, only when a saved local runtime needs it."""
+    if no_ollama:
+        logger.info("Skipping Ollama auto-start (--no-ollama)")
+        return
+    if not _should_auto_start_ollama():
+        logger.info("Skipping Ollama auto-start; no saved local Ollama runtime selected")
+        return
+    _start_ollama()
 
 
 def _start_ollama() -> None:
@@ -85,7 +173,7 @@ def _start_ollama() -> None:
     if ollama_bin is None:
         logger.warning(
             "Ollama not found — install it from https://ollama.com/download  "
-            "Thoth requires Ollama to run local language models."
+            "Ollama is only needed when using local Ollama models."
         )
         return
 
@@ -1556,9 +1644,9 @@ class ThothTray:
 
     def run(self) -> None:
         """Start the tray icon, the NiceGUI server, and a native window."""
-        # Ensure Ollama is running before we start the app
-        if not self._no_ollama:
-            _start_ollama()
+        # Best-effort local runtime convenience. Provider-only and custom
+        # endpoint setups should not pay an Ollama startup penalty.
+        _maybe_start_ollama(no_ollama=self._no_ollama)
 
         self._port, already_running = _select_app_port(self._preferred_port)
         self._server.port = self._port
@@ -1614,8 +1702,7 @@ def _block_until_interrupted(server: _ThothProcess | None, owns_server: bool) ->
 
 def _run_direct(args: argparse.Namespace) -> None:
     """Run Thoth without a tray icon, for Linux/browser/server modes."""
-    if not args.no_ollama:
-        _start_ollama()
+    _maybe_start_ollama(no_ollama=args.no_ollama)
 
     preferred = parse_app_port(args.port, default=_PORT)
     port, already_running = _select_app_port(preferred)

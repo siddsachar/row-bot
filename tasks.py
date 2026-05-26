@@ -1431,7 +1431,11 @@ def run_task_background(
 
             from agent import RECURSION_LIMIT_TASK
             config = {
-                "configurable": {"thread_id": thread_id},
+                "configurable": {
+                    "thread_id": thread_id,
+                    "runtime_surface": "workflow",
+                    "runtime_mode": "agent",
+                },
                 "recursion_limit": RECURSION_LIMIT_TASK,
             }
 
@@ -2971,6 +2975,14 @@ def _resume_graph_interrupted(
     run_id = state["run_id"]
     task_id = state["task_id"]
     config = state.get("config", {})
+    config = {
+        **config,
+        "configurable": {
+            **(config.get("configurable") or {}),
+            "runtime_surface": "workflow",
+            "runtime_mode": "agent",
+        },
+    }
     step_outputs = state.get("step_outputs", {})
     steps = task.get("steps") or []
     total = len(steps)
@@ -3368,6 +3380,8 @@ def _run_subtask_sync(
         config = {
             "configurable": {
                 "thread_id": thread_id,
+                "runtime_surface": "workflow",
+                "runtime_mode": "agent",
             },
             "recursion_limit": parent_config.get("recursion_limit", 50),
         }
@@ -3768,7 +3782,11 @@ def _eval_llm_condition(prompt: str, context: dict) -> bool:
             f"Question: {prompt}"
         )
         config = {
-            "configurable": {"thread_id": f"condition-eval-{uuid.uuid4().hex[:8]}"},
+            "configurable": {
+                "thread_id": f"condition-eval-{uuid.uuid4().hex[:8]}",
+                "runtime_surface": "workflow",
+                "runtime_mode": "agent",
+            },
             "recursion_limit": 5,
         }
         # No tools needed — this is a pure yes/no reasoning call.

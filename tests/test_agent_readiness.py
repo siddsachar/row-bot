@@ -1,0 +1,407 @@
+import providers.config as provider_config
+from providers.custom import custom_provider_id, save_custom_endpoint
+from providers.models import TransportMode
+from providers.readiness import AGENT_MODE_MIN_CONTEXT, CHAT_ONLY_MIN_CONTEXT, evaluate_agent_readiness, evaluate_runtime_readiness
+from providers.resolution import resolve_provider_config
+from types import SimpleNamespace
+
+
+def test_known_cloud_model_passes_readiness_without_live_probe(monkeypatch):
+    import providers.readiness as readiness
+    import models
+
+    monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
+    monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
+        model_ref="model:openai:gpt-4o",
+        provider_id="openai",
+        runtime_model="gpt-4o",
+        native_max=128_000,
+        user_cap=128_000,
+        effective_context=128_000,
+        policy_kind="provider",
+        cap_source="provider_metadata",
+        request_application="trim_only",
+    ))
+
+    result = evaluate_agent_readiness("model:openai:gpt-4o")
+
+    assert result.ready is True
+    assert result.required_context == AGENT_MODE_MIN_CONTEXT
+    assert result.tool_calling is True
+    assert result.tool_round_trip is True
+    assert result.capability_source in {"trusted_provider", "catalog"}
+
+
+def test_context_below_32k_blocks_agent_mode(monkeypatch):
+    import providers.readiness as readiness
+    import models
+
+    monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
+    monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
+        model_ref="model:openai:gpt-4",
+        provider_id="openai",
+        runtime_model="gpt-4",
+        native_max=8_192,
+        user_cap=128_000,
+        effective_context=8_192,
+        policy_kind="provider",
+        cap_source="provider_metadata",
+        request_application="trim_only",
+    ))
+
+    result = evaluate_agent_readiness("model:openai:gpt-4")
+
+    assert result.ready is False
+    assert any("at least 32,000" in error for error in result.errors)
+
+
+def test_context_above_16k_below_32k_can_be_chat_only(monkeypatch):
+    import providers.readiness as readiness
+    import models
+
+    monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
+    monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
+        model_ref="model:openai:gpt-3.5-turbo",
+        provider_id="openai",
+        runtime_model="gpt-3.5-turbo",
+        native_max=CHAT_ONLY_MIN_CONTEXT,
+        user_cap=128_000,
+        effective_context=CHAT_ONLY_MIN_CONTEXT,
+        policy_kind="provider",
+        cap_source="provider_metadata",
+        request_application="trim_only",
+    ))
+
+    result = evaluate_runtime_readiness("model:openai:gpt-3.5-turbo")
+
+    assert result.agent.ready is False
+    assert result.chat.ready is True
+    assert result.selected_mode == "chat_only"
+
+
+def test_readiness_coerces_string_context_override(monkeypatch):
+    import providers.readiness as readiness
+
+    monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
+
+    result = evaluate_agent_readiness(
+        "model:openai:gpt-4o",
+        context_window_override="32768",
+    )
+
+    assert result.ready is True
+    assert result.context_window == 32_768
+    assert isinstance(result.context_window, int)
+
+
+def test_openrouter_missing_tool_metadata_fails_closed(monkeypatch):
+    import providers.readiness as readiness
+    import models
+
+    monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
+    monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
+        model_ref="model:openrouter:unknown/vendor",
+        provider_id="openrouter",
+        runtime_model="unknown/vendor",
+        native_max=128_000,
+        user_cap=128_000,
+        effective_context=128_000,
+        policy_kind="provider",
+        cap_source="provider_metadata",
+        request_application="trim_only",
+    ))
+
+    result = evaluate_agent_readiness(
+        resolve_provider_config("model:openrouter:unknown/vendor"),
+        capability_snapshot={
+            "tasks": ["chat"],
+            "input_modalities": ["text"],
+            "output_modalities": ["text"],
+            "tool_calling": None,
+            "transport": TransportMode.OPENAI_CHAT.value,
+        },
+    )
+
+    assert result.ready is False
+    assert result.tool_calling is None
+    assert any("OpenRouter tool metadata" in error for error in result.errors)
+
+
+def test_openrouter_missing_tool_metadata_can_be_chat_only(monkeypatch):
+    import providers.readiness as readiness
+    import models
+
+    monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
+    monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
+        model_ref="model:openrouter:unknown/vendor",
+        provider_id="openrouter",
+        runtime_model="unknown/vendor",
+        native_max=128_000,
+        user_cap=128_000,
+        effective_context=128_000,
+        policy_kind="provider",
+        cap_source="provider_metadata",
+        request_application="trim_only",
+    ))
+
+    result = evaluate_runtime_readiness(
+        resolve_provider_config("model:openrouter:unknown/vendor"),
+        capability_snapshot={
+            "tasks": ["chat"],
+            "input_modalities": ["text"],
+            "output_modalities": ["text"],
+            "tool_calling": None,
+            "transport": TransportMode.OPENAI_CHAT.value,
+        },
+    )
+
+    assert result.agent.ready is False
+    assert result.chat.ready is True
+    assert result.selected_mode == "chat_only"
+
+
+def test_ollama_probe_can_promote_catalog_unknown_model_to_agent(monkeypatch):
+    import providers.ollama as ollama
+    import providers.readiness as readiness
+    import models
+
+    monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
+    monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
+        model_ref="model:ollama:gemma3:4b",
+        provider_id="ollama",
+        runtime_model="gemma3:4b",
+        native_max=131_072,
+        user_cap=65_536,
+        effective_context=65_536,
+        policy_kind="local",
+        cap_source="provider_metadata",
+        request_application="ollama_num_ctx",
+    ))
+    monkeypatch.setattr(ollama, "probe_ollama_tool_round_trip", lambda model_id: {
+        "ok": True,
+        "tool_calling": True,
+        "tool_round_trip": True,
+    })
+
+    result = evaluate_agent_readiness("model:ollama:gemma3:4b", probe_ollama_tools=True)
+
+    assert result.ready is True
+    assert result.tool_calling_source == "ollama_probe"
+    assert result.capability_source == "probe"
+
+
+def test_ollama_probe_failure_routes_to_chat_only(monkeypatch):
+    import providers.ollama as ollama
+    import providers.readiness as readiness
+    import models
+
+    monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
+    monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
+        model_ref="model:ollama:gemma3:4b",
+        provider_id="ollama",
+        runtime_model="gemma3:4b",
+        native_max=131_072,
+        user_cap=65_536,
+        effective_context=65_536,
+        policy_kind="local",
+        cap_source="provider_metadata",
+        request_application="ollama_num_ctx",
+    ))
+    monkeypatch.setattr(ollama, "probe_ollama_tool_round_trip", lambda model_id: {
+        "ok": False,
+        "tool_calling": False,
+        "tool_round_trip": False,
+        "error": "model did not emit a tool call",
+    })
+
+    result = evaluate_runtime_readiness("model:ollama:gemma3:4b", probe_ollama_tools=True)
+
+    assert result.agent.ready is False
+    assert result.chat.ready is True
+    assert result.selected_mode == "chat_only"
+    assert any("tool probe" in error.lower() for error in result.agent.errors)
+
+
+def test_ollama_tool_probe_requires_tool_call_and_round_trip(monkeypatch):
+    import sys
+    import models
+    import providers.ollama as ollama
+
+    calls = []
+
+    class Response:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+            self.text = str(payload)
+
+        def json(self):
+            return self._payload
+
+    def post(url, json, timeout):
+        calls.append(json)
+        if len(calls) == 1:
+            return Response(200, {
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{"function": {"name": "thoth_probe", "arguments": {"value": "ok"}}}],
+                }
+            })
+        return Response(200, {"message": {"role": "assistant", "content": "ok"}})
+
+    monkeypatch.setitem(sys.modules, "httpx", SimpleNamespace(post=post))
+    monkeypatch.setattr(models, "_ollama_base_url", lambda: "http://127.0.0.1:11434")
+    ollama._tool_probe_cache.clear()
+
+    result = ollama.probe_ollama_tool_round_trip("gemma3:4b", force=True)
+
+    assert result["ok"] is True
+    assert result["tool_calling"] is True
+    assert result["tool_round_trip"] is True
+    assert calls[0]["tools"][0]["function"]["name"] == "thoth_probe"
+    assert calls[1]["messages"][1]["tool_calls"]
+    assert calls[1]["messages"][2]["role"] == "tool"
+
+
+def test_custom_endpoint_requires_tool_probe_even_with_manual_capability(tmp_path, monkeypatch):
+    import providers.readiness as readiness
+    import models
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
+    provider_id = custom_provider_id("lab")
+    save_custom_endpoint({
+        "id": "lab",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "auth_required": False,
+        "manual_capabilities": {"tool_calling": True, "context_window": 65_536},
+        "models": [{
+            "id": "local-chat",
+            "model_id": "local-chat",
+            "context_window": 65_536,
+            "capabilities_snapshot": {
+                "tasks": ["chat"],
+                "input_modalities": ["text"],
+                "output_modalities": ["text"],
+                "tool_calling": True,
+            },
+        }],
+    })
+    monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
+        model_ref=f"model:{provider_id}:local-chat",
+        provider_id=provider_id,
+        runtime_model="local-chat",
+        native_max=65_536,
+        user_cap=65_536,
+        effective_context=65_536,
+        policy_kind="local",
+        cap_source="provider_metadata",
+        request_application="trim_only",
+    ))
+
+    result = evaluate_agent_readiness(f"model:{provider_id}:local-chat")
+
+    assert result.ready is False
+    assert any("probe" in error.lower() for error in result.errors)
+
+
+def test_custom_endpoint_successful_tool_round_trip_probe_passes(tmp_path, monkeypatch):
+    import providers.readiness as readiness
+    import models
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
+    provider_id = custom_provider_id("lab")
+    save_custom_endpoint({
+        "id": "lab",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "auth_required": False,
+        "last_probe": {
+            "ok": True,
+            "tool_calling": True,
+            "tool_round_trip": True,
+            "context_window": 65_536,
+        },
+        "models": [{
+            "id": "local-chat",
+            "model_id": "local-chat",
+            "context_window": 65_536,
+            "capabilities_snapshot": {
+                "tasks": ["chat"],
+                "input_modalities": ["text"],
+                "output_modalities": ["text"],
+                "tool_calling": None,
+            },
+        }],
+    })
+    monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
+        model_ref=f"model:{provider_id}:local-chat",
+        provider_id=provider_id,
+        runtime_model="local-chat",
+        native_max=65_536,
+        user_cap=65_536,
+        effective_context=65_536,
+        policy_kind="local",
+        cap_source="provider_metadata",
+        request_application="trim_only",
+    ))
+
+    result = evaluate_agent_readiness(f"model:{provider_id}:local-chat")
+
+    assert result.ready is True
+    assert result.tool_calling is True
+    assert result.tool_round_trip is True
+    assert result.tool_calling_source == "probe"
+
+
+def test_custom_endpoint_chat_probe_without_tools_is_chat_only(tmp_path, monkeypatch):
+    import providers.readiness as readiness
+    import models
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
+    provider_id = custom_provider_id("lab")
+    save_custom_endpoint({
+        "id": "lab",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "auth_required": False,
+        "last_probe": {
+            "ok": False,
+            "agent_ok": False,
+            "chat_only_ok": True,
+            "classification": "chat_only",
+            "chat_ok": True,
+            "tool_calling": False,
+            "tool_round_trip": None,
+            "context_window": 65_536,
+        },
+        "models": [{
+            "id": "local-chat",
+            "model_id": "local-chat",
+            "context_window": 65_536,
+            "capabilities_snapshot": {
+                "tasks": ["chat"],
+                "input_modalities": ["text"],
+                "output_modalities": ["text"],
+                "tool_calling": None,
+            },
+        }],
+    })
+    monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
+        model_ref=f"model:{provider_id}:local-chat",
+        provider_id=provider_id,
+        runtime_model="local-chat",
+        native_max=65_536,
+        user_cap=65_536,
+        effective_context=65_536,
+        policy_kind="local",
+        cap_source="provider_metadata",
+        request_application="trim_only",
+    ))
+
+    result = evaluate_runtime_readiness(f"model:{provider_id}:local-chat")
+
+    assert result.agent.ready is False
+    assert result.chat.ready is True
+    assert result.selected_mode == "chat_only"

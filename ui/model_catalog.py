@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import inspect
 import logging
 import time
 
@@ -20,11 +21,18 @@ CATALOG_PROVIDER_ROW_LIMIT = 80
 logger = logging.getLogger(__name__)
 
 
+async def _run_catalog_callback(callback: Callable | None, *args) -> None:
+    if not callback:
+        return
+    result = callback(*args)
+    if inspect.isawaitable(result):
+        await result
+
+
 def build_model_catalog_section(
     rows: list[CatalogModelRow],
     *,
     on_set_default: Callable[[str, CatalogModelRow], None] | None = None,
-    on_download: Callable[[CatalogModelRow], object] | None = None,
     on_change: Callable[[], None] | None = None,
     initial_open: bool = False,
 ) -> None:
@@ -179,9 +187,11 @@ def build_model_catalog_section(
                     ui.badge(_ctx_label(row.context_window), color="grey").props("outline dense")
                 for category_id in row.categories:
                     ui.badge(SURFACE_LABELS.get(category_id, category_id), color="grey").props("outline dense")
-                if row.downloadable:
-                    ui.badge("needs sign-in" if row.availability == "cloud_offload_available" else "download", color="orange").props("outline dense")
-                elif not row.configured:
+                if row.runtime_mode == "agent":
+                    ui.badge("Agent-ready", color="positive").props("outline dense")
+                elif row.runtime_mode == "chat_only":
+                    ui.badge("Chat only", color="blue").props("outline dense")
+                if not row.configured:
                     ui.badge("connect", color="orange").props("outline dense")
                 elif not row.runtime_ready:
                     ui.badge("unavailable", color="orange").props("outline dense")
@@ -194,73 +204,70 @@ def build_model_catalog_section(
                 ui.space()
                 if row.status_reason:
                     ui.icon("info", size="xs").tooltip(row.status_reason)
-                if row.downloadable and on_download:
-                    ui.button(icon="download", on_click=lambda _, r=row: _download(r)).props("flat dense round size=sm color=primary").tooltip(
-                        "Pull cloud model through Ollama" if row.availability == "cloud_offload_available" else "Download model"
-                    )
-                pin_button = ui.button(icon="push_pin", on_click=lambda _, r=row, s=surface: _toggle_pin(r, s)).props(f"flat dense round size=sm color={'primary' if pinned else 'grey'}").tooltip("Remove from this picker" if pinned else "Pin to this picker")
+                pin_button = ui.button(icon="push_pin", on_click=_pin_handler(row, surface)).props(f"flat dense round size=sm color={'primary' if pinned else 'grey'}").tooltip("Remove from this picker" if pinned else "Pin to this picker")
                 if not can_use:
                     pin_button.disable()
-                default_button = ui.button(icon="check", on_click=lambda _, r=row, s=surface: _set_default(r, s)).props("flat dense round size=sm").tooltip("Set default")
+                default_button = ui.button(icon="check", on_click=_default_handler(row, surface)).props("flat dense round size=sm").tooltip("Set default")
                 if not can_use or is_default:
                     default_button.disable()
 
-        def _toggle_pin(row: CatalogModelRow, surface: str) -> None:
+        def _pin_handler(row: CatalogModelRow, surface: str):
+            async def _handler(_=None) -> None:
+                await _toggle_pin(row, surface)
+            return _handler
+
+        def _default_handler(row: CatalogModelRow, surface: str):
+            async def _handler(_=None) -> None:
+                await _set_default(row, surface)
+            return _handler
+
+        async def _toggle_pin(row: CatalogModelRow, surface: str) -> None:
             from providers.selection import add_quick_choice_for_model, remove_quick_choice_for_model
 
-            if surface in pinned_by_ref.get(row.selection_ref, set()):
-                remove_quick_choice_for_model(row.model_id, provider_id=row.provider_id)
-                pinned_by_ref.setdefault(row.selection_ref, set()).discard(surface)
-                ui.notify("Removed from picker", type="info")
-            else:
+            try:
+                if surface in pinned_by_ref.get(row.selection_ref, set()):
+                    remove_quick_choice_for_model(row.model_id, provider_id=row.provider_id)
+                    pinned_by_ref.setdefault(row.selection_ref, set()).discard(surface)
+                    ui.notify("Removed from picker", type="info")
+                else:
+                    add_quick_choice_for_model(
+                        row.model_id,
+                        provider_id=row.provider_id,
+                        display_name=row.display_name,
+                        source="models_catalog",
+                        capabilities_snapshot=row.capabilities_snapshot,
+                        surface=surface,
+                    )
+                    pinned_by_ref.setdefault(row.selection_ref, set()).add(surface)
+                    ui.notify("Pinned to picker", type="positive")
+                await _run_catalog_callback(on_change)
+                _refresh()
+            except Exception as exc:
+                logger.warning("Catalog pin update failed", exc_info=True)
+                ui.notify(f"Could not update picker: {exc}", type="negative")
+
+        async def _set_default(row: CatalogModelRow, surface: str) -> None:
+            from providers.selection import add_quick_choice_for_model
+
+            try:
                 add_quick_choice_for_model(
                     row.model_id,
                     provider_id=row.provider_id,
                     display_name=row.display_name,
-                    source="models_catalog",
+                    source="models_catalog_default",
                     capabilities_snapshot=row.capabilities_snapshot,
                     surface=surface,
                 )
+                await _run_catalog_callback(on_set_default, surface, row)
+                for ref, surfaces in defaults_by_ref.items():
+                    surfaces.discard(surface)
+                defaults_by_ref.setdefault(row.selection_ref, set()).add(surface)
                 pinned_by_ref.setdefault(row.selection_ref, set()).add(surface)
-                ui.notify("Pinned to picker", type="positive")
-            if on_change:
-                on_change()
-            _refresh()
-
-        def _set_default(row: CatalogModelRow, surface: str) -> None:
-            from providers.selection import add_quick_choice_for_model
-
-            add_quick_choice_for_model(
-                row.model_id,
-                provider_id=row.provider_id,
-                display_name=row.display_name,
-                source="models_catalog_default",
-                capabilities_snapshot=row.capabilities_snapshot,
-                surface=surface,
-            )
-            if on_set_default:
-                on_set_default(surface, row)
-            for ref, surfaces in defaults_by_ref.items():
-                surfaces.discard(surface)
-            defaults_by_ref.setdefault(row.selection_ref, set()).add(surface)
-            pinned_by_ref.setdefault(row.selection_ref, set()).add(surface)
-            if on_change:
-                on_change()
-            _refresh()
-
-        async def _download(row: CatalogModelRow) -> None:
-            if not on_download:
-                return
-            notification = ui.notification(f"Downloading {row.model_id}...", type="ongoing", spinner=True, timeout=None)
-            try:
-                await run.io_bound(on_download, row)
-                notification.dismiss()
-                ui.notify(f"{row.model_id} ready", type="positive")
-                if on_change:
-                    on_change()
+                await _run_catalog_callback(on_change)
+                _refresh()
             except Exception as exc:
-                notification.dismiss()
-                ui.notify(f"Download failed: {exc}", type="negative")
+                logger.warning("Catalog default update failed", exc_info=True)
+                ui.notify(f"Could not set default: {exc}", type="negative")
 
         _refresh()
 
@@ -269,7 +276,6 @@ def build_lazy_model_catalog_section(
     load_rows: Callable[[], list[CatalogModelRow]],
     *,
     on_set_default: Callable[[str, CatalogModelRow], None] | None = None,
-    on_download: Callable[[CatalogModelRow], object] | None = None,
     on_change: Callable[[], None] | None = None,
 ) -> None:
     container = ui.column().classes("w-full")
@@ -296,7 +302,6 @@ def build_lazy_model_catalog_section(
                 build_model_catalog_section(
                     rows,
                     on_set_default=on_set_default,
-                    on_download=on_download,
                     on_change=on_change,
                     initial_open=True,
                 )

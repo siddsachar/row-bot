@@ -102,12 +102,25 @@ def provider_status(provider_id: str) -> dict:
 
 def create_chat_model(model_name: str, provider_id: str | None = None):
     """Create the LangChain chat model for an existing API-key provider."""
-    provider = provider_id or _infer_provider(model_name)
+    from providers.resolution import resolve_provider_config
+
+    resolved = resolve_provider_config(
+        model_name,
+        provider_id,
+        allow_legacy_local=provider_id is not None,
+    )
+    provider = resolved.provider_id
+    model_name = resolved.runtime_model
     ensure_chat_model_compatible(model_name, provider)
     if provider == "ollama":
         from langchain_ollama import ChatOllama
-        from models import _ollama_base_url
-        return ChatOllama(model=model_name, base_url=_ollama_base_url(), reasoning=True)
+        from models import _ollama_base_url, get_context_size
+
+        return ChatOllama(
+            model=model_name,
+            base_url=_ollama_base_url(),
+            num_ctx=get_context_size(resolved.selection_ref),
+        )
     if provider == "ollama_cloud":
         from providers.transports.ollama_cloud import ChatOllamaCloud
 
@@ -118,22 +131,30 @@ def create_chat_model(model_name: str, provider_id: str | None = None):
         base_url = definition.base_url if definition and definition.base_url else "https://ollama.com"
         return ChatOllamaCloud(model_name=model_name, api_key=api_key, base_url=base_url)
     if is_custom_openai_provider(provider):
-        from langchain_openai import ChatOpenAI
+        from providers.transports.openai_compatible import ChatOpenAICompatible
         endpoint = get_custom_endpoint(provider)
         if not endpoint or not endpoint.get("base_url"):
             raise ValueError("Custom OpenAI-compatible endpoint is missing a base URL.")
         api_key = custom_endpoint_secret(provider) or "not-needed"
-        kwargs = {
-            "model": model_name,
-            "api_key": api_key,
-            "base_url": endpoint["base_url"],
-        }
-        headers = endpoint.get("headers")
-        if isinstance(headers, dict) and headers:
-            kwargs["default_headers"] = headers
         if endpoint.get("transport") == "openai_responses":
+            from langchain_openai import ChatOpenAI
+
+            kwargs = {
+                "model": model_name,
+                "api_key": api_key,
+                "base_url": endpoint["base_url"],
+            }
+            headers = endpoint.get("headers")
+            if isinstance(headers, dict) and headers:
+                kwargs["default_headers"] = headers
             kwargs.update({"use_responses_api": True, "output_version": "responses/v1"})
-        return ChatOpenAI(**kwargs)
+            return ChatOpenAI(**kwargs)
+        return ChatOpenAICompatible(
+            model_name=model_name,
+            api_key=api_key,
+            base_url=str(endpoint["base_url"]),
+            endpoint=endpoint,
+        )
     if provider == "codex":
         from providers.codex import codex_runtime_available
         from providers.transports.codex_responses import ChatCodexResponses
@@ -224,8 +245,9 @@ def _capability_snapshot_for_selection(model_name: str, provider_id: str) -> dic
 
 
 def _infer_provider(model_name: str) -> str:
-    from providers.catalog import infer_provider_id
-    return infer_provider_id(model_name) or "openrouter"
+    from providers.resolution import resolve_provider_config
+
+    return resolve_provider_config(model_name, allow_legacy_local=False).provider_id
 
 
 def openai_model_uses_responses_api(model_name: str) -> bool:

@@ -1,4 +1,5 @@
 import contextvars
+from dataclasses import dataclass
 import ipaddress
 import json
 import logging
@@ -6,6 +7,8 @@ import os
 import pathlib
 import threading
 from urllib.parse import urlparse
+import urllib.error
+import urllib.request
 
 try:
     import ollama as _ollama_mod
@@ -115,7 +118,7 @@ _cloud_cache_lock = threading.Lock()
 _context_catalog: dict[str, int] = {}      # model_id → context_length
 _context_catalog_lock = threading.Lock()
 
-# ── Trending Ollama models (fetched from ollama.com) ────────────────────────
+# ── Deprecated Ollama discovery cache (kept as inert compatibility state) ───
 _trending_ollama_cache: list[str] = []
 _trending_fetched: bool = False
 
@@ -135,6 +138,44 @@ CLOUD_CONTEXT_SIZE_LABELS = {
 }
 
 # ── Persistent settings file ────────────────────────────────────────────────
+def _coerce_context_size(
+    value,
+    default: int,
+    *,
+    allowed: list[int] | tuple[int, ...] | None = None,
+    minimum: int | None = None,
+) -> int:
+    """Return a numeric context size from persisted/UI values."""
+    fallback = int(default or 0)
+    try:
+        if isinstance(value, bool):
+            raise ValueError
+        if isinstance(value, (int, float)):
+            parsed = int(value)
+        else:
+            text = str(value or "").strip().lower().replace(",", "").replace("_", "")
+            multiplier = 1
+            if text.endswith("k"):
+                multiplier = 1_000
+                text = text[:-1]
+            elif text.endswith("m"):
+                multiplier = 1_000_000
+                text = text[:-1]
+            parsed = int(float(text) * multiplier)
+    except (TypeError, ValueError):
+        parsed = fallback
+    if allowed:
+        allowed_ints = sorted(int(item) for item in allowed)
+        if parsed in allowed_ints:
+            return parsed
+        if parsed < allowed_ints[0]:
+            return allowed_ints[0]
+        return min(allowed_ints, key=lambda item: abs(item - parsed))
+    if minimum is not None and parsed < int(minimum):
+        return int(minimum)
+    return parsed if parsed > 0 else fallback
+
+
 _DATA_DIR = pathlib.Path(os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth"))
 _SETTINGS_PATH = _DATA_DIR / "model_settings.json"
 _CLOUD_CACHE_PATH = _DATA_DIR / "cloud_models_cache.json"
@@ -250,16 +291,37 @@ _TOOL_COMPATIBLE_FAMILIES: set[str] = {
     m.split(":")[0] for m in POPULAR_MODELS
 }
 
-_current_model = _saved.get("model", DEFAULT_MODEL)
-_num_ctx = _saved.get("context_size", DEFAULT_CONTEXT_SIZE)
-# Clamp legacy values below the new minimum to the smallest option
-if _num_ctx < CONTEXT_SIZE_OPTIONS[0]:
-    _num_ctx = CONTEXT_SIZE_OPTIONS[0]
-_cloud_num_ctx = _saved.get("cloud_context_size", DEFAULT_CLOUD_CONTEXT_SIZE)
-if _cloud_num_ctx < CLOUD_CONTEXT_SIZE_OPTIONS[0]:
-    _cloud_num_ctx = CLOUD_CONTEXT_SIZE_OPTIONS[0]
+try:
+    from providers.selection import model_choice_value as _canonical_model_choice_value
+
+    _current_model = _canonical_model_choice_value(_saved.get("model", DEFAULT_MODEL))
+except Exception:
+    _current_model = _saved.get("model", DEFAULT_MODEL)
+_num_ctx = _coerce_context_size(
+    _saved.get("context_size", DEFAULT_CONTEXT_SIZE),
+    DEFAULT_CONTEXT_SIZE,
+    allowed=CONTEXT_SIZE_OPTIONS,
+)
+_cloud_num_ctx = _coerce_context_size(
+    _saved.get("cloud_context_size", DEFAULT_CLOUD_CONTEXT_SIZE),
+    DEFAULT_CLOUD_CONTEXT_SIZE,
+    allowed=CLOUD_CONTEXT_SIZE_OPTIONS,
+)
 _llm_instance = None
 _model_max_ctx_cache: dict[str, int | None] = {}  # model_name → max context
+
+
+@dataclass(frozen=True)
+class ContextPolicy:
+    model_ref: str
+    provider_id: str
+    runtime_model: str
+    native_max: int | None
+    user_cap: int
+    effective_context: int
+    policy_kind: str
+    cap_source: str
+    request_application: str
 
 
 def _normalize_ollama_client_host(host: str) -> str:
@@ -307,6 +369,20 @@ def _ollama_client():
     return _ollama_mod
 
 
+def _ollama_http_json(path: str, payload: dict | None = None, *, timeout: float = 4.0) -> dict:
+    url = f"{_ollama_base_url().rstrip('/')}/{str(path or '').lstrip('/')}"
+    data = None
+    headers = {"Accept": "application/json"}
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=data, headers=headers, method="POST" if payload is not None else "GET")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        raw = response.read()
+    parsed = json.loads(raw.decode("utf-8") or "{}")
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def _chat_ollama(model: str, **kwargs):
     if ChatOllama is None:
         raise RuntimeError("langchain-ollama is not installed")
@@ -325,8 +401,9 @@ def get_llm():
             _llm_instance = _get_cloud_llm(_current_model)
         else:
             runtime_model = _runtime_model_name(_current_model)
-            logger.info("Creating LLM instance: model=%s, num_ctx=%s", runtime_model, _num_ctx)
-            _llm_instance = _chat_ollama(model=runtime_model, num_ctx=_num_ctx, reasoning=True)
+            num_ctx = _local_num_ctx_for(_current_model)
+            logger.info("Creating LLM instance: model=%s, num_ctx=%s", runtime_model, num_ctx)
+            _llm_instance = _chat_ollama(model=runtime_model, num_ctx=num_ctx)
     return _llm_instance
 
 
@@ -338,6 +415,14 @@ def clear_llm_cache() -> None:
     global _llm_instance
     _llm_instance = None
     _override_llm_cache.clear()
+
+
+def _local_num_ctx_for(model_name: str | None) -> int:
+    """Return the Ollama ``num_ctx`` after applying native model caps."""
+    model_max = get_model_max_context(model_name)
+    user_ctx = _coerce_context_size(_num_ctx, DEFAULT_CONTEXT_SIZE, minimum=CONTEXT_SIZE_OPTIONS[0])
+    model_ctx = _coerce_context_size(model_max, 0) if model_max else None
+    return min(model_ctx, user_ctx) if model_ctx and model_ctx > 0 else user_ctx
 
 
 def get_llm_for(model_name: str, num_ctx: int | None = None):
@@ -352,15 +437,11 @@ def get_llm_for(model_name: str, num_ctx: int | None = None):
 
     runtime_model = _runtime_model_name(model_name)
     if num_ctx is None:
-        model_max = get_model_max_context(runtime_model)
-        if model_max is not None:
-            num_ctx = min(model_max, _num_ctx)
-        else:
-            num_ctx = _num_ctx
+        num_ctx = _local_num_ctx_for(model_name)
     key = (runtime_model, num_ctx)
     if key not in _override_llm_cache:
         logger.info("Creating override LLM: model=%s, num_ctx=%s", runtime_model, num_ctx)
-        _override_llm_cache[key] = _chat_ollama(model=runtime_model, num_ctx=num_ctx, reasoning=True)
+        _override_llm_cache[key] = _chat_ollama(model=runtime_model, num_ctx=num_ctx)
     return _override_llm_cache[key]
 
 
@@ -372,23 +453,52 @@ def get_model_max_context(model_name: str | None = None) -> int | None:
     cannot be determined.  Results are cached per model name.
     """
     raw_name = model_name or _current_model
+    resolved = _resolved_context_identity(raw_name)
+    if resolved and resolved.provider_id.startswith("custom_openai_"):
+        endpoint = resolved.endpoint or {}
+        models = endpoint.get("models") if isinstance(endpoint, dict) else []
+        if isinstance(models, list):
+            for item in models:
+                if not isinstance(item, dict):
+                    continue
+                item_model = str(item.get("model_id") or item.get("id") or "")
+                if item_model != resolved.runtime_model:
+                    continue
+                ctx = _coerce_context_size(item.get("context_window") or item.get("ctx"), 0)
+                return ctx if ctx > 0 else None
+        probe = endpoint.get("last_probe") if isinstance(endpoint.get("last_probe"), dict) else {}
+        ctx = _coerce_context_size(probe.get("context_window"), 0)
+        return ctx if ctx > 0 else None
     if is_cloud_model(raw_name):
         return get_cloud_model_context(raw_name)
     name = _runtime_model_name(raw_name)
     if name in _model_max_ctx_cache:
         return _model_max_ctx_cache[name]
     client = _ollama_client()
-    if not client:
-        _model_max_ctx_cache[name] = None
-        return None
+    metadata: dict | None = None
     try:
-        info = client.show(name)
-        mi = info.modelinfo or {}
-        arch = mi.get("general.architecture", "")
-        ctx = mi.get(f"{arch}.context_length") if arch else None
-        _model_max_ctx_cache[name] = int(ctx) if ctx is not None else None
+        if client:
+            info = client.show(name)
+            metadata = getattr(info, "modelinfo", None) or getattr(info, "model_info", None) or {}
     except Exception:
         logger.debug("Could not query max context for model %s", name, exc_info=True)
+    if metadata is None:
+        try:
+            info = _ollama_http_json("/api/show", {"model": name})
+            metadata = info.get("model_info") or info.get("modelinfo") or {}
+        except Exception:
+            logger.debug("Could not query max context over Ollama HTTP for model %s", name, exc_info=True)
+            metadata = {}
+    arch = str(metadata.get("general.architecture") or "")
+    ctx = metadata.get(f"{arch}.context_length") if arch else None
+    if ctx is None:
+        for key, value in metadata.items():
+            if str(key).endswith(".context_length"):
+                ctx = value
+                break
+    try:
+        _model_max_ctx_cache[name] = int(ctx) if ctx is not None else None
+    except (TypeError, ValueError):
         _model_max_ctx_cache[name] = None
     return _model_max_ctx_cache[name]
 
@@ -413,7 +523,10 @@ def set_model(model_name: str):
     if is_cloud_model(model_name):
         _llm_instance = _get_cloud_llm(model_name)
     else:
-        _llm_instance = _chat_ollama(model=_runtime_model_name(model_name), num_ctx=_num_ctx, reasoning=True)
+        _llm_instance = _chat_ollama(
+            model=_runtime_model_name(model_name),
+            num_ctx=_local_num_ctx_for(model_name),
+        )
     _save_settings({"model": _current_model, "context_size": _num_ctx,
                     "cloud_context_size": _cloud_num_ctx})
 
@@ -432,6 +545,71 @@ def set_active_model_override(name: str) -> None:
     _active_model_override.set(name)
 
 
+def _resolved_context_identity(model_name: str):
+    try:
+        from providers.resolution import resolve_provider_config
+
+        return resolve_provider_config(model_name, allow_legacy_local=True)
+    except Exception:
+        return None
+
+
+def get_context_policy(model_name: str | None = None) -> ContextPolicy:
+    """Return the resolved context policy for the given (or active) model."""
+    name = model_name or _active_model_override.get() or _current_model
+    resolved = _resolved_context_identity(name)
+    provider_id = resolved.provider_id if resolved else (get_cloud_provider(name) or "ollama")
+    runtime_model = resolved.runtime_model if resolved else _runtime_model_name(name)
+    model_ref_value = resolved.selection_ref if resolved else name
+    remote_policy = bool(resolved and resolved.execution_location != "local") or is_cloud_model(name)
+    if resolved and resolved.execution_location == "local" and provider_id.startswith("custom_openai_"):
+        remote_policy = False
+
+    user_cap = _coerce_context_size(
+        _cloud_num_ctx if remote_policy else _num_ctx,
+        DEFAULT_CLOUD_CONTEXT_SIZE if remote_policy else DEFAULT_CONTEXT_SIZE,
+        minimum=(CLOUD_CONTEXT_SIZE_OPTIONS[0] if remote_policy else CONTEXT_SIZE_OPTIONS[0]),
+    )
+    model_max = get_model_max_context(name)
+    model_max_int = _coerce_context_size(model_max, 0) if model_max else 0
+    native_max = model_max_int if model_max_int > 0 else None
+    cap_source = "provider_metadata" if native_max else "unknown"
+    if native_max is None and remote_policy:
+        native_max = _estimate_context_heuristic(runtime_model)
+        cap_source = "heuristic"
+    if native_max is None and provider_id.startswith("custom_openai_"):
+        endpoint = resolved.endpoint if resolved else {}
+        fallback_context = int(endpoint.get("unknown_context_fallback") or 0) if isinstance(endpoint, dict) else 0
+        if fallback_context > 0:
+            native_max = fallback_context
+            cap_source = "profile_default"
+
+    effective = int(min(user_cap, native_max) if native_max else user_cap)
+    if provider_id == "ollama" and not remote_policy:
+        request_application = "ollama_num_ctx"
+    elif provider_id.startswith("custom_openai_"):
+        endpoint = resolved.endpoint if resolved else {}
+        context_param = str(endpoint.get("context_param_name") or "")
+        if endpoint.get("supports_runtime_context_override") and context_param:
+            request_application = f"request_param:{context_param}"
+        else:
+            request_application = "trim_only"
+    else:
+        request_application = "trim_only"
+
+    return ContextPolicy(
+        model_ref=model_ref_value,
+        provider_id=provider_id,
+        runtime_model=runtime_model,
+        native_max=int(native_max) if native_max else None,
+        user_cap=int(user_cap),
+        effective_context=effective,
+        policy_kind="provider" if remote_policy else "local",
+        cap_source=cap_source,
+        request_application=request_application,
+    )
+
+
 def get_context_size(model_name: str | None = None) -> int:
     """Return the *effective* context size for the given (or current) model.
 
@@ -445,16 +623,7 @@ def get_context_size(model_name: str | None = None) -> int:
     2. Thread-local ``_active_model_override`` (set by agent.py).
     3. Global ``_current_model``.
     """
-    name = model_name or _active_model_override.get() or _current_model
-    model_max = get_model_max_context(name)
-    if is_cloud_model(name):
-        # Cloud: cap at user-selected limit (reduces cost / rate-limit pressure)
-        native = model_max if model_max is not None else _estimate_context_heuristic(name)
-        return min(_cloud_num_ctx, native)
-    # Local: respect user's VRAM-controlling setting
-    if model_max is not None:
-        return min(_num_ctx, model_max)
-    return _num_ctx
+    return get_context_policy(model_name).effective_context
 
 
 def get_tool_budget(fraction: float, *,
@@ -471,19 +640,25 @@ def get_tool_budget(fraction: float, *,
 
 def get_user_context_size() -> int:
     """Return the raw user-selected context size (before model capping)."""
-    return _num_ctx
+    return _coerce_context_size(_num_ctx, DEFAULT_CONTEXT_SIZE, minimum=CONTEXT_SIZE_OPTIONS[0])
 
 
 def get_cloud_context_size() -> int:
     """Return the raw user-selected cloud context cap."""
-    return _cloud_num_ctx
+    return _coerce_context_size(
+        _cloud_num_ctx,
+        DEFAULT_CLOUD_CONTEXT_SIZE,
+        minimum=CLOUD_CONTEXT_SIZE_OPTIONS[0],
+    )
 
 
 def set_cloud_context_size(size: int):
     """Change the cloud context cap and recreate the LLM instance."""
     global _cloud_num_ctx, _llm_instance
-    logger.info("Cloud context size changed: %s → %s", _cloud_num_ctx, size)
-    _cloud_num_ctx = size
+    coerced = _coerce_context_size(size, DEFAULT_CLOUD_CONTEXT_SIZE, allowed=CLOUD_CONTEXT_SIZE_OPTIONS)
+    logger.info("Cloud context size changed: %s → %s", _cloud_num_ctx, coerced)
+    _cloud_num_ctx = coerced
+    _override_llm_cache.clear()
     if is_cloud_model(_current_model):
         _llm_instance = _get_cloud_llm(_current_model)
     _save_settings({"model": _current_model, "context_size": _num_ctx,
@@ -493,12 +668,17 @@ def set_cloud_context_size(size: int):
 def set_context_size(size: int):
     """Change the context window size and recreate the LLM instance."""
     global _num_ctx, _llm_instance
-    logger.info("Context size changed: %s → %s", _num_ctx, size)
-    _num_ctx = size
+    coerced = _coerce_context_size(size, DEFAULT_CONTEXT_SIZE, allowed=CONTEXT_SIZE_OPTIONS)
+    logger.info("Context size changed: %s → %s", _num_ctx, coerced)
+    _num_ctx = coerced
+    _override_llm_cache.clear()
     if is_cloud_model(_current_model):
         _llm_instance = _get_cloud_llm(_current_model)
     else:
-        _llm_instance = _chat_ollama(model=_runtime_model_name(_current_model), num_ctx=_num_ctx, reasoning=True)
+        _llm_instance = _chat_ollama(
+            model=_runtime_model_name(_current_model),
+            num_ctx=_local_num_ctx_for(_current_model),
+        )
     _save_settings({"model": _current_model, "context_size": _num_ctx,
                     "cloud_context_size": _cloud_num_ctx})
 
@@ -525,52 +705,57 @@ def _ollama_reachable(timeout: float = 1.0) -> bool:
 
 
 def list_local_models() -> list[str]:
-    """Return names of models already downloaded in Ollama."""
-    client = _ollama_client()
-    if not client or not _ollama_reachable():
+    """Return names of models currently exposed by the Ollama daemon."""
+    if not _ollama_reachable():
         return []
+    names: set[str] = set()
+    client = _ollama_client()
     try:
-        response = client.list()
-        return sorted({m.model for m in response.models})
+        if client:
+            response = client.list()
+            for model in getattr(response, "models", []) or []:
+                name = getattr(model, "model", None) or getattr(model, "name", None)
+                if isinstance(model, dict):
+                    name = model.get("model") or model.get("name") or name
+                if name:
+                    names.add(str(name))
     except Exception:
         logger.debug("Could not list local Ollama models", exc_info=True)
-        return []
+    if not names:
+        try:
+            response = _ollama_http_json("/api/tags")
+            for model in response.get("models", []) or []:
+                if not isinstance(model, dict):
+                    continue
+                name = model.get("model") or model.get("name")
+                if name:
+                    names.add(str(name))
+        except Exception:
+            logger.debug("Could not list local Ollama models over HTTP", exc_info=True)
+    return sorted(names)
 
 
 def list_all_models() -> list[str]:
-    """Return a combined, sorted list of local + popular + trending models."""
-    local = list_local_models()
-    return sorted(set(local + POPULAR_MODELS + _trending_ollama_cache))
+    """Return models currently exposed by the Ollama daemon."""
+    return sorted(set(list_local_models()))
 
 
 def get_trending_models() -> list[str]:
-    """Return the set of trending model names (for icon display)."""
-    return list(_trending_ollama_cache)
+    """Return no public Ollama discovery rows; Thoth manages daemon models only."""
+    return []
 
 
 def fetch_trending_ollama_models() -> list[str]:
-    """Fetch trending models from ollama.com/api/tags.
+    """Deprecated compatibility shim.
 
-    Returns a list of model name strings.  Safe to call from any thread.
-    Results are cached in-memory for the session.
+    Thoth no longer fetches public Ollama model listings or offers downloads.
+    Local model management lives in Ollama; this app only reads daemon-exposed
+    tags.
     """
     global _trending_ollama_cache, _trending_fetched
-    if _trending_fetched:
-        return _trending_ollama_cache
-    try:
-        import httpx
-        resp = httpx.get("https://ollama.com/api/tags", timeout=10)
-        resp.raise_for_status()
-        data = resp.json().get("models", [])
-        names = [m.get("name", "") for m in data if m.get("name")]
-        _trending_ollama_cache = names
-        _trending_fetched = True
-        logger.info("Fetched %d trending Ollama models", len(names))
-        return names
-    except Exception as exc:
-        logger.debug("Could not fetch trending Ollama models: %s", exc)
-        _trending_fetched = True  # don't retry on failure
-        return []
+    _trending_ollama_cache = []
+    _trending_fetched = True
+    return []
 
 
 def is_model_local(model_name: str) -> bool:
@@ -815,9 +1000,12 @@ def get_cloud_model_context(model_name: str) -> int:
     parsed = _parse_provider_model_ref(model_name)
     provider_id = parsed[0] if parsed else None
     runtime_model = _runtime_model_name(model_name)
+    _sync_custom_model_cache()
     info = _cloud_model_cache.get(runtime_model)
     if info and (not provider_id or info.get("provider") == provider_id):
-        return info["ctx"]
+        cached_ctx = int(info.get("ctx") or 0)
+        if cached_ctx > 0:
+            return cached_ctx
     if provider_id == "codex":
         try:
             from providers.codex import list_codex_model_infos
@@ -893,7 +1081,7 @@ def _get_cloud_llm(model_name: str):
     if key in _override_llm_cache:
         return _override_llm_cache[key]
 
-    logger.info("Creating cloud LLM: model=%s via %s", runtime_model, provider or "openrouter")
+    logger.info("Creating provider LLM: model=%s via %s", runtime_model, provider or "openrouter")
 
     _override_llm_cache[key] = create_chat_model(runtime_model, provider)
     return _override_llm_cache[key]
@@ -1598,11 +1786,3 @@ def check_tool_support(model_name: str) -> bool:
             return False
         logger.debug("Tool support check for %s failed: %s", model_name, exc)
         return True  # Network or other error — don't block
-
-
-def pull_model(model_name: str):
-    """Download a model from Ollama. Yields progress dicts when streamed."""
-    client = _ollama_client()
-    if not client:
-        raise RuntimeError("Ollama is not installed")
-    return client.pull(model_name, stream=True)

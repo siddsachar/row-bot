@@ -153,6 +153,33 @@ def infer_provider_id(model_id: str, cached_provider: str | None = None) -> str 
     return None
 
 
+def _str_set(value: Any) -> set[str]:
+    if isinstance(value, str):
+        return {value} if value else set()
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return {str(item) for item in value if str(item)}
+    return set()
+
+
+def _transport_from_value(value: Any, fallback: TransportMode) -> TransportMode:
+    if isinstance(value, TransportMode):
+        return value
+    try:
+        return TransportMode(str(value))
+    except Exception:
+        return fallback
+
+
+def _transport_set_from_values(value: Any, fallback: frozenset[TransportMode]) -> frozenset[TransportMode]:
+    modes: set[TransportMode] = set()
+    for item in _str_set(value):
+        try:
+            modes.add(TransportMode(item))
+        except Exception:
+            continue
+    return frozenset(modes) or fallback
+
+
 def model_info_from_legacy(model_id: str, info: dict[str, Any]) -> ModelInfo | None:
     provider_id = infer_provider_id(model_id, info.get("provider"))
     if not provider_id:
@@ -160,24 +187,53 @@ def model_info_from_legacy(model_id: str, info: dict[str, Any]) -> ModelInfo | N
     definition = get_provider_definition(provider_id)
     transport = definition.default_transport if definition else TransportMode.OPENAI_CHAT
     classified = classify_model_capabilities(provider_id, model_id, info, transport=transport)
-    capabilities = set(classified["capabilities"])
+    snapshot = info.get("capabilities_snapshot") if isinstance(info.get("capabilities_snapshot"), dict) else {}
+
+    capabilities = _str_set(snapshot.get("capabilities")) or set(classified["capabilities"])
     if info.get("vision"):
         capabilities.add("vision")
+    input_modalities = _str_set(snapshot.get("input_modalities")) or set(classified["input_modalities"])
+    output_modalities = _str_set(snapshot.get("output_modalities")) or set(classified["output_modalities"])
+    tasks = _str_set(snapshot.get("tasks")) or set(classified["tasks"])
+    if "tool_calling" in snapshot:
+        tool_calling = snapshot.get("tool_calling")
+    else:
+        tool_calling = classified["tool_calling"]
+    if tool_calling is True:
+        capabilities.add("tool_calling")
+    elif tool_calling is False:
+        capabilities.discard("tool_calling")
+    if "streaming" in snapshot:
+        streaming = snapshot.get("streaming")
+    else:
+        streaming = classified["streaming"]
+    if streaming is True:
+        capabilities.add("streaming")
+    elif streaming is False:
+        capabilities.discard("streaming")
+    resolved_transport = _transport_from_value(snapshot.get("transport") or info.get("transport"), classified["transport"])
+    endpoint_compatibility = _transport_set_from_values(
+        snapshot.get("endpoint_compatibility") or info.get("endpoint_compatibility"),
+        frozenset(classified["endpoint_compatibility"]),
+    )
     return ModelInfo(
         provider_id=provider_id,
         model_id=model_id,
         display_name=str(info.get("label") or model_id),
         context_window=int(info.get("ctx") or 0),
-        transport=classified["transport"],
+        transport=resolved_transport,
         capabilities=frozenset(capabilities),
-        input_modalities=frozenset(classified["input_modalities"]),
-        output_modalities=frozenset(classified["output_modalities"]),
-        tasks=frozenset(classified["tasks"]),
-        tool_calling=classified["tool_calling"],
-        streaming=classified["streaming"],
-        endpoint_compatibility=frozenset(classified["endpoint_compatibility"]),
-        risk_label=definition.risk_label if definition else "api_key",
-        source="legacy_cloud_cache",
+        input_modalities=frozenset(input_modalities),
+        output_modalities=frozenset(output_modalities),
+        tasks=frozenset(tasks),
+        tool_calling=tool_calling if tool_calling in (True, False) else None,
+        streaming=streaming if streaming in (True, False) else None,
+        endpoint_compatibility=endpoint_compatibility,
+        billing_label=str(snapshot.get("billing_label") or info.get("billing_label") or ""),
+        source_confidence=str(snapshot.get("source_confidence") or info.get("source_confidence") or "inferred"),
+        last_verified_at=str(snapshot.get("last_verified_at") or info.get("last_verified_at") or ""),
+        risk_label=str(info.get("risk_label") or (definition.risk_label if definition else "api_key")),
+        source=str(info.get("source") or "legacy_cloud_cache"),
     )
 
 
@@ -251,9 +307,11 @@ def classify_model_capabilities(
     input_modalities: set[str] = {ModelModality.TEXT.value}
     output_modalities: set[str] = {ModelModality.TEXT.value}
     capabilities: set[str] = {"text", "chat"}
-    tool_calling: bool | None = True
+    tool_calling: bool | None = None if provider_id.startswith("custom_openai_") else True
     streaming: bool | None = True
     endpoint_compatibility = {default_transport}
+    if isinstance(metadata.get("tool_calling"), bool):
+        tool_calling = bool(metadata.get("tool_calling"))
 
     if provider_id in {"ollama", "ollama_cloud"}:
         default_transport = TransportMode.OLLAMA_CLOUD_CHAT if provider_id == "ollama_cloud" else TransportMode.OLLAMA_CHAT
@@ -354,8 +412,9 @@ def classify_model_capabilities(
         if "image" in modality:
             input_modalities.add(ModelModality.IMAGE.value)
             capabilities.add("vision")
-        supported = metadata.get("supported_parameters") or []
-        if supported:
+        tool_calling = None
+        if "supported_parameters" in metadata:
+            supported = metadata.get("supported_parameters") or []
             tool_calling = any(param in supported for param in ("tools", "tool_choice"))
 
     if tool_calling:

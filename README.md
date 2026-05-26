@@ -13,7 +13,7 @@
 
 Thoth is a local-first desktop AI assistant. It gives you chat, memory, tools, workflows, Developer Studio, Designer Studio, Custom Tools, plugins, messaging channels, and optional cloud models while keeping durable data on your machine.
 
-It can run fully local with [Ollama](https://ollama.com/), 39 curated tool-calling models, local embeddings, and Ollama Cloud models exposed through a signed-in daemon. You can also opt into OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, Ollama Cloud direct API, custom OpenAI-compatible endpoints, and ChatGPT / Codex subscription models.
+It can run fully local with [Ollama](https://ollama.com/), 39 curated tool-calling models, local embeddings, and Ollama Cloud models exposed through a signed-in daemon. You can also opt into OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, Ollama Cloud direct API, custom OpenAI-compatible endpoints such as oMLX, LM Studio, vLLM, and llama.cpp, and ChatGPT / Codex subscription models.
 
 The Thoth app has no account system, no Thoth-hosted server, and no telemetry pipeline. Provider keys and subscription tokens are stored in the OS credential store when available.
 
@@ -103,7 +103,7 @@ On first launch, Thoth opens a setup wizard. Pick one of three paths:
 |------|-------------|-------|
 | Local | You want models and embeddings on your machine. | Choose Ollama, download the default `qwen3:14b` brain model or a smaller model such as `qwen3:8b`, then start chatting. |
 | Providers | You do not have a local GPU or want frontier models. | Add an OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, or Ollama Cloud key, pick a default model, and save Quick Choices. ChatGPT / Codex sign-in is available in Settings after launch. |
-| Custom/Self-hosted | You run LM Studio, vLLM, LocalAI, or a private gateway. | Enter an OpenAI-compatible base URL such as `http://127.0.0.1:1234/v1`, add a key if your server requires one, fetch models, and choose a default. |
+| Custom/Self-hosted | You run oMLX, LM Studio, vLLM, llama.cpp, LocalAI, or a private gateway. | Enter an OpenAI-compatible base URL such as `http://127.0.0.1:1234/v1`, choose the closest compatibility profile, add a key if your server requires one, fetch models, and choose a default. |
 
 Common first prompts:
 

@@ -7,6 +7,20 @@ from nicegui import run, ui
 from ui.timer_utils import defer_ui
 
 
+def _probe_detail(last_probe: dict) -> str:
+    errors = last_probe.get("errors") if isinstance(last_probe, dict) else []
+    if isinstance(errors, list) and errors:
+        return "\n".join(str(error) for error in errors[:4])
+    if isinstance(last_probe, dict) and last_probe.get("ok"):
+        details = [
+            f"models: {'ok' if last_probe.get('models_ok') else 'not checked'}",
+            f"chat: {'ok' if last_probe.get('chat_ok') else 'not checked'}",
+            f"streaming: {'ok' if last_probe.get('streaming_ok') else 'not checked'}",
+        ]
+        return "\n".join(details)
+    return "No probe details recorded yet."
+
+
 def _source_label(source: str) -> str:
     labels = {
         "environment": "Using environment variable",
@@ -238,7 +252,7 @@ def build_provider_summary_cards() -> None:
 
 
 def build_custom_endpoints_section(on_change=None) -> None:
-    from providers.custom import delete_custom_endpoint, list_custom_endpoints, refresh_custom_endpoint_models, save_custom_endpoint
+    from providers.custom import CUSTOM_ENDPOINT_PROFILES, delete_custom_endpoint, list_custom_endpoints, probe_custom_endpoint, refresh_custom_endpoint_models, save_custom_endpoint
 
     endpoints = list_custom_endpoints()
     ui.label("Custom / Self-Hosted Endpoints").classes("text-subtitle2")
@@ -251,7 +265,14 @@ def build_custom_endpoints_section(on_change=None) -> None:
                         ui.label(endpoint.get("display_name") or endpoint.get("id")).classes("text-sm text-weight-medium")
                         ui.label(endpoint.get("base_url") or "No base URL").classes("text-grey-6 text-xs")
                     ui.badge(endpoint.get("execution_location") or "remote", color="blue-grey").props("outline dense")
+                    ui.badge(endpoint.get("profile") or "generic_openai", color="cyan").props("outline dense")
                     ui.badge(endpoint.get("transport") or "openai_chat", color="grey").props("outline dense")
+                    last_probe = endpoint.get("last_probe") if isinstance(endpoint.get("last_probe"), dict) else {}
+                    if last_probe:
+                        ui.badge(
+                            "probe ok" if last_probe.get("ok") else "probe failed",
+                            color="green" if last_probe.get("ok") else "orange",
+                        ).props("outline dense").tooltip(_probe_detail(last_probe))
                     models = endpoint.get("models") if isinstance(endpoint.get("models"), list) else []
                     if models:
                         ui.badge(f"{len(models)} models", color="grey").props("outline dense")
@@ -275,7 +296,28 @@ def build_custom_endpoints_section(on_change=None) -> None:
                             notification.dismiss()
                             ui.notify(f"Refresh failed: {exc}", type="negative")
 
+                    async def _probe(endpoint_id=endpoint["id"]):
+                        notification = ui.notification("Probing endpoint...", type="ongoing", spinner=True, timeout=None)
+                        try:
+                            result = await run.io_bound(probe_custom_endpoint, endpoint_id)
+                            notification.dismiss()
+                            if result.get("ok"):
+                                ui.notify("Endpoint probe passed", type="positive")
+                            else:
+                                ui.notify(
+                                    f"Endpoint probe failed: {_probe_detail(result)}",
+                                    type="warning",
+                                    close_button=True,
+                                    timeout=12000,
+                                )
+                            if on_change:
+                                on_change()
+                        except Exception as exc:
+                            notification.dismiss()
+                            ui.notify(f"Probe failed: {exc}", type="negative")
+
                     ui.button(icon="refresh", on_click=_refresh).props("flat dense round size=sm").tooltip("Refresh models")
+                    ui.button(icon="science", on_click=_probe).props("flat dense round size=sm").tooltip("Probe endpoint")
                     ui.button(icon="delete", on_click=_delete).props("flat dense round size=sm color=negative").tooltip("Remove endpoint")
     else:
         ui.label("Connect vLLM, llama.cpp, LM Studio, LocalAI, LiteLLM, or another OpenAI-compatible API.").classes("text-grey-6 text-sm")
@@ -284,6 +326,15 @@ def build_custom_endpoints_section(on_change=None) -> None:
         name_input = ui.input("Name", placeholder="Local vLLM").classes("w-full")
         base_url_input = ui.input("Base URL", placeholder="http://127.0.0.1:8000/v1").classes("w-full")
         with ui.row().classes("items-center gap-3"):
+            profile_options = {
+                key: str(value.get("display_name") or key)
+                for key, value in CUSTOM_ENDPOINT_PROFILES.items()
+            }
+            profile = ui.select(
+                profile_options,
+                value="generic_openai",
+                label="Endpoint profile",
+            ).classes("min-w-[200px]")
             no_auth = ui.checkbox("No API key required", value=True)
             location = ui.select(
                 {"local": "Local/private", "remote": "Remote/proxy"},
@@ -311,6 +362,7 @@ def build_custom_endpoints_section(on_change=None) -> None:
                 "api_key": str(api_key_input.value or "").strip(),
                 "auth_required": not bool(no_auth.value),
                 "execution_location": location.value or "remote",
+                "profile": profile.value or "generic_openai",
                 "transport": "openai_chat",
             })
             ui.notify("Custom endpoint saved", type="positive")

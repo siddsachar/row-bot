@@ -1771,12 +1771,27 @@ def show_task_dialog(
 
                 cur_name = name_input.value.strip()
                 cur_safety = safety_sel.value if safety_sel.value else "block"
+                cur_model_ov = model_sel.value if model_sel.value != "__default__" else None
 
                 # ── Validation ──────────────────────────────────────
                 errors: list[str] = []
 
                 if not cur_name:
                     errors.append("Name is required.")
+                if cur_model_ov:
+                    try:
+                        from providers.readiness import evaluate_agent_readiness
+                        from providers.selection import model_id_from_choice_value
+
+                        readiness = evaluate_agent_readiness(cur_model_ov)
+                        if not readiness.ready:
+                            model_id = model_id_from_choice_value(cur_model_ov)
+                            details = "; ".join(readiness.errors) or readiness.user_message()
+                            errors.append(
+                                f"Model {model_id} is not Agent-ready. Workflows require Agent Mode. {details}"
+                            )
+                    except Exception as exc:
+                        errors.append(f"Could not verify workflow model readiness: {exc}")
 
                 if is_advanced and cur_steps:
                     all_ids = {s.get("id", "") for s in cur_steps}

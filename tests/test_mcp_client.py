@@ -592,6 +592,12 @@ class McpClientFoundationTests(unittest.TestCase):
                      patch.object(agent, "get_llm", return_value=object()), \
                      patch.object(agent, "get_current_model", return_value="test-model"), \
                      patch.object(agent, "get_context_size", return_value=8192), \
+                     patch.object(agent, "_ensure_agent_mode_ready", return_value=SimpleNamespace(
+                         provider_id="test",
+                         runtime_model="test-model",
+                         capability_source="test",
+                         confidence="high",
+                     )), \
                      patch.object(agent, "get_agent_system_prompt", return_value="test prompt"), \
                      patch.object(agent, "create_react_agent", side_effect=_capture_agent), \
                      patch.object(agent, "interrupt", side_effect=lambda payload: interrupt_calls.append(payload) or True):

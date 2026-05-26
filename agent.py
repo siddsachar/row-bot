@@ -4,10 +4,10 @@ import re
 
 from models import get_llm, get_llm_for, get_context_size, get_current_model, is_model_local, is_cloud_model, get_cloud_provider, get_model_max_context, set_active_model_override, _active_model_override
 from api_keys import apply_keys
-from prompts import AGENT_SYSTEM_PROMPT, SUMMARIZE_PROMPT, get_agent_system_prompt
+from prompts import AGENT_SYSTEM_PROMPT, SUMMARIZE_PROMPT, get_agent_system_prompt, get_chat_only_system_prompt
 from langchain_classic.retrievers import ContextualCompressionRetriever
 from langchain_classic.retrievers.document_compressors import LLMChainExtractor
-from langchain_core.messages import trim_messages, ToolMessage, AIMessage
+from langchain_core.messages import trim_messages, ToolMessage, AIMessage, HumanMessage, SystemMessage
 from langgraph.types import interrupt, Command
 from threads import pick_or_create_thread, checkpointer
 import logging
@@ -33,6 +33,7 @@ def _provider_uses_anthropic_messages(provider_id: str | None) -> bool:
         return bool(definition and definition.default_transport == TransportMode.ANTHROPIC_MESSAGES)
     except Exception:
         return provider_id == "anthropic"
+
 
 # ── Contextual compression: extract only query-relevant content per doc ──────
 _compressor = None
@@ -112,6 +113,62 @@ def recursion_wind_down_threshold(limit: int, *, is_developer: bool = False) -> 
     return max(1, int(limit * ratio))
 
 
+def _coerce_positive_int(value, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _normalize_agent_config(config: dict | None) -> dict:
+    """Return a shallow-normalized LangGraph config for Agent Mode calls."""
+    if not isinstance(config, dict):
+        return {"configurable": {}, "recursion_limit": RECURSION_LIMIT_CHAT}
+    normalized = dict(config)
+    configurable = normalized.get("configurable")
+    normalized["configurable"] = dict(configurable) if isinstance(configurable, dict) else {}
+    normalized["recursion_limit"] = _coerce_positive_int(
+        normalized.get("recursion_limit"),
+        RECURSION_LIMIT_CHAT,
+    )
+    return normalized
+
+
+def _agent_runtime_diagnostics(config: dict | None = None, model_label: str | None = None) -> dict:
+    cfg = config if isinstance(config, dict) else {}
+    configurable = cfg.get("configurable") if isinstance(cfg.get("configurable"), dict) else {}
+    selected = model_label or configurable.get("model_override") or _model_override_var.get("") or get_current_model()
+    diagnostics = {
+        "model_label": selected,
+        "thread_id": str(configurable.get("thread_id") or "")[:8],
+        "runtime_surface": configurable.get("runtime_surface"),
+        "runtime_mode": configurable.get("runtime_mode"),
+        "recursion_limit": cfg.get("recursion_limit"),
+        "recursion_limit_type": type(cfg.get("recursion_limit")).__name__,
+    }
+    try:
+        from providers.resolution import resolve_provider_config
+
+        resolved = resolve_provider_config(str(selected or ""), allow_legacy_local=True)
+        diagnostics.update({
+            "provider_id": resolved.provider_id,
+            "runtime_model": resolved.runtime_model,
+            "selection_ref": resolved.selection_ref,
+        })
+    except Exception as exc:
+        diagnostics["resolve_error"] = str(exc)
+    try:
+        context = get_context_size(selected)
+        diagnostics.update({
+            "context_size": context,
+            "context_size_type": type(context).__name__,
+        })
+    except Exception as exc:
+        diagnostics["context_error"] = str(exc)
+    return diagnostics
+
+
 def _looks_like_custom_tool_creation_request(text: str) -> bool:
     """Return True for requests to create a Custom Tool from a repo/folder."""
     normalized = " ".join(str(text or "").lower().split())
@@ -166,7 +223,42 @@ def _content_to_str(content) -> str:
     return str(content) if content else ""
 
 
-def _friendly_api_error(exc_str: str) -> str:
+def _active_model_for_error() -> str:
+    """Return the model actually being used by the active agent run."""
+    for getter in (
+        lambda: _model_override_var.get(""),
+        lambda: _active_model_override.get(""),
+    ):
+        try:
+            value = str(getter() or "").strip()
+        except Exception:
+            value = ""
+        if value:
+            return value
+    return get_current_model()
+
+
+def _model_label_for_error(model_name: str | None = None) -> str:
+    raw = str(model_name or _active_model_for_error() or "").strip()
+    if not raw:
+        return "The selected model"
+    try:
+        from providers.selection import (
+            model_id_from_choice_value,
+            provider_display_label,
+            provider_id_from_choice_value,
+        )
+
+        provider_id = provider_id_from_choice_value(raw)
+        model_id = model_id_from_choice_value(raw)
+        if provider_id and provider_id not in {"local", "ollama"}:
+            return f"{model_id} via {provider_display_label(provider_id)}"
+        return model_id or raw
+    except Exception:
+        return raw
+
+
+def _friendly_api_error(exc_str: str, model_name: str | None = None) -> str:
     """Return a user-friendly description for an API / provider error."""
     s = exc_str.lower()
     if _is_transient_stream_disconnect(exc_str):
@@ -200,8 +292,8 @@ def _friendly_api_error(exc_str: str) -> str:
         return "⚠️ The AI provider is temporarily unavailable (503) — please try again shortly."
     if "timeout" in s or "timed out" in s:
         return "⚠️ Request timed out — please try again."
-    if "does not support tools" in s or "status code: 400" in s:
-        return f"⚠️ {get_current_model()} does not support tool calling — switch to a compatible model in Settings → Models."
+    if "does not support tools" in s or ("tool" in s and "status code: 400" in s):
+        return f"⚠️ {_model_label_for_error(model_name)} does not support tool calling — switch to a compatible model in Settings → Models."
     # Fallback — expose the raw error so nothing is silently swallowed
     return f"⚠️ API error: {exc_str}"
 
@@ -448,9 +540,8 @@ def _pre_model_trim(state: dict) -> dict:
 
     Uses ``llm_input_messages`` so the full history stays intact in the
     checkpointer — only the LLM sees the trimmed version."""
-    max_tokens = int(get_context_size() * 0.85)
-
     messages = list(state["messages"])
+    max_tokens = int(get_context_size() * 0.85)
 
     # ── Strip inline base64 data URIs from ALL tool outputs ──────────
     # Designer HTML, plugin results, and some marker payloads carry
@@ -1526,11 +1617,12 @@ def get_token_usage(config: dict | None = None, model_override: str | None = Non
     if config is None:
         return 0, max_tokens
     try:
-        agent = get_agent_graph()
-        state = agent.get_state(config)
-        if not state or not state.values:
+        thread_id = (config.get("configurable") or {}).get("thread_id", "")
+        if not thread_id:
             return 0, max_tokens
-        msgs = state.values.get("messages", [])
+        from threads import get_latest_checkpoint_messages
+
+        msgs = get_latest_checkpoint_messages(thread_id)
         if not msgs:
             return 0, max_tokens
 
@@ -1556,7 +1648,6 @@ def get_token_usage(config: dict | None = None, model_override: str | None = Non
         msgs = _redacted
 
         # Account for cached summary — mirrors _pre_model_trim logic
-        thread_id = (config.get("configurable") or {}).get("thread_id", "")
         if thread_id and thread_id in _summary_cache:
             cached = _summary_cache[thread_id]
             split = cached["msg_count"]
@@ -1589,6 +1680,20 @@ def get_token_usage(config: dict | None = None, model_override: str | None = Non
         return 0, max_tokens
 
 
+def _ensure_agent_mode_ready(model_label: str):
+    from providers.readiness import ensure_agent_ready
+
+    result = ensure_agent_ready(model_label)
+    logger.debug(
+        "Agent Mode readiness ok: provider=%s model=%s context=%s source=%s",
+        result.provider_id,
+        result.runtime_model,
+        result.context_window,
+        result.capability_source,
+    )
+    return result
+
+
 def get_agent_graph(enabled_tool_names: list[str] | None = None,
                     model_override: str | None = None):
     """Build (or return cached) a ReAct agent graph for the given set of
@@ -1596,29 +1701,52 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
     if enabled_tool_names is None:
         enabled_tool_names = [t.name for t in tool_registry.get_enabled_tools()]
 
-    # Resolve the model to use
+    # Resolve and preflight the model before building tools or graph state.
+    use_override = False
     if model_override and model_override != get_current_model():
-        if is_model_local(model_override) or is_cloud_model(model_override):
-            llm = get_llm_for(model_override)
-            model_label = model_override
-        else:
-            logger.warning("Model override '%s' not available — falling back to default '%s'",
-                           model_override, get_current_model())
-            llm = get_llm()
-            model_label = get_current_model()
+        try:
+            from providers.resolution import resolve_provider_config
+
+            model_label = resolve_provider_config(
+                str(model_override),
+                allow_legacy_local=True,
+            ).selection_ref
+            use_override = True
+        except Exception:
+            if is_model_local(model_override) or is_cloud_model(model_override):
+                model_label = model_override
+                use_override = True
+            else:
+                logger.warning(
+                    "Model override '%s' not resolvable — falling back to default '%s'",
+                    model_override,
+                    get_current_model(),
+                )
+                model_label = get_current_model()
     else:
-        llm = get_llm()
         model_label = get_current_model()
+
+    readiness = _ensure_agent_mode_ready(model_label)
+    llm = get_llm_for(model_label) if use_override else get_llm()
 
     is_background = _background_workflow_var.get()
     _mode = _safety_mode_var.get() if is_background else ""
-    cache_key = frozenset(enabled_tool_names) | frozenset({f"ctx:{get_context_size()}", f"model:{model_label}", f"bg:{is_background}", f"safety:{_mode}"})
+    effective_context = get_context_size(model_label)
+    cache_key = frozenset(enabled_tool_names) | frozenset({
+        f"ctx:{effective_context}",
+        f"model:{model_label}",
+        f"provider:{readiness.provider_id}",
+        f"runtime:{readiness.runtime_model}",
+        f"ready:{readiness.capability_source}:{readiness.confidence}",
+        f"bg:{is_background}",
+        f"safety:{_mode}",
+    })
 
     if cache_key not in _agent_cache:
         with _agent_cache_lock:
             if cache_key in _agent_cache:
                 return _agent_cache[cache_key]
-            # Collect LangChain tool wrappers for enabled tools
+            # Collect LangChain tool wrappers for enabled tools.
             lc_tools = []
             destructive_names: set[str] = set()
             for name in enabled_tool_names:
@@ -1745,9 +1873,9 @@ def invoke_agent(user_input: str, enabled_tool_names: list[str], config: dict,
     if _disabled_custom_tool_response:
         return _disabled_custom_tool_response
 
+    config = _normalize_agent_config(config)
     _model_ov = (config.get("configurable") or {}).get("model_override")
     _thread_id = (config.get("configurable") or {}).get("thread_id", "")
-    agent = get_agent_graph(enabled_tool_names, model_override=_model_ov)
 
     logger.info(
         "invoke_agent: thread=%s model=%s tools=%d input_len=%d",
@@ -1758,7 +1886,8 @@ def invoke_agent(user_input: str, enabled_tool_names: list[str], config: dict,
     )
     _invoke_t0 = time.monotonic()
 
-    # Set thread-local so _pre_model_trim can find the summary cache
+    # Set thread-local before graph construction so readiness/provider errors
+    # are attributed to the explicit thread selection.
     _current_thread_id_var.set(_thread_id)
     _model_override_var.set(_model_ov or "")
     _current_enabled_tool_names_var.set(tuple(enabled_tool_names or []))
@@ -1766,6 +1895,7 @@ def invoke_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         (config.get("configurable") or {}).get("developer_context", "") or ""
     )
     set_active_model_override(_model_ov or "")
+    agent = get_agent_graph(enabled_tool_names, model_override=_model_ov)
 
     # Summarize if context is above threshold
     if stop_event and stop_event.is_set():
@@ -1829,7 +1959,12 @@ def invoke_agent(user_input: str, enabled_tool_names: list[str], config: dict,
                 if _is_transient_stream_disconnect(exc_str):
                     logger.warning("invoke_agent provider stream disconnected: %s", exc_str)
                 else:
-                    logger.error("invoke_agent API error: %s", exc_str)
+                    logger.error(
+                        "invoke_agent API error: %s diagnostics=%s",
+                        exc_str,
+                        _agent_runtime_diagnostics(config, _model_ov),
+                        exc_info=True,
+                    )
                 _notify_api_error(_err_msg)
                 return _err_msg
 
@@ -1945,6 +2080,201 @@ def _resolve_tool_display_name(func_name: str) -> str:
     return _TOOL_DISPLAY_NAMES.get(func_name, func_name)
 
 
+def _selected_model_label_from_config(config: dict) -> tuple[str, bool]:
+    model_override = (config.get("configurable") or {}).get("model_override")
+    if model_override and model_override != get_current_model():
+        if str(model_override).startswith("model:") or is_model_local(model_override) or is_cloud_model(model_override):
+            return model_override, True
+        logger.warning(
+            "Model override '%s' not available - falling back to default '%s'",
+            model_override,
+            get_current_model(),
+        )
+    return get_current_model(), False
+
+
+def _chat_only_content_from_ui_message(msg: dict) -> str:
+    content = msg.get("content", "")
+    if isinstance(content, list):
+        text = "\n".join(str(item) for item in content)
+    else:
+        text = str(content or "")
+    tool_results = msg.get("tool_results")
+    if isinstance(tool_results, list) and tool_results:
+        lines = ["Historical tool results from an earlier Agent Mode turn:"]
+        for result in tool_results:
+            if not isinstance(result, dict):
+                continue
+            name = str(result.get("name") or "tool")
+            result_content = str(result.get("content") or "")
+            lines.append(f"- {name}: {result_content[:2000]}")
+        text = (text + "\n\n" + "\n".join(lines)).strip()
+    charts = msg.get("charts")
+    if isinstance(charts, list) and charts:
+        text = (text + f"\n\n[Earlier turn included {len(charts)} chart(s).]").strip()
+    return text
+
+
+def _build_chat_only_messages(thread_id: str, user_input: str, *, context_window: int | None = None) -> list:
+    from ui.helpers import langchain_messages_to_ui_messages
+    from threads import get_latest_checkpoint_messages
+
+    raw_messages = get_latest_checkpoint_messages(thread_id)
+    ui_messages = langchain_messages_to_ui_messages(raw_messages)
+    messages = [SystemMessage(content=get_chat_only_system_prompt())]
+    for msg in ui_messages:
+        role = str(msg.get("role") or "")
+        content = _chat_only_content_from_ui_message(msg)
+        if not content:
+            continue
+        if role == "user":
+            messages.append(HumanMessage(content=content))
+        elif role == "assistant":
+            messages.append(AIMessage(content=content))
+    messages.append(HumanMessage(content=user_input))
+
+    budget = int((context_window or 16_384) * 0.85)
+    return trim_messages(
+        messages,
+        max_tokens=budget,
+        token_counter=_count_message_list_tokens,
+        strategy="last",
+        start_on="human",
+        include_system=True,
+        allow_partial=False,
+    )
+
+
+def _chat_only_llm(model_label: str):
+    from providers.resolution import resolve_provider_config
+    from providers.runtime import create_chat_model
+
+    resolved = resolve_provider_config(model_label, allow_legacy_local=True)
+    return create_chat_model(resolved.runtime_model, resolved.provider_id)
+
+
+def stream_chat_only(user_input: str, config: dict, *, stop_event: threading.Event | None = None):
+    """Stream a normal chat response without constructing a ReAct graph or tools."""
+    from providers.readiness import evaluate_chat_readiness
+    from threads import append_checkpoint_messages
+
+    config = _normalize_agent_config(config)
+    configurable = config.get("configurable") or {}
+    thread_id = str(configurable.get("thread_id") or "")
+    model_label, _use_override = _selected_model_label_from_config(config)
+    _model_override_var.set(model_label)
+    set_active_model_override(model_label)
+    readiness = evaluate_chat_readiness(model_label)
+    if not readiness.ready:
+        yield ("error", readiness.user_message())
+        return
+
+    try:
+        llm = _chat_only_llm(model_label)
+    except Exception as exc:
+        yield ("error", _friendly_api_error(str(exc), model_label))
+        return
+    messages = _build_chat_only_messages(thread_id, user_input, context_window=readiness.context_window)
+    full_answer: list[str] = []
+    full_reasoning: list[str] = []
+    thinking_signalled = False
+    in_think = False
+
+    try:
+        stream_iter = llm.stream(messages)
+    except Exception:
+        stream_iter = None
+
+    def _emit_content(content: str):
+        nonlocal in_think
+        if not content:
+            return []
+        events: list[tuple[str, str]] = []
+        if in_think:
+            close_idx = content.find("</think>")
+            if close_idx == -1:
+                events.append(("thinking_token", content))
+                return events
+            in_think = False
+            think_part = content[:close_idx]
+            if think_part:
+                events.append(("thinking_token", think_part))
+            content = content[close_idx + len("</think>"):]
+            if not content:
+                return events
+        parts = _re.split(r"<think>(.*?)</think>", content, flags=_re.DOTALL)
+        real_parts = []
+        for index, part in enumerate(parts):
+            if not part:
+                continue
+            if index % 2 == 1:
+                events.append(("thinking_token", part))
+            else:
+                real_parts.append(part)
+        content = "".join(real_parts)
+        open_idx = content.find("<think>")
+        if open_idx != -1:
+            in_think = True
+            trailing = content[open_idx + len("<think>"):]
+            if trailing:
+                events.append(("thinking_token", trailing))
+            content = content[:open_idx]
+        content = _re.sub(r"</?think>", "", content)
+        if content:
+            events.append(("token", content))
+        return events
+
+    try:
+        if stream_iter is not None:
+            for chunk in stream_iter:
+                if stop_event and stop_event.is_set():
+                    break
+                ak = getattr(chunk, "additional_kwargs", None) or {}
+                reasoning = ak.get("reasoning_content", "")
+                if reasoning:
+                    thinking_signalled = True
+                    full_reasoning.append(str(reasoning))
+                    yield ("thinking_token", str(reasoning))
+                content = _content_to_str(getattr(chunk, "content", ""))
+                if not content and not reasoning and not thinking_signalled:
+                    thinking_signalled = True
+                    yield ("thinking", None)
+                    continue
+                for event_type, payload in _emit_content(content):
+                    if event_type == "token":
+                        full_answer.append(payload)
+                    elif event_type == "thinking_token":
+                        full_reasoning.append(payload)
+                    yield (event_type, payload)
+        else:
+            result = llm.invoke(messages)
+            reasoning = str((getattr(result, "additional_kwargs", None) or {}).get("reasoning_content") or "")
+            if reasoning:
+                full_reasoning.append(reasoning)
+                yield ("thinking_token", reasoning)
+            for event_type, payload in _emit_content(_content_to_str(getattr(result, "content", ""))):
+                if event_type == "token":
+                    full_answer.append(payload)
+                elif event_type == "thinking_token":
+                    full_reasoning.append(payload)
+                yield (event_type, payload)
+    except Exception as exc:
+        yield ("error", _friendly_api_error(str(exc), model_label))
+        return
+
+    answer = "".join(full_answer)
+    additional_kwargs = {"reasoning_content": "".join(full_reasoning)} if full_reasoning else {}
+    if thread_id and (answer or full_reasoning):
+        append_checkpoint_messages(
+            thread_id,
+            [
+                HumanMessage(content=user_input),
+                AIMessage(content=answer, additional_kwargs=additional_kwargs),
+            ],
+        )
+    yield ("done", answer)
+
+
 def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
                   *, stop_event: threading.Event | None = None):
     """Stream the agent response as structured events.
@@ -1967,10 +2297,31 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         yield ("done", _disabled_custom_tool_response)
         return
 
-    _model_ov = (config.get("configurable") or {}).get("model_override")
-    agent = get_agent_graph(enabled_tool_names, model_override=_model_ov)
+    config = _normalize_agent_config(config)
+    configurable = config.get("configurable") or {}
+    runtime_surface = str(configurable.get("runtime_surface") or "agent")
+    runtime_mode = str(configurable.get("runtime_mode") or "agent")
+    auto_allowed = runtime_mode == "auto" and runtime_surface in {"normal_chat", "channel"}
+    if runtime_mode == "chat_only" or auto_allowed:
+        model_label, _ = _selected_model_label_from_config(config)
+        try:
+            from providers.readiness import evaluate_runtime_readiness
 
-    # Set thread-local so _pre_model_trim can find the summary cache
+            runtime_readiness = evaluate_runtime_readiness(model_label)
+        except Exception as exc:
+            yield ("error", str(exc))
+            return
+        if runtime_mode == "chat_only" or runtime_readiness.selected_mode == "chat_only":
+            yield from stream_chat_only(user_input, config, stop_event=stop_event)
+            return
+        if runtime_readiness.selected_mode == "blocked":
+            yield ("error", runtime_readiness.selection_reason)
+            return
+
+    _model_ov = configurable.get("model_override")
+
+    # Set thread-local before graph construction so readiness/provider errors
+    # are attributed to the explicit thread selection.
     _current_thread_id_var.set(
         (config.get("configurable") or {}).get("thread_id", "")
     )
@@ -1980,14 +2331,25 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         (config.get("configurable") or {}).get("developer_context", "") or ""
     )
     set_active_model_override(_model_ov or "")
+    agent = get_agent_graph(enabled_tool_names, model_override=_model_ov)
 
     # ── Context summarization (runs before the main agent stream) ────
     if _should_summarize(agent, config, user_input):
         yield ("summarizing", None)
         _do_summarize(agent, config, model_override=_model_ov)
 
-    yield from _stream_graph(agent, {"messages": [("human", user_input)]}, config,
-                             stop_event=stop_event)
+    for event in _stream_graph(agent, {"messages": [("human", user_input)]}, config,
+                               stop_event=stop_event):
+        if auto_allowed and event[0] == "error" and _tool_support_error(str(event[1])):
+            yield ("token", "Chat Only: this model does not support tool calling. Tools and actions are off.\n\n")
+            yield from stream_chat_only(user_input, config, stop_event=stop_event)
+            return
+        yield event
+
+
+def _tool_support_error(message: str) -> bool:
+    lowered = str(message or "").lower()
+    return "does not support tool" in lowered or "tool calling" in lowered and "not support" in lowered
 
 
 def repair_orphaned_tool_calls(enabled_tool_names: list[str] | None = None,
@@ -2001,7 +2363,17 @@ def repair_orphaned_tool_calls(enabled_tool_names: list[str] | None = None,
     if config is None:
         return
     try:
-        agent = agent_graph or get_agent_graph(enabled_tool_names)
+        agent = agent_graph
+        if agent is None:
+            model_override = (config.get("configurable") or {}).get("model_override")
+            try:
+                agent = get_agent_graph(enabled_tool_names, model_override=model_override)
+            except Exception as exc:
+                logger.info(
+                    "repair_orphaned_tool_calls skipped: could not build graph for active model: %s",
+                    exc,
+                )
+                return
         state = agent.get_state(config)
         if not state or not state.values:
             return
@@ -2046,8 +2418,8 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
 
     Yields the same ``(event_type, payload)`` tuples as ``stream_agent``.
     """
+    config = _normalize_agent_config(config)
     _model_ov = (config.get("configurable") or {}).get("model_override")
-    agent = get_agent_graph(enabled_tool_names, model_override=_model_ov)
     _current_thread_id_var.set(
         (config.get("configurable") or {}).get("thread_id", "")
     )
@@ -2057,6 +2429,7 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
         (config.get("configurable") or {}).get("developer_context", "") or ""
     )
     set_active_model_override(_model_ov or "")
+    agent = get_agent_graph(enabled_tool_names, model_override=_model_ov)
     if interrupt_ids and len(interrupt_ids) > 1:
         resume_val = {iid: approved for iid in interrupt_ids}
     else:
@@ -2073,8 +2446,8 @@ def resume_invoke_agent(enabled_tool_names: list[str], config: dict, approved: b
     Returns the final answer text, or an interrupt dict if the graph
     pauses again (e.g. a second tool call needing approval).
     """
+    config = _normalize_agent_config(config)
     _model_ov = (config.get("configurable") or {}).get("model_override")
-    agent = get_agent_graph(enabled_tool_names, model_override=_model_ov)
 
     _current_thread_id_var.set(
         (config.get("configurable") or {}).get("thread_id", "")
@@ -2085,6 +2458,7 @@ def resume_invoke_agent(enabled_tool_names: list[str], config: dict, approved: b
         (config.get("configurable") or {}).get("developer_context", "") or ""
     )
     set_active_model_override(_model_ov or "")
+    agent = get_agent_graph(enabled_tool_names, model_override=_model_ov)
 
     if interrupt_ids and len(interrupt_ids) > 1:
         resume_val = {iid: approved for iid in interrupt_ids}
@@ -2104,7 +2478,12 @@ def resume_invoke_agent(enabled_tool_names: list[str], config: dict, approved: b
     except Exception as exc:
         exc_str = str(exc)
         _err_msg = _friendly_api_error(exc_str)
-        logger.error("resume_invoke_agent error: %s", exc_str)
+        logger.error(
+            "resume_invoke_agent error: %s diagnostics=%s",
+            exc_str,
+            _agent_runtime_diagnostics(config, _model_ov),
+            exc_info=True,
+        )
         return _err_msg
 
     # Check for another interrupt (agent may call a second dangerous tool)
@@ -2174,6 +2553,15 @@ def _stream_graph(agent, input_data, config: dict,
     _browser_budget_exceeded = False
 
     try:
+        from threads import repair_thread_checkpoint_versions
+
+        _tid = (config.get("configurable") or {}).get("thread_id", "")
+        if _tid:
+            repair_thread_checkpoint_versions(str(_tid))
+    except Exception:
+        logger.debug("Checkpoint version repair skipped", exc_info=True)
+
+    try:
         stream_iter = agent.stream(
             input_data,
             config=config,
@@ -2194,13 +2582,31 @@ def _stream_graph(agent, input_data, config: dict,
                     stream_mode=["messages", "updates"],
                 )
             except Exception as retry_exc:
+                logger.error(
+                    "_stream_graph retry failed before iteration: %s diagnostics=%s",
+                    retry_exc,
+                    _agent_runtime_diagnostics(config),
+                    exc_info=True,
+                )
                 yield ("error", str(retry_exc))
                 return
         elif "does not support tools" in exc_str or "status code: 400" in exc_str:
-            yield ("error", f"{get_current_model()} does not support tool calling. "
+            logger.error(
+                "_stream_graph failed before iteration: %s diagnostics=%s",
+                exc_str,
+                _agent_runtime_diagnostics(config),
+                exc_info=True,
+            )
+            yield ("error", f"{_model_label_for_error()} does not support tool calling. "
                    "Please switch to a compatible model in Settings → Models.")
             return
         else:
+            logger.error(
+                "_stream_graph failed before iteration: %s diagnostics=%s",
+                exc_str,
+                _agent_runtime_diagnostics(config),
+                exc_info=True,
+            )
             yield ("error", exc_str)
             return
 
@@ -2415,11 +2821,23 @@ def _stream_graph(agent, input_data, config: dict,
                                 yield ("token", content)
             except Exception as retry_exc:
                 _rmsg = _friendly_api_error(str(retry_exc))
+                logger.error(
+                    "_stream_graph retry failed during iteration: %s diagnostics=%s",
+                    retry_exc,
+                    _agent_runtime_diagnostics(config),
+                    exc_info=True,
+                )
                 _notify_api_error(_rmsg)
                 yield ("error", _rmsg)
                 return
         elif "does not support tools" in exc_str or "status code: 400" in exc_str:
             _err = _friendly_api_error(exc_str)
+            logger.error(
+                "_stream_graph provider/tool error: %s diagnostics=%s",
+                exc_str,
+                _agent_runtime_diagnostics(config),
+                exc_info=True,
+            )
             _notify_api_error(_err)
             yield ("error", _err)
         else:
@@ -2427,7 +2845,12 @@ def _stream_graph(agent, input_data, config: dict,
             if _is_transient_stream_disconnect(exc_str):
                 logger.warning("_stream_graph provider stream disconnected: %s", exc_str)
             else:
-                logger.error("_stream_graph API error: %s", exc_str)
+                logger.error(
+                    "_stream_graph API error: %s diagnostics=%s",
+                    exc_str,
+                    _agent_runtime_diagnostics(config),
+                    exc_info=True,
+                )
             _notify_api_error(_err)
             yield ("error", _err)
         return
