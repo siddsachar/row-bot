@@ -507,17 +507,32 @@ def _query_identity() -> str:
 
 def _query_tasks() -> str:
     try:
-        from tasks import list_tasks
+        from tasks import diagnose_task_schema, list_tasks
+        diag = diagnose_task_schema()
         tasks = list_tasks()
+        schema_lines = [
+            "**Task DB Schema**",
+            f"- Path: {diag.get('db_path')}",
+            f"- OK: {diag.get('ok')}",
+            f"- Size: {diag.get('size_bytes', 0)} bytes",
+            f"- user_version: {diag.get('user_version', '(unknown)')}",
+            f"- WAL/SHM: {diag.get('wal_exists')} / {diag.get('shm_exists')}",
+            f"- Missing tables: {diag.get('missing_tables', [])}",
+            f"- Missing columns: {diag.get('missing_columns', {})}",
+        ]
+        if diag.get("last_repair"):
+            schema_lines.append(f"- Last repair: {diag.get('last_repair')}")
+        if diag.get("error"):
+            schema_lines.append(f"- Error: {diag.get('error')}")
         if not tasks:
-            return "**Scheduled Tasks**\nNo tasks configured."
+            return "\n".join(schema_lines + ["", "**Scheduled Tasks**", "No tasks configured."])
         lines = [f"**Scheduled Tasks** ({len(tasks)} total)"]
         for t in tasks[:10]:  # Show at most 10
             status = "enabled" if t.get("enabled", True) else "disabled"
             lines.append(f"- {t.get('name', 'Unnamed')}: {t.get('schedule', 'no schedule')} ({status})")
         if len(tasks) > 10:
             lines.append(f"  ... and {len(tasks) - 10} more")
-        return "\n".join(lines)
+        return "\n".join(schema_lines + [""] + lines)
     except Exception as exc:
         return f"**Scheduled Tasks**\nError: {exc}"
 

@@ -29,6 +29,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app_port import DEFAULT_APP_PORT, THOTH_HOST_ENV, THOTH_PORT_ENV, parse_app_port
+from data_paths import (
+    describe_data_paths,
+    get_memory_db_path,
+    get_tasks_db_path,
+    get_threads_db_path,
+    get_thoth_data_dir,
+)
 
 if TYPE_CHECKING:
     from PIL import Image as _PILImage
@@ -61,7 +68,7 @@ def _is_ollama_running() -> bool:
 
 
 def _thoth_data_dir() -> Path:
-    return Path(os.environ.get("THOTH_DATA_DIR", Path.home() / ".thoth"))
+    return get_thoth_data_dir()
 
 
 def _read_json_file(path: Path) -> dict:
@@ -434,7 +441,7 @@ class _ThothProcess:
 
         # Log file for diagnosing startup crashes —
         # lives in  ~/.thoth/thoth_app.log
-        log_dir = Path.home() / ".thoth"
+        log_dir = _thoth_data_dir()
         log_dir.mkdir(parents=True, exist_ok=True)
         self._log_file = log_dir / "thoth_app.log"
 
@@ -660,7 +667,7 @@ time.sleep(0.6)
 def _show_splash(port: int = _PORT, timeout: float = 60.0) -> subprocess.Popen | None:
     """Launch a splash screen subprocess.  Tries tkinter first; falls back
     to a simple console window if tkinter is unavailable."""
-    log_dir = Path.home() / ".thoth"
+    log_dir = _thoth_data_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
     splash_log = log_dir / "splash.log"
 
@@ -1188,9 +1195,7 @@ def _load_window_mode() -> str:
 
     Returns ``'ask'`` (default / first launch), ``'native'``, or ``'browser'``.
     """
-    config_path = Path(
-        os.environ.get("THOTH_DATA_DIR", Path.home() / ".thoth")
-    ) / "app_config.json"
+    config_path = _thoth_data_dir() / "app_config.json"
     try:
         import json
         cfg = json.loads(config_path.read_text())
@@ -1754,6 +1759,121 @@ def _run_direct(args: argparse.Namespace) -> None:
         _block_until_interrupted(server, owns_server=True)
 
 
+def _timestamp() -> str:
+    return time.strftime("%Y%m%d-%H%M%S")
+
+
+def _backup_family(path: Path, backup_dir: Path) -> list[tuple[Path, Path]]:
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    moved: list[tuple[Path, Path]] = []
+    for suffix in ("", "-wal", "-shm"):
+        src = Path(str(path) + suffix)
+        if not src.exists():
+            continue
+        dst = backup_dir / src.name
+        shutil.move(str(src), str(dst))
+        moved.append((src, dst))
+    return moved
+
+
+def _reset_tasks_db() -> int:
+    data_dir = _thoth_data_dir()
+    tasks_db = get_tasks_db_path()
+    backup_dir = data_dir / "recovery" / f"tasks-db-reset-{_timestamp()}"
+    moved = _backup_family(tasks_db, backup_dir)
+    from tasks import ensure_task_schema
+
+    result = ensure_task_schema(repair=True, force=True)
+    logger.info("Data dir: %s", data_dir)
+    logger.info("Tasks DB: %s", tasks_db)
+    if moved:
+        for src, dst in moved:
+            logger.info("Backed up %s -> %s", src, dst)
+    else:
+        logger.info("No existing task DB files found to back up")
+    logger.info("Task schema recovery result: %s", result.get("status"))
+    print(f"Data dir: {data_dir}")
+    print(f"Tasks DB: {tasks_db}")
+    print(f"Backup dir: {backup_dir if moved else '(none; no files existed)'}")
+    print(f"Task schema: {result.get('status')}")
+    return 0
+
+
+def _reset_all_local_dbs() -> int:
+    data_dir = _thoth_data_dir()
+    backup_dir = data_dir / "recovery" / f"local-db-reset-{_timestamp()}"
+    dbs = [get_tasks_db_path(), get_memory_db_path(), get_threads_db_path()]
+    moved: list[tuple[Path, Path]] = []
+    for db_path in dbs:
+        moved.extend(_backup_family(db_path, backup_dir))
+    from tasks import ensure_task_schema
+
+    result = ensure_task_schema(repair=True, force=True)
+    logger.info("Data paths: %s", describe_data_paths())
+    if moved:
+        for src, dst in moved:
+            logger.info("Backed up %s -> %s", src, dst)
+    else:
+        logger.info("No known local SQLite files found to back up")
+    print(f"Data dir: {data_dir}")
+    print(f"Backup dir: {backup_dir if moved else '(none; no files existed)'}")
+    for db_path in dbs:
+        print(f"Reset target: {db_path}")
+    print(f"Task schema: {result.get('status')}")
+    print("Memory and thread databases will be recreated on next app startup.")
+    return 0
+
+
+def _restore_data(selector: str | None = None) -> int:
+    data_dir = _thoth_data_dir()
+    recovery_root = data_dir / "recovery"
+    if not recovery_root.exists():
+        print(f"No restorable backup found under {recovery_root}")
+        return 1
+    if selector and selector != "latest":
+        source_dir = Path(selector).expanduser()
+        if not source_dir.is_absolute():
+            source_dir = recovery_root / selector
+    else:
+        candidates = [p for p in recovery_root.iterdir() if p.is_dir()]
+        source_dir = max(candidates, key=lambda p: p.stat().st_mtime) if candidates else None
+    if not source_dir or not source_dir.exists():
+        print(f"No restorable backup found under {recovery_root}")
+        return 1
+
+    pre_restore = recovery_root / f"pre-restore-{_timestamp()}"
+    restored: list[tuple[Path, Path]] = []
+    for name in (
+        "tasks.db", "tasks.db-wal", "tasks.db-shm",
+        "memory.db", "memory.db-wal", "memory.db-shm",
+        "threads.db", "threads.db-wal", "threads.db-shm",
+    ):
+        src = source_dir / name
+        if not src.exists():
+            continue
+        dst = data_dir / name
+        if dst.exists():
+            pre_restore.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(dst), str(pre_restore / name))
+        shutil.copy2(src, dst)
+        restored.append((src, dst))
+    if not restored:
+        print(f"No SQLite backup files found in {source_dir}")
+        return 1
+    print(f"Data dir: {data_dir}")
+    print(f"Restored from: {source_dir}")
+    if pre_restore.exists():
+        print(f"Previous current files backed up to: {pre_restore}")
+    for src, dst in restored:
+        print(f"Restored {src} -> {dst}")
+    if any(dst.name == "tasks.db" for _, dst in restored):
+        from tasks import ensure_task_schema
+
+        result = ensure_task_schema(repair=True, force=True)
+        print(f"Task schema after restore: {result.get('status')}")
+    return 0
+
+
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Launch Thoth")
     mode = parser.add_mutually_exclusive_group()
@@ -1765,6 +1885,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-open", action="store_true", help="Do not open a browser or native window")
     parser.add_argument("--no-splash", action="store_true", help="Skip the launcher splash screen")
     parser.add_argument("--no-ollama", action="store_true", help="Do not try to auto-start Ollama")
+    parser.add_argument("--reset-tasks-db", action="store_true", help="Back up and recreate tasks.db before launch")
+    parser.add_argument("--reset-db", action="store_true", help="Back up known local SQLite DBs before launch")
+    parser.add_argument(
+        "--restore-data",
+        nargs="?",
+        const="latest",
+        default=None,
+        help="Restore known SQLite DBs from a recovery backup directory or latest backup",
+    )
     parser.add_argument("--port", type=int, default=_PORT, help=f"Preferred app port (default: {_PORT})")
     parser.add_argument("--host", default=None, help="Host/interface for the NiceGUI server")
     return parser
@@ -1787,6 +1916,12 @@ def quit_for_update() -> None:
 def main(argv: list[str] | None = None) -> None:
     global _ACTIVE_TRAY
     args = _build_arg_parser().parse_args(argv)
+    if args.reset_tasks_db:
+        raise SystemExit(_reset_tasks_db())
+    if args.reset_db:
+        raise SystemExit(_reset_all_local_dbs())
+    if args.restore_data is not None:
+        raise SystemExit(_restore_data(args.restore_data))
     preferred_mode = "browser" if args.browser else "native" if args.native else None
     linux_default_direct = sys.platform.startswith("linux") and not args.tray
     direct = args.server or args.no_tray or linux_default_direct

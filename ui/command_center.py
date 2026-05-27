@@ -207,6 +207,23 @@ def build_command_center(
     )
     from memory_extraction import set_active_thread
 
+    def _safe_workflow_read(label: str, fn: Callable[[], object], fallback):
+        try:
+            return fn()
+        except Exception as exc:
+            logger.warning("Workflow console %s unavailable: %s", label, exc)
+            return fallback
+
+    def _render_workflow_unavailable() -> None:
+        with ui.card().classes("w-full q-my-xs").style(
+            "padding: 0.5rem; border-left: 3px solid #f0c040;"
+        ):
+            ui.label("Workflow data unavailable").classes("text-xs font-bold")
+            ui.label(
+                "Task database repair is needed. Restart once, or run "
+                "launcher.py --reset-tasks-db."
+            ).classes("text-xs text-grey-6")
+
     ui.html(_COMMAND_CENTER_CSS, sanitize=False)
     collapsed_state = {"value": _load_command_center_collapsed()}
     last_pending_count = {"value": 0}
@@ -335,10 +352,14 @@ def build_command_center(
 
                 def _rebuild_live() -> None:
                     _live_container.clear()
-                    running = get_running_tasks()
+                    running = _safe_workflow_read(
+                        "running tasks", get_running_tasks, {}
+                    )
                     # Also include paused runs (not in _active_runs)
                     paused_runs = [
-                        r for r in get_recent_runs(10)
+                        r for r in _safe_workflow_read(
+                            "recent runs", lambda: get_recent_runs(10), []
+                        )
                         if r.get("status") == "paused"
                     ]
                     with _live_container:
@@ -582,7 +603,12 @@ def build_command_center(
                         ).style(
                             "letter-spacing: 0.8px; text-transform: uppercase;"
                         )
-                        upcoming = get_next_fire_times(5)
+                        upcoming = _safe_workflow_read(
+                            "upcoming tasks", lambda: get_next_fire_times(5), None
+                        )
+                        if upcoming is None:
+                            _render_workflow_unavailable()
+                            return
                         if not upcoming:
                             ui.label("No scheduled tasks").classes(
                                 "text-xs text-grey-7 q-ml-sm"
@@ -623,7 +649,13 @@ def build_command_center(
                 ).classes("w-full").props("dense outlined")
 
                 def _refresh_task_options() -> None:
-                    tasks = list_tasks()
+                    tasks = _safe_workflow_read(
+                        "quick launch tasks", list_tasks, None
+                    )
+                    if tasks is None:
+                        _task_select.options = {}
+                        _task_select.update()
+                        return
                     opts = {
                         t["id"]: f"{t.get('icon', '⚡')} {t['name']}"
                         for t in tasks
@@ -686,13 +718,18 @@ def build_command_center(
 
                 def _rebuild_recent() -> None:
                     _recent_container.clear()
-                    recent = get_recent_runs(8)
+                    recent = _safe_workflow_read(
+                        "recent runs", lambda: get_recent_runs(8), None
+                    )
                     with _recent_container:
                         ui.label("🕐 Recent Runs").classes(
                             "text-xs font-bold text-grey-5"
                         ).style(
                             "letter-spacing: 0.8px; text-transform: uppercase;"
                         )
+                        if recent is None:
+                            _render_workflow_unavailable()
+                            return
                         if not recent:
                             ui.label("No runs yet").classes(
                                 "text-xs text-grey-7 q-ml-sm"

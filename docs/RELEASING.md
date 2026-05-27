@@ -92,6 +92,10 @@ Thoth uses semantic versioning:
    directory is replaced while `%USERPROFILE%\.thoth` is preserved. If a broken
    optional package such as TorchCodec was present in the old embedded runtime,
    confirm it is removed or the startup log contains a clear recovery hint.
+   Also run the packaged launcher recovery commands against a disposable data
+   directory: `--reset-tasks-db`, `--reset-db`, and `--restore-data`. Confirm
+   they print the resolved data paths and that task DB reset backs up
+   `tasks.db`, `tasks.db-wal`, and `tasks.db-shm`.
 9. Publish the GitHub Release.
 10. Confirm `.github/workflows/update-manifest.yml` patches SHA256 hashes into
    the release body.

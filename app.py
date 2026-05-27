@@ -168,7 +168,13 @@ from memory_extraction import (
     mark_user_activity, schedule_idle_extraction, start_periodic_extraction, set_active_thread,
 )
 from dream_cycle import start_dream_loop
-from tasks import seed_default_tasks, start_task_scheduler, get_running_tasks, stop_task
+from tasks import (
+    ensure_task_schema,
+    seed_default_tasks,
+    start_task_scheduler,
+    get_running_tasks,
+    stop_task,
+)
 from notifications import drain_toasts
 
 # ── Channels ─────────────────────────────────────────────────────────────────
@@ -269,6 +275,11 @@ async def on_startup():
     import ui.state as _st
 
     logger.info("Thoth startup initiated")
+    try:
+        from data_paths import describe_data_paths
+        logger.info("Thoth data paths: %s", describe_data_paths())
+    except Exception:
+        logger.debug("Could not describe Thoth data paths", exc_info=True)
 
     def _set(msg: str):
         _st.startup_status = msg
@@ -300,7 +311,15 @@ async def on_startup():
         logger.warning("Updater scheduler failed to start (non-fatal): %s", exc)
 
     _set("⚡ Loading workflows…")
-    await asyncio.to_thread(lambda: (seed_default_tasks(), start_task_scheduler()))
+    try:
+        await asyncio.to_thread(ensure_task_schema)
+        await asyncio.to_thread(lambda: (seed_default_tasks(), start_task_scheduler()))
+    except Exception as exc:
+        logger.warning("Workflow startup skipped after task DB repair failure: %s", exc)
+        _st.startup_warnings.append(
+            "Workflow data is temporarily unavailable. "
+            "Run launcher.py --reset-tasks-db if it does not recover after restart."
+        )
 
     try:
         from providers.model_catalog_cache import schedule_model_catalog_refresh_jobs

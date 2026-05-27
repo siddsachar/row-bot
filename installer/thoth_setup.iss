@@ -84,6 +84,7 @@ Source: "..\embedding_providers.py";   DestDir: "{app}\app"; Flags: ignoreversio
 Source: "..\threads.py";               DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\api_keys.py";              DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\app_port.py";              DestDir: "{app}\app"; Flags: ignoreversion
+Source: "..\data_paths.py";            DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\secret_store.py";          DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\voice.py";                 DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\tts.py";                   DestDir: "{app}\app"; Flags: ignoreversion

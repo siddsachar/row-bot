@@ -2669,6 +2669,244 @@ Remaining chunks:
   `chat.shell.render`, `chat.transcript.render rows=0`, and absence of long
   event-loop lag.
 
+## Task DB Startup Crash Investigation And Repair Plan
+
+Date: 2026-05-27
+
+Reported bug:
+
+- Fresh or post-reinstall launches can hard-crash before setup with
+  `OperationalError: no such table: task_runs`.
+- Affected users cannot reach Settings, select a provider, or use setup.
+- Reported recovery commands, including `--reset-db` and `--restore-data`, do
+  not recover the app.
+- Users report deleting both `~/.thoth` and
+  `~/Library/Application Support/Thoth` before reinstalling, yet the crash
+  persists.
+
+Code facts from investigation:
+
+- `tasks.py` owns `~/.thoth/tasks.db` and creates `task_runs` inside
+  `_init_db()`, which currently runs as a module import side effect.
+- The module also runs `_migrate_from_workflows()` at import time.
+- Task DB reads happen during normal startup and first page rendering:
+  `app.py` imports task functions at module import, startup runs
+  `seed_default_tasks()` and `start_task_scheduler()`, `ui.home` calls
+  `list_tasks()`, and `ui.command_center` calls `get_running_tasks()`,
+  `get_recent_runs()`, and `list_tasks()`.
+- `list_tasks()` performs a subquery against `task_runs`; a DB that has
+  `tasks` but lacks `task_runs` raises immediately.
+- `get_recent_runs()` directly reads `task_runs`; a missing table raises
+  immediately.
+- The current `launcher.py` argparse path does not define `--reset-db` or
+  `--restore-data`, so those commands cannot repair `tasks.db` in this source
+  tree.
+- The macOS app bundle launcher uses `DATA_DIR="$HOME/.thoth"` but does not
+  export `THOTH_DATA_DIR`; Python defaults to the same path, so the immediate
+  source mismatch is not obviously `Application Support` versus `.thoth`.
+- Launcher/app logs are also hard-coded in places to `Path.home() / ".thoth"`
+  instead of using a shared data-dir resolver, which makes diagnosis and future
+  platform-specific data locations fragile.
+
+Most likely failure modes:
+
+- A partially initialized or migrated `tasks.db` exists with a `tasks` table
+  but without `task_runs`. This can come from an older build, interrupted first
+  run, failed migration, corrupt WAL state, or partial restore.
+- Import-side schema setup is not strong enough as the only protection. If it
+  fails, points at the wrong path, or is bypassed by a startup race, task UI
+  queries can still 500 the app before setup is reachable.
+- Reset/restore commands are missing or not wired to the task DB, so users have
+  no reliable CLI escape hatch.
+- First-paint UI code assumes task history is always available; when the schema
+  is bad, the user sees a server error instead of a repair attempt and a usable
+  setup/home screen.
+
+Implementation plan:
+
+1. Add a single data-path helper.
+   - Add `data_paths.py` or a small equivalent module with
+     `get_thoth_data_dir()`, `get_tasks_db_path()`, and
+     `describe_data_paths()`.
+   - Keep the existing default of `~/.thoth` for compatibility unless a
+     packaged launcher explicitly exports `THOTH_DATA_DIR`.
+   - Update launcher log paths and task DB code to use the same resolver.
+   - Log the resolved data dir and task DB path during launcher startup and app
+     startup.
+
+2. Replace task DB import-side assumptions with an explicit idempotent schema
+   guard.
+   - Add `ensure_task_schema(repair: bool = True)`.
+   - Protect it with a module-level reentrant lock.
+   - Use a raw connection helper for schema work to avoid recursion.
+   - Create every required table with `CREATE TABLE IF NOT EXISTS`: `tasks`,
+     `task_runs`, `pipeline_state`, `workflow_drafts`, `approval_requests`, and
+     `approval_channel_refs`.
+   - Run all existing column migrations after table creation.
+   - Validate tables via `sqlite_master` and columns via `PRAGMA table_info`.
+   - Set `PRAGMA user_version` after a successful schema pass.
+   - Keep `_init_db()` as a compatibility wrapper around `ensure_task_schema()`.
+
+3. Add one-shot repair/retry around task DB reads and writes.
+   - Make public task APIs ensure schema before querying.
+   - On `sqlite3.OperationalError` containing missing-table/schema text, run
+     `ensure_task_schema(repair=True)` and retry once.
+   - Cover at least `list_tasks()`, `get_task()`, `create_task()`,
+     `update_task()`, `delete_task()`, `get_run_history()`,
+     `get_recent_runs()`, `get_upcoming_tasks()`, `seed_default_tasks()`,
+     `sync_all_jobs()`, and run-status update helpers.
+   - Keep `get_running_tasks()` purely in-memory and unchanged.
+
+4. Add safe recovery for corrupt or unrecoverable task DB files.
+   - If schema validation cannot open/read/create tables due to database
+     corruption, move `tasks.db`, `tasks.db-wal`, and `tasks.db-shm` into a
+     timestamped recovery directory under the data dir.
+   - Recreate a clean `tasks.db` and rerun schema setup.
+   - Do not discard a merely incomplete DB; create missing tables in place first.
+   - Emit clear warnings with backup paths and recovery outcome.
+
+5. Harden workflow migration.
+   - Ensure `_migrate_from_workflows()` always runs after schema validation.
+   - Make migration failures row-scoped where possible so one malformed old run
+     cannot abort all startup schema work.
+   - Preserve `.workflows_migrated` behavior, but avoid marking migration done
+     until schema validation and migration handling complete.
+
+6. Add an early startup preflight.
+   - In `app.py` startup, run `ensure_task_schema()` before seeding workflows or
+     starting the scheduler.
+   - Treat task DB repair failure as a startup warning where possible, not a
+     hard crash before setup.
+   - Continue to start setup/home when the DB has been repaired or when task
+     history is temporarily unavailable.
+
+7. Make first-paint task surfaces non-fatal.
+   - Add a small safe task-call wrapper for startup UI reads or local try/except
+     around `list_tasks()` / `get_recent_runs()` in `ui.home` and
+     `ui.command_center`.
+   - If task DB repair fails, show an inline “Workflow data unavailable” panel
+     with a repair hint instead of returning a route-level 500.
+   - Preserve all existing workflow/task behavior when the DB is healthy.
+
+8. Implement real recovery CLI commands before the server imports app code.
+   - Add launcher arguments:
+     - `--reset-db`: backs up and recreates all known local SQLite stores, or at
+       minimum includes `tasks.db`, `memory.db`, and thread/checkpoint DBs
+       according to existing reset semantics.
+     - `--reset-tasks-db`: backs up/recreates only `tasks.db` and WAL/SHM.
+     - `--restore-data`: make behavior explicit; restore from known backups
+       when present, otherwise print/log that no restorable backup was found.
+   - Ensure these commands run before starting the NiceGUI server and before
+     importing `app.py`.
+   - Print/log exact paths affected so user support can verify the target.
+   - Update macOS bundle documentation and release docs to list the supported
+     recovery commands.
+
+9. Add diagnostics for supportability.
+   - Add task DB schema status to `tools/thoth_status_tool.py`.
+   - Include required/missing tables, `PRAGMA user_version`, DB path, file size,
+     WAL/SHM presence, and last repair attempt if available.
+   - Add startup log lines that clearly distinguish clean schema, repaired
+     schema, recreated corrupt DB, and unrecoverable filesystem permission
+     errors.
+
+10. Testing plan.
+    - Add `tests/test_tasks_schema_recovery.py`.
+    - Test empty temp `THOTH_DATA_DIR` creates all required tables.
+    - Test a partial DB containing only `tasks` is repaired by `list_tasks()`.
+    - Test `get_recent_runs()` repairs missing `task_runs` and returns empty.
+    - Test existing task rows survive when `task_runs` is created in place.
+    - Test corrupt `tasks.db` is backed up and recreated.
+    - Test `_migrate_from_workflows()` runs only after schema exists and handles
+      malformed legacy run rows without launch failure.
+    - Test launcher argparse recognizes `--reset-db`, `--reset-tasks-db`, and
+      `--restore-data`.
+    - Test reset touches `tasks.db`, `tasks.db-wal`, and `tasks.db-shm` in the
+      resolved data dir.
+    - Add a startup smoke test with a partial task DB and incomplete setup state
+      to ensure the app does not route-level 500 before setup.
+    - Run:
+      - `.venv\Scripts\python.exe -m pytest tests/test_tasks_schema_recovery.py -q`
+      - `.venv\Scripts\python.exe -m pytest tests/test_app_stability_hardening.py -q`
+      - `.venv\Scripts\python.exe -m pytest tests/test_home_status_workflow_buddy.py -q`
+      - `.venv\Scripts\python.exe tests\test_suite.py`
+
+11. Manual QA plan.
+    - Launch with a new temporary data dir; confirm setup wizard appears and
+      `tasks.db` contains all required tables.
+    - Create a partial `tasks.db` with only a `tasks` table; launch; confirm no
+      500, log reports schema repair, and workflow surfaces render.
+    - Create a corrupt `tasks.db`; launch; confirm backup/recreate path is
+      logged and app remains usable.
+    - Run the packaged macOS command
+      `/Applications/Thoth.app/Contents/MacOS/thoth --reset-tasks-db` and
+      confirm it reports the same data dir the app uses.
+    - Run `--reset-db` and confirm `tasks.db`, WAL, and SHM are backed up or
+      removed according to the documented semantics.
+    - Confirm normal workflow creation, manual run, run history, command center,
+      and scheduler startup still work.
+
+Acceptance criteria:
+
+- A missing `task_runs` table can never produce a startup 500.
+- Incomplete task schemas are repaired in place without losing existing tasks.
+- Corrupt task DBs are backed up before recreation.
+- Setup remains reachable even if workflow history is unavailable.
+- Launcher recovery commands are real, path-explicit, and run before server
+  startup.
+- Logs and status tooling make the actual data path and schema state obvious.
+
+Implementation completed on 2026-05-27:
+
+- Added `data_paths.py` as the shared Thoth data-dir resolver and moved task DB
+  and launcher log path resolution onto it.
+- Added `ensure_task_schema(repair=True)` in `tasks.py` with a reentrant schema
+  lock, explicit required table/column validation, idempotent table creation,
+  column repair, `PRAGMA user_version`, and one-shot retry wrappers around task
+  DB APIs.
+- Incomplete `tasks.db` files are repaired in place. Existing task rows survive
+  a missing `task_runs` table.
+- Corrupt `tasks.db` files are detected before SQLite opens invalid headers
+  where possible. `tasks.db`, `tasks.db-wal`, and `tasks.db-shm` are moved into
+  a timestamped `recovery/` backup directory before recreation.
+- Workflow migration now runs after schema validation and skips malformed legacy
+  workflow/run rows without aborting startup.
+- App startup runs task schema preflight before seeding workflows or starting
+  the scheduler; unrecoverable workflow startup failures become startup
+  warnings instead of setup-blocking crashes.
+- Home and Command Center workflow reads are guarded so task history failures
+  render inline unavailable/repair hints instead of route-level 500s.
+- Launcher recovery commands are real and path-explicit:
+  `--reset-tasks-db`, `--reset-db`, and `--restore-data`.
+- `thoth_status` task output now includes task DB schema diagnostics: path,
+  size, WAL/SHM presence, `user_version`, missing tables/columns, and last
+  repair state.
+- Packaging docs and Windows installer file list were updated for the shared
+  data-path helper and recovery command behavior.
+
+Verification completed:
+
+- `.venv\Scripts\python.exe -m pytest tests/test_tasks_schema_recovery.py -q --basetemp .tmp\pytest-task-schema`
+  passed: 6 tests.
+- `.venv\Scripts\python.exe -m pytest tests/test_app_stability_hardening.py -q --basetemp .tmp\pytest-app-stability`
+  passed: 6 tests.
+- `.venv\Scripts\python.exe -m pytest tests/test_home_status_workflow_buddy.py -q --basetemp .tmp\pytest-home-status`
+  passed: 9 tests.
+- `.venv\Scripts\python.exe -m py_compile tasks.py app.py launcher.py ui\home.py ui\command_center.py tools\thoth_status_tool.py data_paths.py tests\test_tasks_schema_recovery.py`
+  passed.
+- `.venv\Scripts\python.exe tests\test_suite.py` passed, including the live
+  launch smoke on port 8080.
+- Manual temp-data checks confirmed `--reset-tasks-db` reports the resolved
+  data dir, task DB path, backup dir, and backs up `tasks.db`, WAL, and SHM.
+  `--reset-db` backs up known SQLite stores and `--restore-data` restores from
+  the latest recovery backup with explicit path output.
+
+Remaining gaps:
+
+- Packaged macOS `/Applications/Thoth.app/Contents/MacOS/thoth` command was not
+  run in this Windows workspace; launcher semantics are shared, but final DMG
+  QA should still verify the exact app-bundle command.
+
 ## First Implementation Prompt
 
 Use this prompt in a new implementation thread:

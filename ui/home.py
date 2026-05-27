@@ -22,6 +22,24 @@ logger = logging.getLogger(__name__)
 # Persisted across rebuild_main() calls so selection mode survives re-render.
 _BULK_WF: "BulkSelect | None" = None
 
+
+def _task_read_unavailable(exc: Exception) -> None:
+    logger.warning("Workflow data unavailable on home screen: %s", exc)
+    with ui.card().classes("w-full q-pa-md").style(
+        "border: 1px solid rgba(244, 180, 0, 0.35);"
+        "background: rgba(244, 180, 0, 0.08);"
+        "border-radius: 8px;"
+    ):
+        with ui.row().classes("w-full items-start gap-3 no-wrap"):
+            ui.icon("construction").classes("text-amber-4")
+            with ui.column().classes("gap-1").style("min-width: 0;"):
+                ui.label("Workflow data unavailable").classes("text-subtitle2")
+                ui.label(
+                    "Thoth tried to repair the task database. "
+                    "Restart once, or run launcher.py --reset-tasks-db if this persists."
+                ).classes("text-grey-5 text-sm")
+
+
 def build_home(
     state: AppState,
     p: P,
@@ -161,7 +179,13 @@ def build_home(
                     logger.debug("Failed to render onboarding progress card", exc_info=True)
 
                 # Task tiles
-                home_tasks = list_tasks()
+                task_data_error = None
+                try:
+                    home_tasks = list_tasks()
+                except Exception as exc:
+                    task_data_error = exc
+                    home_tasks = []
+                    _task_read_unavailable(exc)
 
                 def _refresh_home_tiles():
                     rebuild_main()

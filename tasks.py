@@ -34,6 +34,10 @@ import threading
 import uuid
 from contextvars import ContextVar
 from datetime import datetime, timedelta
+from functools import wraps
+from typing import Callable, TypeVar
+
+from data_paths import get_tasks_db_path, get_thoth_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -42,25 +46,471 @@ _subtask_depth_var: ContextVar[int] = ContextVar("subtask_depth", default=0)
 _MAX_SUBTASK_DEPTH = 2
 
 # ── Persistence ──────────────────────────────────────────────────────────────
-_DATA_DIR = pathlib.Path(
-    os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")
-)
+_DATA_DIR = get_thoth_data_dir()
 _DATA_DIR.mkdir(parents=True, exist_ok=True)
-_DB_PATH = str(_DATA_DIR / "tasks.db")
+_DB_PATH = str(get_tasks_db_path())
 _OLD_WF_DB = str(_DATA_DIR / "workflows.db")
 _TASK_CONFIG_PATH = str(_DATA_DIR / "task_config.json")
+_SCHEMA_VERSION = 1
+_SCHEMA_LOCK = threading.RLock()
+_SCHEMA_READY_PATH: str | None = None
+_LAST_SCHEMA_REPAIR: dict[str, object] = {}
+F = TypeVar("F", bound=Callable[..., object])
+
+_CREATE_TABLE_SQL = {
+    "tasks": """
+        CREATE TABLE IF NOT EXISTS tasks (
+            id                  TEXT PRIMARY KEY,
+            name                TEXT NOT NULL,
+            description         TEXT DEFAULT '',
+            icon                TEXT DEFAULT 'âš¡',
+            prompts             TEXT NOT NULL,
+            schedule            TEXT,
+            at                  TEXT,
+            notify_only         INTEGER DEFAULT 0,
+            notify_label        TEXT DEFAULT '',
+            enabled             INTEGER DEFAULT 1,
+            last_run            TEXT,
+            created_at          TEXT NOT NULL,
+            sort_order          INTEGER DEFAULT 0,
+            delivery_channel    TEXT,
+            delivery_target     TEXT,
+            model_override      TEXT,
+            persistent_thread_id TEXT,
+            delete_after_run    INTEGER DEFAULT 0,
+            allowed_commands    TEXT DEFAULT '[]',
+            allowed_recipients  TEXT DEFAULT '[]',
+            skills_override     TEXT,
+            steps               TEXT DEFAULT '[]',
+            safety_mode         TEXT,
+            concurrency_group   TEXT,
+            trigger             TEXT,
+            tools_override      TEXT,
+            channels            TEXT
+        )
+    """,
+    "task_runs": """
+        CREATE TABLE IF NOT EXISTS task_runs (
+            id              TEXT PRIMARY KEY,
+            task_id         TEXT NOT NULL,
+            thread_id       TEXT NOT NULL,
+            started_at      TEXT NOT NULL,
+            finished_at     TEXT,
+            status          TEXT DEFAULT 'running',
+            status_message  TEXT DEFAULT '',
+            steps_total     INTEGER DEFAULT 0,
+            steps_done      INTEGER DEFAULT 0,
+            pipeline_state_id TEXT,
+            task_name       TEXT DEFAULT '',
+            task_icon       TEXT DEFAULT '',
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+        )
+    """,
+    "pipeline_state": """
+        CREATE TABLE IF NOT EXISTS pipeline_state (
+            run_id              TEXT PRIMARY KEY,
+            task_id             TEXT NOT NULL,
+            thread_id           TEXT NOT NULL,
+            current_step_index  INTEGER DEFAULT 0,
+            step_outputs        TEXT DEFAULT '{}',
+            status              TEXT DEFAULT 'running',
+            resume_token        TEXT,
+            paused_at           TEXT,
+            config              TEXT DEFAULT '{}',
+            graph_interrupted   TEXT,
+            created_at          TEXT DEFAULT (datetime('now')),
+            updated_at          TEXT DEFAULT (datetime('now'))
+        )
+    """,
+    "workflow_drafts": """
+        CREATE TABLE IF NOT EXISTS workflow_drafts (
+            id          TEXT PRIMARY KEY,
+            task_id     TEXT,
+            mode        TEXT NOT NULL,
+            payload     TEXT NOT NULL,
+            updated_at  TEXT NOT NULL
+        )
+    """,
+    "approval_requests": """
+        CREATE TABLE IF NOT EXISTS approval_requests (
+            id              TEXT PRIMARY KEY,
+            run_id          TEXT NOT NULL,
+            task_id         TEXT NOT NULL,
+            step_id         TEXT NOT NULL,
+            resume_token    TEXT UNIQUE NOT NULL,
+            message         TEXT,
+            channel         TEXT,
+            status          TEXT DEFAULT 'pending',
+            requested_at    TEXT DEFAULT (datetime('now')),
+            responded_at    TEXT,
+            timeout_at      TEXT,
+            response_note   TEXT
+        )
+    """,
+    "approval_channel_refs": """
+        CREATE TABLE IF NOT EXISTS approval_channel_refs (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            approval_id     TEXT NOT NULL,
+            channel         TEXT NOT NULL,
+            message_ref     TEXT NOT NULL,
+            FOREIGN KEY (approval_id) REFERENCES approval_requests(id) ON DELETE CASCADE
+        )
+    """,
+}
+
+_COLUMN_MIGRATIONS = {
+    "tasks": [
+        ("description", "TEXT DEFAULT ''"),
+        ("icon", "TEXT DEFAULT 'âš¡'"),
+        ("prompts", "TEXT DEFAULT '[]'"),
+        ("schedule", "TEXT"),
+        ("at", "TEXT"),
+        ("notify_only", "INTEGER DEFAULT 0"),
+        ("notify_label", "TEXT DEFAULT ''"),
+        ("enabled", "INTEGER DEFAULT 1"),
+        ("last_run", "TEXT"),
+        ("created_at", "TEXT DEFAULT ''"),
+        ("sort_order", "INTEGER DEFAULT 0"),
+        ("delivery_channel", "TEXT"),
+        ("delivery_target", "TEXT"),
+        ("persistent_thread_id", "TEXT"),
+        ("delete_after_run", "INTEGER DEFAULT 0"),
+        ("allowed_commands", "TEXT DEFAULT '[]'"),
+        ("allowed_recipients", "TEXT DEFAULT '[]'"),
+        ("model_override", "TEXT"),
+        ("skills_override", "TEXT"),
+        ("steps", "TEXT DEFAULT '[]'"),
+        ("safety_mode", "TEXT"),
+        ("concurrency_group", "TEXT"),
+        ("trigger", "TEXT"),
+        ("tools_override", "TEXT"),
+        ("channels", "TEXT"),
+    ],
+    "task_runs": [
+        ("finished_at", "TEXT"),
+        ("status", "TEXT DEFAULT 'running'"),
+        ("status_message", "TEXT DEFAULT ''"),
+        ("steps_total", "INTEGER DEFAULT 0"),
+        ("steps_done", "INTEGER DEFAULT 0"),
+        ("task_name", "TEXT DEFAULT ''"),
+        ("task_icon", "TEXT DEFAULT ''"),
+        ("pipeline_state_id", "TEXT"),
+    ],
+    "pipeline_state": [
+        ("current_step_index", "INTEGER DEFAULT 0"),
+        ("step_outputs", "TEXT DEFAULT '{}'"),
+        ("status", "TEXT DEFAULT 'running'"),
+        ("resume_token", "TEXT"),
+        ("paused_at", "TEXT"),
+        ("config", "TEXT DEFAULT '{}'"),
+        ("graph_interrupted", "TEXT"),
+        ("created_at", "TEXT DEFAULT ''"),
+        ("updated_at", "TEXT DEFAULT ''"),
+    ],
+}
+
+_REQUIRED_COLUMNS = {
+    "tasks": {
+        "id", "name", "description", "icon", "prompts", "schedule", "at",
+        "notify_only", "notify_label", "enabled", "last_run", "created_at",
+        "sort_order", "delivery_channel", "delivery_target", "model_override",
+        "persistent_thread_id", "delete_after_run", "allowed_commands",
+        "allowed_recipients", "skills_override", "steps", "safety_mode",
+        "concurrency_group", "trigger", "tools_override", "channels",
+    },
+    "task_runs": {
+        "id", "task_id", "thread_id", "started_at", "finished_at", "status",
+        "status_message", "steps_total", "steps_done", "pipeline_state_id",
+        "task_name", "task_icon",
+    },
+    "pipeline_state": {
+        "run_id", "task_id", "thread_id", "current_step_index",
+        "step_outputs", "status", "resume_token", "paused_at", "config",
+        "graph_interrupted", "created_at", "updated_at",
+    },
+    "workflow_drafts": {"id", "task_id", "mode", "payload", "updated_at"},
+    "approval_requests": {
+        "id", "run_id", "task_id", "step_id", "resume_token", "message",
+        "channel", "status", "requested_at", "responded_at", "timeout_at",
+        "response_note",
+    },
+    "approval_channel_refs": {"id", "approval_id", "channel", "message_ref"},
+}
+
+
+def _raw_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        return conn
+    except Exception:
+        conn.close()
+        raise
+
+
+def _is_corrupt_db_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return (
+        isinstance(exc, sqlite3.DatabaseError)
+        and (
+            "file is not a database" in text
+            or "database disk image is malformed" in text
+            or "database is malformed" in text
+        )
+    )
+
+
+def _is_schema_operational_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return isinstance(exc, sqlite3.OperationalError) and (
+        "no such table" in text
+        or "no such column" in text
+        or "database schema has changed" in text
+        or "schema" in text
+    )
+
+
+def _has_invalid_sqlite_header(path: pathlib.Path) -> bool:
+    if not path.exists() or path.stat().st_size == 0:
+        return False
+    try:
+        return path.read_bytes()[:16] != b"SQLite format 3\x00"
+    except OSError:
+        return False
+
+
+def _backup_task_db_files(reason: str) -> pathlib.Path:
+    data_dir = pathlib.Path(_DB_PATH).expanduser().parent
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_dir = data_dir / "recovery" / f"tasks-db-{reason}-{stamp}"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    for suffix in ("", "-wal", "-shm"):
+        src = pathlib.Path(_DB_PATH + suffix)
+        if src.exists():
+            shutil.move(str(src), str(backup_dir / src.name))
+    return backup_dir
+
+
+def backup_and_recreate_task_db(reason: str = "reset") -> pathlib.Path | None:
+    """Back up task DB files, recreate a clean schema, and return the backup."""
+    global _SCHEMA_READY_PATH
+    with _SCHEMA_LOCK:
+        backup_dir = _backup_task_db_files(reason)
+        _SCHEMA_READY_PATH = None
+        ensure_task_schema(repair=True, force=True)
+        logger.warning(
+            "Task DB recreated after %s; previous files moved to %s",
+            reason,
+            backup_dir,
+        )
+        return backup_dir
+
+
+def _apply_schema(conn: sqlite3.Connection) -> None:
+    for sql in _CREATE_TABLE_SQL.values():
+        conn.execute(sql)
+    for table, migrations in _COLUMN_MIGRATIONS.items():
+        for col, defn in migrations:
+            try:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {defn}")
+                logger.info("Migrated %s table: added '%s' column", table, col)
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
+    conn.execute(
+        "UPDATE tasks SET safety_mode = 'allow_all' WHERE safety_mode IS NULL"
+    )
+    conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+
+
+def _schema_snapshot(conn: sqlite3.Connection) -> dict[str, object]:
+    tables = {
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+    missing_tables = sorted(set(_REQUIRED_COLUMNS) - tables)
+    missing_columns: dict[str, list[str]] = {}
+    columns_by_table: dict[str, list[str]] = {}
+    for table, required in _REQUIRED_COLUMNS.items():
+        cols = [row[1] for row in conn.execute(f"PRAGMA table_info({table})")]
+        columns_by_table[table] = cols
+        missing = sorted(required - set(cols))
+        if missing:
+            missing_columns[table] = missing
+    user_version = conn.execute("PRAGMA user_version").fetchone()[0]
+    return {
+        "tables": sorted(tables),
+        "missing_tables": missing_tables,
+        "columns_by_table": columns_by_table,
+        "missing_columns": missing_columns,
+        "user_version": user_version,
+    }
+
+
+def _validate_schema(conn: sqlite3.Connection) -> dict[str, object]:
+    snapshot = _schema_snapshot(conn)
+    if snapshot["missing_tables"] or snapshot["missing_columns"]:
+        raise RuntimeError(
+            "task schema incomplete: "
+            f"missing_tables={snapshot['missing_tables']} "
+            f"missing_columns={snapshot['missing_columns']}"
+        )
+    return snapshot
+
+
+def ensure_task_schema(*, repair: bool = True, force: bool = False) -> dict[str, object]:
+    """Ensure all required task DB tables and columns exist."""
+    global _SCHEMA_READY_PATH, _LAST_SCHEMA_REPAIR
+    db_path = str(pathlib.Path(_DB_PATH).expanduser())
+    with _SCHEMA_LOCK:
+        if not force and _SCHEMA_READY_PATH == db_path:
+            return {"status": "ok", "db_path": db_path, "cached": True}
+
+        db_file = pathlib.Path(db_path)
+        existed_before = db_file.exists()
+        db_file.parent.mkdir(parents=True, exist_ok=True)
+        recreated = False
+        try:
+            if _has_invalid_sqlite_header(db_file):
+                raise sqlite3.DatabaseError("file is not a database")
+            conn = _raw_conn()
+            try:
+                before = _schema_snapshot(conn)
+                _apply_schema(conn)
+                after = _validate_schema(conn)
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as exc:
+            if repair and _is_corrupt_db_error(exc):
+                backup_dir = _backup_task_db_files("corrupt")
+                _LAST_SCHEMA_REPAIR = {
+                    "status": "recreated",
+                    "reason": str(exc),
+                    "backup_dir": str(backup_dir),
+                    "at": datetime.now().isoformat(),
+                }
+                logger.warning(
+                    "Task DB was corrupt; moved files to %s and recreating",
+                    backup_dir,
+                )
+                recreated = True
+                conn = _raw_conn()
+                try:
+                    before = _schema_snapshot(conn)
+                    _apply_schema(conn)
+                    after = _validate_schema(conn)
+                    conn.commit()
+                finally:
+                    conn.close()
+            else:
+                _SCHEMA_READY_PATH = None
+                logger.exception("Task DB schema check failed for %s", db_path)
+                raise
+
+        _migrate_from_workflows()
+        _SCHEMA_READY_PATH = db_path
+        repaired = bool(
+            not recreated
+            and existed_before
+            and (before["missing_tables"] or before["missing_columns"])
+        )
+        initialized = bool(
+            not recreated
+            and not existed_before
+            and (before["missing_tables"] or before["missing_columns"])
+        )
+        if repaired:
+            _LAST_SCHEMA_REPAIR = {
+                "status": "repaired",
+                "missing_tables": before["missing_tables"],
+                "missing_columns": before["missing_columns"],
+                "at": datetime.now().isoformat(),
+            }
+            logger.warning(
+                "Task DB schema repaired in place at %s: tables=%s columns=%s",
+                db_path,
+                before["missing_tables"],
+                before["missing_columns"],
+            )
+        elif recreated:
+            logger.warning("Task DB schema recreated at %s", db_path)
+        elif initialized:
+            logger.info("Task DB schema initialized at %s", db_path)
+        else:
+            logger.info("Task DB schema ok at %s", db_path)
+        return {
+            "status": (
+                "recreated" if recreated else
+                "repaired" if repaired else
+                "initialized" if initialized else
+                "ok"
+            ),
+            "db_path": db_path,
+            "before": before,
+            "after": after,
+            "last_repair": dict(_LAST_SCHEMA_REPAIR),
+        }
+
+
+def diagnose_task_schema() -> dict[str, object]:
+    """Return support diagnostics for tasks.db."""
+    path = pathlib.Path(_DB_PATH).expanduser()
+    info: dict[str, object] = {
+        "db_path": str(path),
+        "exists": path.exists(),
+        "size_bytes": path.stat().st_size if path.exists() else 0,
+        "wal_exists": pathlib.Path(str(path) + "-wal").exists(),
+        "shm_exists": pathlib.Path(str(path) + "-shm").exists(),
+        "last_repair": dict(_LAST_SCHEMA_REPAIR),
+    }
+    try:
+        conn = _raw_conn()
+        try:
+            snapshot = _schema_snapshot(conn)
+        finally:
+            conn.close()
+        info.update(snapshot)
+        info["ok"] = not snapshot["missing_tables"] and not snapshot["missing_columns"]
+    except Exception as exc:
+        info["ok"] = False
+        info["error"] = str(exc)
+    return info
+
+
+def _schema_retry(fn: F) -> F:
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        ensure_task_schema()
+        try:
+            return fn(*args, **kwargs)
+        except sqlite3.OperationalError as exc:
+            if not _is_schema_operational_error(exc):
+                raise
+            logger.warning(
+                "Task DB schema error in %s; repairing and retrying once: %s",
+                fn.__name__,
+                exc,
+            )
+            ensure_task_schema(repair=True, force=True)
+            return fn(*args, **kwargs)
+
+    return wrapper  # type: ignore[return-value]
 
 
 def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+    ensure_task_schema()
+    return _raw_conn()
 
 
 def _init_db() -> None:
     """Create the tasks and task_runs tables if they don't exist."""
-    conn = _get_conn()
+    ensure_task_schema(repair=True, force=True)
+    return
+    conn = _raw_conn()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
             id                  TEXT PRIMARY KEY,
@@ -226,7 +676,7 @@ def _migrate_from_workflows() -> None:
     if not os.path.exists(_OLD_WF_DB):
         return
 
-    conn = _get_conn()
+    conn = _raw_conn()
     count = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
     if count > 0:
         conn.close()
@@ -248,7 +698,27 @@ def _migrate_from_workflows() -> None:
             return
 
         rows = old_conn.execute("SELECT * FROM workflows").fetchall()
+        migrated = 0
         for row in rows:
+            try:
+                d = dict(row)
+                conn.execute(
+                    "INSERT INTO tasks "
+                    "(id, name, description, icon, prompts, schedule, enabled, "
+                    "last_run, created_at, sort_order) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        d["id"], d["name"], d.get("description", ""),
+                        d.get("icon", "âš¡"), d["prompts"],
+                        d.get("schedule"), d.get("enabled", 1),
+                        d.get("last_run"), d["created_at"],
+                        d.get("sort_order", 0),
+                    ),
+                )
+                migrated += 1
+            except Exception as exc:
+                logger.warning("Skipping malformed legacy workflow row: %s", exc)
+            continue
             d = dict(row)
             conn.execute(
                 "INSERT INTO tasks "
@@ -268,6 +738,23 @@ def _migrate_from_workflows() -> None:
         if "workflow_runs" in tables:
             runs = old_conn.execute("SELECT * FROM workflow_runs").fetchall()
             for run in runs:
+                try:
+                    r = dict(run)
+                    conn.execute(
+                        "INSERT INTO task_runs "
+                        "(id, task_id, thread_id, started_at, finished_at, "
+                        "status, steps_total, steps_done) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            r["id"], r["workflow_id"], r["thread_id"],
+                            r["started_at"], r.get("finished_at"),
+                            r.get("status", "completed"),
+                            r.get("steps_total", 0), r.get("steps_done", 0),
+                        ),
+                    )
+                except Exception as exc:
+                    logger.warning("Skipping malformed legacy workflow run row: %s", exc)
+                continue
                 r = dict(run)
                 conn.execute(
                     "INSERT INTO task_runs "
@@ -338,6 +825,7 @@ def expand_template_vars(
 
 # ── CRUD ─────────────────────────────────────────────────────────────────────
 
+@_schema_retry
 def create_task(
     name: str,
     prompts: list[str] | None = None,
@@ -429,6 +917,7 @@ def create_task(
     return task_id
 
 
+@_schema_retry
 def get_task(task_id: str) -> dict | None:
     conn = _get_conn()
     row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
@@ -438,6 +927,7 @@ def get_task(task_id: str) -> dict | None:
     return _row_to_dict(row)
 
 
+@_schema_retry
 def list_tasks() -> list[dict]:
     conn = _get_conn()
     rows = conn.execute(
@@ -450,6 +940,7 @@ def list_tasks() -> list[dict]:
     return [_row_to_dict(r) for r in rows]
 
 
+@_schema_retry
 def update_task(task_id: str, **kwargs) -> None:
     """Update task fields.
 
@@ -505,6 +996,7 @@ def update_task(task_id: str, **kwargs) -> None:
             _sync_job(task)
 
 
+@_schema_retry
 def delete_task(task_id: str) -> None:
     _remove_job(task_id)
     conn = _get_conn()
@@ -560,6 +1052,7 @@ def delete_task(task_id: str) -> None:
             )
 
 
+@_schema_retry
 def delete_tasks(task_ids: list[str]) -> tuple[int, list[tuple[str, str]]]:
     """Delete several tasks at once.
 
@@ -660,6 +1153,7 @@ def _steps_to_prompts(steps: list[dict]) -> list[str]:
 
 # ── Run History ──────────────────────────────────────────────────────────────
 
+@_schema_retry
 def _record_run_start(task_id: str, thread_id: str, steps_total: int,
                       task_name: str = "", task_icon: str = "") -> str:
     run_id = uuid.uuid4().hex[:12]
@@ -676,6 +1170,7 @@ def _record_run_start(task_id: str, thread_id: str, steps_total: int,
     return run_id
 
 
+@_schema_retry
 def _update_run_progress(run_id: str, steps_done: int) -> None:
     conn = _get_conn()
     conn.execute(
@@ -686,6 +1181,7 @@ def _update_run_progress(run_id: str, steps_done: int) -> None:
     conn.close()
 
 
+@_schema_retry
 def _finish_run(run_id: str, status: str = "completed",
                 status_message: str = "") -> None:
     conn = _get_conn()
@@ -762,6 +1258,7 @@ def _fire_completion_triggers(completed_task_id: str) -> None:
         run_task_background(t["id"], thread_id, enabled_tools)
 
 
+@_schema_retry
 def get_run_history(task_id: str, limit: int = 5) -> list[dict]:
     conn = _get_conn()
     rows = conn.execute(
@@ -773,6 +1270,7 @@ def get_run_history(task_id: str, limit: int = 5) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+@_schema_retry
 def get_recent_runs(limit: int = 10) -> list[dict]:
     """Return the most recent task runs across all tasks.
 
@@ -793,6 +1291,7 @@ def get_recent_runs(limit: int = 10) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+@_schema_retry
 def get_upcoming_tasks(limit: int = 5) -> list[dict]:
     """Return tasks that have a schedule or an ``at`` time, sorted by next run."""
     conn = _get_conn()
@@ -955,6 +1454,7 @@ def _workflow_draft_id(task_id: str | None) -> str:
     return task_id or "__new__"
 
 
+@_schema_retry
 def save_workflow_draft(task_id: str | None, payload: dict) -> None:
     """Persist an autosaved workflow editor draft.
 
@@ -980,6 +1480,7 @@ def save_workflow_draft(task_id: str | None, payload: dict) -> None:
     conn.close()
 
 
+@_schema_retry
 def get_workflow_draft(task_id: str | None) -> dict | None:
     conn = _get_conn()
     row = conn.execute(
@@ -1002,6 +1503,7 @@ def get_workflow_draft(task_id: str | None) -> dict | None:
     }
 
 
+@_schema_retry
 def delete_workflow_draft(task_id: str | None) -> None:
     conn = _get_conn()
     conn.execute(
@@ -2353,6 +2855,7 @@ def _remove_job(task_id: str) -> None:
         pass
 
 
+@_schema_retry
 def sync_all_jobs() -> None:
     """(Re-)sync every task to the APScheduler job store."""
     tasks = list_tasks()
@@ -2361,6 +2864,7 @@ def sync_all_jobs() -> None:
     logger.info("Synced %d task(s) to APScheduler", len(tasks))
 
 
+@_schema_retry
 def start_task_scheduler() -> None:
     """Start the APScheduler and sync all task jobs (idempotent)."""
     _get_scheduler()
@@ -2672,6 +3176,7 @@ def infer_tools_for_prompt(
 
 # ── Pipeline State Persistence (for approval pause/resume) ──────────────────
 
+@_schema_retry
 def _save_pipeline_state(
     run_id: str,
     task_id: str,
@@ -2715,6 +3220,7 @@ def _save_pipeline_state(
     conn.close()
 
 
+@_schema_retry
 def _load_pipeline_state(resume_token: str) -> dict | None:
     """Load pipeline state by resume token."""
     conn = _get_conn()
@@ -2731,6 +3237,7 @@ def _load_pipeline_state(resume_token: str) -> dict | None:
     return d
 
 
+@_schema_retry
 def _update_pipeline_status(run_id: str, status: str) -> None:
     """Update the status of a pipeline state entry."""
     conn = _get_conn()
@@ -2742,6 +3249,7 @@ def _update_pipeline_status(run_id: str, status: str) -> None:
     conn.close()
 
 
+@_schema_retry
 def _clear_graph_interrupted(run_id: str) -> None:
     """Clear the graph_interrupted flag after a successful resume."""
     conn = _get_conn()
@@ -2756,6 +3264,7 @@ def _clear_graph_interrupted(run_id: str) -> None:
 
 # ── Approval Request Management ─────────────────────────────────────────────
 
+@_schema_retry
 def create_approval_request(
     run_id: str,
     task_id: str,
@@ -2829,6 +3338,7 @@ def _emit_buddy_approval_event(
         logger.debug("Buddy approval event failed", exc_info=True)
 
 
+@_schema_retry
 def get_pending_approvals() -> list[dict]:
     """Return all pending approval requests."""
     conn = _get_conn()
@@ -2843,6 +3353,7 @@ def get_pending_approvals() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+@_schema_retry
 def respond_to_approval(resume_token: str, approved: bool,
                          note: str = "",
                          source: str = "web") -> bool:
@@ -4151,6 +4662,7 @@ def add_default_workflow_templates() -> int:
     return created
 
 
+@_schema_retry
 def seed_default_tasks() -> None:
     """Insert default task templates on first-ever run only.
 
