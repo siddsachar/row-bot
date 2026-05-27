@@ -386,6 +386,14 @@ def _ollama_http_json(path: str, payload: dict | None = None, *, timeout: float 
 def _chat_ollama(model: str, **kwargs):
     if ChatOllama is None:
         raise RuntimeError("langchain-ollama is not installed")
+    if "reasoning" not in kwargs:
+        try:
+            from providers.ollama import is_ollama_reasoning_model
+
+            if is_ollama_reasoning_model(model):
+                kwargs["reasoning"] = True
+        except Exception:
+            pass
     return ChatOllama(model=model, base_url=_ollama_base_url(), **kwargs)
 
 

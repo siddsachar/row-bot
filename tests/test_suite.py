@@ -95,6 +95,8 @@ CORE_MODULES = [
     "threads",
     "models",
     "memory",
+    "memory_policy",
+    "memory_evolution",
     "memory_extraction",
     "documents",
     "api_keys",
@@ -214,6 +216,15 @@ FUNCTION_CHECKS = [
     ("memory", "find_by_subject"),
     ("memory", "update_memory"),
     ("memory", "consolidate_duplicates"),
+    ("memory_policy", "build_auto_recall"),
+    ("memory_policy", "format_recall_block"),
+    ("memory_policy", "record_recall_trace"),
+    ("memory_evolution", "merge_properties"),
+    ("memory_evolution", "mark_needs_review"),
+    ("memory_evolution", "mark_superseded"),
+    ("knowledge_graph", "retrieve_memory_candidates"),
+    ("knowledge_graph", "fts_search_entities"),
+    ("knowledge_graph", "rebuild_fts_index"),
     ("memory_extraction", "run_extraction"),
     ("memory_extraction", "start_periodic_extraction"),
     ("memory_extraction", "set_active_thread"),
@@ -1076,22 +1087,26 @@ try:
 
     # --- 17a. memory.py core functions -----------------------------------
 
-    # update_memory accepts keyword-only args for subject, tags, category, source
+    # update_memory accepts keyword-only args for subject, tags, category, source, properties
     import inspect as _inspect
     _um_sig = _inspect.signature(_mem_mod.update_memory)
     _um_params = set(_um_sig.parameters.keys())
-    for _kw in ("subject", "tags", "category", "source"):
+    for _kw in ("subject", "tags", "category", "source", "properties"):
         if _kw in _um_params:
             record("PASS", f"memory: update_memory accepts '{_kw}' kwarg")
         else:
             record("FAIL", f"memory: update_memory missing '{_kw}' kwarg")
 
-    # save_memory accepts 'source' param
+    # save_memory accepts 'source' and optional 'properties' params
     _sm_sig = _inspect.signature(_mem_mod.save_memory)
     if "source" in _sm_sig.parameters:
         record("PASS", "memory: save_memory accepts 'source' param")
     else:
         record("FAIL", "memory: save_memory missing 'source' param")
+    if "properties" in _sm_sig.parameters:
+        record("PASS", "memory: save_memory accepts 'properties' param")
+    else:
+        record("FAIL", "memory: save_memory missing 'properties' param")
 
     # find_duplicate exists and has correct params
     _fd_sig = _inspect.signature(_mem_mod.find_duplicate)
@@ -1253,12 +1268,13 @@ try:
         else:
             record("FAIL", f"prompt: {_desc}")
 
-    # --- 17f. Auto-recall includes IDs -----------------------------------
-    _agent_src = _inspect.getsource(_inspect.getmodule(_agent_mod._pre_model_trim))
-    if "id=" in _agent_src and "m['id']" in _agent_src:
-        record("PASS", "agent: auto-recall includes memory IDs")
+    # --- 17f. Auto-recall policy includes IDs ----------------------------
+    import memory_policy as _mp17
+    _format_src = _inspect.getsource(_mp17.format_recall_block)
+    if "id=" in _format_src and "memory.get('id')" in _format_src:
+        record("PASS", "memory_policy: recall block includes memory IDs")
     else:
-        record("FAIL", "agent: auto-recall missing memory IDs")
+        record("FAIL", "memory_policy: recall block missing memory IDs")
 
     # --- 17g. Vague-type ban in add_relation & no auto-link ----------------
     import knowledge_graph as _kg17
@@ -1354,12 +1370,13 @@ try:
     else:
         record("FAIL", "kg: _touch_recalled missing")
 
-    # graph_enhanced_recall source calls _decay_multiplier and _touch_recalled
+    # candidate retrieval applies decay; compatibility recall wrapper touches
+    _candidate_src = _inspect.getsource(_kg17.retrieve_memory_candidates)
     _ger_src = _inspect.getsource(_kg17.graph_enhanced_recall)
-    if "_decay_multiplier" in _ger_src:
-        record("PASS", "kg: graph_enhanced_recall uses _decay_multiplier")
+    if "_decay_multiplier" in _candidate_src:
+        record("PASS", "kg: retrieve_memory_candidates uses _decay_multiplier")
     else:
-        record("FAIL", "kg: graph_enhanced_recall missing _decay_multiplier")
+        record("FAIL", "kg: retrieve_memory_candidates missing _decay_multiplier")
     if "_touch_recalled" in _ger_src:
         record("PASS", "kg: graph_enhanced_recall uses _touch_recalled")
     else:
@@ -3066,16 +3083,18 @@ try:
         else:
             record("FAIL", f"prompt: {_desc}")
 
-    # --- 26o. Agent auto-recall uses graph_enhanced_recall ----------------
+    # --- 26o. Agent auto-recall uses memory policy ------------------------
     _agent_src_kg = _ins_kg.getsource(_ins_kg.getmodule(_agent_mod._pre_model_trim))
-    if "graph_enhanced_recall" in _agent_src_kg:
-        record("PASS", "agent: auto-recall uses graph_enhanced_recall")
+    if "build_auto_recall" in _agent_src_kg:
+        record("PASS", "agent: auto-recall uses memory_policy.build_auto_recall")
     else:
-        record("FAIL", "agent: auto-recall should use graph_enhanced_recall")
-    if "count_entities" in _agent_src_kg:
-        record("PASS", "agent: auto-recall uses count_entities")
+        record("FAIL", "agent: auto-recall should use memory_policy.build_auto_recall")
+    import memory_policy as _mp_kg
+    _mp_src_kg = _ins_kg.getsource(_mp_kg.build_auto_recall)
+    if "count_entities" in _mp_src_kg:
+        record("PASS", "memory_policy: auto-recall checks count_entities")
     else:
-        record("FAIL", "agent: auto-recall should use count_entities")
+        record("FAIL", "memory_policy: auto-recall should check count_entities")
 
     # --- 26p. requirements.txt has networkx --------------------------------
     _req_path = os.path.join(PROJECT_ROOT, "requirements.txt")
@@ -7006,20 +7025,22 @@ try:
     assert _sig43.parameters["threshold"].default == 0.35
     record("PASS", "auto-recall: threshold default is 0.35")
 
-    # ── 43b. Decay floor in source code ──────────────────────────────
-    _src43 = _ins43.getsource(_kg43.graph_enhanced_recall)
+    # ── 43b. Decay floor in candidate retrieval source code ──────────
+    _src43 = _ins43.getsource(_kg43.retrieve_memory_candidates)
     assert "threshold * 0.7" in _src43, "decay floor formula not found"
     record("PASS", "auto-recall: decay_floor uses threshold * 0.7")
 
-    # ── 43c. Neighbor scoring in source ──────────────────────────────
-    assert 'seed["score"] * 0.5' in _src43 or "seed[\"score\"] * 0.5" in _src43, \
+    # ── 43c. Neighbor scoring in graph expansion source ──────────────
+    _expand_src43 = _ins43.getsource(_kg43._expand_graph_recall_candidates)
+    assert 'seed.get("score", 0) * 0.5' in _expand_src43 or "seed.get('score', 0) * 0.5" in _expand_src43, \
         "neighbor score derivation not found"
     record("PASS", "auto-recall: neighbor score derives from seed * 0.5")
 
-    # ── 43d. SQL LIKE keyword fallback in source ─────────────────────
-    assert "search_entities" in _src43, "search_entities call not in source"
-    assert '"keyword"' in _src43 or "'keyword'" in _src43, "via=keyword not in source"
-    record("PASS", "auto-recall: SQL LIKE keyword fallback present in source")
+    # ── 43d. Keyword fallback in source ──────────────────────────────
+    _kw_src43 = _ins43.getsource(_kg43._keyword_candidate_hits)
+    assert "_keyword_candidate_hits" in _src43, "keyword candidate fallback not in source"
+    assert '"keyword"' in _kw_src43 or "'keyword'" in _kw_src43, "via=keyword not in source"
+    record("PASS", "auto-recall: keyword fallback present in source")
 
     # ── 43e. Result cap in source ────────────────────────────────────
     assert "[:max_results]" in _src43, "result cap slice not found"
@@ -12411,21 +12432,29 @@ try:
     assert "wiki_search" not in _prompts_src, "prompts.py still references wiki_search"
     record("PASS", "prompts: no wiki_search references")
 
-    # ── 58f: search_memory uses graph_enhanced_recall ────────────────
+    # ── 58f: search_memory retrieves no-touch then touches shown results
     import tools.memory_tool as _mt58
     _search_src = _insp58.getsource(_mt58._search_memory)
-    assert "graph_enhanced_recall" in _search_src, \
-        "_search_memory should call graph_enhanced_recall"
-    record("PASS", "search_memory: calls graph_enhanced_recall (hybrid search)")
+    assert "retrieve_memory_candidates" in _search_src and "touch_recalled" in _search_src, \
+        "_search_memory should retrieve candidates then touch shown results"
+    record("PASS", "search_memory: no-touch retrieval then explicit touch")
 
-    # ── 58g: graph_enhanced_recall has SQL LIKE fallback ─────────────
+    # ── 58g: candidate retrieval has keyword fallback ────────────────
     import knowledge_graph as _kg58
-    _recall_src = _insp58.getsource(_kg58.graph_enhanced_recall)
-    assert "search_entities" in _recall_src, \
-        "graph_enhanced_recall should call search_entities for SQL LIKE fallback"
-    assert "keyword" in _recall_src, \
-        "graph_enhanced_recall should tag SQL LIKE results as 'keyword'"
-    record("PASS", "graph_enhanced_recall: SQL LIKE fallback via search_entities")
+    _recall_src = _insp58.getsource(_kg58.retrieve_memory_candidates)
+    _kw_src58 = _insp58.getsource(_kg58._keyword_candidate_hits)
+    assert "_keyword_candidate_hits" in _recall_src, \
+        "retrieve_memory_candidates should call keyword fallback"
+    assert "fts_search_entities" in _recall_src and "_expand_graph_recall_candidates" in _recall_src, \
+        "retrieve_memory_candidates should fuse FTS and graph expansion"
+    assert "keyword" in _kw_src58, \
+        "keyword fallback should tag results as 'keyword'"
+    record("PASS", "retrieve_memory_candidates: field-aware keyword/FTS fallback")
+
+    _fts_src58 = _insp58.getsource(_kg58.fts_search_entities)
+    assert "_ensure_fts" in _fts_src58 and "bm25" in _fts_src58, \
+        "fts_search_entities should use the optional FTS5/BM25 index"
+    record("PASS", "fts_search_entities: optional FTS5/BM25 lexical search")
 
     # ── 58h: wiki vault _AUTO_HEADER updated ─────────────────────────
     import wiki_vault as _wv58
@@ -12483,11 +12512,11 @@ try:
     except Exception:
         record("WARN", "check_vault_sync: vault not enabled (skipped)")
 
-    # ── 58l: cloud auto-recall comment in agent.py ───────────────────
+    # ── 58l: auto-recall policy trace in agent.py ────────────────────
     _agent_src = open("agent.py", "r", encoding="utf-8").read()
-    assert "Intentional" in _agent_src and "opted in" in _agent_src, \
-        "agent.py should have intentional cloud auto-recall comment"
-    record("PASS", "agent: cloud auto-recall intentional comment present")
+    assert "build_auto_recall" in _agent_src and "memory auto-recall trace" in _agent_src, \
+        "agent.py should call memory policy and log recall trace"
+    record("PASS", "agent: memory policy auto-recall trace present")
 
     # ── 58m: graph panel has edit trigger ─────────────────────────────
     _gp_src = open("ui/graph_panel.py", "r", encoding="utf-8").read()
@@ -12495,11 +12524,41 @@ try:
     assert "entity_editor" in _gp_src, "graph_panel should import entity_editor"
     record("PASS", "graph_panel: edit trigger + entity_editor import present")
 
+    _gtv_src = _insp58.getsource(_kg58.graph_to_vis_json)
+    for _field in ("_status", "_tier", "_confidence", "_review_reason", "_recalled_at"):
+        assert _field in _gtv_src, f"graph_to_vis_json missing audit field {_field}"
+    assert "_status" in _gp_src and "_review_reason" in _gp_src, \
+        "graph_panel detail card should render audit metadata"
+    record("PASS", "graph_panel: detail card has audit metadata")
+
     # ── 58n: settings has edit button in browse list ──────────────────
     _settings_src = open("ui/settings.py", "r", encoding="utf-8").read()
     assert "entity_editor" in _settings_src, "settings should import entity_editor"
     assert "Edit" in _settings_src, "settings should have Edit button"
     record("PASS", "settings: entity editor Edit button in knowledge browse list")
+
+    for _needle in (
+        "knowledge_audit",
+        "Needs Review",
+        "Recent recall decisions",
+        "Memory change log",
+        "STATUS_OPTIONS",
+        "SOURCE_OPTIONS",
+        "TIER_OPTIONS",
+    ):
+        assert _needle in _settings_src, f"settings Knowledge audit UI missing {_needle}"
+    record("PASS", "settings: Phase 5 audit filters, review queue, trace and journal present")
+
+    _editor_src = open("ui/entity_editor.py", "r", encoding="utf-8").read()
+    for _needle in (
+        "Audit and Provenance",
+        "memory_evolution",
+        "mark_user_modified",
+        "mark_superseded",
+        "set_status",
+    ):
+        assert _needle in _editor_src, f"entity_editor missing Phase 5 path {_needle}"
+    record("PASS", "entity_editor: shared audit/provenance and correction controls present")
 
     # ── 58o: settings has vault sync banner ───────────────────────────
     assert "check_vault_sync" in _settings_src, "settings should call check_vault_sync"
@@ -13297,6 +13356,7 @@ try:
 
     # We need _stream_graph and _content_to_str from agent
     from agent import _stream_graph, _content_to_str
+    import inspect as _inspect66
     import logging as _log66
 
     # ── 66a. finish_reason="length" appends warning ─────────────────
@@ -13509,6 +13569,22 @@ try:
     assert _streaming66._detach_if_ui_client_deleted(_deleted_gen66c5, _AppState66(), "test") is True
     assert _deleted_gen66c5.detached is True
     record("PASS", "66c5: active-generation recovery keeps live runs and detaches deleted clients")
+
+    # ── 66c6. Thinking collapse renders before live text is removed ───────
+    _collapse_src66c6 = _inspect66.getsource(_streaming66._render_thinking_collapse)
+    assert "gen.tool_col or gen.wrapper" in _collapse_src66c6, \
+        "thinking collapse should fall back to wrapper when tool_col is unavailable"
+    assert "_render_thinking_collapse(gen)" in _inspect66.getsource(_streaming66.consume_generation), \
+        "consume_generation should use the shared thinking-collapse helper"
+    assert _collapse_src66c6.find("ui.expansion") < _collapse_src66c6.find("gen.thinking_md.delete()"), \
+        "thinking collapse should create the bubble before deleting live reasoning"
+    _consume_src66c6 = _inspect66.getsource(_streaming66.consume_generation)
+    assert "gen.thinking_code.set_content" in _consume_src66c6, \
+        "late thinking tokens should update the collapsed thinking bubble"
+    _detach_src66c6 = _inspect66.getsource(_streaming66._detach_generation)
+    assert "gen.thinking_expansion" in _detach_src66c6 and "gen.thinking_code" in _detach_src66c6, \
+        "detach cleanup should clear thinking expansion handles"
+    record("PASS", "66c6: streaming thinking collapse preserves a durable bubble")
 
     # ── 66d. logger.warning is emitted on length ─────────────────────
     _chunks66d = [
@@ -13813,6 +13889,9 @@ try:
     assert hasattr(_sk68, "TOOL_GUIDES_DIR")
     assert hasattr(_sk68, "is_tool_guide")
     assert hasattr(_sk68, "_is_tool_guide_active")
+    _skills_src68 = _P68("skills.py").read_text(encoding="utf-8")
+    assert "manual enabled" in _skills_src68 and "active tool guides" in _skills_src68, \
+        "skills startup log should distinguish manual skills from auto-active tool guides"
     assert _P68(_sk68.TOOL_GUIDES_DIR).is_dir(), f"TOOL_GUIDES_DIR not found: {_sk68.TOOL_GUIDES_DIR}"
     record("PASS", "68h: skills module has tool guide support")
 

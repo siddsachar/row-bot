@@ -67,6 +67,8 @@ Type: filesandordirs; Name: "{app}\python"
 Source: "..\app.py";                  DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\agent.py";                 DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\memory.py";                DestDir: "{app}\app"; Flags: ignoreversion
+Source: "..\memory_policy.py";         DestDir: "{app}\app"; Flags: ignoreversion
+Source: "..\memory_evolution.py";      DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\memory_extraction.py";     DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\knowledge_graph.py";       DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\wiki_vault.py";             DestDir: "{app}\app"; Flags: ignoreversion
@@ -233,6 +235,7 @@ Source: "..\ui\graph_panel.py";        DestDir: "{app}\app\ui"; Flags: ignorever
 Source: "..\ui\head_html.py";          DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\helpers.py";            DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\home.py";               DestDir: "{app}\app\ui"; Flags: ignoreversion
+Source: "..\ui\knowledge_audit.py";    DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\mcp_settings.py";       DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\migration_wizard.py";   DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\model_catalog.py";      DestDir: "{app}\app\ui"; Flags: ignoreversion

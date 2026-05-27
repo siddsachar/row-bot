@@ -144,6 +144,15 @@ def _message_signature(msg: dict) -> str:
     return hashlib.sha1(raw).hexdigest()
 
 
+def attach_thinking_to_message(msg: dict, thinking_text: str | None) -> dict:
+    """Attach streamed reasoning text to a UI message when present."""
+
+    thinking = str(thinking_text or "").strip()
+    if thinking:
+        msg["thinking"] = thinking
+    return msg
+
+
 def persist_thread_media_state(thread_id: str | None, messages: list[dict]) -> None:
     """Persist message media payloads as files on disk with a v2 sidecar."""
     if not thread_id:

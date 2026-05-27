@@ -381,7 +381,29 @@ def extract_from_document(
         # 6. Create the document media entity (hub) — dedup if re-uploading
         import knowledge_graph as kg
         from memory import find_by_subject, update_memory
+        import memory_evolution as memory_evo
         source_label = f"document:{display_name}"
+        document_context = {
+            "kind": "document",
+            "display_name": display_name,
+            "document_title": title,
+            "window_count": len(windows),
+            "summary_count": len(summaries),
+            "actor": "document_extraction",
+        }
+        hub_properties = memory_evo.merge_properties(
+            {},
+            {
+                "status": "active",
+                "memory_tier": "resource",
+                "source_context": document_context,
+                "evidence_count": len(summaries),
+            },
+            source=source_label,
+            entity_type="media",
+            actor="document_extraction",
+            source_context=document_context,
+        )
 
         kg._skip_reindex = True
 
@@ -390,7 +412,19 @@ def extract_from_document(
         if existing_hub:
             # Update description with the new article
             try:
-                update_memory(existing_hub["id"], article, source=source_label)
+                update_memory(
+                    existing_hub["id"],
+                    article,
+                    source=source_label,
+                    properties=memory_evo.merge_properties(
+                        existing_hub.get("properties", {}),
+                        hub_properties,
+                        source=source_label,
+                        entity_type="media",
+                        actor="document_extraction",
+                        source_context=document_context,
+                    ),
+                )
                 hub_entity = existing_hub
                 logger.info("Updated existing document hub: %s", title)
             except Exception:
@@ -401,6 +435,7 @@ def extract_from_document(
                 subject=title,
                 description=article,
                 source=source_label,
+                properties=hub_properties,
             )
         hub_id = hub_entity["id"] if hub_entity else None
         saved_count = 1 if hub_entity else 0
@@ -453,7 +488,11 @@ def extract_from_document(
             from memory_extraction import _dedup_and_save
 
             deduped = _cross_window_dedup(extracted)
-            batch_saved = _dedup_and_save(deduped, source=source_label)
+            batch_saved = _dedup_and_save(
+                deduped,
+                source=source_label,
+                source_context=document_context,
+            )
             saved_count += batch_saved
 
             # 9. Link extracted entities → document hub

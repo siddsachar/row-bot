@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import logging
 
 
 def test_chat_only_prompt_is_compact_and_guards_against_imagined_tasks():
@@ -13,7 +14,7 @@ def test_chat_only_prompt_is_compact_and_guards_against_imagined_tasks():
     assert "Developer Studio" not in prompt
     assert "Designer Studio" not in prompt
     assert "background workflows" not in prompt
-    assert "memory writes" not in prompt
+    assert "long-term memory requires Agent Mode" in prompt
 
 
 def _chat_ready_result():
@@ -45,6 +46,25 @@ def test_build_chat_only_messages_for_fresh_thread_has_no_hidden_history(tmp_pat
     assert [message.type for message in messages] == ["system", "human"]
     assert messages[-1].content == "hello"
     assert "Do not answer an imagined or unrelated task" in messages[0].content
+
+
+def test_chat_only_history_marks_prior_tools_without_tool_bodies():
+    import agent
+
+    content = agent._chat_only_content_from_ui_message({
+        "content": "Earlier answer",
+        "tool_results": [
+            {
+                "name": "thoth_status",
+                "content": "SECRET_STATUS_BODY with current model and enabled tools",
+            }
+        ],
+    })
+
+    assert "Earlier Agent Mode turn used tool(s):" in content
+    assert "- thoth_status" in content
+    assert "SECRET_STATUS_BODY" not in content
+    assert "enabled tools" not in content
 
 
 def test_stream_chat_only_streams_and_persists_without_tools(tmp_path, monkeypatch):
@@ -109,7 +129,7 @@ def test_friendly_api_error_does_not_call_generic_400_tool_error(monkeypatch):
     assert "API error" in message
 
 
-def test_stream_agent_auto_routes_chat_only_without_graph(tmp_path, monkeypatch):
+def test_stream_agent_auto_routes_visible_chat_only_without_graph(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
     import agent
     import providers.readiness as readiness
@@ -119,11 +139,13 @@ def test_stream_agent_auto_routes_chat_only_without_graph(tmp_path, monkeypatch)
 
     monkeypatch.setattr(agent, "get_agent_graph", _boom)
     monkeypatch.setattr(agent, "stream_chat_only", lambda *args, **kwargs: iter([("token", "chat"), ("done", "chat")]))
-    monkeypatch.setattr(
-        readiness,
-        "evaluate_runtime_readiness",
-        lambda model_label: SimpleNamespace(selected_mode="chat_only", selection_reason="chat ready"),
-    )
+    captured = {}
+
+    def _readiness(model_label, **kwargs):
+        captured["probe_ollama_tools"] = kwargs.get("probe_ollama_tools")
+        return SimpleNamespace(selected_mode="chat_only", selection_reason="chat ready")
+
+    monkeypatch.setattr(readiness, "evaluate_runtime_readiness", _readiness)
 
     events = list(agent.stream_agent(
         "hi",
@@ -132,6 +154,143 @@ def test_stream_agent_auto_routes_chat_only_without_graph(tmp_path, monkeypatch)
     ))
 
     assert events == [("token", "chat"), ("done", "chat")]
+    assert captured["probe_ollama_tools"] is False
+
+
+def test_stream_agent_logs_resolved_runtime_decision(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
+    import agent
+    import providers.readiness as readiness
+
+    monkeypatch.setattr(
+        readiness,
+        "evaluate_runtime_readiness",
+        lambda model_label, **kwargs: SimpleNamespace(
+            selected_mode="agent",
+            selection_reason="agent ready",
+            agent=SimpleNamespace(context_window=65536),
+            chat=SimpleNamespace(context_window=65536),
+        ),
+    )
+    monkeypatch.setattr(agent, "get_agent_graph", lambda *args, **kwargs: object())
+    monkeypatch.setattr(agent, "_should_summarize", lambda *args, **kwargs: False)
+    monkeypatch.setattr(agent, "_stream_graph", lambda *args, **kwargs: iter([("done", "agent")]))
+
+    with caplog.at_level(logging.INFO, logger="agent"):
+        events = list(agent.stream_agent(
+            "hi",
+            ["thoth_status"],
+            {"configurable": {"thread_id": "thread-chat", "runtime_surface": "normal_chat", "runtime_mode": "auto"}},
+        ))
+
+    assert events == [("done", "agent")]
+    runtime_logs = [record.message for record in caplog.records if "runtime decision:" in record.message]
+    assert runtime_logs
+    assert "requested=auto" in runtime_logs[-1]
+    assert "selected=agent" in runtime_logs[-1]
+    assert "tools_enabled=1" in runtime_logs[-1]
+    assert "tools_bound=True" in runtime_logs[-1]
+
+
+def test_thoth_status_model_reports_effective_runtime(monkeypatch):
+    import agent
+    import models
+    import providers.readiness as readiness
+    import providers.resolution as resolution
+    import tools.thoth_status_tool as thoth_status_tool
+
+    override_token = models._active_model_override.set("model:ollama:local-chat:14b")
+    agent._set_active_runtime_context(
+        thread_id="thread-chat",
+        runtime_surface="normal_chat",
+        requested_runtime_mode="auto",
+        selected_runtime_mode="chat_only",
+        runtime_reason="chat model",
+        model_override="model:ollama:local-chat:14b",
+        enabled_tool_names=(),
+    )
+    monkeypatch.setattr(models, "get_current_model", lambda: "model:ollama:qwen3.6:27b")
+    monkeypatch.setattr(models, "get_context_size", lambda model=None: 32768)
+    monkeypatch.setattr(models, "get_provider_emoji", lambda model: "model")
+    monkeypatch.setattr(models, "get_user_context_size", lambda: 32768)
+    monkeypatch.setattr(models, "get_cloud_context_size", lambda: 131072)
+    monkeypatch.setattr(
+        resolution,
+        "resolve_provider_config",
+        lambda *args, **kwargs: SimpleNamespace(
+            runtime_model="local-chat:14b",
+            provider_id="ollama",
+            provider_display_name="Ollama Local",
+            execution_location="local",
+            risk_label="local_private",
+        ),
+    )
+    monkeypatch.setattr(
+        readiness,
+        "evaluate_runtime_readiness",
+        lambda *args, **kwargs: SimpleNamespace(
+            selected_mode="chat_only",
+            selection_reason="chat ready",
+        ),
+    )
+
+    try:
+        output = thoth_status_tool._query_model()
+    finally:
+        models._active_model_override.reset(override_token)
+
+    assert "model:ollama:local-chat:14b" in output
+    assert "Runtime model: local-chat:14b" in output
+    assert "Readiness: Chat Only - tools and actions are off (chat ready)" in output
+    assert "Active turn runtime: Chat Only - tools and actions are off, requested auto on normal_chat" in output
+    assert "Override active (global default: model:ollama:qwen3.6:27b)" in output
+
+
+def test_ollama_parameter_schema_error_is_agent_mode_failure():
+    import agent
+
+    message = "expected element type <function> but have <parameter> (status code: -1)"
+
+    assert agent._tool_support_error(message) is True
+    assert "does not support tool calling" in agent._friendly_api_error(
+        message,
+        "model:ollama:qwen3.6:27b",
+    )
+
+
+def test_stream_agent_auto_does_not_silently_fallback_on_tool_schema_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
+    import agent
+    import providers.readiness as readiness
+
+    message = "expected element type <function> but have <parameter> (status code: -1)"
+    monkeypatch.setattr(
+        readiness,
+        "evaluate_runtime_readiness",
+        lambda model_label, **kwargs: SimpleNamespace(selected_mode="agent", selection_reason="agent ready"),
+    )
+    monkeypatch.setattr(agent, "get_agent_graph", lambda *args, **kwargs: object())
+    monkeypatch.setattr(agent, "_should_summarize", lambda *args, **kwargs: False)
+    monkeypatch.setattr(agent, "_stream_graph", lambda *args, **kwargs: iter([("error", message)]))
+    monkeypatch.setattr(agent, "stream_chat_only", lambda *args, **kwargs: iter([("token", "chat"), ("done", "chat")]))
+
+    events = list(agent.stream_agent(
+        "hi",
+        [],
+        {"configurable": {"thread_id": "thread-chat", "runtime_surface": "normal_chat", "runtime_mode": "auto"}},
+    ))
+
+    assert events == [("error", message)]
+
+
+def test_agent_runtime_context_overrides_stale_chat_only_claims():
+    import agent
+
+    context = agent._agent_runtime_system_context()
+
+    assert "Agent Mode is active" in context
+    assert "Do not claim this turn is Chat Only" in context
+    assert "long-term memory" in context
 
 
 def test_agent_graph_uses_provider_qualified_override(monkeypatch):

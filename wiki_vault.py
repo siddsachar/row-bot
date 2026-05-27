@@ -701,6 +701,11 @@ def parse_entity_md(filepath: str | pathlib.Path) -> dict | None:
                 if val:
                     items.append(val)
             value = ", ".join(items)
+        if isinstance(value, str) and value and value[0] in "[{\"0123456789tfn-":
+            try:
+                value = json.loads(value)
+            except Exception:
+                pass
         fm[key] = value
 
     entity_id = fm.get("id", "")
@@ -712,6 +717,15 @@ def parse_entity_md(filepath: str | pathlib.Path) -> dict | None:
                            body, re.DOTALL)
     description = desc_match.group(1).strip() if desc_match else ""
 
+    known = {
+        "id", "type", "subject", "aliases", "tags", "source", "created", "updated",
+    }
+    parsed_props = {
+        key: value
+        for key, value in fm.items()
+        if key not in known and value not in ("", None)
+    }
+
     return {
         "id": entity_id,
         "entity_type": fm.get("type", "fact"),
@@ -720,6 +734,7 @@ def parse_entity_md(filepath: str | pathlib.Path) -> dict | None:
         "aliases": fm.get("aliases", ""),
         "tags": fm.get("tags", ""),
         "source": fm.get("source", "live"),
+        "properties": parsed_props,
         "created_at": fm.get("created", ""),
         "updated_at": fm.get("updated", ""),
     }
@@ -798,8 +813,26 @@ def import_from_vault(entity_id: str, filepath: str | pathlib.Path) -> bool:
         return False
 
     import knowledge_graph as kg
+    import memory_evolution as memory_evo
 
     try:
+        existing = kg.get_entity(entity_id)
+        existing_props = existing.get("properties", {}) if existing else {}
+        parsed_props = parsed.get("properties", {}) or {}
+        if "status" not in parsed_props:
+            parsed_props["status"] = "active"
+        merged_props = memory_evo.merge_properties(
+            existing_props,
+            parsed_props,
+            source=parsed.get("source", (existing or {}).get("source", "")),
+            entity_type=parsed.get("entity_type", (existing or {}).get("entity_type", "")),
+            actor="wiki",
+            source_context={
+                "actor": "wiki",
+                "vault_path": str(filepath),
+            },
+            high_authority=True,
+        )
         kg.update_entity(
             entity_id,
             subject=parsed.get("subject"),
@@ -807,6 +840,17 @@ def import_from_vault(entity_id: str, filepath: str | pathlib.Path) -> bool:
             description=parsed.get("description"),
             aliases=parsed.get("aliases"),
             tags=parsed.get("tags"),
+            source=parsed.get("source"),
+            properties=merged_props,
+        )
+        memory_evo.append_journal(
+            "wiki_import",
+            entity_id=entity_id,
+            actor="wiki",
+            reason="external_vault_edit",
+            source=parsed.get("source", ""),
+            new_status=merged_props.get("status"),
+            details={"vault_path": str(filepath)},
         )
         logger.info("Imported vault changes for entity %s (%s)",
                      entity_id, parsed.get("subject"))

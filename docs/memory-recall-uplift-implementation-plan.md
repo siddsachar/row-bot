@@ -523,39 +523,688 @@ Expected result:
 
 ### Phase 3 - Retrieval Quality
 
-1. Add field-aware keyword scoring.
-2. Consider SQLite FTS5/BM25 for `subject`, `aliases`, `tags`,
-   `description`.
-3. Add candidate reranking tests.
-4. Add memory-source/tier filtering for auto-recall.
+Decision: implement Phase 3 as a retrieval architecture pass, not a prompt
+patch pass. Retrieval should become more reliable without making Agent turns
+feel slower or turning Chat Only into hidden memory mode.
+
+Confirmed design choices:
+
+1. Add SQLite FTS5/BM25 as an additive retrieval layer.
+   - Create an `entities_fts` virtual table over `subject`, `aliases`, `tags`,
+     and `description`, with `entity_id` as an unindexed lookup column.
+   - Use `unicode61 remove_diacritics 2` tokenization.
+   - Do not use stemming in the first pass; personal names, codenames,
+     acronyms, and aliases matter more than stemming.
+   - Keep the existing field-aware keyword fallback. If FTS5 is unavailable,
+     retrieval must still work.
+
+2. Maintain FTS in Python, not SQLite triggers.
+   - Add helpers such as `_ensure_fts()`, `_upsert_fts_entity(...)`,
+     `_delete_fts_entity(...)`, `rebuild_fts_index()`, and
+     `fts_search_entities(...)`.
+   - Wire FTS maintenance into `save_entity()`, `update_entity()`,
+     `delete_entity()`, `delete_all_entities()`, and batch rebuild paths.
+   - Prefer visible Python-managed sync because the graph and FAISS indexes are
+     already maintained this way.
+
+3. Include document/resource memories in FTS candidate retrieval by default.
+   - Do not hide documents from candidate retrieval.
+   - Continue to gate resource/document injection in `memory_policy.py` unless
+     the query anchors to the document, upload, title/source, or document topic.
+   - Explicit `search_memory` remains broader and may show resource memories
+     when the user asks to search memory.
+
+4. Fuse candidates by entity ID across retrieval sources.
+   - Sources: semantic, FTS/BM25, exact field-aware keyword, and graph-expanded.
+   - Preserve raw signals on each candidate:
+     - `semantic_score`
+     - `lexical_score`
+     - `bm25_score`
+     - `field_score`
+     - `decay_multiplier`
+     - `via`
+     - `retrieval_debug`
+   - If multiple sources hit the same entity, preserve source details in
+     `retrieval_debug.sources`. Keep compatibility for callers that expect
+     `via` to be a string by using `"hybrid"` when combined.
+
+5. Keep exact field matches strongest.
+   - Exact normalized subject or alias matches bypass semantic seed
+     requirements.
+   - Tag matches are medium-high confidence.
+   - Subject/alias partial matches outrank description-only matches.
+   - Description-only BM25/LIKE hits are candidates, not automatic context.
+
+6. Add graph expansion from high-confidence lexical hits.
+   - Continue graph expansion from semantic seeds.
+   - Also expand from exact subject/alias hits and strong subject/title FTS hits.
+   - Do not expand weak description-only FTS hits.
+   - Include relation confidence and connecting relation metadata.
+
+7. Tighten auto-recall policy validation.
+   - Add query specificity scoring.
+   - Require stronger score and clearer top-candidate margin for broad queries.
+   - Require higher confidence for description-only matches.
+   - Preserve status/supersession/resource filters already added in Phase 1.
+
+8. Add a rolling recall trace journal.
+   - Keep structured logging.
+   - Also persist recent recall decisions under app data, capped to a small
+     rolling JSON file.
+   - Store decision reason, candidate count, selected count, top scores,
+     injected block size, and retrieval sources.
+   - Do not build a UI trace panel in Phase 3.
+
+9. Latency and UX constraints.
+   - Auto-recall should remain foreground-cheap: target single-digit
+     milliseconds for SQL/FTS candidate work on normal personal-memory sizes,
+     excluding embedding latency already paid by semantic search.
+   - Bound all retrieval limits before scoring and graph expansion.
+   - Run FTS after hard policy guards so greetings, runtime/status requests,
+     and file-only current-turn analysis do not pay unnecessary retrieval cost.
+   - Graph expansion must be limited to high-confidence seeds and low hop
+     counts.
+   - If FTS maintenance fails, log and continue with existing retrieval rather
+     than blocking the user's turn.
+   - The user-facing effect should be better answers when prior context is
+     clearly relevant, and no visible slowdown or unrelated memory leakage when
+     it is not.
+
+10. User-experience acceptance criteria.
+    - Ordinary turns should not feel like a different mode. If memory is not
+      clearly useful, the user should see no trace of recall.
+    - Relevant memory should make answers feel naturally informed, not like the
+      assistant is reciting database rows.
+    - Auto-recall must not make current-turn file/image analysis worse by
+      injecting unrelated personal facts.
+    - When recall is skipped, no user-visible apology or explanation is needed.
+      The decision should be observable in logs/journal only.
+    - When recall is injected, the block must stay small enough that tool
+      context, file context, and the latest request remain dominant.
+    - Exact personal facts should feel dependable: names, aliases, codenames,
+      preferences, projects, and relationships should be found without the user
+      needing to know the exact phrasing.
+    - Bad recall is worse than no recall. Prefer skipping weak candidates over
+      injecting plausible but irrelevant memory.
+
+11. Tests for Phase 3.
+    - FTS table creation and rebuild.
+    - FTS unavailable fallback.
+    - Exact subject/alias beats description-only hit.
+    - FTS finds no-semantic-seed results.
+    - Candidate retrieval remains no-touch.
+    - Explicit `search_memory` touches only displayed/filtered results.
+    - Auto-recall rejects broad or weak memory matches.
+    - Document/resource memories are candidates but not injected unless
+      anchored.
+    - Graph expansion from exact/strong lexical hits works.
+    - Recall trace journal records skip and inject decisions.
 
 Expected result:
 
 - Exact subject/alias/tag matches are reliable.
 - Semantic near-misses are filtered better.
 - Document/resource memories do not leak into unrelated chat.
+- Recall feels helpful, not intrusive or slow.
 
-### Phase 4 - Memory Evolution
+Implementation progress:
 
-1. Add memory status/supersession properties.
-2. Add dream-cycle promotion/staleness logic.
-3. Add contradiction review hooks.
-4. Add importance/heat adjustment based on confirmed recalls and updates.
+- Done: optional FTS5/BM25 index helpers and Python-managed sync for entity
+  save/update/delete, legacy migration, and bulk clear/rebuild paths.
+- Done: candidate fusion across semantic, FTS, keyword, and graph sources with
+  source metadata preserved in `retrieval_debug.sources`.
+- Done: graph expansion from semantic seeds and strong lexical subject/alias/tag
+  hits, while avoiding weak description-only expansion.
+- Done: policy-side rejection of weak description-only matches and rolling
+  `memory_recall_trace.json` journal entries.
+- Done: focused tests for FTS rebuild/search, no-touch retrieval, lexical graph
+  expansion, Agent injection/touch behavior, extraction without graph
+  construction, and trace journaling.
+- Done: real-graph no-touch recall diagnostic against the user's live knowledge
+  graph. Sampled exact-subject, alias, tag, description-derived, guardrail, and
+  resource-anchor queries. Exact-subject probes reached 100% top-1 after
+  punctuation-insensitive phrase matching; alias probes reached 100% top-3.
+  Guardrail probes skipped recall and all retrieval probes preserved
+  `recalled_at`.
+- Remaining quality edge: broad shared tags and description-only probes remain
+  inherently ambiguous. Keep them candidate-visible but conservative for
+  automatic injection.
+
+### Phase 4 - Memory Integrity And Provenance
+
+Decision: implement Phase 4 as a conservative integrity pass, not a broad
+"memory evolution" scoring system. The goal is to prevent wrong recalls,
+preserve provenance, and respect document/wiki/manual authority without adding
+low-trust heat/importance machinery.
+
+Confirmed design direction:
+
+1. Keep Phase 4 intentionally small.
+   - Do not add a broad heat model in this phase.
+   - Do not add automatic importance ranking.
+   - Do not let the dream cycle archive, delete, or supersede user facts.
+   - Do not add a new DB table unless a simple properties/journal approach
+     cannot satisfy tests.
+   - Prefer deterministic helpers over foreground LLM decisions.
+
+2. Add `memory_evolution.py` as a small integrity helper module.
+   - Centralize property normalization and status transitions.
+   - Keep storage in existing `entities.properties` for compatibility.
+   - Keep journal writes best-effort and non-blocking.
+   - Public helpers should be usable by:
+     - `tools/memory_tool.py`
+     - `memory_extraction.py`
+     - `document_extraction.py`
+     - `wiki_vault.py`
+     - `dream_cycle.py`
+     - `memory_policy.py`
+
+3. Standardize minimal memory properties.
+   - Supported `status` values:
+     - `active`: default; eligible for recall.
+     - `archived`: hidden from auto-recall; explicit search may show it.
+     - `superseded`: replaced by a newer memory; hidden from auto-recall
+       unless the user asks for old/history/previous information.
+     - `needs_review`: conflict detected; hidden from auto-recall.
+   - Supported provenance/status properties:
+     - `confidence`: 0.0-1.0, source confidence when available.
+     - `memory_tier`: `core`, `semantic`, `episodic`, or `resource`.
+     - `source_context`: compact dict for thread/document/wiki provenance.
+     - `evidence`: capped list of short snippets or evidence records.
+     - `evidence_count`: integer.
+     - `superseded_by`: entity ID.
+     - `supersedes`: capped list of entity IDs.
+     - `review_reason`: short conflict/review reason.
+     - `last_user_modified_at`: ISO timestamp for manual memory or wiki edits.
+     - `last_evolved_at`: ISO timestamp for helper-driven status changes.
+
+4. Add a rolling `memory_evolution_journal.json`.
+   - Store under the same app data directory as memory/dream journals.
+   - Cap to a small rolling window, for example 200 entries.
+   - Record:
+     - timestamp
+     - action
+     - entity ID(s)
+     - actor: `manual`, `wiki`, `extraction`, `document_extraction`,
+       `dream`, or `system`
+     - reason
+     - source
+     - old/new status where relevant
+   - Journal failures must never break memory save, extraction, recall, or wiki
+     sync.
+
+5. Contradiction handling must be safe by default.
+   - Existing contradiction checks in `tools/memory_tool.py` and
+     `memory_extraction.py` should call a shared helper when a conflict is
+     detected.
+   - On conflict:
+     - do not overwrite the existing memory,
+     - mark the existing entity or related candidate as `needs_review` only
+       when there is a concrete conflict reason,
+     - store `review_reason`,
+     - append a journal entry,
+     - return/report enough detail for the user or future UI to resolve it.
+   - Extraction should not silently create a contradictory replacement for a
+     live/manual/wiki-edited memory.
+
+6. Supersession should be explicit and conservative.
+   - Auto-supersede only when intent is clear:
+     - manual memory update by ID,
+     - explicit correction language already routed through the memory tool,
+     - wiki vault import from an externally edited file,
+     - reprocessing/replacing the same document source.
+   - Do not supersede from vague semantic similarity alone.
+   - Do not let document extraction supersede live/personal memories unless
+     the match is same source or a manual/wiki edit confirms it.
+   - Supersession behavior:
+     - old entity gets `status="superseded"` and `superseded_by=<new_id>`.
+     - new entity gets `supersedes=[old_id]`.
+     - both changes are journaled.
+
+7. Manual memory tool integration.
+   - `_save_memory()`:
+     - Existing exact-subject merge still works.
+     - If contradiction is detected, mark `needs_review` and avoid overwrite.
+     - New live memories should get `source_context.actor="manual"` and
+       `last_user_modified_at`.
+   - `_update_memory()`:
+     - Treat as high-authority user intent.
+     - Preserve existing APIs.
+     - Set/update `last_user_modified_at`.
+     - If replacing a conflicting/superseded state, restore status to `active`
+       unless caller asks otherwise.
+   - `_search_memory()`:
+     - Continue broad explicit search.
+     - Include `status`, `confidence`, `review_reason`, and supersession fields
+       in JSON output when present.
+     - Still touch only shown results.
+
+8. Thread/background extraction integration.
+   - `_dedup_and_save()` should preserve source/provenance properties already
+     added in earlier phases.
+   - When extraction sees a conflict:
+     - call the shared review helper,
+     - do not overwrite high-authority `manual`/`wiki` memories,
+     - do not mark unrelated document/resource memories as conflicting just
+       because semantic similarity is high.
+   - For same-subject, same-source extraction updates:
+     - merge evidence/provenance,
+     - keep status `active`,
+     - update `confidence` if supplied.
+
+9. Document extraction and map-reduce compatibility.
+   - `document_extraction.extract_from_document()` creates a `source_label` of
+     `document:<display_name>`; keep this as the authority boundary.
+   - The document hub media entity should store:
+     - `memory_tier="resource"`
+     - `source_context.kind="document"`
+     - `source_context.display_name`
+     - map/reduce summary metadata where available, such as window count.
+   - Extracted document entities should store:
+     - `source=document:<display_name>`
+     - `memory_tier="resource"` unless clearly promoted elsewhere later.
+     - `source_context.document_title`
+     - `source_context.display_name`
+     - optional chunk/window/page metadata if available.
+   - Reprocessing the same document source may update or supersede memories
+     from the same `source_label`.
+   - Reprocessing a document must not supersede live/manual/wiki memories.
+   - Existing `delete_entities_by_source()` and
+     `delete_entities_by_source_prefix()` remain authoritative for document
+     cleanup.
+
+10. Wiki vault external edit compatibility.
+    - `wiki_vault.check_vault_sync()` remains the detector for external edits.
+    - `wiki_vault.import_from_vault()` treats vault changes as high-authority
+      user edits.
+    - On import:
+      - update entity fields from markdown as today,
+      - merge/normalize properties,
+      - set `last_user_modified_at`,
+      - set `source_context.actor="wiki"`,
+      - restore `status="active"` unless the markdown explicitly encodes a
+        supported status,
+      - append an evolution journal entry.
+    - Export should preserve status/provenance properties in frontmatter/JSON
+      if the existing format supports it, without breaking current markdown
+      parsing.
+    - Thoth-generated exports must continue stamping mtime to avoid false
+      external-edit detection.
+
+11. Dream cycle integration.
+    - Dream may continue duplicate merges, enrichment, relation inference, and
+      relation confidence decay.
+    - Dream may append evolution journal observations.
+    - Dream may mark inferred relations stale/decayed as it already does.
+    - Dream must not:
+      - archive user memories,
+      - supersede personal/live/wiki memories,
+      - mark core/manual/wiki memories stale,
+      - override `last_user_modified_at` protections.
+
+12. Recall policy integration.
+    - Auto-recall skips:
+      - `archived`
+      - `needs_review`
+      - `superseded`, unless the query asks for history/old/previous.
+    - Explicit `search_memory` may show all statuses with labels.
+    - Candidate retrieval remains no-touch.
+    - Touching selected/shown memories must not change status.
+
+13. Scope control and non-goals for Phase 4.
+    - No Phase 5 UI controls yet.
+    - No automatic deletion.
+    - No broad heat/importance score.
+    - No foreground LLM router.
+    - No hidden Chat Only memory behavior.
+    - No schema rewrite.
+    - No brittle prompt patches for specific questions.
+
+Implementation chunks:
+
+1. Add `memory_evolution.py`.
+   - Property normalization helpers.
+   - Status transition helpers.
+   - Evidence/provenance merge helpers.
+   - Journal append/load helpers.
+   - Focused unit tests.
+   - Status: done.
+
+2. Wire manual memory paths.
+   - Update `_save_memory()` conflict handling to call evolution review helper.
+   - Update `_update_memory()` to mark high-authority user edits.
+   - Add status/provenance fields to explicit search output.
+   - Focused tests for conflict, update, search output, and no-touch behavior.
+   - Status: done.
+
+3. Wire extraction paths.
+   - Update `memory_extraction._dedup_and_save()` to use provenance merge
+     helpers and review helper on contradictions.
+   - Preserve existing extraction journals and confidence gates.
+   - Focused tests for no overwrite of manual/wiki memory and same-source
+     provenance merge.
+   - Status: done.
+
+4. Wire document extraction paths.
+   - Add document source context/properties to the hub entity and extracted
+     entities.
+   - Allow same-document source update/supersession only within the same
+     `source_label`.
+   - Preserve delete-by-source cleanup behavior.
+   - Focused tests for map-reduce provenance, reprocess same source, and
+     cleanup.
+   - Status: done.
+
+5. Wire wiki vault import/export.
+   - Preserve existing markdown compatibility.
+   - Treat external edits as high-authority user edits.
+   - Preserve mtime stamping behavior for Thoth exports.
+   - Focused tests for `check_vault_sync()`, `import_from_vault()`, property
+     preservation, and no false sync after export.
+   - Status: done.
+
+6. Wire recall/dream compatibility.
+   - Ensure `memory_policy.py` status checks include `needs_review`.
+   - Confirm dream cycle does not mutate protected statuses.
+   - Add static/source checks in `tests/test_suite.py`.
+   - Status: done for recall policy and protected-status tests; dream remains
+     conservative by policy and existing behavior.
+
+7. Run verification.
+   - Focused tests after each chunk.
+   - Compile touched modules.
+   - Real-graph no-touch recall diagnostic.
+   - Full `tests/test_suite.py`.
+   - Status: done.
+
+Implementation progress:
+
+- Done: `memory_evolution.py` with property normalization, status transitions,
+  provenance/evidence merge helpers, supersession helpers, and rolling journal.
+- Done: manual memory tool saves/updates now mark high-authority user edits,
+  conflict detections now mark `needs_review`, and explicit search includes
+  status/provenance fields while still touching only shown results.
+- Done: thread extraction preserves nested provenance, marks concrete conflicts
+  for review, and avoids overwriting high-authority memories on conflict.
+- Done: document map-reduce extraction stores document/resource provenance on
+  hub and extracted entities while preserving source-label cleanup boundaries.
+- Done: wiki vault import treats external markdown edits as high-authority user
+  intent, preserves properties, restores active status unless explicitly set,
+  and keeps export mtime behavior compatible with `check_vault_sync()`.
+- Done: auto-recall skips `needs_review` and `superseded` memories by default,
+  while history queries can still consider superseded memories.
+- Done: focused Phase 4 tests, focused recall tests, compile checks, full suite,
+  and live no-touch recall sanity check.
 
 Expected result:
 
-- Memories evolve over time instead of accumulating contradictions.
+- Contradictory memories are not silently merged or recalled.
+- External wiki edits are treated as user intent.
+- Document map-reduce provenance remains attached to generated memories.
+- Document deletion/reprocessing remains predictable.
+- Dream cycle stays useful but conservative.
+- Auto-recall becomes safer without adding low-value complexity.
 
-### Phase 5 - UI And Auditability
+Real-world validation plan:
 
-1. Surface provenance/source/evidence in memory detail views.
-2. Add recall trace view or debug log toggle.
-3. Add filters for tier/status/source.
-4. Add user controls to pin/archive/supersede memories.
+1. Live no-touch recall audit.
+   - Run against the real app data directory.
+   - Do not call mutation paths such as `touch_recalled()`,
+     `graph_enhanced_recall()`, manual save/update, extraction save, wiki
+     import, or delete.
+   - Sample real subjects and aliases.
+   - Measure hit rate, top-1, top-3, and no-touch behavior.
+   - Confirm greeting/runtime/file-only guardrails skip recall.
+
+2. Cloned-real mutation suite.
+   - Copy/backup the real knowledge graph into a workspace-local clone.
+   - Set `THOTH_DATA_DIR` to the clone before importing Thoth modules.
+   - Create only prefixed test memories/documents/wiki files.
+   - Run all mutating Phase 4 touchpoints in the clone.
+   - Clean up prefixed test entities and cloned wiki artifacts at the end.
+
+3. Manual memory evolution cases.
+   - Create `__PHASE4_TEST__` memories.
+   - Verify contradiction handling marks `needs_review` and does not overwrite.
+   - Verify explicit search shows status/review fields and only touches shown
+     results.
+   - Verify manual update restores `active`, sets `last_user_modified_at`, and
+     records actor `manual`.
+
+4. Recall integration cases.
+   - Active memory can be selected for direct query.
+   - `needs_review` is skipped by auto-recall.
+   - `superseded` is skipped by default.
+   - `superseded` can be considered for history/old/previous queries.
+   - Candidate retrieval remains no-touch.
+
+5. Extraction/document cases.
+   - `_dedup_and_save()` preserves provenance and avoids overwriting
+     high-authority memories on conflict.
+   - Document map-reduce creates a hub with resource provenance.
+   - Extracted document entities keep `source=document:<name>` and resource
+     provenance.
+   - Delete-by-source removes document test entities.
+
+6. Wiki external edit cases.
+   - Export a cloned test memory to a cloned wiki vault.
+   - Modify markdown externally.
+   - `check_vault_sync()` detects the edit.
+   - `import_from_vault()` updates the DB as high-authority wiki intent.
+   - A fresh Thoth export does not create false sync.
+
+7. Journal/audit cases.
+   - `memory_evolution_journal.json` records conflict review, manual update,
+     wiki import, and supersession.
+   - Journal writes remain bounded and best-effort.
+
+8. Quality gates.
+   - Live exact-subject top-1 should be at least 90%.
+   - Live alias top-3 should be at least 90%.
+   - All live audit checks must be no-touch.
+   - Deterministic clone mutation assertions should pass at 100%.
+   - Cleanup must leave zero prefixed test entities in the clone.
+
+Real-world validation results:
+
+- Done: automated harness saved at `.tmp/run_phase4_real_world_tests.py`.
+- Done: real `~/.thoth/memory.db` was copied via SQLite backup into
+  `.tmp/phase4_real_fixture`; mutation tests ran only against the clone.
+- Done: results saved at `.tmp/phase4_real_world_results.json` and
+  `.tmp/phase4_real_world_results.md`.
+- Result: 22/22 checks passed.
+- Recall quality on cloned real memories:
+  - exact subject: 12/12 hit, 12/12 top-1, no-touch true.
+  - alias: 8/8 hit, 7/8 top-1, 8/8 top-3, no-touch true.
+- Passed touchpoint checks:
+  - guardrail recall skips
+  - manual conflict review
+  - explicit search status output and shown-result touch path
+  - manual high-authority update
+  - active recall selection
+  - `needs_review` recall skip
+  - `superseded` default skip and history-query availability
+  - extraction conflict protection
+  - document/resource provenance
+  - document map-reduce provenance and delete-by-source cleanup
+  - wiki external edit detection/import
+  - evolution journal entries
+  - prefixed test entity cleanup
+- Issue found and fixed during validation: manual memory updates set
+  high-authority properties but did not append a `user_modified` journal entry.
+- Harness adjustment: synthetic active-recall probe now uses a unique anchor
+  subject to avoid colliding with real city/place memories.
+
+### Phase 5 - Knowledge Audit UX
+
+Final design choices:
+
+- Keep Phase 5 inside Settings > Knowledge. Do not add a new top-level page.
+- Use the existing shared entity editor for both Settings and graph edits.
+- Add a compact needs-review queue instead of a full conflict/diff console.
+- Do not add pinning yet. Pinning should wait until recall policy has a clear
+  pinned-memory behavior; otherwise it creates fake control.
+- Make recall trace visible but collapsed by default.
+- Show provenance/evidence as readable summaries, not raw JSON.
+- Keep graph changes minimal: enrich the graph detail card with status/source
+  metadata when cheap, but avoid status colors or dense graph visual changes in
+  this phase.
+- Put quick actions in list/detail views for Archive, Restore, and Resolve
+  Review. Keep Supersede in the editor because it needs a target memory ID and
+  should feel deliberate.
+
+Goal:
+
+- Let the user answer: "What does Thoth know, why does it know it, did it use
+  it, and how can I correct it?"
+
+Current touch-point findings:
+
+- `ui/settings.py::_build_knowledge_tab()` is the main Knowledge UI surface.
+  It already has graph metrics, wiki vault controls, category/search browsing,
+  bulk delete, per-memory details, Delete, and Edit.
+- `ui/settings.py` already opens `ui.entity_editor.open_entity_editor()` from
+  the Browse knowledge details card.
+- `ui/graph_panel.py` already has a hidden `graph-edit-trigger` button. The
+  graph detail card stores the clicked node ID in `window._thothGraph` and opens
+  the same `ui.entity_editor.open_entity_editor()` function. Therefore graph
+  edits and Settings edits can share one upgraded editor.
+- `ui/entity_editor.py` currently edits subject, type, description, aliases,
+  tags, and relations. It saves directly through `knowledge_graph.update_entity`,
+  so Phase 5 must preserve normal field editing while also marking manual/high
+  authority changes through `memory_evolution.mark_user_modified()` or an
+  equivalent helper.
+- `memory_evolution.py` already provides statuses, provenance merge helpers,
+  `set_status`, `mark_needs_review`, `mark_superseded`, `mark_user_modified`,
+  and `get_journal`.
+- `memory_policy.py` already writes compact recall traces to
+  `memory_recall_trace.json`.
+- `memory.py` remains a compatibility wrapper around `knowledge_graph.py`; UI
+  code can keep using it for browsing but should parse entity properties through
+  audit helpers rather than duplicating JSON logic inline.
+
+Implementation plan:
+
+1. Add `ui/knowledge_audit.py` as a small pure-helper module.
+   - Parse memory/entity `properties` safely.
+   - Normalize display status, tier, source bucket, confidence, recalled time,
+     evidence count, source context, supersession fields, and review reason.
+   - Provide `filter_memories(memories, status, source, tier, query)` for the
+     Knowledge tab.
+   - Provide `audit_summary(entity_or_memory)` for row chips/details.
+   - Provide `load_recent_recall_traces(limit=10)` by reading
+     `memory_policy._RECALL_TRACE_FILE` defensively.
+   - Provide `load_recent_evolution_journal(limit=20)` via
+     `memory_evolution.get_journal()`.
+
+2. Update Settings > Knowledge overview.
+   - Add status metric chips: Active, Needs review, Superseded, Archived.
+   - Add source/tier summary chips when values exist.
+   - Keep the existing graph and wiki vault sections intact.
+
+3. Update Browse knowledge filters and rows.
+   - Keep category and search.
+   - Add Status filter: All, Active, Needs review, Superseded, Archived.
+   - Add Source filter: All, Manual/live, Extraction, Document, Wiki/dream,
+     Other.
+   - Add Tier filter: All, Core, Semantic, Episodic, Resource.
+   - Render compact chips on each memory row for status, tier, source bucket,
+     confidence, and review state.
+   - Style `needs_review` as attention-worthy and `archived`/`superseded` as
+     muted, but keep the layout calm.
+
+4. Add a Needs Review queue above Browse knowledge.
+   - Show only `needs_review` memories, capped to a small number with a count.
+   - Show subject, type, reason, source, and compact candidate/provenance info.
+   - Actions: Edit, Resolve Review, Archive.
+   - Resolve Review should set status to `active` and clear review fields through
+     the evolution layer.
+
+5. Upgrade `ui/entity_editor.py`.
+   - Keep it as the single shared full editor used by Settings and the graph.
+   - Add an Audit/Provenance expansion with status, source, tier, confidence,
+     source context, evidence count/snippets, recalled_at, recall_count,
+     supersedes/superseded_by, and review reason.
+   - Add action buttons: Archive, Restore, Resolve Review.
+   - Add a deliberate Supersede field/action where the user enters the
+     replacement memory ID.
+   - On normal Save, call `kg.update_entity` for the visible fields, then call
+     `memory_evolution.mark_user_modified(actor="manual", source_context=...)`
+     so manual edits preserve provenance and become high-authority corrections.
+   - After status/evolution actions, refresh the loaded entity in the dialog and
+     call `on_saved` so Settings refreshes.
+
+6. Add recall trace and evolution journal sections.
+   - Add collapsible "Recent recall decisions" in Settings > Knowledge.
+   - Show timestamp, allowed/skipped, reason, selected count, block size, and top
+     scores/rejections compactly.
+   - Add collapsible "Memory change log" showing recent evolution journal rows:
+     action, actor, reason, status transition, and entity IDs.
+   - These views are observational only; they must not touch `recalled_at`.
+
+7. Lightly enrich the graph detail card.
+   - Extend `knowledge_graph.graph_to_vis_json()` node extras with normalized
+     status, tier, confidence, review reason, superseded_by, and recalled_at.
+   - Show those fields in the existing graph detail card only as compact
+     metadata.
+   - Keep the existing Edit link. It already opens the shared editor, so the
+     full editing/provenance controls will be available from graph details after
+     the editor upgrade.
+
+8. Testing plan for Phase 5.
+   - Add focused tests for `ui/knowledge_audit.py` filtering and summaries.
+   - Add tests that the shared editor source imports/uses `memory_evolution` and
+     preserves the graph/settings single-editor path.
+   - Add tests that Settings exposes status/source/tier filters, needs-review
+     queue, recall trace, and evolution journal sections.
+   - Add tests that `graph_to_vis_json()` includes audit metadata without
+     breaking existing node fields.
+   - Run targeted tests first:
+     `pytest tests/test_memory_evolution.py tests/test_memory_recall_uplift.py`
+   - Then run full validation:
+     `python tests/test_suite.py`
+
+Implementation progress:
+
+- Done: added `ui/knowledge_audit.py` with pure helpers for property parsing,
+  audit summaries, status/source/tier filtering, status counts, recall trace
+  loading, and evolution journal loading.
+- Done: added focused tests for audit summaries, filters, trace loading, graph
+  metadata, and Phase 5 UI/editor source wiring.
+- Done: Settings > Knowledge now shows status summary chips, status/source/tier
+  filters, a compact Needs Review queue, per-memory audit chips/details,
+  Archive/Restore/Resolve actions, Recent recall decisions, and Memory change
+  log. Status chips refresh after list/editor correction actions.
+- Done: `ui.entity_editor.open_entity_editor()` remains the shared editor used
+  by both Settings and graph details, now with an Audit and Provenance panel,
+  Archive/Restore/Resolve controls, deliberate Supersede-by-ID, and manual
+  save provenance through `memory_evolution.mark_user_modified()`.
+- Done: `knowledge_graph.graph_to_vis_json()` now includes compact audit
+  metadata for graph nodes, and the graph detail card displays the metadata
+  while preserving the existing shared Edit path.
+- Verified: `pytest tests/test_knowledge_audit.py --basetemp
+  .tmp/pytest-phase5-audit` passed 5/5.
+- Verified: `pytest tests/test_knowledge_audit.py tests/test_memory_evolution.py
+  tests/test_memory_recall_uplift.py --basetemp .tmp/pytest-phase5-targeted`
+  passed 30/30.
+- Verified: touched modules compile.
+- Verified: full `python tests/test_suite.py` passed with 1911 PASS, 0 FAIL,
+  4 WARN.
+- Issue found and fixed during validation: `ui/knowledge_audit.py` needed to be
+  added to `installer/thoth_setup.iss` so packaged builds include the new UI
+  helper.
+- Superseded runtime validation note: Normal Chat auto-mode briefly used a
+  hidden send-time Ollama tool probe and recoverable Chat Only fallback for
+  local tool-schema failures. That was later found to make the visible Agent
+  Mode badge diverge from the actual runtime. The Runtime Mode Repair section
+  below is now authoritative: visible readiness and send-time readiness share
+  the same decision, and Agent turns no longer silently downgrade to Chat Only.
 
 Expected result:
 
-- The user can inspect why Thoth remembered something and correct it.
+- The user can inspect why Thoth remembered something, see whether recall used
+  it, and correct/archive/supersede it from both Settings and graph detail
+  entry points without changing Chat Only semantics or regressing Agent recall.
 
 ## Test Plan
 
@@ -619,6 +1268,800 @@ Add focused tests before broad full-suite runs.
 - Do not add broad prompt hacks for specific user phrases.
 - Do not change Developer, Designer, workflows, approvals, or Agent Mode
   runtime strictness.
+
+## Runtime Mode Repair Implementation Memory
+
+### 2026-05-26 Diagnosis
+
+Observed failure thread: `5cf5a899dd27`.
+
+Symptoms:
+
+- The UI banner showed `Agent Mode` for `model:ollama:qwen3.6:27b`.
+- The actual send path routed the turn through dedicated Chat Only runtime.
+- The model then obeyed the Chat Only system prompt and told the user tools were
+  unavailable.
+- A later turn in the same thread used `thoth_status`, proving the thread could
+  later run with tools enabled and that the behavior was genuinely inconsistent.
+
+Root causes:
+
+1. Normal chat sends `runtime_mode="auto"`, so the visible mode is not the
+   actual runtime contract.
+2. The model banner evaluates readiness without an Ollama tool probe.
+3. The send path evaluates readiness with an Ollama tool probe.
+4. For large local Ollama models such as `qwen3.6:27b`, the live tool probe can
+   time out; timeout was treated as Chat Only rather than unknown/failed Agent
+   verification.
+5. `stream_agent()` silently fell back from Agent-capable auto mode to Chat Only
+   and injected the Chat Only prompt.
+6. Chat Only prompt behavior could claim "committed to memory" even when
+   long-term memory tools were unavailable.
+
+Implementation requirements:
+
+- Make the visible runtime mode and send-time runtime mode share one decision.
+- Do not silently downgrade a visible Agent Mode turn to Chat Only.
+- Treat Ollama probe timeout as an Agent verification failure/unknown state, not
+  as proof the model should be run as Chat Only.
+- If Chat Only is selected, the UI must honestly show Chat Only before the user
+  sends.
+- Chat Only must not claim long-term memory writes. It may only say the detail
+  can remain in the current thread.
+- If a thread transitions from Chat Only to Agent Mode, Agent Mode must include
+  an authoritative current-runtime statement so stale Chat Only claims in
+  transcript history do not override tool availability.
+- Add tests for banner/send agreement, no silent downgrade, Chat Only memory
+  wording, and Agent transition authority.
+
+### 2026-05-26 Implementation Progress
+
+- Done: normal-chat `auto` runtime now uses the same readiness path as the
+  visible model banner (`probe_ollama_tools=False`), removing the hidden
+  stricter send-time Ollama probe.
+- Done: `stream_agent()` no longer silently falls back from an Agent-capable
+  `auto` turn into Chat Only after a tool-schema/tool-support error.
+- Done: Agent Mode injects a current-runtime system context that says Agent
+  Mode is active, tools are available through the provided interface, and stale
+  Chat Only claims in earlier transcript messages must not override the current
+  turn.
+- Done: Chat Only prompt now explicitly says memory/save/forget requests cannot
+  be written to long-term memory and can only be kept in the current thread.
+- Done: Ollama probe timeout is now treated as an inconclusive/blocked Agent
+  verification result, not proof that the model should be routed to Chat Only.
+- Done: focused `tests/test_chat_only_runtime.py` coverage updated for no
+  hidden Ollama probe, no silent Chat Only fallback, Chat Only memory wording,
+  and Agent transition authority.
+- Verified: `pytest tests/test_agent_readiness.py tests/test_chat_only_runtime.py
+  --basetemp .tmp/pytest-runtime-readiness` passed 26/26.
+- Verified: `pytest tests/test_model_picker_regressions.py
+  tests/test_agent_readiness.py tests/test_chat_only_runtime.py --basetemp
+  .tmp/pytest-runtime-mode-2` passed 37/37.
+- Verified: `pytest tests/test_provider_runtime.py tests/test_context_policy.py
+  --basetemp .tmp/pytest-runtime-provider` passed 54/54.
+- Verified: full `python tests/test_suite.py` passed with 1912 PASS, 0 FAIL,
+  4 WARN.
+
+### 2026-05-27 Conservative Runtime Truth Follow-Up
+
+Observed failure thread: `c6b594623608`.
+
+Symptoms:
+
+- The first turn correctly used the real `thoth_status` tool in Agent Mode.
+- After switching the thread to a Chat Only model, later checkpoints were
+  written by the dedicated Chat Only runtime.
+- Later assistant messages nevertheless claimed to use a non-existent
+  `thoth_check` tool and produced "latest news" prose without a web-search
+  tool call.
+
+Conservative fix scope:
+
+- Improve structured runtime logging so every send records the requested
+  runtime, selected runtime, effective model, thread override, readiness
+  reason, context window, enabled tool count, and whether tools are bound.
+- Review and update `thoth_status` so model/runtime/tool reporting matches the
+  current runtime architecture, including thread overrides and Chat Only
+  readiness.
+- Lightly harden Chat Only history construction by removing rich historical
+  Agent tool result bodies from the Chat Only prompt context and replacing them
+  with neutral historical markers.
+- Keep Agent Mode behavior unchanged: no broad Agent prompt edits, no
+  brittle intent routing, and no post-generation rewrite layer.
+- Add focused tests for Chat Only history sanitization, runtime logging shape,
+  status model/runtime reporting, and existing Agent tool binding behavior.
+
+UX goals:
+
+- The visible banner, status tool, logs, and checkpoint source should agree
+  about the effective runtime.
+- Chat Only should remain honest and lightweight without becoming hidden Agent
+  Mode.
+- Debugging future mode/tool issues should not require reconstructing state
+  from checkpoint internals.
+
+Implementation progress:
+
+- Done: added lightweight runtime context tracking and structured runtime
+  decision logs for Agent, Chat Only, blocked, invoke, and resume paths without
+  changing Agent prompts or tool routing.
+- Done: Chat Only history now keeps neutral markers for earlier Agent tool use
+  instead of injecting full historical tool result bodies.
+- Done: `thoth_status` model reporting now includes runtime model, provider,
+  readiness, active turn runtime, and clearer override/default wording.
+- Done: `thoth_status` skill reporting now separates manual skills from tool
+  guides in user-facing status output.
+- Verified: `pytest tests/test_chat_only_runtime.py
+  tests/test_developer_studio_phase10.py --basetemp .tmp/pytest-runtime-truth`
+  passed 54/54.
+- Verified: `pytest tests/test_agent_readiness.py tests/test_provider_runtime.py
+  tests/test_context_policy.py --basetemp .tmp/pytest-runtime-related`
+  passed 67/67.
+- Verified: `python tests/test_suite.py` passed with 1908 PASS, 0 FAIL, 5
+  WARN.
+- Cross-check: implementation stayed within conservative scope. It added
+  observability, status accuracy, and Chat Only context sanitization only; no
+  Agent prompt expansion, explicit tool-intent router, or post-generation
+  rewrite layer was added.
+
+### 2026-05-27 Thinking Bubble Retention Follow-Up
+
+Observed symptom:
+
+- Thinking/reasoning tokens stream live from local thinking models, but the
+  collapsed Thinking disclosure can disappear after the final answer renders or
+  after the transcript refreshes.
+
+Likely root cause:
+
+- `consume_generation()` accumulates streamed reasoning in `gen.thinking_text`,
+  but the final assistant UI message appended to `state.messages` does not
+  persist that text as `message["thinking"]`.
+- Reattach paths reconstruct in-memory assistant messages without carrying
+  `_reattach_gen.thinking_text`.
+
+Conservative fix scope:
+
+- Persist `gen.thinking_text.strip()` into final assistant UI message dicts as
+  `thinking`.
+- Carry thinking through active/done reattach paths.
+- Keep model/runtime behavior unchanged; no prompt edits and no reasoning
+  extraction changes unless tests show a backend drop.
+- Add focused tests for final UI message retention and reattach-message
+  reconstruction.
+
+Implementation progress:
+
+- Done: added `ui.helpers.attach_thinking_to_message()` and used it when final
+  streaming messages are appended to `state.messages`.
+- Done: carried `_reattach_gen.thinking_text` through active and completed
+  generation reattach paths so transcript refreshes keep the collapsed
+  Thinking disclosure.
+- Done: added `tests/test_thinking_retention.py` covering message attachment,
+  final streaming persistence, reattach preservation, and render-path support.
+- Verified: `pytest tests/test_thinking_retention.py --basetemp
+  .tmp/pytest-thinking-retention` passed 5/5.
+- Verified: `pytest tests/test_thinking_retention.py
+  tests/test_chat_only_runtime.py tests/test_developer_studio_phase10.py
+  --basetemp .tmp/pytest-thinking-related` passed 59/59.
+- Verified: `python tests/test_suite.py` passed with 1908 PASS, 0 FAIL, 5
+  WARN.
+- Cross-check: implementation is scoped to UI state retention and reattach
+  rendering. No model runtime, prompt, or reasoning-token extraction behavior
+  was changed.
+
+### 2026-05-27 Reasoning-Only Completion Follow-Up
+
+Observed failure threads: `e59a7689d153` and `2513540578a1`.
+
+Symptoms:
+
+- The local thinking model entered the Reasoning state, then the UI moved to
+  Done without showing any final answer.
+- Checkpoints contain an AI message with empty `content` and populated
+  `additional_kwargs.reasoning_content`.
+- Logs show no API error and no `generation.token/Writing` transition for the
+  two newest runs.
+
+Root cause:
+
+- Some thinking-model completions can end with reasoning content only and no
+  final answer text.
+- The UI finalization path only considered final answer text, tools, charts,
+  images, and videos as output. Reasoning-only generations were not appended to
+  `state.messages`, so transcript refreshes made them disappear.
+
+Conservative fix scope:
+
+- Treat non-empty `gen.thinking_text` as final output for UI persistence.
+- Persist it through the existing `thinking` message field.
+- Keep model/runtime behavior unchanged.
+
+Implementation progress:
+
+- Done: `_has_final_output` now treats `gen.thinking_text` as output so
+  reasoning-only completions are appended to `state.messages`.
+- Done: completed-generation reattach now reconstructs a message when either
+  final answer text or thinking text exists.
+- Done: `tests/test_thinking_retention.py` covers the reasoning-only final
+  output case.
+- Verified: `pytest tests/test_thinking_retention.py --basetemp
+  .tmp/pytest-thinking-retention-2` passed 6/6.
+- Verified: `pytest tests/test_thinking_retention.py
+  tests/test_chat_only_runtime.py tests/test_developer_studio_phase10.py
+  --basetemp .tmp/pytest-thinking-related-2` passed 60/60.
+- Verified: `python tests/test_suite.py` passed with 1908 PASS, 0 FAIL, 5
+  WARN.
+- Cross-check: implementation is scoped to UI persistence and completed-run
+  reattach behavior. No model/runtime behavior, prompts, tool policy, or
+  reasoning-token extraction logic was changed.
+
+### 2026-05-27 Reasoning Completion Diagnostics and Harness
+
+Goal:
+
+- Do not add the recovery fix yet.
+- First add observability and a repeatable live harness to determine whether
+  reasoning-only stops are caused by Ollama/Qwen, LangChain streaming, tool
+  binding, or the full Thoth Agent path.
+
+Implementation:
+
+- Done: added structured stream-completion diagnostics in `agent.py`.
+- Diagnostics now log answer chars/chunks, reasoning chars/chunks, tool call
+  count, tool-result count, finish/done reason, checkpoint answer/reasoning
+  chars, eval count, prompt eval count, loop/browser/user-stop flags, and
+  runtime diagnostics.
+- Done: added `scripts/reasoning_completion_harness.py` for live local-model
+  matrix testing.
+- Harness cases:
+  - direct Ollama streaming API with `think=true`.
+  - LangChain `ChatOllama` streaming with no tools.
+  - LangChain `ChatOllama` streaming with one simple bound tool.
+  - LangChain `ChatOllama` streaming with all enabled Thoth tools bound.
+  - Full Thoth `stream_agent()` with real tools, memory recall, checkpoints,
+    and disposable diagnostic threads.
+
+Automated live results:
+
+- One full matrix pass: 5/5 answered, 0 reasoning-only stops, 0 errors.
+- Three repeated full matrix passes: 15/15 answered, 0 reasoning-only stops,
+  0 errors.
+- Five focused full-Agent passes: 5/5 emitted visible answer text, 0 exact
+  reasoning-only stops, 0 errors.
+
+Notable finding:
+
+- One focused full-Agent run produced only a short visible pre-tool statement,
+  then ended with an empty final AI message whose `reasoning_content` contained
+  malformed tool-call-like text:
+  `<function=wiki_read> <parameter=subject> Dark archives</parameter> ...`.
+- That run had multiple tool calls and a large prompt (`prompt_eval_count`
+  around 42k). It is not the exact original no-token failure, but it strongly
+  suggests Qwen can drift into tool-call syntax inside the thinking channel
+  after tool use, then stop normally with `done_reason=stop`.
+
+Current interpretation:
+
+- Direct Ollama and plain LangChain are healthy for this prompt.
+- Binding many tools and full Agent context did not consistently reproduce
+  the original failure, but full Agent runs show higher variance, occasional
+  unnecessary tool use, and at least one malformed thinking-channel tool-call
+  stop.
+- Next planning should focus on conservative detection/recovery for empty
+  final answers and malformed reasoning-channel tool-call stops, plus whether
+  the Agent should avoid tool use for purely conceptual prompts.
+
+Verification:
+
+- `py_compile agent.py scripts/reasoning_completion_harness.py
+  tests/test_thinking_retention.py` passed.
+- `pytest tests/test_thinking_retention.py tests/test_chat_only_runtime.py
+  tests/test_agent_readiness.py --basetemp .tmp/pytest-reasoning-diagnostics`
+  passed 35/35.
+- `python tests/test_suite.py` passed with 1912 PASS, 0 FAIL, 4 WARN.
+
+### 2026-05-27 Knowledge Edit Crash Investigation
+
+Manual test context:
+
+- Settings > Knowledge.
+- Search Browse Knowledge for `MANUALQA-20260527`.
+- Click Edit.
+- Expected: editor opens with normal fields plus Audit/Provenance.
+- Observed: editor took a while, flashed once, then the Settings dialog
+  collapsed/crashed without an obvious Python traceback.
+
+Investigation findings:
+
+- Main app logs and window logs show no backend traceback around the crash.
+- No explicit client-error crash report was found.
+- The two matching `MANUALQA-20260527` entities are small and structurally
+  normal:
+  - simple fact entities.
+  - small descriptions.
+  - simple audit properties.
+  - no relations.
+- The notable log clue is memory pressure: RSS jumps from roughly 1.76 GB to
+  roughly 6.31 GB near the crash window.
+- Current Knowledge editor eagerly builds:
+  - Audit/Provenance.
+  - Relations.
+  - Add Relation controls.
+  - A peer selector backed by up to 500 entity options on every editor open.
+- The Browse Knowledge page also renders matching memory rows as expansion
+  components, and the editor opens as a nested modal above the Settings dialog.
+
+Current interpretation:
+
+- The issue is probably not corrupted `MANUALQA` data.
+- Most likely causes are client/UI render pressure, NiceGUI component
+  reconciliation, or nested-dialog lifecycle issues.
+- Eager relation-selector construction is a low-value, high-risk render cost.
+
+Proposed next implementation:
+
+- Add editor-open observability first:
+  - log start/success/failure.
+  - include entity id, render timings, relation count, peer-option count.
+  - add stability snapshots before/after Knowledge tab render and editor open.
+  - wrap edit callbacks so UI failures are persisted through
+    `record_ui_callback_error`.
+- Reduce eager UI work:
+  - do not load peer relation options on editor open.
+  - lazy-load peer options only when Add Relation is expanded.
+  - consider paging/virtualization for Browse Knowledge if render pressure
+    remains.
+- Harden nested dialog behavior:
+  - keep the editor safe when opened from Settings.
+  - avoid parent Settings refresh/rebuild while the editor is open.
+  - show an error notification instead of collapsing Settings on editor
+    failure.
+- Add tests:
+  - MANUALQA-shaped entity editor smoke test.
+  - audit/provenance rendering with recalled/user-modified props.
+  - relation options are lazy and not loaded until Add Relation is opened.
+  - browser/manual harness for Settings > Knowledge > search > Edit > save tag.
+
+## UI Performance Overhaul Plan
+
+### Context
+
+Performance issues are now visible in multiple surfaces, not only the
+Knowledge editor:
+
+- Settings tabs can render large component trees synchronously.
+- Knowledge Browse renders many expansion components and nested details.
+- Entity editor opens a nested modal and eagerly builds relation controls.
+- Model/provider settings can spend seconds collecting catalogs/options.
+- Streaming/transcript refresh paths already have special detached behavior,
+  which means UI lifecycle complexity is growing.
+- Logs show event-loop lag and memory spikes, including an RSS jump from
+  roughly 1.76 GB to roughly 6.31 GB around the Knowledge edit crash window.
+
+The goal is a whole-app UI performance architecture, not one-off local
+optimizations.
+
+### Design Principles
+
+1. **Shell first, data later**
+   - UI surfaces must open immediately with lightweight skeletons or
+     placeholders.
+   - Expensive data is loaded asynchronously after the shell renders.
+   - Users should see progress within ~100-200 ms even if data takes seconds.
+
+2. **Lazy by default**
+   - Heavy sections render only when opened or when their data is visible.
+   - Details, relation pickers, provenance, graph neighborhoods, logs, traces,
+     and model catalogs should not load on initial tab/dialog render.
+
+3. **Bounded rendering**
+   - No UI path should render unbounded rows/components.
+   - Lists use paging, incremental loading, or virtualization.
+   - Expansions render their body only when opened.
+
+4. **Cancellable and generation-safe async work**
+   - Every long UI load gets a generation/request id.
+   - If the user switches tabs, searches again, or closes a dialog, stale
+     results are ignored.
+   - If possible, long background work is cancellable.
+
+5. **Single owner per modal surface**
+   - Avoid nested full-screen modal rebuilds.
+   - Prefer a drawer/detail panel inside an existing settings surface, or a
+     top-level editor modal managed independently.
+   - Parent Settings should not rebuild while a child editor is open.
+
+6. **Observable performance**
+   - Important UI surfaces log render/query timings, row counts, payload sizes,
+     memory snapshots, and client-side errors.
+   - Slow thresholds produce warnings that identify the exact surface and
+     phase.
+
+7. **Graceful degradation**
+   - A failed heavy subsection shows a local error state.
+   - Settings/dialogs should not collapse because one subsection failed.
+   - Core edit/save actions remain available when optional audit/provenance
+     panels fail.
+
+### Phase 1: Shared Performance Infrastructure
+
+Scope:
+
+- Add a small UI performance helper module, likely `ui/performance.py`.
+- Integrate with existing `stability.log_performance_snapshot()` and
+  `stability.record_ui_callback_error()`.
+
+Implementation tasks:
+
+1. Add timing helpers:
+   - `timed_ui_section(name, **metadata)` context manager.
+   - `log_ui_perf(name, elapsed_ms, rows=None, components=None, payload_chars=None, **metadata)`.
+   - `warn_if_slow(name, elapsed_ms, threshold_ms=750, **metadata)`.
+
+2. Add generation token helper:
+   - lightweight `LoadGeneration` object with `next()`, `current`, and
+     `is_current(token)`.
+   - Use in Settings tab loading, search refreshes, and async loaders.
+
+3. Add safe callback wrappers:
+   - `safe_ui_callback(context, fn)` for sync callbacks.
+   - `safe_ui_task(context, coro)` alignment with existing
+     `ui.timer_utils.safe_ui_task`.
+   - Persist failures through `record_ui_callback_error`.
+
+4. Add client-side error verification:
+   - Confirm existing browser-side JS error reporting is installed on main UI.
+   - Add route/log metadata so client errors identify active surface/tab when
+     possible.
+
+5. Define standard thresholds:
+   - UI shell render warning: > 500 ms.
+   - Data load warning: > 1000 ms.
+   - Component count warning: > 250 components in one surface.
+   - Payload warning: > 250 KB serialized UI data for a single refresh, if
+     measurable.
+
+Tests:
+
+- Unit tests for timing/generation helpers.
+- Safe callback wrapper records errors without raising into the UI loop.
+- Existing tests continue to pass.
+
+### Phase 2: Settings Shell And Tab Lifecycle
+
+Scope:
+
+- `ui/settings.py` overall dialog shell and lazy tab loading.
+
+Implementation tasks:
+
+1. Keep Settings shell instant:
+   - Render tabs and an empty content panel first.
+   - Keep current lazy tab loading but add timings and generation safety.
+   - Show skeleton/loading row immediately.
+
+2. Prevent stale tab loads:
+   - Increment generation on every tab switch and Settings close/reopen.
+   - Old deferred callbacks must no-op if generation is stale.
+
+3. Localize tab render failures:
+   - On builder exception, render an inline tab error panel.
+   - Do not close Settings.
+   - Persist diagnostic with active tab name.
+
+4. Avoid parent rebuild while child editor is open:
+   - Track `settings_child_modal_open`.
+   - Status/list refresh callbacks should defer or skip full `_reopen()` while
+     child modal is active.
+
+5. Instrument:
+   - `settings.open.shell`.
+   - `settings.tab.load.<tab>`.
+   - `settings.tab.render.<tab>`.
+   - memory snapshot on slow tab render or after large render.
+
+Tests:
+
+- Settings tab builder exceptions produce inline error.
+- Stale generation token prevents old tab from overwriting current tab.
+- Child modal open suppresses parent reopen.
+
+### Phase 3: Knowledge Tab Performance Redesign
+
+Scope:
+
+- `ui/settings.py` Knowledge tab.
+- `ui/entity_editor.py`.
+- `ui/knowledge_audit.py`.
+- `knowledge_graph.py` / `memory.py` list APIs as needed.
+
+Implementation tasks:
+
+1. Add lightweight list API:
+   - `knowledge_graph.list_entity_summaries(...)` or equivalent.
+   - Returns only fields needed for browse rows:
+     `id`, `subject`, `entity_type`, `source`, `tags`, `updated_at`,
+     audit summary fields, maybe a short description preview.
+   - Does not load heavy relation/provenance details.
+
+2. Paginate Browse Knowledge:
+   - Initial page size: 25 or 50.
+   - Add "Load more" button.
+   - Search/filter resets to first page.
+   - Display total/visible count.
+
+3. Lazy expansion body:
+   - Row header renders summary badges only.
+   - Description/provenance/relations load only when expansion opens.
+   - Relation previews are capped.
+
+4. Debounce search:
+   - 250-350 ms debounce.
+   - Use generation token so stale searches do not overwrite newer results.
+
+5. Editor modal performance:
+   - Add `entity_editor.open.start/success/failure` logs.
+   - Render core fields immediately.
+   - Render Audit/Provenance as a lazy expansion body.
+   - Render Relations as a lazy section.
+   - Do not load Add Relation peer options until Add Relation expansion opens.
+   - Cap peer search results and use searchable async query instead of 500
+     eager options.
+
+6. Nested dialog hardening:
+   - Editor owns its own error boundary.
+   - If audit/relations fail, show local section error and keep editor open.
+   - Parent Knowledge callbacks after save refresh visible rows only, not the
+     whole Settings dialog.
+
+7. Memory pressure checks:
+   - Snapshot before/after Knowledge tab render.
+   - Snapshot before/after editor open.
+   - Warning if RSS increases by > 250 MB during a UI action.
+
+Tests:
+
+- MANUALQA-shaped entity editor smoke test.
+- Browse Knowledge initially renders only first page.
+- Search for `MANUALQA-20260527` returns expected rows.
+- Relation options are not loaded until Add Relation is opened.
+- Editor save with tag `manual-qa` updates entity and refreshes row.
+- Browser test/manual harness: Settings > Knowledge > search > Edit > save.
+
+### Phase 4: Model And Provider Settings Performance
+
+Scope:
+
+- `ui/settings.py` Models/Providers tab.
+- Provider catalog/cache paths.
+
+Implementation tasks:
+
+1. Split model settings into shell + async data blocks:
+   - Current selection card renders immediately.
+   - Catalog/cache status loads in background.
+   - Large model option maps load only when picker or catalog section opens.
+
+2. Reuse cached snapshots:
+   - Never perform model catalog refresh synchronously during tab render.
+   - Show "last refreshed" plus explicit refresh action.
+
+3. Add progressive disclosure:
+   - Everyday model picker first.
+   - Advanced catalog/pinning section lazy.
+   - Context size controls render from cached/current values.
+
+4. Instrument:
+   - `settings.models.collect`.
+   - `settings.models.render`.
+   - local Ollama list timing.
+   - cloud catalog cache timing.
+   - option count and build time.
+
+Tests:
+
+- Models tab renders without network/catalog refresh.
+- Catalog section lazy-loads when opened.
+- Existing model picker behavior remains compatible.
+
+### Phase 5: Graph Panel And Knowledge Map
+
+Scope:
+
+- `ui/graph_panel.py`.
+- Graph JSON generation in `knowledge_graph.py`.
+- Entity editor entry point from graph details.
+
+Implementation tasks:
+
+1. Use neighborhood loading:
+   - Initial graph loads bounded nodes/edges.
+   - Search/select entity loads a local neighborhood.
+   - Large full graph requires explicit user action.
+
+2. Cap graph payload:
+   - Include payload size/count diagnostics.
+   - Warn if graph JSON exceeds threshold.
+
+3. Details panel:
+   - Render summary first.
+   - Load relations/provenance lazily.
+   - Edit button opens the same optimized editor.
+
+4. Client-side safety:
+   - Capture JS errors from graph rendering.
+   - Show a graph-local error state instead of breaking Settings/app shell.
+
+Tests:
+
+- Graph JSON respects node cap.
+- Detail edit uses shared editor.
+- Large graph warning path covered.
+
+### Phase 6: Chat Transcript And Streaming UI
+
+Scope:
+
+- `ui/streaming.py`.
+- `ui/chat.py`.
+- transcript render helpers.
+
+Implementation tasks:
+
+1. Preserve current detached-generation behavior.
+2. Add instrumentation:
+   - transcript render time.
+   - message count.
+   - media count.
+   - thinking chars and answer chars on finalization.
+3. Bound expensive render work:
+   - Avoid full main rebuild after detached finalization where possible.
+   - Lazy render heavy media/transcript attachments.
+   - Keep thinking bubble collapse cheap and capped.
+4. Stale generation safety:
+   - Ensure reattach/finalize does not update deleted clients or stale threads.
+
+Tests:
+
+- Existing thinking retention tests.
+- Detached finalization remains stable.
+- Large thinking text remains capped.
+
+### Phase 7: Documents, Wiki, And Memory Change Logs
+
+Scope:
+
+- Document status panels.
+- Wiki vault status/check.
+- Recent recall decisions.
+- Memory change log.
+
+Implementation tasks:
+
+1. Lazy-load logs and traces:
+   - Recent recall decisions loads when expansion opens.
+   - Memory change log loads when expansion opens.
+   - Wiki modification check is explicit or cached; avoid heavy filesystem scan
+     during tab render unless user asks.
+
+2. Cache lightweight status:
+   - Use last-known counts/status for immediate display.
+   - Refresh button updates status asynchronously.
+
+3. Bound filesystem scans:
+   - Cap displayed rows.
+   - Log scan time and file count.
+
+Tests:
+
+- Logs/traces are not read during initial Knowledge tab render.
+- Opening expansion loads bounded rows.
+- Wiki check failures stay local to section.
+
+### Phase 8: UX Standards For Loading And Errors
+
+Scope:
+
+- App-wide loading/error behavior.
+
+Implementation tasks:
+
+1. Standard skeletons:
+   - Small inline skeleton for section data.
+   - Larger centered skeleton for full tab first load.
+   - Use consistent copy and spinner styling.
+
+2. Local error panels:
+   - "Could not load this section" with Retry button.
+   - Keep the rest of the tab usable.
+
+3. Slow-load affordance:
+   - If loading > 2s, show more specific status text.
+   - If still loading > 8s, show retry/cancel.
+
+4. Avoid surprise full rebuilds:
+   - Prefer local refresh of affected section.
+   - Full `_reopen()` only when truly necessary.
+
+Tests:
+
+- Error panel component can retry.
+- Long-load state appears after threshold in testable helper logic.
+
+### Phase 9: Automated Performance Harness
+
+Scope:
+
+- New `scripts/ui_performance_harness.py` or Playwright/browser-based harness.
+
+Implementation tasks:
+
+1. Define repeatable scenarios:
+   - Open Settings shell.
+   - Switch to Knowledge.
+   - Search `MANUALQA-20260527`.
+   - Open Edit.
+   - Save harmless tag.
+   - Open Models tab.
+   - Open Graph panel/details/edit.
+   - Render chat transcript with thinking bubble.
+
+2. Collect metrics:
+   - elapsed time per action.
+   - browser console errors.
+   - client error crash reports.
+   - RSS before/after.
+   - number of rows/components where measurable.
+
+3. Add budgets:
+   - Settings shell visible < 300 ms target.
+   - Knowledge initial shell < 500 ms target.
+   - Search response < 500 ms target for typical local DB.
+   - Editor core fields visible < 500 ms target.
+   - No UI action increases RSS by > 250 MB unless explicitly expected.
+
+4. Keep harness optional:
+   - Not part of default unit suite.
+   - Run manually or in local diagnostic mode.
+
+### Implementation Order
+
+1. Add shared `ui/performance.py` helpers and tests.
+2. Instrument Settings shell/tab lifecycle.
+3. Fix Knowledge editor eager work:
+   - lazy Add Relation peer options.
+   - editor-open diagnostics.
+   - error boundary around edit callbacks.
+4. Add Knowledge pagination/lazy expansion body.
+5. Add browser/manual harness for the exact MANUALQA edit workflow.
+6. Optimize Models/Providers tab collection.
+7. Optimize Graph panel payload/detail loading.
+8. Lazy-load logs/traces/wiki checks.
+9. Add app-wide loading/error UX components.
+10. Run focused tests, browser harness, then full `tests/test_suite.py`.
+
+### Non-Goals And Guardrails
+
+- Do not remove existing functionality.
+- Do not hide data permanently; use progressive loading instead.
+- Do not change memory semantics while optimizing UI.
+- Do not make Chat Only behave like Agent Mode.
+- Do not introduce network-dependent default tests.
+- Avoid broad visual redesign; keep existing style but make it faster and more
+  resilient.
+
+### Done Criteria
+
+- Settings opens reliably without heavy synchronous work.
+- Knowledge search/edit flow for `MANUALQA-20260527` completes without dialog
+  collapse.
+- Editor core fields appear quickly, with audit/relations loaded lazily.
+- Large lists are paginated or virtualized.
+- Slow UI paths produce actionable diagnostics.
+- Client-side errors are captured in crash reports.
+- Full test suite passes.
+- Optional UI performance harness produces a clear before/after report.
 
 ## First Implementation Prompt
 
@@ -686,4 +2129,3 @@ update the implementation memory. At the end, cross-check the implementation
 against docs/memory-recall-uplift-implementation-plan.md and report remaining
 gaps or edge cases.
 ```
-*** End Patch

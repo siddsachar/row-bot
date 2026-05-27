@@ -78,6 +78,7 @@ def save_memory(
     content: str,
     tags: str = "",
     source: str = "live",
+    properties: dict | None = None,
 ) -> dict:
     """Create a new memory (entity) entry.
 
@@ -90,6 +91,7 @@ def save_memory(
         description=content,
         tags=tags,
         source=source,
+        properties=properties,
     )
     return _entity_to_memory(entity)
 
@@ -103,6 +105,7 @@ def update_memory(
     category: str | None = None,
     aliases: str | None = None,
     source: str | None = None,
+    properties: dict | None = None,
 ) -> dict | None:
     """Update an existing memory (entity)."""
     entity = _kg.update_entity(
@@ -113,6 +116,7 @@ def update_memory(
         aliases=aliases,
         tags=tags,
         source=source,
+        properties=properties,
     )
     return _entity_to_memory(entity) if entity else None
 

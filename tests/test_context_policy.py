@@ -110,6 +110,29 @@ def test_local_llm_construction_does_not_force_reasoning(monkeypatch):
     assert "reasoning" not in captured
 
 
+def test_local_thinking_model_enables_reasoning(monkeypatch):
+    import models
+
+    captured = {}
+
+    class _FakeChatOllama:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(models, "ChatOllama", _FakeChatOllama)
+    monkeypatch.setattr(models, "_num_ctx", 65_536)
+    monkeypatch.setattr(models, "_ollama_base_url", lambda: "http://127.0.0.1:11434")
+    monkeypatch.setattr(models, "is_cloud_model", lambda model_name: False)
+    monkeypatch.setattr(models, "get_model_max_context", lambda model_name=None: 65_536)
+    models.clear_llm_cache()
+
+    model = models.get_llm_for("model:ollama:qwen3.6:27b")
+
+    assert model
+    assert captured["model"] == "qwen3.6:27b"
+    assert captured["reasoning"] is True
+
+
 def test_context_policy_uses_local_cap_for_local_custom_endpoint(tmp_path, monkeypatch):
     import models
 

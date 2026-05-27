@@ -148,6 +148,8 @@ def _detach_generation(gen: GenerationState, state: AppState, reason: str) -> No
     gen.assistant_md = None
     gen.thinking_label = None
     gen.thinking_md = None
+    gen.thinking_expansion = None
+    gen.thinking_code = None
     gen.tool_col = None
     gen.wrapper = None
     gen.pending_tools.clear()
@@ -205,6 +207,8 @@ def _detach_if_ui_client_deleted(
         gen.assistant_md,
         gen.thinking_label,
         gen.thinking_md,
+        gen.thinking_expansion,
+        gen.thinking_code,
         gen.tool_col,
     ):
         if handle is not None and _ui_handle_client_deleted(handle):
@@ -215,6 +219,36 @@ def _detach_if_ui_client_deleted(
 
 def _generation_is_terminal(gen: GenerationState) -> bool:
     return str(getattr(gen, "status", "")).lower() in {"done", "error", "stopped"}
+
+
+def _render_thinking_collapse(gen: GenerationState) -> bool:
+    """Persist streamed reasoning as a collapsed disclosure.
+
+    The live markdown is intentionally removed only after the expansion exists.
+    This avoids a UX failure where reasoning tokens briefly stream, then vanish
+    if the preferred tool column cannot accept a new child.
+    """
+    if not gen.thinking_text or gen.thinking_collapsed or gen.thinking_expansion:
+        return bool(gen.thinking_expansion)
+
+    container = gen.tool_col or gen.wrapper
+    if not container:
+        return False
+
+    with container:
+        gen.thinking_expansion = ui.expansion(
+            "\U0001f4ad Thinking", icon="psychology"
+        ).classes("w-full")
+        with gen.thinking_expansion:
+            gen.thinking_code = ui.code(
+                gen.thinking_text.strip()[:8_000]
+            ).classes("w-full text-xs")
+
+    if gen.thinking_md:
+        gen.thinking_md.delete()
+        gen.thinking_md = None
+    gen.thinking_collapsed = True
+    return True
 
 
 def _drop_terminal_active_generation(thread_id: str | None) -> bool:
@@ -440,7 +474,12 @@ async def consume_generation(
     from agent import get_agent_graph, repair_orphaned_tool_calls
     from buddy.events import BuddyEventType, emit_buddy_event
     from langchain_core.messages import AIMessage
-    from ui.helpers import load_thread_messages, persist_detached_thread_media, persist_thread_media_state
+    from ui.helpers import (
+        attach_thinking_to_message,
+        load_thread_messages,
+        persist_detached_thread_media,
+        persist_thread_media_state,
+    )
 
     _stopped_shown = False
     _drain_deadline = 0.0
@@ -510,18 +549,7 @@ async def consume_generation(
                         gen.thinking_label.delete()
                         gen.thinking_label = None
                     if gen.thinking_text and not gen.thinking_collapsed:
-                        gen.thinking_collapsed = True
-                        if gen.thinking_md:
-                            gen.thinking_md.delete()
-                            gen.thinking_md = None
-                        if gen.tool_col:
-                            with gen.tool_col:
-                                with ui.expansion(
-                                    "\U0001f4ad Thinking", icon="psychology"
-                                ).classes("w-full"):
-                                    ui.code(
-                                        gen.thinking_text.strip()[:8_000]
-                                    ).classes("w-full text-xs")
+                        _render_thinking_collapse(gen)
                     if gen.assistant_md:
                         gen.assistant_md.set_visibility(True)
                 except Exception as exc:
@@ -624,14 +652,17 @@ async def consume_generation(
                     if gen.thinking_label:
                         gen.thinking_label.delete()
                         gen.thinking_label = None
-                    if gen.thinking_md is None and gen.wrapper:
+                    if gen.thinking_collapsed:
+                        if gen.thinking_code:
+                            gen.thinking_code.set_content(gen.thinking_text.strip()[:8_000])
+                    elif gen.thinking_md is None and gen.wrapper:
                         with gen.wrapper:
                             gen.thinking_md = ui.markdown(
                                 "", extras=["code-friendly", "fenced-code-blocks"]
                             ).classes("thoth-msg w-full").style(
                                 "opacity: 0.55; font-size: 0.88rem; font-style: italic;"
                             )
-                    if gen.thinking_md:
+                    if gen.thinking_md and not gen.thinking_collapsed:
                         gen.thinking_md.set_content(gen.thinking_text)
                 except Exception as exc:
                     _handle_ui_runtime_error(gen, state, exc, "thinking-token rendering")
@@ -696,19 +727,8 @@ async def consume_generation(
                         gen.thinking_label.delete()
                         gen.thinking_label = None
                     if gen.thinking_text and not gen.thinking_collapsed:
-                        gen.thinking_collapsed = True
-                        if gen.thinking_md:
-                            gen.thinking_md.delete()
-                            gen.thinking_md = None
-                        if gen.tool_col:
-                            with gen.tool_col:
-                                with ui.expansion(
-                                    "\U0001f4ad Thinking", icon="psychology"
-                                ).classes("w-full"):
-                                    ui.code(
-                                        gen.thinking_text.strip()[:8_000]
-                                    ).classes("w-full text-xs")
-                    elif gen.thinking_md:
+                        _render_thinking_collapse(gen)
+                    elif gen.thinking_md and gen.thinking_expansion:
                         gen.thinking_md.delete()
                         gen.thinking_md = None
                     if gen.assistant_md:
@@ -775,6 +795,7 @@ async def consume_generation(
     # Store assistant message
     _has_final_output = bool(
         gen.accumulated
+        or gen.thinking_text
         or gen.tool_results
         or gen.chart_data
         or gen.captured_images
@@ -784,6 +805,7 @@ async def consume_generation(
     if _has_final_output:
         await _capture_balanced_browser_screenshot(gen, state)
         a_msg: dict = {"role": "assistant", "content": gen.accumulated}
+        attach_thinking_to_message(a_msg, gen.thinking_text)
         if gen.tool_results:
             a_msg["tool_results"] = gen.tool_results
         if gen.chart_data:

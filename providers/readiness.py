@@ -239,10 +239,17 @@ def evaluate_agent_readiness(
             tool_calling_source = "ollama_probe"
             source = "probe"
             confidence = "high" if probe.get("ok") is True else "low"
-            if tool_calling is not True:
+            probe_error = str(probe.get("error") or "")
+            probe_timed_out = "timeout" in probe_error.lower() or "timed out" in probe_error.lower()
+            if probe_timed_out:
+                errors.append("Ollama tool probe timed out before proving structured tool calling")
+                actions.append("Retry Agent verification or choose a model with confirmed tool support.")
+            elif tool_calling is not True:
                 errors.append("Ollama tool probe did not produce a structured tool call")
                 actions.append("Use Chat Only or choose an Ollama model that passes the tool probe.")
-            if tool_round_trip is not True:
+            if probe_timed_out:
+                pass
+            elif tool_round_trip is not True:
                 errors.append("Ollama tool-result round trip has not been proven")
                 actions.append("Use Chat Only or choose an Ollama model with native tool round-trip support.")
         elif tool_calling is True:
@@ -430,9 +437,21 @@ def evaluate_runtime_readiness(
     if agent.ready:
         return ModelRuntimeReadiness(agent=agent, chat=chat, selected_mode="agent", selection_reason="Agent Mode requirements are satisfied.")
     if chat.ready:
+        if _agent_verification_inconclusive(agent):
+            return ModelRuntimeReadiness(
+                agent=agent,
+                chat=chat,
+                selected_mode="blocked",
+                selection_reason="Agent Mode verification timed out; retry verification or choose a confirmed Agent-ready model.",
+            )
         return ModelRuntimeReadiness(agent=agent, chat=chat, selected_mode="chat_only", selection_reason="Model can chat but is not Agent-ready.")
     reason = chat.errors[0] if chat.errors else (agent.errors[0] if agent.errors else "No supported runtime is available.")
     return ModelRuntimeReadiness(agent=agent, chat=chat, selected_mode="blocked", selection_reason=reason)
+
+
+def _agent_verification_inconclusive(agent: AgentReadinessResult) -> bool:
+    errors = " ".join(str(error).lower() for error in getattr(agent, "errors", []) or [])
+    return "tool probe timed out" in errors or "verification is inconclusive" in errors
 
 
 def ensure_agent_ready(value: str | ResolvedProviderConfig, provider_id: str | None = None) -> AgentReadinessResult:

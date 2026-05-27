@@ -25,6 +25,16 @@ TOOL_CAPABLE_FAMILIES = {
     "minimax-m2.5", "minimax-m2.1", "nemotron-3-super", "kimi-k2.6",
 }
 
+REASONING_FAMILIES = {
+    "deepseek-r1",
+    "gpt-oss",
+    "magistral",
+    "qwen3",
+    "qwen3.5",
+    "qwen3.6",
+    "qwen3-next",
+}
+
 VISION_FAMILIES = {"bakllava", "gemma3", "llama3.2-vision", "minicpm-v", "moondream", "qwen3-vl"}
 VISION_FAMILY_PREFIXES = ("llava", "qwen-vl", "qwen2-vl", "qwen2.5-vl", "qwen3-vl", "qwen3.5-vl")
 NON_CHAT_FAMILY_MARKERS = ("embed", "embedding")
@@ -38,6 +48,13 @@ def normalize_ollama_family(model_or_family: str) -> str:
 
 def is_ollama_tool_capable(model_id: str) -> bool:
     return normalize_ollama_family(model_id) in TOOL_CAPABLE_FAMILIES
+
+
+def is_ollama_reasoning_model(model_id: str) -> bool:
+    raw = str(model_id or "").strip().lower()
+    family = normalize_ollama_family(raw)
+    tag = raw.rsplit(":", 1)[1] if ":" in raw else ""
+    return family in REASONING_FAMILIES or "thinking" in tag
 
 
 def is_ollama_vision_capable(model_id: str) -> bool:

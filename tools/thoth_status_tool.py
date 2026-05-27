@@ -270,25 +270,51 @@ def _query_overview() -> str:
 
 def _query_model() -> str:
     try:
-        from models import (get_current_model, is_model_local, get_context_size,
-                            get_cloud_provider, get_provider_emoji,
+        from models import (get_current_model, get_context_size, get_provider_emoji,
                             _active_model_override,
                             get_user_context_size, get_cloud_context_size)
+        from providers.readiness import evaluate_runtime_readiness
+        from providers.resolution import resolve_provider_config
         from providers.selection import provider_display_label
         default_model = get_current_model()
         override = _active_model_override.get("")
         model = override if override else default_model
-        local = is_model_local(model)
         ctx = get_context_size(model)
-        provider = "local" if local else (get_cloud_provider(model) or "provider")
-        provider_label = provider_display_label(provider)
+        resolved = resolve_provider_config(model, allow_legacy_local=True)
+        local = resolved.execution_location == "local" or resolved.risk_label == "local_private"
+        provider_label = resolved.provider_display_name or provider_display_label(resolved.provider_id)
         emoji = get_provider_emoji(model)
+        active_runtime = {}
+        try:
+            from agent import get_active_runtime_context
+
+            active_runtime = get_active_runtime_context()
+        except Exception:
+            active_runtime = {}
+        runtime = evaluate_runtime_readiness(model, probe_ollama_tools=False)
+        mode_labels = {
+            "agent": "Agent Mode",
+            "chat_only": "Chat Only - tools and actions are off",
+            "blocked": "Unavailable",
+        }
+        readiness_label = mode_labels.get(runtime.selected_mode, runtime.selected_mode)
         lines = [
             "**Current Model**",
             f"- Model: {emoji} {model}",
+            f"- Runtime model: {resolved.runtime_model}",
+            f"- Provider: {provider_label}",
             f"- Type: {'Local (Ollama)' if local else f'Provider ({provider_label})'}",
             f"- Effective context: {ctx:,} tokens",
+            f"- Readiness: {readiness_label} ({runtime.selection_reason})",
         ]
+        selected_runtime = str(active_runtime.get("selected_runtime_mode") or "").strip()
+        requested_runtime = str(active_runtime.get("requested_runtime_mode") or "").strip()
+        runtime_surface = str(active_runtime.get("runtime_surface") or "").strip()
+        if selected_runtime:
+            selected_label = mode_labels.get(selected_runtime, selected_runtime)
+            requested = f", requested {requested_runtime}" if requested_runtime else ""
+            surface = f" on {runtime_surface}" if runtime_surface else ""
+            lines.append(f"- Active turn runtime: {selected_label}{requested}{surface}")
         if local:
             lines.append(f"- Local context cap: {get_user_context_size():,} tokens")
         else:
@@ -335,7 +361,10 @@ def _query_skills() -> str:
         skill_statuses = get_manual_skill_statuses()
         if not skill_statuses:
             return "**Skills**\nNo skills found."
-        lines = ["**Skills**"]
+        enabled_count = sum(1 for _skill, is_enabled in skill_statuses if is_enabled)
+        disabled_count = len(skill_statuses) - enabled_count
+        lines = [f"**Skills** ({enabled_count} enabled, {disabled_count} disabled)"]
+        lines.append("- Tool guides are excluded from this count and load only as tool instructions.")
         for skill, is_enabled in skill_statuses:
             status = "enabled" if is_enabled else "disabled"
             lines.append(f"- {skill.display_name}: {status}")

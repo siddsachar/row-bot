@@ -203,10 +203,24 @@ def load_skills():
     _enabled = new_enabled
     _save_config()
 
+    manual_count = sum(1 for skill in _skills_cache.values() if not skill.tools)
+    manual_enabled = sum(
+        1 for name, skill in _skills_cache.items()
+        if not skill.tools and _enabled.get(name, False)
+    )
+    tool_guide_count = sum(1 for skill in _skills_cache.values() if skill.tools)
+    active_tool_guides = sum(
+        1 for skill in _skills_cache.values()
+        if skill.tools and _is_tool_guide_active(skill)
+    )
+
     logger.info(
-        "Loaded %d skills (%d enabled)",
+        "Loaded %d skills (%d manual, %d manual enabled, %d tool guides, %d active tool guides)",
         len(_skills_cache),
-        sum(1 for v in _enabled.values() if v),
+        manual_count,
+        manual_enabled,
+        tool_guide_count,
+        active_tool_guides,
     )
 
 

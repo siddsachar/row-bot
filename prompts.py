@@ -258,7 +258,10 @@ def get_chat_only_system_prompt() -> str:
         "Do not answer an imagined or unrelated task. If the user only greets you, "
         "greet them back naturally. You cannot use tools or live data in this chat. "
         "If asked whether you can see or use tools, say that this chat is Chat Only "
-        "and tools are not available here."
+        "and tools are not available here. If the user asks you to remember, save, "
+        "commit, update, or forget information, do not claim a long-term memory "
+        "write; explain that you can keep it in the current thread only, and that "
+        "long-term memory requires Agent Mode."
     )
 
 

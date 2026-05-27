@@ -158,18 +158,13 @@ from prompts import EXTRACTION_PROMPT
 def _get_thread_messages(thread_id: str) -> list[dict]:
     """Load messages from a thread via the LangGraph checkpointer."""
     try:
-        from agent import get_agent_graph
-        from threads import checkpointer  # noqa: F811
+        from threads import get_latest_checkpoint_messages
 
-        config = {"configurable": {"thread_id": thread_id}}
-        agent = get_agent_graph()
-        state = agent.get_state(config)
-        if not state or not state.values:
-            return []
-        messages = state.values.get("messages", [])
+        messages = get_latest_checkpoint_messages(thread_id)
         result = []
         for m in messages:
-            role = "user" if m.type == "human" else ("assistant" if m.type == "ai" else None)
+            mtype = getattr(m, "type", None)
+            role = "user" if mtype == "human" else ("assistant" if mtype == "ai" else None)
             content = getattr(m, "content", "") or ""
             if isinstance(content, list):
                 text_parts = []
@@ -273,7 +268,75 @@ def _extract_from_conversation(conversation_text: str) -> list[dict]:
         return []
 
 
-def _dedup_and_save(extracted: list[dict], source: str = "extraction") -> int:
+def _json_props(raw) -> dict:
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw or "{}")
+        except (json.JSONDecodeError, TypeError):
+            raw = {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _extraction_method_for_source(source: str) -> str:
+    if source.startswith("document:"):
+        return "document"
+    if source.startswith("dream_"):
+        return "dream"
+    if source == "live":
+        return "live"
+    return "extraction"
+
+
+def _entry_properties(entry: dict, source: str, source_context: dict | None) -> dict:
+    import memory_evolution as memory_evo
+
+    props = _json_props(entry.get("properties", {}))
+    props.setdefault("extraction_method", _extraction_method_for_source(source))
+    nested_context = _json_props(props.get("source_context", {}))
+    if source.startswith("document:"):
+        nested_context.setdefault("kind", "document")
+        nested_context.setdefault("display_name", source.removeprefix("document:"))
+        props.setdefault("memory_tier", "resource")
+    else:
+        nested_context.setdefault("kind", "thread")
+    if source_context:
+        nested_context.update({k: v for k, v in source_context.items() if v is not None})
+        if source_context.get("thread_id"):
+            props.setdefault("source_thread_id", source_context["thread_id"])
+        if source_context.get("thread_name"):
+            props.setdefault("source_thread_name", source_context["thread_name"])
+        if source_context.get("message_index") is not None:
+            props.setdefault("source_message_index", source_context["message_index"])
+    props["source_context"] = nested_context
+    for key in ("evidence", "evidence_role", "confidence", "memory_tier"):
+        if entry.get(key) is not None:
+            props.setdefault(key, entry[key])
+    return memory_evo.normalize_properties(
+        props,
+        source=source,
+        entity_type=entry.get("category", ""),
+    )
+
+
+def _merge_properties(existing: dict, incoming: dict) -> dict:
+    import memory_evolution as memory_evo
+
+    return memory_evo.merge_properties(
+        existing.get("properties", {}),
+        incoming,
+        source=existing.get("source", ""),
+        entity_type=existing.get("entity_type", existing.get("category", "")),
+        actor="extraction",
+        source_context=incoming.get("source_context") if isinstance(incoming, dict) else None,
+        high_authority=False,
+    )
+
+
+def _dedup_and_save(
+    extracted: list[dict],
+    source: str = "extraction",
+    source_context: dict | None = None,
+) -> int:
     """Save extracted memories and relations, deduplicating against existing ones.
 
     Uses ``find_by_subject(category=None, ...)`` — a deterministic SQL
@@ -290,6 +353,8 @@ def _dedup_and_save(extracted: list[dict], source: str = "extraction") -> int:
         Value for the ``source`` field on saved entities/relations.
         Defaults to ``"extraction"`` for conversation extraction.
         Document extraction passes ``"document:<filename>"``.
+    source_context : dict, optional
+        Thread/document provenance to store in entity properties.
 
     Returns the number of new/updated memories + relations.
     """
@@ -318,6 +383,7 @@ def _dedup_and_save(extracted: list[dict], source: str = "extraction") -> int:
             content = entry["content"].strip()
             if not subject or not content:
                 continue
+            properties = _entry_properties(entry, source, source_context)
 
             # Extract optional aliases from the LLM output (may be str or list)
             raw_aliases = entry.get("aliases", "")
@@ -392,6 +458,22 @@ def _dedup_and_save(extracted: list[dict], source: str = "extraction") -> int:
                         from tools.memory_tool import _check_contradiction
                         conflict = _check_contradiction(old_content, content, subject)
                         if conflict:
+                            try:
+                                import memory_evolution as memory_evo
+
+                                memory_evo.mark_needs_review(
+                                    existing["id"],
+                                    conflict,
+                                    actor="document_extraction" if source.startswith("document:") else "extraction",
+                                    incoming={
+                                        "subject": subject,
+                                        "category": category,
+                                        "content": content,
+                                        "source": source,
+                                    },
+                                )
+                            except Exception:
+                                logger.debug("Failed to mark extraction conflict for review", exc_info=True)
                             logger.warning(
                                 "Extraction contradiction for '%s': %s — skipping merge",
                                 subject, conflict,
@@ -411,6 +493,7 @@ def _dedup_and_save(extracted: list[dict], source: str = "extraction") -> int:
 
                 if content_changed or update_kwargs:
                     try:
+                        update_kwargs["properties"] = _merge_properties(existing, properties)
                         update_memory(
                             existing["id"],
                             merged_content,
@@ -429,14 +512,20 @@ def _dedup_and_save(extracted: list[dict], source: str = "extraction") -> int:
                 try:
                     result = save_memory(
                         category, subject, content,
-                        tags="", source=source,
+                        tags="", source=source, properties=properties,
                     )
                     subject_to_id[kg._normalize_subject(subject)] = result["id"]
 
                     # If we created a new entity with aliases, update it
                     if new_aliases:
                         try:
-                            update_memory(result["id"], content, aliases=new_aliases, source=source)
+                            update_memory(
+                                result["id"],
+                                content,
+                                aliases=new_aliases,
+                                source=source,
+                                properties=properties,
+                            )
                             for alias in new_aliases.split(","):
                                 alias = alias.strip()
                                 if alias:
@@ -525,10 +614,17 @@ def _dedup_and_save(extracted: list[dict], source: str = "extraction") -> int:
 
             if src_id and tgt_id:
                 try:
+                    rel_props = {}
+                    if source_context and source_context.get("thread_id"):
+                        rel_props["source_thread_ids"] = [source_context["thread_id"]]
+                    evidence = (rel.get("evidence", "") or "").strip()
+                    if evidence:
+                        rel_props["evidence"] = evidence[:500]
                     result = kg.add_relation(
                         src_id, tgt_id, rel_type,
                         source=source,
                         confidence=rel_confidence if isinstance(rel_confidence, (int, float)) else 0.8,
+                        properties=rel_props or None,
                     )
                     if result:
                         saved_count += 1
@@ -629,7 +725,14 @@ def run_extraction(on_status=None, exclude_thread_ids: set[str] | None = None) -
 
         extracted = _extract_from_conversation(conv_text)
         if extracted:
-            count = _dedup_and_save(extracted)
+            count = _dedup_and_save(
+                extracted,
+                source="extraction",
+                source_context={
+                    "thread_id": tid,
+                    "thread_name": name,
+                },
+            )
             total_saved += count
             logger.info("Thread '%s': extracted %d, saved %d", name, len(extracted), count)
             journal_entry["thread_details"].append({

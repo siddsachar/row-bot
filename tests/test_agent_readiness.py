@@ -222,6 +222,38 @@ def test_ollama_probe_failure_routes_to_chat_only(monkeypatch):
     assert any("tool probe" in error.lower() for error in result.agent.errors)
 
 
+def test_ollama_probe_timeout_blocks_instead_of_chat_only(monkeypatch):
+    import providers.ollama as ollama
+    import providers.readiness as readiness
+    import models
+
+    monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
+    monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
+        model_ref="model:ollama:qwen3.6:27b",
+        provider_id="ollama",
+        runtime_model="qwen3.6:27b",
+        native_max=131_072,
+        user_cap=65_536,
+        effective_context=65_536,
+        policy_kind="local",
+        cap_source="provider_metadata",
+        request_application="ollama_num_ctx",
+    ))
+    monkeypatch.setattr(ollama, "probe_ollama_tool_round_trip", lambda model_id: {
+        "ok": False,
+        "tool_calling": False,
+        "tool_round_trip": False,
+        "error": "timed out",
+    })
+
+    result = evaluate_runtime_readiness("model:ollama:qwen3.6:27b", probe_ollama_tools=True)
+
+    assert result.agent.ready is False
+    assert result.chat.ready is True
+    assert result.selected_mode == "blocked"
+    assert "timed out" in result.selection_reason.lower()
+
+
 def test_ollama_tool_probe_requires_tool_call_and_round_trip(monkeypatch):
     import sys
     import models

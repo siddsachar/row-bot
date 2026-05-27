@@ -131,6 +131,8 @@ class GenerationState:
     assistant_md: Any = None
     thinking_label: Any = None
     thinking_md: Any = None
+    thinking_expansion: Any = None
+    thinking_code: Any = None
     tool_col: Any = None
     wrapper: Any = None
 

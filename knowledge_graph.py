@@ -318,6 +318,200 @@ def _get_conn() -> sqlite3.Connection:
     return conn
 
 
+_FTS_TABLE = "entities_fts"
+
+
+def _ensure_fts(conn: sqlite3.Connection | None = None) -> bool:
+    """Ensure the optional FTS5 lexical index exists."""
+    own_conn = conn is None
+    conn = conn or _get_conn()
+    try:
+        conn.execute(f"""
+            CREATE VIRTUAL TABLE IF NOT EXISTS {_FTS_TABLE} USING fts5(
+                entity_id UNINDEXED,
+                subject,
+                aliases,
+                tags,
+                description,
+                tokenize = 'unicode61 remove_diacritics 2'
+            )
+        """)
+        if own_conn:
+            conn.commit()
+        return True
+    except sqlite3.OperationalError as exc:
+        logger.debug("Memory FTS unavailable: %s", exc)
+        return False
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def _delete_fts_rows(conn: sqlite3.Connection, entity_id: str) -> None:
+    rows = conn.execute(
+        f"SELECT rowid FROM {_FTS_TABLE} WHERE entity_id = ?",
+        (entity_id,),
+    ).fetchall()
+    for row in rows:
+        conn.execute(f"DELETE FROM {_FTS_TABLE} WHERE rowid = ?", (row[0],))
+
+
+def _upsert_fts_entity(entity: dict) -> None:
+    """Best-effort sync from the durable entity row into the FTS index."""
+    entity_id = entity.get("id")
+    if not entity_id:
+        return
+    conn = _get_conn()
+    try:
+        if not _ensure_fts(conn):
+            return
+        _delete_fts_rows(conn, entity_id)
+        conn.execute(
+            f"INSERT INTO {_FTS_TABLE} "
+            "(entity_id, subject, aliases, tags, description) VALUES (?, ?, ?, ?, ?)",
+            (
+                entity_id,
+                _sanitize_text(entity.get("subject", "") or ""),
+                _sanitize_text(entity.get("aliases", "") or ""),
+                _sanitize_text(entity.get("tags", "") or ""),
+                _sanitize_text(entity.get("description", "") or ""),
+            ),
+        )
+        conn.commit()
+    except Exception as exc:
+        logger.debug("Memory FTS upsert skipped for %s: %s", entity_id, exc)
+    finally:
+        conn.close()
+
+
+def _delete_fts_entity(entity_id: str) -> None:
+    conn = _get_conn()
+    try:
+        if not _ensure_fts(conn):
+            return
+        _delete_fts_rows(conn, entity_id)
+        conn.commit()
+    except Exception as exc:
+        logger.debug("Memory FTS delete skipped for %s: %s", entity_id, exc)
+    finally:
+        conn.close()
+
+
+def _clear_fts_index() -> None:
+    conn = _get_conn()
+    try:
+        if not _ensure_fts(conn):
+            return
+        conn.execute(f"DELETE FROM {_FTS_TABLE}")
+        conn.commit()
+    except Exception as exc:
+        logger.debug("Memory FTS clear skipped: %s", exc)
+    finally:
+        conn.close()
+
+
+def rebuild_fts_index() -> int:
+    """Rebuild the optional lexical memory index. Returns indexed row count."""
+    conn = _get_conn()
+    try:
+        if not _ensure_fts(conn):
+            return 0
+        rows = conn.execute(
+            "SELECT id, subject, aliases, tags, description FROM entities"
+        ).fetchall()
+        conn.execute(f"DELETE FROM {_FTS_TABLE}")
+        for row in rows:
+            entity = dict(row)
+            conn.execute(
+                f"INSERT INTO {_FTS_TABLE} "
+                "(entity_id, subject, aliases, tags, description) VALUES (?, ?, ?, ?, ?)",
+                (
+                    entity["id"],
+                    _sanitize_text(entity.get("subject", "") or ""),
+                    _sanitize_text(entity.get("aliases", "") or ""),
+                    _sanitize_text(entity.get("tags", "") or ""),
+                    _sanitize_text(entity.get("description", "") or ""),
+                ),
+            )
+        conn.commit()
+        return len(rows)
+    except Exception as exc:
+        logger.debug("Memory FTS rebuild skipped: %s", exc)
+        return 0
+    finally:
+        conn.close()
+
+
+def _ensure_fts_populated() -> None:
+    conn = _get_conn()
+    try:
+        if not _ensure_fts(conn):
+            return
+        entity_count = conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0]
+        fts_count = conn.execute(f"SELECT COUNT(*) FROM {_FTS_TABLE}").fetchone()[0]
+    except Exception as exc:
+        logger.debug("Memory FTS population check skipped: %s", exc)
+        return
+    finally:
+        conn.close()
+
+    if entity_count and not fts_count:
+        rebuild_fts_index()
+
+
+def _fts_match_query(query: str) -> str:
+    terms = []
+    try:
+        terms = _keyword_terms(query)
+    except NameError:
+        terms = [
+            term.strip("'-_").lower()
+            for term in re.findall(r"[A-Za-z0-9_][A-Za-z0-9_'-]*", query or "")
+            if len(term.strip("'-_")) >= 3
+        ]
+    unique_terms = list(dict.fromkeys(terms))[:8]
+    return " OR ".join(f'"{term}"' for term in unique_terms)
+
+
+def fts_search_entities(query: str, limit: int = 20) -> list[dict]:
+    """Return no-touch lexical candidates from the optional FTS5 index."""
+    match_query = _fts_match_query(query)
+    if not match_query:
+        return []
+
+    conn = _get_conn()
+    try:
+        if not _ensure_fts(conn):
+            return []
+        rows = conn.execute(
+            f"""
+            SELECT entity_id, bm25({_FTS_TABLE}, 0.0, 8.0, 5.0, 3.0, 1.0) AS bm25_score
+            FROM {_FTS_TABLE}
+            WHERE {_FTS_TABLE} MATCH ?
+            ORDER BY bm25_score
+            LIMIT ?
+            """,
+            (match_query, limit),
+        ).fetchall()
+    except sqlite3.OperationalError as exc:
+        logger.debug("Memory FTS search skipped: %s", exc)
+        return []
+    finally:
+        conn.close()
+
+    hits: list[dict] = []
+    total = max(1, len(rows))
+    for rank, row in enumerate(rows):
+        entity = get_entity(row["entity_id"])
+        if not entity:
+            continue
+        bm25_norm = 1.0 - (rank / total)
+        entity["bm25_raw"] = float(row["bm25_score"] or 0.0)
+        entity["bm25_score"] = round(max(0.0, min(1.0, bm25_norm)), 4)
+        hits.append(entity)
+    return hits
+
+
 def _init_db() -> None:
     """Create entities + relations tables (idempotent)."""
     conn = _get_conn()
@@ -372,6 +566,7 @@ def _init_db() -> None:
         CREATE UNIQUE INDEX IF NOT EXISTS idx_relations_unique
         ON relations(source_id, target_id, relation_type)
     """)
+    _ensure_fts(conn)
 
     conn.commit()
     conn.close()
@@ -453,7 +648,11 @@ def _migrate_from_memories() -> int:
 # ═════════════════════════════════════════════════════════════════════════════
 
 _init_db()
-_migrate_from_memories()
+_migrated_count = _migrate_from_memories()
+if _migrated_count:
+    rebuild_fts_index()
+else:
+    _ensure_fts_populated()
 
 
 def _scrub_surrogates() -> None:
@@ -839,6 +1038,8 @@ def save_entity(
         "updated_at": now,
     }
 
+    _upsert_fts_entity(entity)
+
     # Update NetworkX
     with _graph_lock:
         g = _ensure_graph()
@@ -919,6 +1120,7 @@ def update_entity(
 
     if row:
         entity = dict(row)
+        _upsert_fts_entity(entity)
         # Update NetworkX node
         with _graph_lock:
             g = _ensure_graph()
@@ -947,6 +1149,7 @@ def delete_entity(entity_id: str) -> bool:
 
     deleted = cur.rowcount > 0
     if deleted:
+        _delete_fts_entity(entity_id)
         with _graph_lock:
             g = _ensure_graph()
             if entity_id in g:
@@ -991,6 +1194,7 @@ def delete_entities_by_source(source: str) -> int:
 
     if not _skip_reindex:
         rebuild_index()
+    rebuild_fts_index()
 
     # Wiki vault cleanup
     for r in rows:
@@ -1752,6 +1956,19 @@ def graph_to_vis_json(
         tags = n.get("tags", "") or ""
         source = n.get("source", "live") or "live"
         updated_at = n.get("updated_at", "") or ""
+        props = n.get("properties", "{}")
+        if isinstance(props, str):
+            try:
+                props = json.loads(props or "{}")
+            except (json.JSONDecodeError, TypeError):
+                props = {}
+        props = props if isinstance(props, dict) else {}
+        status = str(props.get("status") or "active").strip().lower()
+        if status not in {"active", "archived", "superseded", "needs_review"}:
+            status = "active"
+        tier = str(props.get("memory_tier") or "").strip().lower()
+        if tier not in {"core", "semantic", "episodic", "resource"}:
+            tier = "resource" if source.startswith("document:") or etype == "media" else "semantic"
 
         vis_nodes.append({
             "id": nid,
@@ -1773,6 +1990,12 @@ def graph_to_vis_json(
             "_degree": deg,
             "_source": source,
             "_updated_at": updated_at,
+            "_status": status,
+            "_tier": tier,
+            "_confidence": props.get("confidence"),
+            "_review_reason": props.get("review_reason", ""),
+            "_superseded_by": props.get("superseded_by", ""),
+            "_recalled_at": props.get("recalled_at", ""),
         })
 
     # ── Build vis-network edges ──────────────────────────────────────────
@@ -1877,9 +2100,324 @@ def _touch_recalled(entity_ids: list[str]) -> None:
     conn.close()
 
 
+def touch_recalled(entity_ids: list[str]) -> None:
+    """Public wrapper for reinforcing memories that were actually used."""
+    _touch_recalled(entity_ids)
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # Graph-enhanced recall (used by agent.py auto-recall)
 # ═════════════════════════════════════════════════════════════════════════════
+
+_KEYWORD_STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "about", "be", "by", "can",
+    "do", "does", "for", "from", "have", "how", "i", "in", "is", "it",
+    "me", "my", "of", "on", "or", "please", "tell", "that", "the", "this",
+    "to", "was", "what", "when", "where", "who", "why", "with", "you",
+}
+
+
+def _keyword_terms(text: str) -> list[str]:
+    import re
+
+    return [
+        term
+        for term in re.findall(r"[a-z0-9][a-z0-9_-]*", _normalize_subject(text))
+        if term not in _KEYWORD_STOPWORDS and len(term) > 1
+    ]
+
+
+def _split_csv_terms(value: str) -> list[str]:
+    return [part.strip() for part in (value or "").split(",") if part.strip()]
+
+
+def _phrase_norm(value: str) -> str:
+    tokens = re.findall(r"[a-z0-9]+", (value or "").lower())
+    return " ".join(tokens)
+
+
+def _field_keyword_score(entity: dict, query: str) -> tuple[float, str]:
+    """Return a field-aware lexical score and the strongest matched field."""
+    query_norm = _normalize_subject(query)
+    query_phrase = _phrase_norm(query)
+    terms = _keyword_terms(query)
+    if not query_norm and not query_phrase:
+        return 0.0, ""
+
+    subject = entity.get("subject", "") or ""
+    subject_norm = _normalize_subject(subject)
+    aliases = _split_csv_terms(entity.get("aliases", "") or "")
+    tags = _split_csv_terms(entity.get("tags", "") or "")
+    description_norm = _normalize_subject(entity.get("description", "") or "")
+
+    names = [subject, *aliases]
+    name_norms = [_normalize_subject(name) for name in names if name]
+    name_phrases = [_phrase_norm(name) for name in names if name]
+
+    if any(name and (name == query_norm or _phrase_norm(name) == query_phrase) for name in name_norms):
+        return 0.98, "subject_or_alias_exact"
+    in_query_lengths = [
+        len(name.split())
+        for name in name_phrases
+        if name and f" {name} " in f" {query_phrase} "
+    ]
+    if in_query_lengths:
+        return min(0.97, 0.90 + (0.02 * max(in_query_lengths))), "subject_or_alias_in_query"
+    if subject_norm and query_norm in subject_norm:
+        return 0.86, "subject_contains_query"
+
+    tag_norms = [_phrase_norm(tag) for tag in tags]
+    if any(tag and (tag == query_phrase or f" {tag} " in f" {query_phrase} ") for tag in tag_norms):
+        return 0.78, "tag_exact"
+
+    if terms:
+        subject_terms = set(_keyword_terms(subject))
+        alias_terms = set().union(*(set(_keyword_terms(alias)) for alias in aliases)) if aliases else set()
+        tag_terms = set().union(*(set(_keyword_terms(tag)) for tag in tags)) if tags else set()
+        desc_terms = set(_keyword_terms(entity.get("description", "") or ""))
+        query_terms = set(terms)
+
+        name_terms = subject_terms | alias_terms
+        if name_terms and name_terms <= query_terms:
+            return 0.82, "subject_or_alias_terms"
+        if tag_terms and query_terms & tag_terms:
+            return 0.68, "tag_terms"
+        if name_terms:
+            overlap = len(query_terms & name_terms) / max(1, len(name_terms))
+            if overlap >= 0.5:
+                return 0.50 + (0.15 * overlap), "subject_or_alias_partial"
+        if desc_terms:
+            overlap = len(query_terms & desc_terms) / max(1, len(query_terms))
+            if overlap >= 0.75:
+                return 0.36, "description_terms"
+            if overlap >= 0.5:
+                return 0.24, "description_partial"
+
+    if query_norm and query_norm in description_norm:
+        return 0.30, "description_phrase"
+    return 0.0, ""
+
+
+def _keyword_candidate_hits(query: str, limit: int = 20) -> list[dict]:
+    """Return keyword candidates scored by matched field strength."""
+    conn = _get_conn()
+    rows = conn.execute("SELECT * FROM entities ORDER BY updated_at DESC").fetchall()
+    conn.close()
+
+    hits: list[dict] = []
+    for row in rows:
+        entity = dict(row)
+        lexical_score, matched_field = _field_keyword_score(entity, query)
+        if lexical_score <= 0:
+            continue
+        decay = _decay_multiplier(entity)
+        entity["score"] = round(lexical_score * decay, 4)
+        entity["semantic_score"] = 0.0
+        entity["lexical_score"] = round(lexical_score, 4)
+        entity["decay_multiplier"] = round(decay, 4)
+        entity["via"] = "keyword"
+        entity["relations"] = []
+        entity["retrieval_debug"] = {
+            "matched_field": matched_field,
+            "keyword_score": round(lexical_score, 4),
+        }
+        hits.append(entity)
+
+    hits.sort(key=lambda m: m["score"], reverse=True)
+    return hits[:limit]
+
+
+def _merge_recall_candidate(result_by_id: dict[str, dict], candidate: dict) -> None:
+    existing = result_by_id.get(candidate["id"])
+    debug = candidate.setdefault("retrieval_debug", {})
+    sources = debug.setdefault("sources", [])
+    via = candidate.get("via")
+    if via and via not in sources:
+        sources.append(via)
+    if existing is None:
+        result_by_id[candidate["id"]] = candidate
+        return
+
+    existing_debug = existing.setdefault("retrieval_debug", {})
+    existing_sources = existing_debug.setdefault("sources", [])
+    for source in sources:
+        if source not in existing_sources:
+            existing_sources.append(source)
+
+    if candidate.get("score", 0) > existing.get("score", 0):
+        preserved_sources = list(existing_sources)
+        preserved_relations = existing.get("relations", [])
+        preserved_debug = dict(existing_debug)
+        existing.clear()
+        existing.update(candidate)
+        existing_debug = existing.setdefault("retrieval_debug", {})
+        existing_debug.update(preserved_debug)
+        existing_debug.update(debug)
+        existing_debug["sources"] = list(dict.fromkeys(preserved_sources + sources))
+        if preserved_relations and not existing.get("relations"):
+            existing["relations"] = preserved_relations
+
+    for key in ("semantic_score", "lexical_score", "bm25_score", "field_score", "decay_multiplier"):
+        existing[key] = max(
+            float(existing.get(key, 0) or 0),
+            float(candidate.get(key, 0) or 0),
+        )
+
+    if len(existing_debug.get("sources", [])) > 1:
+        existing["via"] = "hybrid"
+
+
+def _expand_graph_recall_candidates(
+    result_by_id: dict[str, dict],
+    seeds: list[dict],
+    *,
+    hops: int,
+) -> None:
+    if not seeds or hops <= 0:
+        return
+
+    g = _ensure_graph()
+    for seed in seeds:
+        for nbr in get_neighbors(seed["id"], hops=hops):
+            if nbr["id"] == seed["id"]:
+                continue
+
+            connecting_rels = []
+            relation_confidences: list[float] = []
+            if g.has_edge(seed["id"], nbr["id"]):
+                for _ekey, edata in g[seed["id"]][nbr["id"]].items():
+                    conf = float(edata.get("confidence", 1.0) or 1.0)
+                    relation_confidences.append(conf)
+                    connecting_rels.append({
+                        "from": seed.get("subject", ""),
+                        "to": nbr.get("subject", ""),
+                        "type": edata.get("relation_type", "related"),
+                        "confidence": conf,
+                    })
+            if g.has_edge(nbr["id"], seed["id"]):
+                for _ekey, edata in g[nbr["id"]][seed["id"]].items():
+                    conf = float(edata.get("confidence", 1.0) or 1.0)
+                    relation_confidences.append(conf)
+                    connecting_rels.append({
+                        "from": nbr.get("subject", ""),
+                        "to": seed.get("subject", ""),
+                        "type": edata.get("relation_type", "related"),
+                        "confidence": conf,
+                    })
+
+            relation_confidence = max(relation_confidences) if relation_confidences else 0.8
+            nbr["semantic_score"] = 0.0
+            nbr["lexical_score"] = 0.0
+            nbr["decay_multiplier"] = round(_decay_multiplier(nbr), 4)
+            nbr["score"] = round(seed.get("score", 0) * 0.5 * relation_confidence, 4)
+            nbr["via"] = "graph"
+            nbr["relations"] = connecting_rels
+            nbr["retrieval_debug"] = {
+                "seed_id": seed["id"],
+                "seed_score": seed.get("score", 0),
+                "relation_confidence": round(relation_confidence, 4),
+                "sources": ["graph"],
+            }
+            _merge_recall_candidate(result_by_id, nbr)
+
+
+def _is_strong_lexical_seed(candidate: dict) -> bool:
+    debug = candidate.get("retrieval_debug", {}) or {}
+    matched_field = debug.get("matched_field", "")
+    lexical_score = float(candidate.get("lexical_score", 0) or 0)
+    if matched_field.startswith("subject_or_alias"):
+        return lexical_score >= 0.65
+    if matched_field.startswith("tag_"):
+        return lexical_score >= 0.75
+    return False
+
+
+def retrieve_memory_candidates(
+    query: str,
+    *,
+    top_k: int = 8,
+    threshold: float = 0.30,
+    hops: int = 1,
+    max_results: int = 20,
+    include_keyword: bool = True,
+) -> list[dict]:
+    """Retrieve recall candidates without mutating ``recalled_at``.
+
+    This is the safe path for auto-recall policy: candidates can be inspected,
+    validated, and rejected without reinforcing memories the model never sees.
+    """
+    query = (query or "").strip()
+    if not query:
+        return []
+
+    result_by_id: dict[str, dict] = {}
+    seeds: list[dict] = []
+    try:
+        seeds = semantic_search(query, top_k=top_k, threshold=threshold)
+    except Exception:
+        seeds = []
+
+    decay_floor = threshold * 0.7
+    for seed in seeds:
+        semantic_score = float(seed.get("score", 0) or 0)
+        decay = _decay_multiplier(seed)
+        seed["semantic_score"] = round(semantic_score, 4)
+        seed["lexical_score"] = 0.0
+        seed["decay_multiplier"] = round(decay, 4)
+        seed["score"] = round(semantic_score * decay, 4)
+        seed["via"] = "semantic"
+        seed["relations"] = []
+        seed["retrieval_debug"] = {
+            "semantic_score": round(semantic_score, 4),
+            "decay_multiplier": round(decay, 4),
+        }
+        if seed["score"] >= decay_floor:
+            _merge_recall_candidate(result_by_id, seed)
+
+    if include_keyword:
+        try:
+            for entity in fts_search_entities(query, limit=max(10, max_results)):
+                field_score, matched_field = _field_keyword_score(entity, query)
+                bm25_score = float(entity.get("bm25_score", 0) or 0)
+                lexical_score = max(field_score, bm25_score * 0.65)
+                decay = _decay_multiplier(entity)
+                entity["semantic_score"] = 0.0
+                entity["field_score"] = round(field_score, 4)
+                entity["lexical_score"] = round(lexical_score, 4)
+                entity["decay_multiplier"] = round(decay, 4)
+                entity["score"] = round((lexical_score * 0.9 + bm25_score * 0.1) * decay, 4)
+                entity["via"] = "fts"
+                entity["relations"] = []
+                entity["retrieval_debug"] = {
+                    "matched_field": matched_field,
+                    "field_score": round(field_score, 4),
+                    "bm25_score": round(bm25_score, 4),
+                    "sources": ["fts"],
+                }
+                _merge_recall_candidate(result_by_id, entity)
+        except Exception:
+            pass
+
+        try:
+            for entity in _keyword_candidate_hits(query, limit=max(10, max_results)):
+                _merge_recall_candidate(result_by_id, entity)
+        except Exception:
+            pass
+
+    expansion_seeds = [
+        candidate
+        for candidate in result_by_id.values()
+        if candidate.get("via") in {"semantic", "hybrid"} or _is_strong_lexical_seed(candidate)
+    ]
+    expansion_seeds = sorted(
+        expansion_seeds,
+        key=lambda s: s.get("score", 0),
+        reverse=True,
+    )[:max(8, top_k)]
+    _expand_graph_recall_candidates(result_by_id, expansion_seeds, hops=hops)
+
+    result = sorted(result_by_id.values(), key=lambda m: m.get("score", 0), reverse=True)
+    return result[:max_results]
 
 def graph_enhanced_recall(
     query: str,
@@ -1888,7 +2426,7 @@ def graph_enhanced_recall(
     hops: int = 1,
     max_results: int = 20,
 ) -> list[dict]:
-    """Semantic search + memory decay + graph expansion + wiki fallback.
+    """Semantic search + memory decay + graph expansion + keyword fallback.
 
     1. FAISS semantic search for top-k seed entities.
     2. Apply memory decay multiplier (recent/recalled → higher score).
@@ -1902,84 +2440,14 @@ def graph_enhanced_recall(
         ``via`` — ``'semantic'``, ``'graph'``, or ``'wiki'``
         ``relations`` — list of relations connecting this entity to its seed
     """
-    seeds = semantic_search(query, top_k=top_k, threshold=threshold)
-    if not seeds:
-        return []
-
-    # Apply memory decay — recently accessed memories score higher
-    for seed in seeds:
-        seed["score"] = round(seed.get("score", 0) * _decay_multiplier(seed), 4)
-
-    # Re-filter after decay — use a softer floor so old-but-relevant
-    # memories fade in ranking but don't vanish entirely.
-    decay_floor = threshold * 0.7
-    seeds = [s for s in seeds if s["score"] >= decay_floor]
-    if not seeds:
-        return []
-
-    seeds.sort(key=lambda s: s["score"], reverse=True)
-
-    g = _ensure_graph()
-    seen_ids = {s["id"] for s in seeds}
-    result = []
-
-    for seed in seeds:
-        seed["via"] = "semantic"
-        seed["relations"] = []
-        result.append(seed)
-
-        # 1-hop expansion
-        neighbors = get_neighbors(seed["id"], hops=hops)
-        for nbr in neighbors:
-            if nbr["id"] in seen_ids:
-                continue
-            seen_ids.add(nbr["id"])
-
-            # Collect the relations that connect this neighbor to the seed
-            connecting_rels = []
-            if g.has_edge(seed["id"], nbr["id"]):
-                # MultiDiGraph: g[u][v] is {key: data_dict, ...}
-                for _ekey, edata in g[seed["id"]][nbr["id"]].items():
-                    connecting_rels.append({
-                        "from": seed.get("subject", ""),
-                        "to": nbr.get("subject", ""),
-                        "type": edata.get("relation_type", "related"),
-                    })
-            if g.has_edge(nbr["id"], seed["id"]):
-                for _ekey, edata in g[nbr["id"]][seed["id"]].items():
-                    connecting_rels.append({
-                        "from": nbr.get("subject", ""),
-                        "to": seed.get("subject", ""),
-                        "type": edata.get("relation_type", "related"),
-                    })
-
-            # Derive neighbor score from its seed (halved) so neighbors
-            # sort meaningfully instead of all being 0.
-            nbr["score"] = round(seed["score"] * 0.5, 4)
-            nbr["via"] = "graph"
-            nbr["relations"] = connecting_rels
-            result.append(nbr)
-
-    # ── SQL LIKE fallback ──────────────────────────────────────────
-    # Always run a keyword search alongside FAISS to catch exact names,
-    # aliases, tags, and coded terms that embedding models miss.
-    # Negligible cost (~<1 ms on ~200 rows).
-    try:
-        sql_hits = search_entities(query, limit=10)
-        for entity in sql_hits:
-            if entity["id"] in seen_ids:
-                continue
-            seen_ids.add(entity["id"])
-            entity["score"] = 0.10  # low but present
-            entity["via"] = "keyword"
-            entity["relations"] = []
-            result.append(entity)
-    except Exception:
-        pass  # keyword fallback is non-critical
-
-    # ── Cap total results to control token usage ────────────────────
-    result.sort(key=lambda m: m["score"], reverse=True)
-    result = result[:max_results]
+    result = retrieve_memory_candidates(
+        query,
+        top_k=top_k,
+        threshold=threshold,
+        hops=hops,
+        max_results=max_results,
+        include_keyword=True,
+    )
 
     # Reinforce recalled memories (touch recalled_at timestamp)
     try:
@@ -2010,6 +2478,7 @@ def delete_all_entities() -> int:
 
     if count:
         rebuild_index()
+        _clear_fts_index()
 
     # Clean wiki vault files
     try:

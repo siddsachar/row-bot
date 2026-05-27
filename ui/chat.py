@@ -51,7 +51,7 @@ def build_chat(
     )
     from tasks import get_running_tasks, stop_task
     from tools import registry as tool_registry
-    from ui.helpers import persist_thread_media_state
+    from ui.helpers import attach_thinking_to_message, persist_thread_media_state
 
     # ── Header ───────────────────────────────────────────────────────
     running_wfs = get_running_tasks()
@@ -316,6 +316,15 @@ def build_chat(
                                     render_video_with_save(_vid.get("path", "") if isinstance(_vid, dict) else _vid)
                             except Exception:
                                 logger.debug("Video rendering failed during reattach", exc_info=True)
+                        if _reattach_gen.thinking_text:
+                            with _reattach_gen.tool_col:
+                                with ui.expansion(
+                                    "\U0001f4ad Thinking", icon="psychology"
+                                ).classes("w-full"):
+                                    ui.code(
+                                        _reattach_gen.thinking_text.strip()[:8_000]
+                                    ).classes("w-full text-xs")
+                            _reattach_gen.thinking_collapsed = True
                         _reattach_gen.assistant_md = ui.markdown(
                             _reattach_gen.accumulated,
                             extras=['code-friendly', 'fenced-code-blocks', 'tables'],
@@ -327,8 +336,9 @@ def build_chat(
             if p.stop_btn:
                 p.stop_btn.enable()
         elif _reattach_gen and _reattach_gen.status in ("done", "error", "stopped", "interrupted"):
-            if _reattach_gen.accumulated:
+            if _reattach_gen.accumulated or _reattach_gen.thinking_text:
                 a_msg: dict = {"role": "assistant", "content": _reattach_gen.accumulated}
+                attach_thinking_to_message(a_msg, _reattach_gen.thinking_text)
                 if _reattach_gen.tool_results:
                     a_msg["tool_results"] = _reattach_gen.tool_results
                 if _reattach_gen.chart_data:

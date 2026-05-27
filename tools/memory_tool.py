@@ -11,6 +11,7 @@ entities) and ``explore_connections`` (traverse the knowledge graph).
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -19,6 +20,7 @@ from tools.base import BaseTool
 from tools import registry
 import memory as memory_db
 import knowledge_graph as kg
+import memory_evolution as memory_evo
 
 
 # ── Pydantic schemas for structured input ────────────────────────────────────
@@ -172,6 +174,15 @@ def _check_contradiction(old_content: str, new_content: str, subject: str) -> st
 def _save_memory(category: str, subject: str, content: str, tags: str = "") -> str:
     """Save a new memory, or update an existing one if a near-duplicate exists."""
     try:
+        manual_props = memory_evo.merge_properties(
+            {},
+            {"status": "active"},
+            source="live",
+            entity_type=category,
+            actor="manual",
+            source_context={"actor": "manual"},
+            high_authority=True,
+        )
         # Deterministic dedup: exact category + normalised subject match
         existing = memory_db.find_by_subject(category, subject)
         if existing:
@@ -189,6 +200,17 @@ def _save_memory(category: str, subject: str, content: str, tags: str = "") -> s
                 # Both have unique info — check for contradiction before merging
                 conflict = _check_contradiction(old_content, new_content, subject)
                 if conflict:
+                    memory_evo.mark_needs_review(
+                        existing["id"],
+                        conflict,
+                        actor="manual",
+                        incoming={
+                            "subject": subject,
+                            "category": category,
+                            "content": new_content,
+                            "source": "live",
+                        },
+                    )
                     return (
                         f"⚠️ CONFLICT for '{subject}': {conflict}\n"
                         f"Existing content: {old_content}\n"
@@ -203,6 +225,15 @@ def _save_memory(category: str, subject: str, content: str, tags: str = "") -> s
                 merged,
                 tags=tags if tags else None,
                 source="live",
+                properties=memory_evo.merge_properties(
+                    existing.get("properties", {}),
+                    manual_props,
+                    source="live",
+                    entity_type=existing.get("entity_type", existing.get("category", category)),
+                    actor="manual",
+                    source_context={"actor": "manual"},
+                    high_authority=True,
+                ),
             )
             if result:
                 return (
@@ -213,7 +244,14 @@ def _save_memory(category: str, subject: str, content: str, tags: str = "") -> s
                     f"Content: {result['content']}"
                 )
 
-        result = memory_db.save_memory(category, subject, content, tags, source="live")
+        result = memory_db.save_memory(
+            category,
+            subject,
+            content,
+            tags,
+            source="live",
+            properties=manual_props,
+        )
         return (
             f"Memory saved successfully.\n"
             f"ID: {result['id']}\n"
@@ -227,15 +265,22 @@ def _save_memory(category: str, subject: str, content: str, tags: str = "") -> s
 
 def _search_memory(query: str, category: str = "") -> str:
     """Search memories using hybrid retrieval (FAISS + graph expansion + SQL LIKE)."""
-    results = kg.graph_enhanced_recall(query, top_k=10, threshold=0.3)
+    results = kg.retrieve_memory_candidates(query, top_k=10, threshold=0.3)
     if category:
         cat = category.lower().strip()
         results = [m for m in results
                    if m.get("category", m.get("entity_type", "")) == cat]
     if not results:
         return "No memories found matching that query."
+    kg.touch_recalled([m["id"] for m in results if m.get("id")])
     entries = []
     for m in results:
+        props = m.get("properties", "{}")
+        if isinstance(props, str):
+            try:
+                props = json.loads(props or "{}")
+            except (json.JSONDecodeError, TypeError):
+                props = {}
         entry = {
             "id": m["id"],
             "category": m.get("category", m.get("entity_type", "")),
@@ -243,6 +288,13 @@ def _search_memory(query: str, category: str = "") -> str:
             "content": m.get("content", m.get("description", "")),
             "tags": m.get("tags", ""),
             "relevance": m.get("score", ""),
+            "source": m.get("source", ""),
+            "status": props.get("status", "active") if isinstance(props, dict) else "active",
+            "confidence": props.get("confidence", "") if isinstance(props, dict) else "",
+            "tier": props.get("memory_tier", "") if isinstance(props, dict) else "",
+            "review_reason": props.get("review_reason", "") if isinstance(props, dict) else "",
+            "superseded_by": props.get("superseded_by", "") if isinstance(props, dict) else "",
+            "supersedes": props.get("supersedes", []) if isinstance(props, dict) else [],
             "updated": m.get("updated_at", "")[:16],
         }
         # Include relationship context when available (from graph expansion)
@@ -282,6 +334,17 @@ def _update_memory(
     tags: str | None = None,
 ) -> str:
     """Update an existing memory's content and metadata."""
+    existing = memory_db.get_memory(memory_id)
+    existing_props = existing.get("properties", {}) if existing else {}
+    merged_props = memory_evo.merge_properties(
+        existing_props,
+        {"status": "active", "last_user_modified_at": datetime.now().isoformat()},
+        source=(existing or {}).get("source", "live"),
+        entity_type=entity_type or (existing or {}).get("entity_type", (existing or {}).get("category", "")),
+        actor="manual",
+        source_context={"actor": "manual"},
+        high_authority=True,
+    )
     result = memory_db.update_memory(
         memory_id,
         content,
@@ -289,9 +352,18 @@ def _update_memory(
         category=entity_type,
         aliases=aliases,
         tags=tags,
+        properties=merged_props,
     )
     if result is None:
         return f"Memory '{memory_id}' not found. Use search_memory or list_memories to find the correct ID."
+    memory_evo.append_journal(
+        "user_modified",
+        entity_id=memory_id,
+        actor="manual",
+        reason="manual_memory_tool_update",
+        source=result.get("source", "live"),
+        new_status=merged_props.get("status"),
+    )
     return (
         f"Memory updated successfully.\n"
         f"ID: {result['id']}\n"

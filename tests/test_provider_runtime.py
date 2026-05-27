@@ -230,6 +230,7 @@ def test_ollama_provider_runtime_constructs_chat_ollama(monkeypatch):
         "model": "qwen3:14b",
         "base_url": "http://127.0.0.1:11435",
         "num_ctx": 65_536,
+        "reasoning": True,
     }
 
 
@@ -861,3 +862,22 @@ def test_ollama_runtime_does_not_force_reasoning(monkeypatch):
     assert model
     assert captured["model"] == "vendor/non-tool-chat:14b"
     assert "reasoning" not in captured
+
+
+def test_ollama_runtime_enables_reasoning_for_thinking_models(monkeypatch):
+    fake_langchain_ollama = ModuleType("langchain_ollama")
+    captured = {}
+
+    class _FakeChatOllama:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    fake_langchain_ollama.ChatOllama = _FakeChatOllama
+    monkeypatch.setitem(sys.modules, "langchain_ollama", fake_langchain_ollama)
+    monkeypatch.setattr("models._ollama_base_url", lambda: "http://127.0.0.1:11434")
+
+    model = runtime.create_chat_model("qwen3.5:30b", provider_id="ollama")
+
+    assert model
+    assert captured["model"] == "qwen3.5:30b"
+    assert captured["reasoning"] is True

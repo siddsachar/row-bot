@@ -279,6 +279,14 @@ def build_graph_panel() -> None:
         '      }'
         '      var aliases = node._aliases ? "<div style=\\"color:#999; font-size:0.8rem;\\">Aliases: " + node._aliases + "</div>" : "";'
         '      var tags = node._tags ? "<div style=\\"color:#999; font-size:0.8rem;\\">Tags: " + node._tags + "</div>" : "";'
+        '      var auditBits = [];'
+        '      if (node._status) auditBits.push("Status: " + node._status.replace("_", " "));'
+        '      if (node._tier) auditBits.push("Tier: " + node._tier);'
+        '      if (node._confidence !== undefined && node._confidence !== null && node._confidence !== "") auditBits.push("Confidence: " + Math.round(Number(node._confidence) * 100) + "%");'
+        '      if (node._review_reason) auditBits.push("Review: " + node._review_reason);'
+        '      if (node._superseded_by) auditBits.push("Superseded by: " + node._superseded_by);'
+        '      if (node._recalled_at) auditBits.push("Recalled: " + String(node._recalled_at).slice(0, 16));'
+        '      var auditHtml = auditBits.length ? "<div style=\\"color:#999; font-size:0.75rem; margin-top:4px;\\">" + auditBits.join(" | ") + "</div>" : "";'
         # Source label mapping
         '      var srcLabel = G.isDocSource(node._source) ? "📄 document" : "💬 chat";'
         # Time-ago helper
@@ -297,7 +305,7 @@ def build_graph_panel() -> None:
         '        + node._degree + " connections</span>"'
         '        + "</div>"'
         '        + (node._description ? "<div style=\\"margin-top:4px; color:#bbb;\\">" + node._description + "</div>" : "")'
-        '        + aliases + tags + relHtml'
+        '        + aliases + tags + auditHtml + relHtml'
         '        + "<div style=\\"margin-top:4px; font-size:0.75rem; color:#777;\\">"'
         '        + "Source: " + srcLabel'
         '        + (agoText ? " \u00b7 Updated: " + agoText : "")'

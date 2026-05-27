@@ -292,7 +292,7 @@ def _friendly_api_error(exc_str: str, model_name: str | None = None) -> str:
         return "⚠️ The AI provider is temporarily unavailable (503) — please try again shortly."
     if "timeout" in s or "timed out" in s:
         return "⚠️ Request timed out — please try again."
-    if "does not support tools" in s or ("tool" in s and "status code: 400" in s):
+    if _tool_support_error(s) or ("tool" in s and "status code: 400" in s):
         return f"⚠️ {_model_label_for_error(model_name)} does not support tool calling — switch to a compatible model in Settings → Models."
     # Fallback — expose the raw error so nothing is silently swallowed
     return f"⚠️ API error: {exc_str}"
@@ -351,6 +351,25 @@ def _is_browser_snapshot_tool_name(tool_name: str) -> bool:
 def _is_browser_navigation_tool_name(tool_name: str) -> bool:
     action = _browser_action_name(tool_name)
     return action in {"navigate", "navigate_back", "back", "click", "type", "fill_form", "press_key", "select_option", "hover", "drag", "scroll", "tab"}
+
+
+def _agent_runtime_system_context() -> str:
+    """Return an authoritative current-runtime note for Agent Mode turns."""
+    tool_names = sorted(str(name) for name in (_current_enabled_tool_names_var.get() or ()) if name)
+    if tool_names:
+        preview = ", ".join(tool_names[:16])
+        if len(tool_names) > 16:
+            preview += f", and {len(tool_names) - 16} more"
+        tool_line = f"Available tool groups for this turn include: {preview}."
+    else:
+        tool_line = "No user-facing tools are enabled for this turn."
+    return (
+        "CURRENT RUNTIME MODE: Agent Mode is active for this turn. "
+        "Use the provided tool interface when a tool is needed or explicitly requested. "
+        "Do not claim this turn is Chat Only, and do not claim tools or long-term "
+        "memory are unavailable because of older transcript messages. "
+        f"{tool_line}"
+    )
 # Extra tokens to account for content injected by _pre_model_trim that is NOT
 # stored in the checkpoint: skills prompt, date/time line, auto-recalled
 # memories, per-message framing tokens.
@@ -863,6 +882,10 @@ def _pre_model_trim(state: dict) -> dict:
         content=f"Current date and time: {now.strftime('%A, %B %d, %Y at %I:%M %p')}."
     ))
 
+    # Current runtime authority. This prevents stale Chat Only assistant text
+    # from a previous turn from overriding the active Agent/tool contract.
+    _injections.append(SystemMessage(content=_agent_runtime_system_context()))
+
     # Platform / shell context
     try:
         from prompts import get_platform_context
@@ -957,15 +980,11 @@ def _pre_model_trim(state: dict) -> dict:
     for _ii, _inj_msg in enumerate(_injections):
         trimmed.insert(insert_idx + _ii, _inj_msg)
 
-    # ── Auto-recall: inject relevant memories before the last user msg ───
-    # Embed the latest human message and pull the top-5 most relevant
-    # memories from the FAISS index, then expand 1 hop in the knowledge
-    # graph to include connected entities.  This ensures the model always
-    # has rich personal context without needing to call search_memory.
-    #
-    if True:  # Intentional: user opted in to cloud — auto-recall stays on
-      try:
-        # Gather last 2-3 user messages for richer recall context
+    # ── Auto-recall: inject validated background memory before latest user ─
+    try:
+        # Gather last 2-3 user messages for richer recall context.
+        # Newest-first query construction is capped at 2000 chars in
+        # memory_policy.build_auto_recall.
         human_texts = []
         last_human_idx = None
         for i in range(len(trimmed) - 1, -1, -1):
@@ -979,50 +998,41 @@ def _pre_model_trim(state: dict) -> dict:
                     break
 
         if human_texts and last_human_idx is not None:
-            from knowledge_graph import graph_enhanced_recall, count_entities
+            from memory_policy import (
+                build_auto_recall,
+                format_recall_block,
+                record_recall_trace,
+                touch_selected_memories,
+            )
 
-            if count_entities() > 0:
-                # Build query: latest message first (most important), then
-                # older messages as context.  Truncation drops older text,
-                # preserving the user's most recent intent.
-                query = human_texts[0]  # latest (collected first via reverse scan)
-                for older in human_texts[1:]:
-                    if len(query) + len(older) + 1 > 2000:
-                        break
-                    query = query + " " + older
-                query = query[:2000]
-                memories = graph_enhanced_recall(query, top_k=8, threshold=0.35, hops=1)
-                if memories:
-                    lines = []
-                    for m in memories:
-                        # Use legacy column names if available, fall back to graph names
-                        category = m.get("category", m.get("entity_type", ""))
-                        content = m.get("content", m.get("description", ""))
-                        via = m.get("via", "semantic")
-                        line = f"- [id={m['id']}] [{category}] {m['subject']}: {content}"
-                        if m.get("tags"):
-                            line += f" (tags: {m['tags']})"
-                        if via == "graph" and m.get("relations"):
-                            rels = m["relations"]
-                            rel_strs = [f"{r['from']} → {r['type']} → {r['to']}" for r in rels]
-                            line += f" (connected via: {'; '.join(rel_strs)})"
-                        lines.append(line)
-                    recall_msg = SystemMessage(
-                        content=(
-                            "You KNOW the following facts about this user "
-                            "(from your long-term memory and knowledge graph):\n"
-                            + "\n".join(lines)
-                            + "\n\nTreat these as things you already know. "
-                            "Use them to answer the user's question directly — "
-                            "do NOT say you don't know or search for this info. "
-                            "Do not mention that these were recalled from memory. "
-                            "If you need to update or delete one of these, use its ID. "
-                            "If you notice related entities, you can use explore_connections "
-                            "to see the full relationship graph."
-                        )
-                    )
-                    trimmed.insert(last_human_idx, recall_msg)
-      except Exception as exc:
+            context_window = max(1, int(max_tokens / 0.85))
+            decision = build_auto_recall(
+                human_texts[0],
+                human_texts[1:],
+                thread_id=_thread_id or "",
+                runtime_surface="agent",
+                context_window=context_window,
+            )
+            recall_block = ""
+            if decision.allowed and decision.selected:
+                recall_block = format_recall_block(
+                    decision.selected,
+                    context_window=context_window,
+                )
+                if recall_block:
+                    trimmed.insert(last_human_idx, SystemMessage(content=recall_block))
+                    touch_selected_memories(decision)
+            record_recall_trace(decision, block_chars=len(recall_block))
+            logger.info(
+                "memory auto-recall trace: allowed=%s reason=%s candidates=%d selected=%d block_chars=%d trace=%s",
+                decision.allowed,
+                decision.reason,
+                decision.candidates_seen,
+                len(decision.selected),
+                len(recall_block),
+                decision.trace,
+            )
+    except Exception as exc:
         logger.debug("Auto-recall failed (non-fatal): %s", exc)
 
     # ── Wind-down warning near recursion limit ───────────────────────
@@ -1221,6 +1231,18 @@ _current_thread_id_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
 _current_enabled_tool_names_var: _contextvars.ContextVar[tuple[str, ...]] = _contextvars.ContextVar(
     "current_enabled_tool_names", default=()
 )
+_current_runtime_surface_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
+    "current_runtime_surface", default=""
+)
+_current_requested_runtime_mode_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
+    "current_requested_runtime_mode", default=""
+)
+_current_selected_runtime_mode_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
+    "current_selected_runtime_mode", default=""
+)
+_current_runtime_reason_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
+    "current_runtime_reason", default=""
+)
 _developer_context_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
     "developer_context", default=""
 )
@@ -1230,6 +1252,73 @@ def get_current_thread_id() -> str:
     """Return the current agent thread id for the active invocation."""
 
     return _current_thread_id_var.get("")
+
+
+def get_active_runtime_context() -> dict:
+    """Return lightweight runtime facts for status/introspection tools."""
+
+    return {
+        "thread_id": _current_thread_id_var.get(""),
+        "runtime_surface": _current_runtime_surface_var.get(""),
+        "requested_runtime_mode": _current_requested_runtime_mode_var.get(""),
+        "selected_runtime_mode": _current_selected_runtime_mode_var.get(""),
+        "runtime_reason": _current_runtime_reason_var.get(""),
+        "model_override": _model_override_var.get(""),
+        "enabled_tool_names": tuple(_current_enabled_tool_names_var.get(()) or ()),
+    }
+
+
+def _set_active_runtime_context(
+    *,
+    thread_id: str = "",
+    runtime_surface: str = "",
+    requested_runtime_mode: str = "",
+    selected_runtime_mode: str = "",
+    runtime_reason: str = "",
+    model_override: str = "",
+    enabled_tool_names: list[str] | tuple[str, ...] | None = None,
+) -> None:
+    _current_thread_id_var.set(thread_id or "")
+    _current_runtime_surface_var.set(runtime_surface or "")
+    _current_requested_runtime_mode_var.set(requested_runtime_mode or "")
+    _current_selected_runtime_mode_var.set(selected_runtime_mode or "")
+    _current_runtime_reason_var.set(runtime_reason or "")
+    _model_override_var.set(model_override or "")
+    _current_enabled_tool_names_var.set(tuple(enabled_tool_names or ()))
+
+
+def _log_runtime_decision(
+    *,
+    thread_id: str,
+    runtime_surface: str,
+    requested_runtime_mode: str,
+    selected_runtime_mode: str,
+    model_label: str,
+    model_override: str | None,
+    enabled_tool_names: list[str] | tuple[str, ...] | None,
+    tools_bound: bool,
+    reason: str = "",
+    context_window: int | None = None,
+) -> None:
+    logger.info(
+        "runtime decision: thread=%s surface=%s requested=%s selected=%s "
+        "model=%s override=%s reason=%s context=%s tools_enabled=%d tools_bound=%s",
+        str(thread_id or "")[:8] or "?",
+        runtime_surface or "",
+        requested_runtime_mode or "",
+        selected_runtime_mode or "",
+        model_label or "",
+        model_override or "",
+        reason or "",
+        context_window if context_window is not None else "",
+        len(enabled_tool_names or ()),
+        bool(tools_bound),
+    )
+
+
+def _readiness_context_window(readiness, selected_mode: str) -> int | None:
+    branch = getattr(readiness, selected_mode, None)
+    return getattr(branch, "context_window", None)
 
 # ContextVar for model override — propagates to tool executor threads so
 # the contextual compressor uses the same model as the agent graph.
@@ -1888,13 +1977,35 @@ def invoke_agent(user_input: str, enabled_tool_names: list[str], config: dict,
 
     # Set thread-local before graph construction so readiness/provider errors
     # are attributed to the explicit thread selection.
-    _current_thread_id_var.set(_thread_id)
-    _model_override_var.set(_model_ov or "")
-    _current_enabled_tool_names_var.set(tuple(enabled_tool_names or []))
+    configurable = config.get("configurable") or {}
+    runtime_surface = str(configurable.get("runtime_surface") or "agent")
+    runtime_mode = str(configurable.get("runtime_mode") or "agent")
+    model_label, _ = _selected_model_label_from_config(config)
+    _set_active_runtime_context(
+        thread_id=_thread_id,
+        runtime_surface=runtime_surface,
+        requested_runtime_mode=runtime_mode,
+        selected_runtime_mode="agent",
+        runtime_reason="forced_agent" if runtime_mode == "agent" else runtime_mode,
+        model_override=_model_ov or "",
+        enabled_tool_names=enabled_tool_names,
+    )
     _developer_context_var.set(
-        (config.get("configurable") or {}).get("developer_context", "") or ""
+        configurable.get("developer_context", "") or ""
     )
     set_active_model_override(_model_ov or "")
+    _log_runtime_decision(
+        thread_id=_thread_id,
+        runtime_surface=runtime_surface,
+        requested_runtime_mode=runtime_mode,
+        selected_runtime_mode="agent",
+        model_label=model_label,
+        model_override=_model_ov,
+        enabled_tool_names=enabled_tool_names,
+        tools_bound=True,
+        reason="invoke_agent",
+        context_window=get_context_size(model_label),
+    )
     agent = get_agent_graph(enabled_tool_names, model_override=_model_ov)
 
     # Summarize if context is above threshold
@@ -2101,13 +2212,12 @@ def _chat_only_content_from_ui_message(msg: dict) -> str:
         text = str(content or "")
     tool_results = msg.get("tool_results")
     if isinstance(tool_results, list) and tool_results:
-        lines = ["Historical tool results from an earlier Agent Mode turn:"]
+        lines = ["Earlier Agent Mode turn used tool(s):"]
         for result in tool_results:
             if not isinstance(result, dict):
                 continue
             name = str(result.get("name") or "tool")
-            result_content = str(result.get("content") or "")
-            lines.append(f"- {name}: {result_content[:2000]}")
+            lines.append(f"- {name}")
         text = (text + "\n\n" + "\n".join(lines)).strip()
     charts = msg.get("charts")
     if isinstance(charts, list) and charts:
@@ -2162,12 +2272,33 @@ def stream_chat_only(user_input: str, config: dict, *, stop_event: threading.Eve
     configurable = config.get("configurable") or {}
     thread_id = str(configurable.get("thread_id") or "")
     model_label, _use_override = _selected_model_label_from_config(config)
-    _model_override_var.set(model_label)
+    _set_active_runtime_context(
+        thread_id=thread_id,
+        runtime_surface=str(configurable.get("runtime_surface") or "normal_chat"),
+        requested_runtime_mode=str(configurable.get("runtime_mode") or "chat_only"),
+        selected_runtime_mode="chat_only",
+        runtime_reason="chat_only",
+        model_override=model_label,
+        enabled_tool_names=(),
+    )
     set_active_model_override(model_label)
     readiness = evaluate_chat_readiness(model_label)
     if not readiness.ready:
         yield ("error", readiness.user_message())
         return
+    _current_runtime_reason_var.set("chat_only_ready")
+    _log_runtime_decision(
+        thread_id=thread_id,
+        runtime_surface=str(configurable.get("runtime_surface") or "normal_chat"),
+        requested_runtime_mode=str(configurable.get("runtime_mode") or "chat_only"),
+        selected_runtime_mode="chat_only",
+        model_label=model_label,
+        model_override=configurable.get("model_override"),
+        enabled_tool_names=(),
+        tools_bound=False,
+        reason=readiness.user_message(),
+        context_window=readiness.context_window,
+    )
 
     try:
         llm = _chat_only_llm(model_label)
@@ -2301,32 +2432,92 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
     configurable = config.get("configurable") or {}
     runtime_surface = str(configurable.get("runtime_surface") or "agent")
     runtime_mode = str(configurable.get("runtime_mode") or "agent")
+    _model_ov = configurable.get("model_override")
+    model_label, _ = _selected_model_label_from_config(config)
+    _set_active_runtime_context(
+        thread_id=str(configurable.get("thread_id") or ""),
+        runtime_surface=runtime_surface,
+        requested_runtime_mode=runtime_mode,
+        selected_runtime_mode="pending",
+        runtime_reason="evaluating",
+        model_override=_model_ov or "",
+        enabled_tool_names=enabled_tool_names,
+    )
     auto_allowed = runtime_mode == "auto" and runtime_surface in {"normal_chat", "channel"}
     if runtime_mode == "chat_only" or auto_allowed:
-        model_label, _ = _selected_model_label_from_config(config)
         try:
             from providers.readiness import evaluate_runtime_readiness
 
-            runtime_readiness = evaluate_runtime_readiness(model_label)
+            runtime_readiness = evaluate_runtime_readiness(
+                model_label,
+                probe_ollama_tools=False,
+            )
         except Exception as exc:
             yield ("error", str(exc))
             return
         if runtime_mode == "chat_only" or runtime_readiness.selected_mode == "chat_only":
+            _current_selected_runtime_mode_var.set("chat_only")
+            _current_runtime_reason_var.set(runtime_readiness.selection_reason)
             yield from stream_chat_only(user_input, config, stop_event=stop_event)
             return
         if runtime_readiness.selected_mode == "blocked":
+            _current_selected_runtime_mode_var.set("blocked")
+            _current_runtime_reason_var.set(runtime_readiness.selection_reason)
+            _log_runtime_decision(
+                thread_id=str(configurable.get("thread_id") or ""),
+                runtime_surface=runtime_surface,
+                requested_runtime_mode=runtime_mode,
+                selected_runtime_mode="blocked",
+                model_label=model_label,
+                model_override=_model_ov,
+                enabled_tool_names=enabled_tool_names,
+                tools_bound=False,
+                reason=runtime_readiness.selection_reason,
+                context_window=_readiness_context_window(runtime_readiness, "chat"),
+            )
             yield ("error", runtime_readiness.selection_reason)
             return
-
-    _model_ov = configurable.get("model_override")
+        _current_selected_runtime_mode_var.set("agent")
+        _current_runtime_reason_var.set(runtime_readiness.selection_reason)
+        _log_runtime_decision(
+            thread_id=str(configurable.get("thread_id") or ""),
+            runtime_surface=runtime_surface,
+            requested_runtime_mode=runtime_mode,
+            selected_runtime_mode="agent",
+            model_label=model_label,
+            model_override=_model_ov,
+            enabled_tool_names=enabled_tool_names,
+            tools_bound=True,
+            reason=runtime_readiness.selection_reason,
+            context_window=_readiness_context_window(runtime_readiness, "agent"),
+        )
+    else:
+        _current_selected_runtime_mode_var.set("agent")
+        _current_runtime_reason_var.set("forced_agent")
+        _log_runtime_decision(
+            thread_id=str(configurable.get("thread_id") or ""),
+            runtime_surface=runtime_surface,
+            requested_runtime_mode=runtime_mode,
+            selected_runtime_mode="agent",
+            model_label=model_label,
+            model_override=_model_ov,
+            enabled_tool_names=enabled_tool_names,
+            tools_bound=True,
+            reason="forced_agent",
+            context_window=get_context_size(model_label),
+        )
 
     # Set thread-local before graph construction so readiness/provider errors
     # are attributed to the explicit thread selection.
-    _current_thread_id_var.set(
-        (config.get("configurable") or {}).get("thread_id", "")
+    _set_active_runtime_context(
+        thread_id=(config.get("configurable") or {}).get("thread_id", ""),
+        runtime_surface=runtime_surface,
+        requested_runtime_mode=runtime_mode,
+        selected_runtime_mode="agent",
+        runtime_reason=_current_runtime_reason_var.get(""),
+        model_override=_model_ov or "",
+        enabled_tool_names=enabled_tool_names,
     )
-    _model_override_var.set(_model_ov or "")
-    _current_enabled_tool_names_var.set(tuple(enabled_tool_names or []))
     _developer_context_var.set(
         (config.get("configurable") or {}).get("developer_context", "") or ""
     )
@@ -2340,16 +2531,16 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
 
     for event in _stream_graph(agent, {"messages": [("human", user_input)]}, config,
                                stop_event=stop_event):
-        if auto_allowed and event[0] == "error" and _tool_support_error(str(event[1])):
-            yield ("token", "Chat Only: this model does not support tool calling. Tools and actions are off.\n\n")
-            yield from stream_chat_only(user_input, config, stop_event=stop_event)
-            return
         yield event
 
 
 def _tool_support_error(message: str) -> bool:
     lowered = str(message or "").lower()
-    return "does not support tool" in lowered or "tool calling" in lowered and "not support" in lowered
+    return (
+        "does not support tool" in lowered
+        or ("tool calling" in lowered and "not support" in lowered)
+        or ("expected element type <function>" in lowered and "have <parameter>" in lowered)
+    )
 
 
 def repair_orphaned_tool_calls(enabled_tool_names: list[str] | None = None,
@@ -2419,14 +2610,19 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
     Yields the same ``(event_type, payload)`` tuples as ``stream_agent``.
     """
     config = _normalize_agent_config(config)
+    configurable = config.get("configurable") or {}
     _model_ov = (config.get("configurable") or {}).get("model_override")
-    _current_thread_id_var.set(
-        (config.get("configurable") or {}).get("thread_id", "")
+    _set_active_runtime_context(
+        thread_id=configurable.get("thread_id", ""),
+        runtime_surface=str(configurable.get("runtime_surface") or "agent"),
+        requested_runtime_mode=str(configurable.get("runtime_mode") or "agent"),
+        selected_runtime_mode="agent",
+        runtime_reason="resume",
+        model_override=_model_ov or "",
+        enabled_tool_names=enabled_tool_names,
     )
-    _model_override_var.set(_model_ov or "")
-    _current_enabled_tool_names_var.set(tuple(enabled_tool_names or []))
     _developer_context_var.set(
-        (config.get("configurable") or {}).get("developer_context", "") or ""
+        configurable.get("developer_context", "") or ""
     )
     set_active_model_override(_model_ov or "")
     agent = get_agent_graph(enabled_tool_names, model_override=_model_ov)
@@ -2444,18 +2640,24 @@ def resume_invoke_agent(enabled_tool_names: list[str], config: dict, approved: b
     """Resume an interrupted agent graph (non-streaming, for tasks).
 
     Returns the final answer text, or an interrupt dict if the graph
-    pauses again (e.g. a second tool call needing approval).
+    pauses again (e.g. {"type": "interrupt"} for a second tool call needing
+    approval).
     """
     config = _normalize_agent_config(config)
+    configurable = config.get("configurable") or {}
     _model_ov = (config.get("configurable") or {}).get("model_override")
 
-    _current_thread_id_var.set(
-        (config.get("configurable") or {}).get("thread_id", "")
+    _set_active_runtime_context(
+        thread_id=configurable.get("thread_id", ""),
+        runtime_surface=str(configurable.get("runtime_surface") or "agent"),
+        requested_runtime_mode=str(configurable.get("runtime_mode") or "agent"),
+        selected_runtime_mode="agent",
+        runtime_reason="resume",
+        model_override=_model_ov or "",
+        enabled_tool_names=enabled_tool_names,
     )
-    _model_override_var.set(_model_ov or "")
-    _current_enabled_tool_names_var.set(tuple(enabled_tool_names or []))
     _developer_context_var.set(
-        (config.get("configurable") or {}).get("developer_context", "") or ""
+        configurable.get("developer_context", "") or ""
     )
     set_active_model_override(_model_ov or "")
     agent = get_agent_graph(enabled_tool_names, model_override=_model_ov)
@@ -2510,12 +2712,20 @@ def resume_invoke_agent(enabled_tool_names: list[str], config: dict, approved: b
 
 
 def _latest_ai_text_from_state(agent, config: dict) -> str:
+    msg = _latest_ai_message_from_state(agent, config)
+    if msg is None:
+        return ""
+    text = _content_to_str(getattr(msg, "content", ""))
+    return text if text.strip() else ""
+
+
+def _latest_ai_message_from_state(agent, config: dict):
     try:
         state = agent.get_state(config)
     except Exception:
-        return ""
+        return None
     if not state or not getattr(state, "values", None):
-        return ""
+        return None
     messages = list(state.values.get("messages", []))
     latest_human_idx = -1
     for idx in range(len(messages) - 1, -1, -1):
@@ -2524,11 +2734,68 @@ def _latest_ai_text_from_state(agent, config: dict) -> str:
             break
     current_turn_messages = messages[latest_human_idx + 1:] if latest_human_idx >= 0 else messages
     for msg in reversed(current_turn_messages):
-        if hasattr(msg, "type") and msg.type == "ai" and getattr(msg, "content", None):
-            text = _content_to_str(msg.content)
-            if text.strip():
-                return text
-    return ""
+        if hasattr(msg, "type") and msg.type == "ai":
+            return msg
+    return None
+
+
+def _log_stream_completion(
+    *,
+    config: dict,
+    answer_chars: int,
+    answer_chunks: int,
+    reasoning_chars: int,
+    reasoning_chunks: int,
+    tool_call_count: int,
+    tool_result_count: int,
+    finish_reason: str | None,
+    stopped_by_user: bool,
+    loop_detected: bool,
+    browser_budget_exceeded: bool,
+    latest_ai_message=None,
+) -> None:
+    """Log enough completion detail to diagnose reasoning-only model stops."""
+    response_metadata = dict(getattr(latest_ai_message, "response_metadata", None) or {})
+    additional_kwargs = getattr(latest_ai_message, "additional_kwargs", None) or {}
+    checkpoint_answer_chars = len(_content_to_str(getattr(latest_ai_message, "content", "") or "")) if latest_ai_message else 0
+    checkpoint_reasoning_chars = len(str(additional_kwargs.get("reasoning_content") or "")) if latest_ai_message else 0
+    done_reason = (
+        finish_reason
+        or response_metadata.get("finish_reason")
+        or response_metadata.get("done_reason")
+        or ""
+    )
+    diagnostics = _agent_runtime_diagnostics(config)
+    diagnostics.update({
+        "answer_chars": int(answer_chars),
+        "answer_chunks": int(answer_chunks),
+        "reasoning_chars": int(reasoning_chars),
+        "reasoning_chunks": int(reasoning_chunks),
+        "tool_call_count": int(tool_call_count),
+        "tool_result_count": int(tool_result_count),
+        "finish_reason": finish_reason or "",
+        "done_reason": done_reason,
+        "stopped_by_user": bool(stopped_by_user),
+        "loop_detected": bool(loop_detected),
+        "browser_budget_exceeded": bool(browser_budget_exceeded),
+        "checkpoint_answer_chars": checkpoint_answer_chars,
+        "checkpoint_reasoning_chars": checkpoint_reasoning_chars,
+        "eval_count": response_metadata.get("eval_count"),
+        "prompt_eval_count": response_metadata.get("prompt_eval_count"),
+        "total_duration": response_metadata.get("total_duration"),
+    })
+    if (
+        not answer_chars
+        and not checkpoint_answer_chars
+        and (reasoning_chars or checkpoint_reasoning_chars)
+        and not stopped_by_user
+        and not loop_detected
+        and not browser_budget_exceeded
+        and not tool_call_count
+    ):
+        logger.warning("stream completion reasoning_only_stop diagnostics=%s", diagnostics)
+    else:
+        logger.info("stream completion diagnostics=%s", diagnostics)
 
 
 def _stream_graph(agent, input_data, config: dict,
@@ -2539,6 +2806,12 @@ def _stream_graph(agent, input_data, config: dict,
     _in_think = False           # True while inside a <think>…</think> block
     _finish_reason: str | None = None  # tracks API finish_reason from last chunk
     _seen_tool_calls: set[str] = set()
+    _answer_chars = 0
+    _answer_chunks = 0
+    _reasoning_chars = 0
+    _reasoning_chunks = 0
+    _tool_result_count = 0
+    _stopped_by_user = False
 
     # Loop detection: track consecutive identical tool call signatures.
     # If the same (name, args_hash) appears 4 times in a row, the model
@@ -2590,7 +2863,7 @@ def _stream_graph(agent, input_data, config: dict,
                 )
                 yield ("error", str(retry_exc))
                 return
-        elif "does not support tools" in exc_str or "status code: 400" in exc_str:
+        elif _tool_support_error(exc_str) or "status code: 400" in exc_str:
             logger.error(
                 "_stream_graph failed before iteration: %s diagnostics=%s",
                 exc_str,
@@ -2614,6 +2887,7 @@ def _stream_graph(agent, input_data, config: dict,
       for event in stream_iter:
         # ── Stop-button cancellation ─────────────────────────────────────
         if stop_event and stop_event.is_set():
+            _stopped_by_user = True
             break
 
         mode, data = event
@@ -2661,6 +2935,7 @@ def _stream_graph(agent, input_data, config: dict,
 
                     # Tool result returned
                     if m.type == "tool":
+                        _tool_result_count += 1
                         yield ("tool_done", {
                             "name": _resolve_tool_display_name(m.name),
                             "raw_name": m.name,
@@ -2687,6 +2962,9 @@ def _stream_graph(agent, input_data, config: dict,
             _fr = _rm.get("finish_reason")
             if _fr:
                 _finish_reason = _fr
+            _dr = _rm.get("done_reason")
+            if _dr:
+                _finish_reason = _dr
 
             content = _content_to_str(msg.content)
             has_tool_call_chunk = bool(
@@ -2701,6 +2979,8 @@ def _stream_graph(agent, input_data, config: dict,
             _ak = getattr(msg, "additional_kwargs", None) or {}
             _reasoning = _ak.get("reasoning_content", "")
             if _reasoning:
+                _reasoning_chars += len(str(_reasoning))
+                _reasoning_chunks += 1
                 if not thinking_signalled:
                     thinking_signalled = True
                 yield ("thinking_token", _reasoning)
@@ -2729,12 +3009,16 @@ def _stream_graph(agent, input_data, config: dict,
                 close_idx = content.find("</think>")
                 if close_idx == -1:
                     # Still inside think block — yield as thinking
+                    _reasoning_chars += len(content)
+                    _reasoning_chunks += 1
                     yield ("thinking_token", content)
                     continue
                 # Found closing tag — split: before=thinking, after=real
                 _in_think = False
                 think_part = content[:close_idx]
                 if think_part:
+                    _reasoning_chars += len(think_part)
+                    _reasoning_chunks += 1
                     yield ("thinking_token", think_part)
                 content = content[close_idx + len("</think>"):]
                 if not content:
@@ -2749,6 +3033,8 @@ def _stream_graph(agent, input_data, config: dict,
                     continue
                 if i % 2 == 1:
                     # Odd index = captured think content
+                    _reasoning_chars += len(part)
+                    _reasoning_chunks += 1
                     yield ("thinking_token", part)
                 else:
                     real_parts.append(part)
@@ -2760,6 +3046,8 @@ def _stream_graph(agent, input_data, config: dict,
                 _in_think = True
                 trailing = content[open_idx + len("<think>"):]
                 if trailing:
+                    _reasoning_chars += len(trailing)
+                    _reasoning_chunks += 1
                     yield ("thinking_token", trailing)
                 content = content[:open_idx]
 
@@ -2768,6 +3056,8 @@ def _stream_graph(agent, input_data, config: dict,
 
             if content:
                 thinking_signalled = False
+                _answer_chars += len(content)
+                _answer_chunks += 1
                 full_answer.append(content)
                 yield ("token", content)
     except Exception as exc:
@@ -2785,6 +3075,7 @@ def _stream_graph(agent, input_data, config: dict,
                 )
                 for event in retry_iter:
                     if stop_event and stop_event.is_set():
+                        _stopped_by_user = True
                         break
                     mode, data = event
                     if mode == "updates":
@@ -2817,6 +3108,8 @@ def _stream_graph(agent, input_data, config: dict,
                             content = _re.sub(r"<think>.*?</think>", "", content, flags=_re.DOTALL)
                             content = _re.sub(r"</?think>", "", content)
                             if content:
+                                _answer_chars += len(content)
+                                _answer_chunks += 1
                                 full_answer.append(content)
                                 yield ("token", content)
             except Exception as retry_exc:
@@ -2830,7 +3123,7 @@ def _stream_graph(agent, input_data, config: dict,
                 _notify_api_error(_rmsg)
                 yield ("error", _rmsg)
                 return
-        elif "does not support tools" in exc_str or "status code: 400" in exc_str:
+        elif _tool_support_error(exc_str) or "status code: 400" in exc_str:
             _err = _friendly_api_error(exc_str)
             logger.error(
                 "_stream_graph provider/tool error: %s diagnostics=%s",
@@ -2857,6 +3150,20 @@ def _stream_graph(agent, input_data, config: dict,
 
     # Handle loop detection — repair orphans and yield friendly error
     if _loop_detected:
+        _log_stream_completion(
+            config=config,
+            answer_chars=_answer_chars,
+            answer_chunks=_answer_chunks,
+            reasoning_chars=_reasoning_chars,
+            reasoning_chunks=_reasoning_chunks,
+            tool_call_count=len(_seen_tool_calls),
+            tool_result_count=_tool_result_count,
+            finish_reason=_finish_reason,
+            stopped_by_user=_stopped_by_user,
+            loop_detected=_loop_detected,
+            browser_budget_exceeded=_browser_budget_exceeded,
+            latest_ai_message=_latest_ai_message_from_state(agent, config),
+        )
         logger.warning("Loop detected: same tool+args called %d times consecutively", _LOOP_THRESHOLD)
         try:
             repair_orphaned_tool_calls(config=config, agent_graph=agent)
@@ -2872,6 +3179,20 @@ def _stream_graph(agent, input_data, config: dict,
         return
 
     if _browser_budget_exceeded:
+        _log_stream_completion(
+            config=config,
+            answer_chars=_answer_chars,
+            answer_chunks=_answer_chunks,
+            reasoning_chars=_reasoning_chars,
+            reasoning_chunks=_reasoning_chunks,
+            tool_call_count=len(_seen_tool_calls),
+            tool_result_count=_tool_result_count,
+            finish_reason=_finish_reason,
+            stopped_by_user=_stopped_by_user,
+            loop_detected=_loop_detected,
+            browser_budget_exceeded=_browser_budget_exceeded,
+            latest_ai_message=_latest_ai_message_from_state(agent, config),
+        )
         logger.warning("Browser tool budget exceeded: %d browser tool calls", _browser_tool_count)
         try:
             repair_orphaned_tool_calls(config=config, agent_graph=agent)
@@ -2892,6 +3213,20 @@ def _stream_graph(agent, input_data, config: dict,
     # Check if the graph paused due to an interrupt (destructive tool gate)
     state = agent.get_state(config)
     if state and state.next:
+        _log_stream_completion(
+            config=config,
+            answer_chars=_answer_chars,
+            answer_chunks=_answer_chunks,
+            reasoning_chars=_reasoning_chars,
+            reasoning_chunks=_reasoning_chunks,
+            tool_call_count=len(_seen_tool_calls),
+            tool_result_count=_tool_result_count,
+            finish_reason=_finish_reason,
+            stopped_by_user=_stopped_by_user,
+            loop_detected=_loop_detected,
+            browser_budget_exceeded=_browser_budget_exceeded,
+            latest_ai_message=_latest_ai_message_from_state(agent, config),
+        )
         all_interrupts: list[dict] = []
         for task in state.tasks:
             if hasattr(task, "interrupts") and task.interrupts:
@@ -2907,6 +3242,21 @@ def _stream_graph(agent, input_data, config: dict,
         fallback_text = _latest_ai_text_from_state(agent, config)
         if fallback_text:
             full_answer.append(fallback_text)
+
+    _log_stream_completion(
+        config=config,
+        answer_chars=_answer_chars,
+        answer_chunks=_answer_chunks,
+        reasoning_chars=_reasoning_chars,
+        reasoning_chunks=_reasoning_chunks,
+        tool_call_count=len(_seen_tool_calls),
+        tool_result_count=_tool_result_count,
+        finish_reason=_finish_reason,
+        stopped_by_user=_stopped_by_user,
+        loop_detected=_loop_detected,
+        browser_budget_exceeded=_browser_budget_exceeded,
+        latest_ai_message=_latest_ai_message_from_state(agent, config),
+    )
 
     # Warn if the model stopped due to output token limit
     if _finish_reason == "length" and full_answer:

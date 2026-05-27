@@ -3329,12 +3329,36 @@ def open_settings(
         if total > 0:
             from ui.bulk_select import BulkSelect, render_bulk_action_bar
             from ui.confirm import confirm_destructive
+            from ui import knowledge_audit as audit
+            import memory_evolution
 
             _bulk_mem = BulkSelect()
 
+            def _load_memory_rows() -> list[dict]:
+                return memory_db.list_memories(limit=max(total, 1))
+
+            status_summary_container = ui.row().classes("gap-2 q-mb-sm")
+
+            def _refresh_status_summary() -> None:
+                status_summary_container.clear()
+                counts = audit.status_counts(_load_memory_rows())
+                with status_summary_container:
+                    _metric_chip("active", counts.get("active", 0), icon="check_circle", color="positive")
+                    _metric_chip("needs review", counts.get("needs_review", 0), icon="rate_review", color="warning")
+                    _metric_chip("superseded", counts.get("superseded", 0), icon="change_circle", color="grey")
+                    _metric_chip("archived", counts.get("archived", 0), icon="archive", color="grey")
+
+            _refresh_status_summary()
+
             cat_options = ["All"] + sorted(memory_db.VALID_CATEGORIES)
             cat_sel = ui.select(label="Filter by category", options=cat_options, value="All").classes("w-full")
+            with ui.row().classes("w-full gap-2"):
+                status_sel = ui.select(label="Status", options=audit.STATUS_OPTIONS, value="All").classes("col")
+                source_sel = ui.select(label="Source", options=audit.SOURCE_OPTIONS, value="All").classes("col")
+                tier_sel = ui.select(label="Tier", options=audit.TIER_OPTIONS, value="All").classes("col")
             search_input = ui.input("Search knowledge", placeholder="Type a keyword…").classes("w-full")
+
+            review_container = ui.column().classes("w-full")
 
             with ui.row().classes("w-full items-center justify-end q-mt-xs"):
                 _mem_select_btn = ui.button("Select").props(
@@ -3352,20 +3376,146 @@ def open_settings(
 
             mem_container = ui.column().classes("w-full")
 
+            def _render_audit_badges(summary: dict) -> None:
+                ui.badge(summary["status_label"]).props(
+                    f"color={summary.get('status_color', 'blue-grey')} outline"
+                )
+                ui.badge(summary["tier_label"]).props("color=blue-grey outline")
+                ui.badge(summary["source_bucket"]).props("color=blue-grey outline")
+                if summary.get("confidence_label"):
+                    ui.badge(summary["confidence_label"]).props("color=blue-grey outline")
+
+            def _render_audit_details(mem: dict, summary: dict) -> None:
+                meta = [
+                    f"ID: {mem['id']}",
+                    f"Created: {mem.get('created_at', '')[:16]}",
+                    f"Updated: {mem.get('updated_at', '')[:16]}",
+                ]
+                if summary.get("last_user_modified_at"):
+                    meta.append(f"User modified: {summary['last_user_modified_at'][:16]}")
+                if summary.get("last_evolved_at"):
+                    meta.append(f"Evolved: {summary['last_evolved_at'][:16]}")
+                if summary.get("recalled_at"):
+                    meta.append(f"Recalled: {summary['recalled_at'][:16]}")
+                ui.label(" | ".join(meta)).classes("text-xs text-grey-6")
+
+                if summary.get("review_reason"):
+                    ui.label(f"Review: {summary['review_reason']}").classes("text-xs text-orange-4")
+                if summary.get("superseded_by"):
+                    ui.label(f"Superseded by: {summary['superseded_by']}").classes("text-xs text-grey-6")
+                if summary.get("supersedes"):
+                    ui.label(f"Supersedes: {', '.join(summary['supersedes'][:4])}").classes("text-xs text-grey-6")
+
+                provenance = [summary["source_label"], *summary.get("source_context_lines", [])]
+                if provenance:
+                    with ui.expansion("Provenance", icon="manage_search", value=False).classes("w-full"):
+                        for line in provenance:
+                            ui.label(line).classes("text-xs text-grey-6")
+                        evidence = summary.get("evidence") or []
+                        if evidence:
+                            ui.label(f"Evidence: {summary.get('evidence_count', len(evidence))} item(s)").classes("text-xs text-grey-6 q-mt-xs")
+                            for item in evidence:
+                                ui.label(item).classes("text-xs text-grey-6")
+
+            def _status_action(mid: str, action: str) -> None:
+                if action == "archive":
+                    memory_evolution.set_status(
+                        mid,
+                        "archived",
+                        actor="manual",
+                        reason="Archived from Knowledge UI",
+                    )
+                    ui.notify("Memory archived.", type="info")
+                elif action == "restore":
+                    memory_evolution.mark_user_modified(
+                        mid,
+                        actor="manual",
+                        source_context={"actor": "manual", "surface": "knowledge_ui"},
+                        status="active",
+                    )
+                    ui.notify("Memory restored.", type="positive")
+                elif action == "resolve":
+                    memory_evolution.mark_user_modified(
+                        mid,
+                        actor="manual",
+                        source_context={"actor": "manual", "surface": "knowledge_ui", "action": "resolve_review"},
+                        status="active",
+                    )
+                    ui.notify("Review resolved.", type="positive")
+                _refresh_status_summary()
+                _refresh_review_queue()
+                _refresh_memories()
+
+            def _filtered_memories() -> list[dict]:
+                rows = _load_memory_rows()
+                cat = None if cat_sel.value == "All" else cat_sel.value
+                if cat:
+                    rows = [m for m in rows if m.get("category", m.get("entity_type")) == cat]
+                return audit.filter_memories(
+                    rows,
+                    status=status_sel.value,
+                    source=source_sel.value,
+                    tier=tier_sel.value,
+                    query=search_input.value,
+                )
+
+            def _refresh_review_queue() -> None:
+                review_container.clear()
+                rows = audit.filter_memories(
+                    _load_memory_rows(),
+                    status="Needs review",
+                    source="All",
+                    tier="All",
+                    query="",
+                )
+                if not rows:
+                    return
+                with review_container:
+                    with _settings_section(
+                        "Needs Review",
+                        f"{len(rows)} memor{'y' if len(rows) == 1 else 'ies'} waiting for correction.",
+                        icon="rate_review",
+                        tone="warning",
+                    ):
+                        for mem in rows[:5]:
+                            summary = audit.audit_summary(mem)
+                            with ui.column().classes("w-full gap-1 q-pb-sm").style(
+                                "border-bottom: 1px solid rgba(148, 163, 184, 0.18);"
+                            ):
+                                with ui.row().classes("w-full items-center gap-2"):
+                                    ui.label(mem.get("subject", "(untitled)")).classes("text-sm text-weight-medium")
+                                    _render_audit_badges(summary)
+                                if summary.get("review_reason"):
+                                    ui.label(summary["review_reason"]).classes("text-xs text-orange-4")
+                                with ui.row().classes("gap-2"):
+                                    def _edit_review(mid=mem["id"]):
+                                        from ui.entity_editor import open_entity_editor
+                                        open_entity_editor(mid, on_saved=lambda: (_refresh_status_summary(), _refresh_review_queue(), _refresh_memories()))
+
+                                    ui.button("Edit", icon="edit", on_click=_edit_review).props("flat dense no-caps")
+                                    ui.button(
+                                        "Resolve",
+                                        icon="check",
+                                        on_click=lambda mid=mem["id"]: _status_action(mid, "resolve"),
+                                    ).props("flat dense color=positive no-caps")
+                                    ui.button(
+                                        "Archive",
+                                        icon="archive",
+                                        on_click=lambda mid=mem["id"]: _status_action(mid, "archive"),
+                                    ).props("flat dense color=grey no-caps")
+                        if len(rows) > 5:
+                            ui.label(f"+{len(rows) - 5} more in Browse knowledge").classes("text-xs text-grey-6")
+
             def _refresh_memories():
                 mem_container.clear()
-                cat = None if cat_sel.value == "All" else cat_sel.value
-                q = search_input.value
-                if q:
-                    memories = memory_db.search_memories(q, category=cat)
-                else:
-                    memories = memory_db.list_memories(category=cat)
+                memories = _filtered_memories()
                 with mem_container:
                     if not memories:
                         ui.label("No matching entries.").classes("text-grey-6")
                     else:
                         for mem in memories:
                             _mem_id = mem["id"]
+                            summary = audit.audit_summary(mem)
                             _header_label = (
                                 f"**{mem['subject']}** — "
                                 f"_{mem.get('category', mem.get('entity_type', ''))}_"
@@ -3389,6 +3539,8 @@ def open_settings(
                             else:
                                 _entry_container = ui.expansion(_header_label).classes("w-full")
                             with _entry_container:
+                                with ui.row().classes("gap-2 q-mb-xs"):
+                                    _render_audit_badges(summary)
                                 content = mem.get("content", mem.get("description", ""))
                                 ui.markdown(content, extras=['code-friendly', 'fenced-code-blocks', 'tables'])
                                 aliases = mem.get("aliases", "")
@@ -3414,18 +3566,41 @@ def open_settings(
                                     f"ID: {mem['id']} · Created: {mem['created_at'][:16]} · Updated: {mem['updated_at'][:16]}"
                                 ).classes("text-xs text-grey-6")
 
+                                _render_audit_details(mem, summary)
+
                                 def _del_mem(mid=mem["id"]):
                                     memory_db.delete_memory(mid)
                                     ui.notify("Entry deleted.", type="info")
+                                    _refresh_status_summary()
+                                    _refresh_review_queue()
                                     _refresh_memories()
 
                                 ui.button("🗑️ Delete", on_click=_del_mem).props("flat dense color=negative")
 
                                 def _edit_mem(mid=mem["id"]):
                                     from ui.entity_editor import open_entity_editor
-                                    open_entity_editor(mid, on_saved=_refresh_memories)
+                                    open_entity_editor(mid, on_saved=lambda: (_refresh_status_summary(), _refresh_review_queue(), _refresh_memories()))
 
                                 ui.button("✏️ Edit", on_click=_edit_mem).props("flat dense")
+
+                                if summary["status"] == "archived":
+                                    ui.button(
+                                        "Restore",
+                                        icon="unarchive",
+                                        on_click=lambda mid=mem["id"]: _status_action(mid, "restore"),
+                                    ).props("flat dense color=positive no-caps")
+                                else:
+                                    ui.button(
+                                        "Archive",
+                                        icon="archive",
+                                        on_click=lambda mid=mem["id"]: _status_action(mid, "archive"),
+                                    ).props("flat dense color=grey no-caps")
+                                if summary["status"] == "needs_review":
+                                    ui.button(
+                                        "Resolve",
+                                        icon="check",
+                                        on_click=lambda mid=mem["id"]: _status_action(mid, "resolve"),
+                                    ).props("flat dense color=positive no-caps")
 
             def _do_mem_bulk_delete(ids: list[str]) -> None:
                 def _commit():
@@ -3434,6 +3609,8 @@ def open_settings(
                     if failures:
                         msg += f" {len(failures)} failed."
                     ui.notify(msg, type="negative" if failures else "info")
+                    _refresh_status_summary()
+                    _refresh_review_queue()
                     _refresh_memories()
 
                 noun = "entry" if len(ids) == 1 else "entries"
@@ -3452,8 +3629,63 @@ def open_settings(
             )
 
             cat_sel.on("update:model-value", lambda _: _refresh_memories())
+            status_sel.on("update:model-value", lambda _: _refresh_memories())
+            source_sel.on("update:model-value", lambda _: _refresh_memories())
+            tier_sel.on("update:model-value", lambda _: _refresh_memories())
             search_input.on("update:model-value", lambda _: _refresh_memories())
+            _refresh_review_queue()
             _refresh_memories()
+
+            traces = audit.load_recent_recall_traces(limit=10)
+            with ui.expansion("Recent recall decisions", icon="history", value=False).classes("w-full q-mt-md"):
+                if not traces:
+                    ui.label("No recall trace entries yet.").classes("text-grey-6 text-sm")
+                else:
+                    for row in reversed(traces):
+                        state_label = "used" if row.get("allowed") else "skipped"
+                        selected = row.get("selected_count", len(row.get("selected_ids", []) or []))
+                        block_chars = row.get("block_chars", 0)
+                        with ui.column().classes("w-full gap-1 q-pb-sm").style(
+                            "border-bottom: 1px solid rgba(148, 163, 184, 0.18);"
+                        ):
+                            ui.label(
+                                f"{(row.get('ts') or '')[:19]} | {state_label} | {row.get('reason', '')}"
+                            ).classes("text-xs text-weight-medium")
+                            ui.label(
+                                f"candidates: {row.get('candidates_seen', 0)} | selected: {selected} | context chars: {block_chars}"
+                            ).classes("text-xs text-grey-6")
+                            labels = []
+                            for item in (row.get("top_scores") or [])[:3]:
+                                if isinstance(item, dict):
+                                    labels.append(f"{item.get('id', '')}: {item.get('final', item.get('score', ''))}")
+                            if labels:
+                                ui.label("Top: " + " | ".join(labels)).classes("text-xs text-grey-6")
+                            reasons = []
+                            for item in (row.get("rejected") or [])[:3]:
+                                if isinstance(item, dict) and item.get("reason"):
+                                    reasons.append(str(item.get("reason")))
+                            if reasons:
+                                ui.label("Rejected: " + ", ".join(reasons)).classes("text-xs text-grey-6")
+
+            journal = audit.load_recent_evolution_journal(limit=20)
+            with ui.expansion("Memory change log", icon="receipt_long", value=False).classes("w-full"):
+                if not journal:
+                    ui.label("No memory change entries yet.").classes("text-grey-6 text-sm")
+                else:
+                    for row in reversed(journal):
+                        ids = row.get("entity_ids") or ([row.get("entity_id")] if row.get("entity_id") else [])
+                        transition = ""
+                        if row.get("old_status") or row.get("new_status"):
+                            transition = f" | {row.get('old_status') or '?'} -> {row.get('new_status') or '?'}"
+                        ui.label(
+                            f"{(row.get('timestamp') or '')[:19]} | {row.get('action', '')} | {row.get('actor', '')}{transition}"
+                        ).classes("text-xs text-weight-medium")
+                        detail = " | ".join([str(v) for v in ids if v])
+                        reason = row.get("reason") or ""
+                        if reason:
+                            detail = f"{detail} | {reason}" if detail else reason
+                        if detail:
+                            ui.label(detail).classes("text-xs text-grey-6")
 
         # ── Danger zone ──────────────────────────────────────────────
         ui.separator()
