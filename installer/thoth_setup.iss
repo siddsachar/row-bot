@@ -241,6 +241,7 @@ Source: "..\ui\migration_wizard.py";   DestDir: "{app}\app\ui"; Flags: ignorever
 Source: "..\ui\model_catalog.py";      DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\onboarding_center.py";  DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\onboarding_state.py";   DestDir: "{app}\app\ui"; Flags: ignoreversion
+Source: "..\ui\performance.py";        DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\provider_settings.py";  DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\render.py";             DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\settings.py";           DestDir: "{app}\app\ui"; Flags: ignoreversion
@@ -257,6 +258,7 @@ Source: "..\ui\entity_editor.py";      DestDir: "{app}\app\ui"; Flags: ignorever
 Source: "..\ui\terminal_widget.py";    DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\timer_utils.py";        DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\tool_trace.py";         DestDir: "{app}\app\ui"; Flags: ignoreversion
+Source: "..\ui\transcript.py";         DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\update_dialog.py";      DestDir: "{app}\app\ui"; Flags: ignoreversion
 ; ── Updater scripts (used by maintainers — also shipped for self-help) ─────
 Source: "..\scripts\append_sha_manifest.py"; DestDir: "{app}\app\scripts"; Flags: ignoreversion

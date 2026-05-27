@@ -178,6 +178,17 @@ def test_cache_entry_includes_capability_snapshot():
     assert entry["transport"] == "openai_chat"
 
 
+def test_openrouter_supported_parameters_mark_tools_supported():
+    classified = classify_model_capabilities(
+        "openrouter",
+        "qwen/qwen3.7-max",
+        {"supported_parameters": ["tools", "tool_choice"]},
+    )
+
+    assert classified["tool_calling"] is True
+    assert "tool_calling" in classified["capabilities"]
+
+
 def test_ollama_provider_definition_and_model_capabilities():
     definition = get_provider_definition("ollama")
     info = ollama_model_info("qwen3:14b", installed=True, context_window=32768)

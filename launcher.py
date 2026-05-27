@@ -45,6 +45,9 @@ _STARTUP_TIMEOUT_ENV = "THOTH_STARTUP_TIMEOUT"
 _ICON_SIZE = 64               # px for generated tray icons
 _ACTIVE_TRAY: "ThothTray | None" = None
 _OLLAMA_AUTOSTART_ENV = "THOTH_AUTO_START_OLLAMA"
+_GRACEFUL_SHUTDOWN_REQUEST_TIMEOUT = 3.0
+_GRACEFUL_SHUTDOWN_EXIT_TIMEOUT = 30.0
+_QUIT_WATCHDOG_TIMEOUT = 75.0
 
 
 # ── Ollama auto-start ────────────────────────────────────────────────────────
@@ -487,7 +490,7 @@ class _ThothProcess:
         finally:
             self._log_handle = None
 
-    def _request_graceful_shutdown(self, timeout: float = 1.5) -> bool:
+    def _request_graceful_shutdown(self, timeout: float = _GRACEFUL_SHUTDOWN_REQUEST_TIMEOUT) -> bool:
         """Ask the app to run cleanup before the launcher falls back to killing it."""
         if self._proc is None or self._proc.poll() is not None:
             return True
@@ -540,14 +543,27 @@ class _ThothProcess:
             self._close_log_handle()
             return
         proc = self._proc
+        stopped_gracefully = False
+        shutdown_started = time.monotonic()
         try:
             if proc.poll() is None:
                 graceful = self._request_graceful_shutdown()
                 if graceful:
                     try:
-                        proc.wait(timeout=12)
+                        proc.wait(timeout=_GRACEFUL_SHUTDOWN_EXIT_TIMEOUT)
+                        stopped_gracefully = True
                     except subprocess.TimeoutExpired:
-                        logger.warning("Thoth graceful shutdown timed out")
+                        logger.warning(
+                            "Thoth graceful shutdown exceeded %.0fs; forcing stop",
+                            _GRACEFUL_SHUTDOWN_EXIT_TIMEOUT,
+                        )
+                    else:
+                        logger.info(
+                            "Thoth graceful shutdown completed in %.1fs",
+                            time.monotonic() - shutdown_started,
+                        )
+                else:
+                    logger.warning("Thoth graceful shutdown request failed; forcing stop")
                 self._terminate_process(
                     proc,
                     label="Thoth server",
@@ -556,7 +572,7 @@ class _ThothProcess:
                 )
         finally:
             self._close_log_handle()
-        logger.info("Thoth stopped")
+        logger.info("Thoth stopped%s", " gracefully" if stopped_gracefully else "")
         self._proc = None
 
     @property
@@ -1566,7 +1582,7 @@ class ThothTray:
         self._stop_event.set()
 
         def _quit_watchdog() -> None:
-            time.sleep(30)
+            time.sleep(_QUIT_WATCHDOG_TIMEOUT)
             logger.warning("Quit watchdog forcing launcher exit after timeout")
             os._exit(0)
 

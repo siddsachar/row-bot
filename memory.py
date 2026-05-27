@@ -152,6 +152,27 @@ def list_memories(category: str | None = None, limit: int = 50) -> list[dict]:
     return _entities_to_memories(_kg.list_entities(entity_type=category, limit=limit))
 
 
+def list_memory_summaries(
+    category: str | None = None,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    description_chars: int = 500,
+) -> list[dict]:
+    return _entities_to_memories(
+        _kg.list_entity_summaries(
+            entity_type=category,
+            limit=limit,
+            offset=offset,
+            description_chars=description_chars,
+        )
+    )
+
+
+def list_memory_subjects(memory_ids: list[str] | tuple[str, ...] | set[str]) -> dict[str, str]:
+    return _kg.list_entity_subjects(memory_ids)
+
+
 def count_memories() -> int:
     return _kg.count_entities()
 

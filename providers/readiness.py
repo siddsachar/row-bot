@@ -498,12 +498,33 @@ def _snapshot_for_resolved(
             return ollama_model_info(resolved.runtime_model).capability_snapshot()
         except Exception:
             pass
+    cached = _cached_capability_snapshot_for_resolved(resolved)
+    if cached:
+        return cached
     return model_info_from_metadata(
         resolved.provider_id,
         resolved.runtime_model,
         {},
         transport=resolved.transport,
     ).capability_snapshot()
+
+
+def _cached_capability_snapshot_for_resolved(resolved: ResolvedProviderConfig) -> dict[str, Any]:
+    try:
+        from models import _cloud_model_cache
+
+        info = _cloud_model_cache.get(resolved.runtime_model)
+    except Exception:
+        return {}
+    if not isinstance(info, Mapping):
+        return {}
+    provider = str(info.get("provider") or "")
+    if provider and provider != resolved.provider_id:
+        return {}
+    snapshot = info.get("capabilities_snapshot")
+    if isinstance(snapshot, Mapping) and snapshot:
+        return dict(snapshot)
+    return {}
 
 
 def _snapshot_source(snapshot: Mapping[str, Any], resolved: ResolvedProviderConfig) -> str:

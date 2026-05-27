@@ -232,6 +232,11 @@ def get_all_skills() -> list[Skill]:
     return sorted(_skills_cache.values(), key=lambda s: s.display_name)
 
 
+def skills_loaded() -> bool:
+    """Return whether the in-memory skill cache has been populated."""
+    return bool(_skills_cache)
+
+
 def get_skill(name: str) -> Optional[Skill]:
     """Return a skill by name, or None."""
     return _skills_cache.get(name)
@@ -301,6 +306,15 @@ def get_manual_skill_statuses() -> list[tuple[Skill, bool]]:
 def get_enabled_manual_skills() -> list[Skill]:
     """Return only enabled non-tool-guide skills."""
     return [skill for skill, enabled in get_manual_skill_statuses() if enabled]
+
+
+def get_enabled_manual_skills_snapshot() -> list[Skill]:
+    """Return enabled manual skills from the current cache without discovery."""
+    return [
+        skill
+        for skill in get_manual_skills()
+        if _enabled.get(skill.name, False)
+    ]
 
 
 def get_enabled_skill_names() -> list[str]:

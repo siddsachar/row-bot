@@ -2063,6 +2063,612 @@ Implementation tasks:
 - Full test suite passes.
 - Optional UI performance harness produces a clear before/after report.
 
+### 2026-05-27 UI Performance Overhaul Implementation Progress
+
+Branch: `fix/ui-performance-overhaul`
+
+Completed:
+
+- Added shared UI performance helpers in `ui/performance.py`:
+  `timed_ui_section`, `log_ui_perf`, slow-section warnings,
+  `LoadGeneration`, `safe_ui_callback`, and `safe_ui_task`.
+- Instrumented Settings shell and tab lifecycle:
+  `settings.open.shell`, `settings.tab.load.<tab>`, and
+  `settings.tab.render.<tab>`.
+- Hardened Settings tab loading with generation-safe deferred renders,
+  immediate loading placeholders, retryable inline error panels, and a
+  child-modal guard so entity editor saves do not collapse the Settings
+  dialog.
+- Added lightweight knowledge summary APIs:
+  `knowledge_graph.list_entity_summaries()` and
+  `memory.list_memory_summaries()`.
+- Bounded Browse Knowledge initial rendering to 25 rows with a Load More
+  path, generation-safe debounced filter/search refresh, and summary-based
+  row loading.
+- Made Recent recall decisions and Memory change log lazy so they do not read
+  logs/traces during the initial Knowledge tab render.
+- Changed Wiki Vault sync detection from an automatic first-paint filesystem
+  scan to an explicit `Check vault sync` action with local error display.
+- Optimized entity editor open path:
+  core fields render first; Audit/Provenance, Relations, and Add Relation
+  peer lookup are lazy; relation peer search is capped at 50 and loaded only
+  on demand.
+- Optimized entity editor save path after manual QA showed a brief client
+  disconnect: the save commit now runs off the UI loop, the Save button enters
+  a loading state, and the Knowledge tab refresh is staged after the editor
+  closes instead of rebuilding all Knowledge surfaces inside the click handler.
+- Added editor open/render observability:
+  `entity_editor.open.start`, `entity_editor.open.success`,
+  `entity_editor.render.core`, `entity_editor.render.audit`,
+  `entity_editor.render.relations`, and `entity_editor.save.commit`.
+- Added Knowledge after-save observability:
+  `settings.knowledge.after_save.data`.
+- Followed up on tray quit reliability after manual logs showed frequent
+  `Thoth graceful shutdown timed out` warnings: the launcher now gives app
+  cleanup a 30-second graceful exit window, moves the hard quit watchdog to 75
+  seconds, records graceful shutdown duration, and the app shutdown marker now
+  preserves the shutdown reason.
+- Improved Recent recall decisions readability without changing recall
+  semantics: top-score rows now display memory subjects when available, with a
+  bounded subject lookup for older trace entries that only recorded raw IDs.
+- Improved Memory change log readability without changing journal semantics:
+  rows now use friendly action/reason labels, show `status: active` when no old
+  status was recorded, and resolve memory subjects through a bounded lookup
+  instead of showing raw IDs by default.
+- Fixed graph detail edit UX: the Edit control is now a real button in the
+  detail header instead of a bottom `href="#"` link, avoiding the global
+  external-link handler opening the Thoth home page in a separate browser.
+- Added graph payload instrumentation and capped the initial graph panel
+  request at 250 nodes while preserving local refocus behavior.
+- Added transcript and streaming observability:
+  `chat.transcript.render` and `streaming.consume_generation`, including
+  message/update counts and thinking/answer character counts.
+- Added optional `scripts/ui_performance_harness.py` with a launch-smoke mode
+  and saved local run output to `.tmp/ui_performance_harness.json`.
+- Updated the Windows installer manifest to include `ui/performance.py`.
+
+Tests run:
+
+- `.venv\Scripts\python.exe -m pytest tests/test_ui_performance.py tests/test_ui_performance_overhaul.py`
+  - Passed: 11 tests after the save-path follow-up.
+- `.venv\Scripts\python.exe -m pytest tests/test_knowledge_audit.py`
+  - Passed: 5 tests with `TMP`/`TEMP` pointed at `.tmp`.
+- `.venv\Scripts\python.exe -m pytest tests/test_app_port.py tests/test_app_stability_hardening.py`
+  - Passed: 24 tests with `TMP`/`TEMP` pointed at `.tmp` after the tray quit
+    follow-up.
+- `.venv\Scripts\python.exe tests\test_suite.py`
+  - Passed after allowing the suite to fetch the missing `tiktoken` encoding
+    cache.
+- `.venv\Scripts\python.exe scripts\ui_performance_harness.py --launch --port 8080 --timeout 70 --output .tmp\ui_performance_harness.json`
+  - Passed: temporary app launched, `/api/launcher-ping` responded, `GET /`
+    returned 200, app process terminated.
+
+Remaining gaps and manual checks:
+
+- Browser-level measurement of the full Settings > Knowledge >
+  `MANUALQA-20260527` > Edit > add `manual-qa` tag > Save scenario should be
+  repeated against a real user data set to confirm the follow-up removes the
+  brief disconnect observed during manual QA.
+- Models/Providers already use async/cached loading in the current code; this
+  pass added shared instrumentation but did not deeply restructure provider
+  catalog internals.
+- Graph panel initial payload is bounded, but deeper server-side neighborhood
+  fetching can be expanded later if very large graphs still feel heavy.
+- Browse Knowledge rows are paginated, but row expansion bodies still render
+  when NiceGUI opens the expansion; future work can move every detail body to a
+  fully async row-detail loader if needed.
+
+### 2026-05-27 Transcript Stability and Large Thread Performance Plan
+
+Manual QA on a large existing thread showed a temporary disconnect banner,
+slow initial transcript render, and a brief empty flash before the transcript
+recovered. Local logs identified the latest updated thread as
+`pt_399c8586ac` (`Daily AI Trends Report — May 27, 09:02 AM`). Loading
+messages from storage was fast (`load_thread_messages total=0.010s`,
+`raw=310`, `ui=168`), but UI rendering and follow-up refresh work were slow:
+
+- `chat.transcript.render` took about 17.9 seconds for 168 UI rows.
+- a second transcript render took about 4.4 seconds.
+- event-loop lag reached about 11.7 seconds.
+- token counter refreshes took about 4.1 seconds and 3.2 seconds.
+
+Root cause and constraints:
+
+- The detached-generation rerender was introduced for a real reliability bug:
+  when a generation detaches because UI handles become stale, finalization must
+  still show the completed assistant message if the user is on that thread.
+- The detached finalization path must preserve optimistic `state.messages`
+  entries and must not reload the active thread from checkpoint, because the
+  checkpoint can lag behind the visible user message.
+- The current scoped refresh avoids rebuilding the whole main area, but it
+  still clears `p.chat_container` and synchronously rebuilds every transcript
+  message. On large threads this causes the empty flash, duplicate render, and
+  event-loop starvation.
+- Fixes must preserve Agent Mode behavior, Chat Only semantics, streaming
+  thinking retention, tool rendering, media persistence, and checkpoint/cache
+  semantics.
+
+Implementation-ready plan:
+
+1. Keep the detached-finalize behavior but replace the mechanism:
+   append the finalized assistant message to `state.messages` and synchronize
+   only the missing transcript tail when possible.
+2. Add lightweight per-client transcript render state:
+   active thread id, render generation, rendered message keys, visible window
+   bounds, and whether older messages are collapsed.
+3. Replace full `refresh_chat_messages()` clear/rebuild with a safe
+   `sync_chat_messages()` path:
+   append missing tail messages for same-thread updates; use generation-safe
+   progressive reconcile only when the rendered state is stale.
+4. Bound large transcript first paint:
+   render the latest window first for medium/large threads and expose a
+   `Load earlier` path. Keep full `state.messages` unchanged.
+5. Make transcript rendering cooperative:
+   use adaptive, time-budgeted chunks; abort stale chunks when the thread or
+   render generation changes.
+6. Lazy-render heavy message internals where safe:
+   collapse very large tool outputs, thinking blocks, charts, and huge
+   markdown/code bodies behind user-opened sections.
+7. Reduce token-counter/render contention:
+   debounce/coalesce exact token counting by thread generation, discard stale
+   results, and avoid repeated expensive counts during first paint.
+8. Add resilience guardrails after the real fix:
+   consider desktop-friendly NiceGUI reconnect/message-history settings, but
+   do not rely on wider timeouts as the primary solution.
+9. Add focused tests and harness coverage:
+   detached finalize appends without full rebuild, optimistic messages remain
+   intact, live finalization does not duplicate assistant messages, large
+   transcripts are initially bounded, stale render generations abort, token
+   counter jobs coalesce, and the real-world harness reports no empty flash or
+   disconnect state on a large transcript.
+
+Completed implementation:
+
+- Added `ui/transcript.py` with transcript window selection, stable rendered
+  message keys, generation-safe match checks, and shared transcript chunk
+  budgets.
+- Added per-client transcript render state to `ui/state.P`.
+- Updated `ui/chat.py` so large transcripts render the latest bounded window
+  first (`60` messages by default), expose a `Load earlier messages` control,
+  and render remaining visible rows in adaptive time-budgeted chunks.
+- Replaced the heavy detached-finalize clear/rebuild path in `app.py` with
+  append-oriented transcript synchronization. Same-thread finalization now
+  appends only missing tail messages when the rendered window matches state;
+  the fallback remains scoped and bounded to the latest transcript window.
+- Added live render-state marking for normal attached streaming finalization
+  so the next send does not trigger a stale transcript reconcile just because
+  the assistant placeholder became a persisted message.
+- Added lazy preview rendering for very large markdown message bodies in
+  `ui/render.py`; full content remains available through an explicit
+  `Show full message` action.
+- Debounced and generation-guarded token counter refreshes so expensive exact
+  counts do not stack up during thread-open first paint.
+- Extended `scripts/ui_performance_harness.py` with
+  `--profile-transcript THREAD_ID|latest`, which profiles real local
+  transcript loading and bounded-window selection from the Thoth data store.
+- Updated the Windows installer manifest to include `ui/transcript.py`.
+
+Tests and harness:
+
+- `.venv\Scripts\python.exe -m compileall app.py ui\chat.py ui\render.py ui\streaming.py ui\state.py ui\transcript.py`
+  - Passed.
+- `.venv\Scripts\python.exe -m pytest tests\test_ui_performance.py tests\test_ui_performance_overhaul.py`
+  - Passed: 18 tests.
+- `.venv\Scripts\python.exe -m pytest tests\test_developer_studio_phase10.py::test_detached_finalize_uses_scoped_transcript_refresh_not_main_rebuild tests\test_developer_studio_phase10.py::test_active_detached_finalize_preserves_optimistic_user_messages`
+  - Passed: 2 tests.
+- With `TMP` and `TEMP` pointed at `.tmp`:
+  `.venv\Scripts\python.exe -m pytest tests\test_knowledge_audit.py`
+  - Passed: 5 tests.
+- With `TMP` and `TEMP` pointed at `.tmp`:
+  `.venv\Scripts\python.exe -m pytest tests\test_app_port.py tests\test_app_stability_hardening.py`
+  - Passed: 24 tests.
+- With `TMP` and `TEMP` pointed at `.tmp`:
+  `.venv\Scripts\python.exe -m pytest tests\test_developer_studio_phase10.py tests\test_thinking_retention.py tests\test_transcript_loading.py`
+  - Passed: 50 tests.
+  - A previous run without repo-local temp failed due Windows temp directory
+    permission errors, not code failures.
+- With `TMP` and `TEMP` pointed at `.tmp`:
+  `.venv\Scripts\python.exe tests\test_suite.py`
+  - Passed.
+- Real-world harness:
+  `.venv\Scripts\python.exe scripts\ui_performance_harness.py --launch --port 8080 --timeout 70 --profile-transcript latest --output .tmp\ui_performance_harness.json`
+  - Passed launch smoke.
+  - Latest transcript profile:
+    `pt_399c8586ac`, 170 UI rows, message load `23.0ms`, bounded initial
+    window `110:170`, visible rows `60`, RSS delta about `5.1MB`.
+
+Remaining manual verification:
+
+- Reopen `pt_399c8586ac` in the UI and confirm first paint no longer attempts
+  to render all 170 rows.
+- Send a follow-up message in that large thread and confirm the final assistant
+  answer appears without an empty transcript flash.
+- While a generation is running, switch away and back to the same thread; when
+  the detached generation finalizes, confirm only the missing tail is appended
+  and optimistic user messages remain visible.
+- Open an older section with `Load earlier messages` and confirm the expanded
+  history remains ordered and responsive.
+
+### 2026-05-27 Blank Thread Chat Shell Performance Plan
+
+Manual QA after the large-transcript fix showed that creating a new blank
+thread can still take several seconds, briefly show the disconnect banner, and
+flash blank before eventually loading an empty chat. The last two blank threads
+created during testing were:
+
+- `02f8196f8fca` (`Thread May 27, 13:35`), created
+  `2026-05-27T13:35:22.386805`.
+- `b11d6125b1fa` (`Thread May 27, 13:35`), created
+  `2026-05-27T13:35:33.419022`.
+
+Both threads had `0` UI rows, but `chat.transcript.render` logged slow
+durations:
+
+- `02f8196f8fca`: about `1956ms`, then another about `1979ms`.
+- `b11d6125b1fa`: about `11669ms`, event-loop lag about `11.3s`, then
+  another about `1973ms`.
+
+Current diagnosis:
+
+- The existing `chat.transcript.render` timing starts at the top of
+  `ui.chat.build_chat()`, so it measures the whole chat shell, not just
+  transcript rows.
+- `ui.chat.build_chat()` still performs several synchronous first-paint tasks
+  before the composer is usable:
+  - `skills.load_skills()` scans/parses bundled, tool-guide, and user skills
+    and writes `skills_config.json`.
+  - `skills.get_enabled_skills()` can walk active tool guides and tool
+    registry state.
+  - `_model_surface()` resolves provider config and evaluates runtime
+    readiness synchronously.
+  - `_build_inline_model_picker()` calls `list_model_choice_options()`, which
+    validates quick choices and can refresh capability snapshots.
+  - chat upload/clipboard JavaScript hooks and composer setup are included in
+    the misleading transcript timer.
+- New-thread creation in `ui.sidebar._new_thread()` appears cheap: metadata is
+  saved off-loop and `state.messages` is empty. The slow path begins when the
+  chat shell hydrates.
+- The second blank render likely comes from the skeleton/deferred hydration
+  pattern and/or a second rebuild around thread-list refresh. This needs
+  explicit rebuild reason/generation instrumentation before changing behavior.
+
+Constraints:
+
+- Preserve the large-thread transcript windowing and detached-finalize append
+  sync.
+- Preserve per-thread skill override semantics.
+- Preserve Agent Mode and Chat Only runtime semantics.
+- Preserve provider/model runtime behavior; move UI display work out of first
+  paint without changing readiness decisions at send time.
+- Keep visual design consistent with the current chat shell.
+
+Implementation-ready plan:
+
+1. Add accurate chat-shell observability:
+   - `chat.shell.render` for the full `build_chat()` call.
+   - `chat.header.render`.
+   - `chat.skills.snapshot` or `chat.skills.menu.load`.
+   - `chat.model_surface.render`.
+   - `chat.model_surface.resolve`.
+   - `chat.model_picker.render`.
+   - `chat.model_picker.options`.
+   - `chat.transcript.render` starting only immediately before transcript row
+     rendering.
+   - `chat.composer.render`.
+   - `_rebuild_main` reason, view type, generation id, immediate/deferred
+     mode, skeleton time, and hydration time.
+2. Update rebuild API:
+   - allow callers to pass `reason=` and possibly `immediate=`.
+   - call `rebuild_main(reason="new_thread", immediate=True)` for newly
+     created blank threads once shell first paint is cheap.
+   - preserve the existing deferred skeleton path for heavier navigations.
+   - ensure stale hydrations still abort when a newer generation starts.
+3. Remove synchronous skills loading from chat first paint:
+   - add a cached skills snapshot helper such as
+     `skills.get_enabled_manual_skills_snapshot()` that never scans or writes.
+   - render the skills control from cache when available; otherwise render a
+     lightweight `Skills` button.
+   - load/refresh skills off the UI loop on menu open or deferred background
+     refresh.
+   - update the menu contents generation-safely after the async load returns.
+4. Defer model-surface readiness:
+   - render an immediate model banner from cheap saved/default model state.
+   - update provider label, local/cloud styling, Agent Mode/Chat Only badge,
+     and scroll tint after a generation-safe async readiness check.
+   - keep send-time runtime readiness untouched.
+5. Defer inline model picker options:
+   - render the picker immediately with `Default`, the current override if
+     any, and `More models`.
+   - populate quick-choice options asynchronously via `run.io_bound`.
+   - avoid `validate_quick_choices_for_surface()` on first paint unless the
+     cached options are already warm.
+   - keep model-switch validation and context-cap warnings unchanged after a
+     user actually selects a model.
+6. Make composer and upload hooks cheap:
+   - install drag/drop and paste singleton JavaScript once per client, not on
+     every chat rebuild.
+   - update only the current upload id when the hidden upload element changes.
+   - instrument composer setup separately.
+7. Reduce duplicate blank-thread rebuilds:
+   - inspect rebuild logs after instrumentation.
+   - if thread-list refresh causes a second main build, separate sidebar list
+     refresh from main hydration.
+   - if stale deferred hydration causes it, add stricter generation checks or
+     choose immediate build for `new_thread`.
+8. Tests:
+   - source/focused tests that `build_chat()` no longer calls
+     `skills.load_skills()` synchronously.
+   - tests for cached/deferred skills menu loading.
+   - tests for deferred model picker options.
+   - tests for model banner immediate placeholder plus async update hooks.
+   - tests for `_rebuild_main(reason=...)` stale-generation behavior.
+   - tests ensuring detached-finalize and transcript-windowing code remains
+     intact.
+9. Harness:
+   - extend `scripts/ui_performance_harness.py` with a blank-thread scenario
+     or profile mode that creates/selects an empty thread and captures:
+     shell first-paint timing, rebuild count, event-loop lag markers,
+     transcript rows, and memory delta.
+   - run the harness against the real local data store after implementation.
+10. Acceptance criteria:
+    - Creating three blank threads in a row produces no disconnect banner and
+      no visible blank flash after first paint.
+    - Blank-thread `chat.shell.render` is below 500ms on a warm process.
+    - Blank-thread `chat.transcript.render` is near-zero and reports `rows=0`
+      honestly.
+    - No synchronous skills scan/config write occurs during blank-thread first
+      paint.
+    - Model/skill controls remain available and update progressively.
+    - Sending the first message in the new thread still streams and finalizes
+      correctly.
+
+### 2026-05-27 Blank Thread Chat Shell Implementation Progress
+
+Completed chunk 1 of the blank-thread stability/performance plan:
+
+- Added per-client chat shell generation state so deferred chat-shell work can
+  detect stale renders.
+- Added cheap skill snapshot helpers in `skills.py` and removed synchronous
+  `skills.load_skills()` from chat first paint. Skill discovery now warms
+  off the UI loop after initial render.
+- Added rebuild reason/timing instrumentation for main-view skeleton,
+  hydration, immediate rebuilds, and real-view builds.
+- Changed new blank-thread creation to use
+  `rebuild_main(immediate=True, reason="new_thread")`, avoiding the skeleton
+  plus deferred hydration flash for a freshly empty chat.
+- Split chat timing into `chat.header.render`, `chat.transcript.render`,
+  `chat.composer.render`, and `chat.shell.render`; transcript timing now starts
+  immediately before transcript row/window work instead of at the top of the
+  full chat builder.
+- Replaced synchronous model readiness banner resolution during first paint
+  with a cheap placeholder plus stale-safe deferred readiness resolution.
+- Replaced synchronous inline model option catalog loading during first paint
+  with a minimal current/default picker plus deferred stale-safe option loading.
+- Extended the optional UI performance harness with `--profile-blank-thread`,
+  which checks the latest real local blank thread without creating more user
+  data.
+- Gated chat drag/drop and paste hook installation so subsequent chat rebuilds
+  only update the current hidden upload element id instead of resending both
+  full listener installers.
+
+Focused verification:
+
+- `.venv\Scripts\python.exe -m py_compile ui\chat.py ui\chat_components.py app.py skills.py ui\state.py scripts\ui_performance_harness.py`
+- `.venv\Scripts\python.exe -m pytest tests/test_ui_performance_overhaul.py -q`
+  passed: 14 tests.
+- `.venv\Scripts\python.exe -m pytest tests/test_ui_performance.py tests/test_developer_studio_phase10.py tests/test_thinking_retention.py tests/test_transcript_loading.py -q`
+  passed: 55 tests.
+- `.venv\Scripts\python.exe scripts\ui_performance_harness.py --profile-transcript latest --profile-blank-thread --output .tmp\ui_performance_harness_blank_thread.json`
+  passed. Latest local blank thread `b11d6125b1fa` loaded 0 rows in 0.05ms
+  for the blank-thread profile; latest transcript profile loaded 0 rows in
+  8.08ms.
+- `.venv\Scripts\python.exe -m pytest tests/test_ui_performance_overhaul.py tests/test_ui_performance.py tests/test_developer_studio_phase10.py tests/test_thinking_retention.py tests/test_transcript_loading.py -q`
+  passed: 69 tests.
+- `.venv\Scripts\python.exe -m pytest tests/test_knowledge_audit.py tests/test_app_port.py tests/test_app_stability_hardening.py -q`
+  passed: 29 tests.
+- `.venv\Scripts\python.exe scripts\ui_performance_harness.py --launch --port 8080 --timeout 70 --profile-transcript latest --profile-blank-thread --output .tmp\ui_performance_harness_blank_thread_launch_fresh.json`
+  passed after the app was shut down. Fresh process launch took 7069ms,
+  `/api/launcher-ping` responded, `GET /` returned 200, and the process
+  terminated. Latest blank-thread profile remained 0 rows in 0.03ms.
+- `.venv\Scripts\python.exe tests\test_suite.py` passed when run as the
+  script-style comprehensive suite. Running it through pytest collects 0 tests
+  because it is not a pytest test module.
+- `git diff --check` passed with only expected CRLF conversion warnings.
+
+Follow-up fix after manual QA:
+
+- Symptom: every assistant response appeared twice in the active chat.
+- Root cause: optional post-render JavaScript for highlight.js/mermaid could
+  raise a runtime error after the live assistant row had already rendered.
+  The consumer treated that cosmetic JavaScript failure as a deleted-client
+  signal and marked the generation detached. Detached finalization then ran the
+  scoped transcript refresh and appended the persisted assistant message,
+  leaving both the original live row and the recovered persisted row visible.
+- Fix: post-render JavaScript failures are now logged as cosmetic and do not
+  detach the generation after the final row has rendered.
+- Verification:
+  `.venv\Scripts\python.exe -m pytest tests/test_developer_studio_phase10.py tests/test_thinking_retention.py tests/test_transcript_loading.py -q`
+  passed: 51 tests.
+
+Mermaid export follow-up:
+
+- Manual QA confirmed Mermaid diagrams render correctly after the duplicate
+  response fix, but they lacked the save affordance available on generated and
+  attached images.
+- Added a Mermaid render wrapper with a download button that converts the
+  rendered SVG to PNG in the browser and passes the PNG bytes through Thoth's
+  existing export/save path.
+- Verification:
+  `.venv\Scripts\python.exe -m pytest tests/test_ui_performance_overhaul.py tests/test_thinking_retention.py tests/test_transcript_loading.py -q`
+  passed: 26 tests.
+
+Code-block first-paint follow-up:
+
+- Manual QA showed fenced code blocks appeared as plain/preformatted text
+  immediately after a response, then gained the proper code-block styling and
+  syntax highlighting only after another message was sent or the thread was
+  reloaded.
+- Root cause: the explicit highlight.js call could run before NiceGUI's DOM
+  patch containing the final rendered `<pre><code>` nodes had landed in the
+  browser.
+- Fix: added a page-level `thothHighlightCodeBlocks` helper and
+  `MutationObserver` in `ui/head_html.py`. It debounces new code-block DOM
+  insertions and highlights them after the browser has applied the patch.
+  Streaming and stored-message render paths now call that helper when
+  available, with a delayed fallback for older pages.
+- Verification:
+  `.venv\Scripts\python.exe -m pytest tests/test_ui_performance_overhaul.py tests/test_developer_studio_phase10.py tests/test_thinking_retention.py tests/test_transcript_loading.py -q`
+  passed: 65 tests.
+
+Live-code flashing follow-up:
+
+- Manual QA showed the mutation-driven highlighter fixed delayed code-block
+  rendering but was too eager during streaming: partial fenced-code DOM nodes
+  were highlighted repeatedly as tokens arrived, causing visible flashing.
+- Fix: live streaming assistant markdown is now marked with
+  `thoth-live-stream`. The page-level code and Mermaid mutation observers skip
+  nodes inside that live container, and the explicit fallback JS paths use the
+  same guard. Once the response finalizes, the final replacement render is not
+  marked live and gets highlighted/rendered once.
+- Verification:
+  `.venv\Scripts\python.exe -m pytest tests/test_ui_performance_overhaul.py tests/test_developer_studio_phase10.py tests/test_thinking_retention.py tests/test_transcript_loading.py -q`
+  passed: 65 tests.
+
+Mermaid size/export follow-up:
+
+- Manual QA showed Mermaid diagrams rendered and exported too small because
+  PNG export used the visible on-screen SVG box.
+- Updated Mermaid display CSS to use the available message width better while
+  preserving horizontal scroll for wide diagrams.
+- Updated PNG export to use intrinsic SVG/viewBox dimensions, export at a
+  higher independent scale with padding, and cap either side at 4096px.
+- Verification:
+  `.venv\Scripts\python.exe -m pytest tests/test_ui_performance_overhaul.py tests/test_thinking_retention.py tests/test_transcript_loading.py -q`
+  passed: 26 tests.
+
+Mermaid crop/export follow-up:
+
+- Manual QA showed the larger Mermaid display could crop diagrams in narrow
+  chat columns, and PNG export could time out after a browser `SecurityError`
+  from `canvas.toDataURL()` on a tainted canvas.
+- Fix: Mermaid rendering now disables HTML labels, normalizes each rendered
+  SVG to a padded real bounding-box `viewBox`, and no longer centers a wide
+  SVG inside a narrower scroll area.
+- Fix: PNG export now sanitizes the cloned SVG before rasterization, removes
+  `foreignObject` and external references, inlines key computed SVG styles,
+  uses a data-URI image source, catches `toDataURL()` security failures inside
+  the image callback, and uses a bounded JavaScript timeout.
+- Verification:
+  `.venv\Scripts\python.exe -m pytest tests/test_ui_performance_overhaul.py tests/test_thinking_retention.py tests/test_transcript_loading.py -q --basetemp .tmp\pytest-mermaid-export`
+  passed: 26 tests.
+  `.venv\Scripts\python.exe -m py_compile ui\head_html.py ui\render.py tests\test_ui_performance_overhaul.py`
+  passed.
+  `git diff --check -- ui\head_html.py ui\render.py tests\test_ui_performance_overhaul.py`
+  passed with expected CRLF warnings only.
+
+Mermaid PNG label/style follow-up:
+
+- Manual QA showed exported PNGs could still miss most node text and render
+  some Mermaid boxes as light/white shapes. This happened because the safer
+  export path removed `foreignObject` HTML labels entirely, and serialized SVG
+  style inheritance was not stable across the canvas rasterization step.
+- Fix: Mermaid PNG export now converts `foreignObject` labels into plain SVG
+  `<text>/<tspan>` labels before rasterizing. The export clone also receives a
+  dark, export-specific SVG stylesheet so nodes, edges, markers, and labels are
+  legible in the PNG regardless of Mermaid's internal class styling.
+- Verification:
+  `.venv\Scripts\python.exe -m pytest tests/test_ui_performance_overhaul.py tests/test_thinking_retention.py tests/test_transcript_loading.py -q --basetemp .tmp\pytest-mermaid-export-labels`
+  passed: 26 tests.
+  `.venv\Scripts\python.exe -m py_compile ui\render.py tests\test_ui_performance_overhaul.py`
+  passed.
+  `git diff --check -- ui\render.py tests\test_ui_performance_overhaul.py docs\memory-recall-uplift-implementation-plan.md`
+  passed with expected CRLF warnings only.
+
+OpenRouter Agent-readiness follow-up plan:
+
+- Manual QA showed multiple OpenRouter models, including
+  `qwen/qwen3.7-max` and Opus routed through OpenRouter, display and run as
+  Chat Only even though their OpenRouter catalog entries support tools.
+- Root cause found so far: OpenRouter intentionally fails closed for Agent
+  Mode unless `tool_calling=True` comes from explicit metadata. The persisted
+  cloud catalog has that metadata, but runtime readiness currently falls back
+  to `model_info_from_metadata(provider_id, model_id, {})` when no snapshot is
+  passed, which makes OpenRouter tool support inconclusive. Quick-choice
+  snapshot refresh can also overwrite richer OpenRouter catalog metadata with
+  model-id-only inferred metadata.
+- Plan:
+  1. Make runtime/readiness snapshot resolution consult persisted provider
+     catalog/cache metadata before model-id-only inference.
+  2. Preserve fail-closed behavior when OpenRouter metadata is genuinely
+     missing or explicitly says tools are unsupported.
+  3. Prevent quick-choice refresh from clobbering richer OpenRouter cached
+     snapshots with inconclusive inferred snapshots.
+  4. Add focused regression tests for OpenRouter cached tools, missing tools,
+     and quick-choice snapshot preservation.
+  5. Review all supported providers against their current API contracts and
+     identify similar capability/readiness drift risks.
+  6. Cross-check the final implementation against this memory section and run
+     focused provider/readiness tests plus required smoke suites.
+
+OpenRouter Agent-readiness follow-up implementation:
+
+- Completed: runtime/readiness snapshot resolution now consults the persisted
+  provider catalog/cache before falling back to model-id-only inference. This
+  lets OpenRouter see explicit catalog metadata such as
+  `tool_calling=True` for `qwen/qwen3.7-max`, while still failing closed when
+  metadata is absent or says tools are unsupported.
+- Completed: quick-choice capability refresh now preserves richer cached
+  provider snapshots before inference, so pinned OpenRouter models are not
+  demoted to inconclusive tool metadata.
+- Completed: runtime chat compatibility checks now use cached provider
+  snapshots too, preventing non-chat catalog entries from being accepted just
+  because bare model-id inference would otherwise look chat-capable.
+- Provider contract review:
+  - OpenRouter: current Models API exposes `supported_parameters`; `tools` and
+    `tool_choice` are the correct explicit tool-support signal. The existing
+    fail-closed policy remains appropriate.
+  - OpenAI: `/v1/models` exposes basic model identity/ownership, not complete
+    tool capability metadata, so trusted-provider family classification remains
+    the current practical contract.
+  - Anthropic: list models is basic, but Claude Messages tool use is a core API
+    contract for current Claude models; trusted-provider handling remains
+    appropriate.
+  - Google Gemini: `models.list` exposes supported generation methods and token
+    limits; function-calling support is documented by model family. No
+    OpenRouter-style metadata loss was found. Keep watching model-specific
+    function-calling exceptions in future catalog updates.
+  - xAI: `/v1/language-models` is still the richer endpoint for modalities;
+    function calling is documented for Grok via the tools contract. No cache
+    loss issue found.
+  - MiniMax: supported M2-family models and the Anthropic-compatible endpoint
+    explicitly support `tools`/`tool_choice`; static catalog remains aligned
+    with current docs.
+  - Ollama/Ollama Cloud: local Ollama remains allowlist/probe guarded;
+    Ollama's API exposes model details/capabilities and supports tool calling.
+    No change made to the conservative local probe path.
+- Verification:
+  - `.venv\Scripts\python.exe -m pytest tests/test_agent_readiness.py tests/test_provider_catalog.py tests/test_provider_selection.py tests/test_provider_runtime.py -q --basetemp .tmp\pytest-provider-readiness`
+    passed: 113 tests.
+  - `.venv\Scripts\python.exe -m pytest tests/test_provider_runtime.py tests/test_provider_custom.py tests/test_provider_media.py tests/test_provider_subscription_auth.py tests/test_model_picker_regressions.py tests/test_openai_compatible_transport.py tests/test_thoth_status_media.py -q --basetemp .tmp\pytest-provider-broad`
+    passed: 123 tests.
+  - `.venv\Scripts\python.exe -m py_compile providers\readiness.py providers\selection.py providers\runtime.py models.py ui\chat.py ui\settings.py`
+    passed.
+  - `.venv\Scripts\python.exe -m pytest tests/test_knowledge_audit.py -q --basetemp .tmp\pytest-knowledge-audit`
+    passed: 5 tests.
+  - `.venv\Scripts\python.exe tests\test_suite.py` passed. The live launch
+    section skipped because port 8080 was already in use.
+  - `git diff --check` passed with only expected CRLF conversion warnings.
+- Manual expectation after restart: OpenRouter models with cached catalog
+  `tool_calling=True`, including `qwen/qwen3.7-max` and routed Claude/Gemini
+  models, should show Agent Mode and run with tools. OpenRouter entries whose
+  metadata is missing or explicitly lacks tools should remain Chat Only.
+
+Remaining chunks:
+
+- Cross-check logs from a real manual new-thread attempt for
+  `chat.shell.render`, `chat.transcript.render rows=0`, and absence of long
+  event-loop lag.
+
 ## First Implementation Prompt
 
 Use this prompt in a new implementation thread:

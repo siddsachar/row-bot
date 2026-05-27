@@ -10,6 +10,7 @@ import logging
 import os
 import pathlib
 import sys
+import time
 from datetime import datetime
 from typing import Callable
 
@@ -18,7 +19,17 @@ from nicegui import events, run, ui
 from ui.state import AppState, P, _active_generations
 from ui.constants import ALLOWED_UPLOAD_SUFFIXES, welcome_message, EXAMPLE_PROMPTS
 from ui.render import render_image_with_save
+from ui.performance import log_ui_perf
 from ui.timer_utils import defer_ui
+from ui.transcript import (
+    TRANSCRIPT_CHUNK_TARGET_MS,
+    TRANSCRIPT_MAX_CHUNK_MESSAGES,
+    TRANSCRIPT_WINDOW_SIZE,
+    choose_transcript_window,
+    message_key,
+    message_keys,
+    reset_transcript_request,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +48,9 @@ def build_chat(
     browse_file: Callable,
 ) -> None:
     """Render the full chat view for the current thread."""
+    _shell_started = time.perf_counter()
+    p.chat_shell_generation += 1
+    _shell_generation = p.chat_shell_generation
     from agent import clear_agent_cache
     from models import (
         get_current_model, is_cloud_model, get_cloud_provider,
@@ -54,6 +68,7 @@ def build_chat(
     from ui.helpers import attach_thinking_to_message, persist_thread_media_state
 
     # ── Header ───────────────────────────────────────────────────────
+    _header_started = time.perf_counter()
     running_wfs = get_running_tasks()
     bg = running_wfs.get(state.thread_id)
 
@@ -79,9 +94,20 @@ def build_chat(
 
             # ── Per-thread skills override ───────────────────────────
             import skills as _skills_mod
-            _skills_mod.load_skills()
-            _enabled_sk = [s for s in _skills_mod.get_enabled_skills()
-                           if not _skills_mod.is_tool_guide(s)]
+            if not _skills_mod.skills_loaded():
+                async def _warm_skills_snapshot() -> None:
+                    started = time.perf_counter()
+                    await run.io_bound(_skills_mod.load_skills)
+                    if p.chat_shell_generation != _shell_generation:
+                        return
+                    log_ui_perf(
+                        "chat.skills.snapshot.load",
+                        (time.perf_counter() - started) * 1000.0,
+                        threshold_ms=500.0,
+                        thread_id=state.thread_id,
+                    )
+                defer_ui(_warm_skills_snapshot, delay=0.05)
+            _enabled_sk = _skills_mod.get_enabled_manual_skills_snapshot()
             if _enabled_sk:
                 _thread_sk_override = get_thread_skills_override(state.thread_id)
                 _enabled_names = set(sk.name for sk in _enabled_sk)
@@ -103,8 +129,7 @@ def build_chat(
 
                         def _update_sk_label():
                             _cur = get_thread_skills_override(state.thread_id)
-                            _en = set(sk.name for sk in _skills_mod.get_enabled_skills()
-                                      if not _skills_mod.is_tool_guide(sk))
+                            _en = set(sk.name for sk in _skills_mod.get_enabled_manual_skills_snapshot())
                             _act = set(_cur) & _en if _cur is not None else _en
                             n = len(_act)
                             _sk_btn.text = f"✨ {n} skill{'s' if n != 1 else ''}" if n > 0 else "✨ No skills"
@@ -144,9 +169,43 @@ def build_chat(
 
         if state.messages:
             ui.button(icon="download", on_click=open_export).props("flat round").tooltip("Export")
+    log_ui_perf(
+        "chat.header.render",
+        (time.perf_counter() - _header_started) * 1000.0,
+        threshold_ms=200.0,
+        thread_id=state.thread_id,
+    )
 
     # ── Cloud/local model banner ─────────────────────────────────────
-    def _model_surface():
+    def _model_surface_placeholder():
+        active_model = state.thread_model_override or get_current_model()
+        model_label = model_id_from_choice_value(active_model)
+        prov = get_cloud_provider(active_model) or "ollama"
+        prov_label = provider_display_label(prov)
+        cloud = is_cloud_model(active_model)
+        return {
+            "model": active_model,
+            "cloud": cloud,
+            "mode": "Checking readiness",
+            "icon": "cloud" if cloud else "lock",
+            "icon_color": "orange" if cloud else "green",
+            "text": (
+                f"Using {model_label} via {prov_label} â€” data is sent to the cloud"
+                if cloud
+                else f"Using {model_label} via {prov_label} â€” local/private"
+            ),
+            "text_class": "text-orange text-sm" if cloud else "text-green text-sm",
+            "banner_style": (
+                "background: rgba(255, 152, 0, 0.08); "
+                "border-radius: 8px; border: 1px solid rgba(255, 152, 0, 0.25);"
+            ) if cloud else (
+                "background: rgba(76, 175, 80, 0.08); "
+                "border-radius: 8px; border: 1px solid rgba(76, 175, 80, 0.25);"
+            ),
+            "scroll_style": "background: rgba(255, 152, 0, 0.03);" if cloud else "background: rgba(76, 175, 80, 0.03);",
+        }
+
+    def _resolve_model_surface():
         active_model = state.thread_model_override or get_current_model()
         model_label = model_id_from_choice_value(active_model)
         prov = get_cloud_provider(active_model) or "ollama"
@@ -207,8 +266,7 @@ def build_chat(
             "scroll_style": "background: rgba(76, 175, 80, 0.03);",
         }
 
-    def _render_model_banner() -> None:
-        surface = _model_surface()
+    def _render_model_banner(surface: dict) -> None:
         if not p.model_banner_container:
             return
         p.model_banner_container.clear()
@@ -221,14 +279,32 @@ def build_chat(
                 ui.label(surface["text"]).classes(surface["text_class"])
                 ui.badge(surface.get("mode") or "Agent Mode", color="blue-grey").props("outline dense")
 
-    def _refresh_model_surface() -> None:
-        _render_model_banner()
+    async def _resolve_and_render_model_surface() -> None:
+        started = time.perf_counter()
+        surface = await run.io_bound(_resolve_model_surface)
+        if p.chat_shell_generation != _shell_generation:
+            return
+        _render_model_banner(surface)
         if p.chat_scroll:
-            p.chat_scroll.style(replace=_model_surface()["scroll_style"])
+            p.chat_scroll.style(replace=surface["scroll_style"])
+        log_ui_perf(
+            "chat.model_surface.resolve",
+            (time.perf_counter() - started) * 1000.0,
+            threshold_ms=500.0,
+            thread_id=state.thread_id,
+        )
 
-    _surface = _model_surface()
+    def _refresh_model_surface() -> None:
+        surface = _model_surface_placeholder()
+        _render_model_banner(surface)
+        if p.chat_scroll:
+            p.chat_scroll.style(replace=surface["scroll_style"])
+        defer_ui(_resolve_and_render_model_surface, delay=0.05)
+
+    _surface = _model_surface_placeholder()
     p.model_banner_container = ui.column().classes("w-full gap-0")
-    _render_model_banner()
+    _render_model_banner(_surface)
+    defer_ui(_resolve_and_render_model_surface, delay=0.05)
 
     # ── Scrollable message area ──────────────────────────────────────
     p.chat_scroll = ui.scroll_area().classes("w-full flex-grow").style(_surface["scroll_style"])
@@ -237,6 +313,7 @@ def build_chat(
         p.chat_container = ui.column().classes("w-full gap-2")
 
     # Render existing messages
+    _transcript_started = time.perf_counter()
     _reattach_gen = _active_generations.get(state.thread_id)
     _has_active_gen = (_reattach_gen and _reattach_gen.detached and _reattach_gen.status == "streaming")
     _has_running_task = state.thread_id in get_running_tasks()
@@ -246,6 +323,48 @@ def build_chat(
             and _msgs_to_render[-1].get("content", "").startswith(
                 "\u26a0\ufe0f The assistant was interrupted")):
         _msgs_to_render = _msgs_to_render[:-1]
+    reset_transcript_request(p, state.thread_id)
+    _requested_start = (
+        p.transcript_requested_start
+        if p.transcript_requested_thread_id == state.thread_id
+        else None
+    )
+    _window = choose_transcript_window(
+        len(_msgs_to_render),
+        requested_start=_requested_start,
+        window_size=TRANSCRIPT_WINDOW_SIZE,
+    )
+    _all_msg_keys = message_keys(_msgs_to_render)
+    _display_msgs = _msgs_to_render[_window.start:_window.end]
+    _display_keys = _all_msg_keys[_window.start:_window.end]
+    p.transcript_thread_id = state.thread_id
+    p.transcript_generation += 1
+    _render_generation = p.transcript_generation
+    p.transcript_rendered_keys = []
+    p.transcript_window_start = _window.start
+    p.transcript_window_size = _window.visible_count
+    p.transcript_total = _window.total
+
+    if _window.older_count:
+        with p.chat_container:
+            with ui.row().classes("w-full justify-center q-py-sm"):
+                _load_label = f"Load earlier messages ({_window.older_count})"
+
+                def _load_earlier() -> None:
+                    p.transcript_requested_thread_id = state.thread_id
+                    p.transcript_requested_start = max(
+                        0,
+                        _window.start - TRANSCRIPT_WINDOW_SIZE,
+                    )
+                    rebuild_main()
+
+                ui.button(_load_label, icon="expand_less", on_click=_load_earlier).props(
+                    "flat dense no-caps"
+                ).classes("text-grey-5")
+
+    def _render_message_at(local_idx: int) -> None:
+        add_chat_message(_display_msgs[local_idx])
+        p.transcript_rendered_keys.append(_display_keys[local_idx])
 
     # ── Progressive render ───────────────────────────────────────────
     # For responsiveness on large threads, render the first batch
@@ -254,11 +373,10 @@ def build_chat(
     # so clicks / input remain responsive). Reattach / onboarding /
     # scroll hooks run AFTER all messages are in the DOM so order is
     # preserved.
-    _INITIAL_RENDER = 15
-    _CHUNK_SIZE = 10
-    for msg in _msgs_to_render[:_INITIAL_RENDER]:
-        add_chat_message(msg)
-    _remaining_msgs = _msgs_to_render[_INITIAL_RENDER:]
+    _INITIAL_RENDER = min(8, len(_display_msgs))
+    for _idx in range(_INITIAL_RENDER):
+        _render_message_at(_idx)
+    _remaining_start = _INITIAL_RENDER
 
     # ── Reattach to running generation ───────────────────────────────
     def _finalize_after_messages() -> None:
@@ -354,6 +472,9 @@ def build_chat(
                 state.messages.append(a_msg)
                 persist_thread_media_state(state.thread_id, state.messages)
                 add_chat_message(a_msg)
+                p.transcript_rendered_keys.append(message_key(len(state.messages) - 1, a_msg))
+                p.transcript_total = len(state.messages)
+                p.transcript_window_size = len(p.transcript_rendered_keys)
             _active_generations.pop(state.thread_id, None)
 
         # Onboarding
@@ -372,7 +493,7 @@ def build_chat(
                             '</div>',
                             sanitize=False,
                         )
-                        _cloud_ob2 = bool(_model_surface()["cloud"])
+                        _cloud_ob2 = bool(_surface["cloud"])
                         ui.markdown(welcome_message(cloud=_cloud_ob2), extras=['code-friendly', 'fenced-code-blocks', 'tables'])
                         with ui.row().classes("flex-wrap gap-2"):
                             for prompt in EXAMPLE_PROMPTS:
@@ -425,30 +546,62 @@ def build_chat(
     # Finalize
     # runs after the last chunk so reattach / onboarding land at the
     # bottom of the chat.
-    if _remaining_msgs:
-        _chunk_state = {"idx": 0}
+    def _log_transcript_render() -> None:
+        media_count = 0
+        for _msg in _display_msgs:
+            media_count += len(_msg.get("images") or [])
+            media_count += len(_msg.get("videos") or [])
+            media_count += len(_msg.get("charts") or [])
+        log_ui_perf(
+            "chat.transcript.render",
+            (time.perf_counter() - _transcript_started) * 1000.0,
+            rows=len(_display_msgs),
+            total_rows=len(_msgs_to_render),
+            window_start=_window.start,
+            media=media_count,
+            thread_id=state.thread_id,
+        )
+
+    if _remaining_start < len(_display_msgs):
+        _chunk_state = {"idx": _remaining_start}
         def _render_next_chunk():
+            if (
+                p.transcript_thread_id != state.thread_id
+                or p.transcript_generation != _render_generation
+            ):
+                return
             start = _chunk_state["idx"]
-            end = min(start + _CHUNK_SIZE, len(_remaining_msgs))
+            end = start
+            chunk_started = time.perf_counter()
             try:
                 with p.chat_container:
-                    for msg in _remaining_msgs[start:end]:
-                        add_chat_message(msg)
+                    while end < len(_display_msgs):
+                        _render_message_at(end)
+                        end += 1
+                        if end - start >= TRANSCRIPT_MAX_CHUNK_MESSAGES:
+                            break
+                        elapsed_ms = (time.perf_counter() - chunk_started) * 1000.0
+                        if elapsed_ms >= TRANSCRIPT_CHUNK_TARGET_MS:
+                            break
             except Exception:
                 logger.debug("chunked chat render failed", exc_info=True)
                 _finalize_after_messages()
                 return
             _chunk_state["idx"] = end
-            if end < len(_remaining_msgs):
+            if end < len(_display_msgs):
                 defer_ui(_render_next_chunk)
             else:
                 _finalize_after_messages()
+                _log_transcript_render()
         defer_ui(_render_next_chunk)
     else:
         _finalize_after_messages()
+        _log_transcript_render()
 
     # ── File chips (created early so _on_upload can reference) ──────
     # We'll parent these inside the input card below
+
+    _composer_started = time.perf_counter()
 
     async def _on_upload(e: events.UploadEventArguments):
         data = await e.file.read()
@@ -469,81 +622,71 @@ def build_chat(
 
     _hidden_upload = ui.upload(on_upload=_on_upload, auto_upload=True, multiple=True).classes("hidden")
 
-    # Drag-and-drop (singleton listener — reads dynamic upload ID)
-    ui.run_javascript(f'''
-        (() => {{
-            window._thothUploadId = {_hidden_upload.id};
-            if (window._thothDragInstalled) return;
-            window._thothDragInstalled = true;
-            const body = document.body;
-            let overlay = null;
-            let dragTimer = null;
-            function showOverlay() {{
-                if (overlay) return;
-                overlay = document.createElement("div");
-                overlay.style.cssText = "position:fixed;inset:0;z-index:9999;" +
-                    "background:rgba(30,136,229,0.15);border:3px dashed #1e88e5;" +
-                    "display:flex;align-items:center;justify-content:center;pointer-events:none;";
-                overlay.innerHTML = '<div style="color:#1e88e5;font-size:1.5rem;font-weight:600;">Drop files here</div>';
-                document.body.appendChild(overlay);
-            }}
-            function hideOverlay() {{
-                if (overlay) {{ overlay.remove(); overlay = null; }}
-                if (dragTimer) {{ clearTimeout(dragTimer); dragTimer = null; }}
-            }}
-            body.addEventListener("dragover", (e) => {{
-                e.preventDefault(); showOverlay();
-                // Safety: auto-hide after 300ms of no dragover events
-                if (dragTimer) clearTimeout(dragTimer);
-                dragTimer = setTimeout(hideOverlay, 300);
-            }});
-            body.addEventListener("dragleave", (e) => {{
-                if (e.relatedTarget === null || !body.contains(e.relatedTarget)) hideOverlay();
-            }});
-            // Use capture phase so we hide overlay even if Quasar QUploader stops propagation
-            document.addEventListener("drop", (e) => {{
-                hideOverlay();
-                // Only intercept drops outside Quasar uploaders (let them handle their own)
-                const inUploader = e.target.closest && e.target.closest('.q-uploader');
-                if (inUploader) return;
-                e.preventDefault();
-                const files = e.dataTransfer?.files;
-                if (!files || files.length === 0) return;
-                const vue = getElement(window._thothUploadId);
-                if (vue && vue.$refs.qRef) vue.$refs.qRef.addFiles(files);
-            }}, true);
-        }})();
-    ''')
-
-    # Clipboard image paste (singleton listener — reads dynamic upload ID)
-    ui.run_javascript(f'''
-        (() => {{
-            window._thothUploadId = {_hidden_upload.id};
-            if (window._thothPasteInstalled) return;
-            window._thothPasteInstalled = true;
-            document.addEventListener("paste", (e) => {{
-                const items = e.clipboardData?.items;
-                if (!items) return;
-                const imageFiles = [];
-                for (const item of items) {{
-                    if (item.type.startsWith("image/")) {{
-                        const file = item.getAsFile();
-                        if (file) {{
-                            const ext = file.type.split("/")[1] || "png";
-                            const ts = Date.now();
-                            const named = new File([file], "pasted_image_" + ts + "." + ext, {{type: file.type}});
-                            imageFiles.push(named);
+    if p.chat_upload_js_installed:
+        ui.run_javascript(f"window._thothUploadId = {_hidden_upload.id};")
+    else:
+        p.chat_upload_js_installed = True
+        ui.run_javascript(f'''
+            (() => {{
+                window._thothUploadId = {_hidden_upload.id};
+                if (window._thothUploadHooksInstalled) return;
+                window._thothUploadHooksInstalled = true;
+                const body = document.body;
+                let overlay = null;
+                let dragTimer = null;
+                function showOverlay() {{
+                    if (overlay) return;
+                    overlay = document.createElement("div");
+                    overlay.style.cssText = "position:fixed;inset:0;z-index:9999;" +
+                        "background:rgba(30,136,229,0.15);border:3px dashed #1e88e5;" +
+                        "display:flex;align-items:center;justify-content:center;pointer-events:none;";
+                    overlay.innerHTML = '<div style="color:#1e88e5;font-size:1.5rem;font-weight:600;">Drop files here</div>';
+                    document.body.appendChild(overlay);
+                }}
+                function hideOverlay() {{
+                    if (overlay) {{ overlay.remove(); overlay = null; }}
+                    if (dragTimer) {{ clearTimeout(dragTimer); dragTimer = null; }}
+                }}
+                body.addEventListener("dragover", (e) => {{
+                    e.preventDefault(); showOverlay();
+                    if (dragTimer) clearTimeout(dragTimer);
+                    dragTimer = setTimeout(hideOverlay, 300);
+                }});
+                body.addEventListener("dragleave", (e) => {{
+                    if (e.relatedTarget === null || !body.contains(e.relatedTarget)) hideOverlay();
+                }});
+                document.addEventListener("drop", (e) => {{
+                    hideOverlay();
+                    const inUploader = e.target.closest && e.target.closest('.q-uploader');
+                    if (inUploader) return;
+                    e.preventDefault();
+                    const files = e.dataTransfer?.files;
+                    if (!files || files.length === 0) return;
+                    const vue = getElement(window._thothUploadId);
+                    if (vue && vue.$refs.qRef) vue.$refs.qRef.addFiles(files);
+                }}, true);
+                document.addEventListener("paste", (e) => {{
+                    const items = e.clipboardData?.items;
+                    if (!items) return;
+                    const imageFiles = [];
+                    for (const item of items) {{
+                        if (item.type.startsWith("image/")) {{
+                            const file = item.getAsFile();
+                            if (file) {{
+                                const ext = file.type.split("/")[1] || "png";
+                                const ts = Date.now();
+                                const named = new File([file], "pasted_image_" + ts + "." + ext, {{type: file.type}});
+                                imageFiles.push(named);
+                            }}
                         }}
                     }}
-                }}
-                if (imageFiles.length === 0) return;
-                e.preventDefault();
-                const vue = getElement(window._thothUploadId);
-                if (vue && vue.$refs.qRef) vue.$refs.qRef.addFiles(imageFiles);
-            }});
-        }})();
-    ''')
-
+                    if (imageFiles.length === 0) return;
+                    e.preventDefault();
+                    const vue = getElement(window._thothUploadId);
+                    if (vue && vue.$refs.qRef) vue.$refs.qRef.addFiles(imageFiles);
+                }});
+            }})();
+        ''')
     # ── Chat input card (modern SOTA layout) ────────────────────────
     async def _on_attach():
         if sys.platform == "darwin" and os.environ.get("THOTH_NATIVE") == "1":
@@ -644,6 +787,8 @@ def build_chat(
                 state,
                 open_settings=open_settings,
                 on_model_switch=_refresh_model_surface,
+                generation_getter=lambda: p.chat_shell_generation,
+                shell_generation=_shell_generation,
             )
 
             def _toggle_voice(e):
@@ -663,3 +808,17 @@ def build_chat(
             _has_active = state.thread_id in _active_generations
             if not _has_active:
                 p.stop_btn.disable()
+
+    log_ui_perf(
+        "chat.composer.render",
+        (time.perf_counter() - _composer_started) * 1000.0,
+        threshold_ms=200.0,
+        thread_id=state.thread_id,
+    )
+    log_ui_perf(
+        "chat.shell.render",
+        (time.perf_counter() - _shell_started) * 1000.0,
+        threshold_ms=500.0,
+        thread_id=state.thread_id,
+        rows=len(state.messages),
+    )

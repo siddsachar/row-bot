@@ -14,7 +14,15 @@ HEAD_HTML = """\
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="/static/vis-network.min.js"></script>
 <script src="/static/mermaid.min.js"></script>
-<script>mermaid.initialize({startOnLoad: false, theme: 'dark', securityLevel: 'strict'});</script>
+<script>
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'dark',
+  securityLevel: 'strict',
+  flowchart: {htmlLabels: false},
+  state: {htmlLabels: false}
+});
+</script>
 <script>
 (function() {
   if (window.__thothClientErrorReporterInstalled) return;
@@ -85,13 +93,71 @@ HEAD_HTML = """\
 </script>
 <script>
 (function() {
-  var _mermaidTimer = null;
+  if (window.__thothCodeHighlighterInstalled) return;
+  window.__thothCodeHighlighterInstalled = true;
+  var _highlightTimer = null;
+  function highlightCodeBlocks() {
+    if (typeof hljs === 'undefined') return;
+    document.querySelectorAll('pre code:not([data-highlighted="yes"])').forEach(function(el) {
+      if (el.closest('.thoth-live-stream')) return;
+      try { hljs.highlightElement(el); } catch (err) {}
+    });
+  }
+  window.thothHighlightCodeBlocks = function() {
+    clearTimeout(_highlightTimer);
+    _highlightTimer = setTimeout(function() {
+      requestAnimationFrame(highlightCodeBlocks);
+    }, 80);
+  };
   new MutationObserver(function() {
-    var nodes = document.querySelectorAll('pre.mermaid');
+    window.thothHighlightCodeBlocks();
+  }).observe(document.documentElement, {childList: true, subtree: true});
+  window.addEventListener('load', window.thothHighlightCodeBlocks);
+  window.thothHighlightCodeBlocks();
+})();
+</script>
+<script>
+(function() {
+  var _mermaidTimer = null;
+  window.thothNormalizeMermaidDiagrams = function(root) {
+    root = root || document;
+    Array.from(root.querySelectorAll('.mermaid-rendered svg')).forEach(function(svg) {
+      try {
+        svg.style.overflow = 'visible';
+        svg.setAttribute('preserveAspectRatio', 'xMinYMin meet');
+        var box = svg.getBBox ? svg.getBBox() : null;
+        if (box && box.width > 0 && box.height > 0) {
+          var pad = 18;
+          var x = Math.floor(box.x - pad);
+          var y = Math.floor(box.y - pad);
+          var w = Math.ceil(box.width + pad * 2);
+          var h = Math.ceil(box.height + pad * 2);
+          svg.setAttribute('viewBox', [x, y, w, h].join(' '));
+          svg.dataset.thothIntrinsicWidth = String(w);
+          svg.dataset.thothIntrinsicHeight = String(h);
+        }
+      } catch (err) {}
+    });
+  };
+  window.thothRenderMermaidDiagrams = function(root) {
+    if (typeof mermaid === 'undefined') return;
+    root = root || document;
+    var nodes = Array.from(root.querySelectorAll('pre.mermaid')).filter(function(node) {
+      return !node.closest('.thoth-live-stream');
+    });
+    if (!nodes.length) return;
+    return Promise.resolve(mermaid.run({nodes: nodes, suppressErrors: true})).then(function() {
+      requestAnimationFrame(function() { window.thothNormalizeMermaidDiagrams(root); });
+    }).catch(function() {});
+  };
+  new MutationObserver(function() {
+    var nodes = Array.from(document.querySelectorAll('pre.mermaid')).filter(function(node) {
+      return !node.closest('.thoth-live-stream');
+    });
     if (nodes.length > 0) {
       clearTimeout(_mermaidTimer);
       _mermaidTimer = setTimeout(function() {
-        mermaid.run({nodes: document.querySelectorAll('pre.mermaid'), suppressErrors: true});
+        window.thothRenderMermaidDiagrams(document);
       }, 150);
     }
   }).observe(document.documentElement, {childList: true, subtree: true});
@@ -233,7 +299,29 @@ HEAD_HTML = """\
     }
     @keyframes thoth-spin { to { transform: rotate(360deg); } }
     .thoth-spin { animation: thoth-spin 1s linear infinite; }
-    .mermaid-rendered { background: rgba(255,255,255,0.03); border-radius: 8px; padding: 12px; margin: 8px 0; overflow-x: auto; }
+    .mermaid-rendered {
+        width: 100%;
+        max-width: 100%;
+        background: rgba(255,255,255,0.03);
+        border-radius: 8px;
+        padding: 16px;
+        margin: 8px 0;
+        overflow-x: auto;
+    }
+    .mermaid-rendered svg {
+        display: block;
+        width: 100%;
+        min-width: 900px;
+        max-width: none !important;
+        height: auto;
+        margin: 0;
+        overflow: visible;
+    }
+    @media (max-width: 960px) {
+        .mermaid-rendered svg {
+            min-width: 680px;
+        }
+    }
 </style>
 <script>
 // Open all external (http/https) links in the system browser.

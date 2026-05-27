@@ -1242,6 +1242,69 @@ def list_entities(
     return [dict(r) for r in rows]
 
 
+def list_entity_summaries(
+    entity_type: str | None = None,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    description_chars: int = 500,
+) -> list[dict]:
+    """Return lightweight entity rows for list UIs.
+
+    The summary keeps audit/status properties but avoids returning full
+    descriptions by default, so Settings can render browse rows without
+    building a large component tree or moving large text payloads.
+    """
+
+    conn = _get_conn()
+    desc_len = max(0, int(description_chars or 0))
+    if entity_type:
+        entity_type = entity_type.lower().strip()
+        rows = conn.execute(
+            """
+            SELECT id, entity_type, subject,
+                   substr(description, 1, ?) AS description,
+                   aliases, tags, source, created_at, updated_at, properties
+            FROM entities
+            WHERE entity_type = ?
+            ORDER BY updated_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (desc_len, entity_type, limit, offset),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT id, entity_type, subject,
+                   substr(description, 1, ?) AS description,
+                   aliases, tags, source, created_at, updated_at, properties
+            FROM entities
+            ORDER BY updated_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (desc_len, limit, offset),
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def list_entity_subjects(entity_ids: list[str] | tuple[str, ...] | set[str]) -> dict[str, str]:
+    """Return subjects for the requested entity ids using one bounded lookup."""
+
+    ids = [str(entity_id).strip() for entity_id in entity_ids if str(entity_id).strip()]
+    ids = list(dict.fromkeys(ids))[:100]
+    if not ids:
+        return {}
+    placeholders = ",".join("?" for _ in ids)
+    conn = _get_conn()
+    rows = conn.execute(
+        f"SELECT id, subject FROM entities WHERE id IN ({placeholders})",
+        ids,
+    ).fetchall()
+    conn.close()
+    return {str(row["id"]): str(row["subject"] or "") for row in rows}
+
+
 def count_entities() -> int:
     """Return total number of stored entities."""
     conn = _get_conn()

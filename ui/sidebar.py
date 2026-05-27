@@ -102,7 +102,7 @@ def build_sidebar(
                 state.messages = []
                 p.pending_files.clear()
                 set_active_thread(None, previous_id=prev)
-                rebuild_main()
+                rebuild_main(reason="home")
                 _rebuild_thread_list_ref[0]()
 
             _home_btn = ui.button("🏠 Home", on_click=_go_home).classes("flex-grow").props("flat")
@@ -126,7 +126,7 @@ def build_sidebar(
                 state.thread_model_override = ""
                 p.pending_files.clear()
                 set_active_thread(tid, previous_id=prev)
-                rebuild_main()
+                rebuild_main(immediate=True, reason="new_thread")
                 _rebuild_thread_list_ref[0]()
 
             ui.button("＋ New", on_click=_new_thread).classes("flex-grow").props("color=primary")

@@ -459,6 +459,17 @@ def test_active_detached_finalize_preserves_optimistic_user_messages():
     assert "active but UI-detached run may have newer optimistic user" in source
 
 
+def test_post_render_javascript_failure_does_not_detach_after_final_row_render():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "ui" / "streaming.py").read_text(encoding="utf-8")
+    assert "_handle_ui_runtime_error(gen, state, exc, \"post-render javascript\")" not in source
+    assert "marking the generation detached" in source
+    assert "append the persisted assistant message as a duplicate" in source
+    assert "JS runtime unavailable for hljs/mermaid" in source
+
+
 def test_developer_guidance_is_shell_aware_and_generic():
     from pathlib import Path
 

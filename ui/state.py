@@ -168,6 +168,16 @@ class P:
     stop_btn: ui.button = None          # type: ignore[assignment]
     voice_switch: ui.switch = None      # type: ignore[assignment]
     pending_files: list[dict] = []
+    transcript_thread_id: str | None = None
+    transcript_generation: int = 0
+    transcript_rendered_keys: list[str] = []
+    transcript_window_start: int = 0
+    transcript_window_size: int = 0
+    transcript_total: int = 0
+    transcript_requested_thread_id: str | None = None
+    transcript_requested_start: int | None = None
+    chat_shell_generation: int = 0
+    chat_upload_js_installed: bool = False
     file_chips_row: ui.row = None       # type: ignore[assignment]
     chat_input: ui.textarea = None      # type: ignore[assignment]
     chat_header_label: ui.label = None  # type: ignore[assignment]
@@ -194,3 +204,5 @@ class P:
 
     def __init__(self) -> None:
         self.pending_files = []
+        self.chat_shell_generation = 0
+        self.chat_upload_js_installed = False

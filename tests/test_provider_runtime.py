@@ -188,6 +188,30 @@ def test_runtime_rejects_known_non_chat_model_before_provider_client():
         raise AssertionError("Expected non-chat model to be rejected")
 
 
+def test_runtime_uses_cached_provider_snapshot_for_chat_compatibility(monkeypatch):
+    import models
+
+    model_id = "vendor/embed-special"
+    monkeypatch.setitem(models._cloud_model_cache, model_id, {
+        "provider": "openrouter",
+        "ctx": 8192,
+        "capabilities_snapshot": {
+            "tasks": ["embedding"],
+            "input_modalities": ["text"],
+            "output_modalities": ["text"],
+            "tool_calling": False,
+            "transport": "openai_chat",
+        },
+    })
+
+    try:
+        runtime.create_chat_model(model_id, provider_id="openrouter")
+    except ValueError as exc:
+        assert "not compatible with chat" in str(exc)
+    else:
+        raise AssertionError("Expected cached non-chat OpenRouter model to be rejected")
+
+
 def test_runtime_rejects_custom_endpoint_non_chat_model(tmp_path, monkeypatch):
     import providers.config as provider_config
     from providers.custom import custom_provider_id, save_custom_endpoint

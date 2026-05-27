@@ -23,6 +23,14 @@ from stability import log_performance_snapshot
 from ui.state import AppState, P
 from ui.constants import ICON_OPTIONS
 from ui.helpers import browse_folder, browse_file
+from ui.performance import (
+    LoadGeneration,
+    UI_DATA_WARN_MS,
+    UI_SHELL_WARN_MS,
+    log_ui_perf,
+    safe_ui_callback,
+    timed_ui_section,
+)
 from ui.timer_utils import defer_ui, safe_ui_task
 
 logger = logging.getLogger(__name__)
@@ -162,12 +170,24 @@ def open_settings(
         save_embedding_config,
     )
 
+    shell_started = time.perf_counter()
+    settings_generation = LoadGeneration()
+    p.settings_child_modal_open = False
+
     # ── Recursive reopen helper ──
     def _reopen(tab: str = initial_tab):
+        if getattr(p, "settings_child_modal_open", False):
+            logger.info("Settings reopen deferred while child modal is open: %s", tab)
+            return
         p.settings_dlg.close()
         if tab == "Cloud":
             tab = "Providers"
         open_settings(state, p, initial_tab=tab)
+
+    def _close_settings() -> None:
+        settings_generation.invalidate()
+        p.settings_child_modal_open = False
+        p.settings_dlg.close()
 
     # ── Lazy helpers (deferred to avoid slow import on panel open) ──
     def clear_agent_cache():
@@ -3259,7 +3279,46 @@ def open_settings(
                         _metric_chip("conversations", conv_count, icon="forum")
 
             # ── Vault sync detection ──────────────────────────────
-            edited = wiki_vault.check_vault_sync()
+            edited = []
+            sync_container = ui.column().classes("w-full")
+
+            def _check_vault_sync() -> None:
+                sync_container.clear()
+                with sync_container:
+                    try:
+                        with timed_ui_section("settings.knowledge.wiki_sync_check"):
+                            edited_now = wiki_vault.check_vault_sync()
+                    except Exception as exc:
+                        ui.label(f"Could not check vault sync: {exc}").classes("text-warning text-sm")
+                        return
+                    if not edited_now:
+                        ui.label("Vault files are in sync.").classes("text-grey-6 text-sm")
+                        return
+                    ui.label(
+                        f"{len(edited_now)} file{'s' if len(edited_now) != 1 else ''} edited in vault."
+                    ).classes("text-warning text-sm")
+
+                    def _sync_vault_now():
+                        try:
+                            result = wiki_vault.sync_all_from_vault()
+                            ui.notify(
+                                f"Synced {result['synced']} file(s) from vault",
+                                type="positive",
+                            )
+                            _reopen("Knowledge")
+                        except Exception as exc:
+                            ui.notify(f"Sync failed: {exc}", type="negative")
+
+                    ui.button("Sync from Vault", icon="sync", on_click=_sync_vault_now).props(
+                        "flat dense color=warning no-caps"
+                    )
+
+            with sync_container:
+                ui.button(
+                    "Check vault sync",
+                    icon="sync",
+                    on_click=_check_vault_sync,
+                ).props("flat dense no-caps")
             if edited:
                 with ui.card().classes("w-full bg-amber-1 border-l-4").style("border-color: #ff9800"):
                     with ui.row().classes("items-center gap-2"):
@@ -3333,15 +3392,55 @@ def open_settings(
             import memory_evolution
 
             _bulk_mem = BulkSelect()
+            _browse_generation = LoadGeneration()
+            _browse_page = {"limit": 25}
 
             def _load_memory_rows() -> list[dict]:
+                if hasattr(memory_db, "list_memory_summaries"):
+                    return memory_db.list_memory_summaries(limit=max(total, 1), description_chars=500)
                 return memory_db.list_memories(limit=max(total, 1))
+
+            def _open_knowledge_editor(mid: str) -> None:
+                from ui.entity_editor import open_entity_editor
+
+                p.settings_child_modal_open = True
+
+                def _saved() -> None:
+                    token = _browse_generation.next()
+
+                    async def _refresh_after_save() -> None:
+                        started_refresh = time.perf_counter()
+                        try:
+                            rows = await run.io_bound(_load_memory_rows)
+                        except Exception as exc:
+                            logger.exception("Knowledge refresh after save failed")
+                            ui.notify(f"Saved, but refresh failed: {exc}", type="warning")
+                            return
+                        if not _browse_generation.is_current(token):
+                            return
+                        log_ui_perf(
+                            "settings.knowledge.after_save.data",
+                            (time.perf_counter() - started_refresh) * 1000.0,
+                            rows=len(rows),
+                            threshold_ms=UI_DATA_WARN_MS,
+                        )
+
+                        defer_ui(lambda rows=rows, token=token: _refresh_status_summary(rows) if _browse_generation.is_current(token) else None, delay=0.01)
+                        defer_ui(lambda rows=rows, token=token: _refresh_review_queue(rows) if _browse_generation.is_current(token) else None, delay=0.06)
+                        defer_ui(lambda rows=rows, token=token: _refresh_memories(rows) if _browse_generation.is_current(token) else None, delay=0.12)
+
+                    safe_ui_task(_refresh_after_save, context="settings knowledge refresh after entity save")
+
+                def _closed() -> None:
+                    p.settings_child_modal_open = False
+
+                open_entity_editor(mid, on_saved=_saved, on_closed=_closed)
 
             status_summary_container = ui.row().classes("gap-2 q-mb-sm")
 
-            def _refresh_status_summary() -> None:
+            def _refresh_status_summary(rows: list[dict] | None = None) -> None:
                 status_summary_container.clear()
-                counts = audit.status_counts(_load_memory_rows())
+                counts = audit.status_counts(rows if rows is not None else _load_memory_rows())
                 with status_summary_container:
                     _metric_chip("active", counts.get("active", 0), icon="check_circle", color="positive")
                     _metric_chip("needs review", counts.get("needs_review", 0), icon="rate_review", color="warning")
@@ -3446,8 +3545,8 @@ def open_settings(
                 _refresh_review_queue()
                 _refresh_memories()
 
-            def _filtered_memories() -> list[dict]:
-                rows = _load_memory_rows()
+            def _filtered_memories(rows: list[dict] | None = None) -> list[dict]:
+                rows = list(rows if rows is not None else _load_memory_rows())
                 cat = None if cat_sel.value == "All" else cat_sel.value
                 if cat:
                     rows = [m for m in rows if m.get("category", m.get("entity_type")) == cat]
@@ -3459,10 +3558,10 @@ def open_settings(
                     query=search_input.value,
                 )
 
-            def _refresh_review_queue() -> None:
+            def _refresh_review_queue(rows: list[dict] | None = None) -> None:
                 review_container.clear()
                 rows = audit.filter_memories(
-                    _load_memory_rows(),
+                    rows if rows is not None else _load_memory_rows(),
                     status="Needs review",
                     source="All",
                     tier="All",
@@ -3489,8 +3588,7 @@ def open_settings(
                                     ui.label(summary["review_reason"]).classes("text-xs text-orange-4")
                                 with ui.row().classes("gap-2"):
                                     def _edit_review(mid=mem["id"]):
-                                        from ui.entity_editor import open_entity_editor
-                                        open_entity_editor(mid, on_saved=lambda: (_refresh_status_summary(), _refresh_review_queue(), _refresh_memories()))
+                                        _open_knowledge_editor(mid)
 
                                     ui.button("Edit", icon="edit", on_click=_edit_review).props("flat dense no-caps")
                                     ui.button(
@@ -3506,14 +3604,18 @@ def open_settings(
                         if len(rows) > 5:
                             ui.label(f"+{len(rows) - 5} more in Browse knowledge").classes("text-xs text-grey-6")
 
-            def _refresh_memories():
+            def _refresh_memories(rows: list[dict] | None = None):
                 mem_container.clear()
-                memories = _filtered_memories()
+                memories = _filtered_memories(rows)
+                visible = memories[: _browse_page["limit"]]
                 with mem_container:
                     if not memories:
                         ui.label("No matching entries.").classes("text-grey-6")
                     else:
-                        for mem in memories:
+                        ui.label(
+                            f"Showing {len(visible)} of {len(memories)} matching entries."
+                        ).classes("text-xs text-grey-6 q-mb-xs")
+                        for mem in visible:
                             _mem_id = mem["id"]
                             summary = audit.audit_summary(mem)
                             _header_label = (
@@ -3578,8 +3680,7 @@ def open_settings(
                                 ui.button("🗑️ Delete", on_click=_del_mem).props("flat dense color=negative")
 
                                 def _edit_mem(mid=mem["id"]):
-                                    from ui.entity_editor import open_entity_editor
-                                    open_entity_editor(mid, on_saved=lambda: (_refresh_status_summary(), _refresh_review_queue(), _refresh_memories()))
+                                    _open_knowledge_editor(mid)
 
                                 ui.button("✏️ Edit", on_click=_edit_mem).props("flat dense")
 
@@ -3601,6 +3702,17 @@ def open_settings(
                                         icon="check",
                                         on_click=lambda mid=mem["id"]: _status_action(mid, "resolve"),
                                     ).props("flat dense color=positive no-caps")
+
+                        if len(visible) < len(memories):
+                            def _load_more() -> None:
+                                _browse_page["limit"] += 25
+                                _refresh_memories()
+
+                            ui.button(
+                                "Load more",
+                                icon="expand_more",
+                                on_click=_load_more,
+                            ).props("flat dense no-caps color=primary")
 
             def _do_mem_bulk_delete(ids: list[str]) -> None:
                 def _commit():
@@ -3628,64 +3740,198 @@ def open_settings(
                 on_clear=_refresh_memories,
             )
 
-            cat_sel.on("update:model-value", lambda _: _refresh_memories())
-            status_sel.on("update:model-value", lambda _: _refresh_memories())
-            source_sel.on("update:model-value", lambda _: _refresh_memories())
-            tier_sel.on("update:model-value", lambda _: _refresh_memories())
-            search_input.on("update:model-value", lambda _: _refresh_memories())
+            def _schedule_mem_refresh(reset: bool = True) -> None:
+                token = _browse_generation.next()
+                if reset:
+                    _browse_page["limit"] = 25
+
+                def _run() -> None:
+                    if _browse_generation.is_current(token):
+                        _refresh_memories()
+
+                defer_ui(_run, delay=0.3)
+
+            cat_sel.on("update:model-value", lambda _: _schedule_mem_refresh())
+            status_sel.on("update:model-value", lambda _: _schedule_mem_refresh())
+            source_sel.on("update:model-value", lambda _: _schedule_mem_refresh())
+            tier_sel.on("update:model-value", lambda _: _schedule_mem_refresh())
+            search_input.on("update:model-value", lambda _: _schedule_mem_refresh())
             _refresh_review_queue()
             _refresh_memories()
 
-            traces = audit.load_recent_recall_traces(limit=10)
-            with ui.expansion("Recent recall decisions", icon="history", value=False).classes("w-full q-mt-md"):
-                if not traces:
-                    ui.label("No recall trace entries yet.").classes("text-grey-6 text-sm")
-                else:
-                    for row in reversed(traces):
-                        state_label = "used" if row.get("allowed") else "skipped"
-                        selected = row.get("selected_count", len(row.get("selected_ids", []) or []))
-                        block_chars = row.get("block_chars", 0)
-                        with ui.column().classes("w-full gap-1 q-pb-sm").style(
-                            "border-bottom: 1px solid rgba(148, 163, 184, 0.18);"
-                        ):
-                            ui.label(
-                                f"{(row.get('ts') or '')[:19]} | {state_label} | {row.get('reason', '')}"
-                            ).classes("text-xs text-weight-medium")
-                            ui.label(
-                                f"candidates: {row.get('candidates_seen', 0)} | selected: {selected} | context chars: {block_chars}"
-                            ).classes("text-xs text-grey-6")
-                            labels = []
-                            for item in (row.get("top_scores") or [])[:3]:
-                                if isinstance(item, dict):
-                                    labels.append(f"{item.get('id', '')}: {item.get('final', item.get('score', ''))}")
-                            if labels:
-                                ui.label("Top: " + " | ".join(labels)).classes("text-xs text-grey-6")
-                            reasons = []
-                            for item in (row.get("rejected") or [])[:3]:
-                                if isinstance(item, dict) and item.get("reason"):
-                                    reasons.append(str(item.get("reason")))
-                            if reasons:
-                                ui.label("Rejected: " + ", ".join(reasons)).classes("text-xs text-grey-6")
+            trace_loaded = {"value": False}
+            with ui.expansion("Recent recall decisions", icon="history", value=False).classes("w-full q-mt-md") as trace_exp:
+                trace_container = ui.column().classes("w-full gap-1")
+                with trace_container:
+                    ui.label("Open to load recent recall decisions.").classes("text-grey-6 text-sm")
 
-            journal = audit.load_recent_evolution_journal(limit=20)
-            with ui.expansion("Memory change log", icon="receipt_long", value=False).classes("w-full"):
-                if not journal:
-                    ui.label("No memory change entries yet.").classes("text-grey-6 text-sm")
-                else:
-                    for row in reversed(journal):
-                        ids = row.get("entity_ids") or ([row.get("entity_id")] if row.get("entity_id") else [])
-                        transition = ""
-                        if row.get("old_status") or row.get("new_status"):
-                            transition = f" | {row.get('old_status') or '?'} -> {row.get('new_status') or '?'}"
-                        ui.label(
-                            f"{(row.get('timestamp') or '')[:19]} | {row.get('action', '')} | {row.get('actor', '')}{transition}"
-                        ).classes("text-xs text-weight-medium")
-                        detail = " | ".join([str(v) for v in ids if v])
-                        reason = row.get("reason") or ""
-                        if reason:
-                            detail = f"{detail} | {reason}" if detail else reason
-                        if detail:
-                            ui.label(detail).classes("text-xs text-grey-6")
+            def _trace_item_ids(traces: list[dict]) -> list[str]:
+                ids: list[str] = []
+                for row in traces:
+                    for mid in row.get("selected_ids") or []:
+                        if mid:
+                            ids.append(str(mid))
+                    for key in ("top_scores", "rejected"):
+                        for item in row.get(key) or []:
+                            if isinstance(item, dict) and item.get("id") and not item.get("subject"):
+                                ids.append(str(item["id"]))
+                return list(dict.fromkeys(ids))[:100]
+
+            def _trace_subjects(traces: list[dict]) -> dict[str, str]:
+                ids = _trace_item_ids(traces)
+                if not ids:
+                    return {}
+                try:
+                    if hasattr(memory_db, "list_memory_subjects"):
+                        return memory_db.list_memory_subjects(ids)
+                    subjects: dict[str, str] = {}
+                    for mid in ids[:50]:
+                        mem = memory_db.get_memory(mid)
+                        if mem and mem.get("subject"):
+                            subjects[mid] = str(mem["subject"])
+                    return subjects
+                except Exception:
+                    logger.debug("Could not resolve recall trace subjects", exc_info=True)
+                    return {}
+
+            def _trace_memory_label(item: dict, subjects: dict[str, str]) -> str:
+                mid = str(item.get("id") or "").strip()
+                subject = str(item.get("subject") or subjects.get(mid) or "").strip()
+                if subject:
+                    return subject if len(subject) <= 80 else subject[:77].rstrip() + "..."
+                return mid
+
+            def _load_trace_rows(e=None) -> None:
+                if trace_loaded["value"] or not getattr(trace_exp, "value", False):
+                    return
+                trace_loaded["value"] = True
+                trace_container.clear()
+                traces = audit.load_recent_recall_traces(limit=10)
+                trace_subjects = _trace_subjects(traces)
+                with trace_container:
+                    if not traces:
+                        ui.label("No recall trace entries yet.").classes("text-grey-6 text-sm")
+                    else:
+                        for row in reversed(traces):
+                            state_label = "used" if row.get("allowed") else "skipped"
+                            selected = row.get("selected_count", len(row.get("selected_ids", []) or []))
+                            block_chars = row.get("block_chars", 0)
+                            with ui.column().classes("w-full gap-1 q-pb-sm").style(
+                                "border-bottom: 1px solid rgba(148, 163, 184, 0.18);"
+                            ):
+                                ui.label(
+                                    f"{(row.get('ts') or '')[:19]} | {state_label} | {row.get('reason', '')}"
+                                ).classes("text-xs text-weight-medium")
+                                ui.label(
+                                    f"candidates: {row.get('candidates_seen', 0)} | selected: {selected} | context chars: {block_chars}"
+                                ).classes("text-xs text-grey-6")
+                                labels = []
+                                for item in (row.get("top_scores") or [])[:3]:
+                                    if isinstance(item, dict):
+                                        label = _trace_memory_label(item, trace_subjects)
+                                        labels.append(f"{label}: {item.get('final', item.get('score', ''))}")
+                                if labels:
+                                    ui.label("Top: " + " | ".join(labels)).classes("text-xs text-grey-6")
+                                reasons = []
+                                for item in (row.get("rejected") or [])[:3]:
+                                    if isinstance(item, dict) and item.get("reason"):
+                                        reasons.append(str(item.get("reason")))
+                                if reasons:
+                                    ui.label("Rejected: " + ", ".join(reasons)).classes("text-xs text-grey-6")
+
+            trace_exp.on("update:model-value", _load_trace_rows)
+
+            journal_loaded = {"value": False}
+            with ui.expansion("Memory change log", icon="receipt_long", value=False).classes("w-full") as journal_exp:
+                journal_container = ui.column().classes("w-full gap-1")
+                with journal_container:
+                    ui.label("Open to load memory changes.").classes("text-grey-6 text-sm")
+
+            def _journal_item_ids(rows: list[dict]) -> list[str]:
+                ids: list[str] = []
+                for row in rows:
+                    for mid in row.get("entity_ids") or ([row.get("entity_id")] if row.get("entity_id") else []):
+                        if mid:
+                            ids.append(str(mid))
+                return list(dict.fromkeys(ids))[:100]
+
+            def _journal_subjects(rows: list[dict]) -> dict[str, str]:
+                ids = _journal_item_ids(rows)
+                if not ids:
+                    return {}
+                try:
+                    if hasattr(memory_db, "list_memory_subjects"):
+                        return memory_db.list_memory_subjects(ids)
+                    subjects: dict[str, str] = {}
+                    for mid in ids[:50]:
+                        mem = memory_db.get_memory(mid)
+                        if mem and mem.get("subject"):
+                            subjects[mid] = str(mem["subject"])
+                    return subjects
+                except Exception:
+                    logger.debug("Could not resolve memory journal subjects", exc_info=True)
+                    return {}
+
+            def _journal_action_label(action: str) -> str:
+                return {
+                    "user_modified": "User edit",
+                    "set_status": "Status change",
+                    "supersede": "Superseded",
+                }.get(str(action or "").strip(), str(action or "Change").replace("_", " ").title())
+
+            def _journal_reason_label(reason: str) -> str:
+                return {
+                    "high_authority_update": "Manual edit saved as authoritative",
+                    "manual_memory_tool_update": "Updated through the memory tool",
+                }.get(str(reason or "").strip(), str(reason or "").replace("_", " "))
+
+            def _journal_status_label(row: dict) -> str:
+                old_status = str(row.get("old_status") or "").strip()
+                new_status = str(row.get("new_status") or "").strip()
+                if old_status and new_status and old_status != new_status:
+                    return f"{old_status} -> {new_status}"
+                if new_status:
+                    return f"status: {new_status}"
+                return ""
+
+            def _journal_subject_label(ids: list[str], subjects: dict[str, str]) -> str:
+                labels = [subjects.get(mid) or mid for mid in ids[:3]]
+                if len(ids) > 3:
+                    labels.append(f"+{len(ids) - 3} more")
+                return " | ".join(labels)
+
+            def _load_journal_rows(e=None) -> None:
+                if journal_loaded["value"] or not getattr(journal_exp, "value", False):
+                    return
+                journal_loaded["value"] = True
+                journal_container.clear()
+                journal = audit.load_recent_evolution_journal(limit=20)
+                journal_subjects = _journal_subjects(journal)
+                with journal_container:
+                    if not journal:
+                        ui.label("No memory change entries yet.").classes("text-grey-6 text-sm")
+                    else:
+                        for row in reversed(journal):
+                            ids = row.get("entity_ids") or ([row.get("entity_id")] if row.get("entity_id") else [])
+                            ids = [str(mid) for mid in ids if mid]
+                            status_text = _journal_status_label(row)
+                            header_parts = [
+                                (row.get("timestamp") or "")[:19],
+                                _journal_action_label(str(row.get("action") or "")),
+                                str(row.get("actor") or "").title(),
+                            ]
+                            if status_text:
+                                header_parts.append(status_text)
+                            ui.label(
+                                " | ".join([part for part in header_parts if part])
+                            ).classes("text-xs text-weight-medium")
+                            subject_text = _journal_subject_label(ids, journal_subjects)
+                            reason = _journal_reason_label(str(row.get("reason") or ""))
+                            detail_parts = [part for part in (subject_text, reason) if part]
+                            if detail_parts:
+                                ui.label(" | ".join(detail_parts)).classes("text-xs text-grey-6")
+
+            journal_exp.on("update:model-value", _load_journal_rows)
 
         # ── Danger zone ──────────────────────────────────────────────
         ui.separator()
@@ -4285,7 +4531,7 @@ def open_settings(
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("settings", size="sm")
                     ui.label("Settings").classes("text-h5")
-                ui.button(icon="close", on_click=p.settings_dlg.close).props("flat round size=sm")
+                ui.button(icon="close", on_click=_close_settings).props("flat round size=sm")
 
             ui.separator()
 
@@ -4365,7 +4611,6 @@ def open_settings(
                     (tab_prefs, "Preferences", _build_preferences_tab),
                 ]
                 _builder_map: dict[str, Callable] = {}
-                _load_generation = {"value": 0}
 
                 def _tab_name_for_value(value) -> str | None:
                     if isinstance(value, str):
@@ -4380,20 +4625,58 @@ def open_settings(
                         ui.spinner(size="lg").classes("text-blue-400")
                         ui.label(text).classes("text-grey-5 text-sm")
 
-                def _load_settings_tab(name: str | None) -> None:
-                    if not name or name not in _builder_map:
+                def _settings_tab_error(name: str, exc: BaseException) -> None:
+                    with ui.column().classes("w-full gap-2"):
+                        with ui.row().classes("items-center gap-2"):
+                            ui.icon("error_outline", color="warning")
+                            ui.label(f"Could not load {name} settings").classes("text-warning text-subtitle2")
+                        ui.label(str(exc)).classes("text-grey-6 text-sm")
+                        ui.button(
+                            "Retry",
+                            icon="refresh",
+                            on_click=lambda name=name: _schedule_settings_tab(name),
+                        ).props("flat dense no-caps color=primary")
+
+                def _render_settings_tab(name: str, generation: int) -> None:
+                    if not settings_generation.is_current(generation):
                         return
-                    _load_generation["value"] += 1
-                    generation = _load_generation["value"]
                     content_panel.clear()
                     with content_panel:
-                        if generation != _load_generation["value"]:
+                        if not settings_generation.is_current(generation):
                             return
+                        start = time.perf_counter()
                         try:
-                            _builder_map[name]()
+                            with timed_ui_section(
+                                f"settings.tab.render.{name.lower()}",
+                                threshold_ms=UI_SHELL_WARN_MS,
+                                tab=name,
+                            ):
+                                _builder_map[name]()
                         except Exception as exc:
                             logger.exception("Settings tab '%s' failed to render", name)
-                            ui.label(f"Could not load {name} settings: {exc}").classes("text-warning text-sm")
+                            try:
+                                from stability import record_ui_callback_error
+
+                                record_ui_callback_error(f"settings.tab.{name}", exc)
+                            except Exception:
+                                logger.debug("Could not record settings tab failure", exc_info=True)
+                            _settings_tab_error(name, exc)
+                        finally:
+                            log_ui_perf(
+                                f"settings.tab.load.{name.lower()}",
+                                (time.perf_counter() - start) * 1000.0,
+                                threshold_ms=UI_SHELL_WARN_MS,
+                                tab=name,
+                            )
+
+                def _schedule_settings_tab(name: str | None) -> None:
+                    if not name or name not in _builder_map:
+                        return
+                    generation = settings_generation.next()
+                    content_panel.clear()
+                    with content_panel:
+                        _settings_tab_placeholder(f"Loading {name} settings...")
+                    defer_ui(lambda name=name, generation=generation: _render_settings_tab(name, generation), delay=0.01)
 
                 with splitter.after:
                     content_panel = ui.column().classes("w-full h-full px-6 py-4 overflow-auto")
@@ -4405,9 +4688,15 @@ def open_settings(
                     def _on_tab_switch(e):
                         name = _tab_name_for_value(e.value)
                         if name and name in _builder_map:
-                            defer_ui(lambda name=name: _load_settings_tab(name), delay=0.01)
+                            _schedule_settings_tab(name)
 
                     tabs.on_value_change(_on_tab_switch)
 
     p.settings_dlg.open()
-    defer_ui(lambda: _load_settings_tab(_initial_name), delay=0.05)
+    log_ui_perf(
+        "settings.open.shell",
+        (time.perf_counter() - shell_started) * 1000.0,
+        threshold_ms=UI_SHELL_WARN_MS,
+        initial_tab=_initial_name,
+    )
+    defer_ui(lambda: _schedule_settings_tab(_initial_name), delay=0.05)

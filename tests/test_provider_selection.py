@@ -14,6 +14,7 @@ from providers.selection import (
     model_choice_value,
     migrate_legacy_starred_models,
     provider_display_label,
+    refresh_quick_choice_capability_snapshots,
     remove_quick_choice_for_model,
     resolve_selection,
 )
@@ -331,6 +332,45 @@ def test_grouped_quick_choices_refreshes_stale_capability_snapshots(tmp_path, mo
     stored = {choice["model_id"]: choice for choice in provider_config.load_provider_config()["quick_choices"]}
     assert "image" not in stored["qwen3.6:27b"]["capabilities_snapshot"]["input_modalities"]
     assert "image" in stored["gpt-5.4"]["capabilities_snapshot"]["input_modalities"]
+
+
+def test_quick_choice_refresh_preserves_openrouter_cached_tool_metadata(tmp_path, monkeypatch):
+    import models
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+    model_id = "qwen/qwen3.7-max"
+    monkeypatch.setitem(models._cloud_model_cache, model_id, {
+        "label": "Qwen: Qwen3.7 Max",
+        "ctx": 1_000_000,
+        "provider": "openrouter",
+        "capabilities_snapshot": {
+            "tasks": ["chat"],
+            "input_modalities": ["text"],
+            "output_modalities": ["text"],
+            "tool_calling": True,
+            "streaming": True,
+            "transport": "openai_chat",
+            "endpoint_compatibility": ["openai_chat"],
+        },
+    })
+    add_quick_choice_for_model(
+        model_id,
+        provider_id="openrouter",
+        capabilities_snapshot={
+            "tasks": ["chat"],
+            "input_modalities": ["text"],
+            "output_modalities": ["text"],
+            "tool_calling": None,
+            "transport": "openai_chat",
+        },
+    )
+
+    refresh_quick_choice_capability_snapshots()
+
+    stored = provider_config.load_provider_config()["quick_choices"][0]
+    assert stored["model_id"] == model_id
+    assert stored["capabilities_snapshot"]["tool_calling"] is True
 
 
 def test_models_tab_copy_explains_catalog_pinning_before_picker():

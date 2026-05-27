@@ -69,6 +69,7 @@ if _app_dir not in sys.path:
 
 from nicegui import ui, app, run
 from app_port import THOTH_HOST_ENV, get_app_port
+from ui.performance import log_ui_perf
 from ui.timer_utils import deactivate_on_disconnect, defer_ui, safe_timer, safe_ui_task
 
 _APP_PORT = get_app_port()
@@ -146,6 +147,14 @@ from ui.settings import open_settings
 from ui.streaming import Callbacks, send_message, build_interrupt_dialog
 from ui.home import build_home
 from ui.chat import build_chat
+from ui.transcript import (
+    TRANSCRIPT_CHUNK_TARGET_MS,
+    TRANSCRIPT_MAX_CHUNK_MESSAGES,
+    choose_transcript_window,
+    message_key,
+    message_keys,
+    rendered_window_matches,
+)
 
 # ── Backend imports ──────────────────────────────────────────────────────────
 from threads import _save_thread_meta
@@ -533,8 +542,9 @@ async def _cleanup_runtime(reason: str = "shutdown") -> None:
         return
     _shutdown_cleanup_started = True
 
+    cleanup_started = time.perf_counter()
     stop_performance_monitor()
-    mark_shutdown()
+    mark_shutdown(reason)
     print(f"[shutdown] Cleaning up sessions ({reason})...")
     try:
         # Stop channels before tunnels so webhook/socket clients can close cleanly.
@@ -580,7 +590,7 @@ async def _cleanup_runtime(reason: str = "shutdown") -> None:
         print("[shutdown] MCP sessions closed")
     except Exception as exc:
         print(f"[shutdown] MCP cleanup error: {exc}")
-    print("[shutdown] Done")
+    print(f"[shutdown] Done in {(time.perf_counter() - cleanup_started):.1f}s")
 
 
 async def _launcher_shutdown_handler(request: Request) -> JSONResponse:
@@ -804,7 +814,7 @@ async def index():
     # started in the meantime, the stale hydration aborts.
     _rebuild_gen = [0]
 
-    def _rebuild_main(immediate: bool = False) -> None:
+    def _rebuild_main(immediate: bool = False, reason: str = "unspecified") -> None:
         """Rebuild the main content column.
 
         By default paints a lightweight skeleton first and defers the
@@ -818,15 +828,26 @@ async def index():
         """
         if p.main_col is None:
             return
+        _started = time.perf_counter()
         # Designer needs full width; other views use centered max-w-7xl
         if state.active_designer_project is not None or state.active_developer_workspace_id is not None:
             _outer.classes(remove="max-w-7xl mx-auto px-4", add="px-2")
         else:
             _outer.classes(remove="px-2", add="max-w-7xl mx-auto px-4")
 
+        def _view_name() -> str:
+            if state.active_designer_project is not None:
+                return "designer"
+            if state.active_developer_workspace_id is not None:
+                return "developer"
+            if state.thread_id is None:
+                return "home"
+            return "chat"
+
         def _build_real() -> None:
             if p.main_col is None:
                 return
+            _real_started = time.perf_counter()
             with p.main_col:
                 if state.active_designer_project is not None:
                     from designer.editor import build_designer_editor
@@ -898,12 +919,28 @@ async def index():
                         add_chat_message=lambda msg: add_chat_message(msg, p, state.thread_id),
                         browse_file=browse_file,
                     )
+            log_ui_perf(
+                "app.main.rebuild.build",
+                (time.perf_counter() - _real_started) * 1000.0,
+                threshold_ms=500.0,
+                reason=reason,
+                view=_view_name(),
+                immediate=immediate,
+            )
 
         # Immediate path — build real view synchronously, no skeleton.
         if immediate:
             _rebuild_gen[0] += 1
             p.main_col.clear()
             _build_real()
+            log_ui_perf(
+                "app.main.rebuild.immediate",
+                (time.perf_counter() - _started) * 1000.0,
+                threshold_ms=500.0,
+                reason=reason,
+                view=_view_name(),
+                generation=_rebuild_gen[0],
+            )
             return
 
         # ── Phase 1: paint a skeleton IMMEDIATELY (same tick) ────────
@@ -931,17 +968,42 @@ async def index():
                     show_home_skeleton()
             else:
                 show_chat_skeleton()
+        log_ui_perf(
+            "app.main.rebuild.skeleton",
+            (time.perf_counter() - _started) * 1000.0,
+            threshold_ms=200.0,
+            reason=reason,
+            view=_view_name(),
+            generation=_my_gen,
+        )
 
         # ── Phase 2: hydrate real view on next tick ──────────────────
         def _hydrate() -> None:
+            _hydrate_started = time.perf_counter()
             # Stale — another _rebuild_main happened after us.
             if _my_gen != _rebuild_gen[0]:
+                log_ui_perf(
+                    "app.main.rebuild.hydrate.stale",
+                    (time.perf_counter() - _hydrate_started) * 1000.0,
+                    threshold_ms=200.0,
+                    reason=reason,
+                    view=_view_name(),
+                    generation=_my_gen,
+                )
                 return
             if p.main_col is None:
                 return
             try:
                 p.main_col.clear()
                 _build_real()
+                log_ui_perf(
+                    "app.main.rebuild.hydrate",
+                    (time.perf_counter() - _hydrate_started) * 1000.0,
+                    threshold_ms=500.0,
+                    reason=reason,
+                    view=_view_name(),
+                    generation=_my_gen,
+                )
             except Exception:
                 logger.exception("_rebuild_main hydration failed")
 
@@ -959,22 +1021,162 @@ async def index():
     cb.rebuild_thread_list = rebuild_thread_list
     cb.show_interrupt = show_interrupt
     cb.update_token_counter = lambda: _update_token_counter()
-    cb.add_chat_message = lambda msg: add_chat_message(msg, p, state.thread_id)
+    def _mark_chat_message_rendered(msg: dict) -> None:
+        if p.transcript_thread_id != state.thread_id:
+            return
+        try:
+            idx = len(state.messages) - 1
+            if idx < 0:
+                return
+            key = message_key(idx, msg)
+            if key not in p.transcript_rendered_keys:
+                p.transcript_rendered_keys.append(key)
+            p.transcript_total = len(state.messages)
+            p.transcript_window_size = len(p.transcript_rendered_keys)
+        except Exception:
+            logger.debug("Transcript render-state mark failed", exc_info=True)
+
+    def _add_chat_message_and_track(msg: dict) -> None:
+        add_chat_message(msg, p, state.thread_id)
+        _mark_chat_message_rendered(msg)
+
+    cb.add_chat_message = _add_chat_message_and_track
+    cb.mark_chat_message_rendered = _mark_chat_message_rendered
     cb.render_text_with_embeds = render_text_with_embeds
 
     def _refresh_chat_messages() -> None:
-        """Rehydrate only the active transcript container."""
+        """Synchronize the active transcript without a full visible rebuild."""
         if p.chat_container is None:
             return
+        started = time.perf_counter()
+        all_keys = message_keys(state.messages)
+        rendered_keys = list(p.transcript_rendered_keys or [])
+        same_thread = p.transcript_thread_id == state.thread_id
+        window_start = int(p.transcript_window_start or 0)
+
+        def _scroll_bottom() -> None:
+            if p.chat_scroll:
+                p.chat_scroll.scroll_to(percent=1.0)
+
+        def _log_sync(mode: str, rows: int) -> None:
+            try:
+                from ui.performance import log_ui_perf
+
+                log_ui_perf(
+                    "chat.transcript.sync",
+                    (time.perf_counter() - started) * 1000.0,
+                    mode=mode,
+                    rows=rows,
+                    total_rows=len(state.messages),
+                    thread_id=state.thread_id,
+                )
+            except Exception:
+                logger.debug("Transcript sync perf logging failed", exc_info=True)
+
+        if (
+            same_thread
+            and rendered_keys
+            and rendered_window_matches(rendered_keys, all_keys, start=window_start)
+        ):
+            rendered_end = window_start + len(rendered_keys)
+            missing = list(enumerate(state.messages[rendered_end:], start=rendered_end))
+            if not missing:
+                _log_sync("noop", 0)
+                return
+
+            p.transcript_generation += 1
+            sync_generation = p.transcript_generation
+            chunk_state = {"idx": 0}
+
+            def _append_chunk() -> None:
+                if (
+                    p.transcript_generation != sync_generation
+                    or p.transcript_thread_id != state.thread_id
+                ):
+                    return
+                start_idx = chunk_state["idx"]
+                end_idx = start_idx
+                chunk_started = time.perf_counter()
+                try:
+                    with p.chat_container:
+                        while end_idx < len(missing):
+                            msg_index, msg = missing[end_idx]
+                            add_chat_message(msg, p, state.thread_id)
+                            p.transcript_rendered_keys.append(message_key(msg_index, msg))
+                            end_idx += 1
+                            if end_idx - start_idx >= TRANSCRIPT_MAX_CHUNK_MESSAGES:
+                                break
+                            elapsed_ms = (time.perf_counter() - chunk_started) * 1000.0
+                            if elapsed_ms >= TRANSCRIPT_CHUNK_TARGET_MS:
+                                break
+                except Exception:
+                    logger.debug("Transcript tail append failed", exc_info=True)
+                    return
+                chunk_state["idx"] = end_idx
+                p.transcript_total = len(state.messages)
+                p.transcript_window_size = len(p.transcript_rendered_keys)
+                if end_idx < len(missing):
+                    defer_ui(_append_chunk)
+                else:
+                    _scroll_bottom()
+                    _log_sync("append_tail", len(missing))
+
+            defer_ui(_append_chunk)
+            return
+
+        # Rare fallback: the rendered transcript no longer matches state
+        # (for example after a stale client handle or a cross-thread race).
+        # Keep this scoped to the transcript and bounded to the latest window.
+        p.transcript_generation += 1
+        sync_generation = p.transcript_generation
+        window = choose_transcript_window(len(state.messages))
+        display_msgs = state.messages[window.start:window.end]
+        display_keys = all_keys[window.start:window.end]
+        p.transcript_thread_id = state.thread_id
+        p.transcript_window_start = window.start
+        p.transcript_window_size = window.visible_count
+        p.transcript_total = window.total
+        p.transcript_rendered_keys = []
         p.chat_container.clear()
-        if state.messages:
-            for msg in state.messages:
-                add_chat_message(msg, p, state.thread_id)
-        else:
+        if not display_msgs:
             with p.chat_container:
                 ui.label("Ask anything...").classes("text-grey-5 text-sm q-pa-md")
-        if p.chat_scroll:
-            p.chat_scroll.scroll_to(percent=1.0)
+            _log_sync("empty", 0)
+            return
+
+        chunk_state = {"idx": 0}
+
+        def _reconcile_chunk() -> None:
+            if (
+                p.transcript_generation != sync_generation
+                or p.transcript_thread_id != state.thread_id
+            ):
+                return
+            start_idx = chunk_state["idx"]
+            end_idx = start_idx
+            chunk_started = time.perf_counter()
+            try:
+                with p.chat_container:
+                    while end_idx < len(display_msgs):
+                        add_chat_message(display_msgs[end_idx], p, state.thread_id)
+                        p.transcript_rendered_keys.append(display_keys[end_idx])
+                        end_idx += 1
+                        if end_idx - start_idx >= TRANSCRIPT_MAX_CHUNK_MESSAGES:
+                            break
+                        elapsed_ms = (time.perf_counter() - chunk_started) * 1000.0
+                        if elapsed_ms >= TRANSCRIPT_CHUNK_TARGET_MS:
+                            break
+            except Exception:
+                logger.debug("Transcript reconcile failed", exc_info=True)
+                return
+            chunk_state["idx"] = end_idx
+            if end_idx < len(display_msgs):
+                defer_ui(_reconcile_chunk)
+            else:
+                _scroll_bottom()
+                _log_sync("reconcile_window", len(display_msgs))
+
+        defer_ui(_reconcile_chunk)
 
     cb.refresh_chat_messages = _refresh_chat_messages
 
@@ -1043,6 +1245,8 @@ async def index():
         "in_flight": False,
         "key": None,
         "last": None,
+        "scheduled_key": None,
+        "generation": 0,
     }
 
     def _render_token_counter(used: int, max_tokens: int) -> None:
@@ -1085,6 +1289,23 @@ async def index():
         _token_counter_state["last"] = (used, max_tokens)
         _render_token_counter(used, max_tokens)
 
+    async def _schedule_token_counter_async(key, config, model_override, generation: int) -> None:
+        await asyncio.sleep(0.75)
+        current_key = (
+            state.thread_id,
+            state.thread_model_override or "",
+            len(state.messages),
+        )
+        if generation != _token_counter_state["generation"] or key != current_key:
+            if _token_counter_state.get("scheduled_key") == key:
+                _token_counter_state["scheduled_key"] = None
+            return
+        if _token_counter_state["in_flight"]:
+            return
+        _token_counter_state["scheduled_key"] = None
+        _token_counter_state["in_flight"] = True
+        await _refresh_token_counter_async(key, config, model_override)
+
     def _update_token_counter() -> None:
         if state.is_generating or (state.thread_id and state.thread_id in _active_generations):
             return
@@ -1101,10 +1322,14 @@ async def index():
             last = _token_counter_state.get("last")
             _render_token_counter(*last)
             return
+        if _token_counter_state.get("scheduled_key") == key:
+            return
         _token_counter_state["key"] = key
-        _token_counter_state["in_flight"] = True
+        _token_counter_state["scheduled_key"] = key
+        _token_counter_state["generation"] += 1
+        generation = _token_counter_state["generation"]
         safe_ui_task(
-            lambda: _refresh_token_counter_async(key, config, model_override),
+            lambda: _schedule_token_counter_async(key, config, model_override, generation),
             context="token counter refresh",
         )
 

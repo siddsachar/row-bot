@@ -231,6 +231,11 @@ def test_launcher_shutdown_source_contracts_are_wired():
     assert "def _close_log_handle" in src
     assert "self._close_log_handle()" in src
     assert '["taskkill", "/PID", str(proc.pid), "/T", "/F"]' in src
+    assert "_GRACEFUL_SHUTDOWN_REQUEST_TIMEOUT = 3.0" in src
+    assert "_GRACEFUL_SHUTDOWN_EXIT_TIMEOUT = 30.0" in src
+    assert "_QUIT_WATCHDOG_TIMEOUT = 75.0" in src
+    assert "Thoth graceful shutdown completed in" in src
+    assert "mark_shutdown(reason)" in Path("app.py").read_text(encoding="utf-8")
 
 
 def test_launcher_display_detection_on_headless_linux(monkeypatch):

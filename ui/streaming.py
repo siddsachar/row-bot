@@ -18,6 +18,7 @@ import base64 as _b64
 import logging
 import queue
 import threading
+import time
 import uuid
 from datetime import datetime
 from typing import Any, Callable
@@ -33,6 +34,7 @@ from ui.constants import (
     IMAGE_EXTENSIONS,
 )
 from ui.render import autolink_urls, _auto_fence_mermaid, render_image_with_save
+from ui.performance import log_ui_perf
 from ui.tool_trace import canonical_tool_name, display_tool_content, is_browser_tool_name, tool_result_failed
 
 logger = logging.getLogger(__name__)
@@ -443,6 +445,7 @@ class _Callbacks:
         "show_interrupt",
         "update_token_counter",
         "add_chat_message",
+        "mark_chat_message_rendered",
         "render_text_with_embeds",
         "refresh_chat_messages",
     )
@@ -484,6 +487,8 @@ async def consume_generation(
     _stopped_shown = False
     _drain_deadline = 0.0
     _last_buddy_token_at = 0.0
+    _consume_started = time.perf_counter()
+    _stream_updates = 0
 
     def _buddy(event_type: BuddyEventType, label: str = "", **payload: Any) -> None:
         if label:
@@ -647,6 +652,7 @@ async def consume_generation(
         elif event_type == "thinking_token":
             _buddy(BuddyEventType.THINKING, "Reasoning")
             gen.thinking_text += payload
+            _stream_updates += 1
             if not gen.detached:
                 try:
                     if gen.thinking_label:
@@ -669,6 +675,7 @@ async def consume_generation(
                     logger.debug("Thinking-token rendering failed", exc_info=True)
 
         elif event_type == "token":
+            _stream_updates += 1
             _now = asyncio.get_event_loop().time()
             if _now - _last_buddy_token_at > 0.8:
                 _last_buddy_token_at = _now
@@ -779,16 +786,21 @@ async def consume_generation(
 
             try:
                 ui.run_javascript(
-                    "document.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));"
+                    "if (window.thothHighlightCodeBlocks) { window.thothHighlightCodeBlocks(); } "
+                    "else { setTimeout(function() { document.querySelectorAll('pre code').forEach(function(el) { if (!el.closest('.thoth-live-stream')) hljs.highlightElement(el); }); }, 80); }"
                 )
                 ui.run_javascript(
                     "setTimeout(function() {"
-                    "  mermaid.run({nodes: document.querySelectorAll('pre.mermaid'), suppressErrors: true});"
+                    "  var nodes = Array.from(document.querySelectorAll('pre.mermaid')).filter(function(node) { return !node.closest('.thoth-live-stream'); });"
+                    "  mermaid.run({nodes: nodes, suppressErrors: true});"
                     "}, 150);"
                 )
             except RuntimeError as exc:
-                _handle_ui_runtime_error(gen, state, exc, "post-render javascript")
-                logger.debug("JS runtime unavailable for hljs/mermaid", exc_info=True)
+                # Syntax highlighting / mermaid enhancement is optional. Treat
+                # failures here as cosmetic; marking the generation detached
+                # after the final row has rendered causes detached recovery to
+                # append the persisted assistant message as a duplicate.
+                logger.debug("JS runtime unavailable for hljs/mermaid: %s", exc)
     except Exception:
         logger.error("Error in post-stream finalization", exc_info=True)
 
@@ -822,6 +834,11 @@ async def consume_generation(
             state.messages.append(a_msg)
             persist_thread_media_state(state.thread_id, state.messages)
             state.cache_active_messages()
+            if not gen.detached and cb.mark_chat_message_rendered:
+                try:
+                    cb.mark_chat_message_rendered(a_msg)
+                except Exception:
+                    logger.debug("Final assistant render-state mark failed", exc_info=True)
             _persisted_detached = True
         else:
             _has_detached_media = bool(gen.captured_images or gen.captured_videos)
@@ -924,6 +941,17 @@ async def consume_generation(
             )
         except Exception:
             logger.debug("Developer inspector final refresh scheduling failed", exc_info=True)
+
+    log_ui_perf(
+        "streaming.consume_generation",
+        (time.perf_counter() - _consume_started) * 1000.0,
+        rows=_stream_updates,
+        thread_id=gen.thread_id,
+        status=gen.status,
+        detached=gen.detached,
+        thinking_chars=len(gen.thinking_text or ""),
+        answer_chars=len(gen.accumulated or ""),
+    )
 
 
 # ── Tool-done sub-handler ────────────────────────────────────────────
@@ -1687,6 +1715,6 @@ def _build_assistant_placeholder(gen: GenerationState, p: P) -> None:
                 gen.assistant_md = ui.markdown(
                     "",
                     extras=['code-friendly', 'fenced-code-blocks', 'tables'],
-                ).classes("thoth-msg w-full")
+                ).classes("thoth-msg thoth-live-stream w-full")
                 gen.assistant_md.set_visibility(False)
                 gen.wrapper = _wrapper

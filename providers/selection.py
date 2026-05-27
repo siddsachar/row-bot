@@ -291,10 +291,31 @@ def _inferred_capability_snapshot(choice: dict[str, Any]) -> dict[str, Any]:
             for model_info in list_codex_model_infos():
                 if model_info.model_id == model_id:
                     return model_info.capability_snapshot()
+        cached = _cached_provider_capability_snapshot(provider_id, model_id)
+        if cached:
+            return cached
         from providers.catalog import model_info_from_metadata
         return model_info_from_metadata(provider_id, model_id).capability_snapshot()
     except Exception:
         return {}
+
+
+def _cached_provider_capability_snapshot(provider_id: str, model_id: str) -> dict[str, Any]:
+    try:
+        from models import _cloud_model_cache
+
+        cached = _cloud_model_cache.get(model_id)
+    except Exception:
+        return {}
+    if not isinstance(cached, dict):
+        return {}
+    provider = str(cached.get("provider") or "")
+    if provider and provider != provider_id:
+        return {}
+    snapshot = cached.get("capabilities_snapshot")
+    if isinstance(snapshot, dict) and snapshot:
+        return dict(snapshot)
+    return {}
 
 
 def refresh_quick_choice_capability_snapshots() -> list[dict[str, Any]]:

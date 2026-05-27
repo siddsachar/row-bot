@@ -14,13 +14,26 @@ def build_graph_panel() -> None:
     placeholder when no entities exist yet.
     """
     import json as _json
+    import time
 
     from nicegui import ui
 
     import knowledge_graph as kg
+    from ui.performance import log_ui_perf, timed_ui_section
 
-    data = kg.graph_to_vis_json()
+    started = time.perf_counter()
+    with timed_ui_section("graph_panel.data", threshold_ms=1000, max_nodes=250):
+        data = kg.graph_to_vis_json(max_nodes=250)
     stats = data["stats"]
+    payload_chars = len(_json.dumps({"nodes": data.get("nodes", []), "edges": data.get("edges", [])}))
+    log_ui_perf(
+        "graph_panel.render",
+        (time.perf_counter() - started) * 1000.0,
+        rows=stats.get("shown_nodes", 0),
+        payload_chars=payload_chars,
+        edges=stats.get("shown_edges", 0),
+        total_entities=stats.get("total_entities", 0),
+    )
 
     if stats["total_entities"] == 0:
         with ui.column().classes("w-full h-full items-center justify-center"):
@@ -295,6 +308,7 @@ def build_graph_panel() -> None:
         '        var agoDays = Math.floor((Date.now() - new Date(node._updated_at).getTime()) / 86400000);'
         '        agoText = agoDays === 0 ? "today" : agoDays === 1 ? "1 day ago" : agoDays + " days ago";'
         '      }'
+        '      var editButtonHtml = "<button type=\\"button\\" data-eid=\\"" + nid + "\\" onclick=\\"event.preventDefault(); event.stopPropagation(); var G=window._thothGraph; if (!G) return false; G._editEntityId=this.dataset.eid; var trigger=document.getElementById(\\x27graph-edit-trigger\\x27); if (trigger) trigger.click(); return false;\\" style=\\"margin-left:8px; border:1px solid #90CAF9; background:rgba(144,202,249,0.08); color:#90CAF9; border-radius:4px; padding:2px 8px; font-size:0.75rem; cursor:pointer; white-space:nowrap;\\">\\u270F\\uFE0F Edit</button>";'
         '      detail.innerHTML ='
         '        "<div style=\\"display:flex; align-items:center; gap:8px;\\">"'
         '        + "<span style=\\"background:" + (typeof node.color === "object" ? node.color.background : node.color) + "; width:10px; height:10px;"'
@@ -303,13 +317,13 @@ def build_graph_panel() -> None:
         '        + "<span style=\\"color:#888; font-size:0.8rem;\\">(" + (node._type || "?") + ")</span>"'
         '        + "<span style=\\"color:#666; font-size:0.75rem; margin-left:auto;\\">"'
         '        + node._degree + " connections</span>"'
+        '        + editButtonHtml'
         '        + "</div>"'
         '        + (node._description ? "<div style=\\"margin-top:4px; color:#bbb;\\">" + node._description + "</div>" : "")'
         '        + aliases + tags + auditHtml + relHtml'
         '        + "<div style=\\"margin-top:4px; font-size:0.75rem; color:#777;\\">"'
         '        + "Source: " + srcLabel'
         '        + (agoText ? " \u00b7 Updated: " + agoText : "")'
-        '        + " \\u00b7 <a href=\\"#\\" data-eid=\\"" + nid + "\\" onclick=\\"event.preventDefault(); var G=window._thothGraph; G._editEntityId=this.dataset.eid; document.getElementById(\\x27graph-edit-trigger\\x27).click();\\" style=\\"color:#90CAF9; text-decoration:none; cursor:pointer;\\">\\u270F\\uFE0F Edit</a>"'
         '        + "</div>";'
         '      detail.style.display = "block";'
         '    });'

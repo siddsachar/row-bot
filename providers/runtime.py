@@ -245,7 +245,28 @@ def _capability_snapshot_for_selection(model_name: str, provider_id: str) -> dic
             return ollama_model_info(model_name).capability_snapshot()
         except Exception:
             return {}
+    cached = _cached_provider_capability_snapshot(provider_id, model_name)
+    if cached:
+        return cached
     return model_info_from_metadata(provider_id, model_name).capability_snapshot()
+
+
+def _cached_provider_capability_snapshot(provider_id: str, model_name: str) -> dict[str, Any]:
+    try:
+        from models import _cloud_model_cache
+
+        cached = _cloud_model_cache.get(model_name)
+    except Exception:
+        return {}
+    if not isinstance(cached, dict):
+        return {}
+    provider = str(cached.get("provider") or "")
+    if provider and provider != provider_id:
+        return {}
+    snapshot = cached.get("capabilities_snapshot")
+    if isinstance(snapshot, dict) and snapshot:
+        return dict(snapshot)
+    return {}
 
 
 def _infer_provider(model_name: str) -> str:

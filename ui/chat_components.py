@@ -11,12 +11,15 @@ import logging
 import os
 import pathlib
 import sys
+import time
 from typing import Callable, Optional
 
 from nicegui import events, run, ui
 
 from ui.state import AppState, P, _active_generations
 from ui.constants import ALLOWED_UPLOAD_SUFFIXES
+from ui.performance import log_ui_perf
+from ui.timer_utils import defer_ui
 
 logger = logging.getLogger(__name__)
 
@@ -378,6 +381,8 @@ def _build_inline_model_picker(
     *,
     open_settings: Callable | None = None,
     on_model_switch: Callable | None = None,
+    generation_getter: Callable[[], int] | None = None,
+    shell_generation: int | None = None,
 ) -> None:
     """Compact model picker rendered inside the input bar."""
     from agent import clear_agent_cache
@@ -387,10 +392,8 @@ def _build_inline_model_picker(
         CONTEXT_SIZE_LABELS,
     )
     from providers.selection import (
-        list_model_choice_options,
         model_choice_value,
         model_id_from_choice_value,
-        provider_id_from_choice_value,
     )
 
     _cur_default = get_current_model()
@@ -399,16 +402,18 @@ def _build_inline_model_picker(
     _picker_opts = {_default_opt: f"Default — {_cur_default}"}
 
     _cur_mo = state.thread_model_override or ""
-    for option in list_model_choice_options("chat", include_values=[_cur_mo] if _cur_mo else []):
-        value = str(option.get("value") or "")
-        if value and value != _cur_default_value:
-            _picker_opts[value] = str(option.get("label") or value)
+    _cur_mo_value = model_choice_value(_cur_mo)
+    if _cur_mo_value and _cur_mo_value != _cur_default_value:
+        _picker_opts[_cur_mo_value] = model_id_from_choice_value(_cur_mo_value)
+
+    _LOADING_MODELS_SENTINEL = "__loading_models__"
+    _MODELS_UNAVAILABLE_SENTINEL = "__models_unavailable__"
+    _picker_opts[_LOADING_MODELS_SENTINEL] = "Loading pinned models..."
 
     _MORE_MODELS_SENTINEL = "⚙️ More models…"
     if open_settings:
         _picker_opts[_MORE_MODELS_SENTINEL] = _MORE_MODELS_SENTINEL
 
-    _cur_mo_value = model_choice_value(_cur_mo)
     _picker_val = _cur_mo_value if _cur_mo_value and _cur_mo_value in _picker_opts else _default_opt
     _current_picker_value = [_picker_val]
 
@@ -418,6 +423,9 @@ def _build_inline_model_picker(
             return
         _picker_val = _current_picker_value[0]
         if val == _picker_val:
+            return
+        if val in (_LOADING_MODELS_SENTINEL, _MODELS_UNAVAILABLE_SENTINEL):
+            e.sender.set_value(_current_picker_value[0])
             return
         if val == _MORE_MODELS_SENTINEL:
             e.sender.set_value(_current_picker_value[0])
@@ -468,10 +476,61 @@ def _build_inline_model_picker(
             )
         ui.notify(f"Switched to {_picker_opts.get(val, _eff)}", type="info")
 
-    ui.select(
+    _select = ui.select(
         options=_picker_opts,
         value=_picker_val,
         on_change=_on_model_pick,
     ).props("dense borderless use-input input-debounce=300").classes("text-xs").style(
         "min-width: 140px; max-width: 220px;"
     ).tooltip("Select model for this thread")
+
+    async def _load_picker_options() -> None:
+        started = time.perf_counter()
+        try:
+            from providers.selection import list_model_choice_options
+
+            options = await run.io_bound(
+                lambda: list_model_choice_options(
+                    "chat",
+                    include_values=[_cur_mo] if _cur_mo else [],
+                )
+            )
+            if (
+                generation_getter is not None
+                and shell_generation is not None
+                and generation_getter() != shell_generation
+            ):
+                return
+            _picker_opts.pop(_LOADING_MODELS_SENTINEL, None)
+            _picker_opts.pop(_MODELS_UNAVAILABLE_SENTINEL, None)
+            _picker_opts.pop(_MORE_MODELS_SENTINEL, None)
+            for option in options:
+                value = str(option.get("value") or "")
+                if value and value != _cur_default_value:
+                    _picker_opts[value] = str(option.get("label") or value)
+            if open_settings:
+                _picker_opts[_MORE_MODELS_SENTINEL] = _MORE_MODELS_SENTINEL
+            _select.options = dict(_picker_opts)
+            _select.update()
+            log_ui_perf(
+                "chat.model_picker.options",
+                (time.perf_counter() - started) * 1000.0,
+                threshold_ms=500.0,
+                options=len(_picker_opts),
+            )
+        except Exception:
+            logger.debug("Could not load chat model picker options", exc_info=True)
+            if (
+                generation_getter is not None
+                and shell_generation is not None
+                and generation_getter() != shell_generation
+            ):
+                return
+            _picker_opts.pop(_LOADING_MODELS_SENTINEL, None)
+            _picker_opts[_MODELS_UNAVAILABLE_SENTINEL] = "Pinned models unavailable"
+            if open_settings:
+                _picker_opts[_MORE_MODELS_SENTINEL] = _MORE_MODELS_SENTINEL
+            _select.options = dict(_picker_opts)
+            _select.update()
+
+    defer_ui(_load_picker_options, delay=0.05)

@@ -115,9 +115,10 @@ def test_stability_source_contracts_are_wired():
     assert "with client:" in safe_task_src
     assert "client = ui.context.client" in defer_src
     assert "with client:" in defer_src
-    assert "def _load_settings_tab" in settings_src
+    assert "def _schedule_settings_tab" in settings_src
+    assert "def _render_settings_tab" in settings_src
     assert "p.settings_dlg.open()" in settings_src
-    assert "defer_ui(lambda: _load_settings_tab(_initial_name)" in settings_src
+    assert "defer_ui(lambda: _schedule_settings_tab(_initial_name)" in settings_src
     assert "start_model_catalog_refresh_background" in settings_src
     assert "build_cached_model_catalog_rows" in settings_src
     assert "_render_provider_summaries" in catalog_src

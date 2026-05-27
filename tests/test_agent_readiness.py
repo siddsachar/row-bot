@@ -160,6 +160,46 @@ def test_openrouter_missing_tool_metadata_can_be_chat_only(monkeypatch):
     assert result.selected_mode == "chat_only"
 
 
+def test_openrouter_cached_tool_metadata_is_used_for_runtime_readiness(monkeypatch):
+    import providers.readiness as readiness
+    import models
+
+    model_id = "qwen/qwen3.7-max"
+    monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
+    monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
+        model_ref=f"model:openrouter:{model_id}",
+        provider_id="openrouter",
+        runtime_model=model_id,
+        native_max=1_000_000,
+        user_cap=1_000_000,
+        effective_context=1_000_000,
+        policy_kind="provider",
+        cap_source="provider_metadata",
+        request_application="trim_only",
+    ))
+    monkeypatch.setitem(models._cloud_model_cache, model_id, {
+        "label": "Qwen: Qwen3.7 Max",
+        "ctx": 1_000_000,
+        "provider": "openrouter",
+        "capabilities_snapshot": {
+            "tasks": ["chat"],
+            "input_modalities": ["text"],
+            "output_modalities": ["text"],
+            "tool_calling": True,
+            "streaming": True,
+            "transport": TransportMode.OPENAI_CHAT.value,
+            "endpoint_compatibility": [TransportMode.OPENAI_CHAT.value],
+        },
+    })
+
+    result = evaluate_runtime_readiness(resolve_provider_config(f"model:openrouter:{model_id}"))
+
+    assert result.selected_mode == "agent"
+    assert result.agent.ready is True
+    assert result.agent.tool_calling is True
+    assert result.agent.tool_calling_source == "openrouter_metadata"
+
+
 def test_ollama_probe_can_promote_catalog_unknown_model_to_agent(monkeypatch):
     import providers.ollama as ollama
     import providers.readiness as readiness

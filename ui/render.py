@@ -6,9 +6,12 @@ context.  They receive ``state`` and ``p`` explicitly, never via closure.
 
 from __future__ import annotations
 
+import base64 as _b64
 import html as _html
+import json as _json
 import logging
 import re
+import uuid as _uuid
 from datetime import datetime
 
 from nicegui import ui
@@ -327,6 +330,250 @@ def _split_mermaid(parts: list[tuple[str, str | None]]) -> list[tuple[str, str |
     return out
 
 
+def _render_mermaid_with_save(source: str) -> None:
+    """Render a Mermaid diagram with a PNG export button."""
+
+    from ui.export import _save_export
+
+    diagram_id = f"thoth_mermaid_{_uuid.uuid4().hex}"
+    safe_id = _json.dumps(diagram_id)
+    safe_source = _html.escape(source)
+
+    async def _save_png() -> None:
+        try:
+            result = await ui.run_javascript(
+                f"""
+                (async () => {{
+                    const root = document.getElementById({safe_id});
+                    if (!root) return {{ok: false, error: 'Diagram container is not available.'}};
+                    let svg = root.querySelector('svg');
+                    if (!svg && typeof mermaid !== 'undefined') {{
+                        if (window.thothRenderMermaidDiagrams) {{
+                            await window.thothRenderMermaidDiagrams(root);
+                        }} else {{
+                            await mermaid.run({{
+                                nodes: root.querySelectorAll('pre.mermaid'),
+                                suppressErrors: true,
+                            }});
+                        }}
+                        svg = root.querySelector('svg');
+                    }}
+                    if (!svg) return {{ok: false, error: 'Diagram is not rendered yet.'}};
+                    if (window.thothNormalizeMermaidDiagrams) {{
+                        window.thothNormalizeMermaidDiagrams(root);
+                    }}
+                    const clone = svg.cloneNode(true);
+                    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+                    clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+                    function wrapLabelText(text, width) {{
+                        const words = String(text || '').replace(/\\s+/g, ' ').trim().split(' ').filter(Boolean);
+                        const maxChars = Math.max(8, Math.floor(Math.max(80, width || 160) / 7));
+                        const lines = [];
+                        let line = '';
+                        words.forEach((word) => {{
+                            const candidate = line ? `${{line}} ${{word}}` : word;
+                            if (candidate.length > maxChars && line) {{
+                                lines.push(line);
+                                line = word;
+                            }} else {{
+                                line = candidate;
+                            }}
+                        }});
+                        if (line) lines.push(line);
+                        return lines.length ? lines : [''];
+                    }}
+                    clone.querySelectorAll('foreignObject').forEach((node) => {{
+                        const label = String(node.innerText || node.textContent || '').replace(/\\s+/g, ' ').trim();
+                        if (!label) {{
+                            node.remove();
+                            return;
+                        }}
+                        const x = Number(node.getAttribute('x') || 0);
+                        const y = Number(node.getAttribute('y') || 0);
+                        const w = Number(node.getAttribute('width') || 160);
+                        const h = Number(node.getAttribute('height') || 44);
+                        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        text.setAttribute('x', String(x + w / 2));
+                        text.setAttribute('y', String(y + h / 2));
+                        text.setAttribute('text-anchor', 'middle');
+                        text.setAttribute('dominant-baseline', 'central');
+                        text.setAttribute('class', 'mermaid-export-label');
+                        text.setAttribute('font-family', 'Inter, Segoe UI, Arial, sans-serif');
+                        text.setAttribute('font-size', '16');
+                        text.setAttribute('font-weight', '600');
+                        text.setAttribute('fill', '#f2f2f2');
+                        const lines = wrapLabelText(label, w);
+                        lines.forEach((line, index) => {{
+                            const tspan = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+                            tspan.setAttribute('x', String(x + w / 2));
+                            tspan.setAttribute('dy', index === 0 ? `${{-0.55 * (lines.length - 1)}}em` : '1.1em');
+                            tspan.textContent = line;
+                            text.appendChild(tspan);
+                        }});
+                        node.replaceWith(text);
+                    }});
+                    clone.querySelectorAll('[href], [xlink\\\\:href]').forEach((node) => {{
+                        const href = node.getAttribute('href') || node.getAttribute('xlink:href') || '';
+                        if (/^https?:/i.test(href)) {{
+                            node.removeAttribute('href');
+                            node.removeAttribute('xlink:href');
+                        }}
+                    }});
+                    const originalNodes = [svg, ...svg.querySelectorAll('*')];
+                    const cloneNodes = [clone, ...clone.querySelectorAll('*')];
+                    const styleProps = [
+                        'fill', 'stroke', 'stroke-width', 'stroke-dasharray',
+                        'opacity', 'color', 'font-family', 'font-size',
+                        'font-weight', 'font-style', 'text-anchor',
+                        'dominant-baseline', 'paint-order',
+                    ];
+                    cloneNodes.forEach((node, index) => {{
+                        const original = originalNodes[index];
+                        if (!original || !(original instanceof Element)) return;
+                        const computed = window.getComputedStyle(original);
+                        styleProps.forEach((prop) => {{
+                            const value = computed.getPropertyValue(prop);
+                            if (value) node.style.setProperty(prop, value);
+                        }});
+                    }});
+                    const exportStyle = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+                    exportStyle.textContent = `
+                        svg {{ background: #1e1e1e; color: #f2f2f2; }}
+                        .node rect, .node polygon, .node circle, .node ellipse, .node path,
+                        .stateGroup rect, .stateGroup polygon, .stateGroup path,
+                        .cluster rect, .cluster polygon {{
+                            fill: #252525 !important;
+                            stroke: #d8d8d8 !important;
+                            stroke-width: 1.5px !important;
+                        }}
+                        .nodeLabel, .nodeLabel p, .label, .label p,
+                        text, tspan, .mermaid-export-label {{
+                            fill: #f2f2f2 !important;
+                            color: #f2f2f2 !important;
+                            background: transparent !important;
+                        }}
+                        .edgePath path, .flowchart-link, .transition, .edge-thickness-normal,
+                        path.transition, line.transition {{
+                            stroke: #d0d0d0 !important;
+                        }}
+                        marker path, marker polygon {{
+                            fill: #d0d0d0 !important;
+                            stroke: #d0d0d0 !important;
+                        }}
+                        .edgeLabel, .edgeLabel p {{
+                            color: #f2f2f2 !important;
+                            background: #1e1e1e !important;
+                        }}
+                        .edgeLabel rect, .labelBkg {{
+                            fill: #1e1e1e !important;
+                            opacity: 0.94 !important;
+                        }}
+                    `;
+                    clone.insertBefore(exportStyle, clone.firstChild);
+                    const viewBox = svg.viewBox && svg.viewBox.baseVal;
+                    const box = svg.getBoundingClientRect();
+                    const bbox = svg.getBBox ? svg.getBBox() : null;
+                    const intrinsicWidth = Math.max(
+                        1,
+                        Math.ceil(
+                            Number(svg.dataset.thothIntrinsicWidth || 0) ||
+                            (viewBox && viewBox.width) ||
+                            (bbox && bbox.width) ||
+                            box.width ||
+                            1200
+                        )
+                    );
+                    const intrinsicHeight = Math.max(
+                        1,
+                        Math.ceil(
+                            Number(svg.dataset.thothIntrinsicHeight || 0) ||
+                            (viewBox && viewBox.height) ||
+                            (bbox && bbox.height) ||
+                            box.height ||
+                            800
+                        )
+                    );
+                    const padding = 48;
+                    const maxSide = 4096;
+                    const minExportWidth = 1800;
+                    const desiredScale = Math.max(3, minExportWidth / intrinsicWidth);
+                    const scale = Math.max(
+                        1,
+                        Math.min(
+                            desiredScale,
+                            (maxSide - padding * 2) / intrinsicWidth,
+                            (maxSide - padding * 2) / intrinsicHeight,
+                        ),
+                    );
+                    const width = Math.ceil(intrinsicWidth * scale);
+                    const height = Math.ceil(intrinsicHeight * scale);
+                    clone.setAttribute('width', String(intrinsicWidth));
+                    clone.setAttribute('height', String(intrinsicHeight));
+                    if (!clone.getAttribute('viewBox')) {{
+                        clone.setAttribute('viewBox', `0 0 ${{intrinsicWidth}} ${{intrinsicHeight}}`);
+                    }}
+                    const svgText = new XMLSerializer().serializeToString(clone);
+                    const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgText);
+                    try {{
+                        return await new Promise((resolve) => {{
+                            const img = new Image();
+                            img.decoding = 'async';
+                            img.onload = () => {{
+                                try {{
+                                    const canvas = document.createElement('canvas');
+                                    canvas.width = width + padding * 2;
+                                    canvas.height = height + padding * 2;
+                                    const ctx = canvas.getContext('2d');
+                                    ctx.setTransform(1, 0, 0, 1, 0, 0);
+                                    ctx.fillStyle = '#1e1e1e';
+                                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                                    ctx.drawImage(img, padding, padding, width, height);
+                                    resolve({{ok: true, dataUrl: canvas.toDataURL('image/png')}});
+                                }} catch (err) {{
+                                    resolve({{ok: false, error: err && err.message ? String(err.message) : 'Canvas export failed.'}});
+                                }}
+                            }};
+                            img.onerror = () => {{
+                                resolve({{ok: false, error: 'Could not rasterize diagram SVG.'}});
+                            }};
+                            img.src = url;
+                        }});
+                    }} catch (err) {{
+                        return {{ok: false, error: err && err.message ? String(err.message) : 'Diagram export failed.'}};
+                    }}
+                }})()
+                """,
+                timeout=20,
+            )
+            data_url = result.get("dataUrl") if isinstance(result, dict) and result.get("ok") else None
+            if not data_url or not isinstance(data_url, str) or "," not in data_url:
+                message = result.get("error") if isinstance(result, dict) else ""
+                ui.notify(message or "Diagram is not ready to save yet.", type="warning")
+                return
+            raw = _b64.b64decode(data_url.split(",", 1)[1])
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            _save_export(raw, f"thoth_mermaid_{ts}.png")
+        except Exception as exc:
+            logger.debug("Mermaid PNG export failed", exc_info=True)
+            ui.notify(f"Could not save diagram: {exc}", type="negative")
+
+    with ui.element("div").style("position: relative; display: block;"):
+        ui.html(
+            f'<div id="{diagram_id}" class="mermaid-rendered">'
+            f'<pre class="mermaid">{safe_source}</pre></div>',
+            sanitize=False,
+        )
+        ui.button(
+            icon="download",
+            on_click=_save_png,
+        ).props("flat dense round size=xs").classes(
+            "absolute top-1 right-1"
+        ).style(
+            "background: rgba(0,0,0,0.55); color: white; min-width: 28px; "
+            "min-height: 28px; padding: 2px; z-index: 2;"
+        ).tooltip("Save diagram as PNG (up to 4K)")
+
+
 # ── Prompt‑injection defence: markdown image exfiltration guard ──────────
 # Matches ![alt](url) where the URL query/fragment is suspiciously long,
 # which could be an attempt to exfiltrate conversation data via an
@@ -362,7 +609,11 @@ def _sanitize_exfil_images(text: str) -> str:
     return _EXFIL_IMG_RE.sub(_check, text)
 
 
-def render_text_with_embeds(text: str) -> None:
+LONG_MARKDOWN_PREVIEW_THRESHOLD = 16_000
+LONG_MARKDOWN_PREVIEW_CHARS = 5_000
+
+
+def _render_text_with_embeds_now(text: str) -> None:
     """Render markdown text with inline YouTube video embeds and mermaid diagrams."""
     if not text:
         return
@@ -408,10 +659,32 @@ def render_text_with_embeds(text: str) -> None:
                 sanitize=False,
             )
         elif kind == "mermaid" and value:
-            ui.html(
-                f'<div class="mermaid-rendered"><pre class="mermaid">{_html.escape(value)}</pre></div>',
-                sanitize=False,
-            )
+            _render_mermaid_with_save(value)
+
+
+def render_text_with_embeds(text: str) -> None:
+    """Render message text, deferring very large bodies until requested."""
+    if not text:
+        return
+    if len(text) <= LONG_MARKDOWN_PREVIEW_THRESHOLD:
+        _render_text_with_embeds_now(text)
+        return
+
+    preview = (
+        text[:LONG_MARKDOWN_PREVIEW_CHARS].rstrip()
+        + f"\n\n... ({len(text) - LONG_MARKDOWN_PREVIEW_CHARS:,} more characters)"
+    )
+    with ui.column().classes("w-full gap-2") as holder:
+        _render_text_with_embeds_now(preview)
+
+        def _show_full() -> None:
+            holder.clear()
+            with holder:
+                _render_text_with_embeds_now(text)
+
+        ui.button("Show full message", icon="unfold_more", on_click=_show_full).props(
+            "flat dense no-caps"
+        ).classes("self-start text-grey-5")
 
 
 def render_message_content(msg: dict, thread_id: str | None = None) -> None:
@@ -529,7 +802,10 @@ def render_message_content(msg: dict, thread_id: str | None = None) -> None:
 
     # Trigger highlight.js on new code blocks + render mermaid diagrams
     try:
-        ui.run_javascript("document.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));")
+        ui.run_javascript(
+            "if (window.thothHighlightCodeBlocks) { window.thothHighlightCodeBlocks(); } "
+            "else { setTimeout(function() { document.querySelectorAll('pre code').forEach(function(el) { if (!el.closest('.thoth-live-stream')) hljs.highlightElement(el); }); }, 80); }"
+        )
         ui.run_javascript(
             "document.querySelectorAll('pre code.language-mermaid').forEach(function(el) {"
             "  var pre = el.parentElement;"
@@ -538,7 +814,8 @@ def render_message_content(msg: dict, thread_id: str | None = None) -> None:
             "  div.textContent = el.textContent;"
             "  pre.replaceWith(div);"
             "});"
-            "mermaid.run({nodes: document.querySelectorAll('pre.mermaid'), suppressErrors: true});"
+            "var nodes = Array.from(document.querySelectorAll('pre.mermaid')).filter(function(node) { return !node.closest('.thoth-live-stream'); });"
+            "mermaid.run({nodes: nodes, suppressErrors: true});"
         )
     except RuntimeError:
         logger.debug("JS runtime unavailable for hljs/mermaid", exc_info=True)
