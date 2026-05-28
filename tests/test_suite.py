@@ -13983,7 +13983,7 @@ try:
     assert 'Source: "..\\providers\\*"' in _iss68 and "recursesubdirs" in _iss68, "providers package must be recursively included in Windows installer"
     assert 'Source: "..\\ui\\model_catalog.py"' in _iss68, "ui/model_catalog.py must be included in Windows installer"
     assert 'Source: "..\\ui\\provider_settings.py"' in _iss68, "ui/provider_settings.py must be included in Windows installer"
-    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer developer scripts utils providers mcp_client migration" in _mac68, "mac app bundle must copy providers and developer packages"
+    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client migration buddy" in _mac68, "mac app bundle must copy providers and developer packages"
     record("PASS", "68m2: Windows and mac packaging include provider runtime, Developer, and UI files")
 
     # â”€â”€ 68m2b. Embedding runtime packaging guard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
