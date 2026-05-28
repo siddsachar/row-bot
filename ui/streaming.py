@@ -807,7 +807,6 @@ async def consume_generation(
     # Store assistant message
     _has_final_output = bool(
         gen.accumulated
-        or gen.thinking_text
         or gen.tool_results
         or gen.chart_data
         or gen.captured_images

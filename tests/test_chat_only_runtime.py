@@ -84,6 +84,7 @@ def test_stream_chat_only_streams_and_persists_without_tools(tmp_path, monkeypat
     persisted = []
     monkeypatch.setattr(readiness, "evaluate_chat_readiness", lambda model_label: _chat_ready_result())
     monkeypatch.setattr(agent, "_chat_only_llm", lambda model_label: FakeLLM())
+    monkeypatch.setattr(agent, "trim_messages", lambda messages, **kwargs: list(messages))
     monkeypatch.setattr(threads, "get_latest_checkpoint_messages", lambda thread_id: [])
     monkeypatch.setattr(threads, "append_checkpoint_messages", lambda thread_id, messages: persisted.extend(messages) or True)
 
@@ -96,6 +97,35 @@ def test_stream_chat_only_streams_and_persists_without_tools(tmp_path, monkeypat
     assert [payload for event_type, payload in events if event_type == "done"] == ["hello world"]
     assert [getattr(message, "type", "") for message in persisted] == ["human", "ai"]
     assert getattr(persisted[-1], "content", "") == "hello world"
+
+
+def test_stream_chat_only_reasoning_only_returns_error_without_persisting(tmp_path, monkeypatch):
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
+    from langchain_core.messages import AIMessageChunk
+    import agent
+    import providers.readiness as readiness
+    import threads
+
+    class FakeLLM:
+        def stream(self, messages):
+            yield AIMessageChunk(content="", additional_kwargs={"reasoning_content": "thinking only"})
+
+    persisted = []
+    monkeypatch.setattr(readiness, "evaluate_chat_readiness", lambda model_label: _chat_ready_result())
+    monkeypatch.setattr(agent, "_chat_only_llm", lambda model_label: FakeLLM())
+    monkeypatch.setattr(agent, "trim_messages", lambda messages, **kwargs: list(messages))
+    monkeypatch.setattr(threads, "get_latest_checkpoint_messages", lambda thread_id: [])
+    monkeypatch.setattr(threads, "append_checkpoint_messages", lambda thread_id, messages: persisted.extend(messages) or True)
+
+    events = list(agent.stream_chat_only(
+        "hi",
+        {"configurable": {"thread_id": "thread-chat", "model_override": "model:custom_openai_lab:local-chat"}},
+    ))
+
+    assert ("thinking_token", "thinking only") in events
+    errors = [payload for event_type, payload in events if event_type == "error"]
+    assert errors == ["The model returned reasoning but no final answer. Try again or switch models."]
+    assert persisted == []
 
 
 def test_stream_chat_only_llm_creation_error_names_selected_model(tmp_path, monkeypatch):

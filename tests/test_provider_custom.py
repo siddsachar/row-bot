@@ -2,6 +2,7 @@ import providers.config as provider_config
 from providers.capabilities import model_supports_surface
 from providers.custom import (
     CUSTOM_ENDPOINT_PROFILES,
+    DEFAULT_CUSTOM_ENDPOINT_CONTEXT_FALLBACK,
     custom_model_cache_entries,
     custom_provider_id,
     delete_custom_endpoint,
@@ -88,6 +89,48 @@ def test_custom_endpoint_catalog_applies_manual_context_window(tmp_path, monkeyp
     assert infos[0].context_window == 32768
 
 
+def test_custom_endpoint_catalog_reads_llamacpp_nested_context(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    endpoint = {
+        "id": "llamacpp",
+        "name": "llama.cpp",
+        "profile": "llama_cpp",
+        "base_url": "http://127.0.0.1:8080/v1",
+        "auth_required": False,
+        "execution_location": "local",
+    }
+    payload = {
+        "data": [{
+            "id": "qwen3.5-9b",
+            "owned_by": "llamacpp",
+            "meta": {
+                "n_ctx": 32768,
+                "n_ctx_train": 262144,
+            },
+        }]
+    }
+
+    infos = model_infos_from_openai_compatible_catalog(endpoint, payload)
+
+    assert infos[0].context_window == 32768
+
+
+def test_custom_endpoint_catalog_defaults_unknown_context_to_agent_floor(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    endpoint = {
+        "id": "generic",
+        "name": "Generic",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "auth_required": False,
+        "unknown_context_fallback": 4096,
+    }
+    payload = {"data": [{"id": "sparse-local-chat"}]}
+
+    infos = model_infos_from_openai_compatible_catalog(endpoint, payload)
+
+    assert infos[0].context_window == DEFAULT_CUSTOM_ENDPOINT_CONTEXT_FALLBACK
+
+
 def test_custom_endpoint_catalog_merges_lmstudio_native_context_and_tools(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     endpoint = {
@@ -150,6 +193,42 @@ def test_custom_endpoint_profile_defaults_are_persisted(tmp_path, monkeypatch):
     assert endpoint["drop_unsupported_params"] is True
 
 
+def test_litellm_profile_uses_system_first_for_local_proxy_templates(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+
+    save_custom_endpoint({
+        "id": "litellm-local",
+        "name": "LiteLLM Local",
+        "base_url": "http://127.0.0.1:4000/v1",
+        "profile": "litellm",
+        "auth_required": False,
+        "execution_location": "local",
+    })
+
+    endpoint = get_custom_endpoint("litellm-local")
+
+    assert endpoint["system_message_mode"] == "system_first"
+
+
+def test_existing_litellm_provider_default_system_mode_is_upgraded(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    provider_config.save_provider_config({
+        "custom_endpoints": [{
+            "id": "litellm-local",
+            "name": "LiteLLM Local",
+            "base_url": "http://127.0.0.1:4000/v1",
+            "profile": "litellm",
+            "system_message_mode": "provider_default",
+            "auth_required": False,
+            "execution_location": "local",
+        }]
+    })
+
+    endpoint = get_custom_endpoint("litellm-local")
+
+    assert endpoint["system_message_mode"] == "system_first"
+
+
 def test_custom_endpoint_delete_removes_config_entry(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     save_custom_endpoint({"id": "localai", "base_url": "http://127.0.0.1:8080/v1", "auth_required": False})
@@ -179,6 +258,45 @@ def test_custom_endpoint_refresh_persists_model_cache_entries(tmp_path, monkeypa
     assert [info.model_id for info in infos] == ["thoth-dummy-chat"]
     assert entries["thoth-dummy-chat"]["provider"] == custom_provider_id("dummy")
     assert entries["thoth-dummy-chat"]["capabilities_snapshot"]["tasks"] == ["chat"]
+
+
+def test_llamacpp_refresh_reads_props_context(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    save_custom_endpoint({
+        "id": "llama-cpp",
+        "base_url": "http://127.0.0.1:8080/v1",
+        "profile": "llama_cpp",
+        "auth_required": False,
+    })
+
+    class _Response:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    import httpx
+
+    def _get(url, *args, **kwargs):
+        if str(url).endswith("/props"):
+            return _Response({
+                "model_alias": "qwen3.5-9b",
+                "default_generation_settings": {"n_ctx": 32768},
+            })
+        return _Response({"data": [{"id": "qwen3.5-9b"}]})
+
+    monkeypatch.setattr(httpx, "get", _get)
+
+    infos = refresh_custom_endpoint_models("llama-cpp")
+    endpoint = get_custom_endpoint("llama-cpp")
+
+    assert infos[0].context_window == 32768
+    assert endpoint["models"][0]["context_window"] == 32768
+    assert endpoint["models"][0]["ctx"] == 32768
 
 
 def test_custom_endpoint_probe_persists_models_and_probe_result(tmp_path, monkeypatch):

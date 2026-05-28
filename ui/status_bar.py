@@ -16,7 +16,8 @@ from typing import Callable
 from nicegui import run, ui
 from ui.timer_utils import safe_timer
 
-from ui.status_checks import CheckResult, run_all_checks, run_light_checks, HEAVY_CHECKS
+from ui.status_checks import CheckResult, run_all_checks
+from ui.performance import log_ui_perf
 
 logger = logging.getLogger(__name__)
 
@@ -129,39 +130,61 @@ def _save_avatar_config(avatar: dict) -> None:
 _status_cache: dict[str, CheckResult] = {}
 _cache_time: float = 0.0
 _CACHE_TTL = 300.0  # 5 minutes for heavy checks
+_status_refresh_task: asyncio.Task[list[CheckResult]] | None = None
+
+
+def _status_cache_stale() -> bool:
+    return not _status_cache or time.time() - _cache_time > _CACHE_TTL
+
+
+def _placeholder_results() -> list[CheckResult]:
+    return [CheckResult("System", "inactive", "Checking status...")]
+
+
+def _get_render_cached_results() -> list[CheckResult]:
+    """Return current status pills without running synchronous health checks."""
+    started = time.perf_counter()
+    results = list(_status_cache.values()) if _status_cache else _placeholder_results()
+    log_ui_perf(
+        "home.status_bar.cached",
+        (time.perf_counter() - started) * 1000.0,
+        threshold_ms=50.0,
+        cached=bool(_status_cache),
+        stale=_status_cache_stale(),
+        results=len(results),
+    )
+    return results
 
 
 def _get_cached_results() -> list[CheckResult]:
-    """Return all check results, using cache for heavy checks."""
-    global _status_cache, _cache_time
-
-    now = time.time()
-    results: list[CheckResult] = []
-
-    # Always run light checks fresh (they're just reading booleans)
-    for r in run_light_checks():
-        _status_cache[r.name] = r
-
-    # Heavy checks: use cache if fresh enough
-    if now - _cache_time > _CACHE_TTL:
-        for fn in HEAVY_CHECKS:
-            try:
-                r = fn()
-                _status_cache[r.name] = r
-            except Exception as exc:
-                _status_cache[fn.__name__] = CheckResult(fn.__name__, "error", str(exc))
-        _cache_time = now
-
-    return list(_status_cache.values())
+    """Return cached check results without running health checks."""
+    return _get_render_cached_results()
 
 
 def _force_refresh() -> list[CheckResult]:
     """Force-refresh all checks (bypasses cache)."""
     global _status_cache, _cache_time
+    started = time.perf_counter()
     all_results = run_all_checks()
     _status_cache = {r.name: r for r in all_results}
     _cache_time = time.time()
+    log_ui_perf(
+        "home.status_bar.force_refresh",
+        (time.perf_counter() - started) * 1000.0,
+        threshold_ms=500.0,
+        results=len(all_results),
+    )
     return all_results
+
+
+async def _coalesced_force_refresh() -> list[CheckResult]:
+    """Run one shared full status refresh for concurrent Home renders."""
+    global _status_refresh_task
+    if _status_refresh_task is None or _status_refresh_task.done():
+        from nicegui import run
+
+        _status_refresh_task = asyncio.create_task(run.io_bound(_force_refresh))
+    return await asyncio.shield(_status_refresh_task)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -371,8 +394,8 @@ def build_status_bar(
 
     ui.html(_AVATAR_CSS, sanitize=False)
 
-    # Load initial checks (cache-aware)
-    results = _force_refresh()  # first render: full sweep
+    # Paint cached status immediately; full checks refresh asynchronously.
+    results = _get_render_cached_results()
     result_map = {r.name: r for r in results}
 
     with ui.element("div").classes("thoth-status-panel w-full"):
@@ -435,6 +458,24 @@ def build_status_bar(
                             pill.on("click", _pill_click)
 
         _render_pills(pills_container, result_map)
+
+        async def _refresh_pills_if_needed() -> None:
+            if not _status_cache_stale():
+                return
+            started = time.perf_counter()
+            try:
+                refreshed = await _coalesced_force_refresh()
+                _render_pills(pills_container, {r.name: r for r in refreshed})
+                log_ui_perf(
+                    "home.status_bar.async_refresh",
+                    (time.perf_counter() - started) * 1000.0,
+                    threshold_ms=500.0,
+                    results=len(refreshed),
+                )
+            except Exception:
+                logger.debug("Status bar async refresh failed", exc_info=True)
+
+        asyncio.create_task(_refresh_pills_if_needed())
 
         # ── RIGHT: Diagnosis button ───────────────────────────────
         async def _run_diagnosis():

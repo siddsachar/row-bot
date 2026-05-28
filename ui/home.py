@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from datetime import datetime
 from typing import Callable
@@ -15,6 +16,7 @@ from nicegui import run, ui
 
 from ui.state import AppState, P
 from ui.constants import welcome_message, EXAMPLE_PROMPTS
+from ui.performance import log_ui_perf
 from ui.timer_utils import defer_ui
 
 logger = logging.getLogger(__name__)
@@ -84,10 +86,27 @@ def build_home(
     _tab_map = {"Workflows": tasks_tab, "Knowledge": graph_tab,
                 "Activity": activity_tab, "Designer": designer_tab,
                 "Developer": developer_tab}
-    _initial_tab = _tab_map.get(state.preferred_home_tab or "", tasks_tab)
+    _initial_tab_name = state.preferred_home_tab or "Workflows"
+    _initial_tab = _tab_map.get(_initial_tab_name, tasks_tab)
+    if _initial_tab_name not in _tab_map:
+        _initial_tab_name = "Workflows"
     state.preferred_home_tab = None
+    _tab_loaders: dict[str, Callable[[], None]] = {}
+    _loaded_tabs: set[str] = set()
+
+    def _render_lazy_placeholder(label: str) -> None:
+        with ui.column().classes("w-full h-full items-center justify-center gap-2"):
+            ui.spinner(size="lg", color="amber")
+            ui.label(f"Loading {label}...").classes("text-grey-5 text-sm")
+
+    def _load_home_tab(name: str) -> None:
+        loader = _tab_loaders.get(name)
+        if loader:
+            loader()
 
     def _on_tab_change(e):
+        name = str(e.value or "")
+        _load_home_tab(name)
         if e.value == 'Knowledge':
             ui.run_javascript(
                 'setTimeout(function() {'
@@ -101,6 +120,7 @@ def build_home(
 
         # ── Tasks panel ──────────────────────────────────────────────
         with ui.tab_panel(tasks_tab).classes("h-full").style("padding: 0;"):
+            _wf_started = time.perf_counter()
             with ui.scroll_area().classes("w-full h-full"):
 
                 if state.show_onboarding:
@@ -555,22 +575,50 @@ def build_home(
                     ui.label("No workflows yet — click + New Workflow to get started.").classes(
                         "text-grey-6 text-sm q-mt-sm"
                     )
+            log_ui_perf(
+                "home.tab.build.workflows",
+                (time.perf_counter() - _wf_started) * 1000.0,
+                threshold_ms=500.0,
+                initial=_initial_tab_name == "Workflows",
+            )
 
         # ── Developer panel ──────────────────────────────────────────
         with ui.tab_panel(developer_tab).classes("h-full").style("padding: 0;"):
-            from developer.ui import build_developer_tab
+            developer_container = ui.column().classes("w-full h-full")
 
-            build_developer_tab(
-                state,
-                p,
-                rebuild_main=rebuild_main,
-                rebuild_thread_list=rebuild_thread_list,
-                load_thread_messages=load_thread_messages or (lambda _tid: []),
-            )
+            def _build_developer_panel() -> None:
+                if "Developer" in _loaded_tabs:
+                    return
+                _loaded_tabs.add("Developer")
+                started = time.perf_counter()
+                developer_container.clear()
+                with developer_container:
+                    from developer.ui import build_developer_tab
+
+                    build_developer_tab(
+                        state,
+                        p,
+                        rebuild_main=rebuild_main,
+                        rebuild_thread_list=rebuild_thread_list,
+                        load_thread_messages=load_thread_messages or (lambda _tid: []),
+                    )
+                log_ui_perf(
+                    "home.tab.build.developer",
+                    (time.perf_counter() - started) * 1000.0,
+                    threshold_ms=500.0,
+                    initial=_initial_tab_name == "Developer",
+                )
+
+            _tab_loaders["Developer"] = _build_developer_panel
+            if _initial_tab_name == "Developer":
+                _build_developer_panel()
+            else:
+                with developer_container:
+                    _render_lazy_placeholder("Developer")
 
         # ── Designer panel ───────────────────────────────────────────
         with ui.tab_panel(designer_tab).classes("h-full").style("padding: 0;"):
-            from designer.home_tab import build_designer_tab
+            designer_container = ui.column().classes("w-full h-full")
 
             def _open_designer_project(project, initial_prompt: str | None = None, staged_files=None):
                 from threads import _save_thread_meta, _set_thread_project_id
@@ -657,22 +705,86 @@ def build_home(
                 state.preferred_home_tab = "Designer"
                 rebuild_main()
 
-            build_designer_tab(
-                on_open_project=_open_designer_project,
-                on_refresh=_designer_refresh,
-            )
+            def _build_designer_panel() -> None:
+                if "Designer" in _loaded_tabs:
+                    return
+                _loaded_tabs.add("Designer")
+                started = time.perf_counter()
+                designer_container.clear()
+                with designer_container:
+                    from designer.home_tab import build_designer_tab
+
+                    build_designer_tab(
+                        on_open_project=_open_designer_project,
+                        on_refresh=_designer_refresh,
+                    )
+                log_ui_perf(
+                    "home.tab.build.designer",
+                    (time.perf_counter() - started) * 1000.0,
+                    threshold_ms=500.0,
+                    initial=_initial_tab_name == "Designer",
+                )
+
+            _tab_loaders["Designer"] = _build_designer_panel
+            if _initial_tab_name == "Designer":
+                _build_designer_panel()
+            else:
+                with designer_container:
+                    _render_lazy_placeholder("Designer")
 
         # ── Graph panel ───────────────────────────────────────────
         with ui.tab_panel(graph_tab).classes("h-full").style(
             "padding: 0; overflow: hidden; display: flex; flex-direction: column;"
         ):
-            build_graph_panel()
+            graph_container = ui.column().classes("w-full h-full")
+
+            def _build_knowledge_panel() -> None:
+                if "Knowledge" in _loaded_tabs:
+                    return
+                _loaded_tabs.add("Knowledge")
+                started = time.perf_counter()
+                graph_container.clear()
+                with graph_container:
+                    build_graph_panel()
+                log_ui_perf(
+                    "home.tab.build.knowledge",
+                    (time.perf_counter() - started) * 1000.0,
+                    threshold_ms=500.0,
+                    initial=_initial_tab_name == "Knowledge",
+                )
+
+            _tab_loaders["Knowledge"] = _build_knowledge_panel
+            if _initial_tab_name == "Knowledge":
+                _build_knowledge_panel()
+            else:
+                with graph_container:
+                    _render_lazy_placeholder("Knowledge")
 
         # ── Activity panel ───────────────────────────────────────────
         with ui.tab_panel(activity_tab).classes("h-full").style("padding: 0;"):
             activity_container = ui.column().classes("w-full h-full")
-            with activity_container:
-                _build_activity_content(activity_container)
+
+            def _build_activity_panel() -> None:
+                if "Activity" in _loaded_tabs:
+                    return
+                _loaded_tabs.add("Activity")
+                started = time.perf_counter()
+                activity_container.clear()
+                with activity_container:
+                    _build_activity_content(activity_container)
+                log_ui_perf(
+                    "home.tab.build.activity",
+                    (time.perf_counter() - started) * 1000.0,
+                    threshold_ms=500.0,
+                    initial=_initial_tab_name == "Activity",
+                )
+
+            _tab_loaders["Activity"] = _build_activity_panel
+            if _initial_tab_name == "Activity":
+                _build_activity_panel()
+            else:
+                with activity_container:
+                    _render_lazy_placeholder("Activity")
 
 
 # ══════════════════════════════════════════════════════════════════════

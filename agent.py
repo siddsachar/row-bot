@@ -7,7 +7,7 @@ from api_keys import apply_keys
 from prompts import AGENT_SYSTEM_PROMPT, SUMMARIZE_PROMPT, get_agent_system_prompt, get_chat_only_system_prompt
 from langchain_classic.retrievers import ContextualCompressionRetriever
 from langchain_classic.retrievers.document_compressors import LLMChainExtractor
-from langchain_core.messages import trim_messages, ToolMessage, AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import trim_messages, ToolMessage, AIMessage, HumanMessage, SystemMessage, BaseMessage
 from langgraph.types import interrupt, Command
 from threads import pick_or_create_thread, checkpointer
 import logging
@@ -33,6 +33,219 @@ def _provider_uses_anthropic_messages(provider_id: str | None) -> bool:
         return bool(definition and definition.default_transport == TransportMode.ANTHROPIC_MESSAGES)
     except Exception:
         return provider_id == "anthropic"
+
+
+def _has_visible_message_content(message: BaseMessage) -> bool:
+    return bool(_content_to_str(getattr(message, "content", "") or "").strip())
+
+
+def _is_empty_assistant_without_action(message: BaseMessage) -> bool:
+    if not isinstance(message, AIMessage):
+        return False
+    if _has_visible_message_content(message):
+        return False
+    if getattr(message, "tool_calls", None):
+        return False
+    additional_kwargs = getattr(message, "additional_kwargs", None) or {}
+    for key in ("tool_calls", "function_call", "audio", "refusal"):
+        if additional_kwargs.get(key):
+            return False
+    return True
+
+
+def _drop_empty_assistant_messages_without_actions(messages: list[BaseMessage]) -> list[BaseMessage]:
+    """Remove assistant turns that contain only private reasoning/no-op data.
+
+    Some OpenAI-compatible backends persist reasoning-only assistant messages
+    after tool use. They are useful in the UI, but replaying them to another
+    provider creates invalid or confusing chat history. Keep tool-call turns
+    because empty assistant content with tool_calls is a valid protocol shape.
+    """
+
+    cleaned = [message for message in messages if not _is_empty_assistant_without_action(message)]
+    dropped = len(messages) - len(cleaned)
+    if dropped:
+        logger.info("llm_input_messages: dropped %d empty assistant message(s) without tool calls", dropped)
+    return cleaned
+
+
+def _message_has_custom_tool_artifact(message: BaseMessage) -> bool:
+    if not isinstance(message, AIMessage):
+        return False
+    if getattr(message, "invalid_tool_calls", None):
+        return True
+    for call in getattr(message, "tool_calls", None) or []:
+        if str((call or {}).get("id") or "").startswith("text_call_"):
+            return True
+    additional_kwargs = getattr(message, "additional_kwargs", None) or {}
+    reasoning = str(
+        additional_kwargs.get("reasoning_content")
+        or additional_kwargs.get("reasoning_details")
+        or ""
+    )
+    return "<tool_call>" in reasoning or "<function=" in reasoning
+
+
+def _provider_transcript_diagnostics(messages: list[BaseMessage]) -> dict[str, object]:
+    tool_call_ids: list[str] = []
+    tool_result_ids: list[str] = []
+    invalid_tool_calls = 0
+    reasoning_fields = 0
+    roles: list[str] = []
+    for message in messages:
+        roles.append(str(getattr(message, "type", type(message).__name__)))
+        if isinstance(message, AIMessage):
+            invalid_tool_calls += len(getattr(message, "invalid_tool_calls", None) or [])
+            additional_kwargs = getattr(message, "additional_kwargs", None) or {}
+            if additional_kwargs.get("reasoning_content") or additional_kwargs.get("reasoning_details"):
+                reasoning_fields += 1
+            for call in getattr(message, "tool_calls", None) or []:
+                call_id = str((call or {}).get("id") or "")
+                if call_id:
+                    tool_call_ids.append(call_id)
+        elif isinstance(message, ToolMessage):
+            tool_call_id = str(getattr(message, "tool_call_id", "") or "")
+            if tool_call_id:
+                tool_result_ids.append(tool_call_id)
+    duplicate_ids = sorted({call_id for call_id in tool_call_ids if tool_call_ids.count(call_id) > 1})
+    orphan_tool_ids = sorted(call_id for call_id in tool_result_ids if call_id not in set(tool_call_ids))
+    missing_tool_result_ids = sorted(call_id for call_id in tool_call_ids if call_id not in set(tool_result_ids))
+    return {
+        "messages": len(messages),
+        "roles": roles,
+        "invalid_tool_calls": invalid_tool_calls,
+        "reasoning_fields": reasoning_fields,
+        "tool_call_ids": tool_call_ids,
+        "tool_result_ids": tool_result_ids,
+        "duplicate_tool_call_ids": duplicate_ids,
+        "orphan_tool_result_ids": orphan_tool_ids,
+        "missing_tool_result_ids": missing_tool_result_ids,
+    }
+
+
+def _unique_tool_call_id(call_id: str, used_ids: set[str]) -> str:
+    base = str(call_id or "tool_call").strip() or "tool_call"
+    if base not in used_ids:
+        used_ids.add(base)
+        return base
+    suffix = 2
+    while f"{base}_{suffix}" in used_ids:
+        suffix += 1
+    unique = f"{base}_{suffix}"
+    used_ids.add(unique)
+    return unique
+
+
+def _copy_message(message: BaseMessage, **updates) -> BaseMessage:
+    try:
+        return message.model_copy(update=updates)
+    except AttributeError:
+        return message.copy(update=updates)
+
+
+def _normalize_provider_facing_messages(
+    messages: list[BaseMessage],
+    *,
+    provider_id: str | None = None,
+) -> list[BaseMessage]:
+    """Return a protocol-valid copy of messages for the next LLM call only.
+
+    The checkpoint/UI transcript remains untouched. The global fixes here are
+    restricted to invalid tool protocol state: invalid tool calls, duplicate
+    tool-call ids, and orphan tool results. Reasoning fields are compatibility
+    metadata, so they are stripped only when custom endpoint artifacts are
+    present in the transcript.
+    """
+
+    before = _provider_transcript_diagnostics(messages)
+    strip_reasoning = any(_message_has_custom_tool_artifact(message) for message in messages)
+    normalized: list[BaseMessage] = []
+    used_tool_call_ids: set[str] = set()
+    pending_tool_pairs: list[tuple[str, str]] = []
+    stripped_invalid = 0
+    stripped_reasoning = 0
+    rewritten_ids = 0
+    dropped_orphans = 0
+    dropped_empty = 0
+
+    for message in messages:
+        if isinstance(message, AIMessage):
+            additional_kwargs = dict(getattr(message, "additional_kwargs", None) or {})
+            if strip_reasoning:
+                for key in ("reasoning_content", "reasoning_details"):
+                    if key in additional_kwargs:
+                        additional_kwargs.pop(key, None)
+                        stripped_reasoning += 1
+
+            invalid_tool_calls = list(getattr(message, "invalid_tool_calls", None) or [])
+            stripped_invalid += len(invalid_tool_calls)
+            tool_calls: list[dict] = []
+            pending_tool_pairs = []
+            for index, call in enumerate(getattr(message, "tool_calls", None) or []):
+                if not isinstance(call, dict):
+                    continue
+                original_id = str(call.get("id") or f"tool_call_{index}")
+                next_id = _unique_tool_call_id(original_id, used_tool_call_ids)
+                if next_id != original_id:
+                    rewritten_ids += 1
+                next_call = dict(call)
+                next_call["id"] = next_id
+                tool_calls.append(next_call)
+                pending_tool_pairs.append((original_id, next_id))
+
+            cleaned_ai = _copy_message(
+                message,
+                additional_kwargs=additional_kwargs,
+                tool_calls=tool_calls,
+                invalid_tool_calls=[],
+            )
+            if _is_empty_assistant_without_action(cleaned_ai):
+                dropped_empty += 1
+                pending_tool_pairs = []
+                continue
+            normalized.append(cleaned_ai)
+            continue
+
+        if isinstance(message, ToolMessage):
+            if not pending_tool_pairs:
+                dropped_orphans += 1
+                continue
+            original_id, next_id = pending_tool_pairs.pop(0)
+            current_id = str(getattr(message, "tool_call_id", "") or "")
+            # Prefer the protocol pairing order. If the incoming id differs,
+            # the transcript was already invalid; pairing by order keeps the
+            # immediately preceding assistant tool call well formed.
+            target_id = next_id if current_id in {"", original_id, next_id} else next_id
+            normalized.append(_copy_message(message, tool_call_id=target_id))
+            continue
+
+        if pending_tool_pairs:
+            pending_tool_pairs = []
+        normalized.append(message)
+
+    after = _provider_transcript_diagnostics(normalized)
+    if (
+        stripped_invalid
+        or stripped_reasoning
+        or rewritten_ids
+        or dropped_orphans
+        or dropped_empty
+        or before != after
+    ):
+        logger.info(
+            "llm_input_messages: normalized provider transcript provider=%s changes=%s before=%s after=%s",
+            provider_id or "",
+            {
+                "stripped_invalid_tool_calls": stripped_invalid,
+                "stripped_reasoning_fields": stripped_reasoning,
+                "rewritten_tool_call_ids": rewritten_ids,
+                "dropped_orphan_tool_messages": dropped_orphans,
+                "dropped_empty_assistant_messages": dropped_empty,
+            },
+            before,
+            after,
+        )
+    return normalized
 
 
 # ── Contextual compression: extract only query-relevant content per doc ──────
@@ -374,6 +587,126 @@ def _agent_runtime_system_context() -> str:
 # stored in the checkpoint: skills prompt, date/time line, auto-recalled
 # memories, per-message framing tokens.
 _INJECTION_OVERHEAD_TOKENS = 800
+_CUSTOM_ENDPOINT_COMPACT_CONTEXT_LIMIT = 32_768
+_CUSTOM_ENDPOINT_MIN_TOOL_RESERVE_TOKENS = 6_000
+_CUSTOM_ENDPOINT_TOOL_PARENT_RESERVE_TOKENS = 700
+_CUSTOM_ENDPOINT_MAX_TOOL_RESERVE_RATIO = 0.60
+_CUSTOM_ENDPOINT_INJECTION_RESERVE_TOKENS = 4_000
+_CUSTOM_ENDPOINT_RESPONSE_RESERVE_TOKENS = 2_048
+_CUSTOM_ENDPOINT_MIN_HISTORY_BUDGET_TOKENS = 2_500
+
+
+def _active_provider_id() -> str:
+    try:
+        current = _active_model_override.get() or _model_override_var.get() or get_current_model()
+        if is_cloud_model(current):
+            return str(get_cloud_provider(current) or "")
+    except Exception:
+        return ""
+    return ""
+
+
+def _active_custom_openai_provider() -> bool:
+    return _active_provider_id().startswith("custom_openai_")
+
+
+def _custom_endpoint_compact_agent_context(context_size: int) -> bool:
+    return _active_custom_openai_provider() and context_size <= _CUSTOM_ENDPOINT_COMPACT_CONTEXT_LIMIT
+
+
+def _agent_history_budget_tokens(context_size: int) -> int:
+    """Return the message-history budget before provider-side tool schemas.
+
+    OpenAI-compatible custom endpoints receive tool definitions as part of
+    the rendered provider request. llama.cpp counts those schemas against
+    the model context, so the message trim must reserve space for them.
+    Hosted providers keep the historical 85% behavior.
+    """
+    default_budget = int(context_size * 0.85)
+    if not _active_custom_openai_provider():
+        return default_budget
+
+    enabled_parent_count = len(_current_enabled_tool_names_var.get(()) or ())
+    tool_reserve = max(
+        _CUSTOM_ENDPOINT_MIN_TOOL_RESERVE_TOKENS,
+        enabled_parent_count * _CUSTOM_ENDPOINT_TOOL_PARENT_RESERVE_TOKENS,
+    )
+    tool_reserve = min(tool_reserve, int(context_size * _CUSTOM_ENDPOINT_MAX_TOOL_RESERVE_RATIO))
+    custom_budget = (
+        context_size
+        - tool_reserve
+        - _CUSTOM_ENDPOINT_INJECTION_RESERVE_TOKENS
+        - _CUSTOM_ENDPOINT_RESPONSE_RESERVE_TOKENS
+    )
+    return max(
+        _CUSTOM_ENDPOINT_MIN_HISTORY_BUDGET_TOKENS,
+        min(default_budget, custom_budget),
+    )
+
+
+def _consolidate_system_messages(messages: list) -> list:
+    system_parts = [_content_to_str(m.content) for m in messages if isinstance(m, SystemMessage)]
+    if not system_parts:
+        return list(messages)
+    rest = [m for m in messages if not isinstance(m, SystemMessage)]
+    return [SystemMessage(content="\n\n".join(part for part in system_parts if part))] + rest
+
+
+def _repair_trimmed_tool_messages(trimmed: list) -> list:
+    # OpenAI requires that an AIMessage with tool_calls is IMMEDIATELY
+    # followed by ToolMessages for each tool_call_id. trim_messages or
+    # checkpoint corruption can break this, so patch missing results with
+    # stubs and drop displaced/orphaned ToolMessages.
+    _stubs_needed: dict[int, list[dict]] = {}
+    _stubbed_ids: set[str] = set()
+
+    for i, m in enumerate(trimmed):
+        tc_list = getattr(m, "tool_calls", [])
+        if not tc_list:
+            continue
+        needed = {tc["id"]: tc for tc in tc_list if tc.get("id")}
+        j = i + 1
+        while j < len(trimmed) and trimmed[j].type == "tool":
+            needed.pop(getattr(trimmed[j], "tool_call_id", None), None)
+            j += 1
+        if needed:
+            _stubs_needed[i] = list(needed.values())
+            _stubbed_ids.update(needed.keys())
+
+    if _stubs_needed:
+        logger.debug(
+            "_pre_model_trim: fixing %d displaced tool_call(s)",
+            len(_stubbed_ids),
+        )
+        patched: list = []
+        for i, m in enumerate(trimmed):
+            if m.type == "tool" and getattr(m, "tool_call_id", None) in _stubbed_ids:
+                continue
+            patched.append(m)
+            if i in _stubs_needed:
+                for tc in _stubs_needed[i]:
+                    patched.append(ToolMessage(
+                        content="[Result not available - earlier context was trimmed]",
+                        name=tc.get("name", "unknown"),
+                        tool_call_id=tc["id"],
+                    ))
+        trimmed = patched
+
+    _first_nonsys = 0
+    for _i, _m in enumerate(trimmed):
+        if _m.type != "system":
+            _first_nonsys = _i
+            break
+    if _first_nonsys < len(trimmed) and trimmed[_first_nonsys].type == "tool":
+        _drop_end = _first_nonsys
+        while _drop_end < len(trimmed) and trimmed[_drop_end].type == "tool":
+            _drop_end += 1
+        logger.debug(
+            "_pre_model_trim: dropping %d orphaned leading ToolMessage(s)",
+            _drop_end - _first_nonsys,
+        )
+        trimmed = trimmed[:_first_nonsys] + trimmed[_drop_end:]
+    return trimmed
 
 import json as _json
 import tiktoken as _tiktoken
@@ -560,7 +893,9 @@ def _pre_model_trim(state: dict) -> dict:
     Uses ``llm_input_messages`` so the full history stays intact in the
     checkpointer — only the LLM sees the trimmed version."""
     messages = list(state["messages"])
-    max_tokens = int(get_context_size() * 0.85)
+    context_size = get_context_size()
+    max_tokens = _agent_history_budget_tokens(context_size)
+    compact_custom_endpoint = _custom_endpoint_compact_agent_context(context_size)
 
     # ── Strip inline base64 data URIs from ALL tool outputs ──────────
     # Designer HTML, plugin results, and some marker payloads carry
@@ -898,13 +1233,14 @@ def _pre_model_trim(state: dict) -> dict:
         _injections.append(SystemMessage(content=developer_context))
 
     # Self-knowledge
-    try:
-        from self_knowledge import build_self_knowledge_block
-        _sk_text = build_self_knowledge_block()
-        if _sk_text:
-            _injections.append(SystemMessage(content=_sk_text))
-    except Exception:
-        pass
+    if not compact_custom_endpoint:
+        try:
+            from self_knowledge import build_self_knowledge_block
+            _sk_text = build_self_knowledge_block()
+            if _sk_text:
+                _injections.append(SystemMessage(content=_sk_text))
+        except Exception:
+            pass
 
     # Designer mode prompt — injected when a designer project is active
     _dp = None
@@ -931,50 +1267,54 @@ def _pre_model_trim(state: dict) -> dict:
 
     # Skill instructions
     skills_text = ""
-    try:
-        from skills import get_skills_prompt
-        from threads import get_thread_skills_override
-
-        _thread_id = _current_thread_id_var.get() or None
-        skills_override = None
-        if _thread_id:
-            skills_override = get_thread_skills_override(_thread_id)
-        active_tool_names = _current_enabled_tool_names_var.get() or None
-        extra_skill_names = []
-
-        # In designer mode, suppress manual skills — only tool guides
-        # (like designer_guide) are injected automatically.
-        if _dp is not None:
-            skills_override = []
-
+    if compact_custom_endpoint:
+        logger.debug("Skill injection skipped for compact custom endpoint context")
+    else:
         try:
-            from developer.tool_context import infer_workspace_id_from_thread
-            from developer.profile import DEVELOPER_AUTO_SKILLS
+            from skills import get_skills_prompt
+            from threads import get_thread_skills_override
 
-            if _thread_id and infer_workspace_id_from_thread(_thread_id):
-                skills_override = skills_override if skills_override is not None else []
-                extra_skill_names = DEVELOPER_AUTO_SKILLS
-        except Exception:
-            pass
+            _thread_id = _current_thread_id_var.get() or None
+            skills_override = None
+            if _thread_id:
+                skills_override = get_thread_skills_override(_thread_id)
+            active_tool_names = _current_enabled_tool_names_var.get() or None
+            extra_skill_names = []
 
-        skills_text = get_skills_prompt(
-            skills_override,
-            active_tool_names=active_tool_names,
-            extra_skill_names=extra_skill_names,
-        )
-        if skills_text:
-            _injections.append(SystemMessage(content=skills_text))
-    except Exception as exc:
-        logger.debug("Skill injection skipped (non-fatal): %s", exc)
+            # In designer mode, suppress manual skills — only tool guides
+            # (like designer_guide) are injected automatically.
+            if _dp is not None:
+                skills_override = []
+
+            try:
+                from developer.tool_context import infer_workspace_id_from_thread
+                from developer.profile import DEVELOPER_AUTO_SKILLS
+
+                if _thread_id and infer_workspace_id_from_thread(_thread_id):
+                    skills_override = skills_override if skills_override is not None else []
+                    extra_skill_names = DEVELOPER_AUTO_SKILLS
+            except Exception:
+                pass
+
+            skills_text = get_skills_prompt(
+                skills_override,
+                active_tool_names=active_tool_names,
+                extra_skill_names=extra_skill_names,
+            )
+            if skills_text:
+                _injections.append(SystemMessage(content=skills_text))
+        except Exception as exc:
+            logger.debug("Skill injection skipped (non-fatal): %s", exc)
 
     # Plugin skills
-    try:
-        from plugins import registry as _plugin_reg
-        plugin_skills_text = _plugin_reg.get_skills_prompt()
-        if plugin_skills_text:
-            _injections.append(SystemMessage(content=plugin_skills_text))
-    except Exception as exc:
-        logger.debug("Plugin skill injection skipped: %s", exc)
+    if not compact_custom_endpoint:
+        try:
+            from plugins import registry as _plugin_reg
+            plugin_skills_text = _plugin_reg.get_skills_prompt()
+            if plugin_skills_text:
+                _injections.append(SystemMessage(content=plugin_skills_text))
+        except Exception as exc:
+            logger.debug("Plugin skill injection skipped: %s", exc)
 
     # Batch-insert all injections at insert_idx
     for _ii, _inj_msg in enumerate(_injections):
@@ -1130,6 +1470,19 @@ def _pre_model_trim(state: dict) -> dict:
     # error on Anthropic-compatible providers.  Fix: move all
     # SystemMessages to the front so langchain-anthropic's
     # _merge_messages() can merge them into one.
+    if compact_custom_endpoint:
+        trimmed = _consolidate_system_messages(trimmed)
+        trimmed = trim_messages(
+            trimmed,
+            max_tokens=max_tokens,
+            token_counter=_count_message_list_tokens,
+            strategy="last",
+            start_on="human",
+            include_system=True,
+            allow_partial=False,
+        )
+        trimmed = _repair_trimmed_tool_messages(trimmed)
+
     try:
         _cur = _active_model_override.get() or get_current_model()
         _provider_id = get_cloud_provider(_cur) if is_cloud_model(_cur) else None
@@ -1146,7 +1499,7 @@ def _pre_model_trim(state: dict) -> dict:
             #   1. The last SystemMessage (covers system prompt + metadata)
             #   2. The 3rd non-system message (covers early conversation)
             if _provider_id != "anthropic":
-                return {"llm_input_messages": trimmed}
+                return {"llm_input_messages": _normalize_provider_facing_messages(trimmed, provider_id=_provider_id)}
             _CACHE_MARKER = {"type": "ephemeral"}
             # Breakpoint 1: last system message
             _last_sys_idx = -1
@@ -1195,6 +1548,7 @@ def _pre_model_trim(state: dict) -> dict:
     except Exception:
         pass  # Non-fatal
 
+    trimmed = _normalize_provider_facing_messages(trimmed, provider_id=_active_provider_id())
     return {"llm_input_messages": trimmed}
 
 # Cache compiled agent graphs keyed by frozenset of enabled tool names
@@ -1752,7 +2106,7 @@ def get_token_usage(config: dict | None = None, model_override: str | None = Non
                 return used, max_tokens
 
         # Mirror _pre_model_trim: trim, then count what remains
-        budget = int(max_tokens * 0.85)
+        budget = _agent_history_budget_tokens(max_tokens)
         trimmed = trim_messages(
             msgs,
             max_tokens=budget,
@@ -1781,6 +2135,86 @@ def _ensure_agent_mode_ready(model_label: str):
         result.capability_source,
     )
     return result
+
+
+def _tool_schema_required_fields(tool) -> list[str]:
+    schema_model = getattr(tool, "args_schema", None)
+    if schema_model is None:
+        return []
+    try:
+        schema = schema_model.model_json_schema() if hasattr(schema_model, "model_json_schema") else {}
+    except Exception:
+        schema = {}
+    required = schema.get("required") if isinstance(schema, dict) else None
+    if not isinstance(required, list):
+        return []
+    fields: list[str] = []
+    for field in required:
+        text = str(field or "").strip()
+        if text and text not in fields:
+            fields.append(text)
+    return fields
+
+
+def _tool_validation_error_fields(tool, exc) -> list[str]:
+    fields: list[str] = []
+    try:
+        errors = exc.errors() if hasattr(exc, "errors") else []
+    except Exception:
+        errors = []
+    if isinstance(errors, list):
+        for err in errors:
+            if not isinstance(err, dict):
+                continue
+            loc = err.get("loc")
+            if isinstance(loc, str):
+                field = loc
+            elif isinstance(loc, (list, tuple)) and loc:
+                field = str(loc[-1])
+            else:
+                field = ""
+            field = field.strip()
+            if field and field not in {"__root__", "root"} and field not in fields:
+                fields.append(field)
+    if fields:
+        return fields
+    return _tool_schema_required_fields(tool)
+
+
+def _format_tool_validation_repair(tool, exc) -> str:
+    from providers.tool_protocol import format_validation_retry_result
+
+    tool_name = str(getattr(tool, "name", "") or "tool")
+    fields = _tool_validation_error_fields(tool, exc)
+    if fields:
+        label = "argument" if len(fields) == 1 else "arguments"
+        field_text = ", ".join(fields)
+        detail = f"missing or invalid required {label}: {field_text}"
+    else:
+        detail = "missing or invalid arguments"
+    return format_validation_retry_result(tool_name=tool_name, detail=detail, fields=fields)
+
+
+def _install_custom_tool_validation_repair(lc_tools: list, provider_id: str | None) -> None:
+    if not str(provider_id or "").startswith("custom_openai_"):
+        return
+    for tool in lc_tools:
+        if not hasattr(tool, "handle_validation_error"):
+            continue
+        if getattr(tool, "handle_validation_error", False):
+            continue
+
+        def _repair(exc, _tool=tool):
+            return _format_tool_validation_repair(_tool, exc)
+
+        try:
+            tool.handle_validation_error = _repair
+        except Exception as exc:
+            logger.debug(
+                "Could not install validation repair handler for tool %s: %s",
+                getattr(tool, "name", "?"),
+                exc,
+            )
 
 
 def get_agent_graph(enabled_tool_names: list[str] | None = None,
@@ -1887,6 +2321,8 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                 for t in lc_tools:
                     if t.name in destructive_names:
                         _wrap_with_interrupt_gate(t)
+
+            _install_custom_tool_validation_repair(lc_tools, readiness.provider_id)
 
             # Wrap every tool so exceptions are returned to the LLM as error
             # messages instead of crashing the stream.  LangChain's built-in
@@ -2395,7 +2831,10 @@ def stream_chat_only(user_input: str, config: dict, *, stop_event: threading.Eve
 
     answer = "".join(full_answer)
     additional_kwargs = {"reasoning_content": "".join(full_reasoning)} if full_reasoning else {}
-    if thread_id and (answer or full_reasoning):
+    if not answer and full_reasoning:
+        yield ("error", "The model returned reasoning but no final answer. Try again or switch models.")
+        return
+    if thread_id and answer:
         append_checkpoint_messages(
             thread_id,
             [
@@ -3238,10 +3677,24 @@ def _stream_graph(agent, input_data, config: dict,
             yield ("interrupt", all_interrupts)
             return
 
+    latest_ai_message = _latest_ai_message_from_state(agent, config)
+
     if not full_answer:
         fallback_text = _latest_ai_text_from_state(agent, config)
         if fallback_text:
             full_answer.append(fallback_text)
+
+    checkpoint_reasoning_chars = 0
+    if latest_ai_message is not None:
+        _ak = getattr(latest_ai_message, "additional_kwargs", None) or {}
+        checkpoint_reasoning_chars = len(str(_ak.get("reasoning_content") or ""))
+    reasoning_only_final = bool(
+        not full_answer
+        and not _stopped_by_user
+        and not _loop_detected
+        and not _browser_budget_exceeded
+        and (_reasoning_chars or checkpoint_reasoning_chars)
+    )
 
     _log_stream_completion(
         config=config,
@@ -3255,8 +3708,14 @@ def _stream_graph(agent, input_data, config: dict,
         stopped_by_user=_stopped_by_user,
         loop_detected=_loop_detected,
         browser_budget_exceeded=_browser_budget_exceeded,
-        latest_ai_message=_latest_ai_message_from_state(agent, config),
+        latest_ai_message=latest_ai_message,
     )
+
+    if reasoning_only_final:
+        _reasoning_only_msg = "The model returned reasoning but no final answer. Try again or switch models."
+        _notify_api_error(_reasoning_only_msg)
+        yield ("error", _reasoning_only_msg)
+        return
 
     # Warn if the model stopped due to output token limit
     if _finish_reason == "length" and full_answer:

@@ -190,9 +190,9 @@ def test_context_policy_uses_profile_fallback_for_unknown_local_custom_endpoint(
 
     assert policy.provider_id == custom_provider_id("lm-studio")
     assert policy.policy_kind == "local"
-    assert policy.native_max == 4096
+    assert policy.native_max == 32_768
     assert policy.cap_source == "profile_default"
-    assert policy.effective_context == 4096
+    assert policy.effective_context == 32_768
 
 
 def test_context_policy_uses_provider_cap_for_remote_custom_endpoint(tmp_path, monkeypatch):

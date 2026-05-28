@@ -1,4 +1,5 @@
 from pathlib import Path
+import time
 
 import providers.config as provider_config
 from providers.custom import custom_provider_id, save_custom_endpoint
@@ -43,6 +44,71 @@ def test_inline_model_picker_allows_chat_only_in_normal_chat_and_blocks_agent_on
     assert "active_developer_workspace_id" in picker_section
     assert "active_designer_project" in picker_section
     assert "state.thread_model_override = val" in picker_section
+
+
+def test_inline_model_picker_uses_stale_while_refresh_cache():
+    source = (ROOT / "ui" / "chat_components.py").read_text(encoding="utf-8")
+    picker_section = source.split("def _build_inline_model_picker", 1)[1]
+
+    assert "_get_cached_model_picker_options()" in picker_section
+    assert "chat.model_picker.options.cache" in picker_section
+    assert "cached_options is None or _cached_picker_stale" in picker_section
+    assert "_merge_picker_options(_cached_options)" in picker_section
+    assert "_refresh_model_picker_options()" in picker_section
+    assert "_cur_mo_value" in picker_section
+
+
+def test_model_picker_cache_invalidates_when_provider_config_changes(tmp_path, monkeypatch):
+    import ui.chat_components as chat_components
+
+    config_path = tmp_path / "providers.json"
+    config_path.write_text('{"quick_choices":[]}', encoding="utf-8")
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", config_path)
+    monkeypatch.setattr(chat_components, "_MODEL_PICKER_CACHE_TTL_SECONDS", 60.0, raising=False)
+    monkeypatch.setattr(
+        chat_components,
+        "_model_picker_options_cache",
+        {
+            "signature": chat_components._provider_config_signature(),
+            "loaded_at": time.monotonic(),
+            "options": [{"value": "model:openrouter:test/model", "label": "Test Model"}],
+        },
+        raising=False,
+    )
+
+    cached = chat_components._get_cached_model_picker_options()
+    assert cached is not None
+    assert cached[0][0]["value"] == "model:openrouter:test/model"
+    assert cached[1] is False
+
+    config_path.write_text('{"quick_choices":[],"custom_endpoints":[]}', encoding="utf-8")
+
+    assert chat_components._get_cached_model_picker_options() is None
+
+
+def test_model_picker_cache_returns_stale_options_for_background_refresh(tmp_path, monkeypatch):
+    import ui.chat_components as chat_components
+
+    config_path = tmp_path / "providers.json"
+    config_path.write_text('{"quick_choices":[]}', encoding="utf-8")
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", config_path)
+    monkeypatch.setattr(chat_components, "_MODEL_PICKER_CACHE_TTL_SECONDS", 1.0, raising=False)
+    monkeypatch.setattr(
+        chat_components,
+        "_model_picker_options_cache",
+        {
+            "signature": chat_components._provider_config_signature(),
+            "loaded_at": time.monotonic() - 5.0,
+            "options": [{"value": "model:openrouter:test/model", "label": "Test Model"}],
+        },
+        raising=False,
+    )
+
+    cached = chat_components._get_cached_model_picker_options()
+
+    assert cached is not None
+    assert cached[0][0]["label"] == "Test Model"
+    assert cached[1] is True
 
 
 def test_chat_banner_uses_provider_resolution_for_local_custom_models():
