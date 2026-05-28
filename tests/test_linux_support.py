@@ -295,6 +295,8 @@ def test_launcher_linux_default_is_direct_browser(monkeypatch):
 
 
 def test_release_workflows_reference_linux_artifact():
+    from version import __version__
+
     release = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
     manifest = Path(".github/workflows/update-manifest.yml").read_text(encoding="utf-8")
     ci = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
@@ -321,8 +323,8 @@ def test_release_workflows_reference_linux_artifact():
     assert "Thoth-*-Linux-*.tar.gz" in manifest
     assert "curl -fsSL https://raw.githubusercontent.com/siddsachar/Thoth/main/installer/install-linux.sh | bash" in installer_docs
     assert "published GitHub Release assets" in installer_docs
-    assert "bash installer/build_linux_app.sh 3.23.0" in installer_docs
-    assert "bash build_linux_app.sh 3.23.0" in installer_docs
+    assert f"bash installer/build_linux_app.sh {__version__}" in installer_docs
+    assert f"bash build_linux_app.sh {__version__}" in installer_docs
 
 
 def test_packagers_exclude_tests_directory():
