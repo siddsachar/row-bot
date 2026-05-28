@@ -2,6 +2,10 @@
 
 ---
 
+## v3.23.1 - Custom Endpoint Tool-Calling Hotfix
+
+This hotfix repairs custom OpenAI-compatible endpoint tool calling for local servers such as LM Studio. Streamed tool-call fragments are now assembled before execution, malformed empty-name fragments are dropped, custom endpoint tool turns fall back to non-stream unless streamed tool calling has been explicitly probed, and endpoint status labels now distinguish local custom endpoints from Ollama.
+
 ## v3.23.0 — Provider Runtime, Memory Recall & UI Performance Hardening
 
 This release hardens the runtime paths that were expanded in v3.22.0. The headline work is **provider compatibility**: Thoth now preserves provider-qualified model identity end to end, routes incompatible models into a safer chat-only path, probes custom OpenAI-compatible endpoints before trusting tool support, and normalizes tricky provider transcripts before replay. It also ships a major **memory recall uplift**, with deterministic bounded recall, lexical and graph-expanded candidates, audit metadata, review states, and provenance surfaces. Around that, v3.23.0 makes large transcripts and Settings screens lighter, adds task database recovery, improves local/self-hosted setup, and expands regression coverage around real provider behavior.
