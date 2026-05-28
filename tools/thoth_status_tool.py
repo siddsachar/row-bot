@@ -283,6 +283,12 @@ def _query_model() -> str:
         resolved = resolve_provider_config(model, allow_legacy_local=True)
         local = resolved.execution_location == "local" or resolved.risk_label == "local_private"
         provider_label = resolved.provider_display_name or provider_display_label(resolved.provider_id)
+        if resolved.provider_id == "ollama":
+            type_label = "Local (Ollama)"
+        elif str(resolved.provider_id).startswith("custom_openai_"):
+            type_label = "Local custom endpoint" if local else "Custom endpoint"
+        else:
+            type_label = f"Provider ({provider_label})"
         emoji = get_provider_emoji(model)
         active_runtime = {}
         try:
@@ -303,7 +309,7 @@ def _query_model() -> str:
             f"- Model: {emoji} {model}",
             f"- Runtime model: {resolved.runtime_model}",
             f"- Provider: {provider_label}",
-            f"- Type: {'Local (Ollama)' if local else f'Provider ({provider_label})'}",
+            f"- Type: {type_label}",
             f"- Effective context: {ctx:,} tokens",
             f"- Readiness: {readiness_label} ({runtime.selection_reason})",
         ]

@@ -343,6 +343,7 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
         "streaming_ok": None,
         "tool_calling": None,
         "tool_round_trip": None,
+        "streaming_tool_calling": None,
         "context_window": 0,
         "profile": endpoint.get("profile") or DEFAULT_CUSTOM_ENDPOINT_PROFILE,
         "transport": endpoint.get("transport") or TransportMode.OPENAI_CHAT.value,
@@ -459,17 +460,34 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
         result["streaming_ok"] = False
         result["errors"].append(f"streaming: {exc}")
 
+    stream_tool_body = dict(tool_body)
+    stream_tool_body["stream"] = True
+    stream_tool_body["max_tokens"] = TOOL_PROBE_MAX_TOKENS
+    try:
+        with httpx.stream("POST", chat_url, headers=headers, json=stream_tool_body, timeout=30) as response:
+            response.raise_for_status()
+            tool_call_payload = _extract_streamed_structured_tool_call(response.iter_lines(), "thoth_probe_echo")
+        result["streaming_tool_calling"] = tool_call_payload is not None
+        if tool_call_payload is None:
+            result["streaming_tool_error"] = "no streamed structured tool call returned"
+            result["errors"].append("streaming_tools: no streamed structured tool call returned")
+    except Exception as exc:
+        result["streaming_tool_calling"] = False
+        result["streaming_tool_error"] = str(exc)
+        result["errors"].append(f"streaming_tools: {exc}")
+
     _classify_probe_result(result)
     _store_custom_endpoint_probe(endpoint["id"], result)
     if result["ok"]:
         logger.info(
-            "Custom endpoint probe ok: id=%s base_url=%s models_ok=%s chat_ok=%s streaming_ok=%s tool_calling=%s",
+            "Custom endpoint probe ok: id=%s base_url=%s models_ok=%s chat_ok=%s streaming_ok=%s tool_calling=%s streaming_tool_calling=%s",
             endpoint["id"],
             endpoint.get("base_url"),
             result.get("models_ok"),
             result.get("chat_ok"),
             result.get("streaming_ok"),
             result.get("tool_calling"),
+            result.get("streaming_tool_calling"),
         )
     else:
         logger.warning(
@@ -548,6 +566,87 @@ def _extract_structured_tool_call(payload: dict[str, Any], expected_name: str) -
         normalized.setdefault("type", "function")
         return normalized
     return None
+
+
+def _extract_streamed_structured_tool_call(lines: Any, expected_name: str) -> dict[str, Any] | None:
+    states: dict[int, dict[str, Any]] = {}
+    order: list[int] = []
+    for line in lines:
+        payload = _decode_sse_payload(line)
+        if not payload:
+            continue
+        choices = payload.get("choices") if isinstance(payload, dict) else []
+        if isinstance(choices, list) and choices:
+            choice = choices[0] if isinstance(choices[0], dict) else {}
+            delta = choice.get("delta") if isinstance(choice.get("delta"), dict) else {}
+            tool_calls = delta.get("tool_calls")
+        else:
+            message = payload.get("message") if isinstance(payload, dict) and isinstance(payload.get("message"), dict) else {}
+            tool_calls = message.get("tool_calls")
+        if not isinstance(tool_calls, list):
+            continue
+        for fallback_index, call in enumerate(tool_calls):
+            if not isinstance(call, dict):
+                continue
+            if call.get("index") is None and len(order) == 1:
+                index = order[0]
+            else:
+                try:
+                    index = int(call.get("index") if call.get("index") is not None else fallback_index)
+                except (TypeError, ValueError):
+                    index = fallback_index
+            if index not in states:
+                states[index] = {"id": "", "type": "", "name": "", "arguments": []}
+                order.append(index)
+            state = states[index]
+            if call.get("id") and not state["id"]:
+                state["id"] = str(call.get("id"))
+            if call.get("type") and not state["type"]:
+                state["type"] = str(call.get("type"))
+            function = call.get("function") if isinstance(call.get("function"), dict) else {}
+            if function.get("name") and not state["name"]:
+                state["name"] = str(function.get("name")).strip()
+            if "arguments" in function:
+                arguments = function.get("arguments")
+                if not isinstance(arguments, str):
+                    arguments = json.dumps(arguments if arguments is not None else {})
+                state["arguments"].append(arguments)
+    for index in order:
+        state = states[index]
+        if str(state.get("name") or "") != expected_name:
+            continue
+        arguments = "".join(state.get("arguments") or [])
+        try:
+            parsed = json.loads(arguments or "{}")
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(parsed, dict) or parsed.get("value") != "ok":
+            return None
+        return {
+            "id": str(state.get("id") or f"call_thoth_probe_stream_{index}"),
+            "type": str(state.get("type") or "function"),
+            "function": {
+                "name": expected_name,
+                "arguments": json.dumps(parsed),
+            },
+        }
+    return None
+
+
+def _decode_sse_payload(line: Any) -> dict[str, Any] | None:
+    text = line.decode("utf-8", errors="replace") if isinstance(line, bytes) else str(line or "")
+    text = text.strip()
+    if not text:
+        return None
+    if text.startswith("data:"):
+        text = text[5:].strip()
+    if not text or text == "[DONE]":
+        return None
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _stream_line_has_usable_delta(line: str) -> bool:

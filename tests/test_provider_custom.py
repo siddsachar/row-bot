@@ -313,6 +313,7 @@ def test_custom_endpoint_probe_persists_models_and_probe_result(tmp_path, monkey
     class _PostResponse:
         def __init__(self, payload=None):
             self._payload = payload or {"choices": [{"message": {"content": "pong"}}]}
+            self._stream_tool = False
 
         def raise_for_status(self):
             return None
@@ -327,6 +328,12 @@ def test_custom_endpoint_probe_persists_models_and_probe_result(tmp_path, monkey
             return False
 
         def iter_lines(self):
+            if self._stream_tool:
+                yield b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_stream_1","type":"function","function":{"name":"thoth_probe_echo"}}]}}]}'
+                yield b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"value\\":"}}]}}]}'
+                yield b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"ok\\"}"}}]}}]}'
+                yield b"data: [DONE]"
+                return
             yield b'data: {"choices":[{"delta":{"content":"p"}}]}'
 
     import httpx
@@ -349,7 +356,12 @@ def test_custom_endpoint_probe_persists_models_and_probe_result(tmp_path, monkey
         return _PostResponse()
 
     monkeypatch.setattr(httpx, "post", _post)
-    monkeypatch.setattr(httpx, "stream", lambda *args, **kwargs: _PostResponse())
+    def _stream(*args, **kwargs):
+        response = _PostResponse()
+        response._stream_tool = bool((kwargs.get("json") or {}).get("tools"))
+        return response
+
+    monkeypatch.setattr(httpx, "stream", _stream)
 
     probe = probe_custom_endpoint("dummy")
     endpoint = get_custom_endpoint("dummy")
@@ -363,8 +375,10 @@ def test_custom_endpoint_probe_persists_models_and_probe_result(tmp_path, monkey
     assert probe["tool_calling"] is True
     assert probe["tool_round_trip"] is True
     assert probe["streaming_ok"] is True
+    assert probe["streaming_tool_calling"] is True
     assert probe["context_window"] == 16384
     assert endpoint["last_probe"]["ok"] is True
+    assert endpoint["last_probe"]["streaming_tool_calling"] is True
     assert endpoint["last_probe"]["classification"] == "agent_ready"
     assert endpoint["models"][0]["context_window"] == 16384
 
@@ -498,6 +512,7 @@ def test_custom_endpoint_probe_records_streaming_failure(tmp_path, monkeypatch):
     assert probe["chat_ok"] is True
     assert probe["streaming_ok"] is False
     assert "streaming: no usable stream delta returned" in probe["errors"]
+    assert probe["streaming_tool_calling"] is False
 
 
 def test_custom_endpoint_probe_does_not_treat_done_only_sse_as_streaming(tmp_path, monkeypatch):
@@ -558,6 +573,84 @@ def test_custom_endpoint_probe_does_not_treat_done_only_sse_as_streaming(tmp_pat
     assert probe["ok"] is True
     assert probe["chat_ok"] is True
     assert probe["streaming_ok"] is False
+
+
+def test_custom_endpoint_probe_records_malformed_streamed_tool_call(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    save_custom_endpoint({"id": "dummy", "base_url": "http://127.0.0.1:8000/v1", "auth_required": False})
+
+    class _GetResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": [{"id": "thoth-dummy-chat", "max_model_len": 32768}]}
+
+    class _PostResponse:
+        def __init__(self, payload=None):
+            self._payload = payload or {"choices": [{"message": {"content": "pong"}}]}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    class _MalformedToolStreamResponse(_PostResponse):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def iter_lines(self):
+            yield b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"value\\":\\"ok\\"}"}}]}}]}'
+            yield b"data: [DONE]"
+
+    class _PlainStreamResponse(_PostResponse):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def iter_lines(self):
+            yield b'data: {"choices":[{"delta":{"content":"p"}}]}'
+
+    import httpx
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: _GetResponse())
+
+    def _post(*args, **kwargs):
+        body = kwargs.get("json") or {}
+        if body.get("tools"):
+            return _PostResponse({
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "thoth_probe_echo", "arguments": "{\"value\":\"ok\"}"},
+                        }],
+                    },
+                }],
+            })
+        return _PostResponse()
+
+    def _stream(*args, **kwargs):
+        return _MalformedToolStreamResponse() if (kwargs.get("json") or {}).get("tools") else _PlainStreamResponse()
+
+    monkeypatch.setattr(httpx, "post", _post)
+    monkeypatch.setattr(httpx, "stream", _stream)
+
+    probe = probe_custom_endpoint("dummy")
+    endpoint = get_custom_endpoint("dummy")
+
+    assert probe["ok"] is True
+    assert probe["streaming_ok"] is True
+    assert probe["streaming_tool_calling"] is False
+    assert probe["streaming_tool_error"] == "no streamed structured tool call returned"
+    assert endpoint["last_probe"]["streaming_tool_calling"] is False
 
 
 def test_no_auth_custom_endpoint_refresh_skips_secret_lookup(tmp_path, monkeypatch):
