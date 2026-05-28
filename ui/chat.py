@@ -454,7 +454,13 @@ def build_chat(
             if p.stop_btn:
                 p.stop_btn.enable()
         elif _reattach_gen and _reattach_gen.status in ("done", "error", "stopped", "interrupted"):
-            if _reattach_gen.accumulated or _reattach_gen.thinking_text:
+            if (
+                _reattach_gen.accumulated
+                or _reattach_gen.tool_results
+                or _reattach_gen.chart_data
+                or _reattach_gen.captured_images
+                or _reattach_gen.captured_videos
+            ):
                 a_msg: dict = {"role": "assistant", "content": _reattach_gen.accumulated}
                 attach_thinking_to_message(a_msg, _reattach_gen.thinking_text)
                 if _reattach_gen.tool_results:

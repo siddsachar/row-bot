@@ -12,7 +12,7 @@ import os
 import pathlib
 import sys
 import time
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from nicegui import events, run, ui
 
@@ -22,6 +22,84 @@ from ui.performance import log_ui_perf
 from ui.timer_utils import defer_ui
 
 logger = logging.getLogger(__name__)
+
+
+_MODEL_PICKER_CACHE_TTL_SECONDS = 60.0
+_model_picker_options_cache: dict[str, Any] = {
+    "signature": None,
+    "loaded_at": 0.0,
+    "options": [],
+}
+_model_picker_options_refresh_task: asyncio.Task | None = None
+
+
+def _provider_config_signature() -> tuple[str, int, int]:
+    try:
+        from providers import config as provider_config
+
+        path = pathlib.Path(provider_config.CONFIG_PATH)
+        stat = path.stat()
+        return (str(path), int(stat.st_mtime_ns), int(stat.st_size))
+    except FileNotFoundError:
+        try:
+            from providers import config as provider_config
+
+            return (str(pathlib.Path(provider_config.CONFIG_PATH)), 0, 0)
+        except Exception:
+            return ("", 0, 0)
+    except Exception:
+        logger.debug("Could not stat provider config for model picker cache", exc_info=True)
+        return ("", 0, 0)
+
+
+def _copy_model_picker_options(options: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [dict(option) for option in options if isinstance(option, dict)]
+
+
+def _get_cached_model_picker_options() -> tuple[list[dict[str, Any]], bool] | None:
+    options = _model_picker_options_cache.get("options")
+    signature = _model_picker_options_cache.get("signature")
+    if not options or signature != _provider_config_signature():
+        return None
+    loaded_at = float(_model_picker_options_cache.get("loaded_at") or 0.0)
+    stale = (time.monotonic() - loaded_at) > _MODEL_PICKER_CACHE_TTL_SECONDS
+    return _copy_model_picker_options(options), stale
+
+
+def _store_model_picker_options(options: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    copied = _copy_model_picker_options(options)
+    _model_picker_options_cache.update({
+        "signature": _provider_config_signature(),
+        "loaded_at": time.monotonic(),
+        "options": copied,
+    })
+    return _copy_model_picker_options(copied)
+
+
+def _load_model_picker_options_sync() -> list[dict[str, Any]]:
+    from providers.selection import list_model_choice_options
+
+    return _copy_model_picker_options(list_model_choice_options("chat"))
+
+
+async def _refresh_model_picker_options() -> list[dict[str, Any]]:
+    global _model_picker_options_refresh_task
+
+    task = _model_picker_options_refresh_task
+    if task is not None and not task.done():
+        return await task
+
+    async def _runner() -> list[dict[str, Any]]:
+        options = await run.io_bound(_load_model_picker_options_sync)
+        return _store_model_picker_options(options)
+
+    task = asyncio.create_task(_runner())
+    _model_picker_options_refresh_task = task
+    try:
+        return await task
+    finally:
+        if _model_picker_options_refresh_task is task:
+            _model_picker_options_refresh_task = None
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -416,6 +494,38 @@ def _build_inline_model_picker(
 
     _picker_val = _cur_mo_value if _cur_mo_value and _cur_mo_value in _picker_opts else _default_opt
     _current_picker_value = [_picker_val]
+    _loaded_picker_values: set[str] = set()
+
+    def _merge_picker_options(options: list[dict[str, Any]]) -> None:
+        for value in list(_loaded_picker_values):
+            if value != _cur_mo_value:
+                _picker_opts.pop(value, None)
+        _loaded_picker_values.clear()
+        _picker_opts.pop(_LOADING_MODELS_SENTINEL, None)
+        _picker_opts.pop(_MODELS_UNAVAILABLE_SENTINEL, None)
+        _picker_opts.pop(_MORE_MODELS_SENTINEL, None)
+        for option in options:
+            value = str(option.get("value") or "")
+            if not value or value == _cur_default_value:
+                continue
+            _picker_opts[value] = str(option.get("label") or value)
+            if value != _cur_mo_value:
+                _loaded_picker_values.add(value)
+        if open_settings:
+            _picker_opts[_MORE_MODELS_SENTINEL] = _MORE_MODELS_SENTINEL
+
+    cached_options = _get_cached_model_picker_options()
+    _cached_picker_stale = True
+    if cached_options is not None:
+        _cached_options, _cached_picker_stale = cached_options
+        _merge_picker_options(_cached_options)
+        log_ui_perf(
+            "chat.model_picker.options.cache",
+            0.0,
+            threshold_ms=500.0,
+            options=len(_cached_options),
+            stale=_cached_picker_stale,
+        )
 
     async def _on_model_pick(e):
         val = e.value
@@ -487,13 +597,14 @@ def _build_inline_model_picker(
     async def _load_picker_options() -> None:
         started = time.perf_counter()
         try:
-            from providers.selection import list_model_choice_options
-
-            options = await run.io_bound(
-                lambda: list_model_choice_options(
-                    "chat",
-                    include_values=[_cur_mo] if _cur_mo else [],
-                )
+            options_started = time.perf_counter()
+            options = await _refresh_model_picker_options()
+            options_elapsed_ms = (time.perf_counter() - options_started) * 1000.0
+            log_ui_perf(
+                "chat.model_picker.options.load",
+                options_elapsed_ms,
+                threshold_ms=500.0,
+                options=len(options),
             )
             if (
                 generation_getter is not None
@@ -501,17 +612,16 @@ def _build_inline_model_picker(
                 and generation_getter() != shell_generation
             ):
                 return
-            _picker_opts.pop(_LOADING_MODELS_SENTINEL, None)
-            _picker_opts.pop(_MODELS_UNAVAILABLE_SENTINEL, None)
-            _picker_opts.pop(_MORE_MODELS_SENTINEL, None)
-            for option in options:
-                value = str(option.get("value") or "")
-                if value and value != _cur_default_value:
-                    _picker_opts[value] = str(option.get("label") or value)
-            if open_settings:
-                _picker_opts[_MORE_MODELS_SENTINEL] = _MORE_MODELS_SENTINEL
+            apply_started = time.perf_counter()
+            _merge_picker_options(options)
             _select.options = dict(_picker_opts)
             _select.update()
+            log_ui_perf(
+                "chat.model_picker.options.apply",
+                (time.perf_counter() - apply_started) * 1000.0,
+                threshold_ms=200.0,
+                options=len(_picker_opts),
+            )
             log_ui_perf(
                 "chat.model_picker.options",
                 (time.perf_counter() - started) * 1000.0,
@@ -533,4 +643,5 @@ def _build_inline_model_picker(
             _select.options = dict(_picker_opts)
             _select.update()
 
-    defer_ui(_load_picker_options, delay=0.05)
+    if cached_options is None or _cached_picker_stale:
+        defer_ui(_load_picker_options, delay=0.05)

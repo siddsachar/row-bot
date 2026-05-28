@@ -12,6 +12,7 @@ from providers.models import AuthMethod, ModelInfo, ProviderDefinition, Transpor
 
 CUSTOM_OPENAI_PREFIX = "custom_openai_"
 DEFAULT_CUSTOM_ENDPOINT_PROFILE = "generic_openai"
+DEFAULT_CUSTOM_ENDPOINT_CONTEXT_FALLBACK = 32_768
 TOOL_PROBE_MAX_TOKENS = 1024
 TOOL_ROUND_TRIP_PROBE_MAX_TOKENS = 256
 STREAMING_PROBE_MAX_TOKENS = 128
@@ -36,7 +37,7 @@ CUSTOM_ENDPOINT_PROFILES: dict[str, dict[str, Any]] = {
         "drop_unsupported_params": True,
         "supports_runtime_context_override": False,
         "context_param_name": "",
-        "unknown_context_fallback": 4096,
+        "unknown_context_fallback": DEFAULT_CUSTOM_ENDPOINT_CONTEXT_FALLBACK,
     },
     "omlx": {
         "display_name": "oMLX",
@@ -47,7 +48,7 @@ CUSTOM_ENDPOINT_PROFILES: dict[str, dict[str, Any]] = {
         "drop_unsupported_params": True,
         "supports_runtime_context_override": False,
         "context_param_name": "",
-        "unknown_context_fallback": 4096,
+        "unknown_context_fallback": DEFAULT_CUSTOM_ENDPOINT_CONTEXT_FALLBACK,
     },
     "vllm": {
         "display_name": "vLLM",
@@ -58,7 +59,7 @@ CUSTOM_ENDPOINT_PROFILES: dict[str, dict[str, Any]] = {
         "drop_unsupported_params": True,
         "supports_runtime_context_override": True,
         "context_param_name": "max_model_len",
-        "unknown_context_fallback": 4096,
+        "unknown_context_fallback": DEFAULT_CUSTOM_ENDPOINT_CONTEXT_FALLBACK,
     },
     "lmstudio": {
         "display_name": "LM Studio",
@@ -69,7 +70,7 @@ CUSTOM_ENDPOINT_PROFILES: dict[str, dict[str, Any]] = {
         "drop_unsupported_params": True,
         "supports_runtime_context_override": False,
         "context_param_name": "",
-        "unknown_context_fallback": 4096,
+        "unknown_context_fallback": DEFAULT_CUSTOM_ENDPOINT_CONTEXT_FALLBACK,
     },
     "llama_cpp": {
         "display_name": "llama.cpp",
@@ -80,7 +81,7 @@ CUSTOM_ENDPOINT_PROFILES: dict[str, dict[str, Any]] = {
         "drop_unsupported_params": True,
         "supports_runtime_context_override": True,
         "context_param_name": "n_ctx",
-        "unknown_context_fallback": 4096,
+        "unknown_context_fallback": DEFAULT_CUSTOM_ENDPOINT_CONTEXT_FALLBACK,
     },
     "localai": {
         "display_name": "LocalAI",
@@ -91,18 +92,18 @@ CUSTOM_ENDPOINT_PROFILES: dict[str, dict[str, Any]] = {
         "drop_unsupported_params": True,
         "supports_runtime_context_override": False,
         "context_param_name": "",
-        "unknown_context_fallback": 4096,
+        "unknown_context_fallback": DEFAULT_CUSTOM_ENDPOINT_CONTEXT_FALLBACK,
     },
     "litellm": {
         "display_name": "LiteLLM",
         "transport": TransportMode.OPENAI_CHAT.value,
-        "system_message_mode": "provider_default",
+        "system_message_mode": "system_first",
         "tool_history_mode": "native_required",
         "message_content_mode": "openai",
         "drop_unsupported_params": True,
         "supports_runtime_context_override": False,
         "context_param_name": "",
-        "unknown_context_fallback": 4096,
+        "unknown_context_fallback": DEFAULT_CUSTOM_ENDPOINT_CONTEXT_FALLBACK,
     },
     "sglang": {
         "display_name": "SGLang",
@@ -113,7 +114,7 @@ CUSTOM_ENDPOINT_PROFILES: dict[str, dict[str, Any]] = {
         "drop_unsupported_params": True,
         "supports_runtime_context_override": True,
         "context_param_name": "context_length",
-        "unknown_context_fallback": 4096,
+        "unknown_context_fallback": DEFAULT_CUSTOM_ENDPOINT_CONTEXT_FALLBACK,
     },
 }
 
@@ -152,6 +153,19 @@ def normalize_custom_endpoint(endpoint: dict[str, Any]) -> dict[str, Any]:
     transport = str(endpoint.get("transport") or profile_defaults.get("transport") or TransportMode.OPENAI_CHAT.value)
     execution_location = str(endpoint.get("execution_location") or endpoint.get("privacy") or "remote")
     risk_label = str(endpoint.get("risk_label") or ("local_private" if execution_location == "local" else "custom_endpoint"))
+    unknown_context_fallback = max(
+        _positive_int(endpoint.get("unknown_context_fallback")),
+        _positive_int(profile_defaults.get("unknown_context_fallback")),
+        DEFAULT_CUSTOM_ENDPOINT_CONTEXT_FALLBACK,
+    )
+    system_message_mode = str(
+        endpoint.get("system_message_mode")
+        or profile_defaults.get("system_message_mode")
+        or "system_first"
+    )
+    if profile == "litellm" and system_message_mode == "provider_default":
+        system_message_mode = "system_first"
+
     normalized = {
         "id": endpoint_id,
         "provider_id": custom_provider_id(endpoint_id),
@@ -167,7 +181,7 @@ def normalize_custom_endpoint(endpoint: dict[str, Any]) -> dict[str, Any]:
         "enabled": bool(endpoint.get("enabled", True)),
         "capability_probe": bool(endpoint.get("capability_probe", True)),
         "source_confidence": str(endpoint.get("source_confidence") or "user_configured"),
-        "system_message_mode": str(endpoint.get("system_message_mode") or profile_defaults.get("system_message_mode") or "system_first"),
+        "system_message_mode": system_message_mode,
         "tool_history_mode": _normalize_tool_history_mode(
             endpoint.get("tool_history_mode") or profile_defaults.get("tool_history_mode") or "native_required"
         ),
@@ -175,7 +189,7 @@ def normalize_custom_endpoint(endpoint: dict[str, Any]) -> dict[str, Any]:
         "drop_unsupported_params": bool(endpoint.get("drop_unsupported_params", profile_defaults.get("drop_unsupported_params", True))),
         "supports_runtime_context_override": bool(endpoint.get("supports_runtime_context_override", profile_defaults.get("supports_runtime_context_override", False))),
         "context_param_name": str(endpoint.get("context_param_name") or profile_defaults.get("context_param_name") or ""),
-        "unknown_context_fallback": int(endpoint.get("unknown_context_fallback") or profile_defaults.get("unknown_context_fallback") or 0),
+        "unknown_context_fallback": unknown_context_fallback,
     }
     manual = endpoint.get("manual_capabilities")
     if isinstance(manual, dict):
@@ -629,15 +643,9 @@ def model_infos_from_openai_compatible_catalog(
         manual = normalized.get("manual_capabilities")
         if isinstance(manual, dict):
             metadata.update(manual)
-        context_window = _positive_int(
-            metadata.get("context_length")
-            or metadata.get("context_window")
-            or metadata.get("max_model_len")
-            or metadata.get("max_context_length")
-            or metadata.get("max_sequence_length")
-            or metadata.get("n_ctx")
-            or 0
-        )
+        context_window = _metadata_context_window(metadata, fallback=_positive_int(normalized.get("unknown_context_fallback")))
+        if context_window:
+            metadata["context_window"] = context_window
         results.append(model_info_from_metadata(
             str(normalized["provider_id"]),
             model_id,
@@ -651,8 +659,34 @@ def model_infos_from_openai_compatible_catalog(
     return results
 
 
+_CONTEXT_METADATA_KEYS = (
+    "context_length",
+    "context_window",
+    "max_model_len",
+    "max_context_length",
+    "max_sequence_length",
+    "n_ctx",
+    "num_ctx",
+)
+_NESTED_CONTEXT_METADATA_KEYS = ("meta", "metadata", "details", "parameters", "model_info", "config")
+
+
+def _metadata_context_window(metadata: dict[str, Any], *, fallback: int = 0) -> int:
+    for key in _CONTEXT_METADATA_KEYS:
+        value = _positive_int(metadata.get(key))
+        if value > 0:
+            return value
+    for key in _NESTED_CONTEXT_METADATA_KEYS:
+        nested = metadata.get(key)
+        if isinstance(nested, dict):
+            value = _metadata_context_window(nested, fallback=0)
+            if value > 0:
+                return value
+    return _positive_int(fallback)
+
+
 def _apply_native_capability_fields(metadata: dict[str, Any]) -> None:
-    max_context = _positive_int(metadata.get("max_context_length") or metadata.get("context_length") or 0)
+    max_context = _metadata_context_window(metadata)
     if max_context > 0:
         metadata.setdefault("context_window", max_context)
     capabilities = metadata.get("capabilities")
@@ -678,12 +712,22 @@ def _fetch_custom_endpoint_native_model_metadata(
     headers: dict[str, str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     profile = str(endpoint.get("profile") or "").lower()
-    if profile != "lmstudio":
-        return {}
     import httpx
 
     root_url = _native_root_url(str(endpoint.get("base_url") or ""))
     if not root_url:
+        return {}
+    if profile == "llama_cpp":
+        try:
+            response = httpx.get(f"{root_url}/props", headers=headers or {}, timeout=10)
+            response.raise_for_status()
+            metadata = _llamacpp_props_metadata_by_id(response.json())
+            if metadata:
+                return metadata
+        except Exception:
+            logger.debug("llama.cpp props metadata fetch failed for %s/props", root_url, exc_info=True)
+        return {}
+    if profile != "lmstudio":
         return {}
     for path in ("/api/v1/models", "/api/v0/models"):
         try:
@@ -703,6 +747,28 @@ def _native_root_url(base_url: str) -> str:
         if value.endswith(suffix):
             return value[: -len(suffix)]
     return value
+
+
+def _llamacpp_props_metadata_by_id(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return {}
+    model_id = str(payload.get("model_alias") or "").strip()
+    if not model_id:
+        return {}
+    metadata: dict[str, Any] = {}
+    settings = payload.get("default_generation_settings")
+    if isinstance(settings, dict):
+        metadata.update(settings)
+        params = settings.get("params")
+        if isinstance(params, dict):
+            metadata.update({key: value for key, value in params.items() if key in _CONTEXT_METADATA_KEYS})
+    for key in _CONTEXT_METADATA_KEYS:
+        if key in payload:
+            metadata[key] = payload[key]
+    context_window = _metadata_context_window(metadata)
+    if context_window:
+        metadata["context_window"] = context_window
+    return {model_id: metadata} if metadata else {}
 
 
 def _lmstudio_native_models_by_id(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:

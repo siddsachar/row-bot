@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from contextlib import nullcontext
 from typing import Any, Iterator, Sequence
 
@@ -10,6 +11,8 @@ from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, Huma
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import Runnable
 from pydantic import Field
+
+from providers.tool_protocol import tool_result_requires_validation_retry
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +59,19 @@ class ChatOpenAICompatible(BaseChatModel):
         reasoning = _reasoning_content(message_payload, choice)
         if reasoning:
             additional_kwargs["reasoning_content"] = reasoning
+        if not tool_calls:
+            tool_calls = _recover_text_tool_calls_for_empty_response(
+                content=content,
+                reasoning=reasoning,
+            )
+        content, additional_kwargs = _resolve_reasoning_only_final(
+            messages,
+            content=content,
+            reasoning=reasoning,
+            tool_calls=tool_calls,
+            additional_kwargs=additional_kwargs,
+            endpoint=self.endpoint,
+        )
         return ChatResult(
             generations=[ChatGeneration(message=AIMessage(content=content, tool_calls=tool_calls, additional_kwargs=additional_kwargs, response_metadata=metadata))],
             llm_output=metadata,
@@ -88,6 +104,8 @@ class ChatOpenAICompatible(BaseChatModel):
         tool_seen = False
         payload_seen = False
         tool_index = 0
+        content_parts: list[str] = []
+        reasoning_parts: list[str] = []
         for payload in self._iter_stream_events(body):
             payload_seen = True
             choice = _first_choice(payload)
@@ -97,6 +115,10 @@ class ChatOpenAICompatible(BaseChatModel):
             if content or reasoning:
                 content_seen = content_seen or bool(content)
                 reasoning_seen = reasoning_seen or bool(reasoning)
+                if content:
+                    content_parts.append(content)
+                if reasoning:
+                    reasoning_parts.append(reasoning)
                 additional_kwargs = {"reasoning_content": reasoning} if reasoning else {}
                 chunk = ChatGenerationChunk(message=AIMessageChunk(content=content, additional_kwargs=additional_kwargs))
                 if content and run_manager:
@@ -108,6 +130,31 @@ class ChatOpenAICompatible(BaseChatModel):
                     tool_seen = True
                     tool_index += 1
                     yield ChatGenerationChunk(message=AIMessageChunk(content="", tool_call_chunks=[chunk_payload]))
+        if not tool_seen:
+            recovered_calls = _recover_text_tool_calls_for_empty_response(
+                content="".join(content_parts),
+                reasoning="".join(reasoning_parts),
+            )
+            for call in recovered_calls:
+                chunk_payload = _tool_call_chunk_from_parsed(call, tool_index)
+                tool_seen = True
+                tool_index += 1
+                logger.info(
+                    "custom_openai_stream: recovered text tool call provider=%s model=%s tool=%s",
+                    self.endpoint.get("provider_id") or "custom",
+                    self.model_name,
+                    call.get("name"),
+                )
+                yield ChatGenerationChunk(message=AIMessageChunk(content="", tool_call_chunks=[chunk_payload]))
+        if not content_seen and reasoning_seen and not tool_seen:
+            promoted_content = _stream_reasoning_only_final_content(
+                messages,
+                reasoning="".join(reasoning_parts),
+                endpoint=self.endpoint,
+            )
+            if promoted_content:
+                content_seen = True
+                yield ChatGenerationChunk(message=AIMessageChunk(content=promoted_content))
         if not content_seen and not reasoning_seen and not tool_seen:
             logger.warning(
                 "custom_openai_stream: empty stream; retrying non-stream fallback provider=%s model=%s payload_seen=%s",
@@ -152,6 +199,15 @@ class ChatOpenAICompatible(BaseChatModel):
         reasoning = str((getattr(message, "additional_kwargs", None) or {}).get("reasoning_content") or "")
         content = str(getattr(message, "content", "") or "")
         tool_calls = getattr(message, "tool_calls", []) or []
+        content, additional_kwargs = _resolve_reasoning_only_final(
+            messages,
+            content=content,
+            reasoning=reasoning,
+            tool_calls=tool_calls,
+            additional_kwargs={"reasoning_content": reasoning} if reasoning else {},
+            endpoint=self.endpoint,
+        )
+        reasoning = str(additional_kwargs.get("reasoning_content") or "")
         if reasoning:
             yield ChatGenerationChunk(message=AIMessageChunk(content="", additional_kwargs={"reasoning_content": reasoning}))
         if content or tool_calls:
@@ -309,7 +365,12 @@ def _openai_messages(messages: list[BaseMessage], *, endpoint: dict[str, Any], i
 def _system_first(messages: list[BaseMessage]) -> list[BaseMessage]:
     system = [message for message in messages if isinstance(message, SystemMessage)]
     rest = [message for message in messages if not isinstance(message, SystemMessage)]
-    return [*system, *rest]
+    if not system:
+        return rest
+    if len(system) == 1:
+        return [system[0], *rest]
+    content = "\n\n".join(_message_text(message) for message in system if _message_text(message).strip())
+    return [SystemMessage(content=content), *rest]
 
 
 def _openai_message(message: BaseMessage, *, endpoint: dict[str, Any], include_tool_fields: bool) -> dict[str, Any]:
@@ -451,6 +512,119 @@ def _tool_call_chunk_from_openai(call: Any, index: int) -> dict[str, Any] | None
     }
 
 
+def _tool_call_chunk_from_parsed(call: dict[str, Any], index: int) -> dict[str, Any]:
+    return {
+        "name": str(call.get("name") or ""),
+        "args": json.dumps(call.get("args") if isinstance(call.get("args"), dict) else {}),
+        "id": str(call.get("id") or f"text_call_{index}"),
+        "index": int(index),
+    }
+
+
+_TEXT_TOOL_CALL_RE = re.compile(
+    r"<tool_call>\s*<function=(?P<name>[A-Za-z0-9_.:-]+)>(?P<body>.*?)</function>\s*</tool_call>",
+    re.DOTALL,
+)
+_TEXT_TOOL_PARAM_RE = re.compile(
+    r"<parameter=(?P<name>[A-Za-z0-9_.:-]+)>(?P<value>.*?)</parameter>",
+    re.DOTALL,
+)
+
+
+def _recover_text_tool_calls_for_empty_response(*, content: str, reasoning: str) -> list[dict[str, Any]]:
+    """Recover local-model text tool calls only when no final text exists.
+
+    Some small OpenAI-compatible local models emit a native tool call first, then
+    after a validation repair emit an XML-ish tool-call envelope inside
+    reasoning_content. When there is no user-visible content, treating that
+    envelope as a real tool call lets the graph continue without adding prompt
+    bloat or touching normal provider output.
+    """
+    if str(content or "").strip():
+        return []
+    return _text_tool_calls_from_content(reasoning)
+
+
+def _last_tool_result_state(messages: list[BaseMessage]) -> str:
+    if not messages or not isinstance(messages[-1], ToolMessage):
+        return ""
+    if tool_result_requires_validation_retry(getattr(messages[-1], "content", "")):
+        return "validation_retry_required"
+    status = str(getattr(messages[-1], "status", "") or "").strip().lower()
+    if status and status != "success":
+        return "tool_error"
+    return "tool_success"
+
+
+def _resolve_reasoning_only_final(
+    messages: list[BaseMessage],
+    *,
+    content: str,
+    reasoning: str,
+    tool_calls: list[dict[str, Any]],
+    additional_kwargs: dict[str, Any],
+    endpoint: dict[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    if str(content or "").strip() or tool_calls or not str(reasoning or "").strip():
+        return content, additional_kwargs
+    state = _last_tool_result_state(messages)
+    provider = endpoint.get("provider_id") or "custom"
+    if state == "tool_success":
+        logger.info(
+            "custom_openai_stream: promoted reasoning-only response after successful tool result provider=%s chars=%d",
+            provider,
+            len(str(reasoning)),
+        )
+        cleaned_kwargs = dict(additional_kwargs)
+        cleaned_kwargs.pop("reasoning_content", None)
+        return str(reasoning), cleaned_kwargs
+    if state in {"validation_retry_required", "tool_error"}:
+        raise RuntimeError(
+            f"{endpoint.get('display_name') or endpoint.get('name') or 'Custom endpoint'} "
+            "stopped after a tool error without producing a retry tool call or final answer."
+        )
+    return content, additional_kwargs
+
+
+def _stream_reasoning_only_final_content(
+    messages: list[BaseMessage],
+    *,
+    reasoning: str,
+    endpoint: dict[str, Any],
+) -> str:
+    content, _additional_kwargs = _resolve_reasoning_only_final(
+        messages,
+        content="",
+        reasoning=reasoning,
+        tool_calls=[],
+        additional_kwargs={"reasoning_content": reasoning} if reasoning else {},
+        endpoint=endpoint,
+    )
+    return content
+
+
+def _text_tool_calls_from_content(text: str) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
+    for match in _TEXT_TOOL_CALL_RE.finditer(str(text or "")):
+        name = str(match.group("name") or "").strip()
+        if not name:
+            continue
+        args: dict[str, Any] = {}
+        body = match.group("body") or ""
+        for param in _TEXT_TOOL_PARAM_RE.finditer(body):
+            param_name = str(param.group("name") or "").strip()
+            if not param_name:
+                continue
+            args[param_name] = str(param.group("value") or "").strip()
+        calls.append({
+            "name": name,
+            "args": args,
+            "id": f"text_call_{len(calls)}",
+            "type": "tool_call",
+        })
+    return calls
+
+
 def _new_http_client(timeout: float) -> Any:
     import httpx
 
@@ -477,8 +651,7 @@ def _raise_for_status(response: Any, endpoint: dict[str, Any]) -> None:
 
 
 def _safe_response_text(response: Any) -> str:
-    try:
-        payload = response.json()
+    def _message_from_payload(payload: Any) -> str:
         if isinstance(payload, dict):
             error = payload.get("error")
             if isinstance(error, dict) and error.get("message"):
@@ -487,9 +660,35 @@ def _safe_response_text(response: Any) -> str:
                 if payload.get(key):
                     return str(payload.get(key))[:300]
             return str(payload)[:300]
+        return ""
+
+    try:
+        payload = response.json()
+        message = _message_from_payload(payload)
+        if message:
+            return message
     except Exception:
         pass
-    return str(getattr(response, "text", "") or "")[:300]
+    try:
+        raw = response.read() if hasattr(response, "read") else b""
+        if isinstance(raw, bytes):
+            text = raw.decode("utf-8", errors="replace")
+        else:
+            text = str(raw or "")
+        if text:
+            try:
+                message = _message_from_payload(json.loads(text))
+                if message:
+                    return message
+            except json.JSONDecodeError:
+                pass
+            return text[:300]
+    except Exception:
+        pass
+    try:
+        return str(getattr(response, "text", "") or "")[:300]
+    except Exception:
+        return ""
 
 
 def _first_choice(payload: dict[str, Any]) -> dict[str, Any]:

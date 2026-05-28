@@ -30,12 +30,12 @@ def test_streaming_final_message_persists_thinking_text():
     assert "state.messages.append(a_msg)" in source
 
 
-def test_streaming_treats_reasoning_only_as_final_output():
+def test_streaming_does_not_treat_reasoning_only_as_final_output():
     root = Path(__file__).resolve().parents[1]
     source = (root / "ui" / "streaming.py").read_text(encoding="utf-8")
     output_block = source.split("_has_final_output = bool(", 1)[1].split(")", 1)[0]
 
-    assert "gen.thinking_text" in output_block
+    assert "gen.thinking_text" not in output_block
 
 
 def test_chat_reattach_preserves_thinking_text():
@@ -43,7 +43,8 @@ def test_chat_reattach_preserves_thinking_text():
     source = (root / "ui" / "chat.py").read_text(encoding="utf-8")
 
     assert "attach_thinking_to_message(a_msg, _reattach_gen.thinking_text)" in source
-    assert "if _reattach_gen.accumulated or _reattach_gen.thinking_text:" in source
+    assert "or _reattach_gen.thinking_text" not in source
+    assert "or _reattach_gen.tool_results" in source
     assert "_reattach_gen.thinking_collapsed = True" in source
     assert '"\\U0001f4ad Thinking", icon="psychology"' in source
 

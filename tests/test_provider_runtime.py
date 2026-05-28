@@ -1,6 +1,8 @@
 import sys
 import socket
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
+
+import pytest
 
 import providers.runtime as runtime
 from providers.errors import ProviderErrorKind, normalize_provider_error
@@ -848,6 +850,433 @@ def test_minimax_pre_model_trim_uses_anthropic_message_consolidation(tmp_path, m
         and any(isinstance(block, dict) and "cache_control" in block for block in msg.content)
         for msg in result
     )
+
+
+def test_custom_openai_pre_model_trim_compacts_32k_agent_payload(tmp_path, monkeypatch):
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    import agent
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    trim_budgets: list[int] = []
+
+    def _fake_trim(messages, **kwargs):
+        trim_budgets.append(kwargs["max_tokens"])
+        return list(messages)
+
+    monkeypatch.setattr(agent, "get_context_size", lambda: 32_768)
+    monkeypatch.setattr(agent, "trim_messages", _fake_trim)
+    monkeypatch.setattr(agent, "get_current_model", lambda: "model:custom_openai_lab:local")
+    monkeypatch.setattr(agent, "is_cloud_model", lambda model: True)
+    monkeypatch.setattr(agent, "get_cloud_provider", lambda model: "custom_openai_lab")
+    monkeypatch.setattr(agent, "is_background_workflow", lambda: False)
+    monkeypatch.setitem(
+        sys.modules,
+        "self_knowledge",
+        SimpleNamespace(build_self_knowledge_block=lambda: "SELF_SENTINEL " * 1000),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "skills",
+        SimpleNamespace(get_skills_prompt=lambda *args, **kwargs: "SKILL_SENTINEL " * 1000),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "plugins",
+        SimpleNamespace(registry=SimpleNamespace(get_skills_prompt=lambda: "PLUGIN_SENTINEL " * 1000)),
+    )
+
+    tool_token = agent._current_enabled_tool_names_var.set(tuple(f"tool_{i}" for i in range(30)))
+    agent.set_active_model_override("model:custom_openai_lab:local")
+    try:
+        result = agent._pre_model_trim({
+            "messages": [
+                SystemMessage(content="Root system"),
+                HumanMessage(content="hi"),
+            ]
+        })["llm_input_messages"]
+    finally:
+        agent._current_enabled_tool_names_var.reset(tool_token)
+        agent.set_active_model_override("")
+
+    assert trim_budgets
+    assert max(trim_budgets) < int(32_768 * 0.85)
+    system_text = "\n".join(str(msg.content) for msg in result if msg.type == "system")
+    assert "SELF_SENTINEL" not in system_text
+    assert "SKILL_SENTINEL" not in system_text
+    assert "PLUGIN_SENTINEL" not in system_text
+    assert sum(1 for msg in result if msg.type == "system") == 1
+
+
+def test_pre_model_trim_drops_reasoning_only_assistant_turn(tmp_path, monkeypatch):
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    import agent
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
+    monkeypatch.setattr(agent, "get_context_size", lambda: 200_000)
+    monkeypatch.setattr(agent, "trim_messages", lambda messages, **kwargs: list(messages))
+    monkeypatch.setattr(agent, "get_current_model", lambda: "model:openrouter:qwen/qwen3.7-max")
+    monkeypatch.setattr(agent, "is_cloud_model", lambda model: True)
+    monkeypatch.setattr(agent, "get_cloud_provider", lambda model: "openrouter")
+    monkeypatch.setattr(agent, "is_background_workflow", lambda: False)
+
+    result = agent._pre_model_trim({
+        "messages": [
+            SystemMessage(content="Root system"),
+            HumanMessage(content="Use the status tool"),
+            AIMessage(content="", additional_kwargs={"reasoning_content": "I should answer now."}),
+            HumanMessage(content="try again"),
+        ]
+    })["llm_input_messages"]
+
+    assert all(
+        not (
+            isinstance(msg, AIMessage)
+            and not str(msg.content or "").strip()
+            and not getattr(msg, "tool_calls", None)
+        )
+        for msg in result
+    )
+    assert [msg.type for msg in result if msg.type != "system"] == ["human", "human"]
+
+
+def test_pre_model_trim_preserves_empty_assistant_tool_call_turn(tmp_path, monkeypatch):
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    import agent
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+
+    monkeypatch.setattr(agent, "get_context_size", lambda: 200_000)
+    monkeypatch.setattr(agent, "trim_messages", lambda messages, **kwargs: list(messages))
+    monkeypatch.setattr(agent, "get_current_model", lambda: "model:openrouter:qwen/qwen3.7-max")
+    monkeypatch.setattr(agent, "is_cloud_model", lambda model: True)
+    monkeypatch.setattr(agent, "get_cloud_provider", lambda model: "openrouter")
+    monkeypatch.setattr(agent, "is_background_workflow", lambda: False)
+
+    tool_call = {
+        "name": "thoth_status",
+        "args": {"category": "tools"},
+        "id": "call_1",
+        "type": "tool_call",
+    }
+    result = agent._pre_model_trim({
+        "messages": [
+            SystemMessage(content="Root system"),
+            HumanMessage(content="Use the status tool"),
+            AIMessage(content="", tool_calls=[tool_call], additional_kwargs={"reasoning_content": "Use a tool."}),
+            ToolMessage(content="ok", name="thoth_status", tool_call_id="call_1"),
+            HumanMessage(content="continue"),
+        ]
+    })["llm_input_messages"]
+
+    preserved = [msg for msg in result if isinstance(msg, AIMessage)]
+    assert len(preserved) == 1
+    assert preserved[0].tool_calls == [tool_call]
+
+
+def test_provider_transcript_normalizer_strips_invalid_tool_calls(tmp_path, monkeypatch):
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    import agent
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    messages = [
+        HumanMessage(content="use the tool"),
+        AIMessage(
+            content="",
+            tool_calls=[{"name": "thoth_status", "args": {}, "id": "call_1", "type": "tool_call"}],
+            invalid_tool_calls=[{"name": "", "args": "bad", "id": "bad_1", "error": None}],
+        ),
+        ToolMessage(content="ok", name="thoth_status", tool_call_id="call_1"),
+    ]
+
+    result = agent._normalize_provider_facing_messages(messages, provider_id="openrouter")
+
+    ai = next(msg for msg in result if isinstance(msg, AIMessage))
+    assert ai.tool_calls == [{"name": "thoth_status", "args": {}, "id": "call_1", "type": "tool_call"}]
+    assert getattr(ai, "invalid_tool_calls", []) == []
+    assert result[2].tool_call_id == "call_1"
+
+
+def test_provider_transcript_normalizer_rewrites_duplicate_tool_ids(tmp_path, monkeypatch):
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    import agent
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    first_call = {"name": "thoth_status", "args": {"category": "overview"}, "id": "text_call_0", "type": "tool_call"}
+    second_call = {"name": "thoth_status", "args": {"category": "tools"}, "id": "text_call_0", "type": "tool_call"}
+    messages = [
+        HumanMessage(content="check tools"),
+        AIMessage(content="", tool_calls=[first_call]),
+        ToolMessage(content="overview", name="thoth_status", tool_call_id="text_call_0"),
+        AIMessage(content="", tool_calls=[second_call]),
+        ToolMessage(content="tools", name="thoth_status", tool_call_id="text_call_0"),
+    ]
+
+    result = agent._normalize_provider_facing_messages(messages, provider_id="openrouter")
+    ai_messages = [msg for msg in result if isinstance(msg, AIMessage)]
+    tool_messages = [msg for msg in result if isinstance(msg, ToolMessage)]
+
+    assert ai_messages[0].tool_calls[0]["id"] == "text_call_0"
+    assert ai_messages[1].tool_calls[0]["id"] == "text_call_0_2"
+    assert tool_messages[0].tool_call_id == "text_call_0"
+    assert tool_messages[1].tool_call_id == "text_call_0_2"
+
+
+def test_provider_transcript_normalizer_preserves_healthy_native_reasoning(tmp_path, monkeypatch):
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    import agent
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    messages = [
+        HumanMessage(content="hi"),
+        AIMessage(content="hello", additional_kwargs={"reasoning_content": "native reasoning"}),
+    ]
+
+    result = agent._normalize_provider_facing_messages(messages, provider_id="openrouter")
+
+    assert result[1].additional_kwargs == {"reasoning_content": "native reasoning"}
+
+
+def test_provider_transcript_normalizer_strips_reasoning_for_custom_artifacts(tmp_path, monkeypatch):
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    import agent
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    messages = [
+        HumanMessage(content="check tools"),
+        AIMessage(
+            content="",
+            tool_calls=[{"name": "thoth_status", "args": {"category": "tools"}, "id": "text_call_0", "type": "tool_call"}],
+            additional_kwargs={"reasoning_content": "<tool_call><function=thoth_status></function></tool_call>"},
+        ),
+        ToolMessage(content="tools", name="thoth_status", tool_call_id="text_call_0"),
+        AIMessage(content="Done", additional_kwargs={"reasoning_content": "I should now answer."}),
+    ]
+
+    result = agent._normalize_provider_facing_messages(messages, provider_id="openrouter")
+    ai_messages = [msg for msg in result if isinstance(msg, AIMessage)]
+
+    assert all("reasoning_content" not in msg.additional_kwargs for msg in ai_messages)
+    assert ai_messages[-1].content == "Done"
+
+
+def test_provider_transcript_normalizer_serializes_cleanly_for_openrouter(tmp_path, monkeypatch):
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    import agent
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    chat_models = pytest.importorskip("langchain_openrouter.chat_models")
+    _convert_message_to_dict = chat_models._convert_message_to_dict
+
+    messages = [
+        HumanMessage(content="check tools"),
+        AIMessage(
+            content="",
+            tool_calls=[{"name": "thoth_status", "args": {}, "id": "call_1", "type": "tool_call"}],
+            invalid_tool_calls=[{"name": "", "args": '"category":"tools"}', "id": "openai_call_0", "error": None}],
+            additional_kwargs={"reasoning_content": "use a tool"},
+        ),
+        ToolMessage(content="repair", name="thoth_status", tool_call_id="call_1"),
+        AIMessage(
+            content="",
+            tool_calls=[{"name": "thoth_status", "args": {"category": "overview"}, "id": "text_call_0", "type": "tool_call"}],
+            additional_kwargs={"reasoning_content": "<tool_call><function=thoth_status></function></tool_call>"},
+        ),
+        ToolMessage(content="overview", name="thoth_status", tool_call_id="text_call_0"),
+        AIMessage(
+            content="",
+            tool_calls=[{"name": "thoth_status", "args": {"category": "tools"}, "id": "text_call_0", "type": "tool_call"}],
+            additional_kwargs={"reasoning_content": "<tool_call><function=thoth_status></function></tool_call>"},
+        ),
+        ToolMessage(content="tools", name="thoth_status", tool_call_id="text_call_0"),
+        AIMessage(content="Done", additional_kwargs={"reasoning_content": "answer now"}),
+    ]
+
+    normalized = agent._normalize_provider_facing_messages(messages, provider_id="openrouter")
+    payloads = [_convert_message_to_dict(message) for message in normalized]
+
+    assistant_payloads = [payload for payload in payloads if payload["role"] == "assistant"]
+    tool_call_ids = [
+        call["id"]
+        for payload in assistant_payloads
+        for call in payload.get("tool_calls") or []
+    ]
+    tool_result_ids = [payload["tool_call_id"] for payload in payloads if payload["role"] == "tool"]
+
+    assert len(tool_call_ids) == len(set(tool_call_ids))
+    assert set(tool_result_ids).issubset(set(tool_call_ids))
+    assert all("reasoning" not in payload for payload in assistant_payloads)
+    assert all("reasoning_details" not in payload for payload in assistant_payloads)
+    assert all(
+        call["id"] != "openai_call_0"
+        for payload in assistant_payloads
+        for call in payload.get("tool_calls") or []
+    )
+
+
+def test_custom_tool_validation_repair_handles_missing_query(tmp_path, monkeypatch):
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    import agent
+    from langchain_core.tools import StructuredTool
+
+    def _search(query: str) -> str:
+        return f"ok:{query}"
+
+    tool = StructuredTool.from_function(
+        func=_search,
+        name="duckduckgo",
+        description="Search the web.",
+    )
+
+    agent._install_custom_tool_validation_repair([tool], "custom_openai_lab")
+
+    repaired = tool.invoke({})
+
+    assert "Invalid tool call for duckduckgo" in repaired
+    assert "THOTH_TOOL_VALIDATION_RETRY_REQUIRED" in repaired
+    assert "query" in repaired
+    assert "valid JSON arguments" in repaired
+    assert "properties" not in repaired
+    assert len(repaired) < 280
+    assert tool.invoke({"query": "latest AI news"}) == "ok:latest AI news"
+
+
+def test_custom_tool_validation_repair_handles_explicit_schema_generically(tmp_path, monkeypatch):
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    import agent
+    from langchain_core.tools import StructuredTool
+    from pydantic import BaseModel, Field
+
+    class _StatusInput(BaseModel):
+        category: str = Field(description="Status category.")
+
+    tool = StructuredTool.from_function(
+        func=lambda category: f"status:{category}",
+        name="thoth_status",
+        description="Query status.",
+        args_schema=_StatusInput,
+    )
+
+    agent._install_custom_tool_validation_repair([tool], "custom_openai_lab")
+
+    repaired = tool.invoke({})
+
+    assert "Invalid tool call for thoth_status" in repaired
+    assert "THOTH_TOOL_VALIDATION_RETRY_REQUIRED" in repaired
+    assert "category" in repaired
+    assert "duckduckgo" not in repaired
+    assert len(repaired) < 280
+
+
+def test_tool_validation_repair_is_not_installed_for_hosted_provider(tmp_path, monkeypatch):
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    import agent
+    from langchain_core.tools import StructuredTool
+
+    def _search(query: str) -> str:
+        return f"ok:{query}"
+
+    tool = StructuredTool.from_function(
+        func=_search,
+        name="duckduckgo",
+        description="Search the web.",
+    )
+
+    agent._install_custom_tool_validation_repair([tool], "openai")
+
+    assert tool.handle_validation_error is False
+    with pytest.raises(Exception):
+        tool.invoke({})
+
+
+def test_agent_graph_installs_custom_tool_validation_repair(tmp_path, monkeypatch):
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    import agent
+    from langchain_core.tools import StructuredTool
+
+    def _search(query: str) -> str:
+        return f"ok:{query}"
+
+    tool = StructuredTool.from_function(
+        func=_search,
+        name="duckduckgo",
+        description="Search the web.",
+    )
+    fake_tool_obj = SimpleNamespace(
+        as_langchain_tools=lambda: [tool],
+        destructive_tool_names=set(),
+    )
+
+    agent.clear_agent_cache()
+    monkeypatch.setattr(agent.tool_registry, "get_tool", lambda name: fake_tool_obj)
+    monkeypatch.setattr(agent, "get_current_model", lambda: "model:custom_openai_lab:local")
+    monkeypatch.setattr(agent, "get_llm", lambda: object())
+    monkeypatch.setattr(agent, "get_context_size", lambda model_name=None: 32_768)
+    monkeypatch.setattr(agent, "get_agent_system_prompt", lambda: "system")
+    monkeypatch.setattr(agent, "_ensure_agent_mode_ready", lambda model_name: SimpleNamespace(
+        provider_id="custom_openai_lab",
+        runtime_model="local",
+        capability_source="probe",
+        confidence="high",
+    ))
+    monkeypatch.setitem(
+        sys.modules,
+        "plugins",
+        SimpleNamespace(registry=SimpleNamespace(
+            get_langchain_tools=lambda: [],
+            get_destructive_names=lambda: set(),
+        )),
+    )
+    monkeypatch.setattr(agent, "create_react_agent", lambda **kwargs: SimpleNamespace(**kwargs))
+
+    graph = agent.get_agent_graph(["duckduckgo"])
+
+    assert graph.tools == [tool]
+    assert "Invalid tool call for duckduckgo" in graph.tools[0].invoke({})
+    assert "THOTH_TOOL_VALIDATION_RETRY_REQUIRED" in graph.tools[0].invoke({})
+
+    agent.clear_agent_cache()
+
+
+def test_openai_pre_model_trim_keeps_standard_skill_injections(tmp_path, monkeypatch):
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    import agent
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    monkeypatch.setattr(agent, "get_context_size", lambda: 32_768)
+    monkeypatch.setattr(agent, "trim_messages", lambda messages, **kwargs: list(messages))
+    monkeypatch.setattr(agent, "get_current_model", lambda: "gpt-4o")
+    monkeypatch.setattr(agent, "is_cloud_model", lambda model: True)
+    monkeypatch.setattr(agent, "get_cloud_provider", lambda model: "openai")
+    monkeypatch.setattr(agent, "is_background_workflow", lambda: False)
+    monkeypatch.setitem(
+        sys.modules,
+        "self_knowledge",
+        SimpleNamespace(build_self_knowledge_block=lambda: "SELF_SENTINEL"),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "skills",
+        SimpleNamespace(get_skills_prompt=lambda *args, **kwargs: "SKILL_SENTINEL"),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "plugins",
+        SimpleNamespace(registry=SimpleNamespace(get_skills_prompt=lambda: "PLUGIN_SENTINEL")),
+    )
+
+    agent.set_active_model_override("gpt-4o")
+    try:
+        result = agent._pre_model_trim({
+            "messages": [
+                SystemMessage(content="Root system"),
+                HumanMessage(content="hi"),
+            ]
+        })["llm_input_messages"]
+    finally:
+        agent.set_active_model_override("")
+
+    system_text = "\n".join(str(msg.content) for msg in result if msg.type == "system")
+    assert "SELF_SENTINEL" in system_text
+    assert "SKILL_SENTINEL" in system_text
+    assert "PLUGIN_SENTINEL" in system_text
 
 
 def test_minimax_provider_raises_when_api_key_missing(monkeypatch):
