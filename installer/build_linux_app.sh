@@ -83,7 +83,7 @@ ok "Python extracted"
 info "[2/6] Installing Python packages from requirements.txt..."
 "$PYTHON_PREFIX/bin/python3" -m pip install --upgrade pip setuptools wheel --quiet 2>&1 | tail -1 || true
 "$PYTHON_PREFIX/bin/python3" -m pip install -r "$PROJECT_DIR/requirements.txt" --quiet 2>&1 | tail -5
-"$PYTHON_PREFIX/bin/python3" "$PROJECT_DIR/scripts/verify_runtime_dependencies.py" embeddings
+"$PYTHON_PREFIX/bin/python3" "$PROJECT_DIR/scripts/verify_runtime_dependencies.py"
 ok "Python packages installed"
 
 if [ "$PACKAGE_ARCH" = "x86_64" ]; then
@@ -113,17 +113,22 @@ for f in "$PROJECT_DIR"/*.py; do
     cp "$f" "$APP_SRC/"
 done
 cp "$PROJECT_DIR/requirements.txt" "$APP_SRC/"
+mkdir -p "$APP_SRC/scripts"
+cp "$PROJECT_DIR/scripts/verify_runtime_dependencies.py" "$APP_SRC/scripts/"
 
-for pkg in tools channels bundled_skills tool_guides ui plugins designer developer scripts utils providers mcp_client migration buddy; do
+for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client migration buddy; do
     if [ -d "$PROJECT_DIR/$pkg" ]; then
         rsync -a \
               --exclude='__pycache__' --exclude='*.pyc' \
+              --exclude='node_modules' --exclude='.pytest_cache' \
+              --exclude='tests' --exclude='test' --exclude='test-results' \
+              --exclude='*.test.js' --exclude='*.spec.js' \
               --filter='- *.bak' --filter='- *.bak[0-9]*' \
               "$PROJECT_DIR/$pkg/" "$APP_SRC/$pkg/"
     fi
 done
 
-for dir in static sounds docs; do
+for dir in static sounds; do
     if [ -d "$PROJECT_DIR/$dir" ]; then
         rsync -a --exclude='*.pyc' "$PROJECT_DIR/$dir/" "$APP_SRC/$dir/"
     fi
@@ -283,11 +288,22 @@ ok "Launchers created"
 info "[5/6] Cleaning package..."
 find "$PACKAGE_ROOT" -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
 find "$PACKAGE_ROOT" -name '*.pyc' -delete 2>/dev/null || true
+find "$APP_SRC" \( -name '.pytest_cache' -o -name 'test-results' -o -name 'node_modules' \) -prune -exec rm -rf {} + 2>/dev/null || true
 rm -rf "$PYTHON_PREFIX/lib/python"*/ensurepip 2>/dev/null || true
 rm -rf "$PYTHON_PREFIX/lib/python"*/test 2>/dev/null || true
 rm -rf "$PYTHON_PREFIX/lib/python"*/unittest/test 2>/dev/null || true
 # Keep package-internal test dirs under site-packages:
 # some runtime packages import private helpers from those modules.
+if [ -d "$APP_SRC/docs" ]; then
+    fail "Linux package payload unexpectedly contains docs/"
+fi
+if find "$APP_SRC" -path "$APP_SRC/scripts/verify_runtime_dependencies.py" -prune -o \
+       \( -path '*/tests/*' -o -name 'test_*.py' -o -name '*_test.py' -o -name '*_harness.py' -o -name 'pytest.ini' \) -print -quit | grep -q .; then
+    fail "Linux package payload contains test or harness artifacts"
+fi
+if find "$APP_SRC/scripts" -type f ! -name 'verify_runtime_dependencies.py' -print -quit | grep -q .; then
+    fail "Linux package payload contains non-runtime scripts"
+fi
 find "$PACKAGE_ROOT" -name '*.so' -print0 | while IFS= read -r -d '' lib; do
     strip "$lib" 2>/dev/null || true
 done
@@ -295,7 +311,7 @@ ok "Package cleaned"
 
 info "Verifying assembled Linux runtime dependencies..."
 THOTH_INSTALL_ROOT="$PACKAGE_ROOT" PYTHONNOUSERSITE=1 \
-    "$PYTHON_PREFIX/bin/python3" "$APP_SRC/scripts/verify_runtime_dependencies.py" embeddings
+    "$PYTHON_PREFIX/bin/python3" "$APP_SRC/scripts/verify_runtime_dependencies.py"
 ok "Assembled Linux runtime dependencies verified"
 
 info "[6/6] Creating tarball..."

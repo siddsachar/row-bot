@@ -1,5 +1,5 @@
 ; =============================================================================
-; Thoth v3.22.0 - Inno Setup Script
+; Thoth v3.23.0 - Inno Setup Script
 ; Self-contained installer: bundles embedded Python with all pip packages
 ; pre-installed.  No internet downloads at install time.
 ; =============================================================================
@@ -25,8 +25,20 @@
   #error Embedded Python is missing torch. Run installer\build_installer.ps1 before compiling thoth_setup.iss.
 #endif
 
+#ifnexist "build\python\Lib\site-packages\httpx\__init__.py"
+  #error Embedded Python is missing httpx. Run installer\build_installer.ps1 before compiling thoth_setup.iss.
+#endif
+
+#ifnexist "build\python\Lib\site-packages\youtube_search\__init__.py"
+  #error Embedded Python is missing youtube_search. Run installer\build_installer.ps1 before compiling thoth_setup.iss.
+#endif
+
+#ifnexist "build\python\Lib\site-packages\youtube_transcript_api\__init__.py"
+  #error Embedded Python is missing youtube_transcript_api. Run installer\build_installer.ps1 before compiling thoth_setup.iss.
+#endif
+
 #define MyAppName      "Thoth"
-#define MyAppVersion   "3.22.0"
+#define MyAppVersion   "3.23.0"
 #define MyAppPublisher "Thoth"
 #define MyAppURL       "https://github.com/siddsachar/Thoth"
 #define MyAppExeName   "launch_thoth.vbs"
@@ -261,8 +273,7 @@ Source: "..\ui\timer_utils.py";        DestDir: "{app}\app\ui"; Flags: ignorever
 Source: "..\ui\tool_trace.py";         DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\transcript.py";         DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\update_dialog.py";      DestDir: "{app}\app\ui"; Flags: ignoreversion
-; ── Updater scripts (used by maintainers — also shipped for self-help) ─────
-Source: "..\scripts\append_sha_manifest.py"; DestDir: "{app}\app\scripts"; Flags: ignoreversion
+; Runtime diagnostics script
 Source: "..\scripts\verify_runtime_dependencies.py"; DestDir: "{app}\app\scripts"; Flags: ignoreversion
 ; ── Embedded Python (with all packages pre-installed) ────────────────────────
 Source: "build\python\*";              DestDir: "{app}\python"; Flags: ignoreversion recursesubdirs createallsubdirs

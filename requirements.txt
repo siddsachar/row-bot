@@ -80,6 +80,7 @@ youtube-transcript-api
 numpy<2.3; python_version < "3.14"
 numpy; python_version >= "3.14"
 requests
+httpx
 pydantic
 pyyaml
 beautifulsoup4

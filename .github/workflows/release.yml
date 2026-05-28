@@ -42,7 +42,7 @@ concurrency:
 # Tracks the version this workflow is currently shipping. Kept in sync with
 # `installer/thoth_setup.iss` (#define MyAppVersion) and `version.py`.
 env:
-  THOTH_VERSION: "3.22.0"
+  THOTH_VERSION: "3.23.0"
 
 jobs:
   # ════════════════════════════════════════════════════════════════════════════
@@ -62,6 +62,7 @@ jobs:
 
       - name: Install Ollama
         run: |
+          brew install portaudio
           brew install ollama
           ollama serve &
           sleep 5
@@ -69,6 +70,9 @@ jobs:
 
       - name: Install Python packages
         run: python -m pip install -r requirements.txt pytest
+
+      - name: Verify required runtime dependencies
+        run: python scripts/verify_runtime_dependencies.py
 
       - name: Run focused startup hardening tests
         run: python -m pytest tests/test_startup_hardening.py tests/test_app_port.py tests/test_linux_support.py
@@ -132,7 +136,7 @@ jobs:
       - name: Install Linux build/runtime libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends rsync binutils libgl1 libegl1 libglib2.0-0 libxcb-cursor0
+          sudo apt-get install -y --no-install-recommends rsync binutils libgl1 libegl1 libglib2.0-0 libxcb-cursor0 libportaudio2
 
       - name: Validate Linux installer scripts
         run: bash -n build_linux_app.sh installer/build_linux_app.sh installer/install-linux.sh

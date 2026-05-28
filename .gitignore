@@ -37,6 +37,7 @@ pytest_*/
 test-results/
 .backups/
 .copilot_backups/
+.local/
 
 # Dev/test scripts
 seed_knowledge_graph.py

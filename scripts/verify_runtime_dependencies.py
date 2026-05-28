@@ -1,4 +1,4 @@
-"""Verify that bundled runtime dependency groups import successfully."""
+"""Verify that required runtime dependency groups import successfully."""
 
 from __future__ import annotations
 
@@ -7,11 +7,54 @@ import sys
 
 
 GROUPS = {
+    "core": (
+        "nicegui",
+        "langchain_core",
+        "langchain_classic",
+        "langchain_community",
+        "langgraph",
+        "pydantic",
+        "requests",
+        "httpx",
+        "keyring",
+    ),
     "embeddings": (
         "sentence_transformers",
         "langchain_huggingface",
         "transformers",
         "torch",
+    ),
+    "providers": (
+        "langchain_ollama",
+        "langchain_openai",
+        "langchain_anthropic",
+        "langchain_google_genai",
+        "langchain_openrouter",
+        "langchain_xai",
+        "google.genai",
+        "openai",
+    ),
+    "tools": (
+        "pandas",
+        "openpyxl",
+        "plotly",
+        "pypdf",
+        "playwright.sync_api",
+        "cv2",
+        "mss",
+        "pyngrok",
+        "qrcode",
+    ),
+    "channels": (
+        "telegram",
+        "slack_bolt",
+        "twilio",
+        "discord",
+    ),
+    "voice": (
+        "sounddevice",
+        "faster_whisper",
+        "kokoro_onnx",
     ),
     "youtube": (
         "youtube_search",
