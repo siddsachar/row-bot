@@ -44,7 +44,7 @@
         "license": "https://www.apache.org/licenses/LICENSE-2.0",
         "url": "https://get-thoth.com/",
         "downloadUrl": "https://github.com/siddsachar/Thoth/releases",
-        "softwareVersion": "3.22.0",
+        "softwareVersion": "3.23.0",
         "author": {
             "@type": "Person",
             "name": "siddsachar",
@@ -1105,8 +1105,8 @@
             <a href="#comparison">Compare</a>
             <a href="contact.html">Contact</a>
             <a href="https://github.com/siddsachar/Thoth" target="_blank">GitHub</a>
-            <a href="https://github.com/siddsachar/Thoth/releases/download/v3.22.0/ThothSetup_3.22.0.exe" class="nav-dl" data-download="windows">Windows</a>
-            <a href="https://github.com/siddsachar/Thoth/releases/download/v3.22.0/Thoth-3.22.0-macOS-arm64.dmg" class="nav-dl" data-download="macos">macOS</a>
+            <a href="https://github.com/siddsachar/Thoth/releases/download/v3.23.0/ThothSetup_3.23.0.exe" class="nav-dl" data-download="windows">Windows</a>
+            <a href="https://github.com/siddsachar/Thoth/releases/download/v3.23.0/Thoth-3.23.0-macOS-arm64.dmg" class="nav-dl" data-download="macos">macOS</a>
             <a href="#linux-install" class="nav-dl" data-download="linux">Linux</a>
         </div>
     </nav>
@@ -1118,12 +1118,12 @@
         <p class="hero-body">
             Thoth is a desktop AI workbench with Developer Studio for code, Custom Tools for your own repos,
             an animated Buddy companion, memory, workflows, design creation, messaging, MCP tools, and provider-aware model routing.
-            Run it fully local with Ollama or Ollama Cloud, add frontier APIs, or sign in to ChatGPT / Codex when you want subscription-backed models.
+            Run local models, hosted APIs, Ollama Cloud, custom OpenAI-compatible endpoints, or ChatGPT / Codex subscription-backed models with explicit runtime readiness.
             Your durable data stays on your machine.
         </p>
         <div class="hero-actions">
-            <a href="https://github.com/siddsachar/Thoth/releases/download/v3.22.0/ThothSetup_3.22.0.exe" class="btn btn--primary" data-download="windows">Download for Windows <span class="btn-hint">.exe</span></a>
-            <a href="https://github.com/siddsachar/Thoth/releases/download/v3.22.0/Thoth-3.22.0-macOS-arm64.dmg" class="btn btn--primary" data-download="macos">Download for macOS <span class="btn-hint">.dmg</span></a>
+            <a href="https://github.com/siddsachar/Thoth/releases/download/v3.23.0/ThothSetup_3.23.0.exe" class="btn btn--primary" data-download="windows">Download for Windows <span class="btn-hint">.exe</span></a>
+            <a href="https://github.com/siddsachar/Thoth/releases/download/v3.23.0/Thoth-3.23.0-macOS-arm64.dmg" class="btn btn--primary" data-download="macos">Download for macOS <span class="btn-hint">.dmg</span></a>
             <a href="#linux-install" class="btn btn--primary" data-download="linux">Install on Linux <span class="btn-hint">curl</span></a>
             <a href="https://github.com/siddsachar/Thoth" class="btn btn--ghost" target="_blank">View on GitHub</a>
         </div>
@@ -1164,7 +1164,7 @@
                     <span class="feature-icon">&#x2726;</span>
                     <h3>Developer Studio</h3>
                     <p>Connect local Git repositories, restore code threads from the sidebar, review diffs, run tests, manage todos, prepare PRs, and work through approval-gated coding tools inside a Codex-style workspace. Optional Docker Sandbox mode keeps command execution and edits in a shadow copy until you import them.</p>
-                    <span class="feature-tag">New in 3.22</span>
+                    <span class="feature-tag">Code workspaces</span>
                 </div>
             </div>
 
@@ -1178,7 +1178,7 @@
                 <div class="feature-item">
                     <span class="feature-icon">&#x2605;</span>
                     <h3>Buddy Companion</h3>
-                    <p>Buddy adds a local-first animated presence that docks in the sidebar, moves through the workspace, or opens as a native desktop overlay where supported. v3.22 tightens workflow approval cleanup, focus behavior, and Home status progress.</p>
+                    <p>Buddy adds a local-first animated presence that docks in the sidebar, moves through the workspace, or opens as a native desktop overlay where supported. Home status, workflow attention states, and heavier app panels now stay lighter during long sessions.</p>
                     <span class="feature-tag">More reliable</span>
                 </div>
             </div>
@@ -1193,8 +1193,8 @@
                 <div class="feature-item">
                     <span class="feature-icon">&#x25C9;</span>
                     <h3>Personal Knowledge Graph</h3>
-                    <p>Memories become connected entities and typed relationships, with semantic recall, graph expansion, visual exploration, document extraction, and Obsidian-compatible wiki export.</p>
-                    <span class="feature-tag">Durable memory</span>
+                    <p>Memories become connected entities and typed relationships, with bounded semantic, lexical, and graph-expanded recall, audit metadata, review states, trace output, document extraction, and Obsidian-compatible wiki export.</p>
+                    <span class="feature-tag">Auditable recall</span>
                 </div>
             </div>
 
@@ -1208,7 +1208,7 @@
                 <div class="feature-item">
                     <span class="feature-icon">&#x29D6;</span>
                     <h3>Workflows &amp; Approvals</h3>
-                    <p>Run scheduled pipelines with conditions, approvals, subtasks, webhooks, model/tool overrides, safety modes, run history, insight cards, workflow-level delivery defaults, and a collapsible console that shows attention states.</p>
+                    <p>Run scheduled pipelines with conditions, approvals, subtasks, webhooks, model/tool overrides, safety modes, run history, insight cards, workflow-level delivery defaults, task DB recovery diagnostics, and a collapsible console that shows attention states.</p>
                     <span class="feature-tag">Delivery controls</span>
                 </div>
             </div>
@@ -1238,8 +1238,8 @@
                 <div class="feature-item">
                     <span class="feature-icon">&#x26BF;</span>
                     <h3>Provider Runtime &amp; Models</h3>
-                    <p>OpenAI, Anthropic, Google AI, xAI, OpenRouter, MiniMax, custom endpoints, Ollama, Ollama Cloud, configurable embeddings, and ChatGPT / Codex all flow through cached provider-aware catalogs.</p>
-                    <span class="feature-tag">Expanded in 3.22</span>
+                    <p>OpenAI, Anthropic, Google AI, xAI, OpenRouter, MiniMax, custom endpoints, Ollama, Ollama Cloud, configurable embeddings, and ChatGPT / Codex all flow through provider-qualified catalogs, readiness routing, context policies, and chat-only fallbacks.</p>
+                    <span class="feature-tag">Hardened in 3.23</span>
                 </div>
             </div>
         </div>
@@ -1286,7 +1286,7 @@
                         then retrieves relevant nodes and one-hop context before each response.
                     </p>
                     <p>
-                        Document extraction, configurable local or cloud embeddings, stale-index detection, Dream Cycle refinement,
+                        Document extraction, configurable local or cloud embeddings, FTS5 lexical search, recall traces, review queues,
                         provider-aware insight snapshots, wiki export, and the interactive graph view keep that memory useful instead of turning it into a pile of notes.
                     </p>
                 </div>
@@ -1305,28 +1305,28 @@
         <div class="container">
             <div class="two-paths-header">
                 <h2 class="section-heading">Local when you can. Providers when you want.</h2>
-                <p class="section-sub">One assistant, local models, Ollama Cloud, API providers, custom endpoints, MiniMax, and ChatGPT / Codex</p>
+                <p class="section-sub">One assistant, local models, Ollama Cloud, API providers, self-hosted endpoints, MiniMax, and ChatGPT / Codex</p>
             </div>
 
             <div class="paths-grid">
                 <div class="path-block">
-                    <div class="path-label">Local models &middot; Ollama</div>
+                    <div class="path-label">Local models &middot; On your machine</div>
                     <h3>Private by default</h3>
                     <p>Run inference on your hardware with 39 curated models across Qwen, Llama, Gemma, Mistral, DeepSeek, Phi, and more.</p>
                     <ul class="path-list">
                         <li>Works offline after model download</li>
                         <li>No subscription or provider account</li>
-                        <li>Default local model: <code>qwen3:14b</code></li>
+                        <li>Setup wizard sets the default model from your chosen path</li>
                     </ul>
                 </div>
                 <div class="path-block">
                     <div class="path-label">Providers &amp; subscriptions &middot; Opt-in</div>
                     <h3>Frontier reasoning on demand</h3>
-                    <p>Add OpenAI, Anthropic, Google AI, xAI, OpenRouter, MiniMax, custom OpenAI-compatible endpoints, or ChatGPT / Codex when you need frontier reasoning or do not have a GPU.</p>
+                    <p>Add OpenAI, Anthropic, Google AI, xAI, OpenRouter, MiniMax, custom OpenAI-compatible endpoints, or ChatGPT / Codex when you need frontier reasoning, hosted media, or no local model download.</p>
                     <ul class="path-list">
                         <li>Settings &rarr; Providers handles sign-in, health, and keys</li>
                         <li>Settings &rarr; Models handles catalogs, defaults, and Quick Choices</li>
-                        <li>Duplicate names are labeled by route: API, custom endpoint, or ChatGPT / Codex</li>
+                        <li>Readiness checks route models to agent mode, chat-only mode, or setup guidance</li>
                     </ul>
                 </div>
             </div>
@@ -1532,7 +1532,7 @@
                 <div class="install-step">
                     <div class="install-step-num">&#x2194; 02</div>
                     <h3>Choose your provider</h3>
-                    <p>First-launch onboarding now starts with model/provider setup: use <strong>Local</strong> Ollama, <strong>Ollama Cloud</strong>, API-key providers, custom endpoints, or ChatGPT / Codex sign-in, then continue setup from the resumable Setup Center.</p>
+                    <p>First-launch onboarding starts with model/provider setup: use <strong>Local</strong> models, <strong>Ollama Cloud</strong>, API-key providers, custom endpoints, or ChatGPT / Codex sign-in, then continue setup from the resumable Setup Center.</p>
                 </div>
                 <div class="install-step">
                     <div class="install-step-num">&#x25B6; 03</div>
@@ -1565,7 +1565,7 @@
                 cloud embeddings, ChatGPT / Codex, and online tools are opt-in, with secrets stored in the OS credential store when available.
             </p>
             <div class="privacy-facts">
-                <span class="privacy-fact">&#x25C8; Local inference (default)</span>
+                <span class="privacy-fact">&#x25C8; Local data first</span>
                 <span class="privacy-fact">&#x2601; Providers opt-in only</span>
                 <span class="privacy-fact">&#x25A0; Local storage</span>
                 <span class="privacy-fact">&#x25EF; Local voice</span>
@@ -1581,14 +1581,14 @@
 
     <section class="whats-new reveal">
         <div class="container--narrow">
-            <h2>What&rsquo;s new in <em>v3.22</em></h2>
+            <h2>What&rsquo;s new in <em>v3.23</em></h2>
             <ul class="whats-new-list">
-                <li><strong>Developer Studio.</strong> Code workspaces now get dedicated threads, repository context injection, approval modes, todos, diffs, test detection, GitHub/PR helpers, and a resizable inspector built for long coding sessions.</li>
-                <li><strong>Docker Sandbox.</strong> Developer commands can run in a persistent shadow workspace with import-gated edits, network policy controls, image selection, process controls, and clearer Docker startup errors.</li>
-                <li><strong>Custom Tools.</strong> A guided wizard and conversational builder can inspect repos, propose commands, validate risky shell patterns, run one-time tests, and promote reviewed tools into the normal plugin/tool surface.</li>
-                <li><strong>Workflow delivery and Home status.</strong> Background workflows now have delivery defaults and overrides, the workflow console can collapse with attention badges, and Home status covers more of the app in compact icon pills.</li>
-                <li><strong>Chat, Settings, and onboarding polish.</strong> Shift+Enter inserts newlines, tool traces group repeated calls, the model picker lives in the input area, onboarding starts with provider choice, and Setup Center helps resume configuration.</li>
-                <li><strong>Models, embeddings, and stability.</strong> Ollama Cloud joins the provider paths, model catalogs cache in the background, embeddings can use local or cloud providers, stale vector indexes are detected, and startup/shutdown diagnostics are deeper.</li>
+                <li><strong>Provider runtime hardening.</strong> Model choices stay provider-qualified across setup, Settings, defaults, thread overrides, catalogs, and runtime construction, with no accidental fallback to the wrong provider.</li>
+                <li><strong>Custom endpoint readiness.</strong> OpenAI-compatible servers can use compatibility profiles and probes for catalog, streaming, tool-call, context-window, and parameter support before Thoth trusts them for agent work.</li>
+                <li><strong>Chat-only fallback.</strong> Models that are useful for conversation but unreliable with tools can answer through a smaller chat-only path instead of failing in the full agent graph.</li>
+                <li><strong>Memory recall uplift.</strong> Auto-recall now combines bounded semantic search, FTS5 lexical search, graph expansion, review states, provenance, recall traces, and Knowledge audit surfaces.</li>
+                <li><strong>Faster large sessions.</strong> Transcript windows, Settings tabs, Knowledge surfaces, Home panels, model pickers, and detached stream finalization do less blocking work during long conversations.</li>
+                <li><strong>Release and recovery checks.</strong> Task databases can repair or reset with backups, and CI plus installer builds verify required runtime dependencies before release artifacts ship.</li>
             </ul>
             <p class="whats-new-foot">
                 <a href="https://github.com/siddsachar/Thoth/blob/main/RELEASE_NOTES.md" target="_blank">Read the full release notes &rarr;</a>
@@ -1603,8 +1603,8 @@
             <h2>Take back your <em>AI sovereignty</em></h2>
             <p>Free, open source, and yours to keep. No Thoth account. No Thoth subscription. No data harvesting.</p>
             <div class="cta-buttons">
-                <a href="https://github.com/siddsachar/Thoth/releases/download/v3.22.0/ThothSetup_3.22.0.exe" class="btn btn--primary" data-download="windows">Download for Windows <span class="btn-hint">.exe</span></a>
-                <a href="https://github.com/siddsachar/Thoth/releases/download/v3.22.0/Thoth-3.22.0-macOS-arm64.dmg" class="btn btn--primary" data-download="macos">Download for macOS <span class="btn-hint">.dmg</span></a>
+                <a href="https://github.com/siddsachar/Thoth/releases/download/v3.23.0/ThothSetup_3.23.0.exe" class="btn btn--primary" data-download="windows">Download for Windows <span class="btn-hint">.exe</span></a>
+                <a href="https://github.com/siddsachar/Thoth/releases/download/v3.23.0/Thoth-3.23.0-macOS-arm64.dmg" class="btn btn--primary" data-download="macos">Download for macOS <span class="btn-hint">.dmg</span></a>
                 <a href="#linux-install" class="btn btn--primary" data-download="linux">Install on Linux <span class="btn-hint">curl</span></a>
                 <a href="https://github.com/siddsachar/Thoth" class="btn btn--ghost" target="_blank">Star on GitHub</a>
             </div>
@@ -1622,7 +1622,7 @@
 
     <footer>
         <p>
-            &#x1305F; Thoth &middot; v3.22.0 &middot; Apache 2.0 &middot;
+            &#x1305F; Thoth &middot; v3.23.0 &middot; Apache 2.0 &middot;
             <a href="https://github.com/siddsachar/Thoth" target="_blank">GitHub</a> &middot;
             <a href="contact.html">Contact</a>
         </p>
