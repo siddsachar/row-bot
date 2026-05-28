@@ -47,18 +47,30 @@ def _custom_endpoint_execution_location(base_url: str) -> str:
     return "local" if ip.is_private or ip.is_loopback else "remote"
 
 
-def build_custom_endpoint_setup_payload(base_url: str, api_key: str = "", profile: str = "generic_openai") -> dict[str, str | bool]:
+def build_custom_endpoint_setup_payload(
+    base_url: str,
+    api_key: str = "",
+    profile: str = "generic_openai",
+    *,
+    name: str = "",
+    execution_location: str | None = None,
+    auth_required: bool | None = None,
+) -> dict[str, str | bool]:
     clean_url = str(base_url or "").strip().rstrip("/")
     clean_key = str(api_key or "").strip()
     host_label = _custom_endpoint_host_label(clean_url)
-    name = f"Self-hosted ({host_label})"
+    provided_name = str(name or "").strip()
+    clean_name = provided_name or f"Self-hosted ({host_label})"
+    clean_location = str(execution_location or "").strip().lower()
+    if clean_location not in {"local", "remote"}:
+        clean_location = _custom_endpoint_execution_location(clean_url)
     return {
-        "id": host_label,
-        "name": name,
+        "id": clean_name if provided_name else host_label,
+        "name": clean_name,
         "base_url": clean_url,
         "api_key": clean_key,
-        "auth_required": bool(clean_key),
-        "execution_location": _custom_endpoint_execution_location(clean_url),
+        "auth_required": bool(clean_key) if auth_required is None else bool(auth_required),
+        "execution_location": clean_location,
         "profile": profile or "generic_openai",
         "transport": "openai_chat",
     }
@@ -563,20 +575,33 @@ async def show_setup_wizard(
                     "or a private gateway. Leave the API key empty for no-auth endpoints."
                 ).classes("text-grey-6 text-sm")
 
+                custom_name_input = ui.input(
+                    "Name",
+                    placeholder="oMLX Mac Test",
+                ).classes("w-full")
                 custom_url_input = ui.input(
                     "Base URL",
                     placeholder="http://127.0.0.1:8000/v1",
                 ).classes("w-full")
+                with ui.row().classes("items-center gap-3 w-full"):
+                    custom_profile_select = ui.select(
+                        {key: str(value.get("display_name") or key) for key, value in CUSTOM_ENDPOINT_PROFILES.items()},
+                        value="generic_openai",
+                        label="Endpoint profile",
+                    ).classes("min-w-[200px]").props("dense outlined")
+                    custom_no_auth = ui.checkbox("No API key required", value=True)
+                    custom_location_select = ui.select(
+                        {"local": "Local/private", "remote": "Remote/proxy"},
+                        value="local",
+                        label="Execution location",
+                    ).classes("min-w-[180px]").props("dense outlined")
                 custom_api_key_input = ui.input(
-                    "API Key (optional)",
+                    "API key or token",
+                    value="",
+                    placeholder="Optional for local servers",
                     password=True,
                     password_toggle_button=True,
                 ).classes("w-full")
-                custom_profile_select = ui.select(
-                    {key: str(value.get("display_name") or key) for key, value in CUSTOM_ENDPOINT_PROFILES.items()},
-                    value="generic_openai",
-                    label="Endpoint profile",
-                ).classes("w-full").props("dense outlined")
 
                 custom_status = ui.label("").classes("text-sm")
                 custom_status.visible = False
@@ -592,7 +617,18 @@ async def show_setup_wizard(
                     if not base_url:
                         ui.notify("Enter a custom endpoint base URL", type="warning")
                         return
-                    payload = build_custom_endpoint_setup_payload(base_url, api_key, str(custom_profile_select.value or "generic_openai"))
+                    auth_required = not bool(custom_no_auth.value)
+                    if auth_required and not api_key:
+                        ui.notify("Enter an API key or enable no-auth for this endpoint", type="warning")
+                        return
+                    payload = build_custom_endpoint_setup_payload(
+                        base_url,
+                        api_key,
+                        str(custom_profile_select.value or "generic_openai"),
+                        name=str(custom_name_input.value or ""),
+                        execution_location=str(custom_location_select.value or ""),
+                        auth_required=auth_required,
+                    )
                     custom_status.text = "⏳ Connecting to custom endpoint…"
                     custom_status.visible = True
                     custom_model_select.visible = False
