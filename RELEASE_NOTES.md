@@ -2,6 +2,149 @@
 
 ---
 
+## v3.23.0 — Provider Runtime, Memory Recall & UI Performance Hardening
+
+This release hardens the runtime paths that were expanded in v3.22.0. The headline work is **provider compatibility**: Thoth now preserves provider-qualified model identity end to end, routes incompatible models into a safer chat-only path, probes custom OpenAI-compatible endpoints before trusting tool support, and normalizes tricky provider transcripts before replay. It also ships a major **memory recall uplift**, with deterministic bounded recall, lexical and graph-expanded candidates, audit metadata, review states, and provenance surfaces. Around that, v3.23.0 makes large transcripts and Settings screens lighter, adds task database recovery, improves local/self-hosted setup, and expands regression coverage around real provider behavior.
+
+### Provider Runtime & Custom Endpoints
+
+- **Provider-qualified model identity** — model choices now keep their provider identity across Settings, catalog pinning, defaults, thread overrides, status displays, setup wizard choices, and runtime construction.
+- **No accidental OpenRouter fallback** — unknown bare model IDs no longer silently route to OpenRouter when the original provider cannot be inferred.
+- **Runtime readiness routing** — provider/runtime checks now distinguish full agent mode, chat-only mode, and blocked configurations before a broken run starts.
+- **Context-window guardrails** — small context windows block agent mode with clearer guidance, while medium windows can use chat-only mode when tool schemas would not fit reliably.
+- **Unified context policy** — local, cloud, and custom endpoint context caps now flow through one policy path with model maximums, user caps, and request-time context parameters where supported.
+- **Context cache invalidation** — changing local or cloud context settings clears stale LLM clients so subsequent turns use the new limits.
+- **Custom endpoint profiles** — OpenAI-compatible endpoints can use profile behavior for common local and proxy servers such as LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, oMLX-style servers, and generic OpenAI-compatible backends.
+- **Custom endpoint probing** — self-hosted endpoints can be probed for catalog availability, streaming support, tool-call behavior, and model compatibility, with probe results persisted for later readiness decisions.
+- **Native metadata discovery** — LM Studio and llama.cpp metadata paths are used when available to discover context windows and native tool support more accurately.
+- **No-auth endpoint support** — local endpoints that do not require API keys can refresh catalogs without unnecessary secret lookups.
+- **OpenAI-compatible transport** — adds a dedicated transport for custom OpenAI-compatible chat, streaming, tool serialization, tool-call chunks, reasoning fields, runtime context overrides, and clearer HTTP error messages.
+- **Unsupported payload cleanup** — custom endpoint profiles can drop unsupported parameters such as tools, tool choice, parallel tool calls, reasoning, response formats, or tool history when a backend cannot accept them.
+- **Tool-call recovery** — local models that emit tool-call envelopes as text or reasoning can be recovered into structured tool calls when safe.
+- **Reasoning-only response handling** — reasoning-only outputs after successful tool calls can be promoted into final visible content, while reasoning-only failures after tool errors produce actionable errors instead of silent empty replies.
+- **Custom tool validation repair** — local/custom providers can receive a repair message when a tool call misses required fields such as `query`, reducing dead-end schema failures.
+- **Ollama tool probing** — unknown or uncertain local Ollama models can be promoted to agent mode only after a real tool round-trip succeeds.
+- **Ollama launch cleanup** — the launcher now starts Ollama only when saved Brain or Vision settings actually need local Ollama, and `--no-ollama` forces the skip.
+- **Ollama reasoning behavior** — Ollama reasoning is enabled only for detected reasoning models instead of being forced globally.
+- **Vision provider refs** — local Vision calls strip provider-qualified Ollama refs at the runtime edge while provider/cloud refs still route through the correct path.
+- **Designer runtime readiness** — Designer text refinement and speaker-note generation now use the active model override and verify that the selected model is agent-ready.
+
+### Chat-Only Runtime & Transcript Compatibility
+
+- **Chat-only runtime path** — non-tool or tool-incompatible models can answer normal chat without building the full tool graph.
+- **Compact chat-only prompt** — chat-only mode uses a smaller prompt that avoids implying tools, workflows, or task actions are available.
+- **Tool-free history shaping** — prior tool turns are summarized for chat-only context without replaying full tool bodies or invalid protocol shapes.
+- **Chat-only streaming persistence** — chat-only responses stream and persist through the normal conversation paths.
+- **Runtime surface tagging** — chat, channels, workflow approvals, Designer, and forced agent surfaces now tag their runtime mode so provider readiness can make the right routing decision.
+- **Provider transcript diagnostics** — model-facing transcripts are inspected for invalid tool calls, duplicate tool IDs, orphan tool results, and reasoning-field hazards.
+- **Transcript normalization** — provider-facing messages drop no-op assistant turns, strip invalid tool calls, rewrite duplicate tool-call IDs, drop orphan tool results, and remove unsafe reasoning fields for custom-tool artifacts.
+- **Thinking retention** — non-empty thinking/reasoning text is preserved through streaming, reattach, persisted transcript rendering, and final message display.
+- **Reasoning-only final guard** — reasoning-only chunks are no longer mistaken for final assistant content when there is no visible answer.
+- **Checkpoint transcript loading** — transcript loading can read checkpoint messages and token usage without importing or constructing the agent graph.
+- **Legacy checkpoint repair** — checkpoint version values are normalized when older integer versions are encountered.
+- **Detached stream finalization** — detached clients can finalize with scoped transcript refreshes instead of rebuilding the full main UI.
+- **Optimistic message preservation** — user messages remain visible during detached finalize and reconnect flows.
+
+### Memory Recall & Knowledge Audit
+
+- **Bounded auto-recall policy** — Agent turns now use deterministic memory recall with query building, context-aware token budgeting, scoring, filtering, and trace output.
+- **Hybrid recall candidates** — recall combines semantic search, FTS5 lexical search, keyword fallback, and graph-neighbor expansion.
+- **Graph-expanded recall** — strong seed memories can pull in related graph nodes with relation confidence and hop metadata.
+- **Recall-safe candidate retrieval** — candidate inspection no longer mutates recall timestamps until the final selected memories are injected.
+- **Recall reinforcement** — selected memories are touched with `recalled_at` and recall-count metadata after they are actually used.
+- **Memory tier scoring** — recall ranks core, semantic, episodic, and resource memories differently based on source, confidence, evidence, recency, and query fit.
+- **Status-aware filtering** — archived, needs-review, superseded, stale, weak, greeting-only, runtime-status, and unanchored resource memories are filtered out of normal auto-recall.
+- **Recall traces** — recent recall decisions are written to a compact trace file for debugging why memories were included or rejected.
+- **FTS5 memory index** — knowledge graph entities now maintain a lexical search index for faster exact/keyword recall.
+- **Memory evolution helpers** — new integrity helpers normalize status, tier, confidence, evidence, source context, manual edits, review state, superseding, archival, and journal entries.
+- **Memory review states** — memories can now be active, needs review, superseded, or archived without losing the underlying entity.
+- **Audit metadata** — extracted, document-derived, wiki-synced, and manually edited memories preserve stronger provenance, confidence, evidence, and source context.
+- **Conflict handling** — extraction can mark conflicting memories for review instead of overwriting high-authority user facts.
+- **Low-confidence relation filtering** — background extraction skips weak inferred relations instead of adding noisy graph edges.
+- **Extraction journal** — memory extraction records run summaries, per-thread details, skipped relations, and extraction outcomes.
+- **Resource hub memories** — document extraction creates or updates resource-style hub memories with provenance and audit fields.
+- **Wiki sync provenance** — wiki vault sync preserves audit/status metadata and appends memory-evolution journal entries.
+- **Knowledge audit UI** — Settings and entity editor surfaces now expose audit badges, filters, review queues, recall traces, and evolution journal entries.
+- **Entity review actions** — individual memories/entities can be archived, marked for review, superseded, restored to active, or marked as user-modified from the editor.
+- **Memory tool output** — memory search/list/save/update output now includes IDs, status, confidence, tier, and recall-aware results so agents can modify the right memory.
+
+### UI Performance & Transcript Loading
+
+- **UI performance utilities** — adds generation tokens, timed UI sections, slow-section logging, and safe UI callback/task wrappers.
+- **Bounded transcript windows** — large conversations render a bounded visible window with an explicit load-earlier path instead of rebuilding every message at once.
+- **Async model picker cache** — model picker options are cached and refreshed asynchronously so chat inputs can appear quickly.
+- **Model surface placeholders** — chat can render lightweight model/provider placeholders while detailed model status resolves in the background.
+- **Generation-safe token counters** — token counter updates are debounced and ignored when they belong to an older render generation.
+- **Lazy Home panels** — Home tab panels defer heavier Developer, Designer, Knowledge, and Activity work until opened.
+- **Coalesced status refreshes** — Home status pill refreshes are cached and coalesced to reduce repeated expensive checks.
+- **Settings generation guards** — Settings tab renders use generation tokens and local error boundaries so stale async work cannot overwrite newer UI.
+- **Deferred Settings tabs** — heavier Settings tab content is scheduled lazily instead of blocking the shell.
+- **Lazy Knowledge sections** — memory browsing, audit details, relationship loading, recall traces, and journal rows load on demand.
+- **Off-UI-loop entity saves** — entity editor saves run off the UI loop and refresh Knowledge state in staged steps.
+- **Render instrumentation** — graph chat, streaming, Mermaid rendering, text embeds, transcript rendering, and blank-thread startup now include performance instrumentation.
+- **Performance harness** — adds a local harness for profiling real transcripts and blank-thread shells.
+
+### Task Database Recovery
+
+- **Shared data path helpers** — local database paths now resolve through a shared data-path module for tasks, memory, threads, and diagnostics.
+- **Task schema validation** — startup/task operations validate required tables and columns before use.
+- **In-place schema repair** — partial task databases can be repaired in place while preserving existing rows when possible.
+- **Corrupt DB recovery** — corrupt task databases are backed up and recreated with a clean schema.
+- **Schema retry wrappers** — task operations retry once after repairing schema-related SQLite errors.
+- **Malformed migration tolerance** — workflow-to-task migration skips malformed legacy rows after the destination schema exists.
+- **Launcher recovery commands** — `launcher.py --reset-tasks-db`, `--reset-db`, and `--restore-data` can back up and recreate local SQLite stores.
+- **WAL/SHM backup coverage** — task, memory, and thread DB backup/restore handles SQLite companion files.
+- **Support diagnostics** — Home, Command Center, and `thoth_status` show task-schema state, recovery guidance, last repair, and schema errors.
+
+### Tools, Channels & Runtime Reliability
+
+- **Channel runtime routing** — Telegram, WhatsApp, Discord, Slack, and SMS now mark channel turns as channel/auto runtime, while approval resumes force agent mode.
+- **Approval resume routing** — channel approval resumes explicitly request agent mode so tool continuations do not fall into chat-only routing.
+- **Wikipedia HTTPS endpoint** — the Wikipedia tool forces the legacy client onto the HTTPS API endpoint.
+- **Wikipedia recoverable errors** — upstream JSON/API failures now return a recoverable tool result that tells the agent not to retry the same query blindly.
+- **Wikipedia usage guidance** — the tool description now steers broad conceptual questions away from unnecessary encyclopedia lookups.
+- **Thoth Status model reporting** — status output reports the effective runtime model/mode more accurately.
+- **Thoth Status task reporting** — scheduled-task status now includes schema diagnostics before listing configured tasks.
+- **Command Center recovery copy** — task-schema failures point users toward the new launcher recovery command.
+
+### Tests & Release Checks
+
+- **Provider readiness coverage** — tests cover agent/chat-only/block routing, context floors, cached capability snapshots, OpenRouter metadata, Ollama probing, and custom endpoint probing.
+- **Custom provider coverage** — tests cover profiles, no-auth endpoints, native metadata discovery, streaming probes, context overrides, and setup wizard payloads.
+- **OpenAI-compatible transport coverage** — tests cover request payloads, tool calls, streaming, reasoning-only finals, unsupported parameters, and provider error handling.
+- **Provider selection coverage** — tests cover provider-qualified refs, duplicate model IDs across providers, Ollama refs, Quick Choices, and stale capability refresh.
+- **Chat-only and transcript coverage** — tests cover chat-only streaming, forced agent surfaces, checkpoint transcript loading, checkpoint version repair, detached finalize, and thinking retention.
+- **Memory recall coverage** — tests cover auto-recall scoring, filtering, graph expansion, recall traces, evolution helpers, audit helpers, and memory extraction metadata.
+- **UI performance coverage** — tests cover generation tokens, safe UI callbacks, bounded transcript windows, lazy Knowledge surfaces, staged refreshes, and performance harness wiring.
+- **Task recovery coverage** — tests cover empty data dirs, partial schemas, corrupt DB recreation, migration tolerance, launcher reset/restore args, and DB-family backup.
+- **Tool/runtime regressions** — tests cover Wikipedia recovery, Vision provider refs, Designer routing, Home performance, model picker regressions, and opt-in live provider matrix behavior.
+- **Live provider marker** — adds a `live_provider` pytest marker for real configured-provider calls that remain opt-in.
+
+### Release Notes & Risk Notes
+
+- **Custom endpoint compatibility depends on the server** — profiles and probes improve behavior for common OpenAI-compatible servers, but local/proxy backends can still vary in tool syntax, streaming behavior, and context parameter names.
+- **Chat-only mode is intentionally limited** — models routed to chat-only mode can answer normal conversation but should not be expected to run tools, workflows, or structured agent actions.
+- **Memory recall is more selective** — archived, superseded, weak, or unanchored memories may stop appearing automatically; users can still review and restore memory state from Knowledge surfaces.
+- **Task DB recovery backs up before reset** — recovery commands preserve old SQLite files under the local recovery directory, but reset flows can remove active scheduled-task rows from the live DB until restored.
+- **Live provider tests are opt-in** — the new live matrix is useful for release validation with configured credentials, but it is not part of the normal offline unit suite.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `agent.py`, `models.py`, `prompts.py`, `threads.py` | Runtime readiness routing, chat-only execution, provider transcript normalization, thinking retention, context policy usage, and checkpoint transcript helpers |
+| `providers/custom.py`, `providers/readiness.py`, `providers/resolution.py`, `providers/runtime.py`, `providers/selection.py`, `providers/tool_protocol.py`, `providers/transports/openai_compatible.py`, `providers/ollama.py` | Provider-qualified resolution, custom endpoint profiles/probes, OpenAI-compatible transport, Ollama probing/reasoning behavior, context overrides, and tool validation repair |
+| `ui/setup_wizard.py`, `ui/provider_settings.py`, `ui/model_catalog.py`, `vision.py`, `designer/ai_content.py` | Custom endpoint setup fields, provider-qualified setup selections, async model-picker behavior, Vision provider-ref routing, and Designer model readiness |
+| `memory_policy.py`, `memory_evolution.py`, `knowledge_graph.py`, `memory.py`, `memory_extraction.py`, `document_extraction.py`, `wiki_vault.py`, `tools/memory_tool.py` | Bounded recall policy, lexical/graph recall candidates, memory audit metadata, evolution journal, extraction provenance, and memory tool output |
+| `ui/knowledge_audit.py`, `ui/entity_editor.py`, `ui/settings.py`, `ui/graph_panel.py` | Knowledge audit helpers, entity review actions, lazy Knowledge settings surfaces, recall traces, and memory evolution journal UI |
+| `ui/performance.py`, `ui/transcript.py`, `ui/chat.py`, `ui/chat_components.py`, `ui/render.py`, `ui/streaming.py`, `ui/home.py`, `ui/status_bar.py`, `ui/command_center.py` | UI performance instrumentation, bounded transcript rendering, detached finalize improvements, async picker loading, lazy Home panels, cached status refresh, and task recovery copy |
+| `tasks.py`, `data_paths.py`, `launcher.py`, `tools/thoth_status_tool.py` | Task DB schema validation/repair, recovery commands, data path helpers, backup/restore support, and support diagnostics |
+| `channels/approval.py`, `channels/telegram.py`, `channels/whatsapp.py`, `channels/discord_channel.py`, `channels/slack.py`, `channels/sms.py` | Runtime surface tagging for channel turns and approval resumes |
+| `tools/wikipedia_tool.py` | HTTPS API endpoint forcing, recoverable Wikipedia errors, and safer tool usage guidance |
+| `scripts/reasoning_completion_harness.py`, `scripts/ui_performance_harness.py`, `pytest.ini`, `tests/` | Reasoning/runtime harnesses, UI performance harness, live-provider marker, and focused regressions for provider runtime, memory recall, UI performance, task recovery, transcript loading, Vision, and Wikipedia |
+
+---
+
 ## v3.22.0 — Developer Studio, Custom Tools, Workflow Delivery & Stability Overhaul
 
 This release turns Thoth into a broader **workbench for chat, workflows, code, documents, and user-built tools**. The headline feature is **Developer Studio**: a Codex-style coding workspace for connecting local Git repositories, reviewing code, planning and applying changes, running tests, preparing PRs, and working inside an optional Docker shadow sandbox. It also adds **Custom Tools**, letting users turn GitHub repos or local folders into reusable Thoth tools through a guided or conversational flow. Around that, v3.22.0 substantially improves workflow delivery defaults, Home status visibility, Settings organization, onboarding, model catalog performance, embedding provider choice, chat tool traces, and app stability diagnostics.

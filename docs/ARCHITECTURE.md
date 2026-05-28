@@ -54,12 +54,16 @@
 - **Thinking indicators** — shows when the model is reasoning before responding
 - **Smart context management** — automatic conversation summarization compresses older turns when token usage exceeds 80% of the context window, preserving the 5 most recent turns and a running summary; a hard trim at 85% drops oldest messages as a safety net; oversized tool outputs are proportionally shrunk so multi-tool chains fit within context; accurate token counting via tiktoken (cl100k_base)
 - **Dynamic tool budgets** — the agent automatically adjusts how many tools are exposed to the model based on available context headroom; when context usage is high, lower-priority tools are temporarily hidden to prevent the system prompt from crowding out conversation history
+- **Runtime readiness routing** — before building the graph, selected models are evaluated for context headroom, provider capability metadata, tool support, and surface requirements; full agent mode, chat-only mode, and blocked states are explicit outcomes rather than accidental provider failures
+- **Chat-only runtime** — models that are useful for normal conversation but cannot reliably accept tool schemas use a compact tool-free prompt, a shaped transcript without full tool bodies, and the normal streaming/persistence path
+- **Provider transcript normalization** — model-facing histories are checked for duplicate tool-call IDs, orphan tool results, invalid tool calls, empty assistant turns, and unsafe reasoning/tool artifacts before replay to custom or hosted providers
 - **Centralized prompts plus self-knowledge injection** — base prompt templates live in `prompts.py`, while `self_knowledge.py` injects a dynamic identity line, capability manifest, and live runtime state so Thoth can describe itself accurately without stale hard-coded copy
 - **Live token counter** — progress bar in the sidebar shows real-time context window usage based on trimmed (model-visible) history
-- **Graceful stop & error recovery** — stop button cleanly halts generation with drain timeout; agent tool loops are caught automatically with mode-aware budgets (normal chat, workflows, and long Developer turns have separate limits) and wind-down prompts; orphaned tool calls are repaired; API errors are surfaced as persistent red toasts and saved to the conversation checkpoint so they survive thread refresh
+- **Graceful stop & error recovery** — stop button cleanly halts generation with drain timeout; agent tool loops are caught automatically with mode-aware budgets (normal chat, workflows, and long Developer turns have separate limits) and wind-down prompts; orphaned tool calls are repaired; provider/API errors are surfaced as persistent red toasts and saved to the conversation checkpoint so they survive thread refresh
 - **Workflow cancellation** — running background workflows can be stopped from the chat header, activity panel, or workflow card; cancellation is checked between every LangGraph node for clean shutdown
 - **Displaced tool-call auto-repair** — if context trimming displaces tool-call/response pairs, the agent automatically detects and repairs the ordering before the next LLM call; orphaned tool calls trigger an automatic retry
 - **Grouped tool traces** — repeated tool calls of the same type are grouped into expandable transcript entries, keeping long research, browser, and Developer runs readable while preserving individual results
+- **Thinking retention** — non-empty reasoning/thinking text is preserved across streaming, detached reattach, checkpoint loading, and final transcript rendering without treating reasoning-only chunks as user-visible final answers
 - **Date/time awareness** — current date and time is injected into every LLM call so the model always knows "today"
 - **Destructive action confirmation** — dangerous operations (file deletion, sending emails, deleting calendar events, deleting memories, deleting workflows, selected settings changes) require explicit user approval via an interrupt mechanism
 - **Workflow-scoped background permissions** — background workflows use a tiered system: safe operations always run, low-risk operations (move file, move calendar, send email) are allowed with optional runtime guards, and irreversible operations (delete file, delete memory) are always blocked; shell commands and email recipients can be allowlisted per-workflow via the editor UI
@@ -76,18 +80,21 @@ Thoth doesn't just store isolated facts — it builds a **personal knowledge gra
 - **Link memories** — the agent can create relationships between any two entities, building a richer graph over time
 - **Explore connections** — the agent can traverse the graph outward from any entity, discovering chains of relationships for broad questions like family, work, and projects
 - **Interactive memory visualization** — a dedicated **Knowledge** surface renders the entire knowledge graph as an interactive network diagram with search, filters, full-graph / ego-graph toggle, and detail cards
-- **Graph-enhanced auto-recall** — before every response, the agent retrieves semantically relevant entities via FAISS and then expands one hop in the graph to surface connected neighbors; recalled memories include their relationship context
-- **Automatic memory extraction** — a background process scans past conversations on startup and every 6 hours, extracting entities and relations the agent missed during live conversation; active threads and workflow threads are excluded; assistant messages are truncated to 200 chars to prevent extracting from AI-generated content; an 0.80 confidence floor rejects low-confidence entities
+- **Bounded auto-recall policy** — before every response, `memory_policy.py` builds a deterministic recall query, retrieves candidates, scores them against tier/status/confidence/evidence/recency/query fit, applies a context-aware token budget, and records a compact recall trace for diagnostics
+- **Hybrid recall candidates** — recall combines FAISS semantic search, FTS5 lexical search, keyword fallback, and graph-neighbor expansion; strong seed memories can pull in related entities with relation confidence and hop metadata
+- **Recall-safe retrieval** — candidate inspection does not mutate memory state; only memories actually injected into the turn are reinforced with `recalled_at` and recall-count metadata
+- **Automatic memory extraction** — a background process scans past conversations on startup and every 6 hours, extracting entities and relations the agent missed during live conversation; active threads and workflow threads are excluded; assistant messages are truncated to 200 chars to prevent extracting from AI-generated content; low-confidence relations are skipped and conflicting facts can be marked for review instead of overwriting high-authority user edits
 - **Deterministic deduplication** — both live saves and background extraction check for existing entities by normalized subject before creating new entries; cross-category matching prevents fragmentation; alias resolution ensures related names merge; richer content is always kept
+- **Memory evolution metadata** — `memory_evolution.py` normalizes status (`active`, `needs_review`, `superseded`, `archived`), tier (`core`, `semantic`, `episodic`, `resource`), confidence, evidence, source context, manual edits, superseding, archival, and journal entries
 - **Vague-type banning** — `related_to`, `associated_with`, `connected_to`, `linked_to`, `has_relation`, `involves`, and `correlates_with` are rejected before saving, preventing noisy low-value edges
 - **Relation pre-normalization** — alias forms are canonicalized before ban, confidence, and dedup checks
 - **67 valid relation types** — curated vocabulary with 60+ alias mappings plus document-specific relations like `extracted_from`, `uploaded`, `builds_on`, `cites`, `extends`, and `contradicts`
-- **Source tracking** — each entity is tagged with its origin (`live`, `extraction`, `dream_*`, or document-derived) for diagnostics
-- **Semantic recall** — FAISS vector index backed by the configured embedding provider for similarity-based memory retrieval
+- **Source and audit tracking** — each entity is tagged with its origin (`live`, `extraction`, `dream_*`, document-derived, wiki-synced, or manual) plus audit metadata such as status, tier, confidence, evidence, source context, and user-modified timestamps
+- **Semantic and lexical recall indexes** — FAISS vectors are backed by the configured embedding provider, while an optional FTS5 entity index supports exact/keyword recall and fallback search
 - **Memory IDs in context** — auto-recalled memories include their IDs so the agent can update or delete specific entries when the user corrects previously saved information
 - **Consolidation utilities** — built-in duplicate consolidation merges near-duplicate memories that may accumulate over time
 - **Local SQLite + NetworkX + FAISS storage** — entities and relations live in `~/.thoth/memory.db`, mirrored in a NetworkX graph for traversal, with FAISS vectors in `~/.thoth/memory_vectors/`
-- **Settings UI** — browse, search, visualize, and bulk-delete memories from the Knowledge tab in Settings, including graph statistics
+- **Knowledge audit UI** — browse, search, visualize, review, restore, supersede, archive, and bulk-delete memories from the Knowledge tab and entity editor, including graph statistics, audit badges, recall traces, and the memory evolution journal
 
 ---
 
@@ -137,6 +144,7 @@ Uploaded documents are processed through a three-phase **map-reduce LLM pipeline
 - **Curated relation vocabulary** — 67 valid relation types with 60+ alias mappings remove unknown-type churn and keep document-derived edges consistent with live memory extraction
 - **Hub entity** — the document itself is saved as a `media` entity; extracted entities link back via `extracted_from` for provenance tracking
 - **Quality gates** — minimum description length, self-loop rejection, and vague-relation bans keep output usable
+- **Resource memory metadata** — document hub entities and extracted facts are written with resource-tier provenance, confidence, evidence, and audit fields so document knowledge can be reviewed without overwriting personal memories blindly
 - **Cross-window dedup** — repeated entities across windows are merged before saving
 - **Cross-source merge protection** — document-derived content uses a stricter semantic merge threshold when it resembles a personal entity, reducing the chance of impersonal text overwriting personal knowledge
 - **Supported formats** — PDF, DOCX, TXT, Markdown, HTML, and EPUB
@@ -148,13 +156,15 @@ Uploaded documents are processed through a three-phase **map-reduce LLM pipeline
 
 ## Brain Model & Providers
 
-The brain model is Thoth's default LLM — the model used for conversations, memory extraction, dream analysis, and any thread or workflow without a specific override. It can be a local Ollama model or an opt-in provider model.
+The brain model is Thoth's default LLM — the model used for conversations, memory extraction, dream analysis, and any thread or workflow without a specific override. It is selected during setup or later from Settings, and can come from the supported local runtime, a hosted provider, ChatGPT / Codex, Ollama Cloud, or a custom OpenAI-compatible endpoint.
 
-Thoth is built and tested for local models first. Every feature supports local models, and that remains the priority. Local models already handle tool calling, multi-step reasoning, memory extraction, and long conversations well with a 14B+ model.
+Thoth is local-first in its data model, but model routing is provider-neutral. Local models remain a first-class path for offline and private use, while hosted and self-hosted models can be selected per thread, workflow, Developer workspace, or media surface. The setup wizard determines the initial default; on the local path, Thoth uses one of the models already exposed by the local runtime, with 14B-class models recommended for stronger agent/tool behavior.
 
-Provider models are supported for users without a dedicated GPU, for frontier reasoning on demand, or for trying many providers without downloading large local weights. Thoth supports opt-in provider models through **OpenAI** (direct API), **Anthropic** (Claude), **Google AI** (Gemini), **xAI** (Grok), **MiniMax** (M2 models through the Anthropic-compatible API), **OpenRouter** (many third-party models), **Ollama Cloud** (direct API and local daemon cloud-tagged models), **ChatGPT / Codex** (subscription-backed Codex models), and Custom/Self-hosted OpenAI-compatible endpoints such as oMLX, LM Studio, vLLM, llama.cpp, LocalAI, or private gateways. Provider connections, health, and credential sources are configured from Settings -> Providers; model catalog browsing, pinning, and defaults live in Settings -> Models.
+Provider models are supported for users without a dedicated GPU, for frontier reasoning on demand, or for trying many providers without downloading large local weights. Thoth supports opt-in provider models through **OpenAI** (direct API), **Anthropic** (Claude), **Google AI** (Gemini), **xAI** (Grok), **MiniMax** (M2 models through the Anthropic-compatible API), **OpenRouter** (many third-party models), **Ollama Cloud** (direct API and local daemon cloud-tagged models), **ChatGPT / Codex** (subscription-backed Codex models), and Custom/Self-hosted OpenAI-compatible endpoints such as oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, or private gateways. Provider connections, health, and credential sources are configured from Settings -> Providers; model catalog browsing, pinning, and defaults live in Settings -> Models.
 
-The `providers/` subsystem now owns provider config, auth metadata, model catalog normalization, runtime construction, display-safe status, and Quick Choices. Model selections are preserved as provider-qualified refs (`model:<provider>:<model>`) at UI and settings boundaries so a local/custom model does not silently fall back to OpenRouter when another provider has the same or unknown bare model id. Existing public functions in `models.py` remain as compatibility facades while provider-backed selection is rolled through the app. Settings -> Models pickers are intentionally Quick Choice surfaces: catalog rows must be pinned before they become everyday Brain, Vision, Image, or Video choices, while the current default can still appear as a fallback value. `providers/model_catalog_cache.py` refreshes provider and Ollama catalog rows in the background so Settings can render from cache without blocking on large remote catalogs.
+The `providers/` subsystem now owns provider config, auth metadata, model catalog normalization, runtime construction, display-safe status, runtime readiness, and Quick Choices. Model selections are preserved as provider-qualified refs (`model:<provider>:<model>`) at UI and settings boundaries so a local/custom model does not silently fall back to OpenRouter when another provider has the same or unknown bare model id. Existing public functions in `models.py` remain as compatibility facades while provider-backed selection is rolled through the app. Settings -> Models pickers are intentionally Quick Choice surfaces: catalog rows must be pinned before they become everyday Brain, Vision, Image, or Video choices, while the current default can still appear as a fallback value. `providers/model_catalog_cache.py` refreshes hosted-provider and local-runtime catalog rows in the background so Settings can render from cache without blocking on large remote catalogs.
+
+Runtime readiness is evaluated before agent execution. `providers/readiness.py` and `providers/resolution.py` resolve the selected model/provider, inspect cached capability snapshots, probe uncertain local/custom models when needed, compare the effective context window against tool-schema requirements, and return one of three outcomes: full agent mode, chat-only mode, or blocked with user-facing guidance. Forced-agent surfaces such as workflow execution, approval resumes, and Designer text generation request agent mode explicitly; normal chat can fall back to chat-only mode when a model is conversationally useful but not tool-compatible.
 
 ChatGPT / Codex is deliberately modeled as a subscription provider, not as another OpenAI API-key route. Direct Codex runtime requires Thoth's in-app ChatGPT device-flow sign-in so Thoth stores its own runnable OAuth tokens in the local OS credential store. Existing Codex CLI auth files can be referenced only as display-safe metadata: Thoth records that the external login exists, path/fingerprint metadata, and broad auth-file shape, but it does not copy runnable tokens from `~/.codex/auth.json`.
 
@@ -166,10 +176,11 @@ Codex runtime uses ChatGPT's subscription/internal Codex backend rather than the
 - **Cost-efficient context management** — smart context trimming compresses older conversation turns and shrinks oversized tool outputs, reducing token usage and API costs for provider models
 - **Local catalog accuracy** — installed Ollama chat models remain visible even when their family is newer than Thoth's curated tool/vision heuristics, while embedding-like local models are kept out of chat choices and Vision support is only inferred from known metadata/families
 - **Ollama Cloud paths** — direct Ollama Cloud API keys and local daemon `:cloud` models are represented separately while sharing catalog normalization and display metadata; direct API errors are normalized into user-facing provider messages
-- **Tool-support validation** — unsupported local models are warned about and can be auto-reverted if they fail a live tool-call check
-- **Custom endpoint compatibility profiles** — OpenAI-compatible endpoints can use oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, or generic profiles to normalize message content, tool history, unsupported parameters, and request-time context settings
-- **Download buttons** — local models not yet present show download actions with progress
+- **Tool-support validation** — unsupported or uncertain local/custom models are warned about, can be probed with a real tool round-trip, and route to agent, chat-only, or blocked mode based on the result
+- **Custom endpoint compatibility profiles** — OpenAI-compatible endpoints can use oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, or generic profiles to normalize message content, tool history, unsupported parameters, streaming behavior, and request-time context settings
+- **Custom endpoint probes** — self-hosted/proxy endpoints can be probed for model catalog access, streaming deltas, tool-call round trips, native context metadata, and no-auth behavior; results are persisted with provider metadata for later routing decisions
 - **Configurable context window** — local and provider context caps can be set independently; actual model limits are still respected, override caches are invalidated when caps change, and custom endpoint profiles can pass capped context request parameters when the backend supports them
+- **Provider transcript hygiene** — provider-facing message histories are normalized to strip invalid tool calls, rewrite duplicate tool-call IDs, drop orphan tool results, flatten tool history for non-tool profiles, and preserve or suppress reasoning fields depending on endpoint support
 - **Local & provider indicators** — the UI clearly distinguishes downloaded local models, missing local models, and connected provider models
 - **Provider vision detection** — provider models with image capability are detected and reused by the Vision feature when available
 
@@ -251,6 +262,7 @@ Tasks have been renamed to **Workflows** throughout the application. The workflo
 ### Core Engine
 
 - **Unified workflow engine** — named multi-step workflows run sequentially in a fresh or persistent thread and are scheduled through APScheduler
+- **SQLite schema recovery** — `tasks.py` validates the workflow database schema before use, repairs partial schemas in place, backs up and recreates corrupt DBs, and retries schema-related operations once after repair
 - **7 schedule types** — `daily`, `weekly`, `weekdays`, `weekends`, `interval`, `cron`, and one-shot `delay_minutes`
 - **Template variables** — prompts can use `{{date}}`, `{{day}}`, `{{time}}`, `{{month}}`, `{{year}}`, `{{task_id}}`, and `{{step.X.output}}`
 - **Per-workflow model override** — each workflow can force a different model, then restore the default after completion
@@ -748,6 +760,7 @@ A sandboxed, hot-reloadable extension system lets plugins add new tools and skil
 - **Self-contained installers** — Windows and macOS releases bundle dependencies for one-click setup; Linux uses a one-line bootstrapper that verifies and installs the self-contained XDG tarball into user-owned paths
 - **Launcher identity and ports** — the launcher probes `/api/launcher-ping` before reusing port 8080, passes the chosen port through `THOTH_PORT`, and supports explicit `--browser`, `--native`, `--tray`, `--no-tray`, `--server`, `--no-open`, `--port`, and `--host` modes
 - **Launcher recovery hints** — when the managed server exits during startup, `launcher.py` tails `~/.thoth/thoth_app.log` and emits targeted recovery hints for recognized startup signatures, including broken optional TorchCodec DLL loads in the embedded Windows runtime.
+- **Launcher data recovery commands** — `launcher.py --reset-tasks-db`, `--reset-db`, and `--restore-data` back up SQLite DB families before recreating or restoring known task, memory, and thread databases
 - **Auto-restart flow** — closing the native window does not kill the tray-managed app process; reopen is fast
 - **Release pipeline** — build, sign, notarize, and publish automation lives in CI
 
@@ -758,14 +771,16 @@ A sandboxed, hot-reloadable extension system lets plugins add new tools and skil
 - **Multi-turn threads** — conversation history is stored in SQLite via LangGraph checkpointing and local thread metadata
 - **Auto-naming and switching** — threads are named from the conversation and can be reopened, exported, or deleted individually
 - **Per-thread model override** — conversations can pin a different local or provider model than the global default
-- **Input-level model picker** — the main chat model selector lives in the chat input area, matching Designer and Developer surfaces and keeping the top bar focused on thread state
+- **Input-level model picker** — the main chat model selector lives in the chat input area, loads cached options immediately, refreshes asynchronously, and keeps the top bar focused on thread state
 - **File attachments** — drag-and-drop, clipboard paste, and standard upload flows handle images, PDFs, spreadsheets, JSON, and text
 - **Media persistence** — chat media is stored per thread on disk with sidecar metadata; generated content persists more aggressively than transient capture artifacts
 - **Inline rich rendering** — Plotly charts, Mermaid diagrams, YouTube embeds, syntax-highlighted code, and images render directly in the transcript
 - **Shared chat components** — `ui/chat_components.py` provides the input bar, upload flow, and message container for main chat, Designer Studio, and Developer Studio
+- **Bounded transcript rendering** — `ui/transcript.py` chooses a visible window for large threads, exposes load-earlier behavior, and avoids rendering every historic row on initial open
+- **Checkpoint loading without graph import** — transcript loaders can read checkpoint messages and token usage without constructing the agent graph, reducing blank-thread and large-thread latency
 - **Status monitor panel** — Home health-check pills, diagnosis actions, and quick settings links surface runtime health at a glance
 - **Workflow Console integration** — approvals, recent runs, and insight actions are visible without leaving the conversation experience
-- **Streaming hardening** — detached streams persist final content and media, grouped tool-call counts update during streaming, and safe timer helpers avoid UI writes after clients disconnect
+- **Streaming hardening** — detached streams persist final content and media, grouped tool-call counts update during streaming, thinking text survives reattach/final render, and safe timer helpers avoid UI writes after clients disconnect
 - **Output truncation warnings** — the UI warns when a response was cut short by model token limits
 
 ---
@@ -787,10 +802,12 @@ Thoth includes a stability layer for the kinds of failures that are hard to catc
 - **`stability.py`** — centralizes crash reporting, UI callback error reports, client-side error capture, asyncio exception handling, thread/unraisable hooks, memory snapshots, and event-loop lag logging
 - **Safe timers** — `ui/timer_utils.py` wraps deferred UI callbacks and polling timers so disconnected clients or deleted NiceGUI slots do not crash the app silently
 - **Settings diagnostics** — model settings collection/render phases log timings and memory snapshots, while cached model catalogs keep large provider refreshes off the critical UI path
+- **UI performance helpers** — `ui/performance.py` provides render generation tokens, timed UI sections, slow-section logging, and safe UI callback/task wrappers used by Settings, Knowledge, chat, and graph surfaces
 - **Startup sequencing** — startup status covers cached model catalog load, workflow scheduler, MCP, plugins, channel migration/autostart, tunnel startup, and knowledge graph load
 - **Clean shutdown** — app shutdown attempts ordered channel, tunnel, MCP, scheduler, and process cleanup to reduce locked logs and lingering child processes
+- **Task database diagnostics** — Home, Command Center, and Thoth Status can report task-schema state, repair results, and launcher recovery guidance when workflow storage is missing or corrupt
 - **Frontend error reporting** — browser-side exceptions are reported back into the structured log with enough context to correlate with UI actions
-- **Performance probes** — memory RSS/VMS/thread counts, event-loop lag, token-counter refresh, model settings load, FAISS rebuild, and catalog refresh timings are logged for support investigations
+- **Performance probes** — memory RSS/VMS/thread counts, event-loop lag, token-counter refresh, model settings load, Settings tab render generations, transcript rendering, FAISS rebuild, and catalog refresh timings are logged for support investigations
 
 ---
 
@@ -833,27 +850,29 @@ Thoth ships with **17 manual bundled skills** and **20 tool guides**. Manual ski
 
 | File | Purpose |
 |------|---------|
-| **`app.py`** + **`ui/`** | NiceGUI application shell, chat surfaces, home tabs, health/status bar, workflow console, settings dialog, and native-webview integration points |
+| **`app.py`** + **`ui/`** | NiceGUI application shell, chat surfaces, lazy home tabs, health/status bar, workflow console, settings dialog, UI performance helpers, and native-webview integration points |
 | **`buddy/`** + **`ui/buddy.py`** | Buddy companion event bus, behavior brain, config, asset validation, Hatch generation, in-app docked/undocked presence, and optional desktop overlay helpers |
 | **`designer/`** | Designer Studio subsystem: gallery, editor, tooling, storage, exports, presentation mode, publishing, and asset hydration |
 | **`developer/`** | Developer Studio subsystem: workspace links, Git helpers, approval policy, Docker/local runtime, sandbox state, inspector snapshots, todos, file tree, diffs, GitHub helpers, Custom Tool internals, and UI |
 | **`ui/chat_components.py`** | Shared chat input, upload, and message-area components reused by main chat, Designer Studio, and Developer Studio |
-| **`agent.py`** | LangGraph ReAct agent, prompt assembly, streaming event generation, tool routing, interrupt handling, cache clearing, and background execution integration |
-| **`threads.py`** | SQLite-backed thread metadata, LangGraph checkpoint wiring, per-thread media storage, and thread-level overrides |
+| **`agent.py`** | LangGraph ReAct agent, prompt assembly, runtime readiness routing, chat-only execution, provider transcript normalization, streaming event generation, tool routing, interrupt handling, cache clearing, and background execution integration |
+| **`threads.py`** | SQLite-backed thread metadata, LangGraph checkpoint wiring, checkpoint transcript helpers, per-thread media storage, and thread-level overrides |
 | **`memory.py`** | Backward-compatible memory wrapper that maps legacy memory calls onto the knowledge graph implementation |
-| **`knowledge_graph.py`** | Entity/relation store, FAISS-backed recall, NetworkX traversal, deduplication, relation normalization, and graph stats |
+| **`memory_policy.py`** + **`memory_evolution.py`** | Bounded auto-recall scoring/filtering/tracing plus memory status, tier, confidence, evidence, review, superseding, archival, and evolution journal helpers |
+| **`knowledge_graph.py`** | Entity/relation store, FAISS and FTS5 recall, NetworkX traversal, deduplication, relation normalization, recall reinforcement, and graph stats |
 | **`wiki_vault.py`** | Obsidian-compatible markdown vault export, indexing, search, and conversation export |
 | **`dream_cycle.py`** | Nightly graph refinement engine: merges, enrichment, decay, relation inference, insights analysis, and journal logging |
 | **`document_extraction.py`** | Background document map-reduce extraction pipeline with provenance-aware graph writes |
-| **`models.py`** | Local model management plus compatibility facades for provider model catalogs, context caps, Quick Choices, provider detection, and model factories |
-| **`providers/`** | Provider auth, normalized model catalogs, background catalog cache, runtime construction, Ollama Cloud transport, and display-safe provider status |
+| **`models.py`** | Local model compatibility facades, context policy, context caps, Quick Choices, provider detection, model factories, and legacy model APIs |
+| **`providers/`** | Provider auth, normalized model catalogs, background catalog cache, provider-qualified resolution, readiness evaluation, custom endpoint profiles/probes, runtime construction, transports, and display-safe provider status |
 | **`embedding_config.py`** + **`embedding_providers.py`** | Embedding provider selection, local/cloud embedding backends, vector metadata, and stale-index detection |
 | **`documents.py`** | Document ingestion, chunking, embedding, vector-store persistence, and per-document cleanup |
 | **`voice.py`** | Faster-whisper-based speech input pipeline and voice-state management |
 | **`tts.py`** | Kokoro text-to-speech integration, voice catalog, and streaming playback |
 | **`vision.py`** | Camera capture, screen capture, and workspace image analysis via local or provider vision models |
 | **`data_reader.py`** | Shared structured-data loader for CSV, TSV, Excel, JSON, and JSONL |
-| **`launcher.py`** | Desktop launcher, system tray, splash screen, app lifecycle, and logging bootstrap |
+| **`data_paths.py`** | Shared Thoth data-directory and SQLite path resolution for tasks, memory, threads, diagnostics, and recovery commands |
+| **`launcher.py`** | Desktop launcher, system tray, splash screen, app lifecycle, logging bootstrap, local runtime startup decisions, and DB recovery commands |
 | **`stability.py`** | UI callback/error capture, asyncio/thread exception hooks, memory snapshots, event-loop lag logging, and crash diagnostics |
 | **`startup_diagnostics.py`** | Early startup probes for optional native packages that can break app import/startup when partially installed |
 | **`api_keys.py`** + **`secret_store.py`** | API key storage and retrieval for tools and API-key providers, backed by OS keyring with metadata-only local files and legacy plaintext migration |
@@ -865,13 +884,13 @@ Thoth ships with **17 manual bundled skills** and **20 tool guides**. Manual ski
 | **`skills.py`** | Discovery, loading, activation, override, and prompt-building for manual skills and tool guides |
 | **`bundled_skills/`** | 17 built-in manual skills as `SKILL.md` packages |
 | **`tool_guides/`** | 20 built-in tool-specific auto-activation guides |
-| **`tasks.py`** | Workflow engine, SQLite persistence, APScheduler scheduling, pipeline execution, run history, safety mode, and delivery routing |
+| **`tasks.py`** | Workflow engine, SQLite persistence, schema validation/repair, APScheduler scheduling, pipeline execution, run history, safety mode, and delivery routing |
 | **`notifications.py`** | Unified desktop, sound, and toast notification system |
 | **`channels/`** | Channel ABC, registry, media helpers, auth helpers, approval routing, command handling, tool generation, and bundled channel adapters |
 | **`tunnel.py`** | Tunnel provider abstraction, ngrok integration, and lifecycle manager |
 | **`tools/thoth_status_tool.py`** | Self-introspection and controlled self-management tool, including optional self-improvement skill operations |
 | **`tools/developer_tool.py`** + **`tools/custom_tool_builder_tool.py`** | Developer workspace operations and conversational Custom Tool creation/testing/promotion surface |
-| **`tools/`** + **`designer/tool.py`** | Self-registering core tool modules, registry, base classes, and LangChain tool conversion |
+| **`tools/`** + **`designer/tool.py`** | Self-registering core tool modules, registry, base classes, Wikipedia recovery behavior, and LangChain tool conversion |
 | **`plugins/`** | Plugin runtime, marketplace client, manifest validation, security scanner, and settings integration |
 | **`mcp_client/`** | External Model Context Protocol client: config, runtime sessions, marketplace search, requirements, safety classification, diagnostics, and result normalization |
 | **`migration/`** | Hermes/OpenClaw migration models, redaction, source detection, dry-run planning, realistic fixtures, and guarded apply/report generation |
@@ -888,8 +907,11 @@ All user data is stored under `~/.thoth/` (or `%USERPROFILE%\\.thoth\\` on Windo
 ~/.thoth/
 ├── threads.db                     # Conversation history and LangGraph checkpoints
 ├── media/                         # Per-thread media files and sidecar metadata
+├── tasks.db                       # Workflows, schedules, pipeline definitions, run history, and approval state
 ├── memory.db                      # Knowledge graph entities and relations
 ├── memory_vectors/                # FAISS vectors for semantic memory recall
+├── memory_recall_trace.json       # Recent auto-recall decisions and include/reject diagnostics
+├── memory_evolution_journal.json  # Memory status/tier/review/superseding/audit changes
 ├── memory_extraction_state.json   # Last extraction metadata
 ├── extraction_journal.json        # Memory extraction journal
 ├── dream_config.json              # Dream Cycle settings
@@ -898,8 +920,10 @@ All user data is stored under `~/.thoth/` (or `%USERPROFILE%\\.thoth\\` on Windo
 ├── insights.json                  # Structured insight store
 ├── api_keys.json                  # API key metadata only; raw key values live in the OS credential store when available
 ├── cloud_config.json              # Legacy provider-model pinning compatibility data
-├── providers.json                 # Provider metadata, Quick Choices, routing profiles, and credential fingerprints only
-├── model_catalog_cache.json        # Background-refreshed provider/Ollama model catalog rows and refresh diagnostics
+├── providers.json                 # Provider metadata, Quick Choices, compatibility profiles, probe results, and credential fingerprints only
+├── model_settings.json            # Current model, context caps, and model setting compatibility state
+├── model_catalog_cache.json        # Background-refreshed provider/local-runtime model catalog rows and refresh diagnostics
+├── context_catalog_cache.json      # Cached context-window metadata used before live provider refresh
 ├── embedding_config.json           # Active embedding provider/model settings
 ├── app_config.json                # Onboarding and first-run flags
 ├── user_config.json               # Avatar preferences, identity, and self-improvement settings
@@ -939,6 +963,7 @@ All user data is stored under `~/.thoth/` (or `%USERPROFILE%\\.thoth\\` on Windo
 ├── installed_plugins/             # Marketplace-installed plugins
 ├── plugin_state.json              # Plugin config and enablement state
 ├── plugin_secrets.json            # Plugin API-key metadata only; raw key values live in the OS credential store when available
+├── recovery/                      # Backups created by task/local DB reset and restore helpers
 └── kokoro/                        # Kokoro TTS model and voice files
 ```
 
@@ -958,16 +983,16 @@ Most open-source AI assistants are still **developer tools disguised as products
 
 | | ChatGPT / Claude / Gemini | Thoth |
 |---|---|---|
-| **Your data** | Stored on provider servers, subject to their privacy policies | Stays on your machine. With opt-in provider models, only the current conversation and model-visible tool context go to the selected provider; memories, files, designer projects, and history remain local unless explicitly included |
+| **Your data** | Stored on provider servers, subject to their privacy policies | Stays on your machine. With opt-in provider/custom models, only the current conversation and model-visible tool context go to the selected endpoint; memories, files, designer projects, and history remain local unless explicitly included |
 | **Conversations** | Provider-owned chat history | Local SQLite-backed threads, exportable anytime |
-| **Cost** | Subscription or provider billing | Free with local models; provider usage is upstream API billing or ChatGPT subscription access only when you opt in |
-| **Memory** | Limited, opaque, provider-controlled | Personal knowledge graph with entities, relations, visualization, wiki export, and background refinement |
+| **Cost** | Subscription or provider billing | Free with local models; provider/custom usage is upstream API billing, self-hosted infrastructure, or ChatGPT subscription access only when you opt in |
+| **Memory** | Limited, opaque, provider-controlled | Personal knowledge graph with entities, relations, bounded recall, audit/review states, visualization, wiki export, and background refinement |
 | **Tools** | Limited app integrations and provider-defined plug-ins | 30+ core tools plus Developer-native tools, Custom Tool Builder, promoted Custom Tools, and auto-generated channel tools: shell, browser, filesystem, Gmail, Calendar, memory graph, Designer Studio, Thoth Status, MCP external tools, image generation, video generation, research tools, and more |
-| **Customization** | Pick a model and maybe a custom instruction | Swap models per thread, workflow, or Developer workspace, configure name and personality, build workflows, toggle tools and skills, create Custom Tools from repos/folders, and enable self-improvement features |
+| **Customization** | Pick a model and maybe a custom instruction | Swap provider-qualified models per thread, workflow, or Developer workspace, configure name and personality, build workflows, toggle tools and skills, create Custom Tools from repos/folders, and enable self-improvement features |
 | **Voice** | Usually cloud-processed | Local faster-whisper STT plus Kokoro TTS |
-| **Availability** | Internet required | Local models work offline; provider models are optional |
+| **Availability** | Internet required | Local models work offline; hosted providers and custom endpoints are optional |
 
-> **Bottom line:** cloud assistants rent you access to someone else's system. Thoth gives you **personal AI sovereignty** — local-first by default, providers when you choose them, and all of your durable data under your own control.
+> **Bottom line:** cloud assistants rent you access to someone else's system. Thoth gives you **personal AI sovereignty** — local durable state, provider choice when you want it, and all of your long-lived data under your own control.
 
 ### How is Thoth different from OpenClaw?
 
@@ -976,8 +1001,8 @@ Most open-source AI assistants are still **developer tools disguised as products
 | | Thoth | OpenClaw |
 |---|---|---|
 | **Getting started** | One-click installers and GUI-first setup on Windows and macOS, plus one-line Linux install with browser-first launch | CLI-oriented install flow and heavier terminal expectations |
-| **Local AI** | Local-first with Ollama as the default path | More cloud-first in typical setups |
-| **Memory** | Typed personal knowledge graph with visualization, wiki export, and structured relations | Simpler text-centric memory patterns |
+| **Model routing** | Local-first data with local, hosted, ChatGPT / Codex, Ollama Cloud, and custom OpenAI-compatible model paths in one GUI | More cloud-first in typical setups |
+| **Memory** | Typed personal knowledge graph with bounded recall, audit/review states, visualization, wiki export, and structured relations | Simpler text-centric memory patterns |
 | **Knowledge refinement** | 5-phase Dream Cycle with merge, enrich, decay, infer, and insight passes | Experimental dreaming-style memory promotion flows |
 | **Document intelligence** | Structured graph extraction with provenance, dedup, and relation typing | Strong workspace tools but less graph-centric document knowledge modeling |
 | **Designer / Canvas** | Designer Studio for decks, one-pagers, reports, published links, plus inline Mermaid and Plotly rendering | A2UI-style interactive workspace focus |

@@ -13983,7 +13983,7 @@ try:
     assert 'Source: "..\\providers\\*"' in _iss68 and "recursesubdirs" in _iss68, "providers package must be recursively included in Windows installer"
     assert 'Source: "..\\ui\\model_catalog.py"' in _iss68, "ui/model_catalog.py must be included in Windows installer"
     assert 'Source: "..\\ui\\provider_settings.py"' in _iss68, "ui/provider_settings.py must be included in Windows installer"
-    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer developer scripts utils providers mcp_client migration" in _mac68, "mac app bundle must copy providers and developer packages"
+    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client migration buddy" in _mac68, "mac app bundle must copy providers and developer packages"
     record("PASS", "68m2: Windows and mac packaging include provider runtime, Developer, and UI files")
 
     # â”€â”€ 68m2b. Embedding runtime packaging guard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -13993,23 +13993,32 @@ try:
     _depsbat68m2b = _P68("installer/install_deps.bat").read_text(encoding="utf-8")
     assert "sentence-transformers" in _req68m2b, "local embeddings require sentence-transformers in requirements.txt"
     assert "langchain-huggingface" in _req68m2b, "local embeddings require langchain-huggingface in requirements.txt"
+    assert "httpx" in _req68m2b, "provider runtimes require httpx explicitly in requirements.txt"
     assert '"sentence_transformers"' in _verify68m2b and '"langchain_huggingface"' in _verify68m2b
-    assert "verify_runtime_dependencies.py\" embeddings" in _mac68
-    assert "verify_runtime_dependencies.py\" embeddings" in _linux68m2b
+    assert '"core"' in _verify68m2b and '"providers"' in _verify68m2b and '"youtube"' in _verify68m2b
+    assert '"httpx"' in _verify68m2b and '"youtube_transcript_api"' in _verify68m2b
+    assert "verify_runtime_dependencies.py\"" in _mac68
+    assert "verify_runtime_dependencies.py\"" in _linux68m2b
+    assert "verify_runtime_dependencies.py\" embeddings" not in _mac68
+    assert "verify_runtime_dependencies.py\" embeddings" not in _linux68m2b
     assert "Assembled app runtime dependencies verified" in _mac68
     assert "Assembled Linux runtime dependencies verified" in _linux68m2b
     assert "THOTH_INSTALL_ROOT=\"$RESOURCES\"" in _mac68
     _unsafe_tests_cleanup68m2b = "find \"$PYTHON_PREFIX/lib\" -type d -name 'tests'"
     assert _unsafe_tests_cleanup68m2b not in _mac68
     assert _unsafe_tests_cleanup68m2b not in _linux68m2b
-    assert "verify_runtime_dependencies.py\" embeddings" in _depsbat68m2b
+    assert "verify_runtime_dependencies.py\" embeddings" not in _depsbat68m2b
+    assert "verify_runtime_dependencies.py\" >>" in _depsbat68m2b
     assert "verify_runtime_dependencies.py" in _iss68
     assert "build\\python\\Lib\\site-packages\\sentence_transformers\\__init__.py" in _iss68
     assert "build\\python\\Lib\\site-packages\\langchain_huggingface\\__init__.py" in _iss68
     assert "build\\python\\Lib\\site-packages\\transformers\\__init__.py" in _iss68
     assert "build\\python\\Lib\\site-packages\\torch\\__init__.py" in _iss68
+    assert "build\\python\\Lib\\site-packages\\httpx\\__init__.py" in _iss68
+    assert "build\\python\\Lib\\site-packages\\youtube_search\\__init__.py" in _iss68
+    assert "build\\python\\Lib\\site-packages\\youtube_transcript_api\\__init__.py" in _iss68
     assert "verify_runtime_dependencies.py" in _P68("installer/build_installer.ps1").read_text(encoding="utf-8")
-    record("PASS", "68m2b: packaged builds verify local embedding runtime imports")
+    record("PASS", "68m2b: packaged builds verify required runtime imports")
 
     # ── 68m3. Clean data-dir first-run setup smoke ─────────────────
     import os as _os68m3

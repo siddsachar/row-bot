@@ -305,10 +305,12 @@ def test_release_workflows_reference_linux_artifact():
     assert "bash -n build_linux_app.sh installer/build_linux_app.sh installer/install-linux.sh" in release
     assert "bash -n build_linux_app.sh installer/build_linux_app.sh installer/install-linux.sh" in ci
     assert "libxcb-cursor0" in ci
+    assert "libportaudio2" in ci
     assert "installer/install-linux.sh" in release
     assert "installer/install-linux.sh" in ci
     assert "Thoth-*-Linux-*.tar.gz" in release
     assert "libxcb-cursor0" in release
+    assert "libportaudio2" in release
     assert "binutils" in release
     linux_smoke = release[release.index("Smoke Linux package"):]
     assert "--no-root-check" not in linux_smoke
@@ -319,8 +321,8 @@ def test_release_workflows_reference_linux_artifact():
     assert "Thoth-*-Linux-*.tar.gz" in manifest
     assert "curl -fsSL https://raw.githubusercontent.com/siddsachar/Thoth/main/installer/install-linux.sh | bash" in installer_docs
     assert "published GitHub Release assets" in installer_docs
-    assert "bash installer/build_linux_app.sh 3.22.0" in installer_docs
-    assert "bash build_linux_app.sh 3.22.0" in installer_docs
+    assert "bash installer/build_linux_app.sh 3.23.0" in installer_docs
+    assert "bash build_linux_app.sh 3.23.0" in installer_docs
 
 
 def test_packagers_exclude_tests_directory():
@@ -333,3 +335,11 @@ def test_packagers_exclude_tests_directory():
     assert " tests" not in mac_builder
     assert "test_*.py|test_suite.py|test_memory_e2e.py|integration_tests.py" in linux_builder
     assert "test_*.py|test_suite.py|test_memory_e2e.py|integration_tests.py" in mac_builder
+    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client migration buddy" in linux_builder
+    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client migration buddy" in mac_builder
+    assert "for dir in static sounds;" in linux_builder
+    assert "for dir in static sounds;" in mac_builder
+    assert "--exclude='node_modules'" in linux_builder
+    assert "--exclude='node_modules'" in mac_builder
+    assert "Linux package payload contains test or harness artifacts" in linux_builder
+    assert "macOS app payload contains test or harness artifacts" in mac_builder

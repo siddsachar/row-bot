@@ -17,6 +17,7 @@ Thoth uses semantic versioning:
 2. Run the full suite locally:
 
    ```bash
+   python scripts/verify_runtime_dependencies.py
    python tests/test_suite.py
    ```
 
@@ -51,6 +52,7 @@ Thoth uses semantic versioning:
 8. Run focused startup and packaging hardening tests:
 
    ```bash
+   python scripts/verify_runtime_dependencies.py
    python -m pytest tests/test_startup_hardening.py tests/test_app_port.py tests/test_linux_support.py
    ```
 
@@ -125,9 +127,9 @@ not the one-line bootstrapper. The bootstrapper always resolves published
 GitHub Release assets. From the repository root:
 
 ```bash
-bash installer/build_linux_app.sh 3.22.0
-tar -xzf dist/Thoth-3.22.0-Linux-*.tar.gz
-cd Thoth-3.22.0-Linux-*
+bash installer/build_linux_app.sh 3.23.0
+tar -xzf dist/Thoth-3.23.0-Linux-*.tar.gz
+cd Thoth-3.23.0-Linux-*
 ./install.sh
 ~/.local/bin/thoth
 ```

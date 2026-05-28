@@ -1,6 +1,6 @@
 @echo off
 :: ============================================================================
-:: Thoth v3.22.0 – Post-install dependency setup
+:: Thoth v3.23.0 – Post-install dependency setup
 :: Called by Inno Setup after file extraction.
 ::
 :: This script:
@@ -21,7 +21,7 @@ set "LOG=%INSTALL_DIR%\install_log.txt"
 set "PYTHONNOUSERSITE=1"
 
 echo ==========================================
-echo  Thoth v3.22.0 - Installing dependencies
+echo  Thoth v3.23.0 - Installing dependencies
 echo  This may take 5-25 minutes depending
 echo  on your system and internet connection.
 echo  Please do not close this window.
@@ -29,7 +29,7 @@ echo ==========================================
 echo.
 
 echo ========================================= >> "%LOG%" 2>&1
-echo  Thoth v3.22.0 - Install log              >> "%LOG%" 2>&1
+echo  Thoth v3.23.0 - Install log              >> "%LOG%" 2>&1
 echo  Install dir: %INSTALL_DIR%               >> "%LOG%" 2>&1
 echo  Date: %DATE% %TIME%                      >> "%LOG%" 2>&1
 echo ========================================= >> "%LOG%" 2>&1
@@ -154,11 +154,11 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 :: ── 6. Install Playwright Chromium browser ──────────────────────────────────
-echo Verifying embedding runtime packages... >> "%LOG%" 2>&1
-"%PYTHON%" "%APP_DIR%\scripts\verify_runtime_dependencies.py" embeddings >> "%LOG%" 2>&1
+echo Verifying required runtime packages... >> "%LOG%" 2>&1
+"%PYTHON%" "%APP_DIR%\scripts\verify_runtime_dependencies.py" >> "%LOG%" 2>&1
 if %ERRORLEVEL% NEQ 0 (
-    echo ERROR: Embedding runtime verification failed. >> "%LOG%" 2>&1
-    echo ERROR: Embedding runtime packages are missing. See install_log.txt for details.
+    echo ERROR: Runtime dependency verification failed. >> "%LOG%" 2>&1
+    echo ERROR: Required runtime packages are missing. See install_log.txt for details.
     pause
     exit /b 1
 )

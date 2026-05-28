@@ -85,7 +85,7 @@ def test_nomic_dependency_is_explicit():
     assert embedding_config.LOCAL_MODELS["nomic-v1.5"]["required_packages"] == ["einops"]
 
 
-def test_packaged_builds_verify_embedding_runtime_imports():
+def test_packaged_builds_verify_required_runtime_imports():
     verifier = Path("scripts/verify_runtime_dependencies.py").read_text(encoding="utf-8")
     windows_build = Path("installer/build_installer.ps1").read_text(encoding="utf-8")
     mac_build = Path("installer/build_mac_app.sh").read_text(encoding="utf-8")
@@ -94,23 +94,38 @@ def test_packaged_builds_verify_embedding_runtime_imports():
     windows_installer = Path("installer/thoth_setup.iss").read_text(encoding="utf-8")
 
     assert '"embeddings"' in verifier
+    assert '"core"' in verifier
+    assert '"providers"' in verifier
+    assert '"channels"' in verifier
+    assert '"tools"' in verifier
+    assert '"voice"' in verifier
+    assert '"youtube"' in verifier
     assert '"sentence_transformers"' in verifier
     assert '"langchain_huggingface"' in verifier
+    assert '"httpx"' in verifier
+    assert '"google.genai"' in verifier
+    assert '"youtube_transcript_api"' in verifier
     assert "verify_runtime_dependencies.py" in windows_build
     assert "verify_runtime_dependencies.py" in windows_installer
     assert "build\\python\\Lib\\site-packages\\sentence_transformers\\__init__.py" in windows_installer
     assert "build\\python\\Lib\\site-packages\\langchain_huggingface\\__init__.py" in windows_installer
     assert "build\\python\\Lib\\site-packages\\transformers\\__init__.py" in windows_installer
     assert "build\\python\\Lib\\site-packages\\torch\\__init__.py" in windows_installer
-    assert "verify_runtime_dependencies.py\" embeddings" in mac_build
-    assert "verify_runtime_dependencies.py\" embeddings" in linux_build
+    assert "build\\python\\Lib\\site-packages\\httpx\\__init__.py" in windows_installer
+    assert "build\\python\\Lib\\site-packages\\youtube_search\\__init__.py" in windows_installer
+    assert "build\\python\\Lib\\site-packages\\youtube_transcript_api\\__init__.py" in windows_installer
+    assert "verify_runtime_dependencies.py\"" in mac_build
+    assert "verify_runtime_dependencies.py\"" in linux_build
+    assert "verify_runtime_dependencies.py\" embeddings" not in mac_build
+    assert "verify_runtime_dependencies.py\" embeddings" not in linux_build
     assert "Assembled app runtime dependencies verified" in mac_build
     assert "Assembled Linux runtime dependencies verified" in linux_build
     assert "THOTH_INSTALL_ROOT=\"$RESOURCES\"" in mac_build
     unsafe_tests_cleanup = "find \"$PYTHON_PREFIX/lib\" -type d -name 'tests'"
     assert unsafe_tests_cleanup not in mac_build
     assert unsafe_tests_cleanup not in linux_build
-    assert "verify_runtime_dependencies.py\" embeddings" in legacy_deps
+    assert "verify_runtime_dependencies.py\" embeddings" not in legacy_deps
+    assert "verify_runtime_dependencies.py\" >>" in legacy_deps
 
 
 def test_startup_diagnostics_reports_required_embedding_packages(monkeypatch):
