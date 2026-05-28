@@ -57,6 +57,7 @@ class AgentReadinessResult:
     tool_calling_source: str = "unknown"
     tool_round_trip: bool | None = None
     streaming: bool | None = None
+    streaming_tool_calling: bool | None = None
     credential_status: str = "unknown"
     capability_source: str = "unknown"
     confidence: str = "low"
@@ -175,6 +176,7 @@ def evaluate_agent_readiness(
     source = _snapshot_source(snapshot, resolved)
     confidence = "high" if source in {"trusted_provider", "probe", "catalog"} else "low"
     tool_round_trip: bool | None = None
+    streaming_tool_calling: bool | None = None
     tool_calling_source = source
 
     if resolved.provider_id.startswith("custom_openai_"):
@@ -183,6 +185,7 @@ def evaluate_agent_readiness(
         tool_calling = probe.get("tool_calling") if probe else None
         tool_round_trip = probe.get("tool_round_trip") if probe else None
         streaming = probe.get("streaming_ok", streaming) if probe else streaming
+        streaming_tool_calling = probe.get("streaming_tool_calling") if probe else None
         tool_calling_source = "probe" if tool_calling is not None else "missing_probe"
         source = "probe" if bool(probe.get("ok")) else "custom_endpoint"
         confidence = "high" if tool_calling is True and tool_round_trip is True else "low"
@@ -192,6 +195,8 @@ def evaluate_agent_readiness(
         if tool_round_trip is not True:
             errors.append("tool-result round trip has not been proven by endpoint probe")
             actions.append("Re-probe the endpoint after enabling native tool support.")
+        if tool_calling is True and tool_round_trip is True and streaming_tool_calling is not True:
+            warnings.append("streamed tool calling is not verified; tool requests will use non-stream fallback")
         if context_policy and getattr(context_policy, "cap_source", "") in {"profile_default", "heuristic"}:
             warnings.append("custom endpoint context is inferred; provider metadata or a manual context setting is safer")
     elif resolved.provider_id == "openrouter":
@@ -291,6 +296,7 @@ def evaluate_agent_readiness(
         tool_calling_source=tool_calling_source,
         tool_round_trip=tool_round_trip if tool_round_trip in (True, False) else None,
         streaming=streaming if streaming in (True, False) else None,
+        streaming_tool_calling=streaming_tool_calling if streaming_tool_calling in (True, False) else None,
         credential_status=credential_status,
         capability_source=source,
         confidence=confidence,

@@ -80,7 +80,9 @@ class _ToolStreamResponse:
         return False
 
     def iter_lines(self):
-        yield b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\\"q\\":\\"x\\"}"}}]}}]}'
+        yield b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup"}}]}}]}'
+        yield b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"q\\":"}}]}}]}'
+        yield b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"x\\"}"}}]}}]}'
         yield b"data: [DONE]"
 
 
@@ -88,6 +90,71 @@ class _ToolStreamingClient(_Client):
     def stream(self, method, url, **kwargs):
         self.calls.append((url, kwargs))
         return _ToolStreamResponse()
+
+
+class _InterleavedToolStreamResponse:
+    status_code = 200
+    text = ""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def iter_lines(self):
+        yield b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"first","arguments":"{\\"a\\":"}},{"index":1,"id":"call_b","type":"function","function":{"name":"second","arguments":"{\\"b\\":"}}]}}]}'
+        yield b'data: {"choices":[{"delta":{"tool_calls":[{"index":1,"function":{"arguments":"2}"}},{"index":0,"function":{"arguments":"1}"}}]}}]}'
+        yield b"data: [DONE]"
+
+
+class _InterleavedToolStreamingClient(_Client):
+    def stream(self, method, url, **kwargs):
+        self.calls.append((url, kwargs))
+        return _InterleavedToolStreamResponse()
+
+
+class _MalformedToolStreamResponse:
+    status_code = 200
+    text = ""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def iter_lines(self):
+        yield b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"category\\":\\"overview\\"}"}}]}}]}'
+        yield b"data: [DONE]"
+
+
+class _MalformedToolStreamingClient(_Client):
+    def stream(self, method, url, **kwargs):
+        self.calls.append((url, kwargs))
+        return _MalformedToolStreamResponse()
+
+
+class _NativeAndReasoningToolStreamResponse:
+    status_code = 200
+    text = ""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def iter_lines(self):
+        yield b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{}"}}]}}]}'
+        yield b'data: {"choices":[{"delta":{"reasoning_content":"<tool_call><function=thoth_status><parameter=category>tools</parameter></function></tool_call>"}}]}'
+        yield b"data: [DONE]"
+
+
+class _NativeAndReasoningToolStreamingClient(_Client):
+    def stream(self, method, url, **kwargs):
+        self.calls.append((url, kwargs))
+        return _NativeAndReasoningToolStreamResponse()
 
 
 class _ReasoningTextToolStreamResponse:
@@ -109,6 +176,27 @@ class _ReasoningTextToolStreamingClient(_Client):
     def stream(self, method, url, **kwargs):
         self.calls.append((url, kwargs))
         return _ReasoningTextToolStreamResponse()
+
+
+class _UnknownReasoningTextToolStreamResponse:
+    status_code = 200
+    text = ""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def iter_lines(self):
+        yield b'data: {"choices":[{"delta":{"reasoning_content":"<tool_call><function=unknown_tool><parameter=value>x</parameter></function></tool_call>"}}]}'
+        yield b"data: [DONE]"
+
+
+class _UnknownReasoningTextToolStreamingClient(_Client):
+    def stream(self, method, url, **kwargs):
+        self.calls.append((url, kwargs))
+        return _UnknownReasoningTextToolStreamResponse()
 
 
 class _ReasoningOnlyStreamResponse:
@@ -364,7 +452,7 @@ def test_openai_compatible_transport_streams_tool_call_chunks():
         base_url="http://127.0.0.1:1234/v1",
         endpoint={
             "provider_id": "custom_openai_tools",
-            "last_probe": {"streaming_ok": True, "tool_calling": True},
+            "last_probe": {"streaming_ok": True, "tool_calling": True, "streaming_tool_calling": True},
         },
         http_client=client,
     )
@@ -379,6 +467,162 @@ def test_openai_compatible_transport_streams_tool_call_chunks():
         "index": 0,
         "type": "tool_call_chunk",
     }]
+    assert len(tool_chunks) == 1
+    assert "openai_call_0" not in json.dumps(tool_chunks[0].tool_call_chunks)
+
+
+def test_openai_compatible_transport_assembles_interleaved_tool_call_chunks():
+    client = _InterleavedToolStreamingClient()
+    model = ChatOpenAICompatible(
+        model_name="qwen",
+        base_url="http://127.0.0.1:1234/v1",
+        endpoint={
+            "provider_id": "custom_openai_tools",
+            "last_probe": {"streaming_ok": True, "tool_calling": True, "streaming_tool_calling": True},
+        },
+        http_client=client,
+    )
+
+    chunks = list(model.stream([HumanMessage(content="two tools")]))
+
+    tool_chunks = [chunk.tool_call_chunks[0] for chunk in chunks if chunk.tool_call_chunks]
+    assert tool_chunks == [
+        {
+            "name": "first",
+            "args": '{"a":1}',
+            "id": "call_a",
+            "index": 0,
+            "type": "tool_call_chunk",
+        },
+        {
+            "name": "second",
+            "args": '{"b":2}',
+            "id": "call_b",
+            "index": 1,
+            "type": "tool_call_chunk",
+        },
+    ]
+
+
+def test_openai_compatible_transport_drops_malformed_argument_only_tool_stream(caplog):
+    client = _MalformedToolStreamingClient()
+    model = ChatOpenAICompatible(
+        model_name="qwen",
+        base_url="http://127.0.0.1:1234/v1",
+        endpoint={
+            "provider_id": "custom_openai_tools",
+            "last_probe": {"streaming_ok": True, "tool_calling": True, "streaming_tool_calling": True},
+        },
+        http_client=client,
+    )
+
+    chunks = list(model.stream([HumanMessage(content="bad tool stream")]))
+
+    assert [chunk for chunk in chunks if chunk.tool_call_chunks] == []
+    assert "dropped streamed tool call without name" in caplog.text
+
+
+def test_openai_compatible_transport_tool_requests_fallback_when_streaming_tool_probe_false():
+    client = _Client()
+    client.post = lambda url, **kwargs: client.calls.append((url, kwargs)) or _Response({
+        "choices": [{
+            "message": {
+                "content": "",
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "lookup", "arguments": "{\"q\":\"x\"}"},
+                }],
+            },
+        }],
+    })
+    model = ChatOpenAICompatible(
+        model_name="qwen",
+        base_url="http://127.0.0.1:1234/v1",
+        endpoint={
+            "provider_id": "custom_openai_tools",
+            "last_probe": {"streaming_ok": True, "tool_calling": True, "streaming_tool_calling": False},
+        },
+        http_client=client,
+    )
+
+    chunks = list(model.stream(
+        [HumanMessage(content="lookup")],
+        tools=[{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object"}}}],
+    ))
+
+    assert client.calls[0][1]["json"]["stream"] is False
+    assert chunks[0].tool_calls[0]["name"] == "lookup"
+
+
+def test_openai_compatible_transport_tool_requests_fallback_when_streaming_tool_probe_missing():
+    client = _Client()
+    client.post = lambda url, **kwargs: client.calls.append((url, kwargs)) or _Response({
+        "choices": [{
+            "message": {
+                "content": "",
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "lookup", "arguments": "{}"},
+                }],
+            },
+        }],
+    })
+    model = ChatOpenAICompatible(
+        model_name="qwen",
+        base_url="http://127.0.0.1:1234/v1",
+        endpoint={
+            "provider_id": "custom_openai_tools",
+            "last_probe": {"streaming_ok": True, "tool_calling": True},
+        },
+        http_client=client,
+    )
+
+    list(model.stream(
+        [HumanMessage(content="lookup")],
+        tools=[{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object"}}}],
+    ))
+
+    assert client.calls[0][1]["json"]["stream"] is False
+
+
+def test_openai_compatible_transport_plain_chat_streams_without_streaming_tool_probe():
+    client = _StreamingClient()
+    model = ChatOpenAICompatible(
+        model_name="qwen",
+        base_url="http://127.0.0.1:1234/v1",
+        endpoint={
+            "provider_id": "custom_openai_tools",
+            "last_probe": {"streaming_ok": True, "tool_calling": True},
+        },
+        http_client=client,
+    )
+
+    chunks = list(model.stream([HumanMessage(content="hi")]))
+
+    assert client.calls[0][1]["json"]["stream"] is True
+    assert chunks[1].content == "answer"
+
+
+def test_openai_compatible_transport_tool_requests_stream_when_streaming_tool_probe_true():
+    client = _ToolStreamingClient()
+    model = ChatOpenAICompatible(
+        model_name="qwen",
+        base_url="http://127.0.0.1:1234/v1",
+        endpoint={
+            "provider_id": "custom_openai_tools",
+            "last_probe": {"streaming_ok": True, "tool_calling": True, "streaming_tool_calling": True},
+        },
+        http_client=client,
+    )
+
+    list(model.stream(
+        [HumanMessage(content="lookup")],
+        tools=[{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object"}}}],
+    ))
+
+    assert client.calls[0][1]["json"]["stream"] is True
 
 
 def test_openai_compatible_transport_recovers_reasoning_text_tool_call():
@@ -388,7 +632,7 @@ def test_openai_compatible_transport_recovers_reasoning_text_tool_call():
         base_url="http://127.0.0.1:1234/v1",
         endpoint={
             "provider_id": "custom_openai_tools",
-            "last_probe": {"streaming_ok": True, "tool_calling": True},
+            "last_probe": {"streaming_ok": True, "tool_calling": True, "streaming_tool_calling": True},
         },
         http_client=client,
     )
@@ -404,6 +648,44 @@ def test_openai_compatible_transport_recovers_reasoning_text_tool_call():
         "index": 0,
         "type": "tool_call_chunk",
     }]
+
+
+def test_openai_compatible_transport_filters_recovered_unknown_tool_when_schemas_supplied():
+    client = _UnknownReasoningTextToolStreamingClient()
+    model = ChatOpenAICompatible(
+        model_name="qwen",
+        base_url="http://127.0.0.1:1234/v1",
+        endpoint={
+            "provider_id": "custom_openai_tools",
+            "last_probe": {"streaming_ok": True, "tool_calling": True, "streaming_tool_calling": True},
+        },
+        http_client=client,
+    )
+
+    chunks = list(model.stream(
+        [HumanMessage(content="what tools?")],
+        tools=[{"type": "function", "function": {"name": "thoth_status", "parameters": {"type": "object"}}}],
+    ))
+
+    assert [chunk for chunk in chunks if chunk.tool_call_chunks] == []
+
+
+def test_openai_compatible_transport_does_not_recover_text_tool_call_when_native_stream_exists():
+    client = _NativeAndReasoningToolStreamingClient()
+    model = ChatOpenAICompatible(
+        model_name="qwen",
+        base_url="http://127.0.0.1:1234/v1",
+        endpoint={
+            "provider_id": "custom_openai_tools",
+            "last_probe": {"streaming_ok": True, "tool_calling": True, "streaming_tool_calling": True},
+        },
+        http_client=client,
+    )
+
+    chunks = list(model.stream([HumanMessage(content="what tools?")]))
+
+    tool_chunks = [chunk.tool_call_chunks[0] for chunk in chunks if chunk.tool_call_chunks]
+    assert [chunk["name"] for chunk in tool_chunks] == ["lookup"]
 
 
 def test_openai_compatible_transport_promotes_reasoning_only_after_successful_tool_result():
@@ -489,7 +771,7 @@ def test_openai_compatible_transport_still_recovers_text_tool_call_after_validat
         base_url="http://127.0.0.1:1234/v1",
         endpoint={
             "provider_id": "custom_openai_tools",
-            "last_probe": {"streaming_ok": True, "tool_calling": True},
+            "last_probe": {"streaming_ok": True, "tool_calling": True, "streaming_tool_calling": True},
         },
         http_client=client,
     )

@@ -276,6 +276,50 @@ def test_thoth_status_model_reports_effective_runtime(monkeypatch):
     assert "Override active (global default: model:ollama:qwen3.6:27b)" in output
 
 
+def test_thoth_status_model_labels_endpoint_types(monkeypatch):
+    import agent
+    import models
+    import providers.readiness as readiness
+    import providers.resolution as resolution
+    import tools.thoth_status_tool as thoth_status_tool
+
+    cases = [
+        ("model:ollama:qwen", "ollama", "Ollama Local", "local", "local_private", "Local (Ollama)"),
+        ("model:custom_openai_lm-studio:qwen", "custom_openai_lm-studio", "LM Studio", "local", "local_private", "Local custom endpoint"),
+        ("model:custom_openai_proxy:qwen", "custom_openai_proxy", "Proxy", "remote", "custom_endpoint", "Custom endpoint"),
+        ("model:openai:gpt-5", "openai", "OpenAI", "remote", "api_key", "Provider (OpenAI)"),
+    ]
+
+    monkeypatch.setattr(models, "get_context_size", lambda model=None: 32768)
+    monkeypatch.setattr(models, "get_provider_emoji", lambda model: "model")
+    monkeypatch.setattr(models, "get_user_context_size", lambda: 32768)
+    monkeypatch.setattr(models, "get_cloud_context_size", lambda: 131072)
+    monkeypatch.setattr(
+        readiness,
+        "evaluate_runtime_readiness",
+        lambda *args, **kwargs: SimpleNamespace(selected_mode="agent", selection_reason="ready"),
+    )
+    agent._set_active_runtime_context(thread_id="", runtime_surface="", requested_runtime_mode="", selected_runtime_mode="")
+
+    for model, provider_id, provider_label, execution_location, risk_label, expected_type in cases:
+        monkeypatch.setattr(models, "get_current_model", lambda model=model: model)
+        monkeypatch.setattr(
+            resolution,
+            "resolve_provider_config",
+            lambda *args, provider_id=provider_id, provider_label=provider_label, execution_location=execution_location, risk_label=risk_label, **kwargs: SimpleNamespace(
+                runtime_model="runtime",
+                provider_id=provider_id,
+                provider_display_name=provider_label,
+                execution_location=execution_location,
+                risk_label=risk_label,
+            ),
+        )
+
+        output = thoth_status_tool._query_model()
+
+        assert f"Type: {expected_type}" in output
+
+
 def test_ollama_parameter_schema_error_is_agent_mode_failure():
     import agent
 

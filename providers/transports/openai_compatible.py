@@ -63,6 +63,7 @@ class ChatOpenAICompatible(BaseChatModel):
             tool_calls = _recover_text_tool_calls_for_empty_response(
                 content=content,
                 reasoning=reasoning,
+                known_tool_names=_known_tool_names(kwargs.get("tools") or []),
             )
         content, additional_kwargs = _resolve_reasoning_only_final(
             messages,
@@ -84,7 +85,8 @@ class ChatOpenAICompatible(BaseChatModel):
         run_manager: Any | None = None,
         **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
-        if not _endpoint_streaming_supported(self.endpoint):
+        tools = kwargs.get("tools") or []
+        if not _endpoint_streaming_supported(self.endpoint, has_tools=bool(tools)):
             yield from self._stream_via_non_stream(messages, stop=stop, **kwargs)
             return
         body = self._request_body(messages, stream=True, stop=stop, **kwargs)
@@ -103,7 +105,10 @@ class ChatOpenAICompatible(BaseChatModel):
         reasoning_seen = False
         tool_seen = False
         payload_seen = False
-        tool_index = 0
+        tool_assembler = _StreamToolCallAssembler(
+            provider=str(self.endpoint.get("provider_id") or "custom"),
+            model=self.model_name,
+        )
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
         for payload in self._iter_stream_events(body):
@@ -125,20 +130,20 @@ class ChatOpenAICompatible(BaseChatModel):
                     run_manager.on_llm_new_token(content, chunk=chunk)
                 yield chunk
             for call in delta.get("tool_calls") or []:
-                chunk_payload = _tool_call_chunk_from_openai(call, tool_index)
-                if chunk_payload:
-                    tool_seen = True
-                    tool_index += 1
-                    yield ChatGenerationChunk(message=AIMessageChunk(content="", tool_call_chunks=[chunk_payload]))
-        if not tool_seen:
+                tool_assembler.add(call)
+        finalized_tool_calls = tool_assembler.finalize()
+        for chunk_payload in finalized_tool_calls:
+            tool_seen = True
+            yield ChatGenerationChunk(message=AIMessageChunk(content="", tool_call_chunks=[chunk_payload]))
+        if not finalized_tool_calls:
             recovered_calls = _recover_text_tool_calls_for_empty_response(
                 content="".join(content_parts),
                 reasoning="".join(reasoning_parts),
+                known_tool_names=_known_tool_names(tools),
             )
-            for call in recovered_calls:
-                chunk_payload = _tool_call_chunk_from_parsed(call, tool_index)
+            for index, call in enumerate(recovered_calls):
+                chunk_payload = _tool_call_chunk_from_parsed(call, index)
                 tool_seen = True
-                tool_index += 1
                 logger.info(
                     "custom_openai_stream: recovered text tool call provider=%s model=%s tool=%s",
                     self.endpoint.get("provider_id") or "custom",
@@ -422,11 +427,90 @@ def _endpoint_accepts_tools(endpoint: dict[str, Any]) -> bool:
     return True
 
 
-def _endpoint_streaming_supported(endpoint: dict[str, Any]) -> bool:
+def _endpoint_streaming_supported(endpoint: dict[str, Any], *, has_tools: bool = False) -> bool:
     probe = endpoint.get("last_probe") if isinstance(endpoint.get("last_probe"), dict) else {}
     if probe.get("streaming_ok") is False:
         return False
+    provider_id = str(endpoint.get("provider_id") or "")
+    if has_tools and provider_id.startswith("custom_openai_"):
+        if probe.get("streaming_tool_calling") is True:
+            return True
+        logger.info(
+            "custom_openai_stream: tool request using non-stream fallback provider=%s streaming_tool_calling=%s",
+            provider_id or "custom",
+            probe.get("streaming_tool_calling"),
+        )
+        return False
     return True
+
+
+class _StreamToolCallAssembler:
+    def __init__(self, *, provider: str, model: str):
+        self.provider = provider
+        self.model = model
+        self._order: list[int] = []
+        self._calls: dict[int, dict[str, Any]] = {}
+
+    def add(self, call: Any) -> None:
+        if not isinstance(call, dict):
+            return
+        stream_index = self._stream_index(call)
+        if stream_index not in self._calls:
+            self._calls[stream_index] = {
+                "index": stream_index,
+                "id": "",
+                "type": "",
+                "name": "",
+                "arguments": [],
+            }
+            self._order.append(stream_index)
+        state = self._calls[stream_index]
+        if call.get("id") and not state["id"]:
+            state["id"] = str(call.get("id"))
+        if call.get("type") and not state["type"]:
+            state["type"] = str(call.get("type"))
+        function = call.get("function") if isinstance(call.get("function"), dict) else {}
+        if function.get("name") and not state["name"]:
+            state["name"] = str(function.get("name")).strip()
+        if "arguments" in function:
+            arguments = function.get("arguments")
+            if not isinstance(arguments, str):
+                arguments = json.dumps(arguments if arguments is not None else {})
+            state["arguments"].append(arguments)
+
+    def finalize(self) -> list[dict[str, Any]]:
+        chunks: list[dict[str, Any]] = []
+        for stream_index in self._order:
+            state = self._calls[stream_index]
+            name = str(state.get("name") or "").strip()
+            if not name:
+                logger.warning(
+                    "custom_openai_stream: dropped streamed tool call without name provider=%s model=%s index=%s args_chars=%d",
+                    self.provider,
+                    self.model,
+                    stream_index,
+                    len("".join(state.get("arguments") or [])),
+                )
+                continue
+            call_id = str(state.get("id") or f"openai_call_{stream_index}")
+            chunks.append({
+                "name": name,
+                "args": "".join(state.get("arguments") or []),
+                "id": call_id,
+                "index": int(stream_index),
+            })
+        return chunks
+
+    def _stream_index(self, call: dict[str, Any]) -> int:
+        raw_index = call.get("index")
+        if raw_index is None:
+            if len(self._order) == 1:
+                return self._order[0]
+            return len(self._order)
+        try:
+            return int(raw_index)
+        except (TypeError, ValueError):
+            return len(self._order)
 
 
 def _drop_empty_or_unsupported(body: dict[str, Any], *, accepts_tools: bool) -> None:
@@ -531,7 +615,26 @@ _TEXT_TOOL_PARAM_RE = re.compile(
 )
 
 
-def _recover_text_tool_calls_for_empty_response(*, content: str, reasoning: str) -> list[dict[str, Any]]:
+def _known_tool_names(tools: Sequence[dict[str, Any] | type | Any]) -> set[str]:
+    names: set[str] = set()
+    for tool in tools:
+        try:
+            normalized = _openai_tool(tool)
+        except Exception:
+            normalized = tool
+        function = normalized.get("function") if isinstance(normalized, dict) and isinstance(normalized.get("function"), dict) else {}
+        name = str(function.get("name") or getattr(tool, "name", "") or "").strip()
+        if name:
+            names.add(name)
+    return names
+
+
+def _recover_text_tool_calls_for_empty_response(
+    *,
+    content: str,
+    reasoning: str,
+    known_tool_names: set[str] | None = None,
+) -> list[dict[str, Any]]:
     """Recover local-model text tool calls only when no final text exists.
 
     Some small OpenAI-compatible local models emit a native tool call first, then
@@ -542,7 +645,10 @@ def _recover_text_tool_calls_for_empty_response(*, content: str, reasoning: str)
     """
     if str(content or "").strip():
         return []
-    return _text_tool_calls_from_content(reasoning)
+    calls = _text_tool_calls_from_content(reasoning)
+    if known_tool_names:
+        calls = [call for call in calls if str(call.get("name") or "") in known_tool_names]
+    return [call for call in calls if str(call.get("name") or "").strip()]
 
 
 def _last_tool_result_state(messages: list[BaseMessage]) -> str:

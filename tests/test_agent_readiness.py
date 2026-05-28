@@ -424,7 +424,60 @@ def test_custom_endpoint_successful_tool_round_trip_probe_passes(tmp_path, monke
     assert result.ready is True
     assert result.tool_calling is True
     assert result.tool_round_trip is True
+    assert result.streaming_tool_calling is None
     assert result.tool_calling_source == "probe"
+    assert any("non-stream fallback" in warning for warning in result.warnings)
+
+
+def test_custom_endpoint_streamed_tool_probe_is_exposed_in_readiness(tmp_path, monkeypatch):
+    import providers.readiness as readiness
+    import models
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
+    provider_id = custom_provider_id("lab")
+    save_custom_endpoint({
+        "id": "lab",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "auth_required": False,
+        "last_probe": {
+            "ok": True,
+            "tool_calling": True,
+            "tool_round_trip": True,
+            "streaming_ok": True,
+            "streaming_tool_calling": True,
+            "context_window": 65_536,
+        },
+        "models": [{
+            "id": "local-chat",
+            "model_id": "local-chat",
+            "context_window": 65_536,
+            "capabilities_snapshot": {
+                "tasks": ["chat"],
+                "input_modalities": ["text"],
+                "output_modalities": ["text"],
+                "tool_calling": None,
+            },
+        }],
+    })
+    monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
+        model_ref=f"model:{provider_id}:local-chat",
+        provider_id=provider_id,
+        runtime_model="local-chat",
+        native_max=65_536,
+        user_cap=65_536,
+        effective_context=65_536,
+        policy_kind="local",
+        cap_source="provider_metadata",
+        request_application="trim_only",
+    ))
+
+    result = evaluate_agent_readiness(f"model:{provider_id}:local-chat")
+
+    assert result.ready is True
+    assert result.streaming is True
+    assert result.streaming_tool_calling is True
+    assert not any("non-stream fallback" in warning for warning in result.warnings)
 
 
 def test_custom_endpoint_chat_probe_without_tools_is_chat_only(tmp_path, monkeypatch):
