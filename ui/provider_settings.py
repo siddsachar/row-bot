@@ -8,17 +8,130 @@ from ui.timer_utils import defer_ui
 
 
 def _probe_detail(last_probe: dict) -> str:
-    errors = last_probe.get("errors") if isinstance(last_probe, dict) else []
-    if isinstance(errors, list) and errors:
-        return "\n".join(str(error) for error in errors[:4])
-    if isinstance(last_probe, dict) and last_probe.get("ok"):
-        details = [
-            f"models: {'ok' if last_probe.get('models_ok') else 'not checked'}",
-            f"chat: {'ok' if last_probe.get('chat_ok') else 'not checked'}",
-            f"streaming: {'ok' if last_probe.get('streaming_ok') else 'not checked'}",
-        ]
-        return "\n".join(details)
-    return "No probe details recorded yet."
+    try:
+        from providers.custom import custom_probe_summary
+
+        return str(custom_probe_summary(last_probe).get("text") or "No probe details recorded yet.")
+    except Exception:
+        errors = last_probe.get("errors") if isinstance(last_probe, dict) else []
+        if isinstance(errors, list) and errors:
+            return "\n".join(str(error) for error in errors[:4])
+        return "No probe details recorded yet."
+
+
+def _probe_chip_color(status: str) -> str:
+    return {
+        "ok": "green",
+        "failed": "orange",
+        "inconclusive": "amber",
+        "not_probed": "grey",
+    }.get(str(status or ""), "grey")
+
+
+def _probe_chip_label(component: dict) -> str:
+    name = str(component.get("name") or component.get("id") or "probe")
+    status = str(component.get("status") or "unknown")
+    label = {
+        "ok": "ok",
+        "failed": "failed",
+        "inconclusive": "inconclusive",
+        "not_probed": "not probed",
+        "unknown": "unknown",
+    }.get(status, status)
+    return f"{name}: {label}"
+
+
+_INLINE_PROBE_COMPONENT_IDS = {"chat", "tools", "tool_round_trip", "streaming", "streaming_tools", "vision"}
+
+
+def _probe_checks_summary(summary: dict) -> dict[str, str]:
+    components = [
+        component
+        for component in summary.get("components", [])
+        if isinstance(component, dict) and str(component.get("id") or "") in _INLINE_PROBE_COMPONENT_IDS
+    ]
+    total = len(components)
+    if not total:
+        return {"label": "checks", "color": "grey"}
+    statuses = [str(component.get("status") or "unknown") for component in components]
+    ok_count = sum(1 for status in statuses if status == "ok")
+    if any(status == "failed" for status in statuses):
+        color = "orange"
+    elif any(status == "inconclusive" for status in statuses):
+        color = "amber"
+    elif any(status in {"not_probed", "unknown"} for status in statuses):
+        color = "blue-grey"
+    else:
+        color = "green"
+    return {"label": f"{ok_count}/{total} checks", "color": color}
+
+
+def _manual_capabilities_from_ui(vision_mode: str, tool_mode: str, context_window: object = "") -> dict:
+    manual: dict[str, object] = {}
+    if vision_mode == "on":
+        manual["vision"] = True
+    elif vision_mode == "off":
+        manual["vision"] = False
+    if tool_mode == "on":
+        manual["tool_calling"] = True
+    elif tool_mode == "off":
+        manual["tool_calling"] = False
+    try:
+        context = int(str(context_window or "").strip())
+    except (TypeError, ValueError):
+        context = 0
+    if context > 0:
+        manual["context_window"] = context
+    return manual
+
+
+def _capability_mode(manual: dict, key: str) -> str:
+    if manual.get(key) is True:
+        return "on"
+    if manual.get(key) is False:
+        return "off"
+    return "auto"
+
+
+def _custom_endpoint_edit_payload(
+    endpoint: dict,
+    *,
+    display_name: object,
+    base_url: object,
+    no_auth: bool,
+    api_key: object = "",
+    vision_mode: str = "auto",
+    tool_mode: str = "auto",
+    context_window: object = "",
+) -> tuple[dict, bool]:
+    payload = dict(endpoint)
+    payload["id"] = str(endpoint.get("id") or "").strip()
+    payload["name"] = str(display_name or "").strip()
+    payload["display_name"] = payload["name"]
+    payload["base_url"] = str(base_url or "").strip().rstrip("/")
+    payload["auth_required"] = not bool(no_auth)
+    secret = str(api_key or "").strip()
+    if secret:
+        payload["api_key"] = secret
+    else:
+        payload.pop("api_key", None)
+
+    manual_caps = _manual_capabilities_from_ui(vision_mode, tool_mode, context_window)
+    old_manual = endpoint.get("manual_capabilities") if isinstance(endpoint.get("manual_capabilities"), dict) else {}
+    if manual_caps:
+        payload["manual_capabilities"] = manual_caps
+    else:
+        payload.pop("manual_capabilities", None)
+
+    stale_probe = (
+        str(endpoint.get("base_url") or "").strip().rstrip("/") != payload["base_url"]
+        or bool(endpoint.get("auth_required")) != payload["auth_required"]
+        or dict(old_manual) != manual_caps
+    )
+    if stale_probe:
+        payload.pop("last_probe", None)
+        payload.pop("models", None)
+    return payload, stale_probe
 
 
 def _source_label(source: str) -> str:
@@ -252,13 +365,163 @@ def build_provider_summary_cards() -> None:
 
 
 def build_custom_endpoints_section(on_change=None) -> None:
-    from providers.custom import CUSTOM_ENDPOINT_PROFILES, delete_custom_endpoint, list_custom_endpoints, probe_custom_endpoint, refresh_custom_endpoint_models, save_custom_endpoint
+    from providers.custom import CUSTOM_ENDPOINT_PROFILES, custom_probe_summary, delete_custom_endpoint, list_custom_endpoints, probe_custom_endpoint, refresh_custom_endpoint_models, save_custom_endpoint
 
     endpoints = list_custom_endpoints()
     ui.label("Custom / Self-Hosted Endpoints").classes("text-subtitle2")
     if endpoints:
         with ui.column().classes("w-full gap-1"):
             for endpoint in endpoints:
+                def _show_probe_details(endpoint=endpoint):
+                    last_probe = endpoint.get("last_probe") if isinstance(endpoint.get("last_probe"), dict) else {}
+                    summary = custom_probe_summary(last_probe)
+                    with ui.dialog() as dialog:
+                        with ui.card().classes("w-full").style("max-width: 34rem;"):
+                            with ui.row().classes("w-full items-start justify-between gap-2 no-wrap"):
+                                with ui.column().classes("gap-0").style("min-width: 0;"):
+                                    ui.label(endpoint.get("display_name") or endpoint.get("id") or "Custom endpoint").classes("text-subtitle2")
+                                    ui.label(endpoint.get("base_url") or "No base URL").classes("text-grey-6 text-xs").style("overflow-wrap: anywhere;")
+                                classification = str(summary.get("classification") or "unknown")
+                                ui.badge(
+                                    {
+                                        "agent_ready": "agent ready",
+                                        "chat_only": "chat only",
+                                        "unavailable": "unavailable",
+                                    }.get(classification, "unknown"),
+                                    color="green" if classification == "agent_ready" else "orange" if classification == "chat_only" else "grey",
+                                ).props("outline dense")
+                            ui.separator()
+                            with ui.column().classes("w-full gap-1"):
+                                for component in summary.get("components", []):
+                                    if not isinstance(component, dict):
+                                        continue
+                                    status = str(component.get("status") or "unknown")
+                                    with ui.row().classes("w-full items-center justify-between gap-3 no-wrap"):
+                                        ui.label(str(component.get("name") or component.get("id") or "probe")).classes("text-sm")
+                                        ui.badge(
+                                            {
+                                                "ok": "ok",
+                                                "failed": "failed",
+                                                "inconclusive": "inconclusive",
+                                                "not_probed": "not probed",
+                                                "unknown": "unknown",
+                                            }.get(status, status),
+                                            color=_probe_chip_color(status),
+                                        ).props("outline dense")
+                                    detail = str(component.get("detail") or "")
+                                    if detail:
+                                        ui.label(detail).classes("text-grey-6 text-xs q-ml-md").style("overflow-wrap: anywhere;")
+                            if last_probe.get("vision_model") or last_probe.get("vision_content_format"):
+                                ui.separator()
+                                if last_probe.get("vision_model"):
+                                    ui.label(f"Vision model: {last_probe.get('vision_model')}").classes("text-grey-6 text-xs").style("overflow-wrap: anywhere;")
+                                if last_probe.get("vision_content_format"):
+                                    ui.label(f"Vision format: {last_probe.get('vision_content_format')}").classes("text-grey-6 text-xs")
+                            errors = last_probe.get("errors") if isinstance(last_probe.get("errors"), list) else []
+                            if errors:
+                                ui.separator()
+                                for error in errors[:4]:
+                                    ui.label(str(error)).classes("text-warning text-xs").style("overflow-wrap: anywhere;")
+                            with ui.row().classes("w-full justify-end"):
+                                ui.button("Close", icon="close", on_click=dialog.close).props("flat dense")
+                    dialog.open()
+
+                def _show_endpoint_editor(endpoint=endpoint):
+                    manual = endpoint.get("manual_capabilities") if isinstance(endpoint.get("manual_capabilities"), dict) else {}
+                    with ui.dialog() as dialog:
+                        with ui.card().classes("w-full").style("max-width: 38rem;"):
+                            ui.label("Edit Custom Endpoint").classes("text-subtitle2")
+                            ui.label("Safe connection details are editable. Profile, location, and endpoint id are fixed after creation.").classes("text-grey-6 text-xs")
+                            name_input = ui.input(
+                                "Display name",
+                                value=str(endpoint.get("display_name") or endpoint.get("name") or endpoint.get("id") or ""),
+                            ).classes("w-full").props("dense outlined")
+                            base_url_input = ui.input(
+                                "Base URL",
+                                value=str(endpoint.get("base_url") or ""),
+                            ).classes("w-full").props("dense outlined")
+                            with ui.row().classes("items-center gap-2"):
+                                ui.input("Endpoint id", value=str(endpoint.get("id") or "")).classes("min-w-[160px]").props("dense outlined readonly")
+                                ui.input("Profile", value=str(endpoint.get("profile") or "generic_openai")).classes("min-w-[160px]").props("dense outlined readonly")
+                                ui.input("Location", value=str(endpoint.get("execution_location") or "remote")).classes("min-w-[140px]").props("dense outlined readonly")
+                            no_auth_input = ui.checkbox("No API key required", value=not bool(endpoint.get("auth_required")))
+                            api_key_input = ui.input(
+                                "API key or token",
+                                value="",
+                                placeholder="Leave blank to keep the saved key",
+                                password=True,
+                                password_toggle_button=True,
+                            ).classes("w-full")
+                            api_key_input.visible = bool(endpoint.get("auth_required"))
+
+                            def _toggle_key_visibility() -> None:
+                                api_key_input.visible = not bool(no_auth_input.value)
+                                api_key_input.update()
+
+                            no_auth_input.on_value_change(lambda _: _toggle_key_visibility())
+
+                            with ui.expansion("Advanced", icon="tune", value=False).classes("w-full"):
+                                ui.label("Use Auto unless endpoint metadata is missing or wrong. Overrides apply to all models exposed by this endpoint.").classes("text-grey-6 text-xs")
+                                vision_mode = ui.select(
+                                    {"auto": "Auto", "on": "Force Vision on", "off": "Force Vision off"},
+                                    value=_capability_mode(manual, "vision"),
+                                    label="Vision input",
+                                ).classes("w-full").props("dense outlined")
+                                ui.label("Force on makes this endpoint's models appear in Vision-capable pickers.").classes("text-grey-6 text-xs")
+                                tool_mode = ui.select(
+                                    {"auto": "Auto", "on": "Force tools on", "off": "Force tools off"},
+                                    value=_capability_mode(manual, "tool_calling"),
+                                    label="Tool calling",
+                                ).classes("w-full").props("dense outlined")
+                                ui.label("Agent readiness still depends on the live probe proving tool round-trip.").classes("text-grey-6 text-xs")
+                                context_input = ui.input(
+                                    "Native context limit",
+                                    value=str(manual.get("context_window") or ""),
+                                    placeholder="Auto",
+                                ).classes("w-full").props("dense outlined")
+                                ui.label("Used as Thoth's provider ceiling for trimming and readiness. The app-wide context setting still caps actual usage.").classes("text-grey-6 text-xs")
+
+                            async def _save_edit(endpoint=endpoint):
+                                name = str(name_input.value or "").strip()
+                                base_url = str(base_url_input.value or "").strip()
+                                if not name or not base_url:
+                                    ui.notify("Display name and base URL are required", type="warning")
+                                    return
+                                payload, stale = _custom_endpoint_edit_payload(
+                                    endpoint,
+                                    display_name=name,
+                                    base_url=base_url,
+                                    no_auth=bool(no_auth_input.value),
+                                    api_key=api_key_input.value,
+                                    vision_mode=str(vision_mode.value or "auto"),
+                                    tool_mode=str(tool_mode.value or "auto"),
+                                    context_window=context_input.value,
+                                )
+                                save_custom_endpoint(payload)
+                                notification = ui.notification("Endpoint saved; refreshing models...", type="ongoing", spinner=True, timeout=None)
+                                try:
+                                    await run.io_bound(refresh_custom_endpoint_models, endpoint["id"])
+                                    try:
+                                        from providers.selection import refresh_quick_choice_capability_snapshots
+
+                                        await run.io_bound(refresh_quick_choice_capability_snapshots)
+                                    except Exception:
+                                        pass
+                                    notification.dismiss()
+                                    suffix = "; probe again to verify readiness" if stale else ""
+                                    ui.notify(f"Endpoint saved{suffix}", type="positive", close_button=True)
+                                except Exception as exc:
+                                    notification.dismiss()
+                                    ui.notify(f"Endpoint saved, but model refresh failed: {exc}", type="warning", close_button=True)
+                                dialog.close()
+                                if on_change:
+                                    on_change()
+
+                            with ui.row().classes("w-full justify-end gap-2"):
+                                ui.button("Cancel", icon="close", on_click=dialog.close).props("flat dense")
+                                ui.button("Save", icon="save", on_click=_save_edit).props("flat dense color=primary")
+                    dialog.open()
+
                 with ui.row().classes("items-center gap-2 no-wrap w-full"):
                     ui.icon("hub", size="sm")
                     with ui.column().classes("gap-0"):
@@ -269,10 +532,22 @@ def build_custom_endpoints_section(on_change=None) -> None:
                     ui.badge(endpoint.get("transport") or "openai_chat", color="grey").props("outline dense")
                     last_probe = endpoint.get("last_probe") if isinstance(endpoint.get("last_probe"), dict) else {}
                     if last_probe:
+                        summary = custom_probe_summary(last_probe)
+                        classification = str(summary.get("classification") or "")
+                        primary_label = {
+                            "agent_ready": "agent ready",
+                            "chat_only": "chat only",
+                            "unavailable": "unavailable",
+                        }.get(classification, "probe unknown")
                         ui.badge(
-                            "probe ok" if last_probe.get("ok") else "probe failed",
-                            color="green" if last_probe.get("ok") else "orange",
+                            primary_label,
+                            color="green" if classification == "agent_ready" else "orange" if classification == "chat_only" else "grey",
                         ).props("outline dense").tooltip(_probe_detail(last_probe))
+                        checks = _probe_checks_summary(summary)
+                        ui.button(
+                            icon="fact_check",
+                            on_click=_show_probe_details,
+                        ).props(f"flat dense round size=sm color={checks['color']}").tooltip(f"Show probe details ({checks['label']})")
                     models = endpoint.get("models") if isinstance(endpoint.get("models"), list) else []
                     if models:
                         ui.badge(f"{len(models)} models", color="grey").props("outline dense")
@@ -315,7 +590,7 @@ def build_custom_endpoints_section(on_change=None) -> None:
                             result = await run.io_bound(probe_custom_endpoint, endpoint_id)
                             notification.dismiss()
                             if result.get("ok"):
-                                ui.notify("Endpoint probe passed", type="positive")
+                                ui.notify(f"Endpoint probe passed: {custom_probe_summary(result).get('text', '')}", type="positive", close_button=True, timeout=9000)
                             else:
                                 ui.notify(
                                     f"Endpoint probe failed: {_probe_detail(result)}",
@@ -331,6 +606,7 @@ def build_custom_endpoints_section(on_change=None) -> None:
 
                     ui.button(icon="refresh", on_click=_refresh).props("flat dense round size=sm").tooltip("Refresh models")
                     ui.button(icon="science", on_click=_probe).props("flat dense round size=sm").tooltip("Probe endpoint")
+                    ui.button(icon="edit", on_click=_show_endpoint_editor).props("flat dense round size=sm").tooltip("Edit endpoint")
                     ui.button(icon="delete", on_click=_delete).props("flat dense round size=sm color=negative").tooltip("Remove endpoint")
     else:
         ui.label("Connect vLLM, llama.cpp, LM Studio, LocalAI, LiteLLM, or another OpenAI-compatible API.").classes("text-grey-6 text-sm")
@@ -361,6 +637,21 @@ def build_custom_endpoints_section(on_change=None) -> None:
             password=True,
             password_toggle_button=True,
         ).classes("w-full")
+        with ui.expansion("Advanced", icon="tune", value=False).classes("w-full"):
+            ui.label("Use Auto unless endpoint metadata is missing or wrong. Overrides apply to all models exposed by this endpoint.").classes("text-grey-6 text-xs")
+            with ui.row().classes("items-center gap-3"):
+                vision_override = ui.select(
+                    {"auto": "Auto", "on": "Force Vision on", "off": "Force Vision off"},
+                    value="auto",
+                    label="Vision input",
+                ).classes("min-w-[180px]")
+                tool_override = ui.select(
+                    {"auto": "Auto", "on": "Force tools on", "off": "Force tools off"},
+                    value="auto",
+                    label="Tool calling",
+                ).classes("min-w-[180px]")
+                context_override = ui.input("Native context limit", placeholder="Auto").classes("min-w-[180px]")
+            ui.label("Agent readiness still depends on live probe results. The app-wide context setting still caps actual context usage.").classes("text-grey-6 text-xs")
 
         def _save() -> None:
             name = str(name_input.value or "").strip()
@@ -368,7 +659,7 @@ def build_custom_endpoints_section(on_change=None) -> None:
             if not name or not base_url:
                 ui.notify("Name and base URL are required", type="warning")
                 return
-            save_custom_endpoint({
+            payload = {
                 "id": name,
                 "name": name,
                 "base_url": base_url,
@@ -377,7 +668,15 @@ def build_custom_endpoints_section(on_change=None) -> None:
                 "execution_location": location.value or "remote",
                 "profile": profile.value or "generic_openai",
                 "transport": "openai_chat",
-            })
+            }
+            manual_caps = _manual_capabilities_from_ui(
+                str(vision_override.value or "auto"),
+                str(tool_override.value or "auto"),
+                context_override.value,
+            )
+            if manual_caps:
+                payload["manual_capabilities"] = manual_caps
+            save_custom_endpoint(payload)
             ui.notify("Custom endpoint saved", type="positive")
             if on_change:
                 on_change()

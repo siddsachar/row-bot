@@ -132,6 +132,24 @@ def strip_file_context(content: str) -> str:
     return "\n\n".join(result_parts) if result_parts else content
 
 
+def _vision_analysis_failed(text: str) -> bool:
+    value = str(text or "").strip()
+    if not value:
+        return True
+    lowered = value.lower()
+    failure_prefixes = (
+        "vision analysis failed",
+        "vision is disabled",
+        "failed to capture",
+        "failed to read image",
+        "image file not found",
+        "image file is empty",
+        "could not access the camera",
+        "ollama is not installed",
+    )
+    return lowered.startswith(failure_prefixes)
+
+
 def _message_signature(msg: dict) -> str:
     """Stable signature used to reattach persisted images on reload."""
     role = str(msg.get("role", ""))
@@ -332,10 +350,16 @@ def process_attached_files(
                 description = vision_svc.analyze(
                     data, f"Describe this image in detail. The filename is '{name}'."
                 )
-                context_parts.append(
-                    f"[Attached image: {name} — ALREADY ANALYZED, do NOT call analyze_image]\n"
-                    f"{description}"
-                )
+                if _vision_analysis_failed(description):
+                    context_parts.append(
+                        f"[Attached image: {name} - vision analysis failed]\n"
+                        f"{description}"
+                    )
+                else:
+                    context_parts.append(
+                        f"[Attached image: {name} — ALREADY ANALYZED, do NOT call analyze_image]\n"
+                        f"{description}"
+                    )
             else:
                 context_parts.append(f"[Attached image: {name} — vision is disabled, cannot analyze]")
 
@@ -456,6 +480,9 @@ def langchain_messages_to_ui_messages(messages: list) -> list[dict]:
             if not isinstance(ai_content, str):
                 ai_content = str(ai_content) if ai_content else ""
             if not ai_content.strip():
+                ak = getattr(m, "additional_kwargs", None) or {}
+                if ak.get("reasoning_content") and not getattr(m, "tool_calls", []):
+                    continue
                 if pending_tool_results and not getattr(m, "tool_calls", []):
                     msg_dict = {"role": "assistant", "content": "", "tool_results": list(pending_tool_results)}
                     if pending_charts:

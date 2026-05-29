@@ -4,6 +4,7 @@ import logging
 import json
 import re
 from typing import Any
+from urllib.parse import quote
 
 from providers.auth_store import delete_provider_secret, get_provider_secret, set_provider_secret
 from providers.catalog import model_info_from_metadata, model_info_to_cache_entry
@@ -16,7 +17,20 @@ DEFAULT_CUSTOM_ENDPOINT_CONTEXT_FALLBACK = 32_768
 TOOL_PROBE_MAX_TOKENS = 1024
 TOOL_ROUND_TRIP_PROBE_MAX_TOKENS = 256
 STREAMING_PROBE_MAX_TOKENS = 128
+VISION_PROBE_MAX_TOKENS = 256
+VISION_PROBE_IMAGE_DATA_URL = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
+)
 logger = logging.getLogger(__name__)
+
+
+CUSTOM_ENDPOINT_REASONING_DEFAULTS: dict[str, Any] = {
+    "supports_reasoning_content": False,
+    "supports_reasoning_replay": False,
+    "reasoning_mode": "auto",
+    "preserve_thinking": True,
+}
 
 
 class CustomEndpointModelRefreshResult(list):
@@ -38,6 +52,11 @@ def _positive_int(value: Any, default: int = 0) -> int:
     except (TypeError, ValueError):
         return default
     return parsed if parsed > 0 else default
+
+
+def _reasoning_mode(value: Any, default: str = "auto") -> str:
+    mode = str(value or default or "auto").strip().lower()
+    return mode if mode in {"auto", "on", "off"} else "auto"
 
 
 CUSTOM_ENDPOINT_PROFILES: dict[str, dict[str, Any]] = {
@@ -70,8 +89,8 @@ CUSTOM_ENDPOINT_PROFILES: dict[str, dict[str, Any]] = {
         "tool_history_mode": "native_required",
         "message_content_mode": "openai",
         "drop_unsupported_params": True,
-        "supports_runtime_context_override": True,
-        "context_param_name": "max_model_len",
+        "supports_runtime_context_override": False,
+        "context_param_name": "",
         "unknown_context_fallback": DEFAULT_CUSTOM_ENDPOINT_CONTEXT_FALLBACK,
     },
     "lmstudio": {
@@ -125,8 +144,8 @@ CUSTOM_ENDPOINT_PROFILES: dict[str, dict[str, Any]] = {
         "tool_history_mode": "native_required",
         "message_content_mode": "openai",
         "drop_unsupported_params": True,
-        "supports_runtime_context_override": True,
-        "context_param_name": "context_length",
+        "supports_runtime_context_override": False,
+        "context_param_name": "",
         "unknown_context_fallback": DEFAULT_CUSTOM_ENDPOINT_CONTEXT_FALLBACK,
     },
 }
@@ -134,7 +153,11 @@ CUSTOM_ENDPOINT_PROFILES: dict[str, dict[str, Any]] = {
 
 def custom_endpoint_profile(profile_id: str | None) -> dict[str, Any]:
     profile = str(profile_id or DEFAULT_CUSTOM_ENDPOINT_PROFILE).strip().lower()
-    return dict(CUSTOM_ENDPOINT_PROFILES.get(profile) or CUSTOM_ENDPOINT_PROFILES[DEFAULT_CUSTOM_ENDPOINT_PROFILE])
+    result = dict(CUSTOM_ENDPOINT_REASONING_DEFAULTS)
+    result.update(CUSTOM_ENDPOINT_PROFILES.get(profile) or CUSTOM_ENDPOINT_PROFILES[DEFAULT_CUSTOM_ENDPOINT_PROFILE])
+    if profile in {"llama_cpp", "lmstudio", "vllm", "sglang", "litellm"}:
+        result["supports_reasoning_content"] = True
+    return result
 
 
 def slugify_endpoint_id(value: str) -> str:
@@ -178,6 +201,13 @@ def normalize_custom_endpoint(endpoint: dict[str, Any]) -> dict[str, Any]:
     )
     if profile == "litellm" and system_message_mode == "provider_default":
         system_message_mode = "system_first"
+    supports_runtime_context_override = bool(
+        endpoint.get("supports_runtime_context_override", profile_defaults.get("supports_runtime_context_override", False))
+    )
+    context_param_name = str(endpoint.get("context_param_name") or profile_defaults.get("context_param_name") or "")
+    if profile in {"vllm", "sglang"} and context_param_name in {"max_model_len", "context_length"}:
+        supports_runtime_context_override = False
+        context_param_name = ""
 
     normalized = {
         "id": endpoint_id,
@@ -200,10 +230,17 @@ def normalize_custom_endpoint(endpoint: dict[str, Any]) -> dict[str, Any]:
         ),
         "message_content_mode": str(endpoint.get("message_content_mode") or profile_defaults.get("message_content_mode") or "openai"),
         "drop_unsupported_params": bool(endpoint.get("drop_unsupported_params", profile_defaults.get("drop_unsupported_params", True))),
-        "supports_runtime_context_override": bool(endpoint.get("supports_runtime_context_override", profile_defaults.get("supports_runtime_context_override", False))),
-        "context_param_name": str(endpoint.get("context_param_name") or profile_defaults.get("context_param_name") or ""),
+        "supports_runtime_context_override": supports_runtime_context_override,
+        "context_param_name": context_param_name,
         "unknown_context_fallback": unknown_context_fallback,
+        "supports_reasoning_content": bool(endpoint.get("supports_reasoning_content", profile_defaults.get("supports_reasoning_content", False))),
+        "supports_reasoning_replay": bool(endpoint.get("supports_reasoning_replay", profile_defaults.get("supports_reasoning_replay", False))),
+        "reasoning_mode": _reasoning_mode(endpoint.get("reasoning_mode"), str(profile_defaults.get("reasoning_mode") or "auto")),
+        "preserve_thinking": bool(endpoint.get("preserve_thinking", profile_defaults.get("preserve_thinking", True))),
     }
+    thinking_budget = _positive_int(endpoint.get("thinking_budget"))
+    if thinking_budget:
+        normalized["thinking_budget"] = thinking_budget
     manual = endpoint.get("manual_capabilities")
     if isinstance(manual, dict):
         normalized["manual_capabilities"] = dict(manual)
@@ -269,6 +306,8 @@ def save_custom_endpoint(endpoint: dict) -> None:
     save_provider_config(cfg)
     if secret:
         set_provider_secret(str(normalized["provider_id"]), "api_key", secret)
+    elif not normalized.get("auth_required"):
+        delete_provider_secret(str(normalized["provider_id"]), "api_key")
 
 
 def delete_custom_endpoint(endpoint_or_provider_id: str) -> int:
@@ -355,8 +394,13 @@ def refresh_custom_endpoint_models(endpoint_or_provider_id: str) -> list[ModelIn
     url = f"{str(endpoint['base_url']).rstrip('/')}/models"
     response = httpx.get(url, headers=headers, timeout=15)
     response.raise_for_status()
-    native_metadata = _fetch_custom_endpoint_native_model_metadata(endpoint, headers=headers)
-    infos = model_infos_from_openai_compatible_catalog(endpoint, response.json(), native_metadata_by_model=native_metadata)
+    payload = response.json()
+    native_metadata = _fetch_custom_endpoint_native_model_metadata(
+        endpoint,
+        headers=headers,
+        model_ids=_catalog_model_ids(payload),
+    )
+    infos = model_infos_from_openai_compatible_catalog(endpoint, payload, native_metadata_by_model=native_metadata)
     _store_custom_endpoint_models(endpoint["id"], infos)
     valid_model_ids = {info.model_id for info in infos}
     stale_pin_count = 0
@@ -421,6 +465,13 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
         "tool_calling": None,
         "tool_round_trip": None,
         "streaming_tool_calling": None,
+        "vision_ok": None,
+        "vision_probed": False,
+        "vision_probe_skip_reason": "",
+        "vision_error": "",
+        "vision_probe_response": "",
+        "vision_model": "",
+        "vision_content_format": "",
         "context_window": 0,
         "profile": endpoint.get("profile") or DEFAULT_CUSTOM_ENDPOINT_PROFILE,
         "transport": endpoint.get("transport") or TransportMode.OPENAI_CHAT.value,
@@ -450,6 +501,7 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
         return result
 
     matched = next((info for info in infos if info.model_id == target_model), None)
+    result["vision_model"] = target_model
     if matched and matched.context_window:
         result["context_window"] = int(matched.context_window)
 
@@ -553,28 +605,136 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
         result["streaming_tool_error"] = str(exc)
         result["errors"].append(f"streaming_tools: {exc}")
 
+    should_probe_vision, vision_skip_reason = _vision_probe_decision(endpoint, matched, target_model)
+    if should_probe_vision:
+        result["vision_probed"] = True
+        result["vision_content_format"] = "openai_image_url"
+        vision_body = _vision_probe_body(target_model)
+        try:
+            response = httpx.post(chat_url, headers=headers, json=vision_body, timeout=30)
+            response.raise_for_status()
+            text = _extract_probe_text(response.json()).strip().lower()
+            result["vision_probe_response"] = text[:200]
+            if _vision_probe_text_indicates_success(text):
+                result["vision_ok"] = True
+            elif _vision_probe_text_indicates_failure(text):
+                result["vision_ok"] = False
+                result["vision_error"] = f"unexpected response: {text or '<empty>'}"
+                result["errors"].append(f"vision: {result['vision_error']}")
+            else:
+                result["vision_ok"] = None
+                result["vision_error"] = f"probe inconclusive: unexpected response: {text or '<empty>'}"
+        except Exception as exc:
+            result["vision_ok"] = False
+            result["vision_error"] = str(exc)
+            result["errors"].append(f"vision: {exc}")
+    else:
+        result["vision_probe_skip_reason"] = vision_skip_reason
+
     _classify_probe_result(result)
     _store_custom_endpoint_probe(endpoint["id"], result)
+    summary = custom_probe_summary(result)
     if result["ok"]:
         logger.info(
-            "Custom endpoint probe ok: id=%s base_url=%s models_ok=%s chat_ok=%s streaming_ok=%s tool_calling=%s streaming_tool_calling=%s",
+            "Custom endpoint probe ok: id=%s base_url=%s classification=%s models_ok=%s chat_ok=%s "
+            "streaming_ok=%s tool_calling=%s tool_round_trip=%s streaming_tool_calling=%s "
+            "vision_probed=%s vision_ok=%s vision_model=%s vision_content_format=%s vision_error=%s vision_skip=%s vision_response=%s",
             endpoint["id"],
             endpoint.get("base_url"),
+            result.get("classification"),
             result.get("models_ok"),
             result.get("chat_ok"),
             result.get("streaming_ok"),
             result.get("tool_calling"),
+            result.get("tool_round_trip"),
             result.get("streaming_tool_calling"),
+            result.get("vision_probed"),
+            result.get("vision_ok"),
+            result.get("vision_model"),
+            result.get("vision_content_format"),
+            result.get("vision_error"),
+            result.get("vision_probe_skip_reason"),
+            result.get("vision_probe_response"),
         )
     else:
         logger.warning(
-            "Custom endpoint probe failed: id=%s base_url=%s profile=%s errors=%s",
+            "Custom endpoint probe failed: id=%s base_url=%s profile=%s classification=%s details=%s errors=%s",
             endpoint["id"],
             endpoint.get("base_url"),
             endpoint.get("profile"),
+            result.get("classification"),
+            summary.get("text"),
             "; ".join(str(error) for error in result.get("errors", [])) or "unknown error",
         )
     return result
+
+
+def _component_status(value: Any, *, probed: bool = True, missing: str = "unknown") -> str:
+    if not probed:
+        return "not_probed"
+    if value is True:
+        return "ok"
+    if value is False:
+        return "failed"
+    return missing
+
+
+def _component_label(name: str, status: str) -> str:
+    label = {
+        "ok": "ok",
+        "failed": "failed",
+        "inconclusive": "inconclusive",
+        "not_probed": "not probed",
+        "unknown": "unknown",
+    }.get(status, status)
+    return f"{name}: {label}"
+
+
+def custom_probe_summary(last_probe: dict[str, Any] | None) -> dict[str, Any]:
+    probe = dict(last_probe or {}) if isinstance(last_probe, dict) else {}
+    if not probe:
+        return {"classification": "unknown", "components": [], "text": "No probe details recorded yet."}
+    vision_probed = bool(probe.get("vision_probed"))
+    if "vision_probed" not in probe:
+        vision_probed = bool(probe.get("vision_content_format") or probe.get("vision_error") or probe.get("vision_ok") is not None)
+    vision_status = _component_status(
+        probe.get("vision_ok"),
+        probed=vision_probed,
+        missing="inconclusive" if vision_probed else "not_probed",
+    )
+    components = [
+        {"id": "models", "name": "models", "status": _component_status(probe.get("models_ok"), missing="not_probed")},
+        {"id": "chat", "name": "chat", "status": _component_status(probe.get("chat_ok"), missing="not_probed")},
+        {"id": "streaming", "name": "streaming", "status": _component_status(probe.get("streaming_ok"), missing="not_probed")},
+        {"id": "tools", "name": "tools", "status": _component_status(probe.get("tool_calling"), missing="not_probed")},
+        {"id": "tool_round_trip", "name": "tool round-trip", "status": _component_status(probe.get("tool_round_trip"), missing="not_probed")},
+        {"id": "streaming_tools", "name": "streaming tools", "status": _component_status(probe.get("streaming_tool_calling"), missing="not_probed")},
+        {
+            "id": "vision",
+            "name": "vision",
+            "status": vision_status,
+            "detail": probe.get("vision_error") or probe.get("vision_probe_skip_reason") or (
+                f"response: {probe.get('vision_probe_response')}" if probe.get("vision_probe_response") else ""
+            ),
+        },
+    ]
+    errors = probe.get("errors") if isinstance(probe.get("errors"), list) else []
+    lines = [_component_label(str(item["name"]), str(item["status"])) for item in components]
+    if probe.get("classification"):
+        lines.insert(0, f"classification: {probe.get('classification')}")
+    if probe.get("vision_model"):
+        lines.append(f"vision model: {probe.get('vision_model')}")
+    if probe.get("vision_content_format"):
+        lines.append(f"vision format: {probe.get('vision_content_format')}")
+    if probe.get("vision_probe_response"):
+        lines.append(f"vision response: {probe.get('vision_probe_response')}")
+    if errors:
+        lines.append("errors: " + "; ".join(str(error) for error in errors[:4]))
+    return {
+        "classification": str(probe.get("classification") or "unknown"),
+        "components": components,
+        "text": "\n".join(lines),
+    }
 
 
 def _classify_probe_result(result: dict[str, Any]) -> None:
@@ -606,6 +766,113 @@ def _probe_tool_schema() -> dict[str, Any]:
             },
         },
     }
+
+
+def _vision_probe_decision(endpoint: dict[str, Any], model_info: ModelInfo | None, target_model: str) -> tuple[bool, str]:
+    if not str(target_model or "").strip():
+        return False, "no target model"
+    manual = endpoint.get("manual_capabilities")
+    if isinstance(manual, dict) and isinstance(manual.get("vision"), bool):
+        return bool(manual.get("vision")), "manual vision capability enabled" if manual.get("vision") else "manual vision capability disabled"
+    if model_info is not None:
+        try:
+            from providers.capabilities import model_supports_surface
+
+            if model_supports_surface(model_info, "vision"):
+                return True, "model metadata advertises vision"
+        except Exception:
+            pass
+    try:
+        info = model_info_from_metadata(
+            str(endpoint.get("provider_id") or custom_provider_id(str(endpoint.get("id") or ""))),
+            target_model,
+            {},
+            transport=TransportMode(str(endpoint.get("transport") or TransportMode.OPENAI_CHAT.value)),
+            source="custom_openai_probe",
+        )
+        from providers.capabilities import model_supports_surface
+
+        if model_supports_surface(info, "vision"):
+            return True, "inferred model metadata advertises vision"
+    except Exception:
+        pass
+    return False, "model metadata does not advertise vision"
+
+
+def _should_probe_vision(endpoint: dict[str, Any], model_info: ModelInfo | None, target_model: str) -> bool:
+    return _vision_probe_decision(endpoint, model_info, target_model)[0]
+
+
+def _vision_probe_body(target_model: str) -> dict[str, Any]:
+    return {
+        "model": target_model,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Look at the image. What is the dominant color? Answer with one color word."},
+                {"type": "image_url", "image_url": {"url": VISION_PROBE_IMAGE_DATA_URL}},
+            ],
+        }],
+        "max_tokens": VISION_PROBE_MAX_TOKENS,
+        "stream": False,
+    }
+
+
+def _extract_probe_text(payload: dict[str, Any]) -> str:
+    choices = payload.get("choices") if isinstance(payload, dict) else []
+    if isinstance(choices, list) and choices:
+        first = choices[0] if isinstance(choices[0], dict) else {}
+        message = first.get("message") if isinstance(first.get("message"), dict) else {}
+        content = message.get("content")
+        if isinstance(content, str):
+            if content.strip():
+                return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict) and isinstance(item.get("text"), str):
+                    parts.append(item["text"])
+            joined = "".join(parts)
+            if joined.strip():
+                return joined
+        reasoning = message.get("reasoning_content") or message.get("reasoning") or first.get("reasoning_content")
+        if isinstance(reasoning, str):
+            return reasoning
+        text = first.get("text")
+        if isinstance(text, str):
+            return text
+    return ""
+
+
+def _vision_probe_text_indicates_success(text: str) -> bool:
+    lowered = str(text or "").strip().lower()
+    if not lowered:
+        return False
+    if lowered == "vision-ok":
+        return True
+    if _vision_probe_text_indicates_failure(lowered):
+        return False
+    return bool(re.search(r"\b(red|reddish|crimson|scarlet)\b", lowered))
+
+
+def _vision_probe_text_indicates_failure(text: str) -> bool:
+    lowered = str(text or "").strip().lower()
+    if not lowered:
+        return False
+    failure_markers = (
+        "cannot see",
+        "can't see",
+        "cannot access",
+        "can't access",
+        "no image",
+        "image input unsupported",
+        "unsupported image",
+        "does not support image",
+        "text only",
+    )
+    return any(marker in lowered for marker in failure_markers)
 
 
 def _extract_structured_tool_call(payload: dict[str, Any], expected_name: str) -> dict[str, Any] | None:
@@ -802,7 +1069,7 @@ def model_infos_from_openai_compatible_catalog(
         transport = TransportMode(str(normalized.get("transport") or TransportMode.OPENAI_CHAT.value))
     except ValueError:
         transport = TransportMode.OPENAI_CHAT
-    data = payload.get("data") if isinstance(payload, dict) else []
+    data = _catalog_model_items(payload)
     if not isinstance(data, list):
         return []
     results: list[ModelInfo] = []
@@ -835,12 +1102,37 @@ def model_infos_from_openai_compatible_catalog(
     return results
 
 
+def _catalog_model_items(payload: dict[str, Any]) -> list[Any]:
+    if not isinstance(payload, dict):
+        return []
+    data = payload.get("data")
+    if isinstance(data, list):
+        return data
+    models = payload.get("models")
+    if isinstance(models, list):
+        return models
+    return []
+
+
+def _catalog_model_ids(payload: dict[str, Any]) -> list[str]:
+    ids: list[str] = []
+    for item in _catalog_model_items(payload):
+        if not isinstance(item, dict):
+            continue
+        model_id = str(item.get("id") or item.get("model") or item.get("name") or "").strip()
+        if model_id:
+            ids.append(model_id)
+    return ids
+
+
 _CONTEXT_METADATA_KEYS = (
     "context_length",
     "context_window",
     "max_model_len",
     "max_context_length",
+    "max_input_tokens",
     "max_sequence_length",
+    "context_size",
     "n_ctx",
     "num_ctx",
 )
@@ -865,14 +1157,81 @@ def _apply_native_capability_fields(metadata: dict[str, Any]) -> None:
     max_context = _metadata_context_window(metadata)
     if max_context > 0:
         metadata.setdefault("context_window", max_context)
+    for container in _capability_containers(metadata):
+        if _bool_field(container, "supports_vision", "vision", "image_input", "supports_image_input", "multimodal", "has_image_understanding"):
+            metadata["vision"] = True
+        if _bool_field(container, "supports_audio", "audio", "has_audio_understanding"):
+            metadata["audio"] = True
+        if _bool_field(container, "supports_function_calling", "supports_tool_calling", "supports_tools", "trained_for_tool_use", "function_calling", "tool_calling", "tools"):
+            metadata["tool_calling"] = True
+        if _bool_field(container, "supports_reasoning", "reasoning", "reasoning_content", "thinking", "supports_thinking"):
+            metadata["reasoning"] = True
+        for key in ("input_modalities", "input", "modalities"):
+            modalities = _normalize_modalities(container.get(key))
+            if modalities.intersection({"image", "vision", "multimodal"}):
+                metadata["vision"] = True
+                _merge_input_modalities(metadata, {"image", "text"})
+            if "audio" in modalities:
+                metadata["audio"] = True
+                _merge_input_modalities(metadata, {"audio", "text"})
+        model_type = str(container.get("type") or container.get("backend") or container.get("mode") or "").strip().lower()
+        if model_type in {"vlm", "mlx-vlm"} or any(marker in model_type for marker in ("vision", "llava", "vlm")):
+            metadata["vision"] = True
+            _merge_input_modalities(metadata, {"image", "text"})
     capabilities = metadata.get("capabilities")
     if isinstance(capabilities, dict):
-        if capabilities.get("trained_for_tool_use") is True:
+        if _bool_field(capabilities, "trained_for_tool_use", "supports_function_calling", "supports_tool_calling", "tools", "tool_calling"):
             metadata["tool_calling"] = True
-        if capabilities.get("vision") is True:
+        if _bool_field(capabilities, "vision", "supports_vision", "multimodal", "image_input"):
             metadata["vision"] = True
-    elif isinstance(capabilities, list) and any(str(capability).lower() in {"tool_use", "tools", "tool_calling"} for capability in capabilities):
-        metadata["tool_calling"] = True
+            _merge_input_modalities(metadata, {"image", "text"})
+        if _bool_field(capabilities, "reasoning", "supports_reasoning", "thinking"):
+            metadata["reasoning"] = True
+    elif isinstance(capabilities, list):
+        normalized = {str(capability).lower() for capability in capabilities}
+        if normalized.intersection({"tool_use", "tools", "tool_calling", "function_calling"}):
+            metadata["tool_calling"] = True
+        if normalized.intersection({"vision", "image", "images", "multimodal"}):
+            metadata["vision"] = True
+            _merge_input_modalities(metadata, {"image", "text"})
+        if normalized.intersection({"reasoning", "thinking"}):
+            metadata["reasoning"] = True
+
+
+def _capability_containers(metadata: dict[str, Any]) -> list[dict[str, Any]]:
+    containers = [metadata]
+    for key in ("model_info", "metadata", "details", "config"):
+        nested = metadata.get(key)
+        if isinstance(nested, dict):
+            containers.append(nested)
+    return containers
+
+
+def _bool_field(container: dict[str, Any], *keys: str) -> bool:
+    for key in keys:
+        value = container.get(key)
+        if value is True:
+            return True
+        if isinstance(value, str) and value.strip().lower() in {"true", "yes", "1", "enabled"}:
+            return True
+    return False
+
+
+def _normalize_modalities(value: Any) -> set[str]:
+    if isinstance(value, str):
+        return {value.strip().lower()} if value.strip() else set()
+    if isinstance(value, dict):
+        return {str(key).strip().lower() for key, enabled in value.items() if enabled is True}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return {str(item).strip().lower() for item in value if str(item).strip()}
+    return set()
+
+
+def _merge_input_modalities(metadata: dict[str, Any], modalities: set[str]) -> None:
+    current = _normalize_modalities(metadata.get("input_modalities"))
+    merged = current | {str(item).strip().lower() for item in modalities if str(item).strip()}
+    if merged:
+        metadata["input_modalities"] = sorted(merged)
 
 
 def _normalize_tool_history_mode(value: Any) -> str:
@@ -886,6 +1245,7 @@ def _fetch_custom_endpoint_native_model_metadata(
     endpoint: dict[str, Any],
     *,
     headers: dict[str, str] | None = None,
+    model_ids: list[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     profile = str(endpoint.get("profile") or "").lower()
     import httpx
@@ -903,6 +1263,43 @@ def _fetch_custom_endpoint_native_model_metadata(
         except Exception:
             logger.debug("llama.cpp props metadata fetch failed for %s/props", root_url, exc_info=True)
         return {}
+    if profile == "litellm":
+        for root in _metadata_roots(root_url, str(endpoint.get("base_url") or "")):
+            for path in ("/model_group/info", "/model/info"):
+                try:
+                    response = httpx.get(f"{root}{path}", headers=headers or {}, timeout=10)
+                    response.raise_for_status()
+                    metadata = _litellm_native_models_by_id(response.json())
+                    if metadata:
+                        return metadata
+                except Exception:
+                    logger.debug("LiteLLM native metadata fetch failed for %s%s", root, path, exc_info=True)
+        return {}
+    if profile == "sglang":
+        try:
+            response = httpx.get(f"{root_url}/get_model_info", headers=headers or {}, timeout=10)
+            response.raise_for_status()
+            metadata = _sglang_model_info_metadata_by_id(response.json(), model_ids=model_ids or [])
+            if metadata:
+                return metadata
+        except Exception:
+            logger.debug("SGLang model metadata fetch failed for %s/get_model_info", root_url, exc_info=True)
+        return {}
+    if profile == "localai":
+        metadata: dict[str, dict[str, Any]] = {}
+        for model_id in model_ids or []:
+            try:
+                encoded = quote(model_id, safe="")
+                response = httpx.get(f"{root_url}/api/models/config-json/{encoded}", headers=headers or {}, timeout=10)
+                response.raise_for_status()
+                item = response.json()
+                if isinstance(item, dict):
+                    model_metadata = dict(item)
+                    _apply_native_capability_fields(model_metadata)
+                    metadata[model_id] = model_metadata
+            except Exception:
+                logger.debug("LocalAI model config metadata fetch failed for %s", model_id, exc_info=True)
+        return metadata
     if profile != "lmstudio":
         return {}
     for path in ("/api/v1/models", "/api/v0/models"):
@@ -915,6 +1312,14 @@ def _fetch_custom_endpoint_native_model_metadata(
         except Exception:
             logger.debug("LM Studio native metadata fetch failed for %s%s", root_url, path, exc_info=True)
     return {}
+
+
+def _metadata_roots(root_url: str, base_url: str) -> list[str]:
+    roots: list[str] = []
+    for value in (root_url, str(base_url or "").rstrip("/")):
+        if value and value not in roots:
+            roots.append(value)
+    return roots
 
 
 def _native_root_url(base_url: str) -> str:
@@ -932,6 +1337,14 @@ def _llamacpp_props_metadata_by_id(payload: dict[str, Any]) -> dict[str, dict[st
     if not model_id:
         return {}
     metadata: dict[str, Any] = {}
+    modalities = payload.get("modalities")
+    if isinstance(modalities, dict):
+        metadata["modalities"] = dict(modalities)
+        if modalities.get("vision") is True:
+            metadata["vision"] = True
+            metadata["input_modalities"] = ["text", "image"]
+        if modalities.get("audio") is True:
+            metadata["audio"] = True
     settings = payload.get("default_generation_settings")
     if isinstance(settings, dict):
         metadata.update(settings)
@@ -944,6 +1357,7 @@ def _llamacpp_props_metadata_by_id(payload: dict[str, Any]) -> dict[str, dict[st
     context_window = _metadata_context_window(metadata)
     if context_window:
         metadata["context_window"] = context_window
+    _apply_native_capability_fields(metadata)
     return {model_id: metadata} if metadata else {}
 
 
@@ -964,3 +1378,54 @@ def _lmstudio_native_models_by_id(payload: dict[str, Any]) -> dict[str, dict[str
         _apply_native_capability_fields(metadata)
         result[model_id] = metadata
     return result
+
+
+def _litellm_native_models_by_id(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        metadata = dict(item)
+        model_info = item.get("model_info")
+        if isinstance(model_info, dict):
+            metadata.update(model_info)
+            metadata["model_info"] = dict(model_info)
+        litellm_params = item.get("litellm_params")
+        if isinstance(litellm_params, dict):
+            metadata.setdefault("litellm_params", dict(litellm_params))
+        _apply_native_capability_fields(metadata)
+        aliases = {
+            str(item.get("model_group") or "").strip(),
+            str(item.get("model_name") or "").strip(),
+            str(item.get("id") or "").strip(),
+        }
+        if isinstance(model_info, dict):
+            aliases.add(str(model_info.get("key") or "").strip())
+        if isinstance(litellm_params, dict):
+            aliases.add(str(litellm_params.get("model") or "").strip())
+        for alias in {alias for alias in aliases if alias}:
+            result[alias] = dict(metadata)
+    return result
+
+
+def _sglang_model_info_metadata_by_id(
+    payload: dict[str, Any],
+    *,
+    model_ids: list[str],
+) -> dict[str, dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return {}
+    metadata = dict(payload)
+    _apply_native_capability_fields(metadata)
+    aliases = {
+        str(payload.get("model_path") or "").strip(),
+        str(payload.get("tokenizer_path") or "").strip(),
+        str(payload.get("served_model_name") or "").strip(),
+    }
+    for model_id in model_ids:
+        if len(model_ids) == 1:
+            aliases.add(str(model_id).strip())
+    return {alias: dict(metadata) for alias in aliases if alias and metadata}

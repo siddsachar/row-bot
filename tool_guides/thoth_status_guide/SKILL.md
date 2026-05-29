@@ -23,7 +23,7 @@ QUERYING STATUS (thoth_status):
 - Use category='api_keys' only for legacy/API key storage status. It never shows key values.
 - Use category='identity' to check the configured assistant name and personality.
 - Use category='tasks' to summarise active scheduled tasks.
-- Use category='vision' to check vision model, enabled state, and camera config.
+- Use category='vision' to check the Vision model, provider/runtime model, enabled state, camera config, and provider/custom-endpoint readiness. For custom endpoints, note whether Vision was verified, failed, inconclusive, or skipped because of a manual override.
 - Use category='image_gen' to check the current image generation model.
 - Use category='video_gen' to check the current video generation model.
 - Use category='voice' for TTS voice, speed, enabled state, and Whisper STT model.
@@ -46,6 +46,7 @@ CHANGING SETTINGS (thoth_update_setting):
 - Do NOT ask for a separate plain-text confirmation instead of calling the tool.
 - Supported settings:
   - model: switch the active LLM (value = local model name, provider model id, model:provider:id ref, or Quick Choice label/ref)
+  - vision_model: switch the Vision model (value = installed local vision model, provider Vision model, model:provider:id ref, or Vision Quick Choice label/ref from Settings -> Models)
   - name: change the assistant name (value = new name)
   - personality: change personality text (value = new personality)
   - context_size: set local model context window (value = token count e.g. '65536')
@@ -61,6 +62,7 @@ CHANGING SETTINGS (thoth_update_setting):
 - When the user asks to turn on/off a tool or skill, use tool_toggle or skill_toggle.
   Do NOT pretend to make the change — you MUST call thoth_update_setting.
 - When changing the active model to a provider model, prefer an existing Quick Choice from the Models catalog. Route selections may be visible in config but are not executable until routing runtime is enabled.
+- When changing the Vision model, prefer an existing Vision Quick Choice from Settings -> Models. If a provider/custom endpoint model is marked incompatible or Vision was manually disabled for that endpoint, do not use it for image/screen analysis until the user changes the endpoint override or selects another Vision-capable model.
 - When changing image/video generation models, values are resolved against the dynamic provider media catalog used by Settings -> Models. Prefer canonical provider/model-id when available, but unique bare IDs and labels such as "GPT Image 2" or "Veo 3.1" are acceptable. After a media default changes, the corresponding Image/Video Quick Choice is updated automatically when the provider key is configured.
 - Credential source labels mean: "Saved in keyring" for Thoth-saved secrets, "Using environment variable" for external env overrides, "Using session key" for non-persistent fallback, and "Using legacy plaintext key" only for pre-migration data.
 - When the user asks to disable MCP, external MCP tools, Model Context Protocol, or the MCP client, call thoth_update_setting with setting='tool_toggle' and value='mcp:off'. Do not only report that the External MCP Tools parent tool is disabled; verify with thoth_status category='mcp' when needed.

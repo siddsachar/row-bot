@@ -76,7 +76,35 @@ def summarize_providers() -> str:
         source = f" ({card['source']})" if card.get("source") else ""
         count_label = "local model(s)" if card.get("provider_id") == "ollama" else "catalog model(s)"
         count = f", {card['model_count']} {count_label}" if card.get("model_count") is not None else ""
-        lines.append(f"- {card['display_name']}: {state}{source}{count}")
+        extra = ""
+        provider_id = str(card.get("provider_id") or "")
+        if provider_id.startswith("custom_openai_"):
+            try:
+                from providers.custom import custom_probe_summary, get_custom_endpoint
+
+                endpoint = get_custom_endpoint(provider_id) or {}
+                probe = endpoint.get("last_probe") if isinstance(endpoint.get("last_probe"), dict) else {}
+                if probe:
+                    summary = custom_probe_summary(probe)
+                    classification = str(summary.get("classification") or "unknown").replace("_", " ")
+                    details = [f"probe {classification}"]
+                    if probe.get("tool_round_trip") is not None:
+                        details.append(f"round-trip {'ok' if probe.get('tool_round_trip') else 'failed'}")
+                    if probe.get("streaming_tool_calling") is not None:
+                        details.append(f"stream tools {'ok' if probe.get('streaming_tool_calling') else 'failed'}")
+                    if probe.get("vision_probed") is False:
+                        skip = str(probe.get("vision_probe_skip_reason") or "not run")
+                        details.append(f"vision not run ({skip})")
+                    elif probe.get("vision_ok") is True:
+                        details.append("vision ok")
+                    elif probe.get("vision_ok") is False:
+                        details.append("vision failed")
+                    elif probe.get("vision_probed"):
+                        details.append("vision inconclusive")
+                    extra = f"; {', '.join(details)}"
+            except Exception:
+                extra = ""
+        lines.append(f"- {card['display_name']}: {state}{source}{count}{extra}")
     quick_count = len([c for c in list_quick_choices("status_tool") if c.get("kind") == "model"])
     lines.append(f"- Quick Choices: {quick_count} model(s)")
     return "\n".join(lines)

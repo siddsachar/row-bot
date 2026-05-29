@@ -3,8 +3,8 @@
 The agent calls ``analyze_image`` when it needs to look at something
 the user is showing to the camera, read their screen, or answer a
 visual question.  The tool captures a frame from the webcam or a
-screenshot of the primary monitor, sends it to a lightweight vision
-model (e.g. gemma3:4b) via Ollama, and returns the description.
+screenshot of the primary monitor, sends it to the selected Vision
+model, and returns the description.
 """
 
 from __future__ import annotations

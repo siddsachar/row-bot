@@ -1,4 +1,6 @@
 import api_keys
+import base64
+import io
 import models
 import providers.config as provider_config
 from providers.capabilities import model_supports_surface
@@ -16,6 +18,31 @@ from providers.custom import (
     save_custom_endpoint,
 )
 from providers.selection import add_quick_choice_for_model, list_quick_choices, model_choice_value
+
+
+def test_custom_endpoint_catalog_reads_models_payload_and_common_capability_fields(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    endpoint = {
+        "id": "generic",
+        "name": "Generic",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "auth_required": False,
+    }
+    payload = {
+        "models": [{
+            "id": "custom-vision-tool-model",
+            "supports_vision": True,
+            "supports_function_calling": True,
+            "max_input_tokens": 131072,
+        }]
+    }
+
+    infos = model_infos_from_openai_compatible_catalog(endpoint, payload)
+
+    assert [info.model_id for info in infos] == ["custom-vision-tool-model"]
+    assert infos[0].context_window == 131072
+    assert model_supports_surface(infos[0], "vision") is True
+    assert infos[0].tool_calling is True
 
 
 def test_custom_endpoint_catalog_parses_vllm_models(tmp_path, monkeypatch):
@@ -74,6 +101,22 @@ def test_custom_endpoint_catalog_applies_manual_vision_capabilities(tmp_path, mo
     infos = model_infos_from_openai_compatible_catalog(endpoint, payload)
 
     assert model_supports_surface(infos[0], "vision") is True
+
+
+def test_custom_endpoint_catalog_manual_vision_false_overrides_name_inference(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    endpoint = {
+        "id": "manual-text",
+        "name": "Manual Text",
+        "base_url": "http://127.0.0.1:1234/v1",
+        "auth_required": False,
+        "manual_capabilities": {"vision": False},
+    }
+    payload = {"data": [{"id": "qwen2.5-vl-7b-instruct"}]}
+
+    infos = model_infos_from_openai_compatible_catalog(endpoint, payload)
+
+    assert model_supports_surface(infos[0], "vision") is False
 
 
 def test_custom_endpoint_catalog_applies_manual_context_window(tmp_path, monkeypatch):
@@ -194,6 +237,85 @@ def test_custom_endpoint_profile_defaults_are_persisted(tmp_path, monkeypatch):
     assert endpoint["message_content_mode"] == CUSTOM_ENDPOINT_PROFILES["omlx"]["message_content_mode"]
     assert endpoint["tool_history_mode"] == "native_required"
     assert endpoint["drop_unsupported_params"] is True
+    assert endpoint["supports_reasoning_replay"] is False
+    assert endpoint["reasoning_mode"] == "auto"
+
+
+def test_custom_endpoint_reasoning_capability_config_is_persisted(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+
+    save_custom_endpoint({
+        "id": "qwen",
+        "name": "Qwen Endpoint",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "profile": "llama_cpp",
+        "auth_required": False,
+        "supports_reasoning_replay": True,
+        "reasoning_mode": "off",
+        "thinking_budget": "1024",
+        "preserve_thinking": False,
+    })
+
+    endpoint = get_custom_endpoint("qwen")
+
+    assert endpoint["supports_reasoning_content"] is True
+    assert endpoint["supports_reasoning_replay"] is True
+    assert endpoint["reasoning_mode"] == "off"
+    assert endpoint["thinking_budget"] == 1024
+    assert endpoint["preserve_thinking"] is False
+
+
+def test_custom_endpoint_save_no_auth_removes_stored_secret(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    import providers.custom as custom
+
+    deleted = []
+    monkeypatch.setattr(custom, "delete_provider_secret", lambda provider_id, key: deleted.append((provider_id, key)))
+
+    save_custom_endpoint({
+        "id": "dummy",
+        "name": "Dummy",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "auth_required": False,
+    })
+
+    assert deleted == [("custom_openai_dummy", "api_key")]
+
+
+def test_vllm_and_sglang_profiles_do_not_send_server_context_as_request_param(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+
+    save_custom_endpoint({
+        "id": "vllm",
+        "name": "vLLM",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "profile": "vllm",
+        "auth_required": False,
+        "execution_location": "local",
+    })
+    provider_config.save_provider_config({
+        "custom_endpoints": [
+            *provider_config.load_provider_config().get("custom_endpoints", []),
+            {
+                "id": "sglang",
+                "name": "SGLang",
+                "base_url": "http://127.0.0.1:30000/v1",
+                "profile": "sglang",
+                "supports_runtime_context_override": True,
+                "context_param_name": "context_length",
+                "auth_required": False,
+                "execution_location": "local",
+            },
+        ]
+    })
+
+    vllm = get_custom_endpoint("vllm")
+    sglang = get_custom_endpoint("sglang")
+
+    assert vllm["supports_runtime_context_override"] is False
+    assert vllm["context_param_name"] == ""
+    assert sglang["supports_runtime_context_override"] is False
+    assert sglang["context_param_name"] == ""
 
 
 def test_litellm_profile_uses_system_first_for_local_proxy_templates(tmp_path, monkeypatch):
@@ -464,6 +586,175 @@ def test_llamacpp_refresh_reads_props_context(tmp_path, monkeypatch):
     assert endpoint["models"][0]["ctx"] == 32768
 
 
+def test_llamacpp_refresh_reads_props_vision_modalities(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    save_custom_endpoint({
+        "id": "llama-cpp",
+        "base_url": "http://127.0.0.1:8081/v1",
+        "profile": "llama_cpp",
+        "auth_required": False,
+    })
+
+    class _Response:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    import httpx
+
+    def _get(url, *args, **kwargs):
+        if str(url).endswith("/props"):
+            return _Response({
+                "model_alias": "qwen3.5-9b",
+                "default_generation_settings": {"n_ctx": 65536},
+                "modalities": {"vision": True, "audio": False},
+            })
+        return _Response({
+            "data": [{
+                "id": "qwen3.5-9b",
+                "owned_by": "llamacpp",
+                "meta": {"n_ctx": 65536},
+            }]
+        })
+
+    monkeypatch.setattr(httpx, "get", _get)
+
+    infos = refresh_custom_endpoint_models("llama-cpp")
+    endpoint = get_custom_endpoint("llama-cpp")
+    snapshot = endpoint["models"][0]["capabilities_snapshot"]
+
+    assert model_supports_surface(infos[0], "vision") is True
+    assert endpoint["models"][0]["vision"] is True
+    assert "vision" in snapshot["capabilities"]
+    assert "image" in snapshot["input_modalities"]
+
+
+def test_litellm_refresh_reads_model_group_info_vision(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    save_custom_endpoint({
+        "id": "litellm-local",
+        "base_url": "http://127.0.0.1:4000/v1",
+        "profile": "litellm",
+        "auth_required": False,
+    })
+
+    class _Response:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    import httpx
+
+    def _get(url, *args, **kwargs):
+        if str(url).endswith("/model_group/info"):
+            return _Response({
+                "data": [{
+                    "model_group": "llava-hf",
+                    "supports_vision": True,
+                    "supports_function_calling": True,
+                    "max_input_tokens": 128000,
+                }]
+            })
+        return _Response({"data": [{"id": "llava-hf"}]})
+
+    monkeypatch.setattr(httpx, "get", _get)
+
+    infos = refresh_custom_endpoint_models("litellm-local")
+    endpoint = get_custom_endpoint("litellm-local")
+    snapshot = endpoint["models"][0]["capabilities_snapshot"]
+
+    assert infos[0].context_window == 128000
+    assert model_supports_surface(infos[0], "vision") is True
+    assert infos[0].tool_calling is True
+    assert "image" in snapshot["input_modalities"]
+
+
+def test_sglang_refresh_reads_native_image_understanding(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    save_custom_endpoint({
+        "id": "sglang",
+        "base_url": "http://127.0.0.1:30000/v1",
+        "profile": "sglang",
+        "auth_required": False,
+    })
+
+    class _Response:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    import httpx
+
+    def _get(url, *args, **kwargs):
+        if str(url).endswith("/get_model_info"):
+            return _Response({
+                "model_path": "Qwen/Qwen2.5-VL-7B-Instruct",
+                "is_generation": True,
+                "has_image_understanding": True,
+                "has_audio_understanding": False,
+            })
+        return _Response({"data": [{"id": "Qwen/Qwen2.5-VL-7B-Instruct"}]})
+
+    monkeypatch.setattr(httpx, "get", _get)
+
+    infos = refresh_custom_endpoint_models("sglang")
+
+    assert model_supports_surface(infos[0], "vision") is True
+
+
+def test_localai_refresh_reads_config_json_context_and_backend_vision(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    save_custom_endpoint({
+        "id": "localai",
+        "base_url": "http://127.0.0.1:8080/v1",
+        "profile": "localai",
+        "auth_required": False,
+    })
+
+    class _Response:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    import httpx
+
+    def _get(url, *args, **kwargs):
+        if "/api/models/config-json/" in str(url):
+            return _Response({
+                "name": "my-vlm",
+                "backend": "mlx-vlm",
+                "context_size": 16384,
+            })
+        return _Response({"data": [{"id": "my-vlm"}]})
+
+    monkeypatch.setattr(httpx, "get", _get)
+
+    infos = refresh_custom_endpoint_models("localai")
+
+    assert infos[0].context_window == 16384
+    assert model_supports_surface(infos[0], "vision") is True
+
+
 def test_custom_endpoint_probe_persists_models_and_probe_result(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     save_custom_endpoint({"id": "dummy", "base_url": "http://127.0.0.1:8000/v1", "auth_required": False})
@@ -548,6 +839,528 @@ def test_custom_endpoint_probe_persists_models_and_probe_result(tmp_path, monkey
     assert endpoint["models"][0]["context_window"] == 16384
 
 
+def test_custom_endpoint_probe_records_vision_success_for_vision_model(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    save_custom_endpoint({"id": "dummy", "base_url": "http://127.0.0.1:8000/v1", "auth_required": False})
+
+    class _GetResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": [{"id": "qwen2.5-vl-7b-instruct", "max_model_len": 16384}]}
+
+    class _PostResponse:
+        def __init__(self, payload=None):
+            self._payload = payload or {"choices": [{"message": {"content": "pong"}}]}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def iter_lines(self):
+            yield b'data: {"choices":[{"delta":{"content":"p"}}]}'
+
+    vision_bodies = []
+
+    import httpx
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: _GetResponse())
+
+    def _post(*args, **kwargs):
+        body = kwargs.get("json") or {}
+        messages = body.get("messages") or []
+        content = messages[0].get("content") if messages else None
+        if isinstance(content, list):
+            vision_bodies.append(body)
+            return _PostResponse({"choices": [{"message": {"content": "The dominant color is red."}}]})
+        if body.get("tools"):
+            return _PostResponse({
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "thoth_probe_echo", "arguments": "{\"value\":\"ok\"}"},
+                        }],
+                    },
+                }],
+            })
+        return _PostResponse()
+
+    monkeypatch.setattr(httpx, "post", _post)
+    monkeypatch.setattr(httpx, "stream", lambda *args, **kwargs: _PostResponse())
+
+    probe = probe_custom_endpoint("dummy")
+    endpoint = get_custom_endpoint("dummy")
+
+    assert probe["ok"] is True
+    assert probe["vision_ok"] is True
+    assert probe["vision_error"] == ""
+    assert probe["vision_probe_response"] == "the dominant color is red."
+    assert probe["vision_model"] == "qwen2.5-vl-7b-instruct"
+    assert probe["vision_content_format"] == "openai_image_url"
+    assert endpoint["last_probe"]["vision_ok"] is True
+    assert endpoint["last_probe"]["vision_probed"] is True
+    assert vision_bodies
+    assert vision_bodies[0]["messages"][0]["content"][1]["type"] == "image_url"
+
+
+def test_custom_endpoint_vision_probe_image_is_red():
+    from PIL import Image
+    from providers.custom import VISION_PROBE_IMAGE_DATA_URL
+
+    encoded = VISION_PROBE_IMAGE_DATA_URL.split(",", 1)[1]
+    image = Image.open(io.BytesIO(base64.b64decode(encoded))).convert("RGB")
+
+    assert image.size == (1, 1)
+    assert image.getpixel((0, 0)) == (255, 0, 0)
+
+
+def test_custom_endpoint_vision_probe_budget_allows_thinking_models():
+    from providers.custom import VISION_PROBE_MAX_TOKENS
+
+    assert VISION_PROBE_MAX_TOKENS >= 256
+
+
+def test_custom_endpoint_probe_records_vision_failure_without_blocking_agent_ready(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    save_custom_endpoint({
+        "id": "manual-vision",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "auth_required": False,
+        "manual_capabilities": {"vision": True},
+    })
+
+    class _GetResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": [{"id": "plain-local-chat"}]}
+
+    class _PostResponse:
+        def __init__(self, payload=None):
+            self._payload = payload or {"choices": [{"message": {"content": "pong"}}]}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def iter_lines(self):
+            yield b'data: {"choices":[{"delta":{"content":"p"}}]}'
+
+    class _VisionFailure(_PostResponse):
+        def raise_for_status(self):
+            raise RuntimeError("image input unsupported")
+
+    import httpx
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: _GetResponse())
+
+    def _post(*args, **kwargs):
+        body = kwargs.get("json") or {}
+        messages = body.get("messages") or []
+        content = messages[0].get("content") if messages else None
+        if isinstance(content, list):
+            return _VisionFailure()
+        if body.get("tools"):
+            return _PostResponse({
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "thoth_probe_echo", "arguments": "{\"value\":\"ok\"}"},
+                        }],
+                    },
+                }],
+            })
+        return _PostResponse()
+
+    monkeypatch.setattr(httpx, "post", _post)
+    monkeypatch.setattr(httpx, "stream", lambda *args, **kwargs: _PostResponse())
+
+    probe = probe_custom_endpoint("manual-vision")
+
+    assert probe["ok"] is True
+    assert probe["agent_ok"] is True
+    assert probe["vision_ok"] is False
+    assert "image input unsupported" in probe["vision_error"]
+    assert "vision:" in "; ".join(probe["errors"])
+
+
+def test_custom_endpoint_probe_treats_empty_vision_probe_response_as_inconclusive(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    save_custom_endpoint({"id": "dummy", "base_url": "http://127.0.0.1:8000/v1", "auth_required": False})
+
+    class _GetResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": [{"id": "qwen2.5-vl-7b-instruct"}]}
+
+    class _PostResponse:
+        def __init__(self, payload=None):
+            self._payload = payload or {"choices": [{"message": {"content": "pong"}}]}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def iter_lines(self):
+            yield b'data: {"choices":[{"delta":{"content":"p"}}]}'
+
+    import httpx
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: _GetResponse())
+
+    def _post(*args, **kwargs):
+        body = kwargs.get("json") or {}
+        messages = body.get("messages") or []
+        content = messages[0].get("content") if messages else None
+        if isinstance(content, list):
+            return _PostResponse({"choices": [{"message": {"content": "", "reasoning_content": "thinking"}}]})
+        if body.get("tools"):
+            return _PostResponse({
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "thoth_probe_echo", "arguments": "{\"value\":\"ok\"}"},
+                        }],
+                    },
+                }],
+            })
+        return _PostResponse()
+
+    monkeypatch.setattr(httpx, "post", _post)
+    monkeypatch.setattr(httpx, "stream", lambda *args, **kwargs: _PostResponse())
+
+    probe = probe_custom_endpoint("dummy")
+
+    assert probe["agent_ok"] is True
+    assert probe["vision_ok"] is None
+    assert "probe inconclusive" in probe["vision_error"]
+    assert not any(str(error).startswith("vision:") for error in probe["errors"])
+
+
+def test_custom_endpoint_probe_accepts_red_in_reasoning_when_content_empty(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    save_custom_endpoint({"id": "dummy", "base_url": "http://127.0.0.1:8000/v1", "auth_required": False})
+
+    class _GetResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": [{"id": "qwen2.5-vl-7b-instruct"}]}
+
+    class _PostResponse:
+        def __init__(self, payload=None):
+            self._payload = payload or {"choices": [{"message": {"content": "pong"}}]}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def iter_lines(self):
+            yield b'data: {"choices":[{"delta":{"content":"p"}}]}'
+
+    import httpx
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: _GetResponse())
+
+    def _post(*args, **kwargs):
+        body = kwargs.get("json") or {}
+        messages = body.get("messages") or []
+        content = messages[0].get("content") if messages else None
+        if isinstance(content, list):
+            return _PostResponse({"choices": [{"message": {
+                "content": "",
+                "reasoning_content": "The synthetic image is bright red, so answer red.",
+            }}]})
+        if body.get("tools"):
+            return _PostResponse({
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "thoth_probe_echo", "arguments": "{\"value\":\"ok\"}"},
+                        }],
+                    },
+                }],
+            })
+        return _PostResponse()
+
+    monkeypatch.setattr(httpx, "post", _post)
+    monkeypatch.setattr(httpx, "stream", lambda *args, **kwargs: _PostResponse())
+
+    probe = probe_custom_endpoint("dummy")
+
+    assert probe["agent_ok"] is True
+    assert probe["vision_ok"] is True
+    assert "bright red" in probe["vision_probe_response"]
+
+
+def test_custom_endpoint_probe_skips_vision_for_text_only_model(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    save_custom_endpoint({"id": "dummy", "base_url": "http://127.0.0.1:8000/v1", "auth_required": False})
+
+    class _GetResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": [{"id": "plain-local-chat"}]}
+
+    class _PostResponse:
+        def __init__(self, payload=None):
+            self._payload = payload or {"choices": [{"message": {"content": "pong"}}]}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def iter_lines(self):
+            yield b'data: {"choices":[{"delta":{"content":"p"}}]}'
+
+    post_bodies = []
+
+    import httpx
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: _GetResponse())
+
+    def _post(*args, **kwargs):
+        body = kwargs.get("json") or {}
+        post_bodies.append(body)
+        if body.get("tools"):
+            return _PostResponse({
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "thoth_probe_echo", "arguments": "{\"value\":\"ok\"}"},
+                        }],
+                    },
+                }],
+            })
+        return _PostResponse()
+
+    monkeypatch.setattr(httpx, "post", _post)
+    monkeypatch.setattr(httpx, "stream", lambda *args, **kwargs: _PostResponse())
+
+    probe = probe_custom_endpoint("dummy")
+
+    assert probe["vision_ok"] is None
+    assert probe["vision_probed"] is False
+    assert "does not advertise vision" in probe["vision_probe_skip_reason"]
+    assert probe["vision_error"] == ""
+    assert probe["vision_model"] == "plain-local-chat"
+    assert not any(isinstance((body.get("messages") or [{}])[0].get("content"), list) for body in post_bodies)
+
+
+def test_custom_probe_summary_reports_distinct_vision_states():
+    from providers.custom import custom_probe_summary
+
+    not_probed = custom_probe_summary({
+        "classification": "agent_ready",
+        "models_ok": True,
+        "chat_ok": True,
+        "streaming_ok": True,
+        "tool_calling": True,
+        "tool_round_trip": True,
+        "streaming_tool_calling": True,
+        "vision_ok": None,
+        "vision_probed": False,
+        "vision_probe_skip_reason": "model metadata does not advertise vision",
+    })
+    assert "vision: not probed" in not_probed["text"]
+
+    inconclusive = custom_probe_summary({
+        "classification": "agent_ready",
+        "vision_ok": None,
+        "vision_probed": True,
+        "vision_error": "probe inconclusive: unexpected response: red",
+    })
+    assert "vision: inconclusive" in inconclusive["text"]
+    assert inconclusive["components"][-1]["detail"].startswith("probe inconclusive")
+
+    failed = custom_probe_summary({"classification": "agent_ready", "vision_ok": False, "vision_probed": True})
+    assert "vision: failed" in failed["text"]
+
+    ok = custom_probe_summary({"classification": "agent_ready", "vision_ok": True, "vision_probed": True})
+    assert "vision: ok" in ok["text"]
+
+
+def test_custom_probe_checks_summary_is_compact_and_status_colored():
+    from providers.custom import custom_probe_summary
+    from ui.provider_settings import _probe_checks_summary
+
+    ok = _probe_checks_summary(custom_probe_summary({
+        "classification": "agent_ready",
+        "chat_ok": True,
+        "tool_calling": True,
+        "tool_round_trip": True,
+        "streaming_ok": True,
+        "streaming_tool_calling": True,
+        "vision_ok": True,
+        "vision_probed": True,
+    }))
+    assert ok == {"label": "6/6 checks", "color": "green"}
+
+    skipped_vision = _probe_checks_summary(custom_probe_summary({
+        "classification": "agent_ready",
+        "chat_ok": True,
+        "tool_calling": True,
+        "tool_round_trip": True,
+        "streaming_ok": True,
+        "streaming_tool_calling": True,
+        "vision_ok": None,
+        "vision_probed": False,
+    }))
+    assert skipped_vision == {"label": "5/6 checks", "color": "blue-grey"}
+
+    failed_tools = _probe_checks_summary(custom_probe_summary({
+        "classification": "chat_only",
+        "chat_ok": True,
+        "tool_calling": False,
+        "tool_round_trip": False,
+        "streaming_ok": True,
+        "streaming_tool_calling": False,
+        "vision_ok": None,
+        "vision_probed": True,
+    }))
+    assert failed_tools == {"label": "2/6 checks", "color": "orange"}
+
+
+def test_custom_endpoint_manual_capability_ui_helper_builds_sparse_overrides():
+    from ui.provider_settings import _manual_capabilities_from_ui
+
+    assert _manual_capabilities_from_ui("auto", "auto", "") == {}
+    assert _manual_capabilities_from_ui("on", "off", "65536") == {
+        "vision": True,
+        "tool_calling": False,
+        "context_window": 65536,
+    }
+    assert _manual_capabilities_from_ui("off", "on", "not a number") == {
+        "vision": False,
+        "tool_calling": True,
+    }
+
+
+def test_custom_endpoint_edit_payload_preserves_fixed_fields_for_display_name_only():
+    from ui.provider_settings import _custom_endpoint_edit_payload
+
+    endpoint = {
+        "id": "llama-cpp",
+        "provider_id": "custom_openai_llama-cpp",
+        "name": "llama-cpp",
+        "display_name": "llama-cpp",
+        "base_url": "http://127.0.0.1:8081/v1",
+        "profile": "llama_cpp",
+        "transport": "openai_chat",
+        "execution_location": "local",
+        "auth_required": False,
+        "models": [{"id": "qwen3.5-9b"}],
+        "last_probe": {"ok": True},
+    }
+
+    payload, stale = _custom_endpoint_edit_payload(
+        endpoint,
+        display_name="Local llama.cpp",
+        base_url="http://127.0.0.1:8081/v1",
+        no_auth=True,
+    )
+
+    assert stale is False
+    assert payload["id"] == "llama-cpp"
+    assert payload["profile"] == "llama_cpp"
+    assert payload["execution_location"] == "local"
+    assert payload["display_name"] == "Local llama.cpp"
+    assert payload["models"] == [{"id": "qwen3.5-9b"}]
+    assert payload["last_probe"] == {"ok": True}
+
+
+def test_custom_endpoint_edit_payload_stales_probe_for_connection_and_advanced_changes():
+    from ui.provider_settings import _custom_endpoint_edit_payload
+
+    endpoint = {
+        "id": "lm-studio",
+        "name": "LM Studio",
+        "base_url": "http://127.0.0.1:1234/v1",
+        "profile": "lmstudio",
+        "transport": "openai_chat",
+        "execution_location": "local",
+        "auth_required": False,
+        "manual_capabilities": {"vision": True},
+        "models": [{"id": "qwen/qwen3.5-9b"}],
+        "last_probe": {"ok": True},
+    }
+
+    payload, stale = _custom_endpoint_edit_payload(
+        endpoint,
+        display_name="LM Studio",
+        base_url="http://127.0.0.1:2234/v1/",
+        no_auth=True,
+        vision_mode="off",
+        tool_mode="auto",
+        context_window="65536",
+    )
+
+    assert stale is True
+    assert payload["base_url"] == "http://127.0.0.1:2234/v1"
+    assert payload["manual_capabilities"] == {"vision": False, "context_window": 65536}
+    assert "models" not in payload
+    assert "last_probe" not in payload
+    assert payload["profile"] == "lmstudio"
+    assert payload["execution_location"] == "local"
+
+
 def test_custom_endpoint_probe_classifies_chat_only_when_tools_fail(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     save_custom_endpoint({"id": "dummy", "base_url": "http://127.0.0.1:8000/v1", "auth_required": False})
@@ -616,6 +1429,82 @@ def test_custom_endpoint_probe_logs_failure(tmp_path, monkeypatch):
     assert "connection refused" in "; ".join(probe["errors"])
     assert logged
     assert "Custom endpoint probe failed" in logged[0][0]
+
+
+def test_custom_endpoint_probe_success_log_includes_round_trip_and_vision(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    save_custom_endpoint({
+        "id": "manual-vision",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "auth_required": False,
+        "manual_capabilities": {"vision": True},
+    })
+
+    class _GetResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": [{"id": "plain-local-chat"}]}
+
+    class _PostResponse:
+        def __init__(self, payload=None):
+            self._payload = payload or {"choices": [{"message": {"content": "pong"}}]}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def iter_lines(self):
+            yield b'data: {"choices":[{"delta":{"content":"p"}}]}'
+
+    import httpx
+    import providers.custom as custom
+
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: _GetResponse())
+
+    def _post(*args, **kwargs):
+        body = kwargs.get("json") or {}
+        messages = body.get("messages") or []
+        content = messages[0].get("content") if messages else None
+        if isinstance(content, list):
+            return _PostResponse({"choices": [{"message": {"content": "vision-ok"}}]})
+        if body.get("tools"):
+            return _PostResponse({
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "thoth_probe_echo", "arguments": "{\"value\":\"ok\"}"},
+                        }],
+                    },
+                }],
+            })
+        return _PostResponse()
+
+    logged = []
+    monkeypatch.setattr(httpx, "post", _post)
+    monkeypatch.setattr(httpx, "stream", lambda *args, **kwargs: _PostResponse())
+    monkeypatch.setattr(custom.logger, "info", lambda *args, **kwargs: logged.append(args))
+
+    probe = probe_custom_endpoint("manual-vision")
+
+    assert probe["ok"] is True
+    assert probe["vision_ok"] is True
+    assert logged
+    assert "tool_round_trip" in logged[-1][0]
+    assert "vision_ok" in logged[-1][0]
+    assert True in logged[-1]
 
 
 def test_custom_endpoint_probe_records_streaming_failure(tmp_path, monkeypatch):

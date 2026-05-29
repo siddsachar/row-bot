@@ -3,6 +3,7 @@ import json
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
+from providers.custom import custom_endpoint_profile
 from providers.tool_protocol import format_validation_retry_result
 from providers.transports.openai_compatible import ChatOpenAICompatible
 
@@ -293,6 +294,104 @@ def test_openai_compatible_transport_moves_system_messages_first():
     ]
 
 
+def test_openai_compatible_string_text_keeps_text_only_content_as_string():
+    client = _Client()
+    model = ChatOpenAICompatible(
+        model_name="qwen",
+        base_url="http://127.0.0.1:1234/v1",
+        endpoint={"message_content_mode": "string_text"},
+        http_client=client,
+    )
+
+    model.invoke([HumanMessage(content=[{"type": "text", "text": "hello"}, {"type": "text", "text": " world"}])])
+
+    body = client.calls[0][1]["json"]
+    assert body["messages"][0]["content"] == "hello world"
+
+
+def test_openai_compatible_string_text_preserves_multimodal_content():
+    client = _Client()
+    data_url = "data:image/png;base64,abc123"
+    model = ChatOpenAICompatible(
+        model_name="qwen-vl",
+        base_url="http://127.0.0.1:1234/v1",
+        endpoint={"message_content_mode": "string_text"},
+        http_client=client,
+    )
+
+    model.invoke([HumanMessage(content=[
+        {"type": "text", "text": "describe"},
+        {"type": "image_url", "image_url": data_url},
+    ])])
+
+    content = client.calls[0][1]["json"]["messages"][0]["content"]
+    assert content == [
+        {"type": "text", "text": "describe"},
+        {"type": "image_url", "image_url": {"url": data_url}},
+    ]
+
+
+@pytest.mark.parametrize("profile", ["lmstudio", "llama_cpp"])
+def test_openai_compatible_profile_preserves_image_blocks(profile):
+    client = _Client()
+    endpoint = custom_endpoint_profile(profile)
+    endpoint["provider_id"] = f"custom_openai_{profile}"
+    model = ChatOpenAICompatible(
+        model_name="qwen-vl",
+        base_url="http://127.0.0.1:1234/v1",
+        endpoint=endpoint,
+        http_client=client,
+    )
+
+    model.invoke([HumanMessage(content=[
+        {"type": "text", "text": "read this"},
+        {"type": "input_image", "image": {"url": "data:image/jpeg;base64,abc123"}},
+    ])])
+
+    content = client.calls[0][1]["json"]["messages"][0]["content"]
+    assert isinstance(content, list)
+    assert content[1] == {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,abc123"}}
+
+
+def test_openai_compatible_generic_string_text_custom_endpoint_preserves_images():
+    client = _Client()
+    model = ChatOpenAICompatible(
+        model_name="generic-vl",
+        base_url="http://127.0.0.1:1234/v1",
+        endpoint={"provider_id": "custom_openai_generic", "message_content_mode": "string_text"},
+        http_client=client,
+    )
+
+    model.invoke([HumanMessage(content=[
+        {"type": "text", "text": "what is this?"},
+        {"type": "input_image", "image_url": "data:image/png;base64,abc123"},
+    ])])
+
+    content = client.calls[0][1]["json"]["messages"][0]["content"]
+    assert content == [
+        {"type": "text", "text": "what is this?"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}},
+    ]
+
+
+def test_openai_compatible_multimodal_logging_does_not_emit_base64(caplog):
+    client = _StreamingClient()
+    secret_b64 = "abc123SECRETBASE64"
+    model = ChatOpenAICompatible(
+        model_name="qwen-vl",
+        base_url="http://127.0.0.1:1234/v1",
+        endpoint={"provider_id": "custom_openai_lm-studio", "message_content_mode": "string_text"},
+        http_client=client,
+    )
+
+    list(model.stream([HumanMessage(content=[
+        {"type": "text", "text": "describe"},
+        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{secret_b64}"}},
+    ])]))
+
+    assert secret_b64 not in caplog.text
+
+
 def test_openai_compatible_transport_consolidates_multiple_system_messages():
     client = _Client()
     model = ChatOpenAICompatible(
@@ -384,6 +483,65 @@ def test_openai_compatible_transport_preserves_reasoning_content():
 
     assert result.content == "hello"
     assert result.additional_kwargs["reasoning_content"] == "thinking"
+
+
+def test_openai_compatible_transport_replays_reasoning_only_when_endpoint_allows():
+    client = _Client()
+    model = ChatOpenAICompatible(
+        model_name="qwen",
+        base_url="http://127.0.0.1:1234/v1",
+        endpoint={"provider_id": "custom_openai_lm-studio", "supports_reasoning_replay": True},
+        http_client=client,
+    )
+
+    model.invoke([
+        AIMessage(content="", additional_kwargs={"reasoning_content": "native reasoning"}),
+        HumanMessage(content="continue"),
+    ])
+
+    assistant = client.calls[0][1]["json"]["messages"][0]
+    assert assistant["role"] == "assistant"
+    assert assistant["content"] == ""
+    assert assistant["reasoning_content"] == "native reasoning"
+
+
+def test_openai_compatible_transport_does_not_replay_reasoning_when_endpoint_disallows():
+    client = _Client()
+    model = ChatOpenAICompatible(
+        model_name="qwen",
+        base_url="http://127.0.0.1:1234/v1",
+        endpoint={"provider_id": "custom_openai_generic", "supports_reasoning_replay": False},
+        http_client=client,
+    )
+
+    model.invoke([
+        AIMessage(content="hello", additional_kwargs={"reasoning_content": "native reasoning"}),
+        HumanMessage(content="continue"),
+    ])
+
+    assistant = client.calls[0][1]["json"]["messages"][0]
+    assert "reasoning_content" not in assistant
+
+
+def test_openai_compatible_transport_reasoning_off_sets_template_flag():
+    client = _Client()
+    model = ChatOpenAICompatible(
+        model_name="qwen",
+        base_url="http://127.0.0.1:1234/v1",
+        endpoint={
+            "provider_id": "custom_openai_llamacpp",
+            "profile": "llama_cpp",
+            "reasoning_mode": "off",
+            "extra_body": {"chat_template_kwargs": {"foo": "bar"}, "reasoning": True},
+        },
+        http_client=client,
+    )
+
+    model.invoke([HumanMessage(content="hi")])
+
+    body = client.calls[0][1]["json"]
+    assert body["chat_template_kwargs"] == {"foo": "bar", "enable_thinking": False}
+    assert "reasoning" not in body
 
 
 def test_openai_compatible_transport_streams_reasoning_chunks():
@@ -688,7 +846,7 @@ def test_openai_compatible_transport_does_not_recover_text_tool_call_when_native
     assert [chunk["name"] for chunk in tool_chunks] == ["lookup"]
 
 
-def test_openai_compatible_transport_promotes_reasoning_only_after_successful_tool_result():
+def test_openai_compatible_transport_keeps_reasoning_only_after_successful_tool_result_private():
     client = _Client()
     client.post = lambda url, **kwargs: _Response({
         "choices": [{
@@ -711,11 +869,11 @@ def test_openai_compatible_transport_promotes_reasoning_only_after_successful_to
         ToolMessage(content="**Tools** (29 enabled, 3 disabled)", name="thoth_status", tool_call_id="call_1"),
     ])
 
-    assert result.content == "Enabled tools: 29. Disabled tools: 3."
-    assert "reasoning_content" not in result.additional_kwargs
+    assert result.content == ""
+    assert result.additional_kwargs["reasoning_content"] == "Enabled tools: 29. Disabled tools: 3."
 
 
-def test_openai_compatible_transport_stream_promotes_reasoning_only_after_successful_tool_result():
+def test_openai_compatible_transport_stream_keeps_reasoning_only_after_successful_tool_result_private():
     client = _ReasoningOnlyStreamingClient("Enabled tools: 29. Disabled tools: 3.")
     model = ChatOpenAICompatible(
         model_name="qwen",
@@ -731,10 +889,10 @@ def test_openai_compatible_transport_stream_promotes_reasoning_only_after_succes
     ]))
 
     assert chunks[0].additional_kwargs["reasoning_content"] == "Enabled tools: 29. Disabled tools: 3."
-    assert any(chunk.content == "Enabled tools: 29. Disabled tools: 3." for chunk in chunks)
+    assert not any(chunk.content == "Enabled tools: 29. Disabled tools: 3." for chunk in chunks)
 
 
-def test_openai_compatible_transport_rejects_reasoning_only_after_validation_repair():
+def test_openai_compatible_transport_keeps_reasoning_only_after_validation_repair_private():
     client = _Client()
     client.post = lambda url, **kwargs: _Response({
         "choices": [{
@@ -756,12 +914,14 @@ def test_openai_compatible_transport_rejects_reasoning_only_after_validation_rep
         fields=["category"],
     )
 
-    with pytest.raises(RuntimeError, match="stopped after a tool error"):
-        model.invoke([
-            HumanMessage(content="what tools?"),
-            AIMessage(content="", tool_calls=[{"name": "thoth_status", "args": {}, "id": "call_1"}]),
-            ToolMessage(content=repair, name="thoth_status", tool_call_id="call_1"),
-        ])
+    result = model.invoke([
+        HumanMessage(content="what tools?"),
+        AIMessage(content="", tool_calls=[{"name": "thoth_status", "args": {}, "id": "call_1"}]),
+        ToolMessage(content=repair, name="thoth_status", tool_call_id="call_1"),
+    ])
+
+    assert result.content == ""
+    assert result.additional_kwargs["reasoning_content"] == "I need to provide a valid category argument."
 
 
 def test_openai_compatible_transport_still_recovers_text_tool_call_after_validation_repair():
@@ -817,6 +977,90 @@ def test_openai_compatible_transport_does_not_recover_text_tool_call_when_conten
 
     assert result.content == "Here is text."
     assert result.tool_calls == []
+
+
+def test_openai_compatible_transport_recovers_visible_text_tool_call_without_leaking_markup():
+    client = _Client()
+    client.post = lambda url, **kwargs: _Response({
+        "choices": [{
+            "message": {
+                "content": (
+                    "I will calculate this.\n"
+                    "<tool_call><function=calculate><parameter=expression>19 * 23</parameter></function></tool_call>"
+                    "\nDone."
+                ),
+            },
+        }],
+    })
+    model = ChatOpenAICompatible(
+        model_name="qwen",
+        base_url="http://127.0.0.1:1234/v1",
+        endpoint={"provider_id": "custom_openai_tools"},
+        http_client=client,
+    )
+
+    result = model.invoke(
+        [HumanMessage(content="are you sure?")],
+        tools=[{"type": "function", "function": {"name": "calculate", "parameters": {"type": "object"}}}],
+    )
+
+    assert result.content == ""
+    assert result.tool_calls == [{
+        "name": "calculate",
+        "args": {"expression": "19 * 23"},
+        "id": "text_call_0",
+        "type": "tool_call",
+    }]
+
+
+def test_openai_compatible_transport_dedupes_streamed_visible_text_tool_calls():
+    class _VisibleTextToolStreamResponse:
+        status_code = 200
+        text = ""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def iter_lines(self):
+            payload = (
+                "Checking.\n"
+                "<tool_call><function=calculate><parameter=expression>19 * 23</parameter></function></tool_call>"
+                "<tool_call><function=calculate><parameter=expression>19 * 23</parameter></function></tool_call>"
+            )
+            yield ('data: {"choices":[{"delta":{"content":' + json.dumps(payload) + '}}]}').encode("utf-8")
+            yield b"data: [DONE]"
+
+    class _VisibleTextToolClient(_Client):
+        def stream(self, method, url, **kwargs):
+            self.calls.append((url, kwargs))
+            return _VisibleTextToolStreamResponse()
+
+    client = _VisibleTextToolClient()
+    model = ChatOpenAICompatible(
+        model_name="qwen",
+        base_url="http://127.0.0.1:1234/v1",
+        endpoint={
+            "provider_id": "custom_openai_tools",
+            "last_probe": {"streaming_ok": True, "tool_calling": True, "streaming_tool_calling": True},
+        },
+        http_client=client,
+    )
+
+    chunks = list(model.stream(
+        [HumanMessage(content="are you sure?")],
+        tools=[{"type": "function", "function": {"name": "calculate", "parameters": {"type": "object"}}}],
+    ))
+
+    visible = "".join(str(chunk.content or "") for chunk in chunks)
+    tool_chunks = [chunk for chunk in chunks if chunk.tool_call_chunks]
+    assert "<tool_call>" not in visible
+    assert visible == ""
+    assert len(tool_chunks) == 1
+    assert tool_chunks[0].tool_call_chunks[0]["name"] == "calculate"
+    assert tool_chunks[0].tool_call_chunks[0]["args"] == '{"expression": "19 * 23"}'
 
 
 def test_openai_compatible_transport_reports_unread_stream_error_body():

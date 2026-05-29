@@ -36,6 +36,48 @@ def test_langchain_messages_to_ui_messages_preserves_visible_shapes():
     ]
 
 
+def test_langchain_messages_to_ui_messages_does_not_surface_reasoning_only_planning_after_vision_tool():
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    from ui.helpers import langchain_messages_to_ui_messages
+
+    messages = [
+        HumanMessage(content="what do you see?"),
+        AIMessage(content="", tool_calls=[{"id": "call_1", "name": "analyze_image", "args": {"source": "screen"}}]),
+        ToolMessage(content="The screenshot shows a settings window.", name="analyze_image", tool_call_id="call_1"),
+        AIMessage(content="", additional_kwargs={"reasoning_content": "The tool returned detailed information. I should summarize it for the user."}),
+        AIMessage(content="The screenshot shows a settings window."),
+    ]
+
+    ui_messages = langchain_messages_to_ui_messages(messages)
+
+    assert ui_messages[-1]["content"] == "The screenshot shows a settings window."
+    assert "I should summarize" not in str(ui_messages)
+    assert ui_messages[-1]["tool_results"] == [{"name": "analyze_image", "content": "The screenshot shows a settings window."}]
+
+
+def test_process_attached_files_does_not_mark_failed_vision_as_analyzed():
+    from ui.helpers import process_attached_files
+
+    class _Vision:
+        enabled = True
+
+        def analyze(self, data, question):
+            return "Vision analysis failed: image input unsupported"
+
+    context, images, warnings = process_attached_files(
+        [{"name": "photo.png", "data": b"not-really-an-image"}],
+        _Vision(),
+        {},
+        model_name="qwen",
+    )
+
+    assert images
+    assert warnings == []
+    assert "vision analysis failed" in context
+    assert "ALREADY ANALYZED" not in context
+    assert "do NOT call analyze_image" not in context
+
+
 def test_load_thread_messages_does_not_import_or_call_agent_graph(monkeypatch):
     from langchain_core.messages import AIMessage, HumanMessage
     import sys

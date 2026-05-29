@@ -603,15 +603,97 @@ def _query_vision() -> str:
         model = settings.get("model", DEFAULT_VISION_MODEL)
         enabled = settings.get("enabled", True)
         camera = settings.get("camera_index", 0)
+        provider_id = ""
+        runtime_model = str(model or "")
+        provider_label = "Ollama"
+        probe: dict = {}
+        try:
+            from providers.selection import parse_model_ref, provider_display_label
+
+            parsed = parse_model_ref(str(model or ""))
+            if parsed:
+                provider_id, runtime_model = parsed
+            else:
+                try:
+                    from models import get_cloud_provider
+
+                    provider_id = str(get_cloud_provider(str(model or "")) or "ollama")
+                except Exception:
+                    provider_id = "ollama"
+            if provider_id == "local":
+                provider_id = "ollama"
+            if provider_id.startswith("custom_openai_"):
+                try:
+                    from providers.custom import get_custom_endpoint
+
+                    endpoint = get_custom_endpoint(provider_id) or {}
+                    provider_label = str(endpoint.get("display_name") or endpoint.get("name") or provider_display_label(provider_id))
+                    if isinstance(endpoint.get("last_probe"), dict):
+                        probe = dict(endpoint["last_probe"])
+                except Exception:
+                    provider_label = provider_display_label(provider_id)
+            else:
+                provider_label = provider_display_label(provider_id)
+        except Exception:
+            provider_id = "ollama"
+            provider_label = "Ollama"
+        vision_ok = probe.get("vision_ok") if probe else None
+        vision_error = str(probe.get("vision_error") or "") if probe else ""
+        vision_skip = str(probe.get("vision_probe_skip_reason") or "") if probe else ""
+        compatibility: dict = {}
+        try:
+            from vision import vision_model_compatibility
+
+            compatibility = vision_model_compatibility(str(model or ""))
+        except Exception:
+            compatibility = {}
+        incompat_reason = ""
+        if compatibility.get("explicit") and not compatibility.get("usable"):
+            incompat_reason = str(compatibility.get("reason") or "capability metadata says this model is not compatible with vision")
+        if vision_ok is False and _vision_probe_error_is_inconclusive(vision_error):
+            vision_ok = None
+        if incompat_reason:
+            readiness = "vision disabled for endpoint" if "manual" in incompat_reason.lower() else "vision incompatible"
+        elif vision_ok is True:
+            readiness = "vision verified"
+        elif vision_ok is False:
+            readiness = "vision failed"
+        elif provider_id.startswith("custom_openai_"):
+            readiness = "vision unverified"
+        else:
+            readiness = "vision inferred"
         lines = [
             "**Vision**",
             f"- Model: {model}",
+            f"- Runtime model: {runtime_model}",
+            f"- Provider: {provider_label}",
             f"- Enabled: {'yes' if enabled else 'no'}",
             f"- Camera index: {camera}",
+            f"- Vision readiness: {readiness}",
         ]
+        if probe:
+            if probe.get("vision_model"):
+                lines.append(f"- Vision probe model: {probe.get('vision_model')}")
+            if probe.get("vision_content_format"):
+                lines.append(f"- Vision content format: {probe.get('vision_content_format')}")
+            if vision_skip:
+                lines.append(f"- Vision probe skipped: {vision_skip}")
+            if vision_error and (vision_ok is False or _vision_probe_error_is_inconclusive(vision_error)):
+                label = "Vision probe error" if vision_ok is False else "Vision probe note"
+                lines.append(f"- {label}: {vision_error}")
+        if incompat_reason:
+            lines.append(f"- Vision compatibility: {incompat_reason}")
         return "\n".join(lines)
     except Exception as exc:
         return f"**Vision**\nError: {exc}"
+
+
+def _vision_probe_error_is_inconclusive(error: str) -> bool:
+    text = str(error or "").strip().lower()
+    return text.startswith("probe inconclusive") or text in {
+        "unexpected response: <empty>",
+        "unexpected response: ",
+    }
 
 
 def _query_image_gen() -> str:
@@ -1422,7 +1504,7 @@ class ThothStatusTool(BaseTool):
                 name="thoth_update_setting",
                 description=(
                     "Change a Thoth setting. Requires user confirmation. "
-                    "Settings: model, name, personality, context_size, "
+                    "Settings: model, vision_model, name, personality, context_size, "
                     "cloud_context_size, dream_cycle (on/off), "
                     "dream_window (e.g. '1-5'), "
                     "skill_toggle (e.g. 'deep_research:off'), "

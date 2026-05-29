@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 import logging
+import pytest
 
 
 def test_chat_only_prompt_is_compact_and_guards_against_imagined_tasks():
@@ -455,6 +456,186 @@ def test_stream_agent_coerces_string_recursion_limit(monkeypatch):
     assert events == [("done", "")]
     assert captured["recursion_limit"] == 50
     assert isinstance(captured["recursion_limit"], int)
+
+
+@pytest.mark.parametrize("tool_name", ["thoth_status", "analyze_image"])
+def test_stream_graph_finalizes_reasoning_only_after_successful_tool_result(monkeypatch, tool_name):
+    import agent
+    from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
+
+    tool_call = {"name": tool_name, "args": {}, "id": "call_1", "type": "tool_call"}
+    tool_result = ToolMessage(content="Tool says the answer is 42.", name=tool_name, tool_call_id="call_1")
+    state_messages = [
+        HumanMessage(content="use the tool"),
+        AIMessage(content="", tool_calls=[tool_call]),
+        tool_result,
+        AIMessage(content="", additional_kwargs={"reasoning_content": "I should summarize the tool result."}),
+    ]
+    persisted = []
+    final_messages = {}
+
+    class FakeState:
+        next = []
+        tasks = []
+        values = {"messages": state_messages}
+
+    class FakeGraph:
+        def stream(self, input_data, config=None, stream_mode=None):
+            yield ("updates", {"tools": {"messages": [tool_result]}})
+            yield (
+                "messages",
+                (
+                    AIMessageChunk(content="", additional_kwargs={"reasoning_content": "I should summarize the tool result."}),
+                    {"langgraph_node": "agent"},
+                ),
+            )
+
+        def get_state(self, config):
+            return FakeState()
+
+        def update_state(self, config, update):
+            persisted.extend(update["messages"])
+
+    class FakeFinalLLM:
+        def stream(self, messages):
+            final_messages["messages"] = messages
+            yield AIMessageChunk(content="", additional_kwargs={"reasoning_content": "repair reasoning"})
+            yield AIMessageChunk(content="The answer is 42.")
+
+    monkeypatch.setattr(agent, "_chat_only_llm", lambda model_label: FakeFinalLLM())
+
+    events = list(agent._stream_graph(
+        FakeGraph(),
+        {"messages": [("human", "use the tool")]},
+        {"configurable": {"thread_id": "thread-agent", "model_override": "model:custom_openai_lab:local"}},
+    ))
+
+    assert ("thinking_token", "I should summarize the tool result.") in events
+    assert ("thinking_token", "repair reasoning") in events
+    assert ("token", "The answer is 42.") in events
+    assert events[-1] == ("done", "The answer is 42.")
+    assert persisted[-1].content == "The answer is 42."
+    assert persisted[-1].additional_kwargs["reasoning_content"] == "repair reasoning"
+    assert [message.type for message in final_messages["messages"]] == ["system", "human"]
+    assert tool_name in final_messages["messages"][1].content
+
+
+def test_stream_graph_finalization_failure_preserves_tool_result_without_fake_answer(monkeypatch):
+    import agent
+    from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
+
+    tool_result = ToolMessage(content="Tool says the answer is 42.", name="thoth_status", tool_call_id="call_1")
+    state_messages = [
+        HumanMessage(content="use the tool"),
+        AIMessage(content="", tool_calls=[{"name": "thoth_status", "args": {}, "id": "call_1", "type": "tool_call"}]),
+        tool_result,
+        AIMessage(content="", additional_kwargs={"reasoning_content": "I should summarize the tool result."}),
+    ]
+    persisted = []
+
+    class FakeState:
+        next = []
+        tasks = []
+        values = {"messages": state_messages}
+
+    class FakeGraph:
+        def stream(self, input_data, config=None, stream_mode=None):
+            yield ("updates", {"tools": {"messages": [tool_result]}})
+            yield (
+                "messages",
+                (
+                    AIMessageChunk(content="", additional_kwargs={"reasoning_content": "I should summarize the tool result."}),
+                    {"langgraph_node": "agent"},
+                ),
+            )
+
+        def get_state(self, config):
+            return FakeState()
+
+        def update_state(self, config, update):
+            persisted.extend(update["messages"])
+
+    class FakeFinalLLM:
+        def stream(self, messages):
+            yield AIMessageChunk(content="", additional_kwargs={"reasoning_content": "still only reasoning"})
+
+    monkeypatch.setattr(agent, "_chat_only_llm", lambda model_label: FakeFinalLLM())
+
+    events = list(agent._stream_graph(
+        FakeGraph(),
+        {"messages": [("human", "use the tool")]},
+        {"configurable": {"thread_id": "thread-agent", "model_override": "model:custom_openai_lab:local"}},
+    ))
+
+    tool_done = next(payload for event_type, payload in events if event_type == "tool_done")
+    assert tool_done["raw_name"] == "thoth_status"
+    assert tool_done["content"] == "Tool says the answer is 42."
+    assert ("thinking_token", "still only reasoning") in events
+    assert events[-1] == ("error", "The model returned reasoning but no final answer. Try again or switch models.")
+    assert persisted == []
+
+
+def test_stream_graph_finalizes_whitespace_only_answer_after_successful_tool_result(monkeypatch):
+    import agent
+    from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
+
+    tool_result = ToolMessage(
+        content="heatmap_regional_sales.png\nmarketing_content_design.png\nnotes.md",
+        name="workspace_list_directory",
+        tool_call_id="call_1",
+    )
+    state_messages = [
+        HumanMessage(content="what image files do i have in my workspace?"),
+        AIMessage(content="", tool_calls=[{
+            "name": "workspace_list_directory",
+            "args": {"dir_path": "."},
+            "id": "call_1",
+            "type": "tool_call",
+        }]),
+        tool_result,
+        AIMessage(content="", additional_kwargs={"reasoning_content": "I should list only image files."}),
+    ]
+    persisted = []
+
+    class FakeState:
+        next = []
+        tasks = []
+        values = {"messages": state_messages}
+
+    class FakeGraph:
+        def stream(self, input_data, config=None, stream_mode=None):
+            yield ("updates", {"tools": {"messages": [tool_result]}})
+            yield (
+                "messages",
+                (
+                    AIMessageChunk(content="\n\n", additional_kwargs={"reasoning_content": "I should list only image files."}),
+                    {"langgraph_node": "agent"},
+                ),
+            )
+
+        def get_state(self, config):
+            return FakeState()
+
+        def update_state(self, config, update):
+            persisted.extend(update["messages"])
+
+    class FakeFinalLLM:
+        def stream(self, messages):
+            yield AIMessageChunk(content="", additional_kwargs={"reasoning_content": "repair reasoning"})
+            yield AIMessageChunk(content="Image files include heatmap_regional_sales.png and marketing_content_design.png.")
+
+    monkeypatch.setattr(agent, "_chat_only_llm", lambda model_label: FakeFinalLLM())
+
+    events = list(agent._stream_graph(
+        FakeGraph(),
+        {"messages": [("human", "what image files do i have in my workspace?")]},
+        {"configurable": {"thread_id": "thread-agent", "model_override": "model:custom_openai_lab:local"}},
+    ))
+
+    assert ("token", "\n\n") not in events
+    assert ("thinking_token", "repair reasoning") in events
+    assert events[-1] == ("done", "Image files include heatmap_regional_sales.png and marketing_content_design.png.")
+    assert persisted[-1].content == "Image files include heatmap_regional_sales.png and marketing_content_design.png."
 
 
 def test_forced_agent_surfaces_are_wired_in_callers():

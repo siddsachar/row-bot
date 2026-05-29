@@ -127,7 +127,12 @@ def format_model_choice_label(
     return f"{prefix}{name} — {provider_display_label(provider)}"
 
 
-def _model_choice_option_for_value(value: str) -> dict[str, Any] | None:
+def _model_choice_option_for_value(
+    value: str,
+    *,
+    surface: str = "chat",
+    include_inactive: bool = False,
+) -> dict[str, Any] | None:
     raw = str(value or "").strip()
     if not raw:
         return None
@@ -138,7 +143,7 @@ def _model_choice_option_for_value(value: str) -> dict[str, Any] | None:
         provider_id = infer_provider_id(raw) or "local"
         model_id = raw
     value_ref = model_choice_value(model_id, provider_id=provider_id)
-    return {
+    option = {
         "value": value_ref,
         "label": format_model_choice_label(provider_id, model_id),
         "provider_id": provider_id,
@@ -146,6 +151,50 @@ def _model_choice_option_for_value(value: str) -> dict[str, Any] | None:
         "display_name": model_id,
         "source": "included_value",
     }
+    if surface:
+        ref = model_ref(provider_id, model_id)
+        if provider_id.startswith("custom_openai_"):
+            try:
+                from providers.custom import custom_endpoint_models, get_custom_endpoint
+
+                endpoint = get_custom_endpoint(provider_id) or {}
+                manual = endpoint.get("manual_capabilities")
+                if surface == "vision" and isinstance(manual, dict) and manual.get("vision") is False:
+                    reason = "manual vision capability disabled"
+                    if not include_inactive:
+                        return None
+                    option.update({"active": False, "reason": reason})
+                    option["label"] = f"Unavailable: {option['label']}"
+                    return option
+                for item in custom_endpoint_models(provider_id):
+                    if str(item.get("model_id") or item.get("id") or "") != model_id:
+                        continue
+                    snapshot = item.get("capabilities_snapshot") if isinstance(item.get("capabilities_snapshot"), dict) else {}
+                    if snapshot and not snapshot_supports_surface(snapshot, surface):
+                        reason = _surface_unsupported_reason(surface)
+                        if not include_inactive:
+                            return None
+                        option.update({"active": False, "reason": reason})
+                        option["label"] = f"Unavailable: {option['label']}"
+                    break
+            except Exception:
+                pass
+        for choice in load_provider_config().get("quick_choices", []):
+            if not isinstance(choice, dict) or choice.get("id") != ref:
+                continue
+            inactive_reason = _surface_inactive_reason(choice, surface)
+            snapshot = choice.get("capabilities_snapshot") if isinstance(choice.get("capabilities_snapshot"), dict) else {}
+            if inactive_reason or (snapshot and not snapshot_supports_surface(snapshot, surface)):
+                reason = inactive_reason or _surface_unsupported_reason(surface)
+                if not include_inactive:
+                    return None
+                option.update({
+                    "active": False,
+                    "reason": reason,
+                })
+                option["label"] = f"Unavailable: {option['label']}"
+            break
+    return option
 
 
 def list_model_choice_options(
@@ -184,7 +233,11 @@ def list_model_choice_options(
         })
 
     for value in include_values or []:
-        add_option(_model_choice_option_for_value(str(value or "")))
+        add_option(_model_choice_option_for_value(
+            str(value or ""),
+            surface=surface,
+            include_inactive=include_inactive,
+        ))
 
     return options
 
@@ -280,9 +333,18 @@ def _is_auto_capability_reason(reason: Any) -> bool:
 def _inferred_capability_snapshot(choice: dict[str, Any]) -> dict[str, Any]:
     provider_id = str(choice.get("provider_id") or "")
     model_id = str(choice.get("model_id") or "")
-    if not provider_id or not model_id or provider_id.startswith("custom_openai_"):
+    if not provider_id or not model_id:
         return {}
     try:
+        if provider_id.startswith("custom_openai_"):
+            from providers.custom import custom_model_cache_entries
+
+            cached = custom_model_cache_entries().get(model_id)
+            if isinstance(cached, dict) and str(cached.get("provider") or "") == provider_id:
+                snapshot = cached.get("capabilities_snapshot")
+                if isinstance(snapshot, dict) and snapshot:
+                    return dict(snapshot)
+            return {}
         if provider_id == "ollama":
             from providers.ollama import ollama_model_info
             return ollama_model_info(model_id).capability_snapshot()

@@ -907,6 +907,38 @@ def test_custom_openai_pre_model_trim_compacts_32k_agent_payload(tmp_path, monke
     assert sum(1 for msg in result if msg.type == "system") == 1
 
 
+def test_custom_openai_pre_model_trim_consolidates_64k_system_envelope(tmp_path, monkeypatch):
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    import agent
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    monkeypatch.setattr(agent, "get_context_size", lambda: 65_536)
+    monkeypatch.setattr(agent, "trim_messages", lambda messages, **kwargs: list(messages))
+    monkeypatch.setattr(agent, "get_current_model", lambda: "model:custom_openai_lab:local")
+    monkeypatch.setattr(agent, "is_cloud_model", lambda model: True)
+    monkeypatch.setattr(agent, "get_cloud_provider", lambda model: "custom_openai_lab")
+    monkeypatch.setattr(agent, "is_background_workflow", lambda: False)
+
+    agent.set_active_model_override("model:custom_openai_lab:local")
+    try:
+        result = agent._pre_model_trim({
+            "messages": [
+                SystemMessage(content="Root system"),
+                HumanMessage(content="hi"),
+                SystemMessage(content="Late memory recall"),
+                HumanMessage(content="continue"),
+            ]
+        })["llm_input_messages"]
+    finally:
+        agent.set_active_model_override("")
+
+    assert result[0].type == "system"
+    assert sum(1 for msg in result if msg.type == "system") == 1
+    assert not any(msg.type == "system" for msg in result[1:])
+    assert "Root system" in result[0].content
+    assert "Late memory recall" in result[0].content
+
+
 def test_pre_model_trim_drops_reasoning_only_assistant_turn(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
     import agent
@@ -1054,8 +1086,61 @@ def test_provider_transcript_normalizer_strips_reasoning_for_custom_artifacts(tm
     result = agent._normalize_provider_facing_messages(messages, provider_id="openrouter")
     ai_messages = [msg for msg in result if isinstance(msg, AIMessage)]
 
-    assert all("reasoning_content" not in msg.additional_kwargs for msg in ai_messages)
+    assert "reasoning_content" not in ai_messages[0].additional_kwargs
+    assert ai_messages[-1].additional_kwargs == {"reasoning_content": "I should now answer."}
     assert ai_messages[-1].content == "Done"
+
+
+def test_provider_transcript_normalizer_strips_reasoning_for_unsupported_custom_endpoint(tmp_path, monkeypatch):
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    import agent
+    import providers.config as provider_config
+    from providers.custom import save_custom_endpoint
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    save_custom_endpoint({
+        "id": "generic",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "auth_required": False,
+        "supports_reasoning_replay": False,
+    })
+
+    messages = [
+        HumanMessage(content="hi"),
+        AIMessage(content="hello", additional_kwargs={"reasoning_content": "native reasoning"}),
+    ]
+
+    result = agent._normalize_provider_facing_messages(messages, provider_id="custom_openai_generic")
+
+    assert result[1].additional_kwargs == {}
+
+
+def test_provider_transcript_normalizer_preserves_reasoning_for_supported_custom_endpoint(tmp_path, monkeypatch):
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    import agent
+    import providers.config as provider_config
+    from providers.custom import save_custom_endpoint
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    save_custom_endpoint({
+        "id": "qwen",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "auth_required": False,
+        "supports_reasoning_replay": True,
+    })
+
+    messages = [
+        HumanMessage(content="hi"),
+        AIMessage(content="", additional_kwargs={"reasoning_content": "native reasoning"}),
+        HumanMessage(content="continue"),
+    ]
+
+    result = agent._normalize_provider_facing_messages(messages, provider_id="custom_openai_qwen")
+
+    assert result[1].additional_kwargs == {"reasoning_content": "native reasoning"}
+    assert result[1].content == ""
 
 
 def test_provider_transcript_normalizer_serializes_cleanly_for_openrouter(tmp_path, monkeypatch):
@@ -1102,7 +1187,10 @@ def test_provider_transcript_normalizer_serializes_cleanly_for_openrouter(tmp_pa
 
     assert len(tool_call_ids) == len(set(tool_call_ids))
     assert set(tool_result_ids).issubset(set(tool_call_ids))
-    assert all("reasoning" not in payload for payload in assistant_payloads)
+    assert not any(
+        "<tool_call>" in str(payload.get("reasoning") or payload.get("reasoning_content") or "")
+        for payload in assistant_payloads
+    )
     assert all("reasoning_details" not in payload for payload in assistant_payloads)
     assert all(
         call["id"] != "openai_call_0"
