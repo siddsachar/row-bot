@@ -258,11 +258,13 @@ def _vision_provider_id(model_name: str) -> str:
     except Exception:
         pass
     try:
-        from models import get_cloud_provider
+        from models import get_cloud_provider, is_cloud_model
 
-        return str(get_cloud_provider(model_name) or "")
+        if is_cloud_model(model_name):
+            return str(get_cloud_provider(model_name) or "cloud")
     except Exception:
-        return ""
+        pass
+    return ""
 
 
 def _vision_provider_label(model_name: str) -> str:
