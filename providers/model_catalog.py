@@ -222,6 +222,8 @@ def build_model_catalog_rows(
         if not parsed:
             continue
         provider_id, model_id = parsed
+        if provider_id.startswith("custom_openai_") and not _custom_provider_exists(provider_id):
+            continue
         model_info = model_info_from_metadata(
             provider_id,
             model_id,
@@ -479,6 +481,15 @@ def _custom_model_infos() -> list[ModelInfo]:
                 source="custom_openai_catalog",
             ))
     return infos
+
+
+def _custom_provider_exists(provider_id: str) -> bool:
+    try:
+        from providers.custom import get_custom_endpoint
+
+        return bool(get_custom_endpoint(provider_id))
+    except Exception:
+        return False
 
 
 def _minimax_static_model_infos() -> list[ModelInfo]:

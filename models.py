@@ -692,6 +692,7 @@ def set_context_size(size: int):
 
 
 def get_current_model() -> str:
+    _reset_current_model_if_missing_custom_provider()
     return _current_model
 
 
@@ -955,10 +956,74 @@ def _sync_custom_model_cache() -> None:
         entries = custom_model_cache_entries()
     except Exception:
         return
-    if not entries:
-        return
     with _cloud_cache_lock:
+        for model_id, info in list(_cloud_model_cache.items()):
+            if isinstance(info, dict) and str(info.get("provider") or "").startswith("custom_openai_"):
+                replacement = entries.get(model_id)
+                if not replacement or replacement.get("provider") != info.get("provider"):
+                    _cloud_model_cache.pop(model_id, None)
         _cloud_model_cache.update(entries)
+
+
+def reset_current_model_if_removed(
+    provider_id: str,
+    *,
+    removed_model_ids: set[str] | None = None,
+) -> bool:
+    """Reset the saved Brain default if it points at a removed provider/model."""
+    global _current_model, _llm_instance
+    provider_id = str(provider_id or "").strip()
+    if not provider_id:
+        return False
+    try:
+        from providers.selection import list_quick_choices, model_choice_value, parse_model_ref
+    except Exception:
+        return False
+    parsed = parse_model_ref(_current_model)
+    if not parsed:
+        return False
+    current_provider, current_model = parsed
+    removed = {str(model_id) for model_id in (removed_model_ids or set()) if str(model_id)}
+    if current_provider != provider_id:
+        return False
+    if removed and current_model not in removed:
+        return False
+    fallback = ""
+    try:
+        for choice in list_quick_choices("chat"):
+            if choice.get("kind") != "model" or choice.get("active") is False:
+                continue
+            choice_provider = str(choice.get("provider_id") or "")
+            choice_model = str(choice.get("model_id") or "")
+            if choice_provider == provider_id and (not removed or choice_model in removed):
+                continue
+            fallback = model_choice_value(choice_model, provider_id=choice_provider)
+            if fallback:
+                break
+    except Exception:
+        fallback = ""
+    if not fallback:
+        fallback = model_choice_value(DEFAULT_MODEL, provider_id="ollama")
+    _current_model = fallback
+    _llm_instance = None
+    _override_llm_cache.clear()
+    _save_settings({"model": _current_model, "context_size": _num_ctx,
+                    "cloud_context_size": _cloud_num_ctx})
+    return True
+
+
+def _reset_current_model_if_missing_custom_provider() -> None:
+    try:
+        from providers.custom import get_custom_endpoint, is_custom_openai_provider
+        from providers.selection import parse_model_ref
+    except Exception:
+        return
+    parsed = parse_model_ref(_current_model)
+    if not parsed:
+        return
+    provider_id, _model_id = parsed
+    if is_custom_openai_provider(provider_id) and not get_custom_endpoint(provider_id):
+        reset_current_model_if_removed(provider_id)
 
 
 def list_starred_cloud_models() -> list[str]:

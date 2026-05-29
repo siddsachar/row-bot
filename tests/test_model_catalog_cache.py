@@ -30,9 +30,13 @@ def test_model_catalog_cache_round_trip(tmp_path, monkeypatch):
 
 
 def test_model_catalog_refresh_preserves_last_good_when_empty(tmp_path, monkeypatch):
+    import api_keys
+    import providers.config as provider_config
     import providers.model_catalog_cache as cache
 
     path = tmp_path / "model_catalog_cache.json"
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
     monkeypatch.setattr(cache, "CATALOG_CACHE_PATH", path)
     previous = CatalogCacheSnapshot(
         version=cache.CACHE_VERSION,
@@ -51,6 +55,28 @@ def test_model_catalog_refresh_preserves_last_good_when_empty(tmp_path, monkeypa
 
     assert refreshed.cloud_cache == previous.cloud_cache
     assert cache.read_model_catalog_cache().cloud_cache == previous.cloud_cache
+
+
+def test_model_catalog_refresh_prunes_stale_custom_quick_choices(tmp_path, monkeypatch):
+    import api_keys
+    import providers.config as provider_config
+    import providers.model_catalog_cache as cache
+    from providers.selection import add_quick_choice_for_model
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+    monkeypatch.setattr(cache, "CATALOG_CACHE_PATH", tmp_path / "model_catalog_cache.json")
+    monkeypatch.setattr(cache, "_refresh_cloud_cache", lambda provider_id=None: (
+        {"gpt-test": {"provider": "openai", "label": "GPT Test"}},
+        {"openai": {"status": "ok", "count": 1}},
+    ))
+    monkeypatch.setattr(cache, "_refresh_ollama_rows", lambda: [])
+    add_quick_choice_for_model("ghost-model", provider_id="custom_openai_deleted")
+
+    refreshed = cache.refresh_model_catalog_cache(reason="test", force=True)
+
+    assert refreshed.total_rows == 1
+    assert provider_config.load_provider_config()["quick_choices"] == []
 
 
 def test_background_model_catalog_refresh_coalesces(monkeypatch):

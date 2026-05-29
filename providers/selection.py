@@ -346,6 +346,48 @@ def refresh_quick_choice_capability_snapshots() -> list[dict[str, Any]]:
     return quick
 
 
+def prune_stale_custom_quick_choices() -> int:
+    try:
+        from providers.custom import is_custom_openai_provider, list_custom_endpoints
+    except Exception:
+        return 0
+    endpoints = list_custom_endpoints()
+    active_providers = {str(endpoint.get("provider_id") or "") for endpoint in endpoints}
+    known_models_by_provider: dict[str, set[str]] = {}
+    for endpoint in endpoints:
+        provider_id = str(endpoint.get("provider_id") or "")
+        models = endpoint.get("models") if isinstance(endpoint.get("models"), list) else []
+        model_ids = {
+            str(model.get("model_id") or model.get("id") or "")
+            for model in models
+            if isinstance(model, dict) and str(model.get("model_id") or model.get("id") or "")
+        }
+        if provider_id and model_ids:
+            known_models_by_provider[provider_id] = model_ids
+    cfg = load_provider_config()
+    quick = [choice for choice in cfg.get("quick_choices", []) if isinstance(choice, dict)]
+    kept: list[dict[str, Any]] = []
+    removed = 0
+    for choice in quick:
+        provider_id = str(choice.get("provider_id") or "")
+        if not is_custom_openai_provider(provider_id):
+            kept.append(choice)
+            continue
+        model_id = str(choice.get("model_id") or "")
+        if provider_id not in active_providers:
+            removed += 1
+            continue
+        known_models = known_models_by_provider.get(provider_id)
+        if known_models is not None and model_id not in known_models:
+            removed += 1
+            continue
+        kept.append(choice)
+    if removed:
+        cfg["quick_choices"] = kept
+        save_provider_config(cfg)
+    return removed
+
+
 def _media_tool_selection(tool_name: str, default_model: str) -> str:
     try:
         from tools import registry
@@ -571,6 +613,39 @@ def remove_quick_choice_for_model(model_id: str, *, provider_id: str | None = No
         if not isinstance(c, dict) or c.get("id") != ref
     ]
     save_provider_config(cfg)
+
+
+def remove_quick_choices_for_provider(provider_id: str) -> int:
+    provider_id = str(provider_id or "").strip()
+    if not provider_id:
+        return 0
+    cfg = load_provider_config()
+    quick = [c for c in cfg.get("quick_choices", []) if isinstance(c, dict)]
+    kept = [c for c in quick if str(c.get("provider_id") or "") != provider_id]
+    removed = len(quick) - len(kept)
+    if removed:
+        cfg["quick_choices"] = kept
+        save_provider_config(cfg)
+    return removed
+
+
+def remove_quick_choices_for_missing_models(provider_id: str, valid_model_ids: set[str]) -> int:
+    provider_id = str(provider_id or "").strip()
+    valid = {str(model_id) for model_id in valid_model_ids if str(model_id)}
+    if not provider_id:
+        return 0
+    cfg = load_provider_config()
+    quick = [c for c in cfg.get("quick_choices", []) if isinstance(c, dict)]
+    kept = [
+        c for c in quick
+        if str(c.get("provider_id") or "") != provider_id
+        or str(c.get("model_id") or "") in valid
+    ]
+    removed = len(quick) - len(kept)
+    if removed:
+        cfg["quick_choices"] = kept
+        save_provider_config(cfg)
+    return removed
 
 
 def deactivate_quick_choice(

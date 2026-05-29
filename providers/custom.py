@@ -19,6 +19,19 @@ STREAMING_PROBE_MAX_TOKENS = 128
 logger = logging.getLogger(__name__)
 
 
+class CustomEndpointModelRefreshResult(list):
+    def __init__(
+        self,
+        infos: list[ModelInfo],
+        *,
+        stale_pin_count: int = 0,
+        default_reset: bool = False,
+    ) -> None:
+        super().__init__(infos)
+        self.stale_pin_count = int(stale_pin_count or 0)
+        self.default_reset = bool(default_reset)
+
+
 def _positive_int(value: Any, default: int = 0) -> int:
     try:
         parsed = int(value)
@@ -258,16 +271,41 @@ def save_custom_endpoint(endpoint: dict) -> None:
         set_provider_secret(str(normalized["provider_id"]), "api_key", secret)
 
 
-def delete_custom_endpoint(endpoint_or_provider_id: str) -> None:
+def delete_custom_endpoint(endpoint_or_provider_id: str) -> int:
     endpoint_id = endpoint_id_from_provider_id(endpoint_or_provider_id)
     provider_id = custom_provider_id(endpoint_id)
     cfg = load_provider_config()
+    removed_model_ids: set[str] = set()
+    for item in cfg.get("custom_endpoints", []):
+        if not isinstance(item, dict) or normalize_custom_endpoint(item).get("id") != endpoint_id:
+            continue
+        models = item.get("models") if isinstance(item.get("models"), list) else []
+        removed_model_ids = {
+            str(model.get("model_id") or model.get("id") or "")
+            for model in models
+            if isinstance(model, dict) and str(model.get("model_id") or model.get("id") or "")
+        }
+        break
     cfg["custom_endpoints"] = [
         item for item in cfg.get("custom_endpoints", [])
         if not isinstance(item, dict) or normalize_custom_endpoint(item).get("id") != endpoint_id
     ]
     save_provider_config(cfg)
+    removed_pins = 0
+    try:
+        from providers.selection import remove_quick_choices_for_provider
+
+        removed_pins = remove_quick_choices_for_provider(provider_id)
+    except Exception:
+        logger.debug("Failed to remove quick choices for custom provider %s", provider_id, exc_info=True)
+    try:
+        from models import reset_current_model_if_removed
+
+        reset_current_model_if_removed(provider_id, removed_model_ids=removed_model_ids)
+    except Exception:
+        logger.debug("Failed to reset current model after deleting %s", provider_id, exc_info=True)
     delete_provider_secret(provider_id, "api_key")
+    return removed_pins
 
 
 def custom_endpoint_secret(endpoint_or_provider_id: str) -> str:
@@ -320,7 +358,46 @@ def refresh_custom_endpoint_models(endpoint_or_provider_id: str) -> list[ModelIn
     native_metadata = _fetch_custom_endpoint_native_model_metadata(endpoint, headers=headers)
     infos = model_infos_from_openai_compatible_catalog(endpoint, response.json(), native_metadata_by_model=native_metadata)
     _store_custom_endpoint_models(endpoint["id"], infos)
-    return infos
+    valid_model_ids = {info.model_id for info in infos}
+    stale_pin_count = 0
+    default_reset = False
+    try:
+        from providers.selection import remove_quick_choices_for_missing_models
+
+        stale_pin_count = remove_quick_choices_for_missing_models(str(endpoint["provider_id"]), valid_model_ids)
+    except Exception:
+        logger.debug("Failed to prune stale quick choices for %s", endpoint["provider_id"], exc_info=True)
+    try:
+        previous_model_ids = {
+            str(item.get("model_id") or item.get("id") or "")
+            for item in (endpoint.get("models") if isinstance(endpoint.get("models"), list) else [])
+            if isinstance(item, dict) and str(item.get("model_id") or item.get("id") or "")
+        }
+        removed_model_ids = previous_model_ids - valid_model_ids
+        try:
+            from models import get_current_model
+            from providers.selection import parse_model_ref
+
+            parsed_current = parse_model_ref(get_current_model())
+            if (
+                parsed_current
+                and parsed_current[0] == str(endpoint["provider_id"])
+                and parsed_current[1] not in valid_model_ids
+            ):
+                removed_model_ids.add(parsed_current[1])
+        except Exception:
+            pass
+        if removed_model_ids:
+            from models import reset_current_model_if_removed
+
+            default_reset = reset_current_model_if_removed(str(endpoint["provider_id"]), removed_model_ids=removed_model_ids)
+    except Exception:
+        logger.debug("Failed to reset current model after refreshing %s", endpoint["provider_id"], exc_info=True)
+    return CustomEndpointModelRefreshResult(
+        infos,
+        stale_pin_count=stale_pin_count,
+        default_reset=default_reset,
+    )
 
 
 def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = None) -> dict[str, Any]:

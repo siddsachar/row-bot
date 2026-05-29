@@ -1,3 +1,5 @@
+import api_keys
+import models
 import providers.config as provider_config
 from providers.capabilities import model_supports_surface
 from providers.custom import (
@@ -13,6 +15,7 @@ from providers.custom import (
     refresh_custom_endpoint_models,
     save_custom_endpoint,
 )
+from providers.selection import add_quick_choice_for_model, list_quick_choices, model_choice_value
 
 
 def test_custom_endpoint_catalog_parses_vllm_models(tmp_path, monkeypatch):
@@ -238,6 +241,59 @@ def test_custom_endpoint_delete_removes_config_entry(tmp_path, monkeypatch):
     assert get_custom_endpoint("localai") is None
 
 
+def test_custom_endpoint_delete_removes_only_matching_provider_quick_choices(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+    save_custom_endpoint({
+        "id": "old",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "auth_required": False,
+        "models": [{"id": "shared-model", "model_id": "shared-model"}],
+    })
+    save_custom_endpoint({
+        "id": "new",
+        "base_url": "http://127.0.0.1:9000/v1",
+        "auth_required": False,
+        "models": [{"id": "shared-model", "model_id": "shared-model"}],
+    })
+    add_quick_choice_for_model("shared-model", provider_id=custom_provider_id("old"), display_name="Old Shared")
+    add_quick_choice_for_model("shared-model", provider_id=custom_provider_id("new"), display_name="New Shared")
+
+    removed = delete_custom_endpoint("old")
+
+    assert removed == 1
+    assert get_custom_endpoint("old") is None
+    assert [choice["id"] for choice in list_quick_choices("")] == [
+        f"model:{custom_provider_id('new')}:shared-model"
+    ]
+
+
+def test_custom_endpoint_delete_resets_stale_current_model(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+    monkeypatch.setattr(models, "_SETTINGS_PATH", tmp_path / "model_settings.json")
+    monkeypatch.setattr(models, "_current_model", f"model:{custom_provider_id('old')}:old-model")
+    save_custom_endpoint({
+        "id": "old",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "auth_required": False,
+        "models": [{"id": "old-model", "model_id": "old-model"}],
+    })
+
+    delete_custom_endpoint("old")
+
+    assert models.get_current_model() == model_choice_value(models.DEFAULT_MODEL, provider_id="ollama")
+
+
+def test_get_current_model_resets_previously_deleted_custom_default(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+    monkeypatch.setattr(models, "_SETTINGS_PATH", tmp_path / "model_settings.json")
+    monkeypatch.setattr(models, "_current_model", "model:custom_openai_deleted:ghost-model")
+
+    assert models.get_current_model() == model_choice_value(models.DEFAULT_MODEL, provider_id="ollama")
+
+
 def test_custom_endpoint_refresh_persists_model_cache_entries(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     save_custom_endpoint({"id": "dummy", "base_url": "http://127.0.0.1:8000/v1", "auth_required": False})
@@ -258,6 +314,115 @@ def test_custom_endpoint_refresh_persists_model_cache_entries(tmp_path, monkeypa
     assert [info.model_id for info in infos] == ["thoth-dummy-chat"]
     assert entries["thoth-dummy-chat"]["provider"] == custom_provider_id("dummy")
     assert entries["thoth-dummy-chat"]["capabilities_snapshot"]["tasks"] == ["chat"]
+
+
+def test_custom_endpoint_refresh_prunes_removed_model_quick_choices(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+    save_custom_endpoint({
+        "id": "dummy",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "auth_required": False,
+        "models": [
+            {"id": "old-chat", "model_id": "old-chat"},
+            {"id": "new-chat", "model_id": "new-chat"},
+        ],
+    })
+    provider_id = custom_provider_id("dummy")
+    add_quick_choice_for_model("old-chat", provider_id=provider_id)
+    add_quick_choice_for_model("new-chat", provider_id=provider_id)
+
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": [{"id": "new-chat", "context_length": 8192}]}
+
+    import httpx
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: _Response())
+
+    infos = refresh_custom_endpoint_models("dummy")
+
+    assert [info.model_id for info in infos] == ["new-chat"]
+    assert getattr(infos, "stale_pin_count") == 1
+    assert [choice["id"] for choice in list_quick_choices("")] == [f"model:{provider_id}:new-chat"]
+
+
+def test_custom_endpoint_refresh_resets_default_for_removed_model(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+    monkeypatch.setattr(models, "_SETTINGS_PATH", tmp_path / "model_settings.json")
+    provider_id = custom_provider_id("dummy")
+    monkeypatch.setattr(models, "_current_model", f"model:{provider_id}:old-chat")
+    save_custom_endpoint({
+        "id": "dummy",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "auth_required": False,
+        "models": [
+            {"id": "old-chat", "model_id": "old-chat"},
+            {"id": "new-chat", "model_id": "new-chat"},
+        ],
+    })
+    add_quick_choice_for_model("new-chat", provider_id=provider_id)
+
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": [{"id": "new-chat", "context_length": 8192}]}
+
+    import httpx
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: _Response())
+
+    infos = refresh_custom_endpoint_models("dummy")
+
+    assert getattr(infos, "default_reset") is True
+    assert models.get_current_model() == f"model:{provider_id}:new-chat"
+
+
+def test_custom_endpoint_refresh_resets_default_even_without_previous_model_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+    monkeypatch.setattr(models, "_SETTINGS_PATH", tmp_path / "model_settings.json")
+    provider_id = custom_provider_id("dummy")
+    monkeypatch.setattr(models, "_current_model", f"model:{provider_id}:old-chat")
+    save_custom_endpoint({
+        "id": "dummy",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "auth_required": False,
+    })
+    add_quick_choice_for_model("new-chat", provider_id=provider_id)
+
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": [{"id": "new-chat", "context_length": 8192}]}
+
+    import httpx
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: _Response())
+
+    infos = refresh_custom_endpoint_models("dummy")
+
+    assert getattr(infos, "default_reset") is True
+    assert models.get_current_model() == f"model:{provider_id}:new-chat"
+
+
+def test_custom_model_cache_sync_prunes_removed_custom_entries(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(models, "_cloud_model_cache", {
+        "old-chat": {"provider": custom_provider_id("old"), "label": "Old Chat"},
+        "openai-chat": {"provider": "openai", "label": "OpenAI Chat"},
+    })
+
+    models._sync_custom_model_cache()
+
+    assert models._cloud_model_cache == {
+        "openai-chat": {"provider": "openai", "label": "OpenAI Chat"},
+    }
 
 
 def test_llamacpp_refresh_reads_props_context(tmp_path, monkeypatch):

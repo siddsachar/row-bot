@@ -14,7 +14,10 @@ from providers.selection import (
     model_choice_value,
     migrate_legacy_starred_models,
     provider_display_label,
+    prune_stale_custom_quick_choices,
     refresh_quick_choice_capability_snapshots,
+    remove_quick_choices_for_missing_models,
+    remove_quick_choices_for_provider,
     remove_quick_choice_for_model,
     resolve_selection,
 )
@@ -168,6 +171,14 @@ def test_quick_choice_remove_supports_custom_provider_id(tmp_path, monkeypatch):
 def test_quick_choices_keep_same_model_id_for_different_providers(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+    provider_config.save_provider_config({
+        "custom_endpoints": [{
+            "id": "lab",
+            "name": "Lab",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "auth_required": False,
+        }],
+    })
 
     add_quick_choice_for_model("shared-model", provider_id="openrouter", display_name="Routed Shared")
     add_quick_choice_for_model("shared-model", provider_id="custom_openai_lab", display_name="Lab Shared")
@@ -179,6 +190,77 @@ def test_quick_choices_keep_same_model_id_for_different_providers(tmp_path, monk
         "model:custom_openai_lab:shared-model",
     }
     assert {choice["display_name"] for choice in choices} == {"Routed Shared", "Lab Shared"}
+
+
+def test_remove_quick_choices_for_provider_is_provider_qualified(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+    provider_config.save_provider_config({
+        "custom_endpoints": [
+            {"id": "old", "name": "Old", "base_url": "http://127.0.0.1:8000/v1", "auth_required": False},
+            {"id": "new", "name": "New", "base_url": "http://127.0.0.1:9000/v1", "auth_required": False},
+        ],
+    })
+
+    add_quick_choice_for_model("shared-model", provider_id="custom_openai_old", display_name="Old Shared")
+    add_quick_choice_for_model("shared-model", provider_id="custom_openai_new", display_name="New Shared")
+
+    assert remove_quick_choices_for_provider("custom_openai_old") == 1
+
+    choices = list_quick_choices("")
+    assert [choice["id"] for choice in choices] == ["model:custom_openai_new:shared-model"]
+
+
+def test_remove_quick_choices_for_missing_models_keeps_valid_provider_models(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+    provider_config.save_provider_config({
+        "custom_endpoints": [
+            {"id": "lab", "name": "Lab", "base_url": "http://127.0.0.1:8000/v1", "auth_required": False},
+            {"id": "other", "name": "Other", "base_url": "http://127.0.0.1:9000/v1", "auth_required": False},
+        ],
+    })
+
+    add_quick_choice_for_model("old-model", provider_id="custom_openai_lab")
+    add_quick_choice_for_model("current-model", provider_id="custom_openai_lab")
+    add_quick_choice_for_model("old-model", provider_id="custom_openai_other")
+
+    assert remove_quick_choices_for_missing_models("custom_openai_lab", {"current-model"}) == 1
+
+    assert {choice["id"] for choice in list_quick_choices("")} == {
+        "model:custom_openai_lab:current-model",
+        "model:custom_openai_other:old-model",
+    }
+
+
+def test_stale_deleted_custom_quick_choice_can_be_pruned(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+
+    add_quick_choice_for_model("ghost-model", provider_id="custom_openai_deleted")
+
+    assert prune_stale_custom_quick_choices() == 1
+    assert provider_config.load_provider_config()["quick_choices"] == []
+
+
+def test_stale_missing_custom_model_is_pruned_when_endpoint_models_are_known(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+    provider_config.save_provider_config({
+        "custom_endpoints": [{
+            "id": "lab",
+            "name": "Lab",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "auth_required": False,
+            "models": [{"id": "current-model", "model_id": "current-model"}],
+        }],
+    })
+    add_quick_choice_for_model("old-model", provider_id="custom_openai_lab")
+    add_quick_choice_for_model("current-model", provider_id="custom_openai_lab")
+
+    assert prune_stale_custom_quick_choices() == 1
+
+    assert [choice["id"] for choice in list_quick_choices("")] == ["model:custom_openai_lab:current-model"]
 
 
 def test_model_choice_options_disambiguate_same_model_id_by_provider(tmp_path, monkeypatch):
@@ -229,7 +311,10 @@ def test_included_ollama_value_stays_provider_qualified(tmp_path, monkeypatch):
     assert options[0]["provider_id"] == "ollama"
 
 
-def test_unknown_bare_selection_resolves_to_ollama_not_openrouter():
+def test_unknown_bare_selection_resolves_to_ollama_not_openrouter(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+
     resolved = resolve_selection("qwen3:14b")
 
     assert resolved is not None
