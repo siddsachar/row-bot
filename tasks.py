@@ -825,6 +825,130 @@ def expand_template_vars(
 
 # ── CRUD ─────────────────────────────────────────────────────────────────────
 
+def _canonicalize_workflow_model_override(value: str | None) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    from providers.selection import canonicalize_model_selection
+
+    canonical = canonicalize_model_selection(raw, "workflow", allow_default=True)
+    return canonical.ref or None
+
+
+def _canonicalize_workflow_steps(steps: list[dict] | None) -> list[dict] | None:
+    if not steps:
+        return steps
+    for step in steps:
+        if not isinstance(step, dict) or "model_override" not in step:
+            continue
+        canonical = _canonicalize_workflow_model_override(step.get("model_override"))
+        if canonical:
+            step["model_override"] = canonical
+        else:
+            step.pop("model_override", None)
+    return steps
+
+
+def _workflow_model_failure_message(model_ref: str | None, exc: Exception) -> str:
+    selected_ref = str(model_ref or "").strip()
+    details = {
+        "selected_ref": selected_ref,
+        "provider_id": "",
+        "runtime_model": "",
+    }
+    if selected_ref:
+        try:
+            from providers.resolution import resolve_provider_config
+
+            resolved = resolve_provider_config(selected_ref, allow_legacy_local=True)
+            details["selected_ref"] = resolved.selection_ref
+            details["provider_id"] = resolved.provider_id
+            details["runtime_model"] = resolved.runtime_model
+        except Exception as resolve_exc:
+            details["resolve_error"] = str(resolve_exc)
+    action = (
+        "Check that the selected provider is reachable and that the model is "
+        "loaded/available. For LM Studio or llama.cpp, load the model and avoid "
+        "unloading it while the workflow is running."
+    )
+    return (
+        "Explicit workflow model override failed; not retrying with the default "
+        f"provider. selected_ref={details['selected_ref'] or '(empty)'}; "
+        f"provider_id={details['provider_id'] or 'unknown'}; "
+        f"runtime_model={details['runtime_model'] or 'unknown'}; "
+        f"error={exc}; suggested_action={action}"
+    )
+
+
+def _diagnose_model_override_value(value: str | None, surface: str) -> dict:
+    raw = str(value or "").strip()
+    diagnostic = {
+        "raw_value": raw,
+        "surface": surface,
+        "canonical_ref": "",
+        "status": "empty" if not raw else "canonical" if raw.startswith("model:") else "legacy_bare",
+        "message": "",
+    }
+    if not raw:
+        return diagnostic
+    try:
+        from providers.selection import canonicalize_model_selection
+
+        canonical = canonicalize_model_selection(raw, surface, allow_default=True)
+        diagnostic["canonical_ref"] = canonical.ref
+        if raw.startswith("model:"):
+            diagnostic["status"] = "canonical"
+        elif canonical.ref:
+            diagnostic["status"] = "canonicalizable"
+            diagnostic["message"] = "Legacy bare value can be canonicalized explicitly."
+    except Exception as exc:
+        text = str(exc)
+        diagnostic["message"] = text
+        diagnostic["status"] = "ambiguous" if "Ambiguous model selection" in text else "unknown"
+    return diagnostic
+
+
+def diagnose_legacy_model_overrides() -> list[dict]:
+    """Return read-only diagnostics for legacy bare task/thread model overrides."""
+    diagnostics: list[dict] = []
+    for task in list_tasks():
+        task_id = str(task.get("id") or "")
+        task_name = str(task.get("name") or "")
+        model_override = str(task.get("model_override") or "")
+        if model_override and not model_override.startswith("model:"):
+            item = _diagnose_model_override_value(model_override, "workflow")
+            item.update({"scope": "task", "task_id": task_id, "task_name": task_name})
+            diagnostics.append(item)
+        for index, step in enumerate(task.get("steps") or []):
+            if not isinstance(step, dict):
+                continue
+            step_override = str(step.get("model_override") or "")
+            if not step_override or step_override.startswith("model:"):
+                continue
+            item = _diagnose_model_override_value(step_override, "workflow")
+            item.update({
+                "scope": "task_step",
+                "task_id": task_id,
+                "task_name": task_name,
+                "step_index": index,
+                "step_id": str(step.get("id") or ""),
+            })
+            diagnostics.append(item)
+    try:
+        from threads import _list_threads
+
+        for thread_id, name, _created, _updated, model_override, *_rest in _list_threads():
+            raw = str(model_override or "")
+            if not raw or raw.startswith("model:"):
+                continue
+            item = _diagnose_model_override_value(raw, "channels")
+            item.update({"scope": "thread", "thread_id": str(thread_id), "thread_name": str(name)})
+            diagnostics.append(item)
+    except Exception:
+        logger.debug("Thread model override diagnostics unavailable", exc_info=True)
+    return diagnostics
+
+
 @_schema_retry
 def create_task(
     name: str,
@@ -879,9 +1003,11 @@ def create_task(
     now = datetime.now().isoformat()
     if prompts is None:
         prompts = []
+    model_override = _canonicalize_workflow_model_override(model_override)
     # If steps provided, also sync prompts for backward compat
     if steps:
         assign_step_ids(steps)
+        _canonicalize_workflow_steps(steps)
         prompts = _steps_to_prompts(steps) or prompts
     conn = _get_conn()
     conn.execute(
@@ -973,8 +1099,11 @@ def update_task(task_id: str, **kwargs) -> None:
     for key, value in kwargs.items():
         if key not in _ALLOWED:
             continue
+        if key == "model_override":
+            value = _canonicalize_workflow_model_override(value)
         if key == "steps" and isinstance(value, list):
             assign_step_ids(value)
+            _canonicalize_workflow_steps(value)
         if key in ("prompts", "allowed_commands", "allowed_recipients",
                    "skills_override", "steps", "trigger",
                    "tools_override", "channels"):
@@ -1678,6 +1807,10 @@ def _deliver_to_channels(task: dict, text: str) -> tuple[str, str]:
     return "", ""
 
 
+def _workflow_final_status_for_delivery(delivery_status: str) -> str:
+    return "completed_delivery_failed" if delivery_status == "delivery_failed" else "completed"
+
+
 def _push_approval_to_channels(task: dict, approval_id: str,
                                resume_token: str,
                                approval_msg: str) -> None:
@@ -1817,9 +1950,7 @@ def run_task_background(
             delivery_status = "delivery_failed"
             delivery_detail = "channel delivery failed: " + str(exc)
         update_task(task_id, last_run=datetime.now().isoformat())
-        final_status = ("completed_delivery_failed"
-                        if delivery_status == "delivery_failed"
-                        else "completed")
+        final_status = _workflow_final_status_for_delivery(delivery_status)
         _finish_run(run_id, final_status, status_message=delivery_detail)
         _emit_buddy_workflow_event(
             "done",
@@ -1900,6 +2031,7 @@ def run_task_background(
         last_response = ""
         stopped = False
         paused = False  # set True when pausing for approval
+        failure_message = ""
         step_outputs: dict[str, str] = resume_step_outputs.copy() if resume_step_outputs else {}
         # If resuming, seed last_response from the last step output
         if step_outputs:
@@ -2173,117 +2305,16 @@ def run_task_background(
                         except Exception as exc:
                             _task_log(f"✗ Step {step_index + 1} error: {str(exc)[:80]}")
                             err_str = str(exc).lower()
-                            # Model-fallback retry (existing logic)
-                            if (config["configurable"].get("model_override")
+                            override = config["configurable"].get("model_override")
+                            if (override
                                     and ("model failed to load" in err_str
                                          or "status code: 500" in err_str)):
-                                override = config["configurable"].pop("model_override")
-                                logger.warning(
-                                    "Task %s step %d: override model '%s' failed — "
-                                    "retrying with default model. (%s)",
-                                    task["name"], step_index + 1, override, exc,
+                                failure_message = _workflow_model_failure_message(override, exc)
+                                logger.error(
+                                    "Task %s step %d explicit model override failed: %s",
+                                    task["name"], step_index + 1, failure_message,
                                 )
-                                try:
-                                    result = invoke_agent(prompt, effective_tool_names, config,
-                                                         stop_event=_stop_event)
-                                    # Interrupt detection on model-fallback retry
-                                    if isinstance(result, dict) and result.get("type") == "interrupt":
-                                        if _stop_event.is_set():
-                                            stopped = True
-                                            break
-
-                                        interrupts = result.get("interrupts", [])
-                                        if not interrupts:
-                                            logger.warning(
-                                                "Task '%s' step %d: empty interrupt (fallback) — auto-continuing",
-                                                task["name"], step_index + 1,
-                                            )
-                                            from agent import resume_invoke_agent
-                                            result = resume_invoke_agent(
-                                                effective_tool_names, config,
-                                                approved=True, stop_event=_stop_event,
-                                            )
-                                            if isinstance(result, str) and result:
-                                                last_response = result
-                                                step_outputs[step_id] = result
-                                            step_succeeded = True
-                                            break
-
-                                        if safety_mode == "block":
-                                            logger.info(
-                                                "Task '%s' step %d: interrupt (fallback) in block mode — refusing",
-                                                task["name"], step_index + 1,
-                                            )
-                                            from agent import resume_invoke_agent
-                                            result = resume_invoke_agent(
-                                                effective_tool_names, config,
-                                                approved=False, stop_event=_stop_event,
-                                            )
-                                            if isinstance(result, str) and result:
-                                                last_response = result
-                                                step_outputs[step_id] = result
-                                            step_succeeded = True
-                                            break
-
-                                        if safety_mode == "allow_all":
-                                            logger.info(
-                                                "Task '%s' step %d: interrupt (fallback) in allow_all — auto-approving",
-                                                task["name"], step_index + 1,
-                                            )
-                                            from agent import resume_invoke_agent
-                                            result = resume_invoke_agent(
-                                                effective_tool_names, config,
-                                                approved=True, stop_event=_stop_event,
-                                            )
-                                            if isinstance(result, str) and result:
-                                                last_response = result
-                                                step_outputs[step_id] = result
-                                            step_succeeded = True
-                                            break
-
-                                        details = _format_interrupt_details(interrupts)
-                                        approval_msg = (
-                                            f"Step {step_index + 1}/{total}: "
-                                            + "; ".join(details)
-                                        )
-                                        resume_token, approval_req_id = _create_graph_interrupt_approval(
-                                            step_id, approval_msg,
-                                        )
-                                        _save_graph_interrupt_state(
-                                            step_index, step_outputs, config, resume_token,
-                                        )
-                                        paused = True
-                                        logger.info(
-                                            "Task '%s' paused at step %d/%d — tool interrupt (fallback): %s",
-                                            task["name"], step_index + 1, total, approval_msg,
-                                        )
-                                        _push_approval_to_channels(
-                                            task, approval_req_id, resume_token, approval_msg,
-                                        )
-                                        if notification:
-                                            from notifications import notify
-                                            notify(
-                                                title="⏸️ Approval Required",
-                                                message=f"{task['name']}: {approval_msg}",
-                                                sound="workflow",
-                                                icon="⏸️",
-                                            )
-                                        break
-                                    if result:
-                                        last_response = result
-                                        step_outputs[step_id] = result
-                                    step_succeeded = True
-                                    break
-                                except TaskStoppedError:
-                                    stopped = True
-                                    logger.info("Task '%s' stopped during step %d/%d (retry)",
-                                                task["name"], step_index + 1, total)
-                                    break
-                                except Exception as retry_exc:
-                                    logger.error(
-                                        "Task %s step %d model fallback failed: %s",
-                                        task["name"], step_index + 1, retry_exc,
-                                    )
+                                _task_log(f"✗ {failure_message[:160]}")
                             else:
                                 logger.error(
                                     "Task %s step %d attempt %d failed: %s",
@@ -2302,6 +2333,7 @@ def run_task_background(
                     # Apply on_error policy if all retries exhausted
                     if not step_succeeded:
                         if step_on_error == "skip":
+                            failure_message = ""
                             logger.info(
                                 "Task '%s' step %d: on_error=skip — continuing",
                                 task["name"], step_index + 1,
@@ -2489,6 +2521,20 @@ def run_task_background(
                     repair_orphaned_tool_calls(effective_tool_names, config)
                 except Exception:
                     pass
+                if failure_message:
+                    _finish_run(run_id, "failed", status_message=failure_message)
+                    _emit_buddy_workflow_event(
+                        "error",
+                        task_id=task_id,
+                        thread_id=thread_id,
+                        label="Workflow error",
+                        error=failure_message,
+                    )
+                    if _thread_exists(thread_id):
+                        thread_name = (f"âš¡ {task['name']} (failed) â€” "
+                                       f"{datetime.now().strftime('%b %d, %I:%M %p')}")
+                        _save_thread_meta(thread_id, thread_name)
+                    return
                 _finish_run(run_id, "stopped")
                 _emit_buddy_workflow_event(
                     "cancelled",
@@ -2526,9 +2572,7 @@ def run_task_background(
                 task, deliver_text,
             )
 
-            final_status = ("completed_delivery_failed"
-                            if delivery_status == "delivery_failed"
-                            else "completed")
+            final_status = _workflow_final_status_for_delivery(delivery_status)
             _finish_run(run_id, final_status, status_message=delivery_detail)
             update_task(task_id, last_run=datetime.now().isoformat())
             logger.info("run_task_background: '%s' finished with status=%s",
@@ -3649,9 +3693,7 @@ def _resume_graph_interrupted(
             delivery_status, delivery_detail = _deliver_to_channels(
                 task, deliver_text,
             )
-            final_status = ("completed_delivery_failed"
-                            if delivery_status == "delivery_failed"
-                            else "completed")
+            final_status = _workflow_final_status_for_delivery(delivery_status)
             _update_pipeline_status(run_id, final_status)
             _finish_run(run_id, final_status,
                         status_message=delivery_detail or "Completed after graph resume")

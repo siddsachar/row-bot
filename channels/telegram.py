@@ -167,6 +167,24 @@ from channels.media_capture import grab_generated_image as _grab_generated_image
 from channels.media_capture import grab_generated_video as _grab_generated_video
 
 
+def build_channel_runtime_config(config: dict, purpose: str) -> dict:
+    """Return a runtime config for Telegram message vs approval surfaces."""
+    if purpose == "approval":
+        runtime_surface = "approval"
+        runtime_mode = "agent"
+    else:
+        runtime_surface = "channel"
+        runtime_mode = "auto"
+    return {
+        **config,
+        "configurable": {
+            **(config.get("configurable") or {}),
+            "runtime_surface": runtime_surface,
+            "runtime_mode": runtime_mode,
+        },
+    }
+
+
 def _run_agent_sync(user_text: str, config: dict,
                     event_queue=None) -> tuple[str, dict | None, list[bytes], list[str]]:
     """Run the agent synchronously, collecting the full response.
@@ -177,24 +195,11 @@ def _run_agent_sync(user_text: str, config: dict,
     """
     # Ensure recursion limit matches the web UI (default is too low)
     config = {
-        **config,
-        "configurable": {
-            **(config.get("configurable") or {}),
-            "runtime_surface": "channel",
-            "runtime_mode": "auto",
-        },
+        **build_channel_runtime_config(config, "message"),
         "recursion_limit": agent_mod.RECURSION_LIMIT_CHAT,
     }
 
     enabled = [t.name for t in tool_registry.get_enabled_tools()]
-    config = {
-        **config,
-        "configurable": {
-            **(config.get("configurable") or {}),
-            "runtime_surface": "approval",
-            "runtime_mode": "agent",
-        },
-    }
     full_answer: list[str] = []
     tool_reports: list[str] = []
     interrupt_data: dict | None = None
@@ -256,6 +261,7 @@ def _run_agent_sync(user_text: str, config: dict,
 def _resume_agent_sync(config: dict, approved: bool,
                        *, interrupt_ids: list[str] | None = None) -> tuple[str, dict | None, list[bytes], list[str]]:
     """Resume a paused agent after interrupt approval/denial."""
+    config = build_channel_runtime_config(config, "approval")
     enabled = [t.name for t in tool_registry.get_enabled_tools()]
     full_answer: list[str] = []
     tool_reports: list[str] = []
@@ -541,11 +547,13 @@ async def _cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not _is_authorised(update):
         return
 
-    from models import (
-        is_cloud_model, is_cloud_available,
-        get_current_model, get_cloud_provider, get_provider_emoji,
+    from models import get_current_model, get_cloud_provider
+    from providers.selection import (
+        ModelSelectionError,
+        canonicalize_model_selection,
+        list_quick_model_ids,
+        list_model_choice_options,
     )
-    from providers.selection import list_quick_model_ids, resolve_selection
     from threads import _set_thread_model_override
 
     args = (update.message.text or "").split(maxsplit=1)
@@ -563,17 +571,22 @@ async def _cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             _tag = "☁️" if _prov else "🖥️"
             current_display = f"{_tag} {_def} (default)"
         lines = [f"<b>Current model:</b> {_escape_html(current_display)}\n"]
-        choices = list(dict.fromkeys([get_current_model()] + list_quick_model_ids("channels")))
+        quick_model_ids = list_quick_model_ids("channels")
+        choices = list_model_choice_options(
+            "channels",
+            include_values=[get_current_model(), current_ov, *quick_model_ids],
+            include_inactive=True,
+        )
         if choices:
             lines.append("<b>Channel Quick Choices:</b>")
-            for cid in choices:
-                lines.append(f"• {_escape_html(get_provider_emoji(cid))} <code>{cid}</code>")
-            lines.append("\nUsage: <code>/model gpt-4o</code>")
+            for choice in choices:
+                value = str(choice.get("value") or "")
+                label = str(choice.get("label") or value)
+                lines.append(f"• {_escape_html(label)} — <code>{_escape_html(value)}</code>")
+            lines.append("\nUsage: <code>/model model:provider:model-id</code>")
             lines.append("Reset to default: <code>/model default</code>")
-        elif is_cloud_available():
-            lines.append("No provider Quick Choices. Pin models in Thoth → Settings → Providers.")
         else:
-            lines.append("No provider API keys configured.\nSet them in Thoth → Settings → Providers.")
+            lines.append("No provider Quick Choices. Pin models in Thoth → Settings → Providers.")
         await _send_html(update.message, "\n".join(lines))
         return
 
@@ -590,24 +603,13 @@ async def _cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text(f"✅ Switched to default: {get_current_model()}")
         return
 
-    resolved = resolve_selection(model_id)
-    if not resolved or resolved.kind != "model" or not resolved.model_id:
+    try:
+        canonical = canonicalize_model_selection(model_id, "channels")
+    except ModelSelectionError as exc:
         await update.message.reply_text(
-            f"Unknown model choice: {model_id}\n"
+            f"Unknown model choice: {model_id}\n{exc}\n"
             "Use /model to see available Quick Choices."
         )
-        return
-
-    model_id = resolved.model_id
-    channel_choices = set(list_quick_model_ids("channels")) | {get_current_model()}
-    if model_id not in channel_choices and not resolved.legacy_value.startswith("model:"):
-        await update.message.reply_text(
-            f"{model_id} is not a channel Quick Choice. Pin it in Settings → Providers first."
-        )
-        return
-
-    if is_cloud_model(model_id) and not is_cloud_available():
-        await update.message.reply_text("No provider API keys configured.")
         return
 
     # Set the model override
@@ -616,11 +618,11 @@ async def _cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         chat_id = update.effective_chat.id
         config = _get_or_create_thread(chat_id)
     tid = (config.get("configurable") or {}).get("thread_id", "")
-    config["configurable"]["model_override"] = model_id
-    _set_thread_model_override(tid, model_id)
+    config["configurable"]["model_override"] = canonical.ref
+    _set_thread_model_override(tid, canonical.ref)
     context.chat_data["thread_config"] = config
 
-    await update.message.reply_text(f"Switched to {model_id}")
+    await update.message.reply_text(f"Switched to {canonical.display_label or canonical.ref}")
 
 
 async def _cmd_tools(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

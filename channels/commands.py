@@ -89,22 +89,55 @@ def cmd_status(channel_name: str) -> str:
 
 
 def cmd_model(channel_name: str, arg: str = "") -> str:
-    """Handle ``/model [name]`` — show or switch model."""
+    """Handle ``/model [name]`` with provider-aware, read-only semantics."""
     try:
-        from models import get_active_model_name
-        current = get_active_model_name()
+        from models import get_current_model
+        current = get_current_model()
     except Exception:
         current = "unknown"
 
-    if not arg.strip():
-        return f"Current model: `{current}`\n\nTo switch: `/model <model-name>`"
-
     try:
-        from models import set_active_model
-        set_active_model(arg.strip())
-        return f"✅ Model switched to `{arg.strip()}`"
+        from providers.selection import (
+            ModelSelectionError,
+            canonicalize_model_selection,
+            list_model_choice_options,
+        )
     except Exception as exc:
-        return f"❌ Could not switch model: {exc}"
+        return f"Could not inspect provider models: {exc}"
+
+    if not arg.strip():
+        lines = [f"Current model: `{current}`"]
+        choices = list_model_choice_options("channels", include_values=[current], include_inactive=True)
+        if choices:
+            lines.append("")
+            lines.append("Channel Quick Choices:")
+            for choice in choices[:12]:
+                value = str(choice.get("value") or "")
+                label = str(choice.get("label") or value)
+                lines.append(f"- `{value}` ({label})")
+        lines.append("")
+        lines.append(
+            f"{channel_name} uses the model configured in Thoth unless this adapter "
+            "implements per-conversation model storage."
+        )
+        return "\n".join(lines)
+
+    raw = arg.strip()
+    if raw.lower() == "default":
+        return (
+            f"{channel_name} cannot reset a per-conversation model here because "
+            "the shared command path has no storage hook. Configure the channel "
+            "model in Thoth."
+        )
+    try:
+        canonical = canonicalize_model_selection(raw, "channels")
+    except ModelSelectionError as exc:
+        return f"Could not resolve `{raw}`: {exc}"
+    return (
+        f"Recognized `{canonical.ref}`, but {channel_name} cannot persist "
+        "per-conversation model overrides through the shared command path. "
+        "Configure the model in Thoth."
+    )
 
 
 def cmd_help(channel_name: str) -> str:

@@ -37,6 +37,225 @@ class ResolvedSelection:
     reason: str = ""
 
 
+@dataclass(frozen=True)
+class CanonicalModelSelection:
+    ref: str
+    provider_id: str = ""
+    model_id: str = ""
+    display_label: str = ""
+    active: bool = True
+    reason: str = ""
+    source: str = ""
+
+
+class ModelSelectionError(ValueError):
+    """Raised when a model selection cannot be canonicalized safely."""
+
+
+def model_selection_diagnostics(
+    value: str | None,
+    *,
+    runtime_surface: str = "",
+    runtime_mode: str = "",
+    tools_bound: bool | None = None,
+) -> dict[str, Any]:
+    """Return support-friendly provider routing diagnostics for a model value."""
+    raw = str(value or "").strip()
+    diagnostics: dict[str, Any] = {
+        "raw_stored_model_override": raw,
+        "runtime_surface": runtime_surface,
+        "runtime_mode": runtime_mode,
+    }
+    if tools_bound is not None:
+        diagnostics["tools_bound"] = bool(tools_bound)
+    if not raw:
+        return diagnostics
+    try:
+        resolved_selection = resolve_selection(raw)
+        if resolved_selection:
+            diagnostics.update({
+                "resolved_selection_ref": resolved_selection.ref,
+                "selection_provider_id": resolved_selection.provider_id,
+                "selection_model_id": resolved_selection.model_id,
+                "selection_kind": resolved_selection.kind,
+                "selection_active": resolved_selection.active,
+                "selection_reason": resolved_selection.reason,
+            })
+        from providers.resolution import resolve_provider_config
+
+        resolved_provider = resolve_provider_config(raw, allow_legacy_local=True)
+        diagnostics.update({
+            "selection_ref": resolved_provider.selection_ref,
+            "provider_id": resolved_provider.provider_id,
+            "runtime_model": resolved_provider.runtime_model,
+            "provider_display_name": resolved_provider.provider_display_name,
+            "provider_source": resolved_provider.source,
+        })
+    except Exception as exc:
+        diagnostics["resolve_error"] = str(exc)
+    return diagnostics
+
+
+def canonicalize_model_selection(
+    value: str | None,
+    surface: str = "chat",
+    *,
+    allow_default: bool = False,
+) -> CanonicalModelSelection:
+    """Canonicalize an input-boundary model value to ``model:<provider>:<model>``.
+
+    Existing legacy bare values remain readable by lower-level runtime
+    resolution. This helper is for new persistent writes where provider
+    identity must not be lost.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        if allow_default:
+            return CanonicalModelSelection(ref="", display_label="Default", source="default")
+        raise ModelSelectionError("Model selection is empty.")
+    if raw.lower() == "default":
+        if allow_default:
+            return CanonicalModelSelection(ref="", display_label="Default", source="default")
+        raise ModelSelectionError("Default model selection is not allowed here.")
+
+    parsed = parse_model_ref(raw)
+    if parsed:
+        provider_id, model_id = parsed
+        try:
+            from providers.resolution import resolve_provider_config
+
+            resolved = resolve_provider_config(raw, allow_legacy_local=False)
+        except Exception as exc:
+            raise ModelSelectionError(f"Invalid model selection '{raw}': {exc}") from exc
+        return CanonicalModelSelection(
+            ref=resolved.selection_ref,
+            provider_id=resolved.provider_id,
+            model_id=resolved.model_id,
+            display_label=format_model_choice_label(
+                resolved.provider_id,
+                resolved.model_id,
+                include_icon=False,
+            ),
+            active=True,
+            source="provider_ref",
+        )
+
+    match = _canonical_quick_choice_match(raw, surface)
+    if match:
+        return match
+
+    custom_matches = _custom_endpoint_model_matches(raw)
+    if len(custom_matches) == 1:
+        provider_id, model_id, display_name = custom_matches[0]
+        ref = model_ref(provider_id, model_id)
+        return CanonicalModelSelection(
+            ref=ref,
+            provider_id=provider_id,
+            model_id=model_id,
+            display_label=format_model_choice_label(provider_id, model_id, display_name, include_icon=False),
+            active=True,
+            source="custom_endpoint_model",
+        )
+    if len(custom_matches) > 1:
+        refs = ", ".join(model_ref(provider_id, model_id) for provider_id, model_id, _ in custom_matches)
+        raise ModelSelectionError(
+            f"Ambiguous model selection '{raw}'. Use one of: {refs}."
+        )
+
+    provider_id = infer_provider_id(raw)
+    if provider_id:
+        provider_id = "ollama" if provider_id == "local" else provider_id
+        return CanonicalModelSelection(
+            ref=model_ref(provider_id, raw),
+            provider_id=provider_id,
+            model_id=raw,
+            display_label=format_model_choice_label(provider_id, raw, include_icon=False),
+            active=True,
+            source="inferred_provider",
+        )
+
+    raise ModelSelectionError(
+        f"Cannot infer a provider for model '{raw}'. Select a provider-qualified "
+        "model such as model:<provider_id>:<model_id>."
+    )
+
+
+def _canonical_quick_choice_match(raw: str, surface: str) -> CanonicalModelSelection | None:
+    lower = raw.lower()
+    matches: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for choice in list_quick_choices(surface, include_inactive=True):
+        if choice.get("kind") != "model" or not choice.get("model_id"):
+            continue
+        provider_id = str(choice.get("provider_id") or infer_provider_id(str(choice.get("model_id") or "")) or "")
+        model_id = str(choice.get("model_id") or "")
+        ref = model_choice_value(model_id, provider_id=provider_id)
+        aliases = {
+            str(choice.get("id") or "").lower(),
+            ref.lower(),
+            str(choice.get("display_name") or "").lower(),
+            model_id.lower(),
+        }
+        if lower not in aliases or ref in seen:
+            continue
+        seen.add(ref)
+        item = dict(choice)
+        item["id"] = ref
+        item["provider_id"] = provider_id
+        item["model_id"] = model_id
+        matches.append(item)
+    if not matches:
+        return None
+    if len(matches) > 1:
+        refs = ", ".join(str(choice.get("id") or "") for choice in matches)
+        raise ModelSelectionError(
+            f"Ambiguous model selection '{raw}'. Use one of: {refs}."
+        )
+    choice = matches[0]
+    if choice.get("active") is False:
+        reason = str(choice.get("inactive_reason") or "This Quick Choice is inactive.")
+        raise ModelSelectionError(f"Model selection '{raw}' is inactive: {reason}")
+    provider_id = str(choice.get("provider_id") or "")
+    model_id = str(choice.get("model_id") or "")
+    return CanonicalModelSelection(
+        ref=str(choice.get("id") or model_ref(provider_id, model_id)),
+        provider_id=provider_id,
+        model_id=model_id,
+        display_label=format_model_choice_label(
+            provider_id,
+            model_id,
+            str(choice.get("display_name") or model_id),
+            include_icon=False,
+        ),
+        active=True,
+        reason=str(choice.get("inactive_reason") or ""),
+        source="quick_choice",
+    )
+
+
+def _custom_endpoint_model_matches(raw: str) -> list[tuple[str, str, str]]:
+    matches: list[tuple[str, str, str]] = []
+    lower = raw.lower()
+    try:
+        from providers.custom import custom_endpoint_models, list_custom_endpoints
+
+        for endpoint in list_custom_endpoints():
+            if endpoint.get("enabled") is False:
+                continue
+            provider_id = str(endpoint.get("provider_id") or "")
+            if not provider_id:
+                continue
+            for item in custom_endpoint_models(provider_id):
+                model_id = str(item.get("model_id") or item.get("id") or "")
+                display_name = str(item.get("display_name") or item.get("label") or model_id)
+                aliases = {model_id.lower(), display_name.lower()}
+                if model_id and lower in aliases:
+                    matches.append((provider_id, model_id, display_name))
+    except Exception:
+        return []
+    return matches
+
+
 def model_ref(provider_id: str, model_id: str) -> str:
     return f"model:{provider_id}:{model_id}"
 

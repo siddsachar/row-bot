@@ -467,6 +467,7 @@ def _build_inline_model_picker(
     from models import (
         get_current_model,
         get_context_policy,
+        get_model_max_context,
         CONTEXT_SIZE_LABELS,
     )
     from providers.selection import (

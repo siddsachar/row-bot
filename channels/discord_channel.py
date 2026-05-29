@@ -103,29 +103,33 @@ def _new_thread(channel_id: int | str) -> str:
 # ──────────────────────────────────────────────────────────────────────
 # Agent execution
 # ──────────────────────────────────────────────────────────────────────
+def build_channel_runtime_config(config: dict, purpose: str) -> dict:
+    if purpose == "approval":
+        runtime_surface = "approval"
+        runtime_mode = "agent"
+    else:
+        runtime_surface = "channel"
+        runtime_mode = "auto"
+    return {
+        **config,
+        "configurable": {
+            **(config.get("configurable") or {}),
+            "runtime_surface": runtime_surface,
+            "runtime_mode": runtime_mode,
+        },
+    }
+
+
 def _run_agent_sync(user_text: str, config: dict,
                     event_queue=None) -> tuple[str, dict | None, list[bytes]]:
     from tools import registry as tool_registry
     from channels.media_capture import grab_vision_capture, grab_generated_image, grab_generated_video
 
     config = {
-        **config,
-        "configurable": {
-            **(config.get("configurable") or {}),
-            "runtime_surface": "channel",
-            "runtime_mode": "auto",
-        },
+        **build_channel_runtime_config(config, "message"),
         "recursion_limit": agent_mod.RECURSION_LIMIT_CHAT,
     }
     enabled = [t.name for t in tool_registry.get_enabled_tools()]
-    config = {
-        **config,
-        "configurable": {
-            **(config.get("configurable") or {}),
-            "runtime_surface": "approval",
-            "runtime_mode": "agent",
-        },
-    }
     full_answer: list[str] = []
     tool_reports: list[str] = []
     interrupt_data: dict | None = None
@@ -187,6 +191,7 @@ def _run_agent_sync(user_text: str, config: dict,
 def _resume_agent_sync(config: dict, approved: bool,
                        *, interrupt_ids: list[str] | None = None) -> tuple[str, dict | None, list[bytes], list[str]]:
     """Resume a paused agent after interrupt approval/denial."""
+    config = build_channel_runtime_config(config, "approval")
     from tools import registry as tool_registry
     from channels.media_capture import grab_vision_capture, grab_generated_image, grab_generated_video
 
