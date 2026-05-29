@@ -54,6 +54,7 @@ pypdf>=6.7.0
 # ── Structured Data (CSV / Excel / JSON) ────────────────────────────────────
 pandas
 openpyxl
+xlrd
 
 # ── Export ───────────────────────────────────────────────────────────────────
 fpdf2

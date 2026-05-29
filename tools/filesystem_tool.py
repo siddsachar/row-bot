@@ -299,6 +299,12 @@ def _make_pdf_aware_read_tool(root_dir: str):
                 f"the workspace."
             )
 
+        if not resolved.exists() and "/" not in file_path.replace("\\", "/"):
+            received = Path(root_dir) / "Received Files" / file_path
+            if received.resolve().exists():
+                resolved = received.resolve()
+                file_path = f"Received Files/{file_path}"
+
         if not resolved.exists():
             return f"Error: file not found: {file_path}"
 

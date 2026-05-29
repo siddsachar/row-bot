@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import pathlib
+import re
 import tempfile
 import time
 
@@ -25,6 +26,16 @@ _DATA_DIR = pathlib.Path(
     os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")
 )
 _INBOX_DIR = _DATA_DIR / "inbox"
+
+
+def _safe_filename(filename: str) -> str:
+    """Return a basename safe to place under Thoth-managed folders."""
+    name = pathlib.Path(str(filename or "attachment")).name.strip()
+    if not name:
+        name = "attachment"
+    name = re.sub(r"[\x00-\x1f<>:\"/\\|?*]+", "_", name)
+    name = name.strip(" .")
+    return name or "attachment"
 
 
 # ── Voice → Text ─────────────────────────────────────────────────────
@@ -102,7 +113,7 @@ def save_inbound_file(data: bytes, filename: str) -> pathlib.Path:
 
     # Prefix with timestamp to avoid collisions
     ts = int(time.time())
-    safe_name = f"{ts}_{filename}"
+    safe_name = f"{ts}_{_safe_filename(filename)}"
     dest = _INBOX_DIR / safe_name
     dest.write_bytes(data)
     log.info("Saved inbound file: %s (%d bytes)", dest, len(data))
@@ -189,7 +200,7 @@ def extract_document_text(data: bytes, filename: str,
 _RECEIVED_FOLDER = "Received Files"
 
 
-def copy_to_workspace(saved_path: pathlib.Path) -> str | None:
+def copy_to_workspace(saved_path: pathlib.Path, workspace_filename: str | None = None) -> str | None:
     """Copy an inbox file into the filesystem-tool workspace so the agent
     can re-read it without escaping the sandbox.
 
@@ -210,7 +221,8 @@ def copy_to_workspace(saved_path: pathlib.Path) -> str | None:
     dest_dir = pathlib.Path(root) / _RECEIVED_FOLDER
     dest_dir.mkdir(parents=True, exist_ok=True)
 
-    dest = dest_dir / saved_path.name
+    dest_name = _safe_filename(workspace_filename) if workspace_filename else saved_path.name
+    dest = dest_dir / dest_name
     # Avoid overwrites — append a suffix if needed
     if dest.exists():
         stem = dest.stem

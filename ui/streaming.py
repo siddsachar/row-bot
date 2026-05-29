@@ -1215,7 +1215,12 @@ async def send_message(
     from agent import stream_agent, repair_orphaned_tool_calls, recursion_limit_for_mode
     from threads import _save_thread_meta
     from tools import registry as tool_registry
-    from ui.helpers import process_attached_files, persist_thread_media_state
+    from ui.helpers import (
+        materialize_chat_attachments,
+        process_attached_files,
+        persist_thread_media_state,
+        wrap_attachment_context,
+    )
 
     if not text.strip() and not p.pending_files:
         return
@@ -1327,6 +1332,7 @@ async def send_message(
 
         _effective_model = state.thread_model_override or None
         try:
+            await run.io_bound(materialize_chat_attachments, _files_snapshot)
             file_context, _, file_warnings = await run.io_bound(
                 process_attached_files, _files_snapshot, state.vision_service,
                 state.attached_data_cache, _effective_model,
@@ -1346,7 +1352,8 @@ async def send_message(
     # ── Build agent input ────────────────────────────────────────────
     agent_input = text
     if file_context:
-        agent_input = f"{file_context}\n\n{text}" if text else file_context
+        marked_file_context = wrap_attachment_context(file_context)
+        agent_input = f"{marked_file_context}\n\n{text}" if text else marked_file_context
     developer_context = ""
     if getattr(state, "active_developer_workspace_id", None):
         try:
