@@ -308,3 +308,12 @@ def test_models_tab_rerenders_brain_readiness_badge_on_model_change():
     assert "check_tool_support(runtime_model)" not in models_section
     assert "evaluate_runtime_readiness(sel)" in models_section
     assert "set as Chat Only" in models_section
+
+
+def test_models_tab_validates_stale_vision_default_before_display():
+    source = (ROOT / "ui" / "settings.py").read_text(encoding="utf-8")
+    models_section = source.split("def _render_models_tab_content", 1)[1].split("def _collect_models_tab_data", 1)[0]
+
+    assert "vision_model_compatibility" in models_section
+    assert "Resetting incompatible Vision default" in models_section
+    assert "not currently marked as Vision-capable" in models_section

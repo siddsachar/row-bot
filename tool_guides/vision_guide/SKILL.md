@@ -20,6 +20,8 @@ tags: []
   Pass the user's question as the argument (or 'Describe everything you see'
   if the question is vague like 'what do you see').
   When the user attaches or pastes images in chat, they are auto-analyzed
-  and their descriptions appear in the message context — do NOT call
-  analyze_image for these. The description is already there. Only use
+  when the selected Vision model succeeds, and their descriptions appear in
+  the message context — do NOT call analyze_image for these successful
+  auto-analyses. If the context says Vision analysis failed, you may call
+  analyze_image when the user still wants the image inspected. Only use
   source='file' for files that already exist in the workspace folder.

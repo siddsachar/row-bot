@@ -20,6 +20,7 @@ from providers.selection import (
     remove_quick_choices_for_provider,
     remove_quick_choice_for_model,
     resolve_selection,
+    validate_quick_choices_for_surface,
 )
 
 
@@ -419,6 +420,51 @@ def test_grouped_quick_choices_refreshes_stale_capability_snapshots(tmp_path, mo
     assert "image" in stored["gpt-5.4"]["capabilities_snapshot"]["input_modalities"]
 
 
+def test_custom_quick_choice_refreshes_from_endpoint_model_cache(tmp_path, monkeypatch):
+    from providers.custom import custom_provider_id, save_custom_endpoint
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+    provider_id = custom_provider_id("llama-cpp")
+    save_custom_endpoint({
+        "id": "llama-cpp",
+        "base_url": "http://127.0.0.1:8081/v1",
+        "profile": "llama_cpp",
+        "auth_required": False,
+        "models": [{
+            "id": "qwen3.5-9b",
+            "model_id": "qwen3.5-9b",
+            "provider": provider_id,
+            "vision": True,
+            "capabilities_snapshot": {
+                "capabilities": ["chat", "streaming", "text", "vision"],
+                "input_modalities": ["image", "text"],
+                "output_modalities": ["text"],
+                "tasks": ["chat"],
+                "transport": "openai_chat",
+            },
+        }],
+    })
+    add_quick_choice_for_model(
+        "qwen3.5-9b",
+        provider_id=provider_id,
+        capabilities_snapshot={
+            "capabilities": ["chat", "streaming", "text"],
+            "input_modalities": ["text"],
+            "output_modalities": ["text"],
+            "tasks": ["chat"],
+            "transport": "openai_chat",
+        },
+    )
+    refresh_quick_choice_capability_snapshots()
+
+    options = list_model_choice_options("vision")
+    stored = provider_config.load_provider_config()["quick_choices"][0]
+    assert options[0]["value"] == f"model:{provider_id}:qwen3.5-9b"
+    assert "image" in stored["capabilities_snapshot"]["input_modalities"]
+    assert "vision" not in stored.get("inactive_surfaces", {})
+
+
 def test_quick_choice_refresh_preserves_openrouter_cached_tool_metadata(tmp_path, monkeypatch):
     import models
 
@@ -456,6 +502,63 @@ def test_quick_choice_refresh_preserves_openrouter_cached_tool_metadata(tmp_path
     stored = provider_config.load_provider_config()["quick_choices"][0]
     assert stored["model_id"] == model_id
     assert stored["capabilities_snapshot"]["tool_calling"] is True
+
+
+def test_include_values_does_not_resurrect_inactive_vision_choice(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    provider_id = "custom_openai_lm-studio"
+    ref = f"model:{provider_id}:qwen/qwen3.5-9b"
+    add_quick_choice_for_model(
+        "qwen/qwen3.5-9b",
+        provider_id=provider_id,
+        capabilities_snapshot={
+            "tasks": ["chat"],
+            "input_modalities": ["text"],
+            "output_modalities": ["text"],
+            "transport": "openai_chat",
+        },
+        surface="vision",
+    )
+    validate_quick_choices_for_surface("vision")
+
+    options = list_model_choice_options("vision", include_values=[ref])
+    inactive_options = list_model_choice_options("vision", include_values=[ref], include_inactive=True)
+
+    assert ref not in {option["value"] for option in options}
+    included = next(option for option in inactive_options if option["value"] == ref)
+    assert included["active"] is False
+    assert "not compatible with vision" in included["reason"]
+
+
+def test_include_values_respects_custom_endpoint_manual_vision_off_without_quick_choice(tmp_path, monkeypatch):
+    from providers.custom import save_custom_endpoint
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    provider_id = "custom_openai_lm-studio"
+    ref = f"model:{provider_id}:qwen/qwen3.5-9b"
+    save_custom_endpoint({
+        "id": "lm-studio",
+        "base_url": "http://127.0.0.1:1234/v1",
+        "auth_required": False,
+        "manual_capabilities": {"vision": False},
+        "models": [{
+            "id": "qwen/qwen3.5-9b",
+            "model_id": "qwen/qwen3.5-9b",
+            "capabilities_snapshot": {
+                "tasks": ["chat"],
+                "input_modalities": ["text"],
+                "output_modalities": ["text"],
+            },
+        }],
+    })
+
+    options = list_model_choice_options("vision", include_values=[ref])
+    inactive_options = list_model_choice_options("vision", include_values=[ref], include_inactive=True)
+
+    assert ref not in {option["value"] for option in options}
+    included = next(option for option in inactive_options if option["value"] == ref)
+    assert included["active"] is False
+    assert included["reason"] == "manual vision capability disabled"
 
 
 def test_models_tab_copy_explains_catalog_pinning_before_picker():

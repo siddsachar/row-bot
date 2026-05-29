@@ -1,9 +1,9 @@
-"""Vision service — camera capture, screenshot, and image analysis via Ollama vision models.
+"""Vision service — camera capture, screenshot, and provider-backed image analysis.
 
 Provides ``VisionService`` which:
 * captures a single frame from the default (or user-selected) webcam,
 * captures a screenshot of the primary monitor,
-* sends the image with a question to an Ollama vision model,
+* sends the image with a question to the selected Vision model,
 * returns the model's text description / OCR / analysis.
 
 The vision model runs as a lightweight one-shot call — the main agent
@@ -21,7 +21,7 @@ import pathlib
 import sys
 import threading
 from types import ModuleType
-from typing import Optional
+from typing import Any, Optional
 
 try:
     import ollama as _ollama_mod
@@ -123,6 +123,93 @@ def _save_settings(settings: dict):
     _SETTINGS_PATH.write_text(json.dumps(settings, indent=2))
 
 
+def vision_model_compatibility(model: str | None) -> dict[str, Any]:
+    """Return a low-cost compatibility view for the configured Vision model.
+
+    This intentionally reads only local, already-persisted metadata. It never
+    probes endpoints, refreshes catalogs, or calls providers.
+    """
+    raw = str(model or "").strip()
+    result: dict[str, Any] = {
+        "model": raw,
+        "provider_id": "",
+        "model_id": raw,
+        "usable": True,
+        "explicit": False,
+        "reason": "",
+    }
+    if not raw:
+        return result
+    try:
+        from providers.capabilities import snapshot_supports_surface
+        from providers.selection import parse_model_ref, model_ref
+
+        parsed = parse_model_ref(raw)
+        if parsed:
+            provider_id, model_id = parsed
+        else:
+            provider_id, model_id = "", raw
+        result["provider_id"] = provider_id
+        result["model_id"] = model_id
+
+        if provider_id.startswith("custom_openai_"):
+            try:
+                from providers.custom import custom_endpoint_models, get_custom_endpoint
+
+                endpoint = get_custom_endpoint(provider_id) or {}
+                manual = endpoint.get("manual_capabilities")
+                if isinstance(manual, dict) and manual.get("vision") is False:
+                    result.update({
+                        "usable": False,
+                        "explicit": True,
+                        "reason": "manual vision capability disabled",
+                    })
+                    return result
+                for item in custom_endpoint_models(provider_id):
+                    if str(item.get("model_id") or item.get("id") or "") != model_id:
+                        continue
+                    snapshot = item.get("capabilities_snapshot") if isinstance(item.get("capabilities_snapshot"), dict) else {}
+                    if snapshot and not snapshot_supports_surface(snapshot, "vision"):
+                        result.update({
+                            "usable": False,
+                            "explicit": True,
+                            "reason": "capability metadata says this model is not compatible with vision",
+                        })
+                    return result
+            except Exception:
+                logger.debug("Could not inspect custom Vision model metadata", exc_info=True)
+
+        if provider_id:
+            try:
+                from providers.config import load_provider_config
+
+                ref = model_ref(provider_id, model_id)
+                for choice in load_provider_config().get("quick_choices", []):
+                    if not isinstance(choice, dict) or choice.get("id") != ref:
+                        continue
+                    inactive = choice.get("inactive_surfaces")
+                    if isinstance(inactive, dict) and inactive.get("vision"):
+                        result.update({
+                            "usable": False,
+                            "explicit": True,
+                            "reason": str(inactive.get("vision") or "model is not compatible with vision"),
+                        })
+                        return result
+                    snapshot = choice.get("capabilities_snapshot") if isinstance(choice.get("capabilities_snapshot"), dict) else {}
+                    if snapshot and not snapshot_supports_surface(snapshot, "vision"):
+                        result.update({
+                            "usable": False,
+                            "explicit": True,
+                            "reason": "capability metadata says this model is not compatible with vision",
+                        })
+                    return result
+            except Exception:
+                logger.debug("Could not inspect Vision quick choice metadata", exc_info=True)
+    except Exception:
+        logger.debug("Vision compatibility check failed", exc_info=True)
+    return result
+
+
 # ── Camera utilities ─────────────────────────────────────────────────────────
 
 def _suppress_stderr():
@@ -159,6 +246,49 @@ def _runtime_vision_model(model_name: str) -> str:
         return model_id_from_choice_value(model_name) or model_name
     except Exception:
         return model_name
+
+
+def _vision_provider_id(model_name: str) -> str:
+    try:
+        from providers.selection import parse_model_ref
+
+        parsed = parse_model_ref(model_name)
+        if parsed:
+            return "ollama" if parsed[0] == "local" else parsed[0]
+    except Exception:
+        pass
+    try:
+        from models import get_cloud_provider
+
+        return str(get_cloud_provider(model_name) or "")
+    except Exception:
+        return ""
+
+
+def _vision_provider_label(model_name: str) -> str:
+    provider_id = _vision_provider_id(model_name)
+    runtime_model = _runtime_vision_model(model_name)
+    if provider_id in {"", "local", "ollama"}:
+        return f"Ollama model {runtime_model}"
+    try:
+        from providers.selection import provider_display_label
+
+        provider_label = provider_display_label(provider_id)
+    except Exception:
+        provider_label = provider_id
+    detail = ""
+    if provider_id.startswith("custom_openai_"):
+        try:
+            from providers.custom import get_custom_endpoint
+
+            endpoint = get_custom_endpoint(provider_id) or {}
+            base_url = str(endpoint.get("base_url") or "")
+            if base_url:
+                detail = f" at {base_url}"
+        except Exception:
+            detail = ""
+        return f"{provider_label} ({provider_id}) model {runtime_model}{detail}"
+    return f"{provider_label} model {runtime_model}{detail}"
 
 
 def list_cameras(max_check: int = 5) -> list[int]:
@@ -320,39 +450,59 @@ class VisionService:
         if not self._enabled:
             return "Vision is disabled. Enable it in Settings → Models."
 
-        b64 = base64.b64encode(image_bytes).decode("ascii")
-
         with self._lock:
             try:
-                from models import is_cloud_model
-                if is_cloud_model(self._model):
-                    return self._analyze_cloud(b64, question)
-                return self._analyze_local(b64, question)
+                compatibility = vision_model_compatibility(self._model)
+                if compatibility.get("explicit") and not compatibility.get("usable"):
+                    reason = str(compatibility.get("reason") or "not marked as image-capable")
+                    return (
+                        "The selected Vision model is no longer marked as image-capable. "
+                        f"Choose a Vision-capable model in Settings -> Models. ({reason})"
+                    )
+                b64 = base64.b64encode(image_bytes).decode("ascii")
+                provider_id = _vision_provider_id(self._model)
+                if provider_id in {"", "local", "ollama"}:
+                    return self._analyze_ollama_local(b64, question)
+                return self._analyze_provider(b64, question)
             except Exception as exc:
                 logger.error("Vision model error: %s", exc)
                 return f"Vision analysis failed: {exc}"
 
-    def _analyze_cloud(self, b64: str, question: str) -> str:
-        """Send image to a cloud vision model."""
+    def _analyze_provider(self, b64: str, question: str) -> str:
+        """Send image to the selected provider-backed vision model."""
         from models import get_llm_for
         from langchain_core.messages import HumanMessage
 
-        msg = HumanMessage(content=[
-            {"type": "text", "text": question},
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-        ])
-        llm = get_llm_for(self._model)
-        response = llm.invoke([msg])
-        return response.content
+        label = _vision_provider_label(self._model)
+        try:
+            msg = HumanMessage(content=[
+                {"type": "text", "text": question},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+            ])
+            llm = get_llm_for(self._model)
+            response = llm.invoke([msg])
+            content = getattr(response, "content", "")
+            if isinstance(content, list):
+                text_parts = []
+                for item in content:
+                    if isinstance(item, str):
+                        text_parts.append(item)
+                    elif isinstance(item, dict) and isinstance(item.get("text"), str):
+                        text_parts.append(item["text"])
+                content = "\n".join(text_parts)
+            return str(content or "")
+        except Exception as exc:
+            logger.error("Vision provider model error for %s: %s", label, exc)
+            return f"Vision analysis failed for {label}: {exc}"
 
-    def _analyze_local(self, b64: str, question: str) -> str:
+    def _analyze_ollama_local(self, b64: str, question: str) -> str:
         """Send image to a local Ollama vision model."""
         if _ollama_mod is None:
-            return "Ollama is not installed. Install it or switch to a cloud vision model."
+            return "Ollama is not installed. Install it or switch to a provider-backed Vision model."
         from models import _ollama_client
         client = _ollama_client()
         if client is None:
-            return "Ollama is not installed. Install it or switch to a cloud vision model."
+            return "Ollama is not installed. Install it or switch to a provider-backed Vision model."
         runtime_model = _runtime_vision_model(self._model)
         response = client.chat(
             model=runtime_model,
@@ -364,6 +514,14 @@ class VisionService:
             keep_alive="5m",
         )
         return response["message"]["content"]
+
+    def _analyze_cloud(self, b64: str, question: str) -> str:
+        """Compatibility wrapper for provider-backed vision models."""
+        return self._analyze_provider(b64, question)
+
+    def _analyze_local(self, b64: str, question: str) -> str:
+        """Compatibility wrapper for the local Ollama vision path."""
+        return self._analyze_ollama_local(b64, question)
 
     def capture_and_analyze(
         self,

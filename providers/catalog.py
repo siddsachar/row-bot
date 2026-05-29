@@ -336,21 +336,23 @@ def classify_model_capabilities(
         tasks = {ModelTask.RESPONSES.value}
         endpoint_compatibility = {TransportMode.OPENAI_RESPONSES}
 
-    inferred_vision = (
-        bool(metadata.get("vision"))
-        or (provider_id in {"openai", "codex"} and bare.startswith(_OPENAI_VISION_PREFIXES))
-        or (provider_id == "google" and bare.startswith("gemini"))
-        or (provider_id == "anthropic" and bare.startswith(_ANTHROPIC_VISION_PREFIXES))
-        or (provider_id.startswith("custom_openai_") and _name_suggests_vision_model(model_id))
-        or (
-            provider_id == "openrouter"
-            and (
-                (upstream == "google" and bare.startswith("gemini"))
-                or (upstream == "anthropic" and bare.startswith(_ANTHROPIC_VISION_PREFIXES))
-                or (upstream == "openai" and bare.startswith(_OPENAI_VISION_PREFIXES))
+    if isinstance(metadata.get("vision"), bool):
+        inferred_vision = bool(metadata.get("vision"))
+    else:
+        inferred_vision = (
+            (provider_id in {"openai", "codex"} and bare.startswith(_OPENAI_VISION_PREFIXES))
+            or (provider_id == "google" and bare.startswith("gemini"))
+            or (provider_id == "anthropic" and bare.startswith(_ANTHROPIC_VISION_PREFIXES))
+            or (provider_id.startswith("custom_openai_") and _name_suggests_vision_model(model_id))
+            or (
+                provider_id == "openrouter"
+                and (
+                    (upstream == "google" and bare.startswith("gemini"))
+                    or (upstream == "anthropic" and bare.startswith(_ANTHROPIC_VISION_PREFIXES))
+                    or (upstream == "openai" and bare.startswith(_OPENAI_VISION_PREFIXES))
+                )
             )
         )
-    )
 
     if inferred_vision:
         input_modalities.add(ModelModality.IMAGE.value)

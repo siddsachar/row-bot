@@ -1,6 +1,7 @@
 import threading
 import time
 import re
+from typing import Any
 
 from models import get_llm, get_llm_for, get_context_size, get_current_model, is_model_local, is_cloud_model, get_cloud_provider, get_model_max_context, set_active_model_override, _active_model_override
 from api_keys import apply_keys
@@ -86,6 +87,33 @@ def _message_has_custom_tool_artifact(message: BaseMessage) -> bool:
     return "<tool_call>" in reasoning or "<function=" in reasoning
 
 
+def _message_reasoning_text(message: BaseMessage) -> str:
+    additional_kwargs = getattr(message, "additional_kwargs", None) or {}
+    for key in ("reasoning_content", "reasoning_details", "reasoning"):
+        value = additional_kwargs.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return ""
+
+
+def _custom_endpoint_supports_reasoning_replay(provider_id: str | None) -> bool:
+    if not str(provider_id or "").startswith("custom_openai_"):
+        return False
+    try:
+        from providers.custom import get_custom_endpoint
+
+        endpoint = get_custom_endpoint(str(provider_id or ""))
+    except Exception:
+        endpoint = None
+    return bool(endpoint and endpoint.get("supports_reasoning_replay"))
+
+
+def _provider_supports_reasoning_fields(provider_id: str | None) -> bool:
+    if str(provider_id or "").startswith("custom_openai_"):
+        return _custom_endpoint_supports_reasoning_replay(provider_id)
+    return True
+
+
 def _provider_transcript_diagnostics(messages: list[BaseMessage]) -> dict[str, object]:
     tool_call_ids: list[str] = []
     tool_result_ids: list[str] = []
@@ -158,7 +186,8 @@ def _normalize_provider_facing_messages(
     """
 
     before = _provider_transcript_diagnostics(messages)
-    strip_reasoning = any(_message_has_custom_tool_artifact(message) for message in messages)
+    provider_supports_reasoning = _provider_supports_reasoning_fields(provider_id)
+    keep_empty_reasoning_turns = _custom_endpoint_supports_reasoning_replay(provider_id)
     normalized: list[BaseMessage] = []
     used_tool_call_ids: set[str] = set()
     pending_tool_pairs: list[tuple[str, str]] = []
@@ -171,8 +200,9 @@ def _normalize_provider_facing_messages(
     for message in messages:
         if isinstance(message, AIMessage):
             additional_kwargs = dict(getattr(message, "additional_kwargs", None) or {})
+            strip_reasoning = (not provider_supports_reasoning) or _message_has_custom_tool_artifact(message)
             if strip_reasoning:
-                for key in ("reasoning_content", "reasoning_details"):
+                for key in ("reasoning_content", "reasoning_details", "reasoning"):
                     if key in additional_kwargs:
                         additional_kwargs.pop(key, None)
                         stripped_reasoning += 1
@@ -199,7 +229,9 @@ def _normalize_provider_facing_messages(
                 tool_calls=tool_calls,
                 invalid_tool_calls=[],
             )
-            if _is_empty_assistant_without_action(cleaned_ai):
+            if _is_empty_assistant_without_action(cleaned_ai) and not (
+                keep_empty_reasoning_turns and _message_reasoning_text(cleaned_ai)
+            ):
                 dropped_empty += 1
                 pending_tool_pairs = []
                 continue
@@ -434,6 +466,109 @@ def _content_to_str(content) -> str:
                 parts.append(block)
         return "\n".join(parts)
     return str(content) if content else ""
+
+
+class _ReasoningTextStreamDecoder:
+    """Split provider chunks into visible text and private reasoning parts."""
+
+    def __init__(self) -> None:
+        self.in_think = False
+
+
+def _chunk_content_blocks(chunk) -> list[dict[str, Any]]:
+    blocks = getattr(chunk, "content_blocks", None)
+    if isinstance(blocks, list) and blocks:
+        return [block for block in blocks if isinstance(block, dict)]
+    content = getattr(chunk, "content", None)
+    if isinstance(content, list):
+        return [block for block in content if isinstance(block, dict)]
+    return []
+
+
+def _block_text(block: dict[str, Any]) -> str:
+    for key in ("text", "content", "input", "reasoning", "reasoning_content"):
+        value = block.get(key)
+        if isinstance(value, str):
+            return value
+    return ""
+
+
+def _decode_text_with_think_blocks(text: str, decoder: _ReasoningTextStreamDecoder) -> list[dict[str, str]]:
+    if not text:
+        return []
+    events: list[dict[str, str]] = []
+    content = str(text)
+    if decoder.in_think:
+        close_idx = content.find("</think>")
+        if close_idx == -1:
+            events.append({"type": "reasoning", "text": content})
+            return events
+        decoder.in_think = False
+        think_part = content[:close_idx]
+        if think_part:
+            events.append({"type": "reasoning", "text": think_part})
+        content = content[close_idx + len("</think>"):]
+        if not content:
+            return events
+
+    parts = re.split(r"<think>(.*?)</think>", content, flags=re.DOTALL)
+    visible_parts: list[str] = []
+    for index, part in enumerate(parts):
+        if not part:
+            continue
+        if index % 2 == 1:
+            events.append({"type": "reasoning", "text": part})
+        else:
+            visible_parts.append(part)
+    content = "".join(visible_parts)
+
+    open_idx = content.find("<think>")
+    if open_idx != -1:
+        decoder.in_think = True
+        trailing = content[open_idx + len("<think>"):]
+        if trailing:
+            events.append({"type": "reasoning", "text": trailing})
+        content = content[:open_idx]
+
+    content = re.sub(r"</?think>", "", content)
+    if content:
+        events.append({"type": "text", "text": content})
+    return events
+
+
+def decode_ai_stream_parts(chunk, decoder: _ReasoningTextStreamDecoder | None = None) -> list[dict[str, Any]]:
+    """Return canonical stream parts for a LangChain AI message/chunk.
+
+    The decoder keeps legacy ``<think>`` state across chunks. Provider-native
+    reasoning metadata is emitted as reasoning only; it is never mixed into the
+    visible answer stream.
+    """
+
+    decoder = decoder or _ReasoningTextStreamDecoder()
+    events: list[dict[str, Any]] = []
+    blocks = _chunk_content_blocks(chunk)
+    if blocks:
+        for block in blocks:
+            block_type = str(block.get("type") or "").lower()
+            text = _block_text(block)
+            if not text:
+                continue
+            if block_type in {"reasoning", "reasoning_content", "reasoning_delta", "thinking"}:
+                events.append({"type": "reasoning", "text": text})
+            elif block_type in {"text", "text_delta", "output_text"} or not block_type:
+                events.extend(_decode_text_with_think_blocks(text, decoder))
+        return events
+
+    additional_kwargs = getattr(chunk, "additional_kwargs", None) or {}
+    for key in ("reasoning_content", "reasoning"):
+        reasoning = additional_kwargs.get(key)
+        if isinstance(reasoning, str) and reasoning:
+            events.append({"type": "reasoning", "text": reasoning})
+            break
+
+    content = _content_to_str(getattr(chunk, "content", ""))
+    events.extend(_decode_text_with_think_blocks(content, decoder))
+    return events
 
 
 def _active_model_for_error() -> str:
@@ -1470,7 +1605,7 @@ def _pre_model_trim(state: dict) -> dict:
     # error on Anthropic-compatible providers.  Fix: move all
     # SystemMessages to the front so langchain-anthropic's
     # _merge_messages() can merge them into one.
-    if compact_custom_endpoint:
+    if _active_custom_openai_provider():
         trimmed = _consolidate_system_messages(trimmed)
         trimmed = trim_messages(
             trimmed,
@@ -2556,6 +2691,9 @@ def invoke_agent(user_input: str, enabled_tool_names: list[str], config: dict,
                         return text
         logger.warning("invoke_agent: no response generated (%.1fs)",
                        time.monotonic() - _invoke_t0)
+        finalized = _finalize_tool_result_answer_text(agent, config)
+        if finalized.strip():
+            return finalized
         return "I wasn't able to generate a response."
 
     # Original path (no stop_event) — simple invoke
@@ -2574,6 +2712,9 @@ def invoke_agent(user_input: str, enabled_tool_names: list[str], config: dict,
                 return text
     logger.warning("invoke_agent: no response generated (%.1fs)",
                    time.monotonic() - _invoke_t0)
+    finalized = _finalize_tool_result_answer_text(agent, config)
+    if finalized.strip():
+        return finalized
     return "I wasn't able to generate a response."
 
 
@@ -2745,86 +2886,46 @@ def stream_chat_only(user_input: str, config: dict, *, stop_event: threading.Eve
     full_answer: list[str] = []
     full_reasoning: list[str] = []
     thinking_signalled = False
-    in_think = False
+    decoder = _ReasoningTextStreamDecoder()
 
     try:
         stream_iter = llm.stream(messages)
     except Exception:
         stream_iter = None
 
-    def _emit_content(content: str):
-        nonlocal in_think
-        if not content:
-            return []
-        events: list[tuple[str, str]] = []
-        if in_think:
-            close_idx = content.find("</think>")
-            if close_idx == -1:
-                events.append(("thinking_token", content))
-                return events
-            in_think = False
-            think_part = content[:close_idx]
-            if think_part:
-                events.append(("thinking_token", think_part))
-            content = content[close_idx + len("</think>"):]
-            if not content:
-                return events
-        parts = _re.split(r"<think>(.*?)</think>", content, flags=_re.DOTALL)
-        real_parts = []
-        for index, part in enumerate(parts):
-            if not part:
-                continue
-            if index % 2 == 1:
-                events.append(("thinking_token", part))
-            else:
-                real_parts.append(part)
-        content = "".join(real_parts)
-        open_idx = content.find("<think>")
-        if open_idx != -1:
-            in_think = True
-            trailing = content[open_idx + len("<think>"):]
-            if trailing:
-                events.append(("thinking_token", trailing))
-            content = content[:open_idx]
-        content = _re.sub(r"</?think>", "", content)
-        if content:
-            events.append(("token", content))
-        return events
-
     try:
         if stream_iter is not None:
             for chunk in stream_iter:
                 if stop_event and stop_event.is_set():
                     break
-                ak = getattr(chunk, "additional_kwargs", None) or {}
-                reasoning = ak.get("reasoning_content", "")
-                if reasoning:
-                    thinking_signalled = True
-                    full_reasoning.append(str(reasoning))
-                    yield ("thinking_token", str(reasoning))
-                content = _content_to_str(getattr(chunk, "content", ""))
-                if not content and not reasoning and not thinking_signalled:
+                parts = decode_ai_stream_parts(chunk, decoder)
+                if not parts and not thinking_signalled:
                     thinking_signalled = True
                     yield ("thinking", None)
                     continue
-                for event_type, payload in _emit_content(content):
-                    if event_type == "token":
-                        full_answer.append(payload)
-                    elif event_type == "thinking_token":
-                        full_reasoning.append(payload)
-                    yield (event_type, payload)
+                for part in parts:
+                    text = str(part.get("text") or "")
+                    if not text:
+                        continue
+                    if part.get("type") == "text":
+                        full_answer.append(text)
+                        yield ("token", text)
+                    elif part.get("type") == "reasoning":
+                        thinking_signalled = True
+                        full_reasoning.append(text)
+                        yield ("thinking_token", text)
         else:
             result = llm.invoke(messages)
-            reasoning = str((getattr(result, "additional_kwargs", None) or {}).get("reasoning_content") or "")
-            if reasoning:
-                full_reasoning.append(reasoning)
-                yield ("thinking_token", reasoning)
-            for event_type, payload in _emit_content(_content_to_str(getattr(result, "content", ""))):
-                if event_type == "token":
-                    full_answer.append(payload)
-                elif event_type == "thinking_token":
-                    full_reasoning.append(payload)
-                yield (event_type, payload)
+            for part in decode_ai_stream_parts(result, decoder):
+                text = str(part.get("text") or "")
+                if not text:
+                    continue
+                if part.get("type") == "text":
+                    full_answer.append(text)
+                    yield ("token", text)
+                elif part.get("type") == "reasoning":
+                    full_reasoning.append(text)
+                    yield ("thinking_token", text)
     except Exception as exc:
         yield ("error", _friendly_api_error(str(exc), model_label))
         return
@@ -3158,6 +3259,11 @@ def _latest_ai_text_from_state(agent, config: dict) -> str:
     return text if text.strip() else ""
 
 
+def _joined_visible_answer(parts: list[str]) -> str:
+    text = "".join(str(part or "") for part in parts)
+    return text if text.strip() else ""
+
+
 def _latest_ai_message_from_state(agent, config: dict):
     try:
         state = agent.get_state(config)
@@ -3176,6 +3282,124 @@ def _latest_ai_message_from_state(agent, config: dict):
         if hasattr(msg, "type") and msg.type == "ai":
             return msg
     return None
+
+
+def _current_turn_messages_from_state(agent, config: dict) -> list[BaseMessage]:
+    try:
+        state = agent.get_state(config)
+    except Exception:
+        return []
+    if not state or not getattr(state, "values", None):
+        return []
+    messages = list(state.values.get("messages", []))
+    latest_human_idx = -1
+    for idx in range(len(messages) - 1, -1, -1):
+        if getattr(messages[idx], "type", None) == "human":
+            latest_human_idx = idx
+            break
+    return messages[latest_human_idx:] if latest_human_idx >= 0 else messages
+
+
+def _tool_message_successful(message: ToolMessage) -> bool:
+    try:
+        from providers.tool_protocol import tool_result_requires_validation_retry
+
+        if tool_result_requires_validation_retry(getattr(message, "content", "")):
+            return False
+    except Exception:
+        pass
+    status = str(getattr(message, "status", "") or "").strip().lower()
+    if status and status != "success":
+        return False
+    content = _content_to_str(getattr(message, "content", ""))
+    return not content.strip().lower().startswith("tool error:")
+
+
+def _successful_tool_messages_current_turn(agent, config: dict) -> list[ToolMessage]:
+    return [
+        message for message in _current_turn_messages_from_state(agent, config)
+        if isinstance(message, ToolMessage) and _tool_message_successful(message)
+    ]
+
+
+def _latest_human_text_current_turn(agent, config: dict) -> str:
+    for message in _current_turn_messages_from_state(agent, config):
+        if isinstance(message, HumanMessage):
+            return _content_to_str(getattr(message, "content", ""))
+    return ""
+
+
+def _tool_result_finalization_messages(user_text: str, tool_messages: list[ToolMessage]) -> list[BaseMessage]:
+    sections = []
+    for index, message in enumerate(tool_messages[-6:], start=1):
+        name = str(getattr(message, "name", "") or "tool")
+        content = _content_to_str(getattr(message, "content", ""))
+        if len(content) > 6000:
+            content = content[:6000] + "\n[Tool result truncated for finalization.]"
+        sections.append(f"[{index}] {name}\n{content}")
+    tool_text = "\n\n".join(sections)
+    prompt = (
+        "User request:\n"
+        f"{user_text.strip() or '(not available)'}\n\n"
+        "Tool results:\n"
+        f"{tool_text}\n\n"
+        "Produce the final visible answer for the user from the preceding tool results. Do not call tools."
+    )
+    return [
+        SystemMessage(content="Produce a concise final visible answer from tool results. Do not call tools."),
+        HumanMessage(content=prompt),
+    ]
+
+
+def _run_tool_result_finalization(
+    *,
+    model_label: str,
+    user_text: str,
+    tool_messages: list[ToolMessage],
+) -> tuple[str, str, list[dict[str, Any]]]:
+    if not tool_messages:
+        return "", "", []
+    llm = _chat_only_llm(model_label)
+    messages = _tool_result_finalization_messages(user_text, tool_messages)
+    decoder = _ReasoningTextStreamDecoder()
+    parts: list[dict[str, Any]] = []
+    try:
+        stream_iter = llm.stream(messages)
+    except Exception:
+        stream_iter = None
+    if stream_iter is not None:
+        for chunk in stream_iter:
+            parts.extend(decode_ai_stream_parts(chunk, decoder))
+    else:
+        result = llm.invoke(messages)
+        parts.extend(decode_ai_stream_parts(result, decoder))
+    answer = "".join(str(part.get("text") or "") for part in parts if part.get("type") == "text")
+    reasoning = "".join(str(part.get("text") or "") for part in parts if part.get("type") == "reasoning")
+    return answer, reasoning, parts
+
+
+def _finalize_tool_result_answer_text(agent, config: dict) -> str:
+    tool_messages = _successful_tool_messages_current_turn(agent, config)
+    if not tool_messages:
+        return ""
+    model_label, _ = _selected_model_label_from_config(config)
+    try:
+        answer, reasoning, _parts = _run_tool_result_finalization(
+            model_label=model_label,
+            user_text=_latest_human_text_current_turn(agent, config),
+            tool_messages=tool_messages,
+        )
+    except Exception as exc:
+        logger.warning("tool-result finalization pass failed: %s", exc, exc_info=True)
+        return ""
+    if not answer.strip():
+        return ""
+    additional_kwargs = {"reasoning_content": reasoning} if reasoning else {}
+    try:
+        agent.update_state(config, {"messages": [AIMessage(content=answer, additional_kwargs=additional_kwargs)]})
+    except Exception:
+        logger.debug("tool-result finalization answer could not be persisted", exc_info=True)
+    return answer
 
 
 def _log_stream_completion(
@@ -3242,7 +3466,7 @@ def _stream_graph(agent, input_data, config: dict,
     """Shared streaming logic for both initial invocation and resume."""
     full_answer = []
     thinking_signalled = False
-    _in_think = False           # True while inside a <think>…</think> block
+    decoder = _ReasoningTextStreamDecoder()
     _finish_reason: str | None = None  # tracks API finish_reason from last chunk
     _seen_tool_calls: set[str] = set()
     _answer_chars = 0
@@ -3409,96 +3633,33 @@ def _stream_graph(agent, input_data, config: dict,
             has_tool_call_chunk = bool(
                 getattr(msg, "tool_calls", []) or getattr(msg, "tool_call_chunks", [])
             )
-
-            # ── Reasoning via additional_kwargs (LangChain standard) ─
-            # All major providers (OpenAI, Ollama/DeepSeek, Groq, XAI)
-            # surface reasoning tokens in additional_kwargs["reasoning_content"].
-            # Extract them BEFORE checking content so the thinking bubble
-            # works even when content is empty during the reasoning phase.
-            _ak = getattr(msg, "additional_kwargs", None) or {}
-            _reasoning = _ak.get("reasoning_content", "")
-            if _reasoning:
-                _reasoning_chars += len(str(_reasoning))
-                _reasoning_chunks += 1
-                if not thinking_signalled:
-                    thinking_signalled = True
-                yield ("thinking_token", _reasoning)
-
-            if not content:
-                # Tool-call chunks often carry only function-call deltas. Those
-                # should not be surfaced as user-visible text, but providers can
-                # also emit normal text in adjacent/mixed chunks before the tool
-                # decision. Preserve text when present instead of dropping the
-                # whole chunk just because tool-call metadata exists.
+            decoded_parts = decode_ai_stream_parts(msg, decoder)
+            if not decoded_parts:
                 if has_tool_call_chunk:
                     continue
-                # Empty content = thinking phase (signal spinner if no
-                # reasoning_content was yielded above)
                 if not thinking_signalled:
                     thinking_signalled = True
                     yield ("thinking", None)
                 continue
-
-            # ── Stateful <think>…</think> separation ─────────────────
-            # Tags may span multiple streaming chunks, so we track
-            # whether we are currently inside a think block.  Think
-            # content is yielded as ("thinking_token", text) so the UI
-            # can display it, then collapse when the real answer starts.
-            if _in_think:
-                close_idx = content.find("</think>")
-                if close_idx == -1:
-                    # Still inside think block — yield as thinking
-                    _reasoning_chars += len(content)
-                    _reasoning_chunks += 1
-                    yield ("thinking_token", content)
+            for part in decoded_parts:
+                decoded_text = str(part.get("text") or "")
+                if not decoded_text:
                     continue
-                # Found closing tag — split: before=thinking, after=real
-                _in_think = False
-                think_part = content[:close_idx]
-                if think_part:
-                    _reasoning_chars += len(think_part)
+                if part.get("type") == "reasoning":
+                    _reasoning_chars += len(decoded_text)
                     _reasoning_chunks += 1
-                    yield ("thinking_token", think_part)
-                content = content[close_idx + len("</think>"):]
-                if not content:
-                    continue
+                    thinking_signalled = True
+                    yield ("thinking_token", decoded_text)
+                elif part.get("type") == "text":
+                    if not decoded_text.strip() and not _joined_visible_answer(full_answer):
+                        continue
+                    thinking_signalled = False
+                    _answer_chars += len(decoded_text)
+                    _answer_chunks += 1
+                    full_answer.append(decoded_text)
+                    yield ("token", decoded_text)
+            continue
 
-            # Handle complete <think>…</think> blocks within a chunk
-            parts = _re.split(r"<think>(.*?)</think>", content, flags=_re.DOTALL)
-            # parts = [before, think_content, after, think_content2, after2, …]
-            real_parts = []
-            for i, part in enumerate(parts):
-                if not part:
-                    continue
-                if i % 2 == 1:
-                    # Odd index = captured think content
-                    _reasoning_chars += len(part)
-                    _reasoning_chunks += 1
-                    yield ("thinking_token", part)
-                else:
-                    real_parts.append(part)
-            content = "".join(real_parts)
-
-            # Check for an unclosed <think> that continues into next chunk
-            open_idx = content.find("<think>")
-            if open_idx != -1:
-                _in_think = True
-                trailing = content[open_idx + len("<think>"):]
-                if trailing:
-                    _reasoning_chars += len(trailing)
-                    _reasoning_chunks += 1
-                    yield ("thinking_token", trailing)
-                content = content[:open_idx]
-
-            # Safety: remove any orphaned tags
-            content = _re.sub(r"</?think>", "", content)
-
-            if content:
-                thinking_signalled = False
-                _answer_chars += len(content)
-                _answer_chunks += 1
-                full_answer.append(content)
-                yield ("token", content)
     except Exception as exc:
         exc_str = str(exc)
         # Auto-repair orphaned tool calls and retry once
@@ -3679,17 +3840,19 @@ def _stream_graph(agent, input_data, config: dict,
 
     latest_ai_message = _latest_ai_message_from_state(agent, config)
 
-    if not full_answer:
+    visible_answer = _joined_visible_answer(full_answer)
+    if not visible_answer:
         fallback_text = _latest_ai_text_from_state(agent, config)
         if fallback_text:
             full_answer.append(fallback_text)
+            visible_answer = _joined_visible_answer(full_answer)
 
     checkpoint_reasoning_chars = 0
     if latest_ai_message is not None:
         _ak = getattr(latest_ai_message, "additional_kwargs", None) or {}
         checkpoint_reasoning_chars = len(str(_ak.get("reasoning_content") or ""))
     reasoning_only_final = bool(
-        not full_answer
+        not visible_answer
         and not _stopped_by_user
         and not _loop_detected
         and not _browser_budget_exceeded
@@ -3712,13 +3875,52 @@ def _stream_graph(agent, input_data, config: dict,
     )
 
     if reasoning_only_final:
+        successful_tools = _successful_tool_messages_current_turn(agent, config)
+        if successful_tools:
+            try:
+                model_label, _ = _selected_model_label_from_config(config)
+                repair_answer, repair_reasoning, repair_parts = _run_tool_result_finalization(
+                    model_label=model_label,
+                    user_text=_latest_human_text_current_turn(agent, config),
+                    tool_messages=successful_tools,
+                )
+                for part in repair_parts:
+                    text = str(part.get("text") or "")
+                    if not text:
+                        continue
+                    if part.get("type") == "reasoning":
+                        _reasoning_chars += len(text)
+                        _reasoning_chunks += 1
+                        yield ("thinking_token", text)
+                    elif part.get("type") == "text":
+                        _answer_chars += len(text)
+                        _answer_chunks += 1
+                        yield ("token", text)
+                if repair_answer.strip():
+                    additional_kwargs = {"reasoning_content": repair_reasoning} if repair_reasoning else {}
+                    final_message = AIMessage(content=repair_answer, additional_kwargs=additional_kwargs)
+                    try:
+                        agent.update_state(config, {"messages": [final_message]})
+                    except Exception:
+                        logger.debug("tool-result finalization answer could not be persisted", exc_info=True)
+                    full_answer.append(repair_answer)
+                    yield ("done", _joined_visible_answer(full_answer))
+                    return
+            except Exception as exc:
+                logger.warning(
+                    "tool-result finalization pass failed: %s diagnostics=%s",
+                    exc,
+                    _agent_runtime_diagnostics(config),
+                    exc_info=True,
+                )
         _reasoning_only_msg = "The model returned reasoning but no final answer. Try again or switch models."
         _notify_api_error(_reasoning_only_msg)
         yield ("error", _reasoning_only_msg)
         return
 
     # Warn if the model stopped due to output token limit
-    if _finish_reason == "length" and full_answer:
+    visible_answer = _joined_visible_answer(full_answer)
+    if _finish_reason == "length" and visible_answer:
         logger.warning("Model output truncated (finish_reason=length) — "
                        "response was cut short by the provider's output token limit")
         full_answer.append(
@@ -3726,7 +3928,7 @@ def _stream_graph(agent, input_data, config: dict,
             "limit. You can ask me to continue or rephrase for a shorter answer.*"
         )
 
-    yield ("done", "".join(full_answer))
+    yield ("done", _joined_visible_answer(full_answer))
 
 if __name__ == "__main__":
     config = pick_or_create_thread()
@@ -3744,4 +3946,3 @@ if __name__ == "__main__":
         enabled = [t.name for t in tool_registry.get_enabled_tools()]
         answer = invoke_agent(user_input, enabled, config)
         print(f"\nAssistant: {answer}\n")
-

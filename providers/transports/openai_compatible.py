@@ -12,8 +12,6 @@ from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResu
 from langchain_core.runnables import Runnable
 from pydantic import Field
 
-from providers.tool_protocol import tool_result_requires_validation_retry
-
 logger = logging.getLogger(__name__)
 
 
@@ -53,6 +51,14 @@ class ChatOpenAICompatible(BaseChatModel):
         choice = _first_choice(payload)
         message_payload = choice.get("message") if isinstance(choice.get("message"), dict) else {}
         content = _choice_content(message_payload, choice)
+        known_tool_names = _known_tool_names(kwargs.get("tools") or [])
+        content_text_calls: list[dict[str, Any]] = []
+        if known_tool_names:
+            cleaned_content, content_text_calls = _clean_text_tool_calls(
+                content,
+                known_tool_names=known_tool_names,
+            )
+            content = "" if content_text_calls else cleaned_content
         tool_calls = _tool_calls_from_openai(message_payload.get("tool_calls") or [])
         metadata = _response_metadata(payload)
         additional_kwargs = {}
@@ -60,19 +66,11 @@ class ChatOpenAICompatible(BaseChatModel):
         if reasoning:
             additional_kwargs["reasoning_content"] = reasoning
         if not tool_calls:
-            tool_calls = _recover_text_tool_calls_for_empty_response(
+            tool_calls = content_text_calls or _recover_text_tool_calls_for_empty_response(
                 content=content,
                 reasoning=reasoning,
-                known_tool_names=_known_tool_names(kwargs.get("tools") or []),
+                known_tool_names=known_tool_names,
             )
-        content, additional_kwargs = _resolve_reasoning_only_final(
-            messages,
-            content=content,
-            reasoning=reasoning,
-            tool_calls=tool_calls,
-            additional_kwargs=additional_kwargs,
-            endpoint=self.endpoint,
-        )
         return ChatResult(
             generations=[ChatGeneration(message=AIMessage(content=content, tool_calls=tool_calls, additional_kwargs=additional_kwargs, response_metadata=metadata))],
             llm_output=metadata,
@@ -111,6 +109,7 @@ class ChatOpenAICompatible(BaseChatModel):
         )
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
+        buffered_content_for_tools = bool(tools)
         for payload in self._iter_stream_events(body):
             payload_seen = True
             choice = _first_choice(payload)
@@ -125,21 +124,33 @@ class ChatOpenAICompatible(BaseChatModel):
                 if reasoning:
                     reasoning_parts.append(reasoning)
                 additional_kwargs = {"reasoning_content": reasoning} if reasoning else {}
-                chunk = ChatGenerationChunk(message=AIMessageChunk(content=content, additional_kwargs=additional_kwargs))
-                if content and run_manager:
-                    run_manager.on_llm_new_token(content, chunk=chunk)
+                visible_content = "" if buffered_content_for_tools else content
+                chunk = ChatGenerationChunk(message=AIMessageChunk(content=visible_content, additional_kwargs=additional_kwargs))
+                if visible_content and run_manager:
+                    run_manager.on_llm_new_token(visible_content, chunk=chunk)
                 yield chunk
             for call in delta.get("tool_calls") or []:
                 tool_assembler.add(call)
         finalized_tool_calls = tool_assembler.finalize()
+        known_tool_names = _known_tool_names(tools)
+        raw_content = "".join(content_parts)
+        if known_tool_names:
+            cleaned_content, content_text_calls = _clean_text_tool_calls(
+                raw_content,
+                known_tool_names=known_tool_names,
+            )
+        else:
+            cleaned_content, content_text_calls = raw_content, []
+        if buffered_content_for_tools and cleaned_content and not finalized_tool_calls and not content_text_calls:
+            yield ChatGenerationChunk(message=AIMessageChunk(content=cleaned_content))
         for chunk_payload in finalized_tool_calls:
             tool_seen = True
             yield ChatGenerationChunk(message=AIMessageChunk(content="", tool_call_chunks=[chunk_payload]))
         if not finalized_tool_calls:
-            recovered_calls = _recover_text_tool_calls_for_empty_response(
-                content="".join(content_parts),
+            recovered_calls = content_text_calls or _recover_text_tool_calls_for_empty_response(
+                content=cleaned_content,
                 reasoning="".join(reasoning_parts),
-                known_tool_names=_known_tool_names(tools),
+                known_tool_names=known_tool_names,
             )
             for index, call in enumerate(recovered_calls):
                 chunk_payload = _tool_call_chunk_from_parsed(call, index)
@@ -151,15 +162,6 @@ class ChatOpenAICompatible(BaseChatModel):
                     call.get("name"),
                 )
                 yield ChatGenerationChunk(message=AIMessageChunk(content="", tool_call_chunks=[chunk_payload]))
-        if not content_seen and reasoning_seen and not tool_seen:
-            promoted_content = _stream_reasoning_only_final_content(
-                messages,
-                reasoning="".join(reasoning_parts),
-                endpoint=self.endpoint,
-            )
-            if promoted_content:
-                content_seen = True
-                yield ChatGenerationChunk(message=AIMessageChunk(content=promoted_content))
         if not content_seen and not reasoning_seen and not tool_seen:
             logger.warning(
                 "custom_openai_stream: empty stream; retrying non-stream fallback provider=%s model=%s payload_seen=%s",
@@ -204,15 +206,16 @@ class ChatOpenAICompatible(BaseChatModel):
         reasoning = str((getattr(message, "additional_kwargs", None) or {}).get("reasoning_content") or "")
         content = str(getattr(message, "content", "") or "")
         tool_calls = getattr(message, "tool_calls", []) or []
-        content, additional_kwargs = _resolve_reasoning_only_final(
-            messages,
-            content=content,
-            reasoning=reasoning,
-            tool_calls=tool_calls,
-            additional_kwargs={"reasoning_content": reasoning} if reasoning else {},
-            endpoint=self.endpoint,
-        )
-        reasoning = str(additional_kwargs.get("reasoning_content") or "")
+        known_tool_names = _known_tool_names(kwargs.get("tools") or [])
+        content_text_calls: list[dict[str, Any]] = []
+        if known_tool_names:
+            cleaned_content, content_text_calls = _clean_text_tool_calls(
+                content,
+                known_tool_names=known_tool_names,
+            )
+            content = "" if content_text_calls else cleaned_content
+        if content_text_calls and not tool_calls:
+            tool_calls = content_text_calls
         if reasoning:
             yield ChatGenerationChunk(message=AIMessageChunk(content="", additional_kwargs={"reasoning_content": reasoning}))
         if content or tool_calls:
@@ -246,6 +249,7 @@ class ChatOpenAICompatible(BaseChatModel):
         extra_body = self.endpoint.get("extra_body")
         if isinstance(extra_body, dict):
             body.update(extra_body)
+        _apply_reasoning_request_config(body, self.endpoint)
         self._apply_context_override(body)
         tools = kwargs.get("tools") or []
         if tools and accepts_tools:
@@ -395,15 +399,97 @@ def _openai_message(message: BaseMessage, *, endpoint: dict[str, Any], include_t
     payload: dict[str, Any] = {"role": role, "content": content}
     if include_tool_fields and isinstance(message, AIMessage) and getattr(message, "tool_calls", None):
         payload["tool_calls"] = [_tool_call_to_openai(call, index) for index, call in enumerate(message.tool_calls) if isinstance(call, dict)]
+    reasoning = _message_reasoning_for_replay(message, endpoint)
+    if reasoning:
+        payload["reasoning_content"] = reasoning
     if include_tool_fields and isinstance(message, ToolMessage):
         payload["tool_call_id"] = str(getattr(message, "tool_call_id", "") or getattr(message, "name", "") or "tool")
     return payload
 
 
+def _message_reasoning_for_replay(message: BaseMessage, endpoint: dict[str, Any]) -> str:
+    if not isinstance(message, AIMessage):
+        return ""
+    if not endpoint.get("supports_reasoning_replay"):
+        return ""
+    for call in getattr(message, "tool_calls", None) or []:
+        if isinstance(call, dict) and str(call.get("id") or "").startswith("text_call_"):
+            return ""
+    additional_kwargs = getattr(message, "additional_kwargs", None) or {}
+    reasoning = additional_kwargs.get("reasoning_content") or additional_kwargs.get("reasoning")
+    if not isinstance(reasoning, str) or not reasoning:
+        return ""
+    if "<tool_call>" in reasoning or "<function=" in reasoning:
+        return ""
+    return reasoning
+
+
 def _message_content(message: BaseMessage, endpoint: dict[str, Any]) -> Any:
-    if endpoint.get("message_content_mode") == "string_text":
+    if endpoint.get("message_content_mode") == "string_text" and not _message_has_multimodal_content(message):
         return _message_text(message)
+    normalized = _normalize_openai_content_parts(message.content)
+    if normalized is not None:
+        return normalized
     return message.content
+
+
+def _message_has_multimodal_content(message: BaseMessage) -> bool:
+    content = message.content
+    if isinstance(content, list):
+        return any(_normalize_image_part(item) is not None for item in content if isinstance(item, dict))
+    return False
+
+
+def _normalize_openai_content_parts(content: Any) -> list[dict[str, Any]] | None:
+    if not isinstance(content, list):
+        return None
+    parts: list[dict[str, Any]] = []
+    for item in content:
+        if isinstance(item, str):
+            if item:
+                parts.append({"type": "text", "text": item})
+            continue
+        if not isinstance(item, dict):
+            continue
+        image_part = _normalize_image_part(item)
+        if image_part is not None:
+            parts.append(image_part)
+            continue
+        text = item.get("text") or item.get("input") or item.get("content")
+        if isinstance(text, str) and text:
+            parts.append({"type": "text", "text": text})
+    return parts
+
+
+def _normalize_image_part(item: dict[str, Any]) -> dict[str, Any] | None:
+    part_type = str(item.get("type") or "").strip()
+    if part_type not in {"image_url", "input_image", "image"} and not any(key in item for key in ("image_url", "image")):
+        return None
+
+    url = ""
+    image_url = item.get("image_url")
+    image = item.get("image")
+    if isinstance(image_url, str):
+        url = image_url
+    elif isinstance(image_url, dict):
+        raw = image_url.get("url")
+        if isinstance(raw, str):
+            url = raw
+    if not url:
+        if isinstance(image, str):
+            url = image
+        elif isinstance(image, dict):
+            raw = image.get("url")
+            if isinstance(raw, str):
+                url = raw
+    if not url:
+        raw_url = item.get("url")
+        if isinstance(raw_url, str):
+            url = raw_url
+    url = str(url or "").strip()
+    if not url:
+        return None
+    return {"type": "image_url", "image_url": {"url": url}}
 
 
 def _message_text(message: BaseMessage) -> str:
@@ -442,6 +528,33 @@ def _endpoint_streaming_supported(endpoint: dict[str, Any], *, has_tools: bool =
         )
         return False
     return True
+
+
+def _merge_chat_template_kwargs(body: dict[str, Any], values: dict[str, Any]) -> None:
+    existing = body.get("chat_template_kwargs")
+    merged = dict(existing) if isinstance(existing, dict) else {}
+    merged.update(values)
+    body["chat_template_kwargs"] = merged
+
+
+def _apply_reasoning_request_config(body: dict[str, Any], endpoint: dict[str, Any]) -> None:
+    mode = str(endpoint.get("reasoning_mode") or "auto").strip().lower()
+    profile = str(endpoint.get("profile") or "").strip().lower()
+    template_profiles = {"llama_cpp", "vllm", "sglang"}
+    if mode == "off":
+        if profile in template_profiles or endpoint.get("supports_reasoning_content"):
+            _merge_chat_template_kwargs(body, {"enable_thinking": False})
+        body.pop("reasoning", None)
+        body.pop("reasoning_effort", None)
+        return
+    budget = endpoint.get("thinking_budget")
+    if budget not in (None, "", 0):
+        try:
+            parsed = int(budget)
+        except (TypeError, ValueError):
+            parsed = 0
+        if parsed > 0 and (profile in template_profiles or endpoint.get("supports_reasoning_content")):
+            _merge_chat_template_kwargs(body, {"thinking_budget": parsed})
 
 
 class _StreamToolCallAssembler:
@@ -648,87 +761,82 @@ def _recover_text_tool_calls_for_empty_response(
     calls = _text_tool_calls_from_content(reasoning)
     if known_tool_names:
         calls = [call for call in calls if str(call.get("name") or "") in known_tool_names]
-    return [call for call in calls if str(call.get("name") or "").strip()]
+    return _dedupe_text_tool_calls([call for call in calls if str(call.get("name") or "").strip()])
 
 
-def _last_tool_result_state(messages: list[BaseMessage]) -> str:
-    if not messages or not isinstance(messages[-1], ToolMessage):
+def _clean_text_tool_calls(
+    text: str,
+    *,
+    known_tool_names: set[str] | None = None,
+) -> tuple[str, list[dict[str, Any]]]:
+    """Remove XML-ish text tool-call blocks from visible content.
+
+    Local OpenAI-compatible servers sometimes put legacy tool-call envelopes in
+    assistant text instead of native ``tool_calls``.  The envelope should be
+    recovered for execution when it names a known bound tool, but the raw XML-ish
+    block is never user-facing answer text.
+    """
+
+    raw = str(text or "")
+    calls: list[dict[str, Any]] = []
+
+    def _replace(match: re.Match[str]) -> str:
+        parsed = _text_tool_call_from_match(match, len(calls))
+        if parsed is None:
+            return ""
+        if known_tool_names and str(parsed.get("name") or "") not in known_tool_names:
+            return ""
+        calls.append(parsed)
         return ""
-    if tool_result_requires_validation_retry(getattr(messages[-1], "content", "")):
-        return "validation_retry_required"
-    status = str(getattr(messages[-1], "status", "") or "").strip().lower()
-    if status and status != "success":
-        return "tool_error"
-    return "tool_success"
+
+    cleaned = _TEXT_TOOL_CALL_RE.sub(_replace, raw)
+    return cleaned, _dedupe_text_tool_calls(calls)
 
 
-def _resolve_reasoning_only_final(
-    messages: list[BaseMessage],
-    *,
-    content: str,
-    reasoning: str,
-    tool_calls: list[dict[str, Any]],
-    additional_kwargs: dict[str, Any],
-    endpoint: dict[str, Any],
-) -> tuple[str, dict[str, Any]]:
-    if str(content or "").strip() or tool_calls or not str(reasoning or "").strip():
-        return content, additional_kwargs
-    state = _last_tool_result_state(messages)
-    provider = endpoint.get("provider_id") or "custom"
-    if state == "tool_success":
-        logger.info(
-            "custom_openai_stream: promoted reasoning-only response after successful tool result provider=%s chars=%d",
-            provider,
-            len(str(reasoning)),
-        )
-        cleaned_kwargs = dict(additional_kwargs)
-        cleaned_kwargs.pop("reasoning_content", None)
-        return str(reasoning), cleaned_kwargs
-    if state in {"validation_retry_required", "tool_error"}:
-        raise RuntimeError(
-            f"{endpoint.get('display_name') or endpoint.get('name') or 'Custom endpoint'} "
-            "stopped after a tool error without producing a retry tool call or final answer."
-        )
-    return content, additional_kwargs
-
-
-def _stream_reasoning_only_final_content(
-    messages: list[BaseMessage],
-    *,
-    reasoning: str,
-    endpoint: dict[str, Any],
-) -> str:
-    content, _additional_kwargs = _resolve_reasoning_only_final(
-        messages,
-        content="",
-        reasoning=reasoning,
-        tool_calls=[],
-        additional_kwargs={"reasoning_content": reasoning} if reasoning else {},
-        endpoint=endpoint,
-    )
-    return content
+def _dedupe_text_tool_calls(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for call in calls:
+        name = str(call.get("name") or "").strip()
+        if not name:
+            continue
+        args = call.get("args") if isinstance(call.get("args"), dict) else {}
+        signature = f"{name}:{json.dumps(args, sort_keys=True, default=str)}"
+        if signature in seen:
+            continue
+        seen.add(signature)
+        next_call = dict(call)
+        next_call["id"] = f"text_call_{len(deduped)}"
+        deduped.append(next_call)
+    return deduped
 
 
 def _text_tool_calls_from_content(text: str) -> list[dict[str, Any]]:
     calls: list[dict[str, Any]] = []
     for match in _TEXT_TOOL_CALL_RE.finditer(str(text or "")):
-        name = str(match.group("name") or "").strip()
-        if not name:
+        call = _text_tool_call_from_match(match, len(calls))
+        if call is not None:
+            calls.append(call)
+    return _dedupe_text_tool_calls(calls)
+
+
+def _text_tool_call_from_match(match: re.Match[str], index: int) -> dict[str, Any] | None:
+    name = str(match.group("name") or "").strip()
+    if not name:
+        return None
+    args: dict[str, Any] = {}
+    body = match.group("body") or ""
+    for param in _TEXT_TOOL_PARAM_RE.finditer(body):
+        param_name = str(param.group("name") or "").strip()
+        if not param_name:
             continue
-        args: dict[str, Any] = {}
-        body = match.group("body") or ""
-        for param in _TEXT_TOOL_PARAM_RE.finditer(body):
-            param_name = str(param.group("name") or "").strip()
-            if not param_name:
-                continue
-            args[param_name] = str(param.group("value") or "").strip()
-        calls.append({
-            "name": name,
-            "args": args,
-            "id": f"text_call_{len(calls)}",
-            "type": "tool_call",
-        })
-    return calls
+        args[param_name] = str(param.group("value") or "").strip()
+    return {
+        "name": name,
+        "args": args,
+        "id": f"text_call_{index}",
+        "type": "tool_call",
+    }
 
 
 def _new_http_client(timeout: float) -> Any:

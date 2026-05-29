@@ -1,10 +1,17 @@
 import sys
 from types import SimpleNamespace
 
+import pytest
+
 
 def _is_local_model(*installed):
     installed_set = set(installed)
     return lambda model: model in installed_set
+
+
+@pytest.fixture(autouse=True)
+def _isolated_thoth_data(tmp_path, monkeypatch):
+    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
 
 
 def test_thoth_status_normalizes_dynamic_image_model_label(monkeypatch):
@@ -174,3 +181,196 @@ def test_thoth_status_allows_codex_vision_quick_choice(tmp_path, monkeypatch):
 
     assert error is None
     assert model_value == "gpt-5.5"
+
+
+def test_thoth_status_vision_reports_custom_provider_probe(tmp_path, monkeypatch):
+    import providers.config as provider_config
+    import vision
+    from providers.custom import custom_provider_id, save_custom_endpoint
+    from tools.thoth_status_tool import _query_vision
+
+    provider_id = custom_provider_id("lm-studio")
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(vision, "_load_settings", lambda: {
+        "model": f"model:{provider_id}:qwen/qwen3.5-vl",
+        "enabled": True,
+        "camera_index": 1,
+    })
+    save_custom_endpoint({
+        "id": "lm-studio",
+        "name": "LM Studio",
+        "base_url": "http://127.0.0.1:1234/v1",
+        "auth_required": False,
+        "last_probe": {
+            "vision_ok": True,
+            "vision_model": "qwen/qwen3.5-vl",
+            "vision_content_format": "openai_image_url",
+        },
+    })
+
+    output = _query_vision()
+
+    assert "- Provider: LM Studio" in output
+    assert "- Vision readiness: vision verified" in output
+    assert "- Vision probe model: qwen/qwen3.5-vl" in output
+    assert "- Vision content format: openai_image_url" in output
+    assert "Ollama" not in output
+
+
+def test_thoth_status_vision_reports_custom_provider_failure_without_ollama_wording(tmp_path, monkeypatch):
+    import providers.config as provider_config
+    import vision
+    from providers.custom import custom_provider_id, save_custom_endpoint
+    from tools.thoth_status_tool import _query_vision
+
+    provider_id = custom_provider_id("lab")
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(vision, "_load_settings", lambda: {
+        "model": f"model:{provider_id}:local-vl",
+        "enabled": True,
+        "camera_index": 0,
+    })
+    save_custom_endpoint({
+        "id": "lab",
+        "name": "Lab Endpoint",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "auth_required": False,
+        "last_probe": {
+            "vision_ok": False,
+            "vision_error": "image input unsupported",
+            "vision_model": "local-vl",
+        },
+    })
+
+    output = _query_vision()
+
+    assert "- Provider: Lab Endpoint" in output
+    assert "- Vision readiness: vision failed" in output
+    assert "image input unsupported" in output
+    assert "not exposed by Ollama" not in output
+
+
+def test_thoth_status_vision_treats_stale_empty_probe_as_unverified(tmp_path, monkeypatch):
+    import providers.config as provider_config
+    import vision
+    from providers.custom import custom_provider_id, save_custom_endpoint
+    from tools.thoth_status_tool import _query_vision
+
+    provider_id = custom_provider_id("lm-studio")
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(vision, "_load_settings", lambda: {
+        "model": f"model:{provider_id}:qwen/qwen3.5-vl",
+        "enabled": True,
+        "camera_index": 0,
+    })
+    save_custom_endpoint({
+        "id": "lm-studio",
+        "name": "LM Studio",
+        "base_url": "http://127.0.0.1:1234/v1",
+        "auth_required": False,
+        "last_probe": {
+            "vision_ok": False,
+            "vision_error": "unexpected response: <empty>",
+            "vision_model": "qwen/qwen3.5-vl",
+            "vision_content_format": "openai_image_url",
+        },
+    })
+
+    output = _query_vision()
+
+    assert "- Vision readiness: vision unverified" in output
+    assert "- Vision probe note: unexpected response: <empty>" in output
+    assert "vision failed" not in output
+
+
+def test_thoth_status_vision_reports_manual_disabled_custom_endpoint(tmp_path, monkeypatch):
+    import providers.config as provider_config
+    import vision
+    from providers.custom import custom_provider_id, save_custom_endpoint
+    from tools.thoth_status_tool import _query_vision
+
+    provider_id = custom_provider_id("lm-studio")
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(vision, "_load_settings", lambda: {
+        "model": f"model:{provider_id}:qwen/qwen3.5-9b",
+        "enabled": True,
+        "camera_index": 0,
+    })
+    save_custom_endpoint({
+        "id": "lm-studio",
+        "name": "LM Studio",
+        "base_url": "http://127.0.0.1:1234/v1",
+        "auth_required": False,
+        "manual_capabilities": {"vision": False},
+        "models": [{
+            "id": "qwen/qwen3.5-9b",
+            "model_id": "qwen/qwen3.5-9b",
+            "capabilities_snapshot": {
+                "tasks": ["chat"],
+                "input_modalities": ["text"],
+                "output_modalities": ["text"],
+            },
+        }],
+        "last_probe": {
+            "vision_ok": None,
+            "vision_probed": False,
+            "vision_probe_skip_reason": "manual vision capability disabled",
+            "vision_model": "qwen/qwen3.5-9b",
+        },
+    })
+
+    output = _query_vision()
+
+    assert "- Provider: LM Studio" in output
+    assert "- Vision readiness: vision disabled for endpoint" in output
+    assert "- Vision probe skipped: manual vision capability disabled" in output
+    assert "- Vision compatibility: manual vision capability disabled" in output
+
+
+def test_thoth_status_update_setting_description_mentions_vision_model():
+    from tools.thoth_status_tool import ThothStatusTool
+
+    tools = {tool.name: tool for tool in ThothStatusTool().as_langchain_tools()}
+
+    assert "vision_model" in tools["thoth_update_setting"].description
+
+
+def test_thoth_status_guide_mentions_custom_vision_override_states():
+    import pathlib
+
+    guide = pathlib.Path("tool_guides/thoth_status_guide/SKILL.md").read_text(encoding="utf-8").lower()
+
+    assert "vision_model" in guide
+    assert "custom-endpoint" in guide or "custom endpoint" in guide
+    assert "manual override" in guide
+    assert "skipped" in guide
+
+
+def test_provider_status_summarizes_custom_probe_without_reprobe(tmp_path, monkeypatch):
+    import providers.config as provider_config
+    from providers.custom import save_custom_endpoint
+    from providers.status import summarize_providers
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    save_custom_endpoint({
+        "id": "lm-studio",
+        "name": "LM Studio",
+        "base_url": "http://127.0.0.1:1234/v1",
+        "auth_required": False,
+        "models": [{"id": "qwen/qwen3.5-9b", "model_id": "qwen/qwen3.5-9b"}],
+        "last_probe": {
+            "classification": "agent_ready",
+            "tool_round_trip": True,
+            "streaming_tool_calling": True,
+            "vision_probed": False,
+            "vision_probe_skip_reason": "manual vision capability disabled",
+        },
+    })
+
+    output = summarize_providers()
+
+    assert "LM Studio" in output
+    assert "probe agent ready" in output
+    assert "round-trip ok" in output
+    assert "stream tools ok" in output
+    assert "vision not run (manual vision capability disabled)" in output

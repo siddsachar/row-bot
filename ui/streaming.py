@@ -546,7 +546,13 @@ async def consume_generation(
             _detach_if_ui_client_deleted(gen, state, f"before {event_type} UI update")
 
         # ── First content transition ─────────────────────────────────
-        if not gen.first_content and event_type in ("token", "done"):
+        if (
+            not gen.first_content
+            and (
+                (event_type == "token" and str(payload or "").strip())
+                or (event_type == "done" and str(payload or "").strip())
+            )
+        ):
             gen.first_content = True
             if not gen.detached:
                 try:
@@ -675,6 +681,8 @@ async def consume_generation(
                     logger.debug("Thinking-token rendering failed", exc_info=True)
 
         elif event_type == "token":
+            if not str(payload or "").strip() and not str(gen.accumulated or "").strip():
+                continue
             _stream_updates += 1
             _now = asyncio.get_event_loop().time()
             if _now - _last_buddy_token_at > 0.8:
@@ -806,7 +814,7 @@ async def consume_generation(
 
     # Store assistant message
     _has_final_output = bool(
-        gen.accumulated
+        str(gen.accumulated or "").strip()
         or gen.tool_results
         or gen.chart_data
         or gen.captured_images
@@ -815,7 +823,8 @@ async def consume_generation(
     _persisted_detached = False
     if _has_final_output:
         await _capture_balanced_browser_screenshot(gen, state)
-        a_msg: dict = {"role": "assistant", "content": gen.accumulated}
+        visible_content = gen.accumulated if str(gen.accumulated or "").strip() else ""
+        a_msg: dict = {"role": "assistant", "content": visible_content}
         attach_thinking_to_message(a_msg, gen.thinking_text)
         if gen.tool_results:
             a_msg["tool_results"] = gen.tool_results

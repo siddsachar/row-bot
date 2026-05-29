@@ -1106,6 +1106,9 @@ def open_settings(
 
         vsvc = state.vision_service
         vision_value = model_choice_value(vsvc.model)
+        from vision import vision_model_compatibility
+        vision_compat = vision_model_compatibility(vsvc.model)
+        vision_invalid_reason = "" if vision_compat.get("usable") else str(vision_compat.get("reason") or "Selected model is not Vision-capable.")
 
         def _vision_label(m, local_override=None):
             runtime = model_id_from_choice_value(m)
@@ -1118,6 +1121,23 @@ def open_settings(
         vision_opts = {str(option["value"]): str(option["label"]) for option in vision_options}
         if vision_value and vision_value not in vision_opts:
             vision_opts.update(model_choice_options_map("vision", include_values=[vsvc.model]))
+        if vision_invalid_reason and vision_value not in vision_opts:
+            fallback = next(
+                (str(option.get("value") or "") for option in vision_options if str(option.get("source") or "") != "included_value"),
+                "",
+            )
+            if fallback:
+                logger.info(
+                    "Resetting incompatible Vision default from %s to %s: %s",
+                    vsvc.model,
+                    fallback,
+                    vision_invalid_reason,
+                )
+                vsvc.model = fallback
+                vision_value = fallback
+                vision_invalid_reason = ""
+            else:
+                vision_value = ""
 
         def _has_pinned_picker_choice(options: list[dict]) -> bool:
             return any(str(option.get("source") or "") != "included_value" for option in options)
@@ -1227,7 +1247,7 @@ def open_settings(
                     on_change=lambda e: setattr(vsvc, "enabled", e.value)
                 ).props("dense")
             with vision_controls:
-                vision_select = ui.select(label="Vision model", options=vision_opts, value=vision_value).classes("col-grow").props('use-input input-debounce=300 dense outlined')
+                vision_select = ui.select(label="Vision model", options=vision_opts, value=vision_value or None).classes("col-grow").props('use-input input-debounce=300 dense outlined')
                 camera_controls = ui.row().classes("items-end gap-2")
                 with camera_controls:
                     camera_select = ui.select(
@@ -1268,8 +1288,13 @@ def open_settings(
                 vision_refresh_btn = ui.button(icon="refresh", on_click=lambda: _reopen("Models")).props("flat dense round size=sm color=primary").tooltip("Refresh after managing Ollama models outside Thoth")
                 vision_empty = ui.label("No pinned Vision choices yet. Pin Vision models in the catalog below.").classes("text-grey-6 text-xs q-pb-sm")
                 vision_empty.visible = not _has_pinned_picker_choice(vision_options)
-                vision_missing = ui.label("Current Vision model is not exposed by Ollama. Manage local models in Ollama, then refresh or pin another Vision model below.").classes("text-warning text-xs q-pb-sm")
-                vision_missing.visible = bool(vsvc.model) and not is_cloud_model(vsvc.model) and not _is_local_selection(vsvc.model)
+                vision_missing = ui.label(
+                    vision_invalid_reason
+                    or "Current local Vision model is not available. Manage local models in Ollama, then refresh or pin another Vision model below."
+                ).classes("text-warning text-xs q-pb-sm")
+                vision_missing.visible = bool(vision_invalid_reason) or (
+                    bool(vsvc.model) and not is_cloud_model(vsvc.model) and not _is_local_selection(vsvc.model)
+                )
 
             image_actions, image_controls = _surface_row("palette", "Image", "Image generation and editing")
             with image_actions:
@@ -1545,12 +1570,37 @@ def open_settings(
             current_vision = str(data.get("current_vision") or vsvc.model)
             refreshed_vision_options = list(data.get("vision_options") or [])
             vision_select.options = {str(option["value"]): str(option["label"]) for option in refreshed_vision_options}
-            if vision_select.value not in vision_select.options:
-                vision_select.value = model_choice_value(current_vision)
+            current_vision_value = model_choice_value(current_vision)
+            current_compat = vision_model_compatibility(current_vision)
+            invalid_reason = "" if current_compat.get("usable") else str(current_compat.get("reason") or "Selected model is not Vision-capable.")
+            if current_vision_value not in vision_select.options:
+                fallback = next(
+                    (str(option.get("value") or "") for option in refreshed_vision_options if str(option.get("source") or "") != "included_value"),
+                    "",
+                )
+                if invalid_reason and fallback:
+                    logger.info(
+                        "Resetting incompatible Vision default from %s to %s: %s",
+                        current_vision,
+                        fallback,
+                        invalid_reason,
+                    )
+                    vsvc.model = fallback
+                    vision_select.value = fallback
+                    current_vision = fallback
+                    invalid_reason = ""
+                else:
+                    vision_select.value = current_vision_value if current_vision_value in vision_select.options else None
             vision_select.update()
             vision_empty.visible = not _has_pinned_picker_choice(refreshed_vision_options)
             vision_empty.update()
-            vision_missing.visible = bool(current_vision) and not is_cloud_model(current_vision) and not _is_local_selection(current_vision)
+            vision_missing.text = (
+                invalid_reason
+                or "Current local Vision model is not available. Manage local models in Ollama, then refresh or pin another Vision model below."
+            )
+            vision_missing.visible = bool(invalid_reason) or (
+                bool(current_vision) and not is_cloud_model(current_vision) and not _is_local_selection(current_vision)
+            )
             vision_missing.update()
 
             image_select = image_select_ref[0]
@@ -1600,7 +1650,11 @@ def open_settings(
                 value = model_choice_value(row.selection_ref)
                 vsvc.model = value
                 if value not in vision_select.options:
-                    vision_select.options = {**dict(vision_select.options), **model_choice_options_map("vision", include_values=[value])}
+                    included = model_choice_options_map("vision", include_values=[value])
+                    if value not in included:
+                        ui.notify("That model is not currently marked as Vision-capable.", type="warning")
+                        return
+                    vision_select.options = {**dict(vision_select.options), **included}
                 vision_select.value = value
                 vision_select.update()
                 clear_agent_cache()
