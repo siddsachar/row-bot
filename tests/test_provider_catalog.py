@@ -420,6 +420,26 @@ def test_openrouter_cached_tool_metadata_makes_agent_ready(monkeypatch):
     assert rows[0].status_reason == ""
 
 
+def test_model_catalog_does_not_resurrect_deleted_custom_default(tmp_path, monkeypatch):
+    import providers.config as provider_config
+    import providers.model_catalog as catalog_view
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(catalog_view, "_provider_status_by_id", lambda: {})
+    monkeypatch.setattr(catalog_view, "_custom_model_infos", lambda: [])
+    monkeypatch.setattr(catalog_view, "_codex_model_infos", lambda: [])
+    monkeypatch.setattr(catalog_view, "_curated_media_entries", lambda surface: {})
+
+    rows = build_model_catalog_rows(
+        cloud_cache={},
+        ollama_rows=[],
+        defaults={"chat": "model:custom_openai_deleted:ghost-chat"},
+        quick_choices=[],
+    )
+
+    assert rows == []
+
+
 def test_openrouter_cached_no_tool_metadata_is_chat_only(monkeypatch):
     import providers.model_catalog as catalog_view
 

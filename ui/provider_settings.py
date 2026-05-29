@@ -279,8 +279,14 @@ def build_custom_endpoints_section(on_change=None) -> None:
                     ui.space()
 
                     def _delete(endpoint_id=endpoint["id"]):
-                        delete_custom_endpoint(endpoint_id)
-                        ui.notify("Custom endpoint removed", type="info")
+                        removed_pins = delete_custom_endpoint(endpoint_id) or 0
+                        if removed_pins:
+                            ui.notify(
+                                f"Custom endpoint removed; cleared {removed_pins} stale model picker entr{'y' if removed_pins == 1 else 'ies'}",
+                                type="info",
+                            )
+                        else:
+                            ui.notify("Custom endpoint removed", type="info")
                         if on_change:
                             on_change()
 
@@ -289,7 +295,14 @@ def build_custom_endpoints_section(on_change=None) -> None:
                         try:
                             infos = await run.io_bound(refresh_custom_endpoint_models, endpoint_id)
                             notification.dismiss()
-                            ui.notify(f"Found {len(infos)} model(s)", type="positive")
+                            stale_pin_count = int(getattr(infos, "stale_pin_count", 0) or 0)
+                            default_reset = bool(getattr(infos, "default_reset", False))
+                            suffix = ""
+                            if stale_pin_count:
+                                suffix += f"; removed {stale_pin_count} stale picker entr{'y' if stale_pin_count == 1 else 'ies'}"
+                            if default_reset:
+                                suffix += "; reset stale Brain default"
+                            ui.notify(f"Found {len(infos)} model(s){suffix}", type="positive")
                             if on_change:
                                 on_change()
                         except Exception as exc:
