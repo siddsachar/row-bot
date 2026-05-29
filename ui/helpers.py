@@ -32,6 +32,9 @@ from vision import VisionService
 
 logger = logging.getLogger(__name__)
 
+ATTACHMENT_CONTEXT_START = "<thoth_attachment_context>"
+ATTACHMENT_CONTEXT_END = "</thoth_attachment_context>"
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 # APP CONFIG PERSISTENCE
@@ -99,6 +102,29 @@ def file_budget(model_name: str | None = None) -> int:
 
 def strip_file_context(content: str) -> str:
     """Replace verbose file-context blocks with compact badges for display."""
+    if ATTACHMENT_CONTEXT_START in content and ATTACHMENT_CONTEXT_END in content:
+        before, rest = content.split(ATTACHMENT_CONTEXT_START, 1)
+        hidden, after = rest.split(ATTACHMENT_CONTEXT_END, 1)
+        badges: list[str] = []
+        for line in hidden.splitlines():
+            if not line.startswith("[Attached "):
+                continue
+            header = line.split("\n", 1)[0]
+            bracket_end = header.find("]")
+            scoped = header[: bracket_end + 1] if bracket_end != -1 else header
+            after_colon = scoped.split(": ", 1)[1] if ": " in scoped else scoped
+            fname = after_colon.split("]")[0].strip()
+            if "ALREADY ANALYZED" in fname:
+                fname = fname.split("ALREADY ANALYZED", 1)[0].strip()
+            for marker in (" — ", " - ", ","):
+                if marker in fname:
+                    fname = fname.split(marker, 1)[0].strip()
+            badges.append(f"\U0001f4ce {fname}")
+        visible = "\n\n".join(part.strip() for part in (before, after) if part.strip())
+        if badges:
+            return "\n\n".join(part for part in (", ".join(badges), visible) if part)
+        return visible
+
     if "[Attached " not in content:
         return content
     parts = content.split("\n\n")
@@ -130,6 +156,68 @@ def strip_file_context(content: str) -> str:
     if user_parts:
         result_parts.append("\n\n".join(user_parts))
     return "\n\n".join(result_parts) if result_parts else content
+
+
+def wrap_attachment_context(context: str) -> str:
+    """Mark attachment context so transcript reload can strip it cleanly."""
+    context = str(context or "").strip()
+    if not context:
+        return ""
+    return f"{ATTACHMENT_CONTEXT_START}\n{context}\n{ATTACHMENT_CONTEXT_END}"
+
+
+def materialize_chat_attachments(files: list[dict]) -> list[dict]:
+    """Persist chat attachments and copy them into the workspace.
+
+    Each file dict is updated with ``workspace_path`` when copying succeeds.
+    """
+    if not files:
+        return []
+
+    from channels.media import copy_to_workspace, save_inbound_file
+
+    manifest: list[dict] = []
+    for f in files:
+        name = str(f.get("name") or "attachment")
+        data = f.get("data", b"")
+        if not isinstance(data, (bytes, bytearray)):
+            manifest.append({"name": name, "workspace_path": None, "error": "missing bytes"})
+            continue
+        try:
+            saved = save_inbound_file(bytes(data), name)
+            ws_rel = copy_to_workspace(saved, workspace_filename=name)
+            if ws_rel:
+                f["workspace_path"] = ws_rel
+            f["saved_path"] = str(saved)
+            manifest.append({
+                "name": name,
+                "saved_path": str(saved),
+                "workspace_path": ws_rel,
+                "size": len(data),
+                "suffix": pathlib.Path(name).suffix.lower(),
+            })
+        except Exception as exc:
+            logger.warning("Failed to materialize chat attachment %s: %s", name, exc)
+            manifest.append({"name": name, "workspace_path": None, "error": str(exc)})
+    return manifest
+
+
+def _workspace_hint(f: dict) -> str:
+    ws_path = str(f.get("workspace_path") or "").replace("\\", "/").strip()
+    if not ws_path:
+        return ""
+    return (
+        f"Workspace path: {ws_path}\n"
+        "For full file access, call workspace_read_file with this exact "
+        "workspace-relative path."
+    )
+
+
+def _with_workspace_hint(header: str, body: str, f: dict) -> str:
+    hint = _workspace_hint(f)
+    if hint:
+        return f"{header}\n{hint}\n{body}".rstrip()
+    return f"{header}\n{body}".rstrip()
 
 
 def _vision_analysis_failed(text: str) -> bool:
@@ -351,17 +439,25 @@ def process_attached_files(
                     data, f"Describe this image in detail. The filename is '{name}'."
                 )
                 if _vision_analysis_failed(description):
-                    context_parts.append(
-                        f"[Attached image: {name} - vision analysis failed]\n"
-                        f"{description}"
-                    )
+                    context_parts.append(_with_workspace_hint(
+                        f"[Attached image: {name} - vision analysis failed]",
+                        description,
+                        f,
+                    ))
                 else:
                     context_parts.append(
-                        f"[Attached image: {name} — ALREADY ANALYZED, do NOT call analyze_image]\n"
-                        f"{description}"
+                        _with_workspace_hint(
+                            f"[Attached image: {name} — ALREADY ANALYZED, do NOT call analyze_image]",
+                            description,
+                            f,
+                        )
                     )
             else:
-                context_parts.append(f"[Attached image: {name} — vision is disabled, cannot analyze]")
+                context_parts.append(_with_workspace_hint(
+                    f"[Attached image: {name} — vision is disabled, cannot analyze]",
+                    "",
+                    f,
+                ))
 
         elif suffix == ".pdf":
             try:
@@ -377,19 +473,35 @@ def process_attached_files(
                         warnings.append(f"📎 {name}: truncated — {len(reader.pages)} pages total, only first {i+1} shown")
                         break
                 content = "\n".join(pages) if pages else "(No extractable text found)"
-                context_parts.append(f"[Attached PDF: {name}, {len(reader.pages)} pages]\n{content}")
+                context_parts.append(_with_workspace_hint(
+                    f"[Attached PDF: {name}, {len(reader.pages)} pages]",
+                    content,
+                    f,
+                ))
             except Exception as exc:
-                context_parts.append(f"[Attached PDF: {name} — failed to extract text: {exc}]")
+                context_parts.append(_with_workspace_hint(
+                    f"[Attached PDF: {name} — failed to extract text: {exc}]",
+                    "",
+                    f,
+                ))
 
         elif suffix in DATA_EXTENSIONS:
             try:
                 from data_reader import read_data_file
                 buf = io.BytesIO(data)
                 summary = read_data_file(buf, name=name, max_chars=budget)
-                context_parts.append(f"[Attached data file: {name}]\n{summary}")
+                context_parts.append(_with_workspace_hint(
+                    f"[Attached data file: {name}]",
+                    summary,
+                    f,
+                ))
                 attached_data_cache[name] = data
             except Exception as exc:
-                context_parts.append(f"[Attached data file: {name} — failed to parse: {exc}]")
+                context_parts.append(_with_workspace_hint(
+                    f"[Attached data file: {name} — failed to parse: {exc}]",
+                    "",
+                    f,
+                ))
 
         elif suffix in TEXT_EXTENSIONS:
             try:
@@ -397,11 +509,23 @@ def process_attached_files(
                 if len(text) > budget:
                     warnings.append(f"📎 {name}: truncated — showing first {budget:,} of {len(text):,} chars")
                     text = text[:budget] + f"\n[Truncated — {len(data)} bytes total]"
-                context_parts.append(f"[Attached file: {name}]\n{text}")
+                context_parts.append(_with_workspace_hint(
+                    f"[Attached file: {name}]",
+                    text,
+                    f,
+                ))
             except Exception as exc:
-                context_parts.append(f"[Attached file: {name} — failed to read: {exc}]")
+                context_parts.append(_with_workspace_hint(
+                    f"[Attached file: {name} — failed to read: {exc}]",
+                    "",
+                    f,
+                ))
         else:
-            context_parts.append(f"[Attached file: {name} — unsupported file type '{suffix}']")
+            context_parts.append(_with_workspace_hint(
+                f"[Attached file: {name} — unsupported file type '{suffix}']",
+                "",
+                f,
+            ))
 
     # ── Total-budget cap: proportionally shrink if combined text > budget ──
     total_chars = sum(len(p) for p in context_parts)
