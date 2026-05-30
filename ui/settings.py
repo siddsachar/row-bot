@@ -172,6 +172,7 @@ def open_settings(
 
     shell_started = time.perf_counter()
     settings_generation = LoadGeneration()
+    _load_generation = settings_generation
     p.settings_child_modal_open = False
 
     # ── Recursive reopen helper ──
@@ -315,6 +316,8 @@ def open_settings(
         "OPENAI_API_KEY": "openai",
         "OLLAMA_API_KEY": "ollama_cloud",
         "OPENROUTER_API_KEY": "openrouter",
+        "OPENCODE_ZEN_API_KEY": "opencode_zen",
+        "OPENCODE_GO_API_KEY": "opencode_go",
         "ANTHROPIC_API_KEY": "anthropic",
         "GOOGLE_API_KEY": "google",
         "XAI_API_KEY": "xai",
@@ -1983,6 +1986,44 @@ def open_settings(
                 ui.button("Save Key", icon="save", on_click=_save_or).props("flat dense")
                 ui.button("Clear", icon="delete", on_click=lambda: _clear_secret("OPENROUTER_API_KEY", "OpenRouter key", or_refresh)).props("flat dense color=negative")
 
+        with ui.expansion("OpenCode Zen", icon="hub", value=False).classes("w-full"):
+            ui.label("Pay-per-request access to OpenCode's curated coding-agent models.").classes("text-grey-6 text-sm")
+            zen_input, zen_refresh = _secret_input("OpenCode Zen API Key", "OPENCODE_ZEN_API_KEY")
+
+            async def _save_opencode_zen():
+                val = _secret_value_or_notify(zen_input.value, "OpenCode Zen key")
+                if not val:
+                    return
+                set_key("OPENCODE_ZEN_API_KEY", val)
+                clear_provider_runtime_cache()
+                zen_input.value = ""
+                zen_input.update()
+                zen_refresh()
+                ui.notify("OpenCode Zen key saved", type="positive")
+                _start_catalog_refresh_ui(reason="provider_key_saved", provider_id="opencode_zen", force=True)
+            with ui.row().classes("gap-2"):
+                ui.button("Save Key", icon="save", on_click=_save_opencode_zen).props("flat dense")
+                ui.button("Clear", icon="delete", on_click=lambda: _clear_secret("OPENCODE_ZEN_API_KEY", "OpenCode Zen key", zen_refresh)).props("flat dense color=negative")
+
+        with ui.expansion("OpenCode Go", icon="rocket_launch", value=False).classes("w-full"):
+            ui.label("Subscription access to OpenCode's open coding models.").classes("text-grey-6 text-sm")
+            go_input, go_refresh = _secret_input("OpenCode Go API Key", "OPENCODE_GO_API_KEY")
+
+            async def _save_opencode_go():
+                val = _secret_value_or_notify(go_input.value, "OpenCode Go key")
+                if not val:
+                    return
+                set_key("OPENCODE_GO_API_KEY", val)
+                clear_provider_runtime_cache()
+                go_input.value = ""
+                go_input.update()
+                go_refresh()
+                ui.notify("OpenCode Go key saved", type="positive")
+                _start_catalog_refresh_ui(reason="provider_key_saved", provider_id="opencode_go", force=True)
+            with ui.row().classes("gap-2"):
+                ui.button("Save Key", icon="save", on_click=_save_opencode_go).props("flat dense")
+                ui.button("Clear", icon="delete", on_click=lambda: _clear_secret("OPENCODE_GO_API_KEY", "OpenCode Go key", go_refresh)).props("flat dense color=negative")
+
         with ui.expansion("🔶 Anthropic", icon="smart_toy", value=False).classes("w-full"):
             ui.label("Direct access to Claude models.").classes("text-grey-6 text-sm")
             anth_input, anth_refresh = _secret_input("Anthropic API Key", "ANTHROPIC_API_KEY")
@@ -2099,6 +2140,12 @@ def open_settings(
                 "### MiniMax\n\n"
                 "1. Go to [platform.minimax.io](https://platform.minimax.io/) → API Keys\n"
                 "2. Create a new key and paste it above\n\n"
+                "### OpenCode Zen\n\n"
+                "1. Go to [opencode.ai](https://opencode.ai) and create or open your account\n"
+                "2. Create a Zen API key and paste it above\n\n"
+                "### OpenCode Go\n\n"
+                "1. Subscribe to OpenCode Go through Zen\n"
+                "2. Create a Go API key and paste it above\n\n"
                 "### Ollama Cloud\n\n"
                 "1. Create an Ollama Cloud API key from your Ollama account\n"
                 "2. Paste it above for direct cloud models, or use `ollama signin` for local daemon cloud-offload models\n\n"

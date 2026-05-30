@@ -103,6 +103,31 @@ def _runtime_model_name(model_name: str | None) -> str:
     parsed = _parse_provider_model_ref(raw)
     return parsed[1] if parsed else raw
 
+
+def _provider_qualified_cloud_cache_key(provider_id: str | None, model_id: str | None) -> str:
+    provider = str(provider_id or "").strip()
+    model = str(model_id or "").strip()
+    return f"model:{provider}:{model}" if provider and model else ""
+
+
+def _cloud_cache_entry_for(model_name: str | None, provider_id: str | None = None) -> dict | None:
+    parsed = _parse_provider_model_ref(model_name)
+    runtime_model = _runtime_model_name(model_name)
+    provider = provider_id or (parsed[0] if parsed else None)
+    qualified_key = _provider_qualified_cloud_cache_key(provider, runtime_model)
+    if qualified_key:
+        info = _cloud_model_cache.get(qualified_key)
+        if isinstance(info, dict):
+            cached_provider = str(info.get("provider") or "")
+            if not cached_provider or cached_provider == provider:
+                return info
+    info = _cloud_model_cache.get(runtime_model)
+    if isinstance(info, dict):
+        cached_provider = str(info.get("provider") or "")
+        if not provider or not cached_provider or cached_provider == provider:
+            return info
+    return None
+
 # Prefixes considered chat-capable when filtering OpenAI /v1/models
 _OPENAI_CHAT_PREFIXES = ("gpt-", "o1", "o3", "o4", "chatgpt-")
 # Substrings that indicate a non-chat model — skip these
@@ -863,6 +888,8 @@ _PROVIDER_EMOJI: dict[str | None, str] = {
     "ollama": "☁️",
     "ollama_cloud": "☁️",
     "codex": "C",
+    "opencode_zen": "OZ",
+    "opencode_go": "OG",
     "openrouter": "🌐",
     "anthropic": "🔶",
     "google": "💎",
@@ -1074,7 +1101,7 @@ def get_cloud_model_context(model_name: str) -> int:
     provider_id = parsed[0] if parsed else None
     runtime_model = _runtime_model_name(model_name)
     _sync_custom_model_cache()
-    info = _cloud_model_cache.get(runtime_model)
+    info = _cloud_cache_entry_for(model_name, provider_id)
     if info and (not provider_id or info.get("provider") == provider_id):
         cached_ctx = int(info.get("ctx") or 0)
         if cached_ctx > 0:
@@ -1127,7 +1154,7 @@ def is_cloud_vision_model(model_name: str) -> bool:
             )
         except Exception:
             return False
-    info = _cloud_model_cache.get(runtime_model)
+    info = _cloud_cache_entry_for(model_name, parsed[0] if parsed else None)
     if not info:
         return False
     from providers.capabilities import snapshot_supports_surface
@@ -1483,6 +1510,13 @@ def fetch_cloud_models(provider: str) -> int:
         if not api_key:
             return 0
         return _fetch_minimax_models(api_key)
+    elif provider in {"opencode_zen", "opencode_go"}:
+        from providers.auth_store import get_provider_secret
+
+        api_key = get_provider_secret(provider)
+        if not api_key:
+            return 0
+        return _fetch_opencode_models(provider)
     else:
         return 0
 
@@ -1739,6 +1773,87 @@ def _fetch_minimax_models(api_key: str) -> int:
     return count
 
 
+def _fetch_opencode_models(provider_id: str) -> int:
+    """Populate OpenCode models from live discovery using provider-qualified keys."""
+    import httpx
+
+    from api_keys import get_key
+    from providers.catalog import model_info_to_cache_entry
+    from providers.opencode import list_opencode_model_infos, opencode_models_url
+
+    def _string_list(value: object) -> list[str] | None:
+        if not isinstance(value, list):
+            return None
+        return [str(item).strip().lower() for item in value if str(item).strip()]
+
+    def _opencode_input_modalities(item: dict) -> list[str] | None:
+        modalities = item.get("modalities")
+        if isinstance(modalities, dict):
+            values = _string_list(modalities.get("input"))
+            if values is not None:
+                return values
+        for key in ("input_modalities", "inputModalities"):
+            values = _string_list(item.get(key))
+            if values is not None:
+                return values
+        architecture = item.get("architecture")
+        if isinstance(architecture, dict):
+            values = _string_list(architecture.get("input_modalities"))
+            if values is not None:
+                return values
+        return None
+
+    try:
+        from providers.auth_store import provider_api_key_env
+        env_var = provider_api_key_env(provider_id)
+    except Exception:
+        env_var = ""
+    api_key = get_key(env_var) if env_var else ""
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    model_ids: list[str] | None = None
+    image_input_model_ids: set[str] | None = None
+    source = "live"
+    try:
+        resp = httpx.get(opencode_models_url(provider_id), headers=headers, timeout=15)
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        model_ids = []
+        discovered_image_inputs: set[str] = set()
+        saw_input_metadata = False
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            model_id = str(item.get("id") or "").strip()
+            if not model_id:
+                continue
+            model_ids.append(model_id)
+            input_modalities = _opencode_input_modalities(item)
+            if input_modalities is not None:
+                saw_input_metadata = True
+                if "image" in input_modalities:
+                    discovered_image_inputs.add(model_id)
+        if saw_input_metadata:
+            image_input_model_ids = discovered_image_inputs
+    except Exception as exc:
+        logger.warning("Failed to fetch %s models: %s; using static OpenCode fallback", provider_id, exc)
+        source = "fallback"
+
+    infos = list_opencode_model_infos(
+        provider_id,
+        model_ids=model_ids,
+        image_input_model_ids=image_input_model_ids,
+    )
+    count = 0
+    with _cloud_cache_lock:
+        for model_info in infos:
+            entry = model_info_to_cache_entry(model_info)
+            entry["source"] = "opencode_live_catalog" if source == "live" else "opencode_static_fallback"
+            _cloud_model_cache[model_info.selection_ref] = entry
+            count += 1
+    logger.info("Fetched %d %s models", count, provider_id)
+    return count
+
+
 def refresh_cloud_models() -> int:
     """Clear cache and re-fetch from all configured providers.
 
@@ -1764,6 +1879,8 @@ def refresh_cloud_models() -> int:
     total += fetch_cloud_models("google")
     total += fetch_cloud_models("xai")
     total += fetch_cloud_models("minimax")
+    total += fetch_cloud_models("opencode_zen")
+    total += fetch_cloud_models("opencode_go")
     _save_cloud_cache()
 
     # Do not rewrite the user's default just because a provider refresh missed
@@ -1797,6 +1914,8 @@ def _cloud_model_available_after_refresh(model_name: str) -> bool:
     if not parsed:
         return False
     provider_id, parsed_model = parsed
+    if _provider_qualified_cloud_cache_key(provider_id, parsed_model) in _cloud_model_cache:
+        return True
     if parsed_model in _cloud_model_cache:
         info = _cloud_model_cache.get(parsed_model, {})
         return not provider_id or info.get("provider") == provider_id

@@ -61,6 +61,16 @@ def resolve_provider_config(
     transport = definition.default_transport if definition else TransportMode.OLLAMA_CHAT if provider == "ollama" else TransportMode.OPENAI_CHAT
     base_url = definition.base_url if definition else ""
     risk_label = definition.risk_label if definition else ("local_private" if provider == "ollama" else "api_key")
+    if provider in {"opencode_zen", "opencode_go"}:
+        try:
+            from providers.opencode import opencode_base_url, opencode_known_route
+
+            base_url = opencode_base_url(provider)
+            route = opencode_known_route(provider, model_id)
+            if route:
+                transport = route.transport
+        except Exception:
+            pass
     if provider == "ollama":
         try:
             from providers.ollama import is_ollama_cloud_offload_model

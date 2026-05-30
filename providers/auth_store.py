@@ -14,6 +14,8 @@ PROVIDER_API_KEY_ENV: dict[str, str] = {
     "openai": "OPENAI_API_KEY",
     "ollama_cloud": "OLLAMA_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
+    "opencode_zen": "OPENCODE_ZEN_API_KEY",
+    "opencode_go": "OPENCODE_GO_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
     "google": "GOOGLE_API_KEY",
     "xai": "XAI_API_KEY",

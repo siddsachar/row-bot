@@ -585,7 +585,7 @@ def _cached_provider_capability_snapshot(provider_id: str, model_id: str) -> dic
     try:
         from models import _cloud_model_cache
 
-        cached = _cloud_model_cache.get(model_id)
+        cached = _cloud_model_cache.get(model_ref(provider_id, model_id)) or _cloud_model_cache.get(model_id)
     except Exception:
         return {}
     if not isinstance(cached, dict):
@@ -697,7 +697,7 @@ def _quick_choice_for_media_selection(selection: str, surface: str) -> dict[str,
         return None
     try:
         from models import _cloud_model_cache
-        cached = _cloud_model_cache.get(model_id)
+        cached = _cloud_model_cache.get(model_ref(provider_id, model_id)) or _cloud_model_cache.get(model_id)
         if isinstance(cached, dict) and cached.get("provider") == provider_id:
             snapshot = cached.get("capabilities_snapshot") if isinstance(cached.get("capabilities_snapshot"), dict) else {}
             display_name = str(cached.get("label") or model_id)

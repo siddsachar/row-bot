@@ -14,7 +14,17 @@ def is_provider_available(provider_id: str) -> bool:
 
 def list_configured_provider_ids() -> list[str]:
     configured = [
-        provider_id for provider_id in ("openai", "ollama_cloud", "openrouter", "anthropic", "google", "xai", "minimax")
+        provider_id for provider_id in (
+            "openai",
+            "ollama_cloud",
+            "openrouter",
+            "opencode_zen",
+            "opencode_go",
+            "anthropic",
+            "google",
+            "xai",
+            "minimax",
+        )
         if is_provider_available(provider_id)
     ]
     try:
@@ -134,6 +144,59 @@ def create_chat_model(model_name: str, provider_id: str | None = None):
         definition = get_provider_definition("ollama_cloud")
         base_url = definition.base_url if definition and definition.base_url else "https://ollama.com"
         return ChatOllamaCloud(model_name=model_name, api_key=api_key, base_url=base_url)
+    if provider in {"opencode_zen", "opencode_go"}:
+        from providers.opencode import (
+            OpenCodeUnsupportedRouteError,
+            opencode_anthropic_base_url,
+            opencode_base_url,
+            opencode_model_route,
+        )
+
+        provider_label = "OpenCode Zen" if provider == "opencode_zen" else "OpenCode Go"
+        api_key = get_provider_secret(provider)
+        if not api_key:
+            raise ValueError(f"{provider_label} API key not configured. Set it in Settings -> Providers.")
+        try:
+            route = opencode_model_route(provider, model_name)
+        except OpenCodeUnsupportedRouteError:
+            raise
+        transport = route.transport
+        if transport == "openai_chat" or transport.value == "openai_chat":
+            from providers.transports.openai_compatible import ChatOpenAICompatible
+
+            return ChatOpenAICompatible(
+                model_name=model_name,
+                api_key=api_key,
+                base_url=opencode_base_url(provider),
+                endpoint={
+                    "provider_id": provider,
+                    "display_name": provider_label,
+                    "base_url": opencode_base_url(provider),
+                    "transport": transport.value,
+                    "profile": "opencode",
+                },
+            )
+        if transport == "openai_responses" or transport.value == "openai_responses":
+            from langchain_openai import ChatOpenAI
+
+            return ChatOpenAI(
+                model=model_name,
+                api_key=api_key,
+                base_url=opencode_base_url(provider),
+                use_responses_api=True,
+                output_version="responses/v1",
+            )
+        if transport == "anthropic_messages" or transport.value == "anthropic_messages":
+            from langchain_anthropic import ChatAnthropic
+
+            return ChatAnthropic(
+                model=model_name,
+                api_key=api_key,
+                base_url=opencode_anthropic_base_url(provider),
+            )
+        raise OpenCodeUnsupportedRouteError(
+            f"OpenCode route for {provider_label} model '{model_name}' uses unsupported/deferred transport {transport.value}."
+        )
     if is_custom_openai_provider(provider):
         from providers.transports.openai_compatible import ChatOpenAICompatible
         endpoint = get_custom_endpoint(provider)
@@ -255,7 +318,7 @@ def _cached_provider_capability_snapshot(provider_id: str, model_name: str) -> d
     try:
         from models import _cloud_model_cache
 
-        cached = _cloud_model_cache.get(model_name)
+        cached = _cloud_model_cache.get(f"model:{provider_id}:{model_name}") or _cloud_model_cache.get(model_name)
     except Exception:
         return {}
     if not isinstance(cached, dict):
