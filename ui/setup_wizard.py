@@ -16,7 +16,7 @@ import json
 import ipaddress
 import logging
 import sys
-from typing import Callable, TYPE_CHECKING
+from typing import Any, Callable, TYPE_CHECKING
 from urllib.parse import urlparse
 
 from nicegui import run, ui
@@ -81,6 +81,36 @@ def custom_endpoint_model_options(model_infos: list) -> dict[str, str]:
         info.selection_ref: f"↔ {info.display_name or info.model_id}"
         for info in model_infos
         if getattr(info, "selection_ref", "") and getattr(info, "model_id", "")
+    }
+
+
+def cloud_model_setup_option(
+    cache_key: str,
+    cache_entry: dict[str, Any] | None = None,
+    *,
+    emoji_lookup: Callable[[str], str] | None = None,
+) -> dict[str, str]:
+    """Build a setup-wizard option from a legacy or provider-qualified cache row."""
+    from providers.selection import model_choice_value, parse_model_ref
+
+    raw_key = str(cache_key or "").strip()
+    entry = cache_entry if isinstance(cache_entry, dict) else {}
+    parsed = parse_model_ref(raw_key)
+    if parsed:
+        provider_id, model_id = parsed
+    else:
+        provider_id = str(entry.get("provider") or "")
+        model_id = raw_key
+    value = model_choice_value(raw_key if parsed else model_id, provider_id=provider_id)
+    display_name = str(entry.get("label") or model_id)
+    emoji = emoji_lookup(value) if emoji_lookup else ""
+    label = f"{emoji} {display_name}".strip()
+    return {
+        "value": value,
+        "label": label,
+        "provider_id": provider_id,
+        "model_id": model_id,
+        "display_name": display_name,
     }
 
 
@@ -258,6 +288,14 @@ async def show_setup_wizard(
                     "OpenRouter API Key (optional)",
                     password=True, password_toggle_button=True,
                 ).classes("w-full")
+                setup_opencode_zen_key = ui.input(
+                    "OpenCode Zen API Key (optional)",
+                    password=True, password_toggle_button=True,
+                ).classes("w-full")
+                setup_opencode_go_key = ui.input(
+                    "OpenCode Go API Key (optional)",
+                    password=True, password_toggle_button=True,
+                ).classes("w-full")
 
                 cloud_status = ui.label("").classes("text-sm")
                 cloud_status.visible = False
@@ -428,7 +466,9 @@ async def show_setup_wizard(
                     xai_val = setup_xai_key.value.strip()
                     minimax_val = setup_minimax_key.value.strip()
                     or_val = setup_or_key.value.strip()
-                    if not oai_val and not ollama_cloud_val and not anth_val and not goog_val and not xai_val and not minimax_val and not or_val:
+                    opencode_zen_val = setup_opencode_zen_key.value.strip()
+                    opencode_go_val = setup_opencode_go_key.value.strip()
+                    if not oai_val and not ollama_cloud_val and not anth_val and not goog_val and not xai_val and not minimax_val and not or_val and not opencode_zen_val and not opencode_go_val:
                         ui.notify("Enter at least one API key", type="warning")
                         return
                     entered_providers = [
@@ -441,6 +481,8 @@ async def show_setup_wizard(
                             ("xai", xai_val),
                             ("minimax", minimax_val),
                             ("openrouter", or_val),
+                            ("opencode_zen", opencode_zen_val),
+                            ("opencode_go", opencode_go_val),
                         )
                         if value
                     ]
@@ -497,6 +539,10 @@ async def show_setup_wizard(
                         set_key("MINIMAX_API_KEY", minimax_val)
                     if oai_val:
                         set_key("OPENAI_API_KEY", oai_val)
+                    if opencode_zen_val:
+                        set_key("OPENCODE_ZEN_API_KEY", opencode_zen_val)
+                    if opencode_go_val:
+                        set_key("OPENCODE_GO_API_KEY", opencode_go_val)
                     cloud_status.text = "⏳ Fetching available models…"
                     count = await run.io_bound(refresh_cloud_models)
                     if count == 0:
@@ -506,41 +552,43 @@ async def show_setup_wizard(
                         return
                     codex_models_by_ref.clear()
                     models = list_cloud_models()
-                    opts = {}
-                    for m in models:
-                        provider_id = str((_cloud_model_cache.get(m) or {}).get("provider") or "")
-                        value = model_choice_value(m, provider_id=provider_id)
-                        opts[value] = f"{get_provider_emoji(value)} {m}"
+                    model_options_by_key = {
+                        m: cloud_model_setup_option(
+                            m,
+                            _cloud_model_cache.get(m),
+                            emoji_lookup=get_provider_emoji,
+                        )
+                        for m in models
+                    }
+                    opts = {option["value"]: option["label"] for option in model_options_by_key.values()}
                     cloud_model_select.options = opts
                     cloud_model_select.visible = True
                     preferred_models = [
                         m for m in models
-                        if str((_cloud_model_cache.get(m) or {}).get("provider") or "") in entered_providers
+                        if model_options_by_key[m]["provider_id"] in entered_providers
                     ]
                     first_model = preferred_models[0] if preferred_models else ("gpt-5" if "gpt-5" in models else models[0])
-                    first = model_choice_value(
-                        first_model,
-                        provider_id=str((_cloud_model_cache.get(first_model) or {}).get("provider") or ""),
-                    )
+                    first = model_options_by_key[first_model]["value"]
                     cloud_model_select.set_value(first)
                     vision_models = list_cloud_vision_models()
                     if vision_models:
-                        v_opts = {}
-                        for m in vision_models:
-                            provider_id = str((_cloud_model_cache.get(m) or {}).get("provider") or "")
-                            value = model_choice_value(m, provider_id=provider_id)
-                            v_opts[value] = f"{get_provider_emoji(value)} {m}"
+                        vision_options_by_key = {
+                            m: cloud_model_setup_option(
+                                m,
+                                _cloud_model_cache.get(m),
+                                emoji_lookup=get_provider_emoji,
+                            )
+                            for m in vision_models
+                        }
+                        v_opts = {option["value"]: option["label"] for option in vision_options_by_key.values()}
                         cloud_vision_select.options = v_opts
                         preferred_vision = [
                             m for m in vision_models
-                            if str((_cloud_model_cache.get(m) or {}).get("provider") or "") in entered_providers
+                            if vision_options_by_key[m]["provider_id"] in entered_providers
                         ]
                         if preferred_vision:
                             v_first_model = preferred_vision[0]
-                            v_first = model_choice_value(
-                                v_first_model,
-                                provider_id=str((_cloud_model_cache.get(v_first_model) or {}).get("provider") or ""),
-                            )
+                            v_first = vision_options_by_key[v_first_model]["value"]
                             cloud_vision_select.set_value(v_first)
                             cloud_vision_select.visible = True
                         else:
@@ -911,7 +959,7 @@ async def show_setup_wizard(
                         else:
                             parsed = parse_model_ref(sel)
                             if parsed:
-                                cached = _cloud_model_cache.get(parsed[1]) or {}
+                                cached = _cloud_model_cache.get(sel) or _cloud_model_cache.get(parsed[1]) or {}
                                 add_quick_choice_for_model(
                                     parsed[1],
                                     provider_id=parsed[0],

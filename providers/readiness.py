@@ -19,6 +19,8 @@ TRUSTED_AGENT_PROVIDERS = {
     "google",
     "xai",
     "minimax",
+    "opencode_zen",
+    "opencode_go",
     "codex",
     "ollama_cloud",
 }
@@ -172,6 +174,10 @@ def evaluate_agent_readiness(
         errors.append("model does not produce text output")
     if transport not in AGENT_TRANSPORTS:
         errors.append(f"transport {transport or resolved.transport.value} is not supported for Agent Mode")
+    opencode_unsupported_reason = _opencode_unsupported_reason(resolved)
+    if opencode_unsupported_reason:
+        errors.append(opencode_unsupported_reason)
+        actions.append("Choose an OpenCode model with chat, responses, or Anthropic Messages support.")
 
     source = _snapshot_source(snapshot, resolved)
     confidence = "high" if source in {"trusted_provider", "probe", "catalog"} else "low"
@@ -367,6 +373,10 @@ def evaluate_chat_readiness(
         errors.append("model does not produce text output")
     if transport not in AGENT_TRANSPORTS:
         errors.append(f"transport {transport or resolved.transport.value} is not supported for Chat Only")
+    opencode_unsupported_reason = _opencode_unsupported_reason(resolved)
+    if opencode_unsupported_reason:
+        errors.append(opencode_unsupported_reason)
+        actions.append("Choose an OpenCode model with chat, responses, or Anthropic Messages support.")
 
     if resolved.provider_id.startswith("custom_openai_"):
         endpoint = resolved.endpoint or {}
@@ -504,6 +514,15 @@ def _snapshot_for_resolved(
             return ollama_model_info(resolved.runtime_model).capability_snapshot()
         except Exception:
             pass
+    if resolved.provider_id in {"opencode_zen", "opencode_go"}:
+        try:
+            from providers.opencode import opencode_known_route, opencode_model_info
+
+            route = opencode_known_route(resolved.provider_id, resolved.runtime_model)
+            if route:
+                return opencode_model_info(route).capability_snapshot()
+        except Exception:
+            pass
     cached = _cached_capability_snapshot_for_resolved(resolved)
     if cached:
         return cached
@@ -519,7 +538,7 @@ def _cached_capability_snapshot_for_resolved(resolved: ResolvedProviderConfig) -
     try:
         from models import _cloud_model_cache
 
-        info = _cloud_model_cache.get(resolved.runtime_model)
+        info = _cloud_model_cache.get(resolved.selection_ref) or _cloud_model_cache.get(resolved.runtime_model)
     except Exception:
         return {}
     if not isinstance(info, Mapping):
@@ -540,6 +559,25 @@ def _snapshot_source(snapshot: Mapping[str, Any], resolved: ResolvedProviderConf
     if source_confidence:
         return source_confidence
     return "catalog" if snapshot else "unknown"
+
+
+def _opencode_unsupported_reason(resolved: ResolvedProviderConfig) -> str:
+    if resolved.provider_id not in {"opencode_zen", "opencode_go"}:
+        return ""
+    try:
+        from providers.opencode import opencode_known_route
+
+        route = opencode_known_route(resolved.provider_id, resolved.runtime_model)
+    except Exception:
+        route = None
+    if route and route.unsupported_reason:
+        return route.unsupported_reason
+    if route is None:
+        return (
+            f"OpenCode model '{resolved.runtime_model}' has no supported route mapping "
+            f"for provider '{resolved.provider_id}'."
+        )
+    return ""
 
 
 def _dedupe(values: list[str]) -> list[str]:

@@ -23,9 +23,18 @@ class TaskStoppedError(Exception):
 apply_keys()
 
 
-def _provider_uses_anthropic_messages(provider_id: str | None) -> bool:
+def _provider_uses_anthropic_messages(provider_id: str | None, model_id: str | None = None) -> bool:
     if not provider_id:
         return False
+    if provider_id in {"opencode_zen", "opencode_go"} and model_id:
+        try:
+            from providers.models import TransportMode
+            from providers.opencode import opencode_known_route
+
+            route = opencode_known_route(provider_id, model_id)
+            return bool(route and route.transport == TransportMode.ANTHROPIC_MESSAGES)
+        except Exception:
+            return False
     try:
         from providers.catalog import get_provider_definition
         from providers.models import TransportMode
@@ -1621,7 +1630,15 @@ def _pre_model_trim(state: dict) -> dict:
     try:
         _cur = _active_model_override.get() or get_current_model()
         _provider_id = get_cloud_provider(_cur) if is_cloud_model(_cur) else None
-        if _provider_uses_anthropic_messages(_provider_id):
+        _model_id = ""
+        try:
+            from providers.selection import parse_model_ref
+
+            _parsed = parse_model_ref(_cur)
+            _model_id = _parsed[1] if _parsed else str(_cur or "")
+        except Exception:
+            _model_id = str(_cur or "")
+        if _provider_uses_anthropic_messages(_provider_id, _model_id):
             _sys = [m for m in trimmed if isinstance(m, SystemMessage)]
             _rest = [m for m in trimmed if not isinstance(m, SystemMessage)]
             trimmed = _sys + _rest

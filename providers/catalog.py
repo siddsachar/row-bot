@@ -50,6 +50,24 @@ PROVIDER_DEFINITIONS: dict[str, ProviderDefinition] = {
         risk_label="third_party_router",
         icon="🌐",
     ),
+    "opencode_zen": ProviderDefinition(
+        id="opencode_zen",
+        display_name="OpenCode Zen",
+        auth_methods=(AuthMethod.API_KEY,),
+        default_transport=TransportMode.OPENAI_CHAT,
+        base_url="https://opencode.ai/zen/v1",
+        risk_label="cloud_provider",
+        icon="OZ",
+    ),
+    "opencode_go": ProviderDefinition(
+        id="opencode_go",
+        display_name="OpenCode Go",
+        auth_methods=(AuthMethod.API_KEY,),
+        default_transport=TransportMode.OPENAI_CHAT,
+        base_url="https://opencode.ai/zen/go/v1",
+        risk_label="cloud_provider",
+        icon="OG",
+    ),
     "anthropic": ProviderDefinition(
         id="anthropic",
         display_name="Anthropic API",
@@ -116,6 +134,12 @@ def _metadata_suggests_image_input(metadata: dict[str, Any]) -> bool:
         modalities = metadata.get(key)
         if isinstance(modalities, list) and any(str(item).lower() == "image" for item in modalities):
             return True
+    architecture = metadata.get("architecture")
+    if isinstance(architecture, dict):
+        for key in ("input_modalities", "input", "modalities"):
+            modalities = architecture.get(key)
+            if isinstance(modalities, list) and any(str(item).lower() == "image" for item in modalities):
+                return True
     return False
 
 
@@ -153,6 +177,15 @@ def infer_provider_id(model_id: str, cached_provider: str | None = None) -> str 
     return None
 
 
+def split_model_cache_key(model_id: str) -> tuple[str | None, str]:
+    """Return ``(provider_id, runtime_model_id)`` for legacy or provider-ref cache keys."""
+    raw = str(model_id or "").strip()
+    parts = raw.split(":", 2)
+    if len(parts) == 3 and parts[0] == "model" and parts[1] and parts[2]:
+        return parts[1], parts[2]
+    return None, raw
+
+
 def _str_set(value: Any) -> set[str]:
     if isinstance(value, str):
         return {value} if value else set()
@@ -181,7 +214,8 @@ def _transport_set_from_values(value: Any, fallback: frozenset[TransportMode]) -
 
 
 def model_info_from_legacy(model_id: str, info: dict[str, Any]) -> ModelInfo | None:
-    provider_id = infer_provider_id(model_id, info.get("provider"))
+    key_provider_id, runtime_model_id = split_model_cache_key(model_id)
+    provider_id = infer_provider_id(runtime_model_id, info.get("provider") or key_provider_id)
     if not provider_id:
         return None
     definition = get_provider_definition(provider_id)
@@ -218,8 +252,8 @@ def model_info_from_legacy(model_id: str, info: dict[str, Any]) -> ModelInfo | N
     )
     return ModelInfo(
         provider_id=provider_id,
-        model_id=model_id,
-        display_name=str(info.get("label") or model_id),
+        model_id=runtime_model_id,
+        display_name=str(info.get("label") or runtime_model_id),
         context_window=int(info.get("ctx") or 0),
         transport=resolved_transport,
         capabilities=frozenset(capabilities),
@@ -411,7 +445,7 @@ def classify_model_capabilities(
     if provider_id == "openrouter":
         architecture = metadata.get("architecture") if isinstance(metadata.get("architecture"), dict) else {}
         modality = str(architecture.get("modality") or "")
-        if "image" in modality:
+        if "image" in modality or _metadata_suggests_image_input(metadata):
             input_modalities.add(ModelModality.IMAGE.value)
             capabilities.add("vision")
         tool_calling = None

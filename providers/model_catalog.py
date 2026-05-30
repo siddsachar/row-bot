@@ -190,6 +190,9 @@ def build_model_catalog_rows(
         for model_info in _minimax_static_model_infos():
             _add_model_info_row(rows, model_info, provider_status, pinned_by_ref, default_refs, installed=True)
 
+    for model_info in _opencode_model_infos(provider_status):
+        _add_model_info_row(rows, model_info, provider_status, pinned_by_ref, default_refs, installed=True)
+
     for model_info in _custom_model_infos():
         _add_model_info_row(rows, model_info, provider_status, pinned_by_ref, default_refs, installed=True)
 
@@ -507,6 +510,20 @@ def _minimax_static_model_infos() -> list[ModelInfo]:
             source="provider_static_catalog",
         )
         for model_id, context_window in _MINIMAX_SUPPORTED_MODELS
+    ]
+
+
+def _opencode_model_infos(provider_status: dict[str, dict[str, Any]] | None = None) -> list[ModelInfo]:
+    try:
+        from providers.opencode import OPENCODE_PROVIDER_IDS, list_opencode_model_infos
+    except Exception:
+        return []
+    status = provider_status or {}
+    return [
+        model_info
+        for provider_id in sorted(OPENCODE_PROVIDER_IDS)
+        if bool(status.get(provider_id, {}).get("configured"))
+        for model_info in list_opencode_model_infos(provider_id)
     ]
 
 
