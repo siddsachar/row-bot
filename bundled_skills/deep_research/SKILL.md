@@ -8,6 +8,26 @@ version: "1.1"
 tags:
   - research
   - analysis
+activation:
+  phrases:
+    - deep research
+    - research competitors
+    - competitor research
+    - structured report
+    - multi-source research
+  keywords:
+    - research
+    - competitors
+    - sources
+    - report
+    - market
+    - compare
+  negative_phrases:
+    - meeting notes
+    - action items
+    - human tone
+  examples:
+    - I need to research competitors and produce a structured report
 author: Thoth
 ---
 

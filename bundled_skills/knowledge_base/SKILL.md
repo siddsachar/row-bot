@@ -9,6 +9,25 @@ tags:
   - memory
   - knowledge
   - wiki
+activation:
+  phrases:
+    - knowledge base
+    - save to memory
+    - organize documents
+    - wiki vault
+    - knowledge graph
+  keywords:
+    - knowledge
+    - memory
+    - documents
+    - wiki
+    - vault
+    - graph
+  negative_phrases:
+    - stale memory
+    - human tone
+  examples:
+    - Organize these documents into my knowledge base
 author: Thoth
 ---
 

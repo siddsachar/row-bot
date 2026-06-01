@@ -381,7 +381,12 @@ async def _handle_inbound_sms(request) -> Any:
     record_activity("sms")
 
     # Slash command dispatch
-    cmd_response = ch_commands.dispatch("sms", body)
+    _cmd_thread_id = (
+        _get_or_create_thread(from_number)
+        if body.lower().split(maxsplit=1)[0] in {"/skill", "/skills", "/noskill"}
+        else None
+    )
+    cmd_response = ch_commands.dispatch("sms", body, thread_id=_cmd_thread_id)
     if cmd_response is not None:
         _send_reply(from_number, cmd_response)
         return Response("<Response/>", media_type=_XML)

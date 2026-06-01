@@ -40,6 +40,9 @@ COMMANDS: list[ChannelCommand] = [
     ChannelCommand("/model",  "Show or switch the active model", "cmd_model"),
     ChannelCommand("/help",   "List available commands",         "cmd_help"),
     ChannelCommand("/tools",  "List enabled tools",              "cmd_tools"),
+    ChannelCommand("/skill",  "Use a skill in this conversation", "cmd_skill"),
+    ChannelCommand("/skills", "Show active and suggested skills", "cmd_skill"),
+    ChannelCommand("/noskill", "Disable a skill in this conversation", "cmd_skill"),
     ChannelCommand("/stop",   "Stop the current generation",     "cmd_stop"),
 ]
 
@@ -177,6 +180,39 @@ def cmd_stop(channel_name: str) -> str:
 
 # ── Dispatch helper ──────────────────────────────────────────────────
 
+def cmd_skill(
+    channel_name: str,
+    text: str,
+    *,
+    thread_id: str | None = None,
+    enabled_tool_names: list[str] | None = None,
+) -> str:
+    """Handle Smart Skills commands for channel conversations."""
+    if not thread_id:
+        return (
+            f"{channel_name} could not identify the current conversation thread, "
+            "so Smart Skills were not changed."
+        )
+    try:
+        from skills_activation import apply_skill_command
+        if enabled_tool_names is None:
+            try:
+                from tools.registry import get_enabled_tools
+                enabled_tool_names = [t.name for t in get_enabled_tools()]
+            except Exception:
+                enabled_tool_names = []
+
+        response = apply_skill_command(
+            thread_id,
+            text,
+            enabled_tool_names=enabled_tool_names or [],
+        )
+        return response or "Smart Skills command not recognized."
+    except Exception as exc:
+        log.warning("/skill failed: %s", exc)
+        return f"Could not update Smart Skills: {exc}"
+
+
 _HANDLER_MAP = {
     "/new":    lambda ch, _arg: cmd_new(ch),
     "/status": lambda ch, _arg: cmd_status(ch),
@@ -187,7 +223,13 @@ _HANDLER_MAP = {
 }
 
 
-def dispatch(channel_name: str, text: str) -> str | None:
+def dispatch(
+    channel_name: str,
+    text: str,
+    *,
+    thread_id: str | None = None,
+    enabled_tool_names: list[str] | None = None,
+) -> str | None:
     """Try to dispatch *text* as a slash command.
 
     Returns the response string if *text* matches a known command,
@@ -201,6 +243,14 @@ def dispatch(channel_name: str, text: str) -> str | None:
     parts = text.split(maxsplit=1)
     cmd = parts[0].lower()
     arg = parts[1] if len(parts) > 1 else ""
+
+    if cmd in {"/skill", "/skills", "/noskill"}:
+        return cmd_skill(
+            channel_name,
+            text,
+            thread_id=thread_id,
+            enabled_tool_names=enabled_tool_names,
+        )
 
     handler = _HANDLER_MAP.get(cmd)
     if handler is None:

@@ -106,6 +106,7 @@ CORE_MODULES = [
     "vision",
     "data_reader",
     "tasks",
+    "skills_activation",
     "notifications",
     "launcher",
     "mcp_client.config",
@@ -240,6 +241,8 @@ FUNCTION_CHECKS = [
     ("vision", "capture_screenshot"),
     ("tasks", "seed_default_tasks"),
     ("tasks", "start_task_scheduler"),
+    ("skills_activation", "resolve_active_skill_names"),
+    ("skills_activation", "apply_skill_command"),
     ("notifications", "notify"),
     ("channels.config", "get"),
     ("channels.config", "set"),
@@ -5549,10 +5552,16 @@ try:
 
     # ── 36r. UI has per-thread skills override ────────────────
     assert "get_thread_skills_override" in _src_app36, \
-        "ui/ should import get_thread_skills_override"
-    assert "set_thread_skills_override" in _src_app36, \
-        "ui/ should import set_thread_skills_override"
-    record("PASS", "skills: ui/ has per-thread skills override")
+        "ui/ should read explicit task/thread skills overrides"
+    assert "get_activation_snapshot" in _src_app36, \
+        "ui/ should render Smart Skills activation state"
+    assert "Choose skills for this chat" in _src_app36, \
+        "ui/ should expose a runtime skill picker"
+    assert "Linked Tools" not in _src_app36, \
+        "manual Skill Library UI should not expose tool metadata"
+    assert "Use once" not in _src_app36, \
+        "chat skill UI should not expose one-shot activation"
+    record("PASS", "skills: ui/ has chat-level runtime skill controls")
 
     # ── 36s. Bundled SKILL.md files have valid YAML ───────────────────
     import yaml as _yaml36
@@ -5903,6 +5912,7 @@ try:
         instructions="Use the foo tool like this.",
         tools=["weather"],
         enabled=False,
+        allow_tool_guide=True,
     )
     assert _tg_created is not None
     _manual_list = _skills_mod36.get_manual_skills()
@@ -5942,6 +5952,7 @@ try:
         instructions="Weather guidance here.",
         tools=["weather"],
         enabled=False,
+        allow_tool_guide=True,
     )
     assert _tg_created2 is not None
     _en = _skills_mod36.get_enabled_skills()
@@ -5961,15 +5972,12 @@ try:
         enabled=True,
     )
     assert _tg_created3 is not None
-    assert _tg_created3.tools == ["browser", "gmail"], \
-        f"created skill tools should be ['browser', 'gmail'], got {_tg_created3.tools}"
-    # Verify the YAML file actually has tools
+    assert _tg_created3.tools == [], \
+        f"manual skill tools should be stripped, got {_tg_created3.tools}"
     _yaml_text = (_tg_created3.path / "SKILL.md").read_text(encoding="utf-8")
-    assert "tools:" in _yaml_text, "SKILL.md should contain tools: in YAML"
-    assert "browser" in _yaml_text, "SKILL.md should contain browser in tools"
-    assert "gmail" in _yaml_text, "SKILL.md should contain gmail in tools"
+    assert "tools:" not in _yaml_text, "manual SKILL.md should not contain tools: in YAML"
     _skills_mod36.delete_skill("test_tools_yaml")
-    record("PASS", "skills: create_skill writes tools to YAML frontmatter")
+    record("PASS", "skills: create_skill strips tools for manual skills")
 
     # ── 36ax. update_skill writes tools to YAML frontmatter ──────────
     _upd_created = _skills_mod36.create_skill(
@@ -5984,13 +5992,12 @@ try:
     assert _upd_created is not None
     _upd_result = _skills_mod36.update_skill("test_update_tools", tools=["gmail", "calendar"])
     assert _upd_result is not None
-    assert _upd_result.tools == ["gmail", "calendar"], \
-        f"updated tools should be ['gmail', 'calendar'], got {_upd_result.tools}"
+    assert _upd_result.tools == [], \
+        f"manual skill tools should be stripped on update, got {_upd_result.tools}"
     _upd_yaml = (_upd_result.path / "SKILL.md").read_text(encoding="utf-8")
-    assert "gmail" in _upd_yaml, "updated SKILL.md should contain gmail"
-    assert "calendar" in _upd_yaml, "updated SKILL.md should contain calendar"
+    assert "tools:" not in _upd_yaml, "manual SKILL.md should not contain tools after update"
     _skills_mod36.delete_skill("test_update_tools")
-    record("PASS", "skills: update_skill writes tools to YAML frontmatter")
+    record("PASS", "skills: update_skill strips tools for manual skills")
 
     # ── 36ay. tool guide prompt injection (no ## Skills header) ───────
     _tg_prompt_sk = _skills_mod36.create_skill(
@@ -6001,6 +6008,7 @@ try:
         instructions="Use weather like this.",
         tools=["weather"],
         enabled=False,
+        allow_tool_guide=True,
     )
     assert _tg_prompt_sk is not None
     _guide_prompt = _skills_mod36.get_skills_prompt()

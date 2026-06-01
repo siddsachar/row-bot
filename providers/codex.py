@@ -83,6 +83,20 @@ class CodexTokenSet:
             expires_at=self.expires_at,
         )
 
+
+@dataclass(frozen=True)
+class CodexTokenHealth:
+    status: str
+    detail: str
+    credentials: CodexTokenSet = CodexTokenSet(access_token="")
+
+    @property
+    def runnable(self) -> bool:
+        return self.status in {"valid", "refreshed"} and bool(
+            self.credentials.access_token and self.credentials.account_id
+        )
+
+
 FALLBACK_CODEX_MODELS = [
     {
         "id": "gpt-5.5",
@@ -421,7 +435,7 @@ def codex_runtime_credentials(*, refresh_if_needed: bool = True, http_client: An
     if not plan_type:
         plan_type = str(metadata.get("plan_type") or "")
 
-    if refresh_if_needed and access_token and refresh_token and _expires_soon(expires_at):
+    if refresh_if_needed and refresh_token and (not access_token or _expires_soon(expires_at)):
         refreshed = refresh_codex_token(refresh_token, http_client=http_client)
         saved = save_codex_oauth_tokens(refreshed)
         access_token = refreshed.access_token
@@ -441,12 +455,92 @@ def codex_runtime_credentials(*, refresh_if_needed: bool = True, http_client: An
     )
 
 
-def codex_runtime_available() -> bool:
+def check_codex_token_health(*, refresh_if_needed: bool = True, http_client: Any | None = None) -> CodexTokenHealth:
+    """Probe Codex OAuth credentials and silently refresh when possible."""
     try:
         credentials = codex_runtime_credentials(refresh_if_needed=False)
+    except Exception as exc:
+        return CodexTokenHealth("error", f"Could not read ChatGPT credentials: {exc}")
+
+    if not credentials.access_token and not credentials.refresh_token:
+        return CodexTokenHealth(
+            "missing",
+            "ChatGPT needs to be connected in Settings -> Providers before Codex models can run.",
+            credentials,
+        )
+
+    should_refresh = bool(
+        refresh_if_needed
+        and credentials.refresh_token
+        and (not credentials.access_token or _expires_soon(credentials.expires_at))
+    )
+    if should_refresh:
+        try:
+            refreshed = refresh_codex_token(credentials.refresh_token, http_client=http_client)
+            saved = save_codex_oauth_tokens(refreshed)
+            credentials = CodexTokenSet(
+                access_token=refreshed.access_token,
+                refresh_token=refreshed.refresh_token or credentials.refresh_token,
+                id_token=refreshed.id_token or credentials.id_token,
+                expires_at=refreshed.expires_at or str(saved.get("expires_at") or credentials.expires_at),
+                account_id=refreshed.account_id or credentials.account_id,
+                plan_type=refreshed.plan_type or str(saved.get("plan_type") or credentials.plan_type),
+            )
+            return CodexTokenHealth("refreshed", "ChatGPT token refreshed successfully.", credentials)
+        except Exception as exc:
+            text = str(exc)
+            lowered = text.lower()
+            if any(marker in lowered for marker in ("invalid_grant", "revoked", "expired")):
+                return CodexTokenHealth(
+                    "expired",
+                    "ChatGPT sign-in expired or was revoked. Reconnect ChatGPT in Settings -> Providers.",
+                    credentials,
+                )
+            return CodexTokenHealth("error", f"ChatGPT token refresh failed: {text}", credentials)
+
+    if not credentials.access_token:
+        return CodexTokenHealth(
+            "missing",
+            "ChatGPT access token is missing and no refresh was possible. Reconnect ChatGPT in Settings -> Providers.",
+            credentials,
+        )
+    if not credentials.account_id:
+        return CodexTokenHealth(
+            "expired",
+            "ChatGPT account id is missing. Reconnect ChatGPT in Settings -> Providers.",
+            credentials,
+        )
+    if _expires_soon(credentials.expires_at):
+        return CodexTokenHealth(
+            "expired",
+            "ChatGPT token is expired and no refresh token is available. Reconnect ChatGPT in Settings -> Providers.",
+            credentials,
+        )
+    return CodexTokenHealth("valid", "ChatGPT token is valid.", credentials)
+
+
+def codex_runtime_available() -> bool:
+    try:
+        health = check_codex_token_health(refresh_if_needed=False)
     except Exception:
         return False
-    return bool(credentials.access_token and credentials.account_id)
+    return health.runnable
+
+
+def codex_reconnect_message(detail: str = "") -> str:
+    suffix = f" {detail}" if detail else ""
+    return (
+        "ChatGPT needs to be reconnected before using this Codex model. "
+        "Open Settings -> Providers -> ChatGPT / Codex, reconnect, then try again."
+        f"{suffix}"
+    )
+
+
+def codex_runtime_block_message(*, refresh_if_needed: bool = True) -> str | None:
+    health = check_codex_token_health(refresh_if_needed=refresh_if_needed)
+    if health.runnable:
+        return None
+    return codex_reconnect_message(health.detail)
 
 
 def fetch_codex_model_infos(

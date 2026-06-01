@@ -2164,10 +2164,11 @@ def open_settings(
 
     def _build_skills_tab() -> None:
         import skills as skills_mod
+        from skills_activation import get_skill_telemetry
 
-        ui.label("✨ Skills").classes("text-h6")
+        ui.label("✨ Skill Library").classes("text-h6")
         ui.label(
-            "Skills teach the agent step-by-step workflows using your existing tools."
+            "Available skills can be selected in chat and suggested when relevant."
         ).classes("text-grey-6 text-sm")
         ui.separator().classes("q-my-md")
 
@@ -2179,6 +2180,7 @@ def open_settings(
         def _refresh_skills_list():
             skills_container.clear()
             all_skills = skills_mod.get_manual_skills()
+            skill_telemetry = get_skill_telemetry()
             if not all_skills:
                 with skills_container:
                     ui.label("No skills found. Create one to get started!").classes("text-grey-5 italic")
@@ -2199,6 +2201,20 @@ def open_settings(
                                 ui.badge("Bundled", color="blue-grey").props("outline")
                             else:
                                 ui.badge("Custom", color="teal").props("outline")
+                            _available = skills_mod.is_enabled(sk.name)
+                            ui.badge(
+                                "Available" if _available else "Off",
+                                color="green" if _available else "grey",
+                            ).props("outline").tooltip(
+                                "Available skills can be selected in the chat skill picker and suggested by Thoth."
+                            )
+                            _tel = skill_telemetry.get(sk.name, {})
+                            _uses = int(_tel.get("usage_count", 0) or 0)
+                            if _uses:
+                                ui.badge(f"{_uses} uses", color="indigo").props("outline")
+                            if _tel.get("last_used"):
+                                _last_used = str(_tel.get("last_used"))
+                                ui.badge(f"Last {_last_used[:10]}", color="grey").props("outline")
                             tokens = skills_mod.estimate_skill_tokens(sk.name)
                             if tokens > 0:
                                 ui.badge(f"~{tokens} tokens", color="orange").props(
@@ -2257,21 +2273,6 @@ def open_settings(
                     value=", ".join(skill.tags) if skill and skill.tags else "",
                 ).classes("w-full")
 
-                # Tools linking — if set, skill auto-activates when any listed tool is enabled
-                from tools import registry as _tools_reg
-                _available_tools = sorted([t.name for t in _tools_reg.get_all_tools()])
-                _current_tools = list(skill.tools) if skill and skill.tools else []
-                tools_select = ui.select(
-                    label="Linked Tools (auto-activates when tool is enabled)",
-                    options=_available_tools,
-                    value=_current_tools,
-                    multiple=True,
-                ).classes("w-full").props('use-chips clearable')
-                ui.label(
-                    "Leave empty for a manually-toggled skill. "
-                    "Link to tools to auto-activate this skill when those tools are enabled."
-                ).classes("text-grey-5 text-xs")
-
                 ui.label("Instructions").classes("text-sm font-bold mt-4")
                 instructions_input = ui.textarea(
                     value=skill.instructions if skill else "",
@@ -2297,7 +2298,6 @@ def open_settings(
                         _icon_val = icon_sel.value
                         _instr = instructions_input.value.strip()
                         _tags = [t.strip() for t in tags_input.value.split(",") if t.strip()]
-                        _tools = list(tools_select.value) if tools_select.value else None
                         if not _name:
                             ui.notify("Name is required", type="warning")
                             return
@@ -2308,14 +2308,12 @@ def open_settings(
                             skills_mod.update_skill(
                                 name=_name, display_name=_display, icon=_icon_val,
                                 description=_desc, instructions=_instr, tags=_tags,
-                                tools=_tools,
                             )
                             ui.notify(f"✅ Skill '{_display}' updated", type="positive")
                         else:
                             skills_mod.create_skill(
                                 name=_name, display_name=_display, icon=_icon_val,
                                 description=_desc, instructions=_instr, tags=_tags,
-                                tools=_tools,
                             )
                             ui.notify(f"✅ Skill '{_display}' created", type="positive")
                         dlg.close()

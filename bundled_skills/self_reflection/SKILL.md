@@ -8,6 +8,25 @@ version: "1.1"
 tags:
   - memory
   - quality
+activation:
+  phrases:
+    - stale memory
+    - clean stale memory
+    - review memory
+    - what you know about me
+    - contradictions in memory
+  keywords:
+    - stale
+    - memory
+    - contradictions
+    - gaps
+    - review
+    - cleanup
+  negative_phrases:
+    - knowledge base document
+    - meeting notes
+  examples:
+    - Review what you know about me and clean stale memory
 author: Thoth
 ---
 

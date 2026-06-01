@@ -56,6 +56,7 @@ class Skill:
     tools: list[str] = field(default_factory=list)
     version: str = "1.0"
     tags: list[str] = field(default_factory=list)
+    activation: dict[str, list[str]] = field(default_factory=dict)
     author: str = "User"
     enabled_by_default: bool = False
     source: str = "user"  # "bundled" or "user"
@@ -110,6 +111,8 @@ def _parse_skill_md(filepath: pathlib.Path, source: str = "user") -> Optional[Sk
     if isinstance(raw_tags, str):
         raw_tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
 
+    raw_activation = _normalize_activation_metadata(meta.get("activation", {}))
+
     return Skill(
         name=str(name),
         display_name=str(meta.get("display_name", name.replace("_", " ").title())),
@@ -119,11 +122,50 @@ def _parse_skill_md(filepath: pathlib.Path, source: str = "user") -> Optional[Sk
         tools=raw_tools,
         version=str(meta.get("version", "1.0")),
         tags=raw_tags,
+        activation=raw_activation,
         author=str(meta.get("author", "Thoth" if source == "bundled" else "User")),
         enabled_by_default=bool(meta.get("enabled_by_default", False)),
         source=source,
         path=filepath.parent,
     )
+
+
+def _string_list(value, *, limit: int) -> list[str]:
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, list):
+        items = value
+    else:
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _normalize_activation_metadata(value) -> dict[str, list[str]]:
+    """Return bounded local-only activation metadata for suggestions."""
+    if not isinstance(value, dict):
+        return {}
+    normalized: dict[str, list[str]] = {}
+    limits = {
+        "phrases": 5,
+        "keywords": 12,
+        "negative_phrases": 5,
+        "examples": 3,
+    }
+    for key, limit in limits.items():
+        items = _string_list(value.get(key), limit=limit)
+        if items:
+            normalized[key] = items
+    return normalized
 
 
 # ── Config (enable/disable state) ───────────────────────────────────────────
@@ -416,7 +458,7 @@ def _build_ordered_frontmatter(meta: dict) -> str:
     """Serialize skill metadata as YAML with canonical field order."""
     _FIELD_ORDER = [
         "name", "display_name", "icon", "description",
-        "enabled_by_default", "version", "tools", "tags", "author",
+        "enabled_by_default", "version", "tools", "tags", "activation", "author",
     ]
     lines: list[str] = []
     for key in _FIELD_ORDER:
@@ -427,6 +469,15 @@ def _build_ordered_frontmatter(meta: dict) -> str:
             lines.append(f"{key}:")
             for item in val:
                 lines.append(f"  - {item}")
+        elif isinstance(val, dict):
+            lines.append(f"{key}:")
+            for subkey, subval in val.items():
+                if isinstance(subval, list):
+                    lines.append(f"  {subkey}:")
+                    for item in subval:
+                        lines.append(f"    - {item}")
+                else:
+                    lines.append(f"  {subkey}: {subval}")
         elif isinstance(val, bool):
             lines.append(f"{key}: {'true' if val else 'false'}")
         elif isinstance(val, str) and ('\n' in val or ':' in val or '"' in val):
@@ -450,8 +501,10 @@ def create_skill(
     instructions: str,
     tools: Optional[list[str]] = None,
     tags: Optional[list[str]] = None,
+    activation: Optional[dict[str, list[str]]] = None,
     enabled: bool = True,
     version: str = "1.0",
+    allow_tool_guide: bool = False,
 ) -> Skill:
     """Create a new user skill on disk and register it in the cache."""
     skill_dir = USER_SKILLS_DIR / name.replace(" ", "-").lower()
@@ -474,10 +527,15 @@ def create_skill(
         "author": "User",
         "enabled_by_default": enabled,
     }
-    if tools:
+    if tools and allow_tool_guide:
         meta["tools"] = tools
+    elif tools:
+        logger.info("Ignoring tools metadata for manual skill '%s'", name)
     if tags:
         meta["tags"] = tags
+    normalized_activation = _normalize_activation_metadata(activation or {})
+    if normalized_activation:
+        meta["activation"] = normalized_activation
 
     frontmatter = _build_ordered_frontmatter(meta)
     content = f"---\n{frontmatter}---\n\n{instructions}\n"
@@ -503,6 +561,8 @@ def update_skill(
     instructions: Optional[str] = None,
     tools: Optional[list[str]] = None,
     tags: Optional[list[str]] = None,
+    activation: Optional[dict[str, list[str]]] = None,
+    allow_tool_guide: bool = False,
 ) -> Optional[Skill]:
     """Update an existing user skill.  Returns the updated Skill or None."""
     skill = _skills_cache.get(name)
@@ -520,12 +580,26 @@ def update_skill(
         "author": skill.author,
         "enabled_by_default": skill.enabled_by_default,
     }
+    is_internal_tool_guide = bool(
+        skill.path and TOOL_GUIDES_DIR in skill.path.resolve().parents
+    )
     new_tools = tools if tools is not None else skill.tools
+    if not (allow_tool_guide or is_internal_tool_guide):
+        if new_tools:
+            logger.info("Dropping tools metadata while updating manual skill '%s'", name)
+        new_tools = []
     if new_tools:
         meta["tools"] = new_tools
     new_tags = tags if tags is not None else skill.tags
     if new_tags:
         meta["tags"] = new_tags
+    new_activation = (
+        _normalize_activation_metadata(activation)
+        if activation is not None
+        else dict(skill.activation)
+    )
+    if new_activation:
+        meta["activation"] = new_activation
 
     new_instructions = instructions if instructions is not None else skill.instructions
 
@@ -580,7 +654,7 @@ def duplicate_skill(name: str, new_name: Optional[str] = None) -> Optional[Skill
         icon=original.icon,
         description=original.description,
         instructions=original.instructions,
-        tools=list(original.tools) if original.tools else None,
         tags=list(original.tags),
+        activation=dict(original.activation),
         enabled=True,
     )

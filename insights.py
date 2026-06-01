@@ -277,7 +277,6 @@ def apply_insight(insight_id: str) -> dict:
             icon=draft.get("icon", "🧩"),
             description=draft.get("description", ""),
             instructions=draft.get("instructions", ""),
-            tools=draft.get("tools"),
             tags=draft.get("tags"),
             enabled=bool(draft.get("enabled", draft.get("enabled_by_default", True))),
             version=draft.get("version", "1.0"),

@@ -1416,37 +1416,55 @@ def _pre_model_trim(state: dict) -> dict:
     else:
         try:
             from skills import get_skills_prompt
+            from skills_activation import record_usage, resolve_active_skill_names
             from threads import get_thread_skills_override
 
             _thread_id = _current_thread_id_var.get() or None
             skills_override = None
             if _thread_id:
                 skills_override = get_thread_skills_override(_thread_id)
-            active_tool_names = _current_enabled_tool_names_var.get() or None
+            active_tool_names = _current_enabled_tool_names_var.get()
             extra_skill_names = []
+            manual_skill_names = None
 
             # In designer mode, suppress manual skills — only tool guides
             # (like designer_guide) are injected automatically.
             if _dp is not None:
-                skills_override = []
+                manual_skill_names = []
+            elif is_background_workflow():
+                # Background workflows are deterministic: only an explicit
+                # task/thread skills_override may affect manual skills.
+                manual_skill_names = resolve_active_skill_names(
+                    _thread_id or "",
+                    explicit_override=skills_override,
+                    is_background=True,
+                )
+            else:
+                manual_skill_names = resolve_active_skill_names(
+                    _thread_id or "",
+                    explicit_override=skills_override,
+                    is_background=False,
+                )
 
             try:
                 from developer.tool_context import infer_workspace_id_from_thread
                 from developer.profile import DEVELOPER_AUTO_SKILLS
 
                 if _thread_id and infer_workspace_id_from_thread(_thread_id):
-                    skills_override = skills_override if skills_override is not None else []
+                    manual_skill_names = manual_skill_names if manual_skill_names is not None else []
                     extra_skill_names = DEVELOPER_AUTO_SKILLS
             except Exception:
                 pass
 
             skills_text = get_skills_prompt(
-                skills_override,
+                manual_skill_names,
                 active_tool_names=active_tool_names,
                 extra_skill_names=extra_skill_names,
             )
             if skills_text:
                 _injections.append(SystemMessage(content=skills_text))
+            if _thread_id and manual_skill_names:
+                record_usage(_thread_id, manual_skill_names, source="agent")
         except Exception as exc:
             logger.debug("Skill injection skipped (non-fatal): %s", exc)
 

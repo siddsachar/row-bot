@@ -40,6 +40,27 @@ from ui.tool_trace import canonical_tool_name, display_tool_content, is_browser_
 logger = logging.getLogger(__name__)
 
 
+def _codex_auth_block_message(model_ref: str) -> str | None:
+    """Return a user-facing reconnect message when the selected Codex model cannot run."""
+    try:
+        from providers.selection import provider_id_from_choice_value
+
+        if provider_id_from_choice_value(model_ref) != "codex":
+            return None
+    except Exception:
+        return None
+    try:
+        from providers.codex import codex_runtime_block_message
+
+        return codex_runtime_block_message(refresh_if_needed=True)
+    except Exception as exc:
+        return (
+            "ChatGPT needs to be reconnected before using this Codex model. "
+            "Open Settings -> Providers -> ChatGPT / Codex, reconnect, then try again. "
+            f"Could not verify ChatGPT sign-in: {exc}"
+        )
+
+
 async def _agent_ready_forced_surface(model_ref: str, surface: str) -> bool:
     """Return whether a forced-Agent surface can run the selected model."""
     try:
@@ -1249,6 +1270,32 @@ async def send_message(
 
     gen_thread_id = state.thread_id
 
+    if text.strip().startswith("/") and not p.pending_files:
+        from skills_activation import apply_skill_command
+
+        enabled_tool_names = [t.name for t in tool_registry.get_enabled_tools()]
+        command_response = await run.io_bound(
+            lambda: apply_skill_command(
+                gen_thread_id,
+                text,
+                enabled_tool_names=enabled_tool_names,
+            )
+        )
+        if command_response is not None:
+            user_msg = {"role": "user", "content": text}
+            assistant_msg = {"role": "assistant", "content": command_response}
+            state.messages.extend([user_msg, assistant_msg])
+            persist_thread_media_state(state.thread_id, state.messages)
+            state.cache_active_messages()
+            cb.add_chat_message(user_msg)
+            cb.add_chat_message(assistant_msg)
+            _save_thread_meta(state.thread_id, state.thread_name)
+            try:
+                cb.rebuild_main()
+            except TypeError:
+                pass
+            return
+
     # ── Snapshot & clear attached files immediately ──────────────────
     _files_snapshot: list[dict] = list(p.pending_files)
     file_names: list[str] = [f["name"] for f in _files_snapshot]
@@ -1278,6 +1325,23 @@ async def send_message(
     persist_thread_media_state(state.thread_id, state.messages)
     state.cache_active_messages()
     cb.add_chat_message(user_msg)
+
+    auth_block_message = None
+    try:
+        from models import get_current_model
+
+        selected_model = state.thread_model_override or get_current_model()
+        auth_block_message = await run.io_bound(lambda: _codex_auth_block_message(selected_model))
+    except Exception:
+        logger.debug("Codex auth preflight skipped unexpectedly", exc_info=True)
+    if auth_block_message:
+        assistant_msg = {"role": "assistant", "content": auth_block_message}
+        state.messages.append(assistant_msg)
+        persist_thread_media_state(state.thread_id, state.messages)
+        state.cache_active_messages()
+        cb.add_chat_message(assistant_msg)
+        _save_thread_meta(state.thread_id, state.thread_name)
+        return
 
     if getattr(state, "active_developer_workspace_id", None) and not _files_snapshot:
         try:
@@ -1480,6 +1544,12 @@ async def send_message(
                     repair_orphaned_tool_calls(enabled_tools, config)
                 except Exception:
                     logger.debug("repair_orphaned_tool_calls failed in stream finally", exc_info=True)
+            try:
+                from skills_activation import consume_one_shot_skills
+
+                consume_one_shot_skills(gen_thread_id)
+            except Exception:
+                logger.debug("consume_one_shot_skills failed in stream finally", exc_info=True)
             gen.q.put(None)
 
     threading.Thread(target=_sync_stream, daemon=True).start()

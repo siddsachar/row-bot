@@ -8,6 +8,26 @@ version: "3.0"
 tags:
   - automation
   - productivity
+activation:
+  phrases:
+    - recurring task
+    - scheduled task
+    - every monday
+    - automate this
+    - reminder workflow
+  keywords:
+    - recurring
+    - schedule
+    - scheduled
+    - task
+    - workflow
+    - monday
+    - reminder
+  negative_phrases:
+    - meeting notes
+    - human tone
+  examples:
+    - Help me set up a recurring task every Monday
 author: Thoth
 ---
 

@@ -36,6 +36,7 @@ from telegram.ext import (
 )
 
 import agent as agent_mod
+from channels import commands as ch_commands
 from channels.base import Channel, ChannelCapabilities, ConfigField
 from channels.auth_store import get_channel_secret
 from threads import _save_thread_meta, _list_threads, _thread_exists
@@ -54,6 +55,9 @@ BOT_COMMANDS = [
     BotCommand("newthread", "Start a new conversation"),
     BotCommand("model", "Switch model (cloud/local)"),
     BotCommand("tools", "List enabled tools"),
+    BotCommand("skill", "Use a skill in this conversation"),
+    BotCommand("skills", "Show active and suggested skills"),
+    BotCommand("noskill", "Disable a skill in this conversation"),
     BotCommand("status", "Check bot status"),
 ]
 
@@ -651,6 +655,25 @@ async def _cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
 
 
+async def _cmd_skill(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle Smart Skills commands for the current Telegram thread."""
+    if not _is_authorised(update):
+        return
+    chat_id = update.effective_chat.id
+    config = context.chat_data.get("thread_config")
+    if config is None:
+        config = _get_or_create_thread(chat_id)
+        context.chat_data["thread_config"] = config
+    thread_id = (config.get("configurable") or {}).get("thread_id", "")
+    response = ch_commands.dispatch(
+        "telegram",
+        update.message.text or "",
+        thread_id=thread_id,
+    )
+    if response is not None:
+        await update.message.reply_text(response)
+
+
 async def _send_html(target, text: str, **kwargs) -> None:
     """Send a message as HTML, falling back to plain text on parse errors."""
     try:
@@ -1237,6 +1260,9 @@ async def start_bot() -> bool:
     _app.add_handler(CommandHandler("model", _cmd_model))
     _app.add_handler(CommandHandler("tools", _cmd_tools))
     _app.add_handler(CommandHandler("status", _cmd_status))
+    _app.add_handler(CommandHandler("skill", _cmd_skill))
+    _app.add_handler(CommandHandler("skills", _cmd_skill))
+    _app.add_handler(CommandHandler("noskill", _cmd_skill))
     _app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _handle_message))
     _app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, _handle_voice))
     _app.add_handler(MessageHandler(filters.PHOTO, _handle_photo))

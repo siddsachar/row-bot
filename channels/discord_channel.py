@@ -508,7 +508,16 @@ async def start_bot() -> bool:
 
             # Slash command dispatch
             if text:
-                cmd_response = ch_commands.dispatch("discord", text)
+                _cmd_thread_id = (
+                    _get_or_create_thread(channel_id)
+                    if text.lower().split(maxsplit=1)[0] in {"/skill", "/skills", "/noskill"}
+                    else None
+                )
+                cmd_response = ch_commands.dispatch(
+                    "discord",
+                    text,
+                    thread_id=_cmd_thread_id,
+                )
                 if cmd_response is not None:
                     await message.channel.send(cmd_response)
                     return

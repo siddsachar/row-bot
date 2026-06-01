@@ -1526,8 +1526,7 @@ def show_task_dialog(
                 # Skills override (advanced only) ─────────────────────
                 import skills as _task_skills_mod
                 _task_skills_mod.load_skills()
-                _task_all_skills = [s for s in _task_skills_mod.get_enabled_skills()
-                                    if not _task_skills_mod.is_tool_guide(s)]
+                _task_all_skills = _task_skills_mod.get_enabled_manual_skills()
                 _task_sk_override = _skills_override_data
                 _task_enabled_names = set(sk.name for sk in _task_all_skills)
                 _task_sk_active = (
