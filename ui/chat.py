@@ -6,11 +6,14 @@ Extracted from the monolith's ``_build_chat`` inner function.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import pathlib
+import re
 import sys
 import time
+import uuid
 from datetime import datetime
 from typing import Callable
 
@@ -652,6 +655,24 @@ def build_chat(
         # File chips inside the card (top)
         p.file_chips_row = ui.row().classes("w-full flex-wrap gap-1 q-px-md q-pt-sm")
 
+        def _queue_skill_chip_refresh(text: str) -> None:
+            return None
+
+        def _slash_palette_on_text(text: str, cursor: int | None = None) -> None:
+            return None
+
+        def _slash_palette_move(delta: int) -> None:
+            return None
+
+        def _slash_palette_close() -> None:
+            return None
+
+        def _slash_palette_pick_selected() -> None:
+            return None
+
+        def _slash_palette_handle_key(key: str) -> None:
+            return None
+
         try:
             import skills as _skills_for_chips
             from skills_activation import (
@@ -660,7 +681,17 @@ def build_chat(
                 get_activation_snapshot as _get_skill_activation_snapshot,
                 pin_skill as _pin_chat_skill,
                 record_accept as _record_skill_accept,
+                reset_thread as _reset_chat_skills,
                 suggest_skills as _suggest_chat_skills,
+            )
+            from slash_commands import (
+                SlashCommandSpec as _SlashCommandSpec,
+                filter_command_specs as _filter_slash_commands,
+                find_current_slash_token as _find_slash_token,
+                get_command_specs as _get_slash_command_specs,
+                help_text as _slash_help_text,
+                remove_current_slash_token as _remove_slash_token,
+                replace_current_slash_token as _replace_slash_token,
             )
 
             if not _skills_for_chips.skills_loaded():
@@ -888,6 +919,312 @@ def build_chat(
                     delay=0.25,
                 )
 
+            _slash_palette = {
+                "open": False,
+                "query": "",
+                "index": 0,
+                "items": [],
+                "cursor": 0,
+            }
+            _slash_palette_client = ui.context.client
+            _slash_palette_col = ui.column().classes("w-full gap-0 q-px-md q-pt-sm")
+
+            def _set_slash_palette_flag(opened: bool) -> None:
+                try:
+                    _slash_palette_client.run_javascript(
+                        f"window._thothSlashPaletteOpen = {str(bool(opened)).lower()};"
+                    )
+                except Exception:
+                    logger.debug("Could not update slash palette browser flag", exc_info=True)
+
+            def _set_composer_text(text: str, cursor: int | None = None) -> None:
+                value = str(text or "")
+                if p.chat_input:
+                    p.chat_input.value = value
+                    p.chat_input.update()
+                _queue_skill_chip_refresh(value)
+                cursor = len(value) if cursor is None else max(0, min(int(cursor), len(value)))
+                if p.chat_input:
+                    payload = json.dumps({"id": p.chat_input.id, "cursor": cursor})
+                    ui.run_javascript(
+                        f"""(function(p) {{
+                            const root = document.getElementById('c' + p.id);
+                            const input = root && root.querySelector('textarea');
+                            if (!input) return;
+                            input.focus();
+                            try {{ input.setSelectionRange(p.cursor, p.cursor); }} catch (_) {{}}
+                        }})({payload});"""
+                    )
+
+            def _close_slash_palette() -> None:
+                _slash_palette["open"] = False
+                _slash_palette["items"] = []
+                _set_slash_palette_flag(False)
+                _slash_palette_col.clear()
+
+            def _show_text_dialog(title: str, content: str, *, icon: str = "info") -> None:
+                def _normalize_dialog_markdown(raw: str) -> str:
+                    lines = str(raw or "").splitlines()
+                    normalized: list[str] = []
+                    for idx, line in enumerate(lines):
+                        stripped = line.strip()
+                        if stripped.startswith("**") and stripped.endswith("**"):
+                            if normalized and normalized[-1] != "":
+                                normalized.append("")
+                            normalized.append(stripped)
+                            next_line = lines[idx + 1].strip() if idx + 1 < len(lines) else ""
+                            if next_line.startswith("- "):
+                                normalized.append("")
+                            continue
+                        normalized.append(line)
+                    return "\n".join(normalized)
+
+                with ui.dialog() as dlg, ui.card().classes("q-pa-md").style(
+                    "min-width: min(680px, 92vw); max-width: 760px;"
+                ):
+                    with ui.row().classes("w-full items-center gap-2"):
+                        ui.icon(icon, size="sm")
+                        ui.label(title).classes("text-h6")
+                        ui.space()
+                        ui.button(icon="close", on_click=dlg.close).props("flat round dense")
+                    ui.separator()
+                    ui.markdown(
+                        _normalize_dialog_markdown(content),
+                        extras=['code-friendly', 'fenced-code-blocks', 'tables'],
+                    ).classes("w-full text-sm").style("max-height: 62vh; overflow-y: auto;")
+                dlg.open()
+
+            def _append_system_result(title: str, content: str, *, icon: str = "info") -> None:
+                _show_text_dialog(title, content, icon=icon)
+
+            async def _new_thread_from_palette() -> None:
+                tid = uuid.uuid4().hex[:12]
+                name = f"Thread {datetime.now().strftime('%b %d, %H:%M')}"
+                await run.io_bound(_save_thread_meta, tid, name)
+                prev = state.thread_id
+                prev_gen = _active_generations.get(prev) if prev else None
+                if prev_gen and prev_gen.status == "streaming":
+                    prev_gen.detached = True
+                    if prev_gen.tts_active:
+                        state.tts_service.stop()
+                        prev_gen.tts_active = False
+                state.active_designer_project = None
+                state.active_developer_workspace_id = None
+                state.thread_id = tid
+                state.thread_name = name
+                state.messages = []
+                state.thread_model_override = ""
+                p.pending_files.clear()
+                try:
+                    from memory_extraction import set_active_thread
+
+                    set_active_thread(tid, previous_id=prev)
+                except Exception:
+                    logger.debug("Could not set active thread for command palette /new", exc_info=True)
+                rebuild_main(immediate=True, reason="slash_new")
+                rebuild_thread_list()
+
+            def _reset_skills_from_palette() -> None:
+                _reset_chat_skills(state.thread_id)
+                _active_skill_names["names"] = []
+                clear_agent_cache()
+                _refresh_skill_chips_now()
+                ui.notify("Skills reset for this chat.", type="info")
+
+            def _run_stop_from_palette() -> None:
+                gen = _active_generations.get(state.thread_id)
+                if gen:
+                    gen.stop_event.set()
+                    if p.stop_btn:
+                        p.stop_btn.props('icon=hourglass_top')
+                    ui.notify("Stop signal sent.", type="warning")
+                else:
+                    ui.notify("No active generation to stop.", type="info")
+
+            def _remove_token_and_close() -> None:
+                text = str(p.chat_input.value or "") if p.chat_input else _draft_state.get("text", "")
+                new_text, cursor = _remove_slash_token(text, _slash_palette.get("cursor"))
+                _set_composer_text(new_text, cursor)
+                _close_slash_palette()
+
+            def _replace_token_with_prefix(prefix: str) -> None:
+                text = str(p.chat_input.value or "") if p.chat_input else _draft_state.get("text", "")
+                new_text, cursor = _replace_slash_token(text, _slash_palette.get("cursor"), prefix)
+                _set_composer_text(new_text, cursor)
+                _close_slash_palette()
+
+            def _execute_slash_spec(spec: _SlashCommandSpec) -> None:
+                with _slash_palette_client:
+                    _execute_slash_spec_in_client(spec)
+
+            def _execute_slash_spec_in_client(spec: _SlashCommandSpec) -> None:
+                if spec.handler_key == "activate_skill" and spec.skill_name:
+                    _use_skill(spec.skill_name, source="slash_palette")
+                    _remove_token_and_close()
+                    ui.notify(f"Skill active: {spec.title}", type="positive")
+                    return
+                if spec.handler_key == "open_skills":
+                    _remove_token_and_close()
+                    _open_skill_picker()
+                    return
+                if spec.handler_key == "skill_reset":
+                    _remove_token_and_close()
+                    _reset_skills_from_palette()
+                    return
+                if spec.handler_key == "noskill":
+                    active = _active_skill_names.get("names", [])
+                    if len(active) == 1:
+                        _remove_skill(active[0])
+                        _remove_token_and_close()
+                        ui.notify(f"Removed skill: {active[0]}", type="info")
+                    else:
+                        _replace_token_with_prefix("/noskill ")
+                    return
+                if spec.handler_key == "new_thread":
+                    _remove_token_and_close()
+                    asyncio.create_task(_new_thread_from_palette())
+                    return
+                if spec.handler_key == "stop_generation":
+                    _remove_token_and_close()
+                    _run_stop_from_palette()
+                    return
+                if spec.handler_key == "export":
+                    _remove_token_and_close()
+                    open_export()
+                    return
+                if spec.handler_key == "status":
+                    _remove_token_and_close()
+                    from tools.thoth_status_tool import _thoth_status
+
+                    _append_system_result("Status", _thoth_status("overview"))
+                    return
+                if spec.handler_key == "tools":
+                    _remove_token_and_close()
+                    from tools.thoth_status_tool import _thoth_status
+
+                    _append_system_result("Tools", _thoth_status("tools"))
+                    return
+                if spec.handler_key == "help":
+                    _remove_token_and_close()
+                    _append_system_result("Slash Commands", _slash_help_text(include_skills=True), icon="help")
+                    return
+                _replace_token_with_prefix(spec.slash + " ")
+
+            def _render_slash_palette() -> None:
+                _slash_palette_col.clear()
+                items = list(_slash_palette.get("items") or [])
+                if not _slash_palette.get("open") or not items:
+                    _set_slash_palette_flag(False)
+                    return
+                _set_slash_palette_flag(True)
+                selected_index = int(_slash_palette.get("index", 0) or 0)
+                selected_row_id: int | None = None
+                with _slash_palette_col:
+                    with ui.column().classes("w-full gap-0 thoth-slash-palette-list").style(
+                        "max-height: 270px; overflow-y: auto; "
+                        "border: 1px solid rgba(255,255,255,0.14); "
+                        "border-radius: 8px; background: rgba(18,18,28,0.98); "
+                        "box-shadow: 0 12px 28px rgba(0,0,0,0.35);"
+                    ):
+                        for idx, spec in enumerate(items):
+                            selected = idx == selected_index
+                            bg = "rgba(66, 165, 245, 0.18)" if selected else "transparent"
+                            row = ui.row().classes(
+                                "w-full items-center no-wrap gap-2 cursor-pointer thoth-slash-palette-row"
+                                + (" thoth-slash-palette-row-selected" if selected else "")
+                            ).style(
+                                f"padding: 7px 10px; background: {bg}; "
+                                "border-radius: 6px; min-height: 42px;"
+                            )
+                            if selected:
+                                selected_row_id = row.id
+                            row.on(
+                                "mousedown",
+                                lambda _e, s=spec: _execute_slash_spec(s),
+                                js_handler="""(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    emit();
+                                }""",
+                            )
+                            with row:
+                                if spec.icon and re.match(r"^[a-z0-9_]+$", spec.icon):
+                                    ui.icon(spec.icon, size="sm").classes("text-grey-5")
+                                else:
+                                    ui.label(spec.icon or "*").classes("text-sm")
+                                with ui.column().classes("gap-0").style("min-width: 0; flex: 1;"):
+                                    with ui.row().classes("items-center gap-2 no-wrap"):
+                                        ui.label(spec.slash).classes("text-sm text-weight-medium")
+                                        ui.label(spec.title).classes("text-xs text-grey-5 ellipsis")
+                                    ui.label(spec.description).classes("text-xs text-grey-6 ellipsis")
+                                ui.label(spec.category).classes("text-xs text-grey-7")
+                if selected_row_id is not None:
+                    _slash_palette_client.run_javascript(
+                        f"""setTimeout(() => {{
+                            const row = document.getElementById('c{selected_row_id}');
+                            if (row) row.scrollIntoView({{block: 'nearest'}});
+                        }}, 0);"""
+                    )
+
+            def _slash_palette_on_text(text: str, cursor: int | None = None) -> None:
+                current = str(text or "")
+                _draft_state["text"] = current
+                found = _find_slash_token(current, cursor if cursor is not None else len(current))
+                if found is None:
+                    if _slash_palette.get("open"):
+                        _close_slash_palette()
+                    return
+                _start, _end, query = found
+                specs = _get_slash_command_specs(include_skills=True)
+                items = _filter_slash_commands(specs, query, limit=max(len(specs), 1))
+                if not items:
+                    _close_slash_palette()
+                    return
+                _slash_palette.update({
+                    "open": True,
+                    "query": query,
+                    "index": min(int(_slash_palette.get("index", 0) or 0), len(items) - 1),
+                    "items": items,
+                    "cursor": cursor if cursor is not None else len(current),
+                })
+                _render_slash_palette()
+
+            def _slash_palette_move(delta: int) -> None:
+                if not _slash_palette.get("open"):
+                    return
+                items = list(_slash_palette.get("items") or [])
+                if not items:
+                    _close_slash_palette()
+                    return
+                _slash_palette["index"] = (int(_slash_palette.get("index", 0) or 0) + delta) % len(items)
+                _render_slash_palette()
+
+            def _slash_palette_close() -> None:
+                _close_slash_palette()
+
+            def _slash_palette_pick_selected() -> None:
+                if not _slash_palette.get("open"):
+                    return
+                items = list(_slash_palette.get("items") or [])
+                if not items:
+                    _close_slash_palette()
+                    return
+                index = int(_slash_palette.get("index", 0) or 0)
+                _execute_slash_spec(items[max(0, min(index, len(items) - 1))])
+
+            def _slash_palette_handle_key(key: str) -> None:
+                if not _slash_palette.get("open"):
+                    return
+                normalized = str(key or "")
+                if normalized == "ArrowDown":
+                    _slash_palette_move(1)
+                elif normalized == "ArrowUp":
+                    _slash_palette_move(-1)
+                elif normalized in {"Enter", "Tab"}:
+                    _slash_palette_pick_selected()
+                elif normalized == "Escape":
+                    _slash_palette_close()
+
         except Exception:
             logger.debug("Smart Skills composer chips failed to render", exc_info=True)
 
@@ -909,13 +1246,42 @@ def build_chat(
         )
 
         try:
+            def _on_composer_value(e) -> None:
+                payload = e.args
+                if isinstance(payload, dict):
+                    text = str(payload.get("value") or "")
+                    cursor = payload.get("cursor")
+                else:
+                    text = str(payload or p.chat_input.value or "")
+                    cursor = len(text)
+                _queue_skill_chip_refresh(text)
+                try:
+                    _slash_palette_on_text(text, int(cursor) if cursor is not None else len(text))
+                except Exception:
+                    logger.debug("Slash command palette update failed", exc_info=True)
+
             p.chat_input.on(
                 "update:model-value",
-                lambda e: _queue_skill_chip_refresh(e.args or p.chat_input.value or ""),
-                js_handler="(value) => emit(value)",
+                _on_composer_value,
+                js_handler="""(value) => {
+                    const el = this.$refs?.qRef?.nativeEl || this.$el?.querySelector('textarea');
+                    emit({value, cursor: el ? el.selectionStart : String(value || '').length});
+                }""",
             )
         except Exception:
             logger.debug("Smart Skills draft suggestion handler was not attached", exc_info=True)
+
+        p.chat_input.on(
+            "keydown",
+            lambda e: _slash_palette_handle_key(e.args.get("key") if isinstance(e.args, dict) else ""),
+            js_handler="""(e) => {
+                if (!window._thothSlashPaletteOpen) return;
+                if (!['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)) return;
+                e.preventDefault();
+                e.stopPropagation();
+                emit({key: e.key});
+            }""",
+        )
 
         async def _on_send():
             text = p.chat_input.value
@@ -945,6 +1311,7 @@ def build_chat(
             "keydown.enter",
             _on_send,
             js_handler="""(e) => {
+                if (window._thothSlashPaletteOpen) return;
                 if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
                 e.preventDefault();
                 emit();

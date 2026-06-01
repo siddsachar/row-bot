@@ -61,11 +61,17 @@ def test_parse_skill_commands(tmp_path):
     assert activation.parse_skill_command("/skills").action == "list"
     assert activation.parse_skill_command("/skill off").action == "off"
     assert activation.parse_skill_command("/skill reset").action == "reset"
+    assert activation.parse_skill_command("/skill-reset").action == "reset"
+    assert activation.parse_skill_command("/skillreset").action == "reset"
+    assert activation.parse_skill_command("/skill_reset").action == "reset"
     cmd = activation.parse_skill_command("/skill once research_brief")
     assert cmd.action == "unsupported_once"
     cmd = activation.parse_skill_command("/noskill research_brief")
     assert cmd.action == "disable"
     assert cmd.name == "research_brief"
+    cmd = activation.parse_skill_command("/skills meeting notes")
+    assert cmd.action == "list"
+    assert cmd.name == "meeting notes"
 
 
 def test_thread_scoped_state_off_and_reset(tmp_path):
@@ -327,6 +333,83 @@ def test_library_off_skills_are_not_selectable_or_suggested(tmp_path):
     response = activation.apply_skill_command("thread-a", "/skill meeting_notes")
     assert response and "meeting_notes" in response
     assert activation.resolve_active_skill_names("thread-a") == ["meeting_notes"]
+
+
+def test_channel_skill_choices_are_deterministic_and_exclude_guides(tmp_path):
+    _write_skill(
+        tmp_path,
+        "research_brief",
+        description="Research sources and produce a brief",
+        tags=["research"],
+    )
+    _write_skill(
+        tmp_path,
+        "research_notes",
+        description="Organize research notes",
+        tags=["research"],
+    )
+    _write_skill(
+        tmp_path,
+        "browser_guide",
+        description="Browser tool guide",
+        tools=["browser"],
+    )
+    _write_skill(
+        tmp_path,
+        "off_skill",
+        description="Disabled library skill",
+        enabled_by_default=False,
+    )
+    skills, activation = _reload_skill_modules(tmp_path)
+    skills.load_skills()
+
+    choices = activation.list_skill_choices("thread-a")
+    names = {choice.name for choice in choices}
+    assert "research_brief" in names
+    assert "research_notes" in names
+    assert "browser_guide" not in names
+    assert "off_skill" not in names
+
+    matches = activation.match_skill_choices("research", thread_id="thread-a")
+    assert [choice.name for choice in matches] == ["research_brief", "research_notes"]
+
+    result = activation.apply_channel_skill_command("thread-a", "/skill research")
+    assert result is not None
+    assert result.kind == "choices"
+    assert "Multiple skills match" in result.text
+    assert activation.resolve_active_skill_names("thread-a") == []
+
+    result = activation.apply_channel_skill_command("thread-a", "/skill research-brief")
+    assert result is not None
+    assert result.kind == "activated"
+    assert activation.resolve_active_skill_names("thread-a") == ["research_brief"]
+
+    result = activation.apply_channel_skill_command("thread-a", "/noskill")
+    assert result is not None
+    assert result.kind == "disabled"
+    assert activation.resolve_active_skill_names("thread-a") == []
+
+
+def test_channel_skill_list_filters_and_reset_aliases(tmp_path):
+    _write_skill(tmp_path, "meeting_notes", description="Summarize meetings")
+    _write_skill(tmp_path, "deep_research", description="Research reports")
+    skills, activation = _reload_skill_modules(tmp_path)
+    skills.load_skills()
+
+    result = activation.apply_channel_skill_command("thread-a", "/skills meeting")
+    assert result is not None
+    assert result.kind == "list"
+    assert [choice.name for choice in result.choices] == ["meeting_notes"]
+    assert "deep_research" not in result.text
+
+    activation.apply_channel_skill_command("thread-a", "/skill meeting_notes")
+    assert activation.resolve_active_skill_names("thread-a") == ["meeting_notes"]
+    for reset_text in ("/skill reset", "/skill-reset", "/skillreset", "/skill_reset"):
+        activation.apply_channel_skill_command("thread-a", "/skill meeting_notes")
+        result = activation.apply_channel_skill_command("thread-a", reset_text)
+        assert result is not None
+        assert result.kind == "reset"
+        assert activation.resolve_active_skill_names("thread-a") == []
 
 
 def test_background_resolution_is_explicit_only(tmp_path):

@@ -684,7 +684,7 @@ def _process_inbound(data: dict) -> None:
     if body:
         _cmd_thread_id = (
             _get_or_create_thread(chat_id)
-            if body.lower().split(maxsplit=1)[0] in {"/skill", "/skills", "/noskill"}
+            if ch_commands.is_thread_scoped_command(body)
             else None
         )
         cmd_response = ch_commands.dispatch("whatsapp", body, thread_id=_cmd_thread_id)

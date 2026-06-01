@@ -383,7 +383,7 @@ async def _handle_inbound_sms(request) -> Any:
     # Slash command dispatch
     _cmd_thread_id = (
         _get_or_create_thread(from_number)
-        if body.lower().split(maxsplit=1)[0] in {"/skill", "/skills", "/noskill"}
+        if ch_commands.is_thread_scoped_command(body)
         else None
     )
     cmd_response = ch_commands.dispatch("sms", body, thread_id=_cmd_thread_id)

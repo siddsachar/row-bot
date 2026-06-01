@@ -46,6 +46,25 @@ class SuggestedSkill:
 
 
 @dataclass(frozen=True)
+class SkillChoice:
+    name: str
+    display_name: str
+    slug: str
+    description: str
+    active: bool = False
+    disabled_here: bool = False
+
+
+@dataclass(frozen=True)
+class SkillCommandResult:
+    kind: str
+    text: str
+    choices: tuple[SkillChoice, ...] = ()
+    selected_skill: str = ""
+    query: str = ""
+
+
+@dataclass(frozen=True)
 class SkillActivationSnapshot:
     thread_id: str
     active: list[str]
@@ -122,6 +141,11 @@ def _normalize(text: str) -> str:
     return re.sub(r"[^a-z0-9_ -]+", " ", str(text or "").lower()).strip()
 
 
+def _slug(text: str) -> str:
+    value = re.sub(r"[^a-z0-9]+", "-", str(text or "").lower())
+    return re.sub(r"-+", "-", value).strip("-")
+
+
 def _tokens(text: str) -> set[str]:
     return {
         tok
@@ -149,6 +173,217 @@ def _available_manual_skills() -> list:
     return [skill for skill in _all_manual_skills() if skills.is_enabled(skill.name)]
 
 
+def _skill_choice(skill, *, active: set[str] | None = None, disabled: set[str] | None = None) -> SkillChoice:
+    return SkillChoice(
+        name=skill.name,
+        display_name=getattr(skill, "display_name", skill.name),
+        slug=_slug(getattr(skill, "display_name", "") or skill.name) or _slug(skill.name),
+        description=getattr(skill, "description", "") or "",
+        active=skill.name in (active or set()),
+        disabled_here=skill.name in (disabled or set()),
+    )
+
+
+def _choice_match_fields(skill) -> list[str]:
+    values = [
+        skill.name,
+        getattr(skill, "display_name", ""),
+        _slug(skill.name),
+        _slug(getattr(skill, "display_name", "")),
+    ]
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        normalized = _normalize(value).replace("-", " ")
+        compact = normalized.replace(" ", "").replace("_", "")
+        for item in (normalized, compact):
+            if item and item not in seen:
+                seen.add(item)
+                result.append(item)
+    return result
+
+
+def list_skill_choices(thread_id: str = "", *, query: str = "", limit: int | None = None) -> list[SkillChoice]:
+    """Return enabled manual runtime skills for channel/app command pickers."""
+    query_norm = _normalize(query).replace("-", " ")
+    query_compact = query_norm.replace(" ", "").replace("_", "")
+    store = _load_store()
+    state = _thread_state(store, thread_id or "default")
+    active = set(resolve_active_skill_names(thread_id or "default"))
+    disabled = set(state.get("disabled", []))
+    ranked: list[tuple[int, str, SkillChoice]] = []
+    for skill in _available_manual_skills():
+        fields = _choice_match_fields(skill)
+        if not query_norm:
+            rank = 0
+        elif any(query_norm == field or query_compact == field for field in fields):
+            rank = 0
+        elif any(field.startswith(query_norm) or field.startswith(query_compact) for field in fields):
+            rank = 1
+        elif any(query_norm in field or query_compact in field for field in fields):
+            rank = 2
+        else:
+            continue
+        choice = _skill_choice(skill, active=active, disabled=disabled)
+        ranked.append((rank, choice.display_name.lower(), choice))
+    ranked.sort(key=lambda item: (item[0], item[1]))
+    choices = [item[2] for item in ranked]
+    return choices if limit is None else choices[:limit]
+
+
+def match_skill_choices(raw_name: str, *, thread_id: str = "", limit: int | None = None) -> list[SkillChoice]:
+    """Return deterministic skill matches for a user-provided skill query."""
+    return list_skill_choices(thread_id, query=raw_name, limit=limit)
+
+
+def _format_choice_line(index: int, choice: SkillChoice) -> str:
+    markers: list[str] = []
+    if choice.active:
+        markers.append("active")
+    if choice.disabled_here:
+        markers.append("disabled here")
+    suffix = f" ({', '.join(markers)})" if markers else ""
+    description = f" - {choice.description}" if choice.description else ""
+    return f"{index}. {choice.display_name}{suffix}{description} - /skill {choice.slug}"
+
+
+def _format_choices(
+    heading: str,
+    choices: Iterable[SkillChoice],
+    *,
+    empty: str = "No matching skills.",
+) -> str:
+    choice_list = list(choices)
+    if not choice_list:
+        return empty
+    lines = [heading]
+    lines.extend(_format_choice_line(index, choice) for index, choice in enumerate(choice_list, 1))
+    return "\n".join(lines)
+
+
+def apply_channel_skill_command(
+    thread_id: str,
+    text: str,
+    *,
+    current_text: str = "",
+    enabled_tool_names: Iterable[str] | None = None,
+    choice_limit: int = 10,
+) -> SkillCommandResult | None:
+    """Apply a Smart Skills command and return a channel-renderable result."""
+    command = parse_skill_command(text)
+    if command is None:
+        return None
+    if command.action == "list":
+        snap = get_activation_snapshot(
+            thread_id,
+            current_text=current_text,
+            enabled_tool_names=enabled_tool_names,
+        )
+        choices = tuple(list_skill_choices(thread_id, query=command.name, limit=choice_limit))
+        lines = ["Skills for this chat:"]
+        lines.append("Suggestions: off" if snap.smart_off else "Suggestions: on")
+        lines.append("Active: " + (", ".join(snap.active) if snap.active else "none"))
+        if snap.disabled:
+            lines.append("Disabled here: " + ", ".join(snap.disabled))
+        if snap.suggestions and not command.name:
+            lines.append(
+                "Suggested: "
+                + ", ".join(f"{s.display_name} ({s.reason})" for s in snap.suggestions)
+            )
+        if choices:
+            title = "Matching skills:" if command.name else "Available skills:"
+            lines.append("")
+            lines.append(title)
+            lines.extend(_format_choice_line(index, choice) for index, choice in enumerate(choices, 1))
+            if len(choices) >= choice_limit:
+                lines.append(f"Showing first {choice_limit}. Use /skills <query> to filter.")
+        elif command.name:
+            lines.append("")
+            lines.append(f"No skills match: {command.name}")
+        return SkillCommandResult(
+            "list" if choices else "text",
+            "\n".join(lines),
+            choices=choices,
+            query=command.name,
+        )
+    if command.action == "off":
+        set_smart_off(thread_id, True)
+        return SkillCommandResult(
+            "text",
+            "Skill suggestions are off for this chat. Active skills stay active until removed.",
+        )
+    if command.action == "reset":
+        reset_thread(thread_id)
+        return SkillCommandResult("reset", "Skills reset for this chat.")
+    if command.action == "unsupported_once":
+        return SkillCommandResult(
+            "error",
+            "Temporary skill activation is not supported. Use /skill <name> to activate a skill for this chat, then remove it when done.",
+        )
+    if command.action == "disable" and not command.name:
+        active = resolve_active_skill_names(thread_id)
+        if len(active) == 1:
+            disable_skill(thread_id, active[0])
+            return SkillCommandResult(
+                "disabled",
+                f"Skill disabled for this chat: {active[0]}",
+                selected_skill=active[0],
+            )
+        if len(active) > 1:
+            active_set = set(active)
+            active_choices = [
+                choice for choice in list_skill_choices(thread_id, limit=choice_limit)
+                if choice.name in active_set
+            ]
+            text_out = _format_choices(
+                "Multiple skills are active. Choose one to disable:",
+                active_choices,
+                empty="Multiple skills are active. Use /noskill <skill> to disable one.",
+            )
+            return SkillCommandResult(
+                "choices",
+                text_out,
+                choices=tuple(active_choices),
+            )
+        return SkillCommandResult("text", "No active skill is set for this chat.")
+
+    matches = match_skill_choices(command.name, thread_id=thread_id, limit=choice_limit)
+    if not matches:
+        _name, error = resolve_skill_name(command.name)
+        return SkillCommandResult("error", error or f"Skill not found: {command.name}", query=command.name)
+    if len(matches) > 1:
+        action = "disable" if command.action == "disable" else "activate"
+        text_out = _format_choices(
+            f"Multiple skills match. Reply with /skill <name> to {action}:",
+            matches,
+        )
+        return SkillCommandResult(
+            "choices",
+            text_out,
+            choices=tuple(matches),
+            query=command.name,
+        )
+    name = matches[0].name
+    if command.action == "pin":
+        pin_skill(thread_id, name)
+        record_accept(thread_id, name, source="slash")
+        return SkillCommandResult(
+            "activated",
+            f"Skill active for this chat: {name}",
+            selected_skill=name,
+            query=command.name,
+        )
+    if command.action == "disable":
+        disable_skill(thread_id, name)
+        return SkillCommandResult(
+            "disabled",
+            f"Skill disabled for this chat: {name}",
+            selected_skill=name,
+            query=command.name,
+        )
+    return None
+
+
 def resolve_skill_name(raw_name: str) -> tuple[str | None, str | None]:
     """Resolve a command argument to a manual skill name.
 
@@ -169,29 +404,28 @@ def resolve_skill_name(raw_name: str) -> tuple[str | None, str | None]:
     for skill in manual:
         folded[_normalize(skill.name)] = skill.name
         folded[_normalize(skill.display_name)] = skill.name
+        folded[_normalize(_slug(skill.name)).replace("-", " ")] = skill.name
+        folded[_normalize(_slug(skill.display_name)).replace("-", " ")] = skill.name
     if query in folded:
         name = folded[query]
         if name in available:
             return name, None
         return None, f"Skill is off in the Skills library: {name}"
-    matches = [
+    choices = match_skill_choices(raw_name)
+    matches = [choice.name for choice in choices]
+    if len(matches) == 1:
+        return matches[0], None
+    if matches:
+        return None, "Multiple skills match: " + ", ".join(matches[:6])
+    unavailable_matches = [
         skill.name
         for skill in manual
-        if query in _normalize(skill.name) or query in _normalize(skill.display_name)
+        if query in _normalize(skill.name)
+        or query in _normalize(skill.display_name)
+        or query in _normalize(_slug(skill.name)).replace("-", " ")
+        or query in _normalize(_slug(skill.display_name)).replace("-", " ")
     ]
-    if len(matches) == 1:
-        if matches[0] in available:
-            return matches[0], None
-        return None, f"Skill is off in the Skills library: {matches[0]}"
-    if matches:
-        unavailable_matches = [name for name in matches if name not in available]
-        available_matches = [name for name in matches if name in available]
-        if len(available_matches) == 1 and not unavailable_matches:
-            return available_matches[0], None
-        if len(available_matches) == 1 and unavailable_matches:
-            return available_matches[0], None
-        if available_matches:
-            return None, "Multiple skills match: " + ", ".join(available_matches[:6])
+    if unavailable_matches:
         return None, "Skill is off in the Skills library: " + ", ".join(unavailable_matches[:6])
     return None, f"Skill not found: {raw_name}"
 
@@ -203,9 +437,11 @@ def parse_skill_command(text: str) -> SkillCommand | None:
     parts = text.split(maxsplit=2)
     cmd = parts[0].lower()
     if cmd == "/skills":
-        return SkillCommand("list")
+        return SkillCommand("list", text.split(maxsplit=1)[1].strip() if len(parts) > 1 else "")
     if cmd == "/noskill":
-        return SkillCommand("disable", parts[1].strip() if len(parts) > 1 else "")
+        return SkillCommand("disable", text.split(maxsplit=1)[1].strip() if len(parts) > 1 else "")
+    if cmd in {"/skill-reset", "/skillreset", "/skill_reset"}:
+        return SkillCommand("reset")
     if cmd != "/skill":
         return None
     if len(parts) == 1:
@@ -229,47 +465,13 @@ def apply_skill_command(
     current_text: str = "",
     enabled_tool_names: Iterable[str] | None = None,
 ) -> str | None:
-    command = parse_skill_command(text)
-    if command is None:
-        return None
-    if command.action == "list":
-        snap = get_activation_snapshot(
-            thread_id,
-            current_text=current_text,
-            enabled_tool_names=enabled_tool_names,
-        )
-        lines = ["Skills for this chat:"]
-        lines.append("Suggestions: off" if snap.smart_off else "Suggestions: on")
-        lines.append("Active: " + (", ".join(snap.active) if snap.active else "none"))
-        if snap.disabled:
-            lines.append("Disabled here: " + ", ".join(snap.disabled))
-        if snap.suggestions:
-            lines.append(
-                "Suggested: "
-                + ", ".join(f"{s.display_name} ({s.reason})" for s in snap.suggestions)
-            )
-        return "\n".join(lines)
-    if command.action == "off":
-        set_smart_off(thread_id, True)
-        return "Skill suggestions are off for this chat. Active skills stay active until removed."
-    if command.action == "reset":
-        reset_thread(thread_id)
-        return "Skills reset for this chat."
-    if command.action == "unsupported_once":
-        return "Temporary skill activation is not supported. Use /skill <name> to activate a skill for this chat, then remove it when done."
-
-    name, error = resolve_skill_name(command.name)
-    if error:
-        return error
-    assert name is not None
-    if command.action == "pin":
-        pin_skill(thread_id, name)
-        record_accept(thread_id, name, source="slash")
-        return f"Skill active for this chat: {name}"
-    if command.action == "disable":
-        disable_skill(thread_id, name)
-        return f"Skill disabled for this chat: {name}"
-    return None
+    result = apply_channel_skill_command(
+        thread_id,
+        text,
+        current_text=current_text,
+        enabled_tool_names=enabled_tool_names,
+    )
+    return result.text if result is not None else None
 
 
 def pin_skill(thread_id: str, skill_name: str) -> None:

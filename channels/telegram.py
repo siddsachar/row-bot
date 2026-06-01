@@ -21,6 +21,7 @@ import logging
 import os
 import queue
 import re
+import secrets
 import threading
 import time
 from typing import Any
@@ -55,9 +56,11 @@ BOT_COMMANDS = [
     BotCommand("newthread", "Start a new conversation"),
     BotCommand("model", "Switch model (cloud/local)"),
     BotCommand("tools", "List enabled tools"),
+    BotCommand("stop", "Stop the current generation"),
     BotCommand("skill", "Use a skill in this conversation"),
     BotCommand("skills", "Show active and suggested skills"),
     BotCommand("noskill", "Disable a skill in this conversation"),
+    BotCommand("skillreset", "Reset skills in this conversation"),
     BotCommand("status", "Check bot status"),
 ]
 
@@ -69,6 +72,7 @@ _running = False                        # Whether the polling loop is active
 _bot_loop: asyncio.AbstractEventLoop | None = None  # Loop the bot was started on
 _pending_interrupts: dict[int, dict] = {}  # {chat_id: interrupt_data}
 _pending_task_approvals: dict[int, dict] = {}  # {message_id: {resume_token, task_name}}
+_pending_skill_choices: dict[str, dict] = {}  # {token: {thread_id, action, choices}}
 _pending_lock = threading.Lock()  # Guards both _pending_interrupts and _pending_task_approvals
 _PENDING_TTL_SECONDS = 3600  # 1 hour — entries older than this are cleaned up
 
@@ -86,9 +90,13 @@ def _cleanup_stale_pending() -> None:
                       if now - v.get("_ts", now) > _PENDING_TTL_SECONDS]
         for k in stale_task:
             _pending_task_approvals.pop(k, None)
-    if stale_int or stale_task:
-        log.info("Cleaned up %d stale interrupts, %d stale task approvals",
-                 len(stale_int), len(stale_task))
+        stale_skills = [k for k, v in _pending_skill_choices.items()
+                        if now - v.get("_ts", now) > 600]
+        for k in stale_skills:
+            _pending_skill_choices.pop(k, None)
+    if stale_int or stale_task or stale_skills:
+        log.info("Cleaned up %d stale interrupts, %d stale task approvals, %d stale skill choices",
+                 len(stale_int), len(stale_task), len(stale_skills))
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -529,7 +537,7 @@ async def _cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /help command."""
     if not _is_authorised(update):
         return
-    await _cmd_start(update, context)
+    await update.message.reply_text(ch_commands.cmd_help("telegram"))
 
 
 async def _cmd_newthread(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -655,6 +663,45 @@ async def _cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
 
 
+async def _cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /stop through the shared channel command path."""
+    if not _is_authorised(update):
+        return
+    response = ch_commands.dispatch("telegram", "/stop")
+    await update.message.reply_text(response or "Stop is not available in this context.")
+
+
+def _skill_reply_markup(result, *, thread_id: str, action: str) -> InlineKeyboardMarkup | None:
+    choices = list(getattr(result, "choices", ()) or ())
+    if not choices:
+        return None
+    token = secrets.token_urlsafe(8)
+    with _pending_lock:
+        _pending_skill_choices[token] = {
+            "thread_id": thread_id,
+            "action": action,
+            "choices": choices,
+            "_ts": time.time(),
+        }
+    rows = []
+    for index, choice in enumerate(choices[:10]):
+        rows.append([
+            InlineKeyboardButton(
+                choice.display_name[:48],
+                callback_data=f"skill_pick:{token}:{index}",
+            )
+        ])
+    return InlineKeyboardMarkup(rows)
+
+
+async def _reply_skill_result(message, result, *, thread_id: str, action: str) -> None:
+    markup = _skill_reply_markup(result, thread_id=thread_id, action=action)
+    if markup is not None:
+        await message.reply_text(result.text, reply_markup=markup)
+        return
+    await message.reply_text(result.text)
+
+
 async def _cmd_skill(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle Smart Skills commands for the current Telegram thread."""
     if not _is_authorised(update):
@@ -665,13 +712,14 @@ async def _cmd_skill(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         config = _get_or_create_thread(chat_id)
         context.chat_data["thread_config"] = config
     thread_id = (config.get("configurable") or {}).get("thread_id", "")
-    response = ch_commands.dispatch(
+    text = update.message.text or ""
+    result = ch_commands.cmd_skill_result(
         "telegram",
-        update.message.text or "",
+        text,
         thread_id=thread_id,
     )
-    if response is not None:
-        await update.message.reply_text(response)
+    action = "disable" if ch_commands.command_token(text) == "/noskill" else "activate"
+    await _reply_skill_result(update.message, result, thread_id=thread_id, action=action)
 
 
 async def _send_html(target, text: str, **kwargs) -> None:
@@ -938,6 +986,38 @@ async def _handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     # ── Task approval buttons (task_approve:<token> / task_deny:<token>) ──
     cb_data = query.data or ""
+    if cb_data.startswith("skill_pick:"):
+        parts = cb_data.split(":")
+        if len(parts) != 3:
+            await query.edit_message_text("Skill choice is no longer available.")
+            return
+        token, raw_index = parts[1], parts[2]
+        try:
+            index = int(raw_index)
+        except ValueError:
+            await query.edit_message_text("Skill choice is no longer available.")
+            return
+        with _pending_lock:
+            pending = _pending_skill_choices.pop(token, None)
+        if pending is None:
+            await query.edit_message_text("Skill choice expired. Send /skills again.")
+            return
+        choices = list(pending.get("choices") or [])
+        if index < 0 or index >= len(choices):
+            await query.edit_message_text("Skill choice is no longer available.")
+            return
+        choice = choices[index]
+        action = pending.get("action") or "activate"
+        thread_id = pending.get("thread_id") or ""
+        command_text = f"/noskill {choice.slug}" if action == "disable" else f"/skill {choice.slug}"
+        result = ch_commands.cmd_skill_result(
+            "telegram",
+            command_text,
+            thread_id=thread_id,
+        )
+        await query.edit_message_text(result.text)
+        return
+
     if cb_data.startswith("task_approve:") or cb_data.startswith("task_deny:"):
         token_prefix = cb_data.split(":", 1)[1]
         approved = cb_data.startswith("task_approve:")
@@ -1260,9 +1340,11 @@ async def start_bot() -> bool:
     _app.add_handler(CommandHandler("model", _cmd_model))
     _app.add_handler(CommandHandler("tools", _cmd_tools))
     _app.add_handler(CommandHandler("status", _cmd_status))
+    _app.add_handler(CommandHandler("stop", _cmd_stop))
     _app.add_handler(CommandHandler("skill", _cmd_skill))
     _app.add_handler(CommandHandler("skills", _cmd_skill))
     _app.add_handler(CommandHandler("noskill", _cmd_skill))
+    _app.add_handler(CommandHandler("skillreset", _cmd_skill))
     _app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _handle_message))
     _app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, _handle_voice))
     _app.add_handler(MessageHandler(filters.PHOTO, _handle_photo))

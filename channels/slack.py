@@ -514,7 +514,7 @@ async def _handle_dm(event: dict, say, client) -> None:
     # Slash command dispatch
     _cmd_thread_id = (
         _get_or_create_thread(channel_id)
-        if text.lower().split(maxsplit=1)[0] in {"/skill", "/skills", "/noskill"}
+        if ch_commands.is_thread_scoped_command(text)
         else None
     )
     cmd_response = ch_commands.dispatch("slack", text, thread_id=_cmd_thread_id)
