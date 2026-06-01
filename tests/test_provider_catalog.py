@@ -106,13 +106,9 @@ def test_model_catalog_pin_refresh_is_async_safe():
 
 def test_minimax_model_ids_infer_to_minimax_provider():
     for model_id in (
+        "MiniMax-M3",
         "MiniMax-M2.7",
         "MiniMax-M2.7-highspeed",
-        "MiniMax-M2.5",
-        "MiniMax-M2.5-highspeed",
-        "MiniMax-M2.1",
-        "MiniMax-M2.1-highspeed",
-        "MiniMax-M2",
     ):
         assert infer_provider_id(model_id) == "minimax"
 

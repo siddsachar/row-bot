@@ -730,12 +730,15 @@ def test_minimax_model_facade_recognizes_static_catalog(monkeypatch):
         models._cloud_model_cache.clear()
         count = models.fetch_cloud_models("minimax")
 
-        assert count == 7
+        assert count == 3
         assert models.is_cloud_model("MiniMax-M2.7") is True
         assert models.get_cloud_provider("MiniMax-M2.7") == "minimax"
         assert models.get_cloud_model_context("MiniMax-M2.7") == 204_800
         assert models.get_provider_emoji("MiniMax-M2.7") == "M"
         assert models._cloud_model_cache["MiniMax-M2.7"]["provider"] == "minimax"
+        assert models.is_cloud_model("MiniMax-M3") is True
+        assert models.get_cloud_provider("MiniMax-M3") == "minimax"
+        assert models.get_cloud_model_context("MiniMax-M3") == 524_288
     finally:
         models._cloud_model_cache.clear()
         models._cloud_model_cache.update(old_cache)

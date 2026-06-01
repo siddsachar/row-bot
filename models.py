@@ -70,6 +70,7 @@ _CONTEXT_HEURISTICS: list[tuple[str, int]] = [
     ("grok-2",           131_072),  # Grok 2 family           — 131K
     ("grok",             131_072),  # Catch-all Grok          — 131K
     # ── MiniMax ──────────────────────────────────────────────────────
+    ("minimax-m3",       524_288),  # MiniMax M3 Anthropic-compatible model    — 512K
     ("minimax-m2",       204_800),  # MiniMax M2.x Anthropic-compatible models
 ]
 
@@ -1694,13 +1695,9 @@ def _fetch_google_models(api_key: str) -> int:
 _XAI_SKIP_SUBSTRINGS: tuple[str, ...] = ()
 
 _MINIMAX_SUPPORTED_MODELS: tuple[tuple[str, int], ...] = (
+    ("MiniMax-M3", 524_288),
     ("MiniMax-M2.7", 204_800),
     ("MiniMax-M2.7-highspeed", 204_800),
-    ("MiniMax-M2.5", 204_800),
-    ("MiniMax-M2.5-highspeed", 204_800),
-    ("MiniMax-M2.1", 204_800),
-    ("MiniMax-M2.1-highspeed", 204_800),
-    ("MiniMax-M2", 204_800),
 )
 
 

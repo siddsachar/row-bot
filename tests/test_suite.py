@@ -19606,11 +19606,10 @@ try:
 
     # ── 75d. infer_provider_id routes MiniMax model IDs correctly ─────
     from providers.catalog import infer_provider_id as _infer75
+    assert _infer75("MiniMax-M3") == "minimax", "MiniMax-M3 should infer to minimax provider"
     assert _infer75("MiniMax-M2.7") == "minimax", "MiniMax-M2.7 should infer to minimax provider"
     assert _infer75("MiniMax-M2.7-highspeed") == "minimax", "MiniMax-M2.7-highspeed should infer to minimax provider"
-    assert _infer75("MiniMax-M2.5") == "minimax", "MiniMax-M2.5 should infer to minimax provider"
-    assert _infer75("MiniMax-M2.1-highspeed") == "minimax", "MiniMax-M2.1-highspeed should infer to minimax provider"
-    record("PASS", "75d: infer_provider_id routes MiniMax M2 model IDs to minimax")
+    record("PASS", "75d: infer_provider_id routes MiniMax model IDs to minimax")
 
     # ── 75e. minimax provider definition is well-formed ───────────────
     from providers.catalog import get_provider_definition as _gpd75
