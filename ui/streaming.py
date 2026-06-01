@@ -1271,11 +1271,11 @@ async def send_message(
     gen_thread_id = state.thread_id
 
     if text.strip().startswith("/") and not p.pending_files:
-        from skills_activation import apply_skill_command
+        from slash_commands import dispatch_text_command
 
         enabled_tool_names = [t.name for t in tool_registry.get_enabled_tools()]
         command_response = await run.io_bound(
-            lambda: apply_skill_command(
+            lambda: dispatch_text_command(
                 gen_thread_id,
                 text,
                 enabled_tool_names=enabled_tool_names,

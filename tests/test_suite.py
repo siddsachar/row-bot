@@ -107,6 +107,7 @@ CORE_MODULES = [
     "data_reader",
     "tasks",
     "skills_activation",
+    "slash_commands",
     "notifications",
     "launcher",
     "mcp_client.config",
@@ -243,6 +244,9 @@ FUNCTION_CHECKS = [
     ("tasks", "start_task_scheduler"),
     ("skills_activation", "resolve_active_skill_names"),
     ("skills_activation", "apply_skill_command"),
+    ("slash_commands", "get_command_specs"),
+    ("slash_commands", "resolve_command_text"),
+    ("slash_commands", "dispatch_text_command"),
     ("notifications", "notify"),
     ("channels.config", "get"),
     ("channels.config", "set"),
@@ -10067,7 +10071,7 @@ try:
     record("PASS", "tg_appr: _pending_task_approvals state dict exists")
 
     # ── tg_appr_d: _handle_callback routes task_approve/task_deny ────
-    _hcb_section = _src_tg_appr[_src_tg_appr.index("def _handle_callback"):][:2000]
+    _hcb_section = _src_tg_appr[_src_tg_appr.index("def _handle_callback"):][:3600]
     assert "task_approve:" in _hcb_section, \
         "_handle_callback must handle task_approve: callback data"
     assert "task_deny:" in _hcb_section, \
@@ -14412,6 +14416,74 @@ except Exception as e:
     record("FAIL", "69o-status-categories", f"{type(e).__name__}: {e}")
 
 # ── 69p. prompts.py dynamic builder works ─────────────────────────────────
+try:
+    import slash_commands as _sc69o2
+    import skills as _skills69o2
+
+    if not _skills69o2.skills_loaded():
+        _skills69o2.load_skills()
+    _skills69o2.set_enabled("meeting_notes", True)
+    _specs69o2 = _sc69o2.get_command_specs()
+    _ids69o2 = {spec.id for spec in _specs69o2}
+    for _cmd69o2 in {
+        "skills", "skill-reset", "noskill", "new", "stop",
+        "status", "tools", "export", "help",
+    }:
+        assert _cmd69o2 in _ids69o2, f"missing slash command {_cmd69o2}"
+    assert "model" not in _ids69o2, "main composer slash registry must not own channel /model"
+    assert "settings" not in _ids69o2, "main composer slash registry should avoid generic /settings"
+    assert _sc69o2.resolve_command_text("/skill reset")[0].id == "skill-reset"
+    assert _sc69o2.resolve_command_text("/model") is None
+    assert _sc69o2.resolve_command_text("/settings") is None
+    assert _sc69o2.resolve_command_token("/meeting-notes").skill_name == "meeting_notes"
+    _help69o2 = _sc69o2.help_text()
+    assert "`/model`" not in _help69o2
+    assert "`/settings`" not in _help69o2
+    _guide_names69o2 = {
+        skill.name for skill in _skills69o2.get_all_skills()
+        if _skills69o2.is_tool_guide(skill)
+    }
+    _runtime_skill_names69o2 = {
+        spec.skill_name for spec in _specs69o2 if spec.skill_name
+    }
+    assert not (_guide_names69o2 & _runtime_skill_names69o2), \
+        "Tool guides must not appear as runtime slash skill commands"
+    record("PASS", "69o2: slash command registry and skill separation")
+except Exception as e:
+    record("FAIL", "69o2-slash-command-registry", f"{type(e).__name__}: {e}")
+
+try:
+    from channels import commands as _chcmd69o3
+
+    for _text69o3 in ("/skill a", "/skills", "/skill-reset", "/skillreset", "/skill_reset", "/noskill"):
+        assert _chcmd69o3.is_thread_scoped_command(_text69o3), \
+            f"channel command should be thread-scoped: {_text69o3}"
+    for _text69o3 in ("/help", "/status", "/tools", "/new", "/stop", "/model"):
+        assert not _chcmd69o3.is_thread_scoped_command(_text69o3), \
+            f"channel command should not be skill-thread scoped: {_text69o3}"
+    _slack_src69o3 = (_APP_ROOT69 / "channels" / "slack.py").read_text(encoding="utf-8")
+    _discord_src69o3 = (_APP_ROOT69 / "channels" / "discord_channel.py").read_text(encoding="utf-8")
+    _whatsapp_src69o3 = (_APP_ROOT69 / "channels" / "whatsapp.py").read_text(encoding="utf-8")
+    _sms_src69o3 = (_APP_ROOT69 / "channels" / "sms.py").read_text(encoding="utf-8")
+    for _name69o3, _src69o3 in {
+        "slack": _slack_src69o3,
+        "discord": _discord_src69o3,
+        "whatsapp": _whatsapp_src69o3,
+        "sms": _sms_src69o3,
+    }.items():
+        assert "is_thread_scoped_command" in _src69o3, \
+            f"{_name69o3} should use shared channel skill command token helper"
+    _tg_src69o3 = (_APP_ROOT69 / "channels" / "telegram.py").read_text(encoding="utf-8")
+    assert 'BotCommand("skillreset"' in _tg_src69o3, "Telegram should register skillreset"
+    assert 'BotCommand("stop"' in _tg_src69o3, "Telegram should register stop"
+    assert 'CommandHandler("skillreset"' in _tg_src69o3, "Telegram should handle skillreset"
+    assert 'CommandHandler("stop"' in _tg_src69o3, "Telegram should handle stop"
+    assert _tg_src69o3.find('cb_data.startswith("skill_pick:")') < _tg_src69o3.find('cb_data.startswith("task_approve:")'), \
+        "Telegram skill callback should be handled before approval callbacks"
+    record("PASS", "69o3: channel skill command plumbing guards")
+except Exception as e:
+    record("FAIL", "69o3-channel-skill-command-plumbing", f"{type(e).__name__}: {e}")
+
 try:
     from prompts import get_agent_system_prompt as _gasp69p, AGENT_SYSTEM_PROMPT as _asp69p
     _dyn69p = _gasp69p()

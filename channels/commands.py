@@ -42,9 +42,43 @@ COMMANDS: list[ChannelCommand] = [
     ChannelCommand("/tools",  "List enabled tools",              "cmd_tools"),
     ChannelCommand("/skill",  "Use a skill in this conversation", "cmd_skill"),
     ChannelCommand("/skills", "Show active and suggested skills", "cmd_skill"),
+    ChannelCommand("/skill-reset", "Reset skills in this conversation", "cmd_skill"),
     ChannelCommand("/noskill", "Disable a skill in this conversation", "cmd_skill"),
     ChannelCommand("/stop",   "Stop the current generation",     "cmd_stop"),
 ]
+
+SKILL_COMMAND_TOKENS = {
+    "/skill",
+    "/skills",
+    "/skill-reset",
+    "/skillreset",
+    "/skill_reset",
+    "/noskill",
+}
+
+RESET_COMMAND_TOKENS = {"/skill-reset", "/skillreset", "/skill_reset"}
+
+
+def command_token(text: str) -> str:
+    """Return the lower-cased leading command token from text."""
+    value = str(text or "").strip()
+    if not value:
+        return ""
+    return value.split(maxsplit=1)[0].lower()
+
+
+def is_thread_scoped_command(text: str) -> bool:
+    """Return True when a channel command needs the conversation thread id."""
+    return command_token(text) in SKILL_COMMAND_TOKENS
+
+
+def normalize_skill_command_text(text: str) -> str:
+    """Normalize channel reset aliases to the Smart Skills command form."""
+    value = str(text or "").strip()
+    token = command_token(value)
+    if token in RESET_COMMAND_TOKENS:
+        return "/skill reset"
+    return value
 
 
 # ── Command handlers ────────────────────────────────────────────────
@@ -151,6 +185,24 @@ def cmd_help(channel_name: str) -> str:
     return "\n".join(lines)
 
 
+def _cmd_help_legacy(channel_name: str) -> str:
+    """Handle ``/help`` by listing channel-safe commands."""
+    lines = ["**Available Commands:**"]
+    for cmd in COMMANDS:
+        lines.append(f"- `{cmd.name}` - {cmd.description}")
+    lines.append("")
+    lines.append("Skill discovery:")
+    lines.append("- `/skills` lists available skills")
+    lines.append("- `/skills <query>` filters skills")
+    lines.append("- `/skill <query>` activates one matching skill")
+    lines.append("- `/noskill [query]` disables an active or matching skill")
+    lines.append("- `/skillreset` also works where hyphenated bot commands are not supported")
+    return "\n".join(lines)
+
+
+cmd_help = _cmd_help_legacy
+
+
 def cmd_tools(channel_name: str) -> str:
     """Handle ``/tools`` — list enabled tools."""
     try:
@@ -188,13 +240,32 @@ def cmd_skill(
     enabled_tool_names: list[str] | None = None,
 ) -> str:
     """Handle Smart Skills commands for channel conversations."""
+    result = cmd_skill_result(
+        channel_name,
+        text,
+        thread_id=thread_id,
+        enabled_tool_names=enabled_tool_names,
+    )
+    return result.text
+
+
+def cmd_skill_result(
+    channel_name: str,
+    text: str,
+    *,
+    thread_id: str | None = None,
+    enabled_tool_names: list[str] | None = None,
+):
+    """Handle Smart Skills commands and return a structured result."""
     if not thread_id:
-        return (
+        from skills_activation import SkillCommandResult
+        return SkillCommandResult(
+            "error",
             f"{channel_name} could not identify the current conversation thread, "
-            "so Smart Skills were not changed."
+            "so Smart Skills were not changed.",
         )
     try:
-        from skills_activation import apply_skill_command
+        from skills_activation import SkillCommandResult, apply_channel_skill_command
         if enabled_tool_names is None:
             try:
                 from tools.registry import get_enabled_tools
@@ -202,15 +273,16 @@ def cmd_skill(
             except Exception:
                 enabled_tool_names = []
 
-        response = apply_skill_command(
+        result = apply_channel_skill_command(
             thread_id,
-            text,
+            normalize_skill_command_text(text),
             enabled_tool_names=enabled_tool_names or [],
         )
-        return response or "Smart Skills command not recognized."
+        return result or SkillCommandResult("error", "Smart Skills command not recognized.")
     except Exception as exc:
         log.warning("/skill failed: %s", exc)
-        return f"Could not update Smart Skills: {exc}"
+        from skills_activation import SkillCommandResult
+        return SkillCommandResult("error", f"Could not update Smart Skills: {exc}")
 
 
 _HANDLER_MAP = {
@@ -244,7 +316,7 @@ def dispatch(
     cmd = parts[0].lower()
     arg = parts[1] if len(parts) > 1 else ""
 
-    if cmd in {"/skill", "/skills", "/noskill"}:
+    if cmd in SKILL_COMMAND_TOKENS:
         return cmd_skill(
             channel_name,
             text,
