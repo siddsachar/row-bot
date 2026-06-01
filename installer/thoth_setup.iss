@@ -235,6 +235,7 @@ Source: "..\developer\*";             DestDir: "{app}\app\developer"; Flags: ign
 Source: "..\bundled_skills\*";         DestDir: "{app}\app\bundled_skills"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\tool_guides\*";           DestDir: "{app}\app\tool_guides"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\skills.py";                 DestDir: "{app}\app"; Flags: ignoreversion
+Source: "..\skills_activation.py";      DestDir: "{app}\app"; Flags: ignoreversion
 ; ── UI package (modular frontend) ─────────────────────────────────────────────────
 Source: "..\ui\__init__.py";            DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\buddy.py";               DestDir: "{app}\app\ui"; Flags: ignoreversion

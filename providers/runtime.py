@@ -42,10 +42,11 @@ def list_configured_provider_ids() -> list[str]:
 
 def provider_status(provider_id: str) -> dict:
     if provider_id == "codex":
-        from providers.codex import codex_runtime_available
+        from providers.codex import check_codex_token_health
         from providers.codex import discover_codex_credentials
         from providers.config import load_provider_config
 
+        token_health = check_codex_token_health(refresh_if_needed=True)
         token_status = provider_secret_status("codex", "access_token")
         provider_cfg = load_provider_config().get("providers", {}).get("codex", {})
         external_configured = bool(
@@ -76,7 +77,9 @@ def provider_status(provider_id: str) -> dict:
             "external_reference_path_hash": provider_cfg.get("external_reference_path_hash") or discovered.get("path_hash") or "",
             "external_reference_exists": bool(provider_cfg.get("external_reference_exists") or discovered.get("exists")),
             "cli_installed": bool(discovered.get("cli_installed")),
-            "runtime_enabled": codex_runtime_available(),
+            "runtime_enabled": token_health.runnable,
+            "token_health": token_health.status,
+            "token_health_detail": token_health.detail,
             "last_error": provider_cfg.get("last_error") or "",
         }
     if provider_id == "ollama":

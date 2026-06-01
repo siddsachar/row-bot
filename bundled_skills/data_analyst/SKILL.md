@@ -9,6 +9,26 @@ tags:
   - analysis
   - data
   - visualization
+activation:
+  phrases:
+    - analyze this csv
+    - chart trends
+    - analyze data
+    - dataset analysis
+    - statistical summary
+  keywords:
+    - csv
+    - data
+    - dataset
+    - chart
+    - trends
+    - analysis
+    - statistics
+  negative_phrases:
+    - human tone
+    - meeting notes
+  examples:
+    - Analyze this CSV and chart trends
 author: Thoth
 ---
 

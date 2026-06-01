@@ -288,6 +288,8 @@ def build_provider_summary_cards() -> None:
     def _render_row(card: dict) -> None:
         source = str(card.get("source") or "")
         dot_color, state_label = _status_style(bool(card.get("configured")), source)
+        if card.get("provider_id") == "codex" and card.get("configured") and not card.get("runtime_enabled"):
+            dot_color, state_label = "#f59e0b", "Reconnect"
         metadata = _metadata_label(card)
         fingerprint = str(card.get("fingerprint") or "")
         account_hash = str(card.get("account_id_hash") or "")
@@ -299,6 +301,8 @@ def build_provider_summary_cards() -> None:
                     ui.label(card["display_name"]).classes("text-sm text-weight-medium").style("line-height: 1.15;")
                     ui.label(state_label).classes("text-grey-6 text-xs")
                 sub = _source_label(source) if source else "Add credentials to enable this provider"
+                if card.get("provider_id") == "codex" and card.get("configured") and not card.get("runtime_enabled"):
+                    sub = "Reconnect ChatGPT to use Codex models in chat"
                 if metadata:
                     sub = f"{sub} · {metadata}"
                 ui.label(sub).classes("text-grey-6 text-xs").style("line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;")

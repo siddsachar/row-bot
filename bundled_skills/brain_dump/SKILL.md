@@ -8,6 +8,24 @@ version: "1.2"
 tags:
   - productivity
   - capture
+activation:
+  phrases:
+    - brain dump
+    - messy thoughts
+    - dump thoughts
+    - organize my thoughts
+  keywords:
+    - thoughts
+    - messy
+    - dump
+    - organize
+    - notes
+    - capture
+  negative_phrases:
+    - meeting notes
+    - structured report
+  examples:
+    - I just need to dump a bunch of messy thoughts
 author: Thoth
 ---
 

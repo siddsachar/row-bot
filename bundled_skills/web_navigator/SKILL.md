@@ -8,6 +8,26 @@ version: "1.0"
 tags:
   - browser
   - automation
+activation:
+  phrases:
+    - browse this site
+    - extract pricing
+    - inspect a website
+    - browser workflow
+    - web data extraction
+  keywords:
+    - browse
+    - site
+    - website
+    - pricing
+    - extract
+    - browser
+    - forms
+  negative_phrases:
+    - meeting notes
+    - human tone
+  examples:
+    - Browse this site and extract pricing info
 author: Thoth
 ---
 

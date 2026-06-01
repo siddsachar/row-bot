@@ -3,12 +3,30 @@ name: humanizer
 display_name: Humanizer
 icon: "🗣️"
 description: Write in a natural, human tone — no AI-speak, no filler, no corporate fluff.
-tools: []
 enabled_by_default: false
 version: "1.0"
 tags:
   - writing
   - tone
+activation:
+  phrases:
+    - sound more human
+    - less corporate
+    - human tone
+    - natural tone
+    - no ai-speak
+  keywords:
+    - human
+    - natural
+    - corporate
+    - tone
+    - rewrite
+    - filler
+  negative_phrases:
+    - research report
+    - meeting notes
+  examples:
+    - Make this sound more human and less corporate
 author: Thoth
 ---
 

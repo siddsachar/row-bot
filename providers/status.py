@@ -58,6 +58,8 @@ def provider_status_cards() -> list[dict]:
             "external_reference_exists": bool(status.get("external_reference_exists")),
             "cli_installed": bool(status.get("cli_installed")),
             "runtime_enabled": bool(status.get("runtime_enabled")),
+            "token_health": status.get("token_health") or "",
+            "token_health_detail": status.get("token_health_detail") or "",
             "last_error": status.get("last_error") or "",
             "model_count": model_count,
             "chat_count": cache_stats["chat_count"],

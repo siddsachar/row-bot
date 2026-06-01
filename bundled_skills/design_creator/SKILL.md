@@ -5,11 +5,30 @@ icon: "🎨"
 description: Structured workflow for creating professional designs — slide decks, documents, landing pages, app mockups, and motion storyboards.
 enabled_by_default: false
 version: "1.0"
-tools: []
 tags:
   - design
   - presentations
   - marketing
+activation:
+  phrases:
+    - one-page product concept
+    - product concept
+    - create a one-pager
+    - landing page
+    - slide deck
+  keywords:
+    - design
+    - product
+    - concept
+    - one-page
+    - one-pager
+    - landing
+    - deck
+  negative_phrases:
+    - meeting notes
+    - research competitors
+  examples:
+    - Create a one-page product concept
 author: Thoth
 ---
 When the user asks you to **create a presentation**, **design a slide deck**,

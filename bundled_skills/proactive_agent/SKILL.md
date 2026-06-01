@@ -3,7 +3,6 @@ name: proactive_agent
 display_name: Proactive Agent
 icon: "🎯"
 description: Anticipate user needs, ask clarifying questions, and self-check work at milestones.
-tools: []
 enabled_by_default: false
 version: "1.0"
 tags:

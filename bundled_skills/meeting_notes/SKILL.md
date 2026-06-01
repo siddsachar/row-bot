@@ -8,6 +8,24 @@ version: "1.2"
 tags:
   - productivity
   - meetings
+activation:
+  phrases:
+    - meeting notes
+    - action items
+    - meeting transcript
+    - minutes
+  keywords:
+    - meeting
+    - notes
+    - transcript
+    - decisions
+    - follow-ups
+    - actions
+  negative_phrases:
+    - competitor research
+    - structured report
+  examples:
+    - Summarize these meeting notes and extract action items
 author: Thoth
 ---
 

@@ -61,7 +61,7 @@ def build_chat(
     )
     from threads import (
         _save_thread_meta,
-        get_thread_skills_override, set_thread_skills_override,
+        get_thread_skills_override,
     )
     from tasks import get_running_tasks, stop_task
     from tools import registry as tool_registry
@@ -91,81 +91,6 @@ def build_chat(
             p.chat_header_label = ui.label(f"💬 {state.thread_name}").classes("text-h5 flex-grow")
 
             # Model selection now lives in the composer, matching Designer.
-
-            # ── Per-thread skills override ───────────────────────────
-            import skills as _skills_mod
-            if not _skills_mod.skills_loaded():
-                async def _warm_skills_snapshot() -> None:
-                    started = time.perf_counter()
-                    await run.io_bound(_skills_mod.load_skills)
-                    if p.chat_shell_generation != _shell_generation:
-                        return
-                    log_ui_perf(
-                        "chat.skills.snapshot.load",
-                        (time.perf_counter() - started) * 1000.0,
-                        threshold_ms=500.0,
-                        thread_id=state.thread_id,
-                    )
-                defer_ui(_warm_skills_snapshot, delay=0.05)
-            _enabled_sk = _skills_mod.get_enabled_manual_skills_snapshot()
-            if _enabled_sk:
-                _thread_sk_override = get_thread_skills_override(state.thread_id)
-                _enabled_names = set(sk.name for sk in _enabled_sk)
-                _active_sk_names = (
-                    set(_thread_sk_override) & _enabled_names
-                    if _thread_sk_override is not None
-                    else set(_enabled_names)
-                )
-                _sk_count = len(_active_sk_names)
-                _sk_label = (
-                    f"✨ {_sk_count} skill{'s' if _sk_count != 1 else ''}"
-                    if _sk_count > 0
-                    else "✨ No skills"
-                )
-                _sk_btn = ui.button(_sk_label).props("flat dense no-caps size=sm").classes("text-sm").style("min-width: 100px;")
-                with _sk_btn:
-                    with ui.menu().classes("q-pa-sm"):
-                        ui.label("Skills for this thread").classes("text-xs text-grey-5 q-mb-xs")
-
-                        def _update_sk_label():
-                            _cur = get_thread_skills_override(state.thread_id)
-                            _en = set(sk.name for sk in _skills_mod.get_enabled_manual_skills_snapshot())
-                            _act = set(_cur) & _en if _cur is not None else _en
-                            n = len(_act)
-                            _sk_btn.text = f"✨ {n} skill{'s' if n != 1 else ''}" if n > 0 else "✨ No skills"
-
-                        def _on_sk_toggle(name, val):
-                            _cur = get_thread_skills_override(state.thread_id)
-                            if _cur is None:
-                                _cur = list(_enabled_names)
-                            names_set = set(_cur)
-                            if val:
-                                names_set.add(name)
-                            else:
-                                names_set.discard(name)
-                            set_thread_skills_override(state.thread_id, list(names_set))
-                            clear_agent_cache()
-                            _update_sk_label()
-
-                        async def _reset_skills():
-                            set_thread_skills_override(state.thread_id, None)
-                            clear_agent_cache()
-                            _update_sk_label()
-                            for _cbn, _cbw in _sk_cbs.items():
-                                _cbw.value = True
-
-                        _sk_cbs = {}
-                        with ui.column().classes("gap-0"):
-                            for _sk in _enabled_sk:
-                                _cb = ui.checkbox(
-                                    f"{_sk.icon} {_sk.display_name}",
-                                    value=_sk.name in _active_sk_names,
-                                    on_change=lambda e, n=_sk.name: _on_sk_toggle(n, e.value),
-                                ).classes("text-sm")
-                                _sk_cbs[_sk.name] = _cb
-                        ui.separator()
-                        ui.button("Reset to global", icon="restart_alt",
-                                  on_click=lambda: asyncio.create_task(_reset_skills())).props("flat dense size=sm")
 
         if state.messages:
             ui.button(icon="download", on_click=open_export).props("flat round").tooltip("Export")
@@ -727,6 +652,245 @@ def build_chat(
         # File chips inside the card (top)
         p.file_chips_row = ui.row().classes("w-full flex-wrap gap-1 q-px-md q-pt-sm")
 
+        try:
+            import skills as _skills_for_chips
+            from skills_activation import (
+                disable_skill as _disable_chat_skill,
+                dismiss_suggestion as _dismiss_skill_suggestion,
+                get_activation_snapshot as _get_skill_activation_snapshot,
+                pin_skill as _pin_chat_skill,
+                record_accept as _record_skill_accept,
+                suggest_skills as _suggest_chat_skills,
+            )
+
+            if not _skills_for_chips.skills_loaded():
+                _skills_for_chips.load_skills()
+            _last_user_text = ""
+            for _msg in reversed(state.messages or []):
+                if _msg.get("role") == "user":
+                    _last_user_text = str(_msg.get("content") or "")
+                    break
+            _enabled_tool_names = [t.name for t in tool_registry.get_enabled_tools()]
+            _thread_override = get_thread_skills_override(state.thread_id)
+            _skill_snap = _get_skill_activation_snapshot(
+                state.thread_id,
+                current_text="",
+                enabled_tool_names=_enabled_tool_names,
+                explicit_override=_thread_override,
+            )
+            _available_skills = [
+                sk for sk in _skills_for_chips.get_manual_skills()
+                if _skills_for_chips.is_enabled(sk.name)
+                and not _skills_for_chips.is_tool_guide(sk)
+            ]
+            _active_skill_names = {"names": list(_skill_snap.active)}
+            _draft_state = {"text": "", "version": 0}
+            _chip_refresh_task: dict[str, asyncio.Task | None] = {"task": None}
+
+            def _ordered_skill_names(names) -> list[str]:
+                seen: set[str] = set()
+                ordered: list[str] = []
+                for name in names:
+                    if name and name not in seen:
+                        seen.add(name)
+                        ordered.append(name)
+                return ordered
+
+            def _active_name_set() -> set[str]:
+                return set(_active_skill_names.get("names") or [])
+
+            def _refresh_skill_chips_now() -> None:
+                _render_skill_chips(_draft_state.get("text", ""))
+
+            def _use_skill(name: str, *, source: str = "ui") -> None:
+                _pin_chat_skill(state.thread_id, name)
+                _record_skill_accept(state.thread_id, name, source=source)
+                _active_skill_names["names"] = _ordered_skill_names(
+                    [*_active_skill_names.get("names", []), name]
+                )
+                clear_agent_cache()
+                _refresh_skill_chips_now()
+
+            def _remove_skill(name: str) -> None:
+                _disable_chat_skill(state.thread_id, name)
+                _active_skill_names["names"] = [
+                    active_name
+                    for active_name in _active_skill_names.get("names", [])
+                    if active_name != name
+                ]
+                clear_agent_cache()
+                _refresh_skill_chips_now()
+
+            def _dismiss_suggestion(name: str) -> None:
+                _dismiss_skill_suggestion(state.thread_id, name)
+                _refresh_skill_chips_now()
+
+            def _meaningful_skill_draft(text: str) -> bool:
+                return len(str(text or "").strip()) >= 3
+
+            def _suggestions_for_text(text: str, *, limit: int = 3):
+                if not _meaningful_skill_draft(text):
+                    return []
+                return _suggest_chat_skills(
+                    state.thread_id,
+                    text,
+                    enabled_tool_names=_enabled_tool_names,
+                    extra_excluded=_thread_override or [],
+                    limit=limit,
+                    trace=False,
+                )
+
+            def _open_skill_picker() -> None:
+                picker_text = str(_draft_state.get("text") or "").strip() or _last_user_text
+                picker_suggestions = _suggestions_for_text(picker_text, limit=3)
+                picker_suggestions_by_name = {s.name: s for s in picker_suggestions}
+                with ui.dialog() as dlg, ui.card().classes("w-full q-pa-md").style(
+                    "min-width: min(720px, 92vw); max-width: 760px;"
+                ):
+                    with ui.row().classes("w-full items-center"):
+                        ui.label("Skills").classes("text-h6")
+                        ui.space()
+                        ui.button(icon="close", on_click=dlg.close).props("flat round dense")
+                    search = ui.input(
+                        placeholder="Search skills",
+                    ).props("dense outlined clearable").classes("w-full q-mb-sm")
+                    skill_list = ui.column().classes("w-full gap-2").style("max-height: 58vh; overflow-y: auto;")
+
+                    def _render_skill_list() -> None:
+                        query = str(search.value or "").strip().lower()
+                        skill_list.clear()
+
+                        def _matches(skill) -> bool:
+                            haystack = " ".join([
+                                skill.name,
+                                skill.display_name,
+                                skill.description or "",
+                                " ".join(skill.tags or []),
+                            ]).lower()
+                            return not query or query in haystack
+
+                        active_skills = [
+                            _skills_for_chips.get_skill(name)
+                            for name in _active_skill_names.get("names", [])
+                        ]
+                        active_skills = [sk for sk in active_skills if sk and _matches(sk)]
+                        suggested = [
+                            s for s in picker_suggestions
+                            if not query
+                            or query in " ".join([s.name, s.display_name, s.description, s.reason]).lower()
+                        ]
+                        available = [
+                            sk for sk in _available_skills
+                            if sk.name not in _active_name_set() and sk.name not in picker_suggestions_by_name and _matches(sk)
+                        ]
+
+                        with skill_list:
+                            if active_skills:
+                                ui.label("Active in this chat").classes("text-xs text-grey-5 text-uppercase")
+                                for sk in active_skills:
+                                    with ui.row().classes("w-full items-center no-wrap q-pa-xs rounded-borders"):
+                                        ui.label(f"{sk.icon} {sk.display_name}").classes("text-sm text-weight-medium")
+                                        ui.space()
+                                        ui.button("Remove", icon="close", on_click=lambda _, n=sk.name: (_remove_skill(n), dlg.close())).props(
+                                            "flat dense no-caps size=sm"
+                                        )
+                            if suggested:
+                                ui.label("Suggested").classes("text-xs text-grey-5 text-uppercase q-mt-sm")
+                                for suggestion in suggested:
+                                    with ui.row().classes("w-full items-center no-wrap q-pa-xs rounded-borders"):
+                                        with ui.column().classes("gap-0"):
+                                            ui.label(f"{suggestion.icon} {suggestion.display_name}").classes("text-sm text-weight-medium")
+                                            ui.label(suggestion.reason).classes("text-xs text-grey-6")
+                                        ui.space()
+                                        ui.button("Use", icon="add", on_click=lambda _, n=suggestion.name: (_use_skill(n, source="ui_picker_suggested"), dlg.close())).props(
+                                            "flat dense no-caps size=sm"
+                                        )
+                                        ui.button("Dismiss", icon="close", on_click=lambda _, n=suggestion.name: (_dismiss_suggestion(n), dlg.close())).props(
+                                            "flat dense no-caps size=sm"
+                                        )
+                            ui.label("Available").classes("text-xs text-grey-5 text-uppercase q-mt-sm")
+                            if available:
+                                for sk in available:
+                                    with ui.row().classes("w-full items-center no-wrap q-pa-xs rounded-borders"):
+                                        with ui.column().classes("gap-0"):
+                                            ui.label(f"{sk.icon} {sk.display_name}").classes("text-sm text-weight-medium")
+                                            if sk.description:
+                                                ui.label(sk.description).classes("text-xs text-grey-6")
+                                        ui.space()
+                                        ui.button("Use", icon="add", on_click=lambda _, n=sk.name: (_use_skill(n, source="ui_picker"), dlg.close())).props(
+                                            "flat dense no-caps size=sm"
+                                        )
+                            else:
+                                ui.label("No available skills match.").classes("text-grey-6 text-sm")
+
+                    search.on("update:model-value", lambda _: _render_skill_list())
+                    _render_skill_list()
+                dlg.open()
+
+            _skill_chips_row = ui.row().classes("w-full flex-wrap items-center gap-1 q-px-md q-pt-xs")
+
+            def _render_skill_chips(draft_text: str = "") -> None:
+                try:
+                    _skill_chips_row.clear()
+                    draft_suggestions = _suggestions_for_text(draft_text, limit=3)
+                    with _skill_chips_row:
+                        ui.button("Skills", icon="auto_fix_high", on_click=_open_skill_picker).props(
+                            "outline dense no-caps size=sm"
+                        ).classes("text-xs").tooltip("Choose skills for this chat")
+
+                        for _name in _active_skill_names.get("names", []):
+                            _skill = _skills_for_chips.get_skill(_name)
+                            _label = f"{_skill.icon} {_skill.display_name}" if _skill else _name
+                            ui.button(
+                                _label,
+                                icon="close",
+                                on_click=lambda _, n=_name: _remove_skill(n),
+                            ).props("outline dense no-caps size=sm").classes("text-xs").tooltip(
+                                "Remove skill from this chat"
+                            )
+
+                        for _suggestion in draft_suggestions:
+                            with ui.button(
+                                f"{_suggestion.icon} {_suggestion.display_name}",
+                            ).props("flat dense no-caps size=sm").classes("text-xs"):
+                                with ui.menu().classes("q-pa-sm"):
+                                    ui.label(_suggestion.description or _suggestion.reason).classes(
+                                        "text-xs text-grey-5 q-mb-xs"
+                                    )
+                                    ui.button(
+                                        "Use",
+                                        icon="add",
+                                        on_click=lambda _, n=_suggestion.name: _use_skill(n, source="ui_draft_suggestion"),
+                                    ).props("flat dense no-caps size=sm")
+                                    ui.button(
+                                        "Dismiss",
+                                        icon="close",
+                                        on_click=lambda _, n=_suggestion.name: _dismiss_suggestion(n),
+                                    ).props("flat dense no-caps size=sm")
+                except Exception:
+                    logger.debug("Smart Skills draft chip refresh failed", exc_info=True)
+
+            _render_skill_chips("")
+
+            def _debounced_skill_chip_refresh(version: int) -> None:
+                if version != _draft_state.get("version"):
+                    return
+                _render_skill_chips(_draft_state.get("text", ""))
+
+            def _queue_skill_chip_refresh(text: str) -> None:
+                _draft_state["text"] = str(text or "")
+                _draft_state["version"] = int(_draft_state.get("version", 0)) + 1
+                task = _chip_refresh_task.get("task")
+                if task and not task.done():
+                    task.cancel()
+                _chip_refresh_task["task"] = defer_ui(
+                    lambda v=int(_draft_state["version"]): _debounced_skill_chip_refresh(v),
+                    delay=0.25,
+                )
+
+        except Exception:
+            logger.debug("Smart Skills composer chips failed to render", exc_info=True)
+
         # Context counter — absolute overlay, top-right
         with ui.row().classes("items-center gap-1").style(
             "position: absolute; top: 8px; right: 12px; z-index: 1; "
@@ -744,10 +908,23 @@ def build_chat(
             .style("font-size: 0.95rem;")
         )
 
+        try:
+            p.chat_input.on(
+                "update:model-value",
+                lambda e: _queue_skill_chip_refresh(e.args or p.chat_input.value or ""),
+                js_handler="(value) => emit(value)",
+            )
+        except Exception:
+            logger.debug("Smart Skills draft suggestion handler was not attached", exc_info=True)
+
         async def _on_send():
             text = p.chat_input.value
             if text and text.strip():
                 p.chat_input.value = ""
+                try:
+                    _queue_skill_chip_refresh("")
+                except Exception:
+                    logger.debug("Smart Skills draft suggestions were not cleared on send", exc_info=True)
                 # Re-engage auto-scroll on new message
                 if p.chat_scroll:
                     _re = p.chat_scroll.id
@@ -757,6 +934,10 @@ def build_chat(
                 await send_message(text)
             elif p.pending_files:
                 p.chat_input.value = ""
+                try:
+                    _queue_skill_chip_refresh("")
+                except Exception:
+                    logger.debug("Smart Skills draft suggestions were not cleared on attachment send", exc_info=True)
                 await send_message("")
 
         # Enter to send; modified Enter keeps native textarea behavior.

@@ -512,7 +512,12 @@ async def _handle_dm(event: dict, say, client) -> None:
     record_activity("slack")
 
     # Slash command dispatch
-    cmd_response = ch_commands.dispatch("slack", text)
+    _cmd_thread_id = (
+        _get_or_create_thread(channel_id)
+        if text.lower().split(maxsplit=1)[0] in {"/skill", "/skills", "/noskill"}
+        else None
+    )
+    cmd_response = ch_commands.dispatch("slack", text, thread_id=_cmd_thread_id)
     if cmd_response is not None:
         await say(_md_to_mrkdwn(cmd_response), channel=channel_id)
         return

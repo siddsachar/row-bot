@@ -41,7 +41,7 @@ class _StatusQueryInput(BaseModel):
             "'model' (current model and provider info), "
             "'channels' (messaging channel status), "
             "'memory' (knowledge graph stats), "
-            "'skills' (enabled/disabled skills), "
+            "'skills' (Skill Library availability), "
             "'tools' (enabled/disabled tools), "
             "'mcp' (external MCP server/tool status), "
             "'providers' (provider connections, credential sources, and Quick Choices), "
@@ -74,7 +74,7 @@ class _SettingUpdateInput(BaseModel):
             "'cloud_context_size' (provider model context cap — value is token count), "
             "'dream_cycle' (enable/disable — value is 'on' or 'off'), "
             "'dream_window' (dream cycle hours — value is 'START-END' e.g. '1-5'), "
-            "'skill_toggle' (enable/disable a skill — value is 'skill_name:on' or 'skill_name:off'), "
+            "'skill_toggle' (make a Skill Library item Available/Off — value is 'skill_name:on' or 'skill_name:off'), "
             "'tool_toggle' (enable/disable a tool — value is 'tool_name:on' or 'tool_name:off'; use 'mcp:on/off' for the global MCP client), "
             "'image_gen_model' (set image generation model — value may be provider/model-id, bare model id, or model label), "
             "'video_gen_model' (set video generation model — value may be provider/model-id, bare model id, or model label), "
@@ -255,6 +255,47 @@ def _resolve_tool_name(value: str) -> tuple[str | None, str | None, list[str]]:
 # QUERY HANDLERS (read-only, always allowed)
 # ═════════════════════════════════════════════════════════════════════════════
 
+def _resolve_manual_skill_name(value: str) -> tuple[str | None, str | None, list[str]]:
+    """Resolve a Skill Library name/display label to a manual skill id."""
+    from skills import get_manual_skill_statuses
+
+    raw = (value or "").strip()
+    if not raw:
+        return None, None, []
+
+    statuses = get_manual_skill_statuses()
+    for skill, _is_available in statuses:
+        if raw == skill.name:
+            return skill.name, skill.display_name, []
+
+    normalized = _normalize_lookup_token(raw)
+    alias_to_name: dict[str, str] = {}
+    labels: dict[str, str] = {}
+    for skill, _is_available in statuses:
+        labels[skill.name] = skill.display_name
+        for alias in {
+            skill.name,
+            _normalize_lookup_token(skill.name),
+            _normalize_lookup_token(skill.display_name),
+        }:
+            if alias:
+                alias_to_name.setdefault(alias, skill.name)
+
+    resolved_name = alias_to_name.get(normalized)
+    if resolved_name:
+        return resolved_name, labels.get(resolved_name, resolved_name), []
+
+    suggestions: list[str] = []
+    for skill, _is_available in statuses:
+        label = skill.display_name
+        if normalized and (
+            normalized in _normalize_lookup_token(label)
+            or normalized in _normalize_lookup_token(skill.name)
+        ):
+            suggestions.append(label)
+    return None, None, suggestions[:3]
+
+
 def _query_overview() -> str:
     """Full status summary across all categories."""
     from version import __version__
@@ -367,12 +408,13 @@ def _query_skills() -> str:
         skill_statuses = get_manual_skill_statuses()
         if not skill_statuses:
             return "**Skills**\nNo skills found."
-        enabled_count = sum(1 for _skill, is_enabled in skill_statuses if is_enabled)
-        disabled_count = len(skill_statuses) - enabled_count
-        lines = [f"**Skills** ({enabled_count} enabled, {disabled_count} disabled)"]
-        lines.append("- Tool guides are excluded from this count and load only as tool instructions.")
-        for skill, is_enabled in skill_statuses:
-            status = "enabled" if is_enabled else "disabled"
+        available_count = sum(1 for _skill, is_available in skill_statuses if is_available)
+        off_count = len(skill_statuses) - available_count
+        lines = [f"**Skill Library** ({available_count} available, {off_count} off)"]
+        lines.append("- Available skills can be activated in chat with the Skills picker or /skill.")
+        lines.append("- Tool guides are separate tool instructions and are not listed here.")
+        for skill, is_available in skill_statuses:
+            status = "Available" if is_available else "Off"
             lines.append(f"- {skill.display_name}: {status}")
         return "\n".join(lines)
     except Exception as exc:
@@ -1095,18 +1137,25 @@ def _update_setting(setting: str, value: str) -> str:
                 raise ValueError
         except Exception:
             return f"Invalid value '{value}'. Use 'skill_name:on' or 'skill_name:off'."
+        try:
+            resolved_name, resolved_label, suggestions = _resolve_manual_skill_name(name_part)
+        except Exception as exc:
+            return f"Failed to inspect Skill Library: {exc}"
+        if not resolved_name:
+            suggestion_text = f" Try one of: {', '.join(suggestions)}." if suggestions else ""
+            return f"Unknown Skill Library item '{name_part}'.{suggestion_text}"
         approval = interrupt({
             "tool": "thoth_update_setting",
-            "label": f"{'Enable' if on else 'Disable'} skill '{name_part}'",
-            "description": f"Set skill '{name_part}' to {'enabled' if on else 'disabled'}",
-            "args": {"setting": "skill_toggle", "value": value},
+            "label": f"Turn {'on' if on else 'off'} skill '{resolved_label}'",
+            "description": f"Set Skill Library item '{resolved_label}' to {'Available' if on else 'Off'}",
+            "args": {"setting": "skill_toggle", "value": f"{resolved_name}:{'on' if on else 'off'}"},
         })
         if not approval:
             return "Skill toggle cancelled."
         try:
             from skills import set_enabled as skill_set_enabled
-            skill_set_enabled(name_part, on)
-            return f"Skill '{name_part}' {'enabled' if on else 'disabled'}."
+            skill_set_enabled(resolved_name, on)
+            return f"Skill '{resolved_label}' is now {'Available' if on else 'Off'}."
         except Exception as exc:
             return f"Failed to toggle skill: {exc}"
 
@@ -1422,7 +1471,6 @@ def _patch_skill(name: str, updated_instructions: str, reason: str) -> str:
                 icon=skill.icon,
                 description=skill.description,
                 instructions=updated_instructions,
-                tools=skill.tools if skill.tools else None,
                 tags=skill.tags if skill.tags else None,
                 enabled=True,
                 version=skill.version,
@@ -1507,7 +1555,7 @@ class ThothStatusTool(BaseTool):
                     "Settings: model, vision_model, name, personality, context_size, "
                     "cloud_context_size, dream_cycle (on/off), "
                     "dream_window (e.g. '1-5'), "
-                    "skill_toggle (e.g. 'deep_research:off'), "
+                    "skill_toggle for Skill Library Available/Off (e.g. 'deep_research:off'), "
                         "tool_toggle (e.g. 'arxiv:off' or 'mcp:off'), "
                     "image_gen_model, video_gen_model, "
                     "run_dream_cycle (trigger immediately), "
