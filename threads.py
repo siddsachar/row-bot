@@ -6,6 +6,7 @@ import os
 import pathlib
 import json
 import time
+import gc
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
@@ -672,7 +673,23 @@ def clear_thread_summary(thread_id: str) -> None:
     conn.close()
 
 
-conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+class _ManagedSqliteConnection:
+    def __init__(self, path: str) -> None:
+        self._conn = sqlite3.connect(path, check_same_thread=False)
+        self._closed = False
+
+    def __getattr__(self, name: str):
+        return getattr(self._conn, name)
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._conn.close()
+        gc.collect()
+
+
+conn = _ManagedSqliteConnection(DB_PATH)
 checkpointer = SqliteSaver(conn)
 
 

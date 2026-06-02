@@ -1,10 +1,10 @@
-"""Thoth UI — shared application state.
+"""Thoth UI â€” shared application state.
 
 Contains the singleton ``AppState``, the per-thread ``GenerationState``
 dataclass, the per-client ``P`` page-element holder and the global
 ``_active_generations`` registry.
 
-Every UI module receives these objects as explicit parameters — no hidden
+Every UI module receives these objects as explicit parameters â€” no hidden
 closure captures.
 """
 
@@ -17,18 +17,20 @@ from typing import Any
 
 from models import get_current_model, get_user_context_size
 from voice import get_voice_service
+from voice.coordinator import VoiceSessionCoordinator
+from voice.runtime import load_voice_runtime_settings
 from tts import TTSService
 from vision import VisionService
 from tools.vision_tool import set_vision_service
 from nicegui import ui
 
 
-# ═════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # SHARED APPLICATION STATE (module-level singleton)
-# ═════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class AppState:
-    """Shared backend state — lives for the lifetime of the server process."""
+    """Shared backend state â€” lives for the lifetime of the server process."""
 
     def __init__(self) -> None:
         self.thread_id: str | None = None
@@ -43,17 +45,20 @@ class AppState:
         self.show_onboarding: bool = False  # set by helpers._is_first_run()
         self.open_setup_center_on_next_load: bool = False
         self.voice_enabled: bool = False
+        self.voice_input_mode: str = "talk"
+        self.voice_runtime_settings = load_voice_runtime_settings()
         self.voice_service = get_voice_service()
+        self.voice_coordinator = VoiceSessionCoordinator(self.voice_service)
         self.tts_service = TTSService()
         self.vision_service = VisionService()
-        self.tts_service.voice_service = self.voice_service
+        self.tts_service.voice_service = self.voice_coordinator
         set_vision_service(self.vision_service)
         self.attached_data_cache: dict[str, bytes] = {}
         self.active_designer_project = None  # DesignerProject | None
         self.active_developer_workspace_id: str | None = None
         self.preferred_home_tab: str | None = None  # tab to select on next rebuild
         self.preferred_developer_tab: str | None = None  # Developer subtab to select on next rebuild
-        # Per-thread message cache — avoids reading the LangGraph checkpoint
+        # Per-thread message cache â€” avoids reading the LangGraph checkpoint
         # on every thread switch.  Keys are thread_ids; values are the
         # hydrated ``messages`` lists.  ``message_cache_dirty`` marks
         # threads whose checkpoint has been written to by a background
@@ -62,7 +67,7 @@ class AppState:
         self.message_cache: dict[str, list[dict]] = {}
         self.message_cache_dirty: set[str] = set()
 
-    # ── Message-cache helpers ────────────────────────────────────────
+    # â”€â”€ Message-cache helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def cache_active_messages(self) -> None:
         """Snapshot ``self.messages`` into the per-thread cache."""
         tid = self.thread_id
@@ -84,16 +89,16 @@ class AppState:
             self.message_cache_dirty.add(thread_id)
 
 
-# ═════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # PER-THREAD GENERATION STATE
-# ═════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 @dataclass
 class GenerationState:
     """Tracks an in-flight generation for one thread.
 
     Allows concurrent streaming across multiple threads.  The consumer
-    task checks ``detached`` before every UI update — when the user
+    task checks ``detached`` before every UI update â€” when the user
     switches away, UI writes stop but accumulation continues so the
     response is ready when the user switches back.
     """
@@ -123,10 +128,19 @@ class GenerationState:
     tts_buffer: str = ""
     tts_spoken: int = 0
     tts_in_code: bool = False
+    tts_allow_long: bool = False
+    voice_control_queue: list = field(default_factory=list)
+    realtime_tool_call_id: str = ""
+    realtime_tool_name: str = ""
+    realtime_consult_request: str = ""
+    realtime_forced_consult: bool = False
+    realtime_tool_output_sent: bool = False
+    realtime_streamed_speech_chunks: int = 0
+    realtime_stream_finalized: bool = False
     # Consumer tracking
     first_content: bool = False
     thinking_collapsed: bool = False
-    # UI attachment — set to None when detached
+    # UI attachment â€” set to None when detached
     detached: bool = False
     assistant_md: Any = None
     thinking_label: Any = None
@@ -141,15 +155,15 @@ class GenerationState:
 _active_generations: dict[str, GenerationState] = {}
 
 
-# ── Startup gate ─────────────────────────────────────────────────────────
+# â”€â”€ Startup gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 startup_ready = False
-startup_status = "Starting…"
+startup_status = "Startingâ€¦"
 startup_warnings: list[str] = []  # toast messages queued during startup
 
 
-# ═════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # PER-CLIENT UI ELEMENT HOLDER
-# ═════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class P:
     """Per-client page element references.
@@ -167,6 +181,10 @@ class P:
     voice_status_label: ui.label = None  # type: ignore[assignment]
     stop_btn: ui.button = None          # type: ignore[assignment]
     voice_switch: ui.switch = None      # type: ignore[assignment]
+    dictate_btn: ui.button = None       # type: ignore[assignment]
+    realtime_event_sink: ui.element = None  # type: ignore[assignment]
+    realtime_client: Any = None
+    active_voice_binding: Any = None
     pending_files: list[dict] = []
     transcript_thread_id: str | None = None
     transcript_generation: int = 0
@@ -204,5 +222,6 @@ class P:
 
     def __init__(self) -> None:
         self.pending_files = []
+        self.active_voice_binding = None
         self.chat_shell_generation = 0
         self.chat_upload_js_installed = False

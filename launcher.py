@@ -1186,7 +1186,17 @@ _CONTROL_PORT = int(sys.argv[5]) if len(sys.argv) > 5 else 0
 _start_control_server(_CONTROL_PORT)
 main_window = webview.create_window(title, url, width=w, height=h, js_api=_JS_API)
 _install_main_window_buddy_events(main_window)
-webview.start(func=_on_loaded)
+_DATA_DIR = os.environ.get("THOTH_DATA_DIR") or os.path.join(os.path.expanduser("~"), ".thoth")
+_WEBVIEW_STORAGE_PATH = os.environ.get("THOTH_WEBVIEW_STORAGE_PATH") or os.path.join(
+    _DATA_DIR,
+    "browser_profile",
+    "pywebview",
+)
+try:
+    os.makedirs(_WEBVIEW_STORAGE_PATH, exist_ok=True)
+except Exception:
+    pass
+webview.start(func=_on_loaded, private_mode=False, storage_path=_WEBVIEW_STORAGE_PATH)
 '''
 
 

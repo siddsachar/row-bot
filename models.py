@@ -898,11 +898,10 @@ _PROVIDER_EMOJI: dict[str | None, str] = {
     None: "☁️",  # fallback for unknown cloud
 }
 
-
 def get_provider_emoji(model_name: str) -> str:
     """Return a provider-specific emoji for a model.
 
-    Local models get 🖥️, cloud models get a provider-specific icon.
+    Local models get a desktop icon, cloud models get a provider-specific icon.
     """
     if not is_cloud_model(model_name):
         return "🖥️"

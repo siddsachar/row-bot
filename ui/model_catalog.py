@@ -15,6 +15,7 @@ SURFACE_LABELS = {
     "vision": "Vision",
     "image": "Image",
     "video": "Video",
+    "voice": "Voice",
 }
 
 CATALOG_PROVIDER_ROW_LIMIT = 80

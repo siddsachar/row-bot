@@ -748,6 +748,9 @@ def build_command_center(
                     def _navigate(tid=thread_id, tname=r.get("task_name", "")):
                         if not tid:
                             return
+                        from ui.voice_lifecycle import stop_voice_for_thread_change
+
+                        stop_voice_for_thread_change(state, p, reason="command_center_thread")
                         prev = state.thread_id
                         prev_gen = _active_generations.get(prev) if prev else None
                         if prev_gen and prev_gen.status == "streaming":
@@ -1001,11 +1004,14 @@ def build_command_center(
                             ):
                                 from memory_extraction import set_active_thread
                                 from threads import _save_thread_meta
+                                from ui.voice_lifecycle import stop_voice_for_thread_change
+
                                 new_tid = uuid.uuid4().hex[:12]
                                 _save_thread_meta(
                                     new_tid,
                                     f"Investigate: {ins_title}",
                                 )
+                                stop_voice_for_thread_change(state, p, reason="command_center_insight")
                                 state.thread_id = new_tid
                                 state.thread_name = (
                                     f"Investigate: {ins_title}"

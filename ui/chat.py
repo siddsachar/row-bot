@@ -1,4 +1,4 @@
-"""Thoth UI — Chat screen (thread conversation view).
+"""Thoth UI - Chat screen (thread conversation view).
 
 Extracted from the monolith's ``_build_chat`` inner function.
 """
@@ -70,7 +70,7 @@ def build_chat(
     from tools import registry as tool_registry
     from ui.helpers import attach_thinking_to_message, persist_thread_media_state
 
-    # ── Header ───────────────────────────────────────────────────────
+    # Header
     _header_started = time.perf_counter()
     running_wfs = get_running_tasks()
     bg = running_wfs.get(state.thread_id)
@@ -78,20 +78,20 @@ def build_chat(
     with ui.row().classes("w-full items-center shrink-0"):
         if bg:
             ui.html(
-                f"<h3>⚡ {bg['name']} "
+                f"<h3>{bg['name']} "
                 f"<span style='font-size:0.8rem; opacity:0.7;'>"
-                f"Running — Step {bg['step']+1}/{bg['total']}</span></h3>",
+                f"Running - Step {bg['step']+1}/{bg['total']}</span></h3>",
                 sanitize=False,
             )
             def _stop_task_from_header(tid=state.thread_id):
                 stop_task(tid)
-                ui.notify("⏹️ Stop signal sent — task will stop after current step.", type="warning")
+                ui.notify("Stop signal sent - task will stop after current step.", type="warning")
                 rebuild_main()
             ui.button(icon="stop", on_click=_stop_task_from_header).props(
                 "round color=red size=sm"
             ).tooltip("Stop task")
         else:
-            p.chat_header_label = ui.label(f"💬 {state.thread_name}").classes("text-h5 flex-grow")
+            p.chat_header_label = ui.label(str(state.thread_name or "Untitled")).classes("text-h5 flex-grow")
 
             # Model selection now lives in the composer, matching Designer.
 
@@ -104,7 +104,7 @@ def build_chat(
         thread_id=state.thread_id,
     )
 
-    # ── Cloud/local model banner ─────────────────────────────────────
+    # Cloud/local model banner
     def _model_surface_placeholder():
         active_model = state.thread_model_override or get_current_model()
         model_label = model_id_from_choice_value(active_model)
@@ -118,9 +118,9 @@ def build_chat(
             "icon": "cloud" if cloud else "lock",
             "icon_color": "orange" if cloud else "green",
             "text": (
-                f"Using {model_label} via {prov_label} â€” data is sent to the cloud"
+                f"Using {model_label} via {prov_label} - data is sent to the cloud"
                 if cloud
-                else f"Using {model_label} via {prov_label} â€” local/private"
+                else f"Using {model_label} via {prov_label} - local/private"
             ),
             "text_class": "text-orange text-sm" if cloud else "text-green text-sm",
             "banner_style": (
@@ -171,7 +171,7 @@ def build_chat(
                 "mode": mode_label,
                 "icon": "cloud",
                 "icon_color": "orange",
-                "text": f"Using {model_label} via {prov_label} — data is sent to the cloud",
+                "text": f"Using {model_label} via {prov_label} - data is sent to the cloud",
                 "text_class": "text-orange text-sm",
                 "banner_style": (
                     "background: rgba(255, 152, 0, 0.08); "
@@ -185,7 +185,7 @@ def build_chat(
             "mode": mode_label,
             "icon": "lock",
             "icon_color": "green",
-            "text": f"Using {model_label} via {prov_label} — local/private",
+            "text": f"Using {model_label} via {prov_label} - local/private",
             "text_class": "text-green text-sm",
             "banner_style": (
                 "background: rgba(76, 175, 80, 0.08); "
@@ -234,7 +234,7 @@ def build_chat(
     _render_model_banner(_surface)
     defer_ui(_resolve_and_render_model_surface, delay=0.05)
 
-    # ── Scrollable message area ──────────────────────────────────────
+    # Scrollable message area
     p.chat_scroll = ui.scroll_area().classes("w-full flex-grow").style(_surface["scroll_style"])
 
     with p.chat_scroll:
@@ -294,7 +294,7 @@ def build_chat(
         add_chat_message(_display_msgs[local_idx])
         p.transcript_rendered_keys.append(_display_keys[local_idx])
 
-    # ── Progressive render ───────────────────────────────────────────
+    # Progressive render
     # For responsiveness on large threads, render the first batch
     # synchronously so the user sees content immediately, then stream
     # the remainder via chained timers (each yields to the event loop
@@ -306,7 +306,7 @@ def build_chat(
         _render_message_at(_idx)
     _remaining_start = _INITIAL_RENDER
 
-    # ── Reattach to running generation ───────────────────────────────
+    # Reattach to running generation
     def _finalize_after_messages() -> None:
         if _reattach_gen and _reattach_gen.detached and _reattach_gen.status == "streaming":
             from identity import get_assistant_name as _gan_ra
@@ -330,7 +330,7 @@ def build_chat(
                             _group_failed = any(tool_result_failed(_tr) for _tr in _group.results)
                             with _reattach_gen.tool_col:
                                 with ui.expansion(
-                                    f"{'❌' if _group_failed else '✅'} {_group.label}",
+                                    f"{'Failed' if _group_failed else 'Done'} {_group.label}",
                                     icon="error" if _group_failed else "check_circle",
                                 ).classes("w-full"):
                                     for _idx, _tr in enumerate(_group.results, start=1):
@@ -439,7 +439,7 @@ def build_chat(
                         def _dismiss():
                             state.show_onboarding = False
                             rebuild_main()
-                        ui.button("✕ Dismiss", on_click=_dismiss).props("flat dense")
+                        ui.button("Dismiss", icon="close", on_click=_dismiss).props("flat dense")
 
         # Interrupt UI
         if state.pending_interrupt:
@@ -532,7 +532,7 @@ def build_chat(
         _finalize_after_messages()
         _log_transcript_render()
 
-    # ── File chips (created early so _on_upload can reference) ──────
+    # File chips (created early so _on_upload can reference)
     # We'll parent these inside the input card below
 
     _composer_started = time.perf_counter()
@@ -550,7 +550,7 @@ def build_chat(
                     p.pending_files.pop(i)
                 if badge:
                     badge.delete()
-            b = ui.badge(f"📎 {name} ✕", color="grey-8").props("outline")
+            b = ui.badge(f"Attached: {name} x", color="grey-8").props("outline")
             b.on("click", lambda b=b, i=idx: _remove(i, b))
             b.style("cursor: pointer;")
 
@@ -621,7 +621,7 @@ def build_chat(
                 }});
             }})();
         ''')
-    # ── Chat input card (modern SOTA layout) ────────────────────────
+    # Chat input card
     async def _on_attach():
         if sys.platform == "darwin" and os.environ.get("THOTH_NATIVE") == "1":
             path = await browse_file(
@@ -639,7 +639,7 @@ def build_chat(
                             p.pending_files.pop(i)
                         if badge:
                             badge.delete()
-                    b = ui.badge(f"📎 {name} ✕", color="grey-8").props("outline")
+                    b = ui.badge(f"Attached: {name} x", color="grey-8").props("outline")
                     b.on("click", lambda b=b, i=idx: _remove(i, b))
                     b.style("cursor: pointer;")
         else:
@@ -674,7 +674,7 @@ def build_chat(
             return None
 
         try:
-            import skills as _skills_for_chips
+            import skills as _skills_mod
             from skills_activation import (
                 disable_skill as _disable_chat_skill,
                 dismiss_suggestion as _dismiss_skill_suggestion,
@@ -694,8 +694,12 @@ def build_chat(
                 replace_current_slash_token as _replace_slash_token,
             )
 
-            if not _skills_for_chips.skills_loaded():
-                _skills_for_chips.load_skills()
+            async def _load_skills_for_chips() -> None:
+                await run.io_bound(_skills_mod.load_skills)
+
+            if not _skills_mod.skills_loaded():
+                defer_ui(_load_skills_for_chips)
+            _skills_for_chips = _skills_mod
             _last_user_text = ""
             for _msg in reversed(state.messages or []):
                 if _msg.get("role") == "user":
@@ -710,9 +714,8 @@ def build_chat(
                 explicit_override=_thread_override,
             )
             _available_skills = [
-                sk for sk in _skills_for_chips.get_manual_skills()
-                if _skills_for_chips.is_enabled(sk.name)
-                and not _skills_for_chips.is_tool_guide(sk)
+                sk for sk in _skills_for_chips.get_enabled_manual_skills_snapshot()
+                if not _skills_for_chips.is_tool_guide(sk)
             ]
             _active_skill_names = {"names": list(_skill_snap.active)}
             _draft_state = {"text": "", "version": 0}
@@ -998,9 +1001,12 @@ def build_chat(
                 _show_text_dialog(title, content, icon=icon)
 
             async def _new_thread_from_palette() -> None:
+                from ui.voice_lifecycle import stop_voice_for_thread_change
+
                 tid = uuid.uuid4().hex[:12]
                 name = f"Thread {datetime.now().strftime('%b %d, %H:%M')}"
                 await run.io_bound(_save_thread_meta, tid, name)
+                stop_voice_for_thread_change(state, p, reason="slash_new_thread")
                 prev = state.thread_id
                 prev_gen = _active_generations.get(prev) if prev else None
                 if prev_gen and prev_gen.status == "streaming":
@@ -1228,7 +1234,7 @@ def build_chat(
         except Exception:
             logger.debug("Smart Skills composer chips failed to render", exc_info=True)
 
-        # Context counter — absolute overlay, top-right
+        # Context counter - absolute overlay, top-right
         with ui.row().classes("items-center gap-1").style(
             "position: absolute; top: 8px; right: 12px; z-index: 1; "
             "pointer-events: none; opacity: 0.7;"
@@ -1239,7 +1245,7 @@ def build_chat(
 
         # Textarea
         p.chat_input = (
-            ui.textarea(placeholder="Ask anything…")
+            ui.textarea(placeholder="Ask anything...")
             .classes("w-full")
             .props('borderless autogrow input-style="padding: 12px 16px 4px 16px; max-height: 200px; overflow-y: auto;"')
             .style("font-size: 0.95rem;")
@@ -1322,11 +1328,18 @@ def build_chat(
             gen = _active_generations.get(state.thread_id)
             if gen:
                 gen.stop_event.set()
+            if state.voice_coordinator and state.voice_coordinator.transport == "realtime":
+                from voice.realtime_client import stop_realtime_client_js
+                from ui.streaming import run_realtime_client_js
+
+                run_realtime_client_js(p, stop_realtime_client_js(), context="stop_realtime_on_stop")
+                state.voice_enabled = False
+                state.voice_coordinator.stop()
             tts = state.tts_service
             if tts and tts.enabled:
                 tts.stop()
-                if state.voice_service and state.voice_service.is_running:
-                    state.voice_service.unmute()
+                if state.voice_coordinator and state.voice_coordinator.is_running:
+                    state.voice_coordinator.unmute()
             if p.stop_btn:
                 p.stop_btn.props('icon=hourglass_top')
 
@@ -1344,14 +1357,107 @@ def build_chat(
                 generation_getter=lambda: p.chat_shell_generation,
                 shell_generation=_shell_generation,
             )
+            from ui.voice_realtime_events import make_realtime_event_handler
+
+            _on_realtime_event = make_realtime_event_handler(
+                state=state,
+                p=p,
+                send_message=send_message,
+            )
+
+
+            p.realtime_event_sink = ui.element("div").style("display:none")
+            try:
+                p.realtime_client = ui.context.client
+            except Exception:
+                p.realtime_client = None
+            p.realtime_event_sink.on(
+                "thoth-realtime-event",
+                _on_realtime_event,
+                js_handler="(e) => emit(e.detail)",
+            )
+
+            def _start_local_talk() -> None:
+                state.voice_input_mode = "talk"
+                state.voice_enabled = True
+                state.voice_coordinator.start_talk()
+                if p.dictate_btn:
+                    p.dictate_btn.props("color=grey")
+
+            def _start_realtime_talk() -> None:
+                from voice.openai_realtime import OpenAIRealtimeProvider
+                from voice.realtime_client import start_realtime_client_js
+                from ui.streaming import run_realtime_client_js
+
+                status = OpenAIRealtimeProvider().status()
+                if not status.ready:
+                    if state.voice_runtime_settings.realtime_fallback_to_local:
+                        ui.notify("OpenAI Realtime is not configured. Falling back to local Talk.", type="warning")
+                        _start_local_talk()
+                    else:
+                        ui.notify(status.reason, type="negative", close_button=True)
+                        state.voice_enabled = False
+                        if p.voice_switch:
+                            p.voice_switch.value = False
+                            p.voice_switch.update()
+                    return
+                state.voice_input_mode = "talk"
+                state.voice_enabled = True
+                session_id = state.voice_coordinator.start_realtime_talk()
+                if p.dictate_btn:
+                    p.dictate_btn.props("color=grey")
+                delivered = run_realtime_client_js(
+                    p,
+                    start_realtime_client_js(
+                        sink_id=p.realtime_event_sink.id,
+                        session_id=session_id,
+                    ),
+                    context="start_realtime_talk",
+                )
+                if not delivered:
+                    state.voice_enabled = False
+                    state.voice_coordinator.stop()
+                    if p.voice_switch:
+                        p.voice_switch.value = False
+                        p.voice_switch.update()
+
+            def _stop_talk() -> None:
+                from voice.realtime_client import stop_realtime_client_js
+                from ui.streaming import run_realtime_client_js
+
+                if state.voice_coordinator.transport == "realtime":
+                    run_realtime_client_js(p, stop_realtime_client_js(), context="stop_realtime_talk")
+                state.voice_enabled = False
+                state.voice_coordinator.stop()
 
             def _toggle_voice(e):
-                state.voice_enabled = e.value
                 if e.value:
-                    state.voice_service.start()
-                else:
-                    state.voice_service.stop()
-            p.voice_switch = ui.switch("🎤 Voice", value=state.voice_enabled, on_change=_toggle_voice).classes("text-xs")
+                    if state.voice_runtime_settings.talk_provider == "openai_realtime":
+                        _start_realtime_talk()
+                    else:
+                        _start_local_talk()
+                elif state.voice_input_mode == "talk":
+                    _stop_talk()
+            def _toggle_dictate():
+                if state.voice_enabled and state.voice_input_mode == "dictate":
+                    state.voice_enabled = False
+                    state.voice_coordinator.stop()
+                    if p.dictate_btn:
+                        p.dictate_btn.props("color=grey")
+                    return
+                state.voice_input_mode = "dictate"
+                state.voice_enabled = True
+                state.voice_coordinator.start_dictation()
+                if p.voice_switch:
+                    p.voice_switch.value = False
+                    p.voice_switch.update()
+                if p.dictate_btn:
+                    p.dictate_btn.props("color=primary")
+
+            p.voice_switch = ui.switch("Talk", value=state.voice_enabled and state.voice_input_mode == "talk", on_change=_toggle_voice).classes("text-xs")
+            p.dictate_btn = ui.button("Dictate", icon="keyboard_voice", on_click=_toggle_dictate).props(
+                f"flat dense no-caps color={'primary' if state.voice_enabled and state.voice_input_mode == 'dictate' else 'grey'}"
+            ).tooltip("Dictate into the composer")
             p.voice_status_label = ui.label("").classes("text-xs text-grey-6")
 
             ui.space()  # push right-side items to the right

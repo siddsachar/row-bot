@@ -775,9 +775,12 @@ def _query_video_gen() -> str:
 
 
 def _query_voice() -> str:
-    """TTS and STT settings."""
+    """Voice runtime, speech settings, and realtime diagnostics."""
     try:
         lines = ["**Voice & Speech**"]
+        lines.append("- User-facing modes: Talk, Dictate")
+        lines.append("- Dictate policy: STT-only; never sends to the LLM until the user presses Send")
+        lines.append("- Realtime role: voice transport/backchannel for normal Thoth work")
         # TTS
         try:
             tts_path = _DATA_DIR / "tts_settings.json"
@@ -800,6 +803,83 @@ def _query_voice() -> str:
                 lines.append("- Whisper model: small (default)")
         except Exception:
             lines.append("- Whisper: error reading settings")
+        try:
+            from voice.runtime import load_voice_runtime_settings
+
+            runtime = load_voice_runtime_settings()
+            lines.append(f"- Talk provider: {runtime.talk_provider}")
+            lines.append(f"- Talk model: {runtime.talk_model}")
+            lines.append(f"- Dictation provider: {runtime.dictation_provider}")
+            lines.append(f"- Dictation model: {runtime.dictation_model}")
+            lines.append(f"- Speech output provider: {runtime.speech_output_provider}")
+            lines.append(f"- Speech output model: {runtime.speech_output_model}")
+            lines.append(f"- Speech output voice: {runtime.speech_output_voice}")
+            lines.append(f"- Captions: {'on' if runtime.captions_enabled else 'off'}")
+            lines.append(f"- Realtime fallback: {'on' if runtime.realtime_fallback_to_local else 'off'}")
+        except Exception:
+            lines.append("- Voice runtime: error reading settings")
+        try:
+            from voice.openai_realtime import OpenAIRealtimeProvider
+            from voice.agent_bridge import (
+                REALTIME_ALLOWED_BRIDGE_TOOLS,
+                REALTIME_DIRECT_TOOL_POLICY,
+                REALTIME_WAIT_TOOL,
+                VOICE_BRAIN_STRATEGY,
+            )
+
+            realtime = OpenAIRealtimeProvider().status()
+            lines.append(f"- OpenAI Realtime: {'ready' if realtime.ready else 'not configured'}")
+            lines.append(f"- Realtime brain strategy: {VOICE_BRAIN_STRATEGY}")
+            lines.append(f"- Realtime direct normal-tool access: {REALTIME_DIRECT_TOOL_POLICY}")
+            lines.append(f"- Realtime bridge tools: {', '.join(REALTIME_ALLOWED_BRIDGE_TOOLS)}")
+            lines.append(f"- Realtime quiet idle tool: {REALTIME_WAIT_TOOL}")
+            lines.append("- Realtime credential safety: browser receives ephemeral client secrets only; long-lived provider keys stay server-side")
+        except Exception:
+            lines.append("- OpenAI Realtime: unavailable")
+        try:
+            from ui.state import _active_generations
+
+            active = list(_active_generations.items())
+            if not active:
+                lines.append("- Active Thoth run: none")
+            else:
+                lines.append(f"- Active Thoth runs: {len(active)}")
+                for thread_id, gen in active[:3]:
+                    pending_tools = getattr(gen, "pending_tools", {}) or {}
+                    tool_names = [
+                        str(tool.get("name") or "")
+                        for tool in pending_tools.values()
+                        if isinstance(tool, dict)
+                    ]
+                    queued = list(getattr(gen, "voice_control_queue", []) or [])
+                    lines.append(
+                        f"  - {thread_id}: {getattr(gen, 'status', 'streaming')}; "
+                        f"tools={', '.join(tool_names) if tool_names else 'none'}; "
+                        f"approval={'yes' if getattr(gen, 'interrupt_data', None) else 'no'}; "
+                        f"cancel={'yes' if getattr(gen, 'stop_event', None) else 'no'}; "
+                        f"follow-up/steer={'yes'}; queued_controls={len(queued)}"
+                    )
+        except Exception:
+            lines.append("- Active Thoth run: unavailable")
+        try:
+            from logging_config import read_recent_logs
+
+            realtime_logs = [
+                entry
+                for entry in read_recent_logs(80)
+                if "voice.realtime.pipeline" in str(entry.get("msg") or "")
+                   or "OpenAI Realtime" in str(entry.get("msg") or "")
+            ][:5]
+            if realtime_logs:
+                lines.append("- Recent realtime diagnostics:")
+                for entry in realtime_logs:
+                    msg = str(entry.get("msg") or "").replace("\n", " ")
+                    msg = re.sub(r"(sk|ek)_[A-Za-z0-9_\-]+", r"\1_***", msg)
+                    lines.append(f"  - {entry.get('ts', '')} {entry.get('level', '')}: {msg[:300]}")
+            else:
+                lines.append("- Recent realtime diagnostics: none")
+        except Exception:
+            lines.append("- Recent realtime diagnostics: unavailable")
         return "\n".join(lines)
     except Exception as exc:
         return f"**Voice & Speech**\nError: {exc}"

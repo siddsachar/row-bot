@@ -119,11 +119,28 @@ _LOCAL_VISION_MARKERS = (
     "qwen3-vl",
     "qwen3.5-vl",
 )
+_VOICE_MODEL_MARKERS = (
+    "audio",
+    "audio-preview",
+    "gpt-realtime",
+    "realtime",
+    "speech",
+    "transcribe",
+    "transcri",
+    "transcription",
+    "tts",
+    "whisper",
+)
 
 
 def _name_suggests_vision_model(model_id: str) -> bool:
     normalized = str(model_id or "").split(":", 1)[0].split("/", 1)[-1].lower().replace("_", "-")
     return any(marker in normalized for marker in _LOCAL_VISION_MARKERS)
+
+
+def _name_suggests_voice_model(model_id: str) -> bool:
+    normalized = str(model_id or "").split(":", 1)[0].split("/", 1)[-1].lower().replace("_", "-")
+    return any(marker in normalized for marker in _VOICE_MODEL_MARKERS)
 
 
 def _metadata_suggests_image_input(metadata: dict[str, Any]) -> bool:
@@ -164,6 +181,8 @@ def infer_provider_id(model_id: str, cached_provider: str | None = None) -> str 
     if "/" in model_id:
         return "openrouter"
     bare = model_id.split("/")[-1]
+    if _name_suggests_voice_model(bare):
+        return "openai"
     if any(bare.startswith(prefix) for prefix in _OPENAI_CHAT_PREFIXES):
         return "openai"
     if bare.startswith("claude"):
@@ -413,13 +432,15 @@ def classify_model_capabilities(
         output_modalities = {ModelModality.VIDEO.value}
         capabilities = {"video_generation"}
         tool_calling = False
-    elif any(part in lower for part in ("whisper", "transcri")):
+    elif any(part in lower for part in ("whisper", "transcri", "transcribe", "transcription")):
         tasks = {ModelTask.TRANSCRIPTION.value}
         input_modalities = {ModelModality.AUDIO.value}
+        output_modalities = {ModelModality.TEXT.value}
         capabilities = {"transcription"}
         tool_calling = False
     elif "tts" in lower:
         tasks = {ModelTask.TTS.value}
+        input_modalities = {ModelModality.TEXT.value}
         output_modalities = {ModelModality.AUDIO.value}
         capabilities = {"tts"}
         tool_calling = False
@@ -432,6 +453,13 @@ def classify_model_capabilities(
         input_modalities.add(ModelModality.AUDIO.value)
         output_modalities.add(ModelModality.AUDIO.value)
         capabilities.add("realtime")
+        tool_calling = False
+    elif "audio" in lower or "speech" in lower:
+        tasks = {ModelTask.REALTIME.value}
+        input_modalities.add(ModelModality.AUDIO.value)
+        output_modalities.add(ModelModality.AUDIO.value)
+        capabilities = {"audio", "realtime"}
+        tool_calling = False
 
     if provider_id == "openai" and any(part in lower for part in ("davinci", "babbage", "curie", "text-ada", "instruct")):
         tasks = set()

@@ -53,6 +53,59 @@ def test_thoth_status_leaves_ambiguous_media_bare_id_unchanged(monkeypatch):
     assert _normalize_provider_model_value("image_gen_model", "shared-image") == "shared-image"
 
 
+def test_thoth_status_voice_reports_runtime_and_realtime(monkeypatch):
+    from tools.thoth_status_tool import _query_voice
+
+    monkeypatch.setattr("voice.openai_realtime.get_key", lambda name: "")
+
+    output = _query_voice()
+
+    assert "Talk provider:" in output
+    assert "Talk model:" in output
+    assert "Dictation provider:" in output
+    assert "Speech output provider:" in output
+    assert "Realtime fallback:" in output
+    assert "OpenAI Realtime:" in output
+    assert "User-facing modes: Talk, Dictate" in output
+    assert "Dictate policy: STT-only" in output
+    assert "Realtime brain strategy: thoth-consult" in output
+    assert "Realtime direct normal-tool access: blocked" in output
+    assert "thoth_agent_consult" in output
+    assert "thoth_agent_control" in output
+    assert "Realtime quiet idle tool: wait_for_user" in output
+    assert "Active Thoth run:" in output
+    assert "sk_" not in output
+    assert "ek_" not in output
+
+
+def test_thoth_status_voice_reports_active_run_controls(monkeypatch):
+    import threading
+    from types import SimpleNamespace
+
+    from tools.thoth_status_tool import _query_voice
+    from ui.state import _active_generations
+
+    monkeypatch.setattr("voice.openai_realtime.get_key", lambda name: "")
+    _active_generations.clear()
+    _active_generations["thread123"] = SimpleNamespace(
+        status="streaming",
+        pending_tools={"call1": {"name": "browser_open"}},
+        interrupt_data=None,
+        stop_event=threading.Event(),
+        voice_control_queue=[{"kind": "steer", "text": "also check logs"}],
+    )
+    try:
+        output = _query_voice()
+    finally:
+        _active_generations.clear()
+
+    assert "Active Thoth runs: 1" in output
+    assert "browser_open" in output
+    assert "cancel=yes" in output
+    assert "follow-up/steer=yes" in output
+    assert "queued_controls=1" in output
+
+
 def test_thoth_status_media_update_seeds_quick_choices(monkeypatch):
     import langgraph.types
     import providers.selection as provider_selection
@@ -344,6 +397,22 @@ def test_thoth_status_guide_mentions_custom_vision_override_states():
     assert "custom-endpoint" in guide or "custom endpoint" in guide
     assert "manual override" in guide
     assert "skipped" in guide
+
+
+def test_thoth_status_guide_mentions_voice_realtime_contract():
+    import pathlib
+
+    guide = pathlib.Path("tool_guides/thoth_status_guide/SKILL.md").read_text(encoding="utf-8").lower()
+
+    assert "talk and dictate" in guide
+    assert "stt-only" in guide
+    assert "realtime talk is a voice transport/backchannel" in guide
+    assert "thoth_agent_consult" in guide
+    assert "thoth_agent_control" in guide
+    assert "wait_for_user" in guide
+    assert "follow-up/steer" in guide
+    assert "client_event_failed" in guide
+    assert "function_call_ready" in guide
 
 
 def test_provider_status_summarizes_custom_probe_without_reprobe(tmp_path, monkeypatch):

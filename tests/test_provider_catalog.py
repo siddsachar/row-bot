@@ -166,6 +166,37 @@ def test_non_chat_models_are_excluded_from_chat_surface():
     assert model_supports_surface(info, "embeddings") is True
 
 
+def test_voice_models_are_voice_surface_not_chat():
+    voice_model_ids = [
+        "whisper-1",
+        "gpt-4o-transcribe",
+        "tts-1",
+        "gpt-realtime",
+        "gpt-4o-audio-preview",
+    ]
+
+    for model_id in voice_model_ids:
+        classified = classify_model_capabilities("openai", model_id)
+        info = ModelInfo(
+            provider_id="openai",
+            model_id=model_id,
+            display_name=model_id,
+            context_window=0,
+            transport=classified["transport"],
+            capabilities=frozenset(classified["capabilities"]),
+            input_modalities=frozenset(classified["input_modalities"]),
+            output_modalities=frozenset(classified["output_modalities"]),
+            tasks=frozenset(classified["tasks"]),
+            tool_calling=classified["tool_calling"],
+            streaming=classified["streaming"],
+            endpoint_compatibility=frozenset(classified["endpoint_compatibility"]),
+        )
+
+        assert model_supports_surface(info, "voice") is True
+        assert model_supports_surface(info, "audio") is True
+        assert model_supports_surface(info, "chat") is False
+
+
 def test_cache_entry_includes_capability_snapshot():
     info = legacy_cache_to_model_infos({
         "gpt-4o": {"label": "GPT-4o", "ctx": 128000, "provider": "openai", "vision": True},
@@ -351,6 +382,32 @@ def test_model_catalog_splits_media_from_chat_and_preserves_pins(monkeypatch):
     assert "image" in by_id["gpt-image-1"].pinned_surfaces
     assert "chat" in by_id["gpt-4o"].default_surfaces
     assert "image" in by_id["gpt-image-1"].default_surfaces
+
+
+def test_model_catalog_lists_voice_models_on_voice_surface(monkeypatch):
+    import providers.model_catalog as catalog_view
+
+    monkeypatch.setattr(catalog_view, "_provider_status_by_id", lambda: {"openai": {"configured": True}})
+    monkeypatch.setattr(catalog_view, "_custom_model_infos", lambda: [])
+    monkeypatch.setattr(catalog_view, "_codex_model_infos", lambda: [])
+    monkeypatch.setattr(catalog_view, "_curated_media_entries", lambda surface: {})
+
+    rows = build_model_catalog_rows(
+        cloud_cache={
+            "whisper-1": {"label": "Whisper", "ctx": 0, "provider": "openai"},
+            "gpt-4o-audio-preview": {"label": "Audio Preview", "ctx": 128000, "provider": "openai"},
+            "gpt-4o": {"label": "GPT-4o", "ctx": 128000, "provider": "openai"},
+        },
+        ollama_rows=[],
+    )
+
+    voice_ids = {row.model_id for row in rows_for_surface(rows, "voice")}
+    chat_ids = {row.model_id for row in rows_for_surface(rows, "chat")}
+
+    assert {"whisper-1", "gpt-4o-audio-preview"} <= voice_ids
+    assert "gpt-4o" not in voice_ids
+    assert "whisper-1" not in chat_ids
+    assert "gpt-4o-audio-preview" not in chat_ids
 
 
 def test_model_catalog_keeps_agent_incompatible_models_visible_as_chat_only(monkeypatch):

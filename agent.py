@@ -858,12 +858,20 @@ import tiktoken as _tiktoken
 # Lazily-initialised tiktoken encoder (cl100k_base works well as a universal
 # approximation — it slightly over-counts for Llama/Qwen which is *safer*).
 _tiktoken_enc: _tiktoken.Encoding | None = None
+_tiktoken_unavailable = False
 
 
 def _get_encoder() -> _tiktoken.Encoding:
-    global _tiktoken_enc
+    global _tiktoken_enc, _tiktoken_unavailable
     if _tiktoken_enc is None:
-        _tiktoken_enc = _tiktoken.get_encoding("cl100k_base")
+        if _tiktoken_unavailable:
+            raise RuntimeError("tiktoken encoder unavailable")
+        try:
+            _tiktoken_enc = _tiktoken.get_encoding("cl100k_base")
+        except Exception as exc:
+            _tiktoken_unavailable = True
+            logger.debug("tiktoken cl100k_base unavailable; using approximate token counts", exc_info=True)
+            raise RuntimeError("tiktoken encoder unavailable") from exc
     return _tiktoken_enc
 
 
@@ -871,7 +879,12 @@ def _count_tokens(text: str) -> int:
     """Count tokens using tiktoken (cl100k_base)."""
     if not text:
         return 0
-    return len(_get_encoder().encode(text))
+    try:
+        return len(_get_encoder().encode(text))
+    except RuntimeError:
+        # Keep trimming/token-usage paths usable in offline CI or first-run
+        # installs where tiktoken has not cached cl100k_base yet.
+        return max(1, (len(text) + 3) // 4)
 
 
 def _message_tokens(m) -> int:
@@ -1467,6 +1480,15 @@ def _pre_model_trim(state: dict) -> dict:
                 record_usage(_thread_id, manual_skill_names, source="agent")
         except Exception as exc:
             logger.debug("Skill injection skipped (non-fatal): %s", exc)
+            if not skills_text:
+                try:
+                    from skills import get_skills_prompt as _fallback_get_skills_prompt
+
+                    skills_text = _fallback_get_skills_prompt()
+                    if skills_text:
+                        _injections.append(SystemMessage(content=skills_text))
+                except Exception:
+                    pass
 
     # Plugin skills
     if not compact_custom_endpoint:

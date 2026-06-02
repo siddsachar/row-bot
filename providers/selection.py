@@ -15,12 +15,14 @@ SURFACE_VISIBILITY: dict[str, list[str]] = {
     "vision": ["vision"],
     "image": ["image"],
     "video": ["video"],
+    "voice": ["voice"],
 }
 QUICK_CHOICE_SURFACE_GROUPS = [
     {"id": "chat", "display_name": "Chat"},
     {"id": "vision", "display_name": "Vision"},
     {"id": "image", "display_name": "Image"},
     {"id": "video", "display_name": "Video"},
+    {"id": "voice", "display_name": "Voice"},
 ]
 
 
@@ -287,19 +289,21 @@ def provider_display_label(provider_id: str) -> str:
     return provider_id or "Provider"
 
 
+_PROVIDER_ICON_LABELS: dict[str, str] = {
+    "local": "Local",
+    "ollama": "Local",
+    "openai": "OpenAI",
+    "openrouter": "OpenRouter",
+    "anthropic": "Anthropic",
+    "google": "Google",
+    "xai": "xAI",
+    "minimax": "MiniMax",
+}
+
+
 def provider_icon_label(provider_id: str) -> str:
     provider_id = str(provider_id or "")
-    try:
-        from providers.catalog import list_provider_definitions
-
-        for definition in list_provider_definitions():
-            if definition.id == provider_id:
-                return definition.icon or ""
-    except Exception:
-        pass
-    if provider_id in {"local", "ollama"}:
-        return "🖥️"
-    return ""
+    return _PROVIDER_ICON_LABELS.get(provider_id, "")
 
 
 def model_choice_value(value: str | None, *, provider_id: str | None = None) -> str:
@@ -343,7 +347,7 @@ def format_model_choice_label(
     name = str(display_name or model_id or "").strip() or str(model_id or "")
     icon = provider_icon_label(provider) if include_icon else ""
     prefix = f"{icon} " if icon else ""
-    return f"{prefix}{name} — {provider_display_label(provider)}"
+    return f"{prefix}{name} - {provider_display_label(provider)}"
 
 
 def _model_choice_option_for_value(
@@ -364,7 +368,7 @@ def _model_choice_option_for_value(
     value_ref = model_choice_value(model_id, provider_id=provider_id)
     option = {
         "value": value_ref,
-        "label": format_model_choice_label(provider_id, model_id),
+        "label": format_model_choice_label(provider_id, model_id, include_icon=False),
         "provider_id": provider_id,
         "model_id": model_id,
         "display_name": model_id,
@@ -372,6 +376,14 @@ def _model_choice_option_for_value(
     }
     if surface:
         ref = model_ref(provider_id, model_id)
+        snapshot = _selection_capability_snapshot(provider_id, model_id)
+        if snapshot and not provider_id.startswith("custom_openai_") and not snapshot_supports_surface(snapshot, surface):
+            reason = _surface_unsupported_reason(surface)
+            if not include_inactive:
+                return None
+            option.update({"active": False, "reason": reason})
+            option["label"] = f"Unavailable: {option['label']}"
+            return option
         if provider_id.startswith("custom_openai_"):
             try:
                 from providers.custom import custom_endpoint_models, get_custom_endpoint
@@ -442,7 +454,12 @@ def list_model_choice_options(
         value = model_choice_value(model_id, provider_id=provider_id)
         add_option({
             "value": value,
-            "label": format_model_choice_label(provider_id, model_id, str(choice.get("display_name") or model_id)),
+            "label": format_model_choice_label(
+                provider_id,
+                model_id,
+                str(choice.get("display_name") or model_id),
+                include_icon=False,
+            ),
             "provider_id": provider_id,
             "model_id": model_id,
             "display_name": str(choice.get("display_name") or model_id),
@@ -597,6 +614,14 @@ def _cached_provider_capability_snapshot(provider_id: str, model_id: str) -> dic
     if isinstance(snapshot, dict) and snapshot:
         return dict(snapshot)
     return {}
+
+
+def _selection_capability_snapshot(provider_id: str, model_id: str) -> dict[str, Any]:
+    return _inferred_capability_snapshot({
+        "kind": "model",
+        "provider_id": provider_id,
+        "model_id": model_id,
+    })
 
 
 def refresh_quick_choice_capability_snapshots() -> list[dict[str, Any]]:

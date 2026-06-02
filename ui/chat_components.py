@@ -33,6 +33,20 @@ _model_picker_options_cache: dict[str, Any] = {
 _model_picker_options_refresh_task: asyncio.Task | None = None
 
 
+async def _submit_voice_transcript(send_fn: Callable, text: str) -> None:
+    from voice.actions import submit_voice_text
+
+    await submit_voice_text(send_fn, text, surface="shared_composer")
+
+
+def _voice_surface_for_state(state: AppState) -> str:
+    if getattr(state, "active_developer_workspace_id", None):
+        return "developer"
+    if getattr(state, "active_designer_project", None):
+        return "designer"
+    return "normal_chat"
+
+
 def _provider_config_signature() -> tuple[str, int, int]:
     try:
         from providers import config as provider_config
@@ -102,9 +116,9 @@ async def _refresh_model_picker_options() -> list[dict[str, Any]]:
             _model_picker_options_refresh_task = None
 
 
-# ══════════════════════════════════════════════════════════════════════
+# Model picker
 # MESSAGE AREA (scroll + container + auto-scroll JS)
-# ══════════════════════════════════════════════════════════════════════
+# Model picker
 
 def build_chat_messages(
     p: P,
@@ -112,7 +126,7 @@ def build_chat_messages(
     *,
     messages: list[dict] | None = None,
     add_chat_message: Callable | None = None,
-    placeholder_text: str = "Ask anything…",
+    placeholder_text: str = "Ask anything...",
     cloud_tint: bool | None = None,
 ) -> None:
     """Build the scrollable chat message area and wire ``p.chat_scroll`` / ``p.chat_container``.
@@ -174,9 +188,9 @@ def build_chat_messages(
         }})()""")
 
 
-# ══════════════════════════════════════════════════════════════════════
+# Upload helpers
 # FILE UPLOAD (hidden widget + drag-drop + clipboard paste)
-# ══════════════════════════════════════════════════════════════════════
+# Upload helpers
 
 def build_file_upload(
     p: P,
@@ -204,13 +218,13 @@ def build_file_upload(
                     if badge:
                         badge.delete()
 
-                b = ui.badge(f"📎 {name} ✕", color="grey-8").props("outline")
+                b = ui.badge(f"Attached: {name} x", color="grey-8").props("outline")
                 b.on("click", lambda b=b, i=idx: _remove(i, b))
                 b.style("cursor: pointer;")
 
     hidden_upload = ui.upload(on_upload=_on_upload, auto_upload=True, multiple=True).classes("hidden")
 
-    # Drag-and-drop (singleton listener — reads dynamic upload ID)
+    # Drag-and-drop (singleton listener - reads dynamic upload ID)
     ui.run_javascript(f"""
         (() => {{
             window._thothUploadId = {hidden_upload.id};
@@ -253,7 +267,7 @@ def build_file_upload(
         }})();
     """)
 
-    # Clipboard image paste (singleton listener — reads dynamic upload ID)
+    # Clipboard image paste (singleton listener - reads dynamic upload ID)
     ui.run_javascript(f"""
         (() => {{
             window._thothUploadId = {hidden_upload.id};
@@ -285,9 +299,9 @@ def build_file_upload(
     return hidden_upload
 
 
-# ══════════════════════════════════════════════════════════════════════
+# Composer
 # CHAT INPUT BAR (textarea + buttons + model picker + voice + stop)
-# ══════════════════════════════════════════════════════════════════════
+# Composer
 
 def build_chat_input_bar(
     p: P,
@@ -305,20 +319,20 @@ def build_chat_input_bar(
     Parameters
     ----------
     send_fn
-        ``async def send_fn(text)`` — called when the user sends a message.
+        ``async def send_fn(text)`` - called when the user sends a message.
     hidden_upload
         The ``ui.upload`` element from ``build_file_upload`` so the attach
         button can trigger it.
     browse_file
         Native file browser callable (macOS).  ``None`` to skip.
     open_settings
-        Called when "More models…" is selected.  ``None`` to skip model picker.
+        Called when "More models..." is selected.  ``None`` to skip model picker.
     show_model_picker
         Whether to render the model override dropdown.
     on_model_switch
         Called after the thread model override changes.
     """
-    # ── Attach handler ───────────────────────────────────────────────
+    # Attach handler
     async def _on_attach():
         if (sys.platform == "darwin" and os.environ.get("THOTH_NATIVE") == "1"
                 and browse_file is not None):
@@ -340,7 +354,7 @@ def build_chat_input_bar(
                             if badge:
                                 badge.delete()
 
-                        b = ui.badge(f"📎 {name} ✕", color="grey-8").props("outline")
+                        b = ui.badge(f"Attached: {name} x", color="grey-8").props("outline")
                         b.on("click", lambda b=b, i=idx: _remove(i, b))
                         b.style("cursor: pointer;")
         else:
@@ -348,7 +362,7 @@ def build_chat_input_bar(
                 f"document.getElementById('c{hidden_upload.id}').querySelector('input[type=file]').click()"
             )
 
-    # ── Input card ───────────────────────────────────────────────────
+    # Input card
     with ui.column().classes("w-full shrink-0 gap-0").style(
         "border: 1px solid rgba(255,255,255,0.15); border-radius: 18px; "
         "background: rgba(255,255,255,0.04); padding: 0; overflow: hidden; "
@@ -357,7 +371,7 @@ def build_chat_input_bar(
         # File chips inside the card (top)
         p.file_chips_row = ui.row().classes("w-full flex-wrap gap-1 q-px-md q-pt-sm")
 
-        # Context counter — absolute overlay, top-right
+        # Context counter - absolute overlay, top-right
         with ui.row().classes("items-center gap-1").style(
             "position: absolute; top: 8px; right: 12px; z-index: 1; "
             "pointer-events: none; opacity: 0.7;"
@@ -370,7 +384,7 @@ def build_chat_input_bar(
 
         # Textarea
         p.chat_input = (
-            ui.textarea(placeholder="Ask anything…")
+            ui.textarea(placeholder="Ask anything...")
             .classes("w-full")
             .props(
                 'borderless autogrow input-style="padding: 12px 16px 4px 16px; '
@@ -378,6 +392,39 @@ def build_chat_input_bar(
             )
             .style("font-size: 0.95rem;")
         )
+
+        def _register_active_voice_binding() -> None:
+            from voice.actions import ActiveVoiceSurfaceBinding
+
+            surface = _voice_surface_for_state(state)
+            thread_id = str(state.thread_id or "")
+
+            def _get_text() -> str:
+                return str(p.chat_input.value or "") if p.chat_input is not None else ""
+
+            def _set_text(value: str) -> None:
+                if p.chat_input is None:
+                    return
+                p.chat_input.value = value
+                p.chat_input.update()
+
+            p.active_voice_binding = ActiveVoiceSurfaceBinding(
+                surface=surface,
+                thread_id=thread_id,
+                get_composer_text=_get_text,
+                set_composer_text=_set_text,
+                send_talk_text=send_fn,
+            )
+            logger.info(
+                "voice.realtime.pipeline %s",
+                {
+                    "stage": "active_voice_surface_bound",
+                    "surface": surface,
+                    "thread_id": thread_id,
+                },
+            )
+
+        _register_active_voice_binding()
 
         async def _on_send():
             text = p.chat_input.value
@@ -408,11 +455,18 @@ def build_chat_input_bar(
             gen = _active_generations.get(state.thread_id)
             if gen:
                 gen.stop_event.set()
+            if state.voice_coordinator and state.voice_coordinator.transport == "realtime":
+                from voice.realtime_client import stop_realtime_client_js
+                from ui.streaming import run_realtime_client_js
+
+                run_realtime_client_js(p, stop_realtime_client_js(), context="shared_stop_realtime_on_stop")
+                state.voice_enabled = False
+                state.voice_coordinator.stop()
             tts = state.tts_service
             if tts and tts.enabled:
                 tts.stop()
-                if state.voice_service and state.voice_service.is_running:
-                    state.voice_service.unmute()
+                if state.voice_coordinator and state.voice_coordinator.is_running:
+                    state.voice_coordinator.unmute()
             if p.stop_btn:
                 p.stop_btn.props('icon=hourglass_top')
 
@@ -422,22 +476,126 @@ def build_chat_input_bar(
                 "flat round dense size=sm"
             ).tooltip("Attach files")
 
-            # ── Inline model picker ──────────────────────────────────
+            # Inline model picker
             if show_model_picker:
                 _build_inline_model_picker(
                     state,
                     open_settings=open_settings,
                     on_model_switch=on_model_switch,
                 )
+            from ui.voice_realtime_events import make_realtime_event_handler
+
+            _on_realtime_event = make_realtime_event_handler(
+                state=state,
+                p=p,
+                send_message=send_fn,
+            )
+
+
+            p.realtime_event_sink = ui.element("div").style("display:none")
+            try:
+                p.realtime_client = ui.context.client
+            except Exception:
+                p.realtime_client = None
+            p.realtime_event_sink.on(
+                "thoth-realtime-event",
+                _on_realtime_event,
+                js_handler="(e) => emit(e.detail)",
+            )
+
+            def _start_local_talk() -> None:
+                _register_active_voice_binding()
+                state.voice_input_mode = "talk"
+                state.voice_enabled = True
+                state.voice_coordinator.start_talk()
+                if p.dictate_btn:
+                    p.dictate_btn.props("color=grey")
+
+            def _start_realtime_talk() -> None:
+                from voice.openai_realtime import OpenAIRealtimeProvider
+                from voice.realtime_client import start_realtime_client_js
+                from ui.streaming import run_realtime_client_js
+
+                status = OpenAIRealtimeProvider().status()
+                if not status.ready:
+                    if state.voice_runtime_settings.realtime_fallback_to_local:
+                        ui.notify("OpenAI Realtime is not configured. Falling back to local Talk.", type="warning")
+                        _start_local_talk()
+                    else:
+                        ui.notify(status.reason, type="negative", close_button=True)
+                        state.voice_enabled = False
+                        if p.voice_switch:
+                            p.voice_switch.value = False
+                            p.voice_switch.update()
+                    return
+                state.voice_input_mode = "talk"
+                state.voice_enabled = True
+                _register_active_voice_binding()
+                session_id = state.voice_coordinator.start_realtime_talk()
+                if p.dictate_btn:
+                    p.dictate_btn.props("color=grey")
+                delivered = run_realtime_client_js(
+                    p,
+                    start_realtime_client_js(
+                        sink_id=p.realtime_event_sink.id,
+                        session_id=session_id,
+                    ),
+                    context="shared_start_realtime_talk",
+                )
+                if not delivered:
+                    state.voice_enabled = False
+                    state.voice_coordinator.stop()
+                    if p.voice_switch:
+                        p.voice_switch.value = False
+                        p.voice_switch.update()
+
+            def _stop_talk() -> None:
+                from voice.realtime_client import stop_realtime_client_js
+                from ui.streaming import run_realtime_client_js
+
+                if state.voice_coordinator.transport == "realtime":
+                    run_realtime_client_js(p, stop_realtime_client_js(), context="shared_stop_realtime_talk")
+                state.voice_enabled = False
+                state.voice_coordinator.stop()
+                binding = getattr(p, "active_voice_binding", None)
+                if binding is not None:
+                    binding.clear()
+                p.active_voice_binding = None
 
             def _toggle_voice(e):
-                state.voice_enabled = e.value
                 if e.value:
-                    state.voice_service.start()
-                else:
-                    state.voice_service.stop()
+                    if state.voice_runtime_settings.talk_provider == "openai_realtime":
+                        _start_realtime_talk()
+                    else:
+                        _start_local_talk()
+                elif state.voice_input_mode == "talk":
+                    _stop_talk()
 
-            p.voice_switch = ui.switch("🎤 Voice", value=state.voice_enabled, on_change=_toggle_voice).classes("text-xs")
+            def _toggle_dictate():
+                if state.voice_enabled and state.voice_input_mode == "dictate":
+                    state.voice_enabled = False
+                    state.voice_coordinator.stop()
+                    binding = getattr(p, "active_voice_binding", None)
+                    if binding is not None:
+                        binding.clear()
+                    p.active_voice_binding = None
+                    if p.dictate_btn:
+                        p.dictate_btn.props("color=grey")
+                    return
+                state.voice_input_mode = "dictate"
+                state.voice_enabled = True
+                _register_active_voice_binding()
+                state.voice_coordinator.start_dictation()
+                if p.voice_switch:
+                    p.voice_switch.value = False
+                    p.voice_switch.update()
+                if p.dictate_btn:
+                    p.dictate_btn.props("color=primary")
+
+            p.voice_switch = ui.switch("Talk", value=state.voice_enabled and state.voice_input_mode == "talk", on_change=_toggle_voice).classes("text-xs")
+            p.dictate_btn = ui.button("Dictate", icon="keyboard_voice", on_click=_toggle_dictate).props(
+                f"flat dense no-caps color={'primary' if state.voice_enabled and state.voice_input_mode == 'dictate' else 'grey'}"
+            ).tooltip("Dictate into the composer")
             p.voice_status_label = ui.label("").classes("text-xs text-grey-6")
 
             ui.space()
@@ -478,7 +636,7 @@ def _build_inline_model_picker(
     _cur_default = get_current_model()
     _cur_default_value = model_choice_value(_cur_default)
     _default_opt = "__default__"
-    _picker_opts = {_default_opt: f"Default — {_cur_default}"}
+    _picker_opts = {_default_opt: f"Default - {_cur_default}"}
 
     _cur_mo = state.thread_model_override or ""
     _cur_mo_value = model_choice_value(_cur_mo)
@@ -489,9 +647,9 @@ def _build_inline_model_picker(
     _MODELS_UNAVAILABLE_SENTINEL = "__models_unavailable__"
     _picker_opts[_LOADING_MODELS_SENTINEL] = "Loading pinned models..."
 
-    _MORE_MODELS_SENTINEL = "⚙️ More models…"
+    _MORE_MODELS_SENTINEL = "__more_models__"
     if open_settings:
-        _picker_opts[_MORE_MODELS_SENTINEL] = _MORE_MODELS_SENTINEL
+        _picker_opts[_MORE_MODELS_SENTINEL] = "More models..."
 
     _picker_val = _cur_mo_value if _cur_mo_value and _cur_mo_value in _picker_opts else _default_opt
     _current_picker_value = [_picker_val]

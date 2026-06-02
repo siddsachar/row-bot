@@ -98,7 +98,7 @@ Source: "..\api_keys.py";              DestDir: "{app}\app"; Flags: ignoreversio
 Source: "..\app_port.py";              DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\data_paths.py";            DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\secret_store.py";          DestDir: "{app}\app"; Flags: ignoreversion
-Source: "..\voice.py";                 DestDir: "{app}\app"; Flags: ignoreversion
+Source: "..\voice\*.py";              DestDir: "{app}\app\voice"; Flags: ignoreversion
 Source: "..\tts.py";                   DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\vision.py";                DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\launcher.py";              DestDir: "{app}\app"; Flags: ignoreversion
@@ -275,6 +275,8 @@ Source: "..\ui\timer_utils.py";        DestDir: "{app}\app\ui"; Flags: ignorever
 Source: "..\ui\tool_trace.py";         DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\transcript.py";         DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\update_dialog.py";      DestDir: "{app}\app\ui"; Flags: ignoreversion
+Source: "..\ui\voice_lifecycle.py";    DestDir: "{app}\app\ui"; Flags: ignoreversion
+Source: "..\ui\voice_realtime_events.py"; DestDir: "{app}\app\ui"; Flags: ignoreversion
 ; Runtime diagnostics script
 Source: "..\scripts\verify_runtime_dependencies.py"; DestDir: "{app}\app\scripts"; Flags: ignoreversion
 ; ── Embedded Python (with all packages pre-installed) ────────────────────────

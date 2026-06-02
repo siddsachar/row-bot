@@ -18,6 +18,7 @@ SURFACE_REQUIREMENTS: dict[str, dict[str, set[str]]] = {
     "video": {"tasks_any": {ModelTask.VIDEO_GENERATION.value}, "output_any": {ModelModality.VIDEO.value}},
     "embeddings": {"tasks_any": {ModelTask.EMBEDDING.value}},
     "audio": {"tasks_any": {ModelTask.TRANSCRIPTION.value, ModelTask.TTS.value, ModelTask.REALTIME.value}},
+    "voice": {"tasks_any": {ModelTask.TRANSCRIPTION.value, ModelTask.TTS.value, ModelTask.REALTIME.value}},
 }
 
 

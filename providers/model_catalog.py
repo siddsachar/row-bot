@@ -10,7 +10,7 @@ from providers.catalog import get_provider_definition, model_info_from_legacy, m
 from providers.models import ModelInfo
 from providers.selection import model_ref
 
-CATALOG_SURFACES = ("chat", "vision", "image", "video")
+CATALOG_SURFACES = ("chat", "vision", "image", "video", "voice")
 logger = logging.getLogger(__name__)
 
 

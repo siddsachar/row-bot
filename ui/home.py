@@ -635,6 +635,9 @@ def build_home(
                     save_project(project)
 
                 # Switch AppState to the project's thread
+                from ui.voice_lifecycle import stop_voice_for_thread_change
+
+                stop_voice_for_thread_change(state, p, reason="home_project_thread")
                 prev = state.thread_id
                 state.thread_id = project.thread_id
                 state.thread_name = f"🎨 {project.name}"

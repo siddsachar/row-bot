@@ -141,6 +141,33 @@ def test_surface_specific_pin_visibility_keeps_media_out_of_chat(tmp_path, monke
     assert stored["visibility"] == ["image"]
 
 
+def test_voice_quick_choices_do_not_leak_into_chat_picker(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+
+    add_quick_choice_for_model("gpt-realtime", provider_id="openai", surface="voice")
+
+    assert list_quick_model_ids("chat") == []
+    assert list_quick_model_ids("voice") == ["gpt-realtime"]
+    stored = provider_config.load_provider_config()["quick_choices"][0]
+    assert stored["visibility"] == ["voice"]
+    assert stored["capabilities_snapshot"]["tasks"] == ["realtime"]
+
+
+def test_included_voice_value_is_blocked_from_chat_picker(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+
+    ref = "model:openai:gpt-4o-audio-preview"
+    options = list_model_choice_options("chat", include_values=[ref])
+    inactive = list_model_choice_options("chat", include_values=[ref], include_inactive=True)
+
+    assert ref not in {option["value"] for option in options}
+    included = next(option for option in inactive if option["value"] == ref)
+    assert included["active"] is False
+    assert "not compatible with chat" in included["reason"]
+
+
 def test_deactivate_quick_choice_for_error_uses_normalized_next_action(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})

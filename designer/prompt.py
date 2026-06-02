@@ -1,4 +1,4 @@
-﻿"""Designer — system prompt builder for designer mode.
+"""Designer — system prompt builder for designer mode.
 
 Generates the context block injected into the agent's system prompt
 when a designer project is active.

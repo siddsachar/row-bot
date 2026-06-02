@@ -21,6 +21,7 @@ from queue import Queue, Empty
 from typing import Callable
 
 import numpy as np
+from voice.speech_policy import make_speakable_response
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +193,13 @@ class TTSService:
         if self._voice_service and self._voice_service.is_running:
             self._voice_service.unmute()
 
+    def _record_voice_output(self, text: str) -> None:
+        if self._voice_service and hasattr(self._voice_service, "record_assistant_output"):
+            try:
+                self._voice_service.record_assistant_output(text)
+            except Exception:
+                logger.debug("Could not record assistant voice output", exc_info=True)
+
     # ── Properties ───────────────────────────────────────────────────────
 
     @property
@@ -311,6 +319,7 @@ class TTSService:
 
         # Mute mic on first sentence queued
         self._mute_mic()
+        self._record_voice_output(clean)
 
         # Ensure worker thread is running
         if self._stream_worker is None or not self._stream_worker.is_alive():
@@ -433,6 +442,7 @@ class TTSService:
         self._stop_event.clear()
         # Mute mic before speaking
         self._mute_mic()
+        self._record_voice_output(clean)
         self._playback_thread = threading.Thread(
             target=self._play, args=(clean,), daemon=True,
         )
@@ -526,6 +536,15 @@ def _prepare_text(text: str, *, truncate: bool = True) -> str:
     When *truncate* is ``False`` the sentence-cap / truncation-suffix
     logic is skipped — useful for streaming TTS where the caller
     manages the sentence budget."""
+    speakable = make_speakable_response(
+        text,
+        max_sentences=_MAX_SPEAK_SENTENCES,
+        allow_long=not truncate,
+        fallback_text=_FALLBACK_MSG,
+        truncation_text=_TRUNCATION_SUFFIX.strip(),
+    )
+    return speakable.text
+
     clean = text
     for pattern, repl in _MD_STRIP:
         clean = pattern.sub(repl, clean)

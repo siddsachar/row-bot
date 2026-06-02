@@ -1,4 +1,4 @@
-"""Thoth UI — sidebar (left drawer) with thread list.
+"""Thoth UI - sidebar (left drawer) with thread list.
 
 Builds the sidebar drawer, home/new buttons, thread listing, and
 settings/help buttons.  All navigation is handled via callbacks so
@@ -72,7 +72,7 @@ def build_sidebar(
     with ui.left_drawer(value=True, fixed=True).style(
         "width: 280px;"
     ).classes("thoth-panel-card"):
-        # Logo — always Thoth branding, independent of identity settings
+        # Logo - always Thoth branding, independent of identity settings
         ui.html(
             '<div style="display:flex; align-items:center; gap:8px;">'
             '<span style="font-size:1.6rem; color:gold;">𓁟</span>'
@@ -88,6 +88,9 @@ def build_sidebar(
         # Home + New buttons
         with ui.row().classes("w-full gap-2"):
             def _go_home():
+                from ui.voice_lifecycle import stop_voice_for_thread_change
+
+                stop_voice_for_thread_change(state, p, reason="home")
                 prev = state.thread_id
                 prev_gen = _active_generations.get(prev) if prev else None
                 if prev_gen and prev_gen.status == "streaming":
@@ -108,9 +111,12 @@ def build_sidebar(
             _home_btn = ui.button("🏠 Home", on_click=_go_home).classes("flex-grow").props("flat")
 
             async def _new_thread():
+                from ui.voice_lifecycle import stop_voice_for_thread_change
+
                 tid = uuid.uuid4().hex[:12]
                 name = f"💻 Thread {datetime.now().strftime('%b %d, %H:%M')}"
                 await run.io_bound(_save_thread_meta, tid, name)
+                stop_voice_for_thread_change(state, p, reason="new_thread")
                 prev = state.thread_id
                 prev_gen = _active_generations.get(prev) if prev else None
                 if prev_gen and prev_gen.status == "streaming":
@@ -133,7 +139,7 @@ def build_sidebar(
 
         with ui.column().classes("w-full gap-1 q-mt-sm thoth-inner-panel"):
             ui.label("Conversations").classes("text-subtitle2")
-            # Filter pill row — rebuilt by _rebuild_thread_list so counts stay fresh.
+            # Filter pill row - rebuilt by _rebuild_thread_list so counts stay current
             p.thread_filter_container = ui.row().classes(
                 "w-full gap-1 items-center no-wrap q-mb-xs"
             ).style("flex-wrap: wrap;")
@@ -372,6 +378,9 @@ def build_sidebar(
                 is_code_thread = _thread_type == "code" or bool(_dev_workspace_id)
 
                 async def _select(t=tid, n=name, mo=_thread_model_ov, pid=_thread_project_id, dev_ws=_dev_workspace_id):
+                    from ui.voice_lifecycle import stop_voice_for_thread_change
+
+                    stop_voice_for_thread_change(state, p, reason="thread_select")
                     prev = state.thread_id
                     prev_gen = _active_generations.get(prev) if prev else None
                     if prev_gen and prev_gen.status == "streaming":
@@ -390,7 +399,7 @@ def build_sidebar(
                         return msgs
 
                     if pid:
-                        # Designer thread — open the associated project
+                        # Designer thread - open the associated project
                         from designer.storage import load_project
                         proj = load_project(pid)
                         if proj:
@@ -405,9 +414,9 @@ def build_sidebar(
                             rebuild_main()
                             _rebuild_thread_list_ref[0]()
                             return
-                        # Project missing — fall through to normal thread behaviour
+                        # Project missing - fall through to normal thread behavior
 
-                    # Non-designer thread (or missing project) — close designer if open
+                    # Non-designer thread (or missing project) - close designer if needed
                     if dev_ws:
                         from developer.storage import get_workspace
                         workspace = get_workspace(dev_ws)
@@ -454,6 +463,9 @@ def build_sidebar(
                     set_active_thread(None, previous_id=t)
                     state.invalidate_thread_cache(t)
                     if state.thread_id == t:
+                        from ui.voice_lifecycle import stop_voice_for_thread_change
+
+                        stop_voice_for_thread_change(state, p, reason="delete_active_thread")
                         state.thread_id = None
                         state.thread_name = None
                         state.messages = []
@@ -475,19 +487,19 @@ def build_sidebar(
                             _thr_icon = "code"
                         elif is_cloud_thread:
                             _thr_icon = "cloud"
-                        elif name.startswith("✈️"):
+                        elif name.startswith("\u2708\ufe0f"):
                             _thr_icon = "send"
-                        elif name.startswith("📧"):
+                        elif name.startswith("\U0001f4e7"):
                             _thr_icon = "email"
-                        elif name.startswith("⚡"):
+                        elif name.startswith("\u26a1"):
                             _thr_icon = "electric_bolt"
-                        elif name.startswith("�") or "WhatsApp" in name:
+                        elif name.startswith(chr(0xFFFD)) or "WhatsApp" in name:
                             _thr_icon = "forum"
-                        elif name.startswith("🎮") or "Discord" in name:
+                        elif name.startswith("\U0001f3ae") or "Discord" in name:
                             _thr_icon = "sports_esports"
-                        elif name.startswith("�📱"):
+                        elif name.startswith(chr(0xFFFD) + "\U0001f4f1"):
                             _thr_icon = "textsms"
-                        elif name.startswith("💬"):
+                        elif name.startswith("\U0001f4ac"):
                             _thr_icon = "chat"
                         else:
                             _thr_icon = "computer"
@@ -661,6 +673,9 @@ def build_sidebar(
                                             if bulk.active:
                                                 bulk.toggle_item(t)
                                                 return
+                                            from ui.voice_lifecycle import stop_voice_for_thread_change
+
+                                            stop_voice_for_thread_change(state, p, reason="thread_modal_select")
                                             prev = state.thread_id
                                             prev_gen = _active_generations.get(prev) if prev else None
                                             if prev_gen and prev_gen.status == "streaming":
@@ -691,6 +706,9 @@ def build_sidebar(
                                             _purge_external(t)
                                             _delete_thread(t)
                                             if state.thread_id == t:
+                                                from ui.voice_lifecycle import stop_voice_for_thread_change
+
+                                                stop_voice_for_thread_change(state, p, reason="delete_active_thread_modal")
                                                 state.thread_id = None
                                                 state.messages = []
                                             dlg.close()
@@ -738,6 +756,9 @@ def build_sidebar(
                                     _purge_external(t)
                                 deleted, failures = _bulk_delete_threads(ids)
                                 if state.thread_id in ids:
+                                    from ui.voice_lifecycle import stop_voice_for_thread_change
+
+                                    stop_voice_for_thread_change(state, p, reason="bulk_delete_active_thread")
                                     state.thread_id = None
                                     state.thread_name = None
                                     state.messages = []
@@ -789,6 +810,9 @@ def build_sidebar(
                                     for t in all_ids:
                                         _purge_external(t)
                                     _bulk_delete_threads(all_ids)
+                                    from ui.voice_lifecycle import stop_voice_for_thread_change
+
+                                    stop_voice_for_thread_change(state, p, reason="bulk_delete_all_threads")
                                     state.thread_id = None
                                     state.thread_name = None
                                     state.messages = []

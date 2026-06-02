@@ -114,3 +114,54 @@ def test_settings_shell_preserves_all_registered_tabs():
         "Preferences",
     ):
         assert f'"{tab_name}"' in open_src
+
+
+def test_voice_tab_owns_voice_models_not_credentials():
+    voice_src = _function_source("_build_voice_tab")
+
+    for section in (
+        "Talk",
+        "Dictation",
+        "Realtime Talk Voice",
+        "Normal Read-Aloud",
+        "Voice Models",
+        "Provider Voice Models",
+        "Diagnostics",
+    ):
+        assert section in voice_src
+
+    assert "_load_voice_model_rows" in SETTINGS.read_text(encoding="utf-8")
+    assert 'list_quick_choices("voice"' in SETTINGS.read_text(encoding="utf-8")
+    assert 'on_click=lambda: _reopen("Providers")' in voice_src
+    assert "Provider credentials stay in Providers" in voice_src
+    assert "does not call the LLM until Send" in voice_src
+    assert "OpenAI Realtime sends live microphone audio" in voice_src
+    assert "Dictation is STT-only" in voice_src
+    assert "ongoing provider cost" in voice_src
+    assert "build_voice_provider_catalog" in voice_src
+    assert "provider_options_for_capability" in voice_src
+    assert "model_options_for_capability" in voice_src
+
+
+def test_voice_tab_uses_dependent_provider_selectors_and_realtime_controls():
+    voice_src = _function_source("_build_voice_tab")
+
+    assert "def _set_talk_provider" in voice_src
+    assert "talk_model=selected_or_default_model(voice_catalog, \"talk\", provider_id, \"\")" in voice_src
+    assert "def _set_dictation_provider" in voice_src
+    assert "dictation_model=selected_or_default_model(voice_catalog, \"dictation\", provider_id, \"\")" in voice_src
+    assert "def _set_speech_output_provider" in voice_src
+    assert "speech_output_model=selected_or_default_model(voice_catalog, \"speech_output\", provider_id, \"\")" in voice_src
+    assert 'if talk_provider_value == "openai_realtime"' in voice_src
+    assert "REALTIME_VOICE_OPTIONS" in voice_src
+    assert "realtime_speaking_rate" not in voice_src
+    assert "Speaking speed" not in voice_src
+    assert "Fallback to local Talk if Realtime is unavailable" in voice_src
+    assert "Normal Read-Aloud is local text chat playback" in voice_src
+
+
+def test_voice_diagnostics_include_turn_latency_summary():
+    voice_src = _function_source("_build_voice_tab")
+
+    assert "realtime_latency_summary_ms" in voice_src
+    assert "Turn timing:" in voice_src

@@ -1,11 +1,11 @@
-"""Thoth UI — Streaming consumer, send-message, and interrupt-resume logic.
+"""Thoth UI - Streaming consumer, send-message, and interrupt-resume logic.
 
 This module extracts the three heavyweight async inner functions from the
 monolith:
 
-* ``consume_generation``  — drain event queue and update the UI
-* ``send_message``        — append user message, launch producer + consumer
-* ``resume_after_interrupt`` — re-start the producer after an approval
+* ``consume_generation`` - drain event queue and update the UI
+* ``send_message``        - append user message, launch producer + consumer
+* ``resume_after_interrupt`` - re-start the producer after an approval
 
 Every function receives ``state``, ``p``, and named callbacks so no globals
 leak in.
@@ -36,8 +36,55 @@ from ui.constants import (
 from ui.render import autolink_urls, _auto_fence_mermaid, render_image_with_save
 from ui.performance import log_ui_perf
 from ui.tool_trace import canonical_tool_name, display_tool_content, is_browser_tool_name, tool_result_failed
+from voice.cues import (
+    approval_needed_cue,
+    error_cue,
+    heard_cue,
+    long_running_cue,
+    results_found_cue,
+    thinking_cue,
+    tool_progress_cue,
+    tool_start_cue,
+)
+from voice.output_controller import VoiceOutputController
+from voice.speech_policy import make_speakable_response, user_requested_read_aloud
 
 logger = logging.getLogger(__name__)
+
+
+def _client_is_live(client: Any) -> bool:
+    if client is None or getattr(client, "_deleted", False):
+        return False
+    client_id = getattr(client, "id", "")
+    instances = getattr(getattr(client, "__class__", object), "instances", None)
+    if client_id and isinstance(instances, dict) and instances and client_id not in instances:
+        return False
+    return True
+
+
+def run_realtime_client_js(p: P, code: str, *, context: str = "realtime js") -> bool:
+    """Send Realtime browser JS to the owning NiceGUI client, if still alive."""
+    client = getattr(p, "realtime_client", None)
+    if not _client_is_live(client):
+        logger.warning(
+            "voice.realtime.pipeline %s",
+            {"stage": "browser_js_client_missing", "context": context},
+        )
+        return False
+    try:
+        client.run_javascript(code)
+        logger.info(
+            "voice.realtime.pipeline %s",
+            {"stage": "browser_js_dispatched", "context": context, "code_chars": len(str(code or ""))},
+        )
+        return True
+    except Exception as exc:
+        logger.warning(
+            "voice.realtime.pipeline %s",
+            {"stage": "browser_js_dispatch_failed", "context": context, "error": str(exc)[:500]},
+            exc_info=True,
+        )
+        return False
 
 
 def _codex_auth_block_message(model_ref: str) -> str | None:
@@ -142,7 +189,7 @@ def _spill_excess_captured_images(gen: GenerationState) -> None:
             to_spill -= 1
         except Exception:
             logger.debug("spill: failed to write b64 to disk", exc_info=True)
-            # Move on — next tick may succeed
+            # Move on - next tick may succeed
             break
 
 
@@ -310,7 +357,7 @@ def _live_tool_group(gen: GenerationState, tool_name: str) -> dict[str, Any] | N
         activity = _tool_activity_line(display_name)
         if activity:
             ui.label(activity).classes("text-xs text-grey-6 q-ml-sm")
-        exp = ui.expansion(f"🔄 {display_name} · 0 calls", icon="hourglass_empty").classes("w-full")
+        exp = ui.expansion(f"Running {display_name} - 0 calls", icon="hourglass_empty").classes("w-full")
     group = {
         "name": display_name,
         "expansion": exp,
@@ -409,11 +456,11 @@ def _add_live_tool_pending(gen: GenerationState, tool_name: str) -> None:
     with exp:
         row = ui.column().classes("w-full gap-1 q-ml-sm")
         with row:
-            label = ui.label(f"#{call_no} running…").classes("text-xs text-grey-6")
+            label = ui.label(f"#{call_no} running...").classes("text-xs text-grey-6")
     group["pending"].append({"row": row, "label": label, "call_no": call_no})
     unit = "step" if group["name"] == "Browser activity" else "call"
     suffix = unit if group["count"] == 1 else f"{unit}s"
-    _set_expansion_title(exp, f"🔄 {group['name']} · {group['count']} {suffix}", "hourglass_empty")
+    _set_expansion_title(exp, f"Running {group['name']} - {group['count']} {suffix}", "hourglass_empty")
 
 
 def _finish_live_tool_result(gen: GenerationState, tool_name: str, content: str) -> bool:
@@ -445,10 +492,10 @@ def _finish_live_tool_result(gen: GenerationState, tool_name: str, content: str)
             ui.code(display).classes("w-full text-xs")
     group["failed"] = bool(group.get("failed")) or failed
     icon = "error" if group.get("failed") else ("check_circle" if group["done"] >= group["count"] else "hourglass_empty")
-    prefix = "❌" if group.get("failed") else ("✅" if icon == "check_circle" else "🔄")
+    prefix = "Failed" if group.get("failed") else ("Done" if icon == "check_circle" else "Running")
     _set_expansion_title(
         group["expansion"],
-        f"{prefix} {group['name']} · {group['done']}/{group['count']} complete",
+        f"{prefix} {group['name']} - {group['done']}/{group['count']} complete",
         icon,
     )
     return True
@@ -511,6 +558,247 @@ async def consume_generation(
     _consume_started = time.perf_counter()
     _stream_updates = 0
 
+    generation_scope_id = f"{gen.thread_id}:{id(gen)}"
+    realtime_chunker = None
+    realtime_speech_queue = None
+    if gen.voice_mode and state.voice_coordinator.transport == "realtime":
+        from voice.realtime_presenter import RealtimeSpeechChunker, RealtimeSpeechQueue
+
+        realtime_chunker = RealtimeSpeechChunker()
+        realtime_speech_queue = RealtimeSpeechQueue()
+    realtime_last_voice_attempt_at = _consume_started
+    realtime_last_queue_flush_at = -999.0
+    realtime_tool_events_since_cue = 0
+    realtime_tool_done_since_cue = 0
+
+    def _mark_realtime_voice_attempt(origin: str, text: str) -> None:
+        nonlocal realtime_last_voice_attempt_at
+        if gen.voice_mode and state.voice_coordinator.transport == "realtime" and str(text or "").strip():
+            realtime_last_voice_attempt_at = time.perf_counter()
+            _voice_diag("realtime_voice_attempt", origin=origin, chars=len(str(text or "").strip()))
+
+    def _speak_realtime_text(text: str, *, origin: str = "final") -> bool:
+        from voice.realtime_client import send_realtime_function_output_js, send_realtime_run_event_js
+
+        if (
+            origin == "final"
+            and realtime_speech_queue is not None
+        ):
+            decision_basis = gen.accumulated if str(gen.accumulated or "").strip() else text
+            decision = realtime_speech_queue.final_decision(decision_basis)
+            if not decision.get("speak"):
+                gen.realtime_stream_finalized = True
+                _voice_diag("realtime_final_suppressed_after_stream", **decision)
+                if gen.realtime_tool_call_id and not gen.realtime_tool_output_sent:
+                    gen.realtime_tool_output_sent = True
+                    code = send_realtime_function_output_js(
+                        call_id=gen.realtime_tool_call_id,
+                        output={
+                            "status": "completed",
+                            "speakable": "",
+                            "worker": "thoth",
+                        },
+                        thread_id=gen.thread_id,
+                        generation_id=generation_scope_id,
+                        silent=True,
+                    )
+                    sent = run_realtime_client_js(p, code, context="realtime_function_output_silent_after_stream")
+                    _voice_diag("realtime_function_output_silent_after_stream", sent=sent)
+                return False
+        if origin == "final" and (gen.realtime_tool_call_id or gen.realtime_forced_consult):
+            if gen.realtime_tool_output_sent:
+                return False
+            gen.realtime_tool_output_sent = True
+            if gen.realtime_tool_call_id:
+                code = send_realtime_function_output_js(
+                    call_id=gen.realtime_tool_call_id,
+                    output={
+                        "status": "completed",
+                        "speakable": text,
+                        "worker": "thoth",
+                    },
+                    thread_id=gen.thread_id,
+                    generation_id=generation_scope_id,
+                    silent=False,
+                )
+                context = "realtime_function_output"
+            else:
+                if gen.realtime_streamed_speech_chunks > 0:
+                    gen.realtime_stream_finalized = True
+                    return False
+                code = send_realtime_run_event_js(
+                    text,
+                    origin="forced_consult_result",
+                    thread_id=gen.thread_id,
+                    generation_id=generation_scope_id,
+                )
+                context = "realtime_forced_consult_result"
+            sent = run_realtime_client_js(p, code, context=context)
+            if sent:
+                _mark_realtime_voice_attempt(origin, text)
+            return sent
+        sent = run_realtime_client_js(
+            p,
+            send_realtime_run_event_js(
+                text,
+                origin=origin,
+                thread_id=gen.thread_id,
+                generation_id=generation_scope_id,
+            ),
+            context="realtime_run_event",
+        )
+        if sent:
+            _mark_realtime_voice_attempt(origin, text)
+        return sent
+
+    def _speak_realtime_stream_chunk(text: str) -> None:
+        clean = str(text or "").strip()
+        if not clean:
+            return
+        if realtime_speech_queue is not None:
+            playback_active = bool(getattr(state.voice_coordinator, "playback_active", False))
+            queued = realtime_speech_queue.offer_stream_chunk(clean, playback_active=playback_active)
+            if not queued:
+                _voice_diag(
+                    "realtime_stream_chunk_queued",
+                    chunks=gen.realtime_streamed_speech_chunks,
+                    chars=len(clean),
+                    playback_active=playback_active,
+                    spoken_stream_chars=realtime_speech_queue.spoken_stream_chars,
+                    coalesced_chars=len(realtime_speech_queue.coalesced_stream_text),
+                )
+                return
+            clean = queued
+        if _speak_realtime_text(clean, origin="stream_chunk"):
+            gen.realtime_streamed_speech_chunks += 1
+            if gen.realtime_streamed_speech_chunks == 1:
+                state.voice_coordinator.mark_realtime_latency("first_speakable_chunk")
+                state.voice_coordinator.mark_realtime_latency("first_substantive_audio_requested")
+            _voice_diag(
+                "realtime_stream_chunk_spoken",
+                chunks=gen.realtime_streamed_speech_chunks,
+                chars=len(clean),
+            )
+
+    def _flush_realtime_speech_queue(reason: str) -> bool:
+        nonlocal realtime_last_queue_flush_at
+        if realtime_speech_queue is None or not gen.tts_active:
+            return False
+        if bool(getattr(state.voice_coordinator, "playback_active", False)):
+            return False
+        now = time.perf_counter()
+        if now - realtime_last_queue_flush_at < 1.2:
+            return False
+        chunk = realtime_speech_queue.flush_queued(playback_active=False)
+        if not chunk:
+            return False
+        realtime_last_queue_flush_at = now
+        if _speak_realtime_text(chunk, origin="stream_chunk"):
+            gen.realtime_streamed_speech_chunks += 1
+            _voice_diag(
+                "realtime_stream_chunk_flushed",
+                reason=reason,
+                chunks=gen.realtime_streamed_speech_chunks,
+                chars=len(chunk),
+                spoken_stream_chars=realtime_speech_queue.spoken_stream_chars,
+                coalesced_chars=len(realtime_speech_queue.coalesced_stream_text),
+            )
+            return True
+        return False
+
+    voice_output = VoiceOutputController.for_generation(
+        voice_mode=gen.voice_mode,
+        transport=state.voice_coordinator.transport,
+        tts_service=state.tts_service,
+        realtime_speaker=_speak_realtime_text,
+        now=time.perf_counter,
+    )
+
+    def _generation_elapsed() -> float:
+        return max(0.0, time.perf_counter() - _consume_started)
+
+    def _voice_diag(stage: str, **extra: Any) -> None:
+        if not gen.voice_mode and state.voice_coordinator.transport != "realtime":
+            return
+        active_gen = _active_generations.get(state.thread_id)
+        snapshot = state.voice_coordinator.diagnostic_snapshot()
+        snapshot.update({
+            "stage": stage,
+            "voice_enabled": state.voice_enabled,
+            "voice_input_mode": state.voice_input_mode,
+            "thread_id": state.thread_id,
+            "generation_thread_id": gen.thread_id,
+            "generation_id": generation_scope_id,
+            "generation_status": gen.status,
+            "generation_voice_mode": gen.voice_mode,
+            "generation_tts_active": gen.tts_active,
+            "active_generation_status": getattr(active_gen, "status", None),
+            **extra,
+        })
+        logger.info("voice.realtime.pipeline %s", snapshot)
+
+    def _maybe_speak_realtime_progress(reason: str) -> bool:
+        nonlocal realtime_tool_events_since_cue, realtime_tool_done_since_cue
+        if not (gen.voice_mode and state.voice_coordinator.transport == "realtime"):
+            return False
+        if _stopped_shown or gen.status != "streaming":
+            return False
+        if bool(getattr(state.voice_coordinator, "playback_active", False)):
+            return False
+        if str(getattr(state.voice_coordinator, "state", "")).lower() in {"user_speaking", "speaking"}:
+            return False
+
+        elapsed = _generation_elapsed()
+        quiet_for = time.perf_counter() - realtime_last_voice_attempt_at
+        if quiet_for < 9.0:
+            return False
+
+        cue = None
+        cue_reason = ""
+        if realtime_tool_done_since_cue >= 2 and quiet_for >= 9.0:
+            cue = results_found_cue()
+            cue_reason = "tool_results_ready"
+        elif realtime_tool_events_since_cue > 0 and quiet_for >= 12.0:
+            cue = tool_progress_cue()
+            cue_reason = "tools_still_running"
+        elif not gen.first_content:
+            cue = heard_cue() if elapsed < 3.0 else (thinking_cue() if elapsed < 10.0 else long_running_cue())
+            cue_reason = "awaiting_first_content"
+        elif quiet_for >= 18.0:
+            cue = long_running_cue()
+            cue_reason = "quiet_after_content"
+
+        if cue is None:
+            return False
+        spoke = voice_output.speak_cue(cue, generation_elapsed=elapsed)
+        _voice_diag(
+            "realtime_cue_spoken" if spoke else "realtime_cue_suppressed",
+            reason=reason,
+            cue_type=str(getattr(cue.type, "value", cue.type)),
+            cue_reason=cue_reason,
+            quiet_for=round(quiet_for, 3),
+            elapsed=round(elapsed, 3),
+        )
+        _voice_diag(
+            "realtime_silence_watchdog_tick",
+            reason=reason,
+            cue_reason=cue_reason,
+            spoke=spoke,
+            quiet_for=round(quiet_for, 3),
+            elapsed=round(elapsed, 3),
+            tool_events_since_cue=realtime_tool_events_since_cue,
+            tool_done_since_cue=realtime_tool_done_since_cue,
+        )
+        if spoke and cue.type.value in {"tool_start", "tool_progress"}:
+            realtime_tool_events_since_cue = 0
+            realtime_tool_done_since_cue = 0
+        return spoke
+
+    def _set_realtime_generation_state(state_name: str, *, detail: str = "") -> None:
+        if gen.voice_mode and state.voice_coordinator.transport == "realtime":
+            state.voice_coordinator.set_realtime_state(state_name, detail=detail)
+            _voice_diag(f"coordinator_state:{state_name}", detail=detail)
+
     def _buddy(event_type: BuddyEventType, label: str = "", **payload: Any) -> None:
         if label:
             payload["label"] = label
@@ -520,6 +808,10 @@ async def consume_generation(
             logger.debug("Buddy event emit failed", exc_info=True)
 
     _buddy(BuddyEventType.GENERATION_STARTED, "Thinking")
+    _set_realtime_generation_state("thinking", detail="generation_started")
+    _voice_diag("generation_consumer_started")
+    if gen.voice_mode and state.voice_coordinator.transport == "realtime":
+        state.voice_coordinator.set_active_thoth_generation(generation_scope_id)
 
     try:
       while True:
@@ -527,6 +819,7 @@ async def consume_generation(
         if gen.stop_event.is_set() and not _stopped_shown:
             _stopped_shown = True
             gen.status = "stopped"
+            _set_realtime_generation_state("stopped", detail="stop_event")
             gen.accumulated += "\n\n\u23f9\ufe0f *[Stopped]*"
             _drain_deadline = asyncio.get_event_loop().time() + 30
             if not gen.detached:
@@ -552,6 +845,20 @@ async def consume_generation(
         try:
             event = gen.q.get_nowait()
         except queue.Empty:
+            if gen.voice_mode and state.voice_coordinator.transport == "realtime":
+                if not _flush_realtime_speech_queue("queue_empty"):
+                    _maybe_speak_realtime_progress("queue_empty")
+            if (
+                not gen.first_content
+                and not _stopped_shown
+                and gen.status == "streaming"
+                and state.voice_coordinator.transport != "realtime"
+            ):
+                elapsed = _generation_elapsed()
+                voice_output.speak_cue(
+                    heard_cue() if elapsed < 3.0 else (thinking_cue() if elapsed < 10.0 else long_running_cue()),
+                    generation_elapsed=elapsed,
+                )
             await asyncio.sleep(0.05)
             continue
 
@@ -590,6 +897,9 @@ async def consume_generation(
 
         if event_type == "error":
             _buddy(BuddyEventType.GENERATION_ERROR, "Error", error=str(payload)[:500])
+            _voice_diag("generation_event:error", payload_preview=str(payload)[:500])
+            voice_output.speak_cue(error_cue(), generation_elapsed=_generation_elapsed())
+            _set_realtime_generation_state("error", detail=str(payload)[:500])
             gen.status = "error"
             gen.error = payload
             gen.accumulated = f"\u26a0\ufe0f An error occurred: {payload}"
@@ -629,6 +939,21 @@ async def consume_generation(
 
         elif event_type == "tool_call":
             _buddy(BuddyEventType.TOOL_STARTED, "Using a tool", tool=str(payload))
+            _voice_diag("generation_event:tool_call", tool=str(payload))
+            if gen.voice_mode and state.voice_coordinator.transport == "realtime":
+                realtime_tool_events_since_cue += 1
+                state.voice_coordinator.mark_realtime_latency("thoth_tool_started")
+            _set_realtime_generation_state("thoth_tool_running", detail=str(payload))
+            spoke_tool_cue = voice_output.speak_cue(tool_start_cue(str(payload)), generation_elapsed=_generation_elapsed())
+            if spoke_tool_cue:
+                realtime_tool_events_since_cue = 0
+            _voice_diag(
+                "realtime_cue_spoken" if spoke_tool_cue else "realtime_cue_suppressed",
+                cue_type="tool_start",
+                reason="tool_call",
+                spoke=spoke_tool_cue,
+                tool_events_since_cue=realtime_tool_events_since_cue,
+            )
             _grouped_tool_call = False
             if not gen.detached and gen.tool_col:
                 try:
@@ -643,7 +968,7 @@ async def consume_generation(
                         _pending_exp = ui.expansion(
                             f"\U0001f504 {payload}\u2026", icon="hourglass_empty"
                         ).classes("w-full")
-                        # FIFO queue per tool name — parallel calls to the
+                        # FIFO queue per tool name - parallel calls to the
                         # same tool must each get their own pending slot so
                         # later tool_done events can still match them.
                         gen.pending_tools.setdefault(payload, []).append(_pending_exp)
@@ -653,6 +978,10 @@ async def consume_generation(
 
         elif event_type == "tool_done":
             _buddy(BuddyEventType.TOOL_FINISHED, "Tool finished")
+            _voice_diag("generation_event:tool_done")
+            if gen.voice_mode and state.voice_coordinator.transport == "realtime":
+                realtime_tool_done_since_cue += 1
+                state.voice_coordinator.mark_realtime_latency("thoth_tool_done")
             await _handle_tool_done(gen, state, p, payload, cb)
 
         elif event_type == "summarizing":
@@ -704,6 +1033,10 @@ async def consume_generation(
         elif event_type == "token":
             if not str(payload or "").strip() and not str(gen.accumulated or "").strip():
                 continue
+            if not gen.first_content:
+                _voice_diag("generation_event:first_token")
+                if gen.voice_mode and state.voice_coordinator.transport == "realtime":
+                    state.voice_coordinator.mark_realtime_latency("first_token")
             _stream_updates += 1
             _now = asyncio.get_event_loop().time()
             if _now - _last_buddy_token_at > 0.8:
@@ -717,8 +1050,19 @@ async def consume_generation(
                     _handle_ui_runtime_error(gen, state, exc, "token content update")
                     logger.debug("Token content update failed", exc_info=True)
 
+            realtime_tts = gen.tts_active and state.voice_coordinator.transport == "realtime"
+            if realtime_tts:
+                if "```" in payload:
+                    gen.tts_in_code = not gen.tts_in_code
+                if not gen.tts_in_code:
+                    if realtime_chunker is not None:
+                        for chunk in realtime_chunker.push(str(payload or "")):
+                            _speak_realtime_stream_chunk(chunk)
+                    else:
+                        gen.tts_buffer += payload
+
             # Streaming TTS (only when attached)
-            if gen.tts_active:
+            if gen.tts_active and not realtime_tts:
                 if "```" in payload:
                     gen.tts_in_code = not gen.tts_in_code
                 if not gen.tts_in_code:
@@ -728,7 +1072,12 @@ async def consume_generation(
                         for s in sentences[:-1]:
                             if gen.tts_spoken >= MAX_STREAM_SENTENCES:
                                 break
-                            state.tts_service.speak_streaming(s)
+                            speakable = make_speakable_response(
+                                s,
+                                allow_long=gen.tts_allow_long,
+                                reason="assistant_stream_sentence",
+                            )
+                            state.tts_service.speak_streaming(speakable.text)
                             gen.tts_spoken += 1
                             if gen.tts_spoken >= MAX_STREAM_SENTENCES:
                                 state.tts_service.flush_streaming(
@@ -739,6 +1088,9 @@ async def consume_generation(
 
         elif event_type == "interrupt":
             _buddy(BuddyEventType.APPROVAL_NEEDED, "Approval pending")
+            _voice_diag("generation_event:interrupt")
+            voice_output.speak_cue(approval_needed_cue(), generation_elapsed=_generation_elapsed())
+            _set_realtime_generation_state("waiting_for_approval", detail="interrupt")
             gen.interrupt_data = payload
             state.pending_interrupt = payload
             gen.status = "interrupted"
@@ -756,6 +1108,7 @@ async def consume_generation(
 
         elif event_type == "done":
             _buddy(BuddyEventType.GENERATION_DONE, "Done")
+            _voice_diag("generation_event:done", final_chars=len(str(payload or "")))
             gen.accumulated = payload
             if not gen.detached:
                 try:
@@ -783,14 +1136,47 @@ async def consume_generation(
     # ── Finalise ─────────────────────────────────────────────────────
     if gen.status == "streaming":
         gen.status = "done"
+    _voice_diag("generation_finalizing")
 
     try:
         if not gen.detached:
             _detach_if_ui_client_deleted(gen, state, "post-stream finalization")
 
         if not gen.detached:
-            if gen.tts_active:
-                state.tts_service.flush_streaming(gen.tts_buffer)
+            if gen.tts_active and gen.status == "done":
+                if (
+                    state.voice_coordinator.transport == "realtime"
+                    and realtime_chunker is not None
+                    and not gen.realtime_stream_finalized
+                ):
+                    for chunk in realtime_chunker.flush():
+                        _speak_realtime_stream_chunk(chunk)
+                    _flush_realtime_speech_queue("finalizing")
+                speakable = make_speakable_response(
+                    gen.accumulated if state.voice_coordinator.transport == "realtime" else gen.tts_buffer,
+                    allow_long=gen.tts_allow_long or state.voice_coordinator.transport == "realtime",
+                    reason="assistant_stream_final",
+                )
+                if state.voice_coordinator.transport == "realtime":
+                    _set_realtime_generation_state("speaking", detail="final_speech_requested")
+                    if realtime_speech_queue is not None:
+                        _voice_diag(
+                            "realtime_final_speech_decision",
+                            **realtime_speech_queue.final_decision(gen.accumulated),
+                        )
+                spoke = voice_output.speak_final(speakable.text)
+                _voice_diag(
+                    "final_speech_requested",
+                    spoke=spoke,
+                    speakable_chars=len(speakable.text),
+                    speakable_reason=speakable.reason,
+                    speakable_truncated=speakable.truncated,
+                    speakable_fallback=speakable.fallback,
+                )
+                if state.voice_coordinator.transport == "realtime" and not spoke:
+                    _set_realtime_generation_state("listening", detail="final_speech_not_started")
+            elif state.voice_coordinator.transport == "realtime" and gen.voice_mode and gen.status == "done":
+                _set_realtime_generation_state("listening", detail="generation_done_no_speech")
 
             # Re-render normal chat content via render_text_with_embeds so code
             # blocks get proper highlight.js and mermaid diagrams render. Keep
@@ -892,6 +1278,7 @@ async def consume_generation(
                 )
 
     # Cleanup
+    queued_voice_controls = list(getattr(gen, "voice_control_queue", []) or [])
     if _active_generations.get(gen.thread_id) is gen:
         _active_generations.pop(gen.thread_id, None)
 
@@ -926,8 +1313,9 @@ async def consume_generation(
             except Exception:
                 logger.debug("stop_btn reset failed", exc_info=True)
         if state.voice_enabled and not (state.tts_service and state.tts_service.enabled):
-            state.voice_service.unmute()
+            state.voice_coordinator.unmute()
         if gen.interrupt_data:
+            _set_realtime_generation_state("waiting_for_approval", detail="approval_pending")
             state.pending_interrupt = gen.interrupt_data
             if not gen.interrupt_rendered:
                 rendered_inline = _render_inline_interrupt_notice(gen, state, p, cb)
@@ -970,6 +1358,33 @@ async def consume_generation(
             )
         except Exception:
             logger.debug("Developer inspector final refresh scheduling failed", exc_info=True)
+
+    if queued_voice_controls and state.thread_id == gen.thread_id and not gen.detached:
+        follow_ups = [
+            str(item.get("text") or "").strip()
+            for item in queued_voice_controls
+            if isinstance(item, dict) and str(item.get("text") or "").strip()
+        ]
+        if follow_ups:
+            follow_up_text = "\n".join(follow_ups)
+            logger.info(
+                "voice.realtime.pipeline %s",
+                {
+                    "stage": "queued_voice_controls_dispatch",
+                    "thread_id": gen.thread_id,
+                    "count": len(follow_ups),
+                    "text_chars": len(follow_up_text),
+                },
+            )
+            asyncio.create_task(
+                send_message(
+                    follow_up_text,
+                    state=state,
+                    p=p,
+                    cb=cb,
+                    voice_mode=gen.voice_mode,
+                )
+            )
 
     log_ui_perf(
         "streaming.consume_generation",
@@ -1092,7 +1507,7 @@ async def _handle_tool_done(
                 gen.pending_tools.pop(tool_name, None)
             if matched_exp:
                 matched_exp._props["icon"] = "error" if failed else "check_circle"
-                matched_exp._text = f"{'❌' if failed else '✅'} {tool_name}"
+                matched_exp._text = f"{'Failed' if failed else 'Done'} {tool_name}"
                 matched_exp.update()
                 if tool_content:
                     display = tool_content[:5_000]
@@ -1103,7 +1518,7 @@ async def _handle_tool_done(
             else:
                 with gen.tool_col:
                     with ui.expansion(
-                        f"{'❌' if failed else '✅'} {tool_name}",
+                        f"{'Failed' if failed else 'Done'} {tool_name}",
                         icon="error" if failed else "check_circle",
                     ).classes("w-full"):
                         if tool_content:
@@ -1134,7 +1549,7 @@ async def _handle_tool_done(
                     logger.debug("Vision capture rendering failed", exc_info=True)
             vsvc.last_capture = None
 
-    # Browser screenshot thumbnail — run on a thread so the Playwright
+    # Browser screenshot thumbnail - run on a thread so the Playwright
     # round-trip (200-800 ms) does not block the asyncio loop; otherwise
     # socket.io pings stall and the client is considered disconnected.
     if raw_tool_name.startswith("browser_"):
@@ -1247,6 +1662,34 @@ async def send_message(
         return
     if state.thread_id and state.thread_id in _active_generations:
         if not _drop_terminal_active_generation(state.thread_id):
+            from voice.agent_bridge import VoiceAgentBridge
+
+            bridge = VoiceAgentBridge(
+                send_message=lambda *args, **kwargs: None,
+                active_generation=lambda: _active_generations.get(state.thread_id),
+            )
+            control = bridge.control_active_run(text)
+            if control.get("handled"):
+                speakable = str(control.get("speakable") or "")
+                if speakable:
+                    logger.info(
+                        "voice.realtime.pipeline %s",
+                        {
+                            "stage": "active_run_control_notification",
+                            "thread_id": state.thread_id,
+                            "control": control.get("control"),
+                            "speakable": speakable,
+                        },
+                    )
+                    try:
+                        ui.notify(speakable, type="info", close_button=True, timeout=4000)
+                    except Exception:
+                        logger.debug("Active-run control notification failed", exc_info=True)
+                if state.voice_coordinator.transport == "realtime":
+                    state.voice_coordinator.set_realtime_state(
+                        "listening",
+                        detail=f"active_run_control:{control.get('control')}",
+                    )
             return
 
     # Ensure a thread exists
@@ -1264,7 +1707,7 @@ async def send_message(
         try:
             cb.rebuild_main(immediate=True)
         except TypeError:
-            # Older callback signature without kwargs — fall back.
+            # Older callback signature without kwargs - fall back.
             cb.rebuild_main()
         cb.rebuild_thread_list()
 
@@ -1374,7 +1817,7 @@ async def send_message(
                 _save_thread_meta(state.thread_id, state.thread_name)
             return
 
-    # ── Process attached files (slow — vision analysis etc.) ─────────
+    # Process attached files (slow - vision analysis etc.)
     file_context = ""
     file_warnings: list[str] = []
     if _files_snapshot:
@@ -1514,9 +1957,30 @@ async def send_message(
         config=config,
         enabled_tools=enabled_tools,
         voice_mode=voice_mode,
-        tts_active=voice_mode and state.tts_service.enabled,
+        tts_active=voice_mode and (state.tts_service.enabled or state.voice_coordinator.transport == "realtime"),
+        tts_allow_long=voice_mode and user_requested_read_aloud(text),
     )
+    if voice_mode and state.voice_coordinator.transport == "realtime":
+        realtime_call = state.voice_coordinator.consume_realtime_tool_call()
+        if realtime_call:
+            gen.realtime_tool_call_id = str(realtime_call.get("call_id") or "")
+            gen.realtime_tool_name = str(realtime_call.get("name") or "")
+            gen.realtime_consult_request = str(realtime_call.get("request") or "")
+            gen.realtime_forced_consult = gen.realtime_tool_name == "forced_consult"
     _active_generations[gen_thread_id] = gen
+    if voice_mode or state.voice_coordinator.transport == "realtime":
+        snapshot = state.voice_coordinator.diagnostic_snapshot()
+        snapshot.update({
+            "stage": "generation_created",
+            "voice_enabled": state.voice_enabled,
+            "voice_input_mode": state.voice_input_mode,
+            "thread_id": gen_thread_id,
+            "generation_status": gen.status,
+            "generation_voice_mode": gen.voice_mode,
+            "generation_tts_active": gen.tts_active,
+            "input_chars": len(str(text or "")),
+        })
+        logger.info("voice.realtime.pipeline %s", snapshot)
 
     if p.stop_btn:
         p.stop_btn.enable()
@@ -1529,13 +1993,39 @@ async def send_message(
 
     # ── Start producer thread ────────────────────────────────────────
     def _sync_stream():
+        first_event_logged = False
         try:
+            if voice_mode or state.voice_coordinator.transport == "realtime":
+                logger.info(
+                    "voice.realtime.pipeline %s",
+                    {
+                        "stage": "producer_thread_started",
+                        "thread_id": gen_thread_id,
+                        "voice_mode": voice_mode,
+                        "transport": state.voice_coordinator.transport,
+                    },
+                )
             for ev in stream_agent(agent_input, enabled_tools, config,
                                    stop_event=stop_ev):
                 if stop_ev.is_set():
                     break
+                if not first_event_logged and (voice_mode or state.voice_coordinator.transport == "realtime"):
+                    first_event_logged = True
+                    logger.info(
+                        "voice.realtime.pipeline %s",
+                        {
+                            "stage": "producer_first_event",
+                            "thread_id": gen_thread_id,
+                            "event_type": ev[0] if isinstance(ev, tuple) and ev else type(ev).__name__,
+                        },
+                    )
                 gen.q.put(ev)
         except Exception as exc:
+            if voice_mode or state.voice_coordinator.transport == "realtime":
+                logger.exception(
+                    "voice.realtime.pipeline %s",
+                    {"stage": "producer_thread_error", "thread_id": gen_thread_id},
+                )
             if not stop_ev.is_set():
                 gen.q.put(("error", str(exc)))
         finally:
@@ -1550,6 +2040,16 @@ async def send_message(
                 consume_one_shot_skills(gen_thread_id)
             except Exception:
                 logger.debug("consume_one_shot_skills failed in stream finally", exc_info=True)
+            if voice_mode or state.voice_coordinator.transport == "realtime":
+                logger.info(
+                    "voice.realtime.pipeline %s",
+                    {
+                        "stage": "producer_thread_finished",
+                        "thread_id": gen_thread_id,
+                        "stop_requested": stop_ev.is_set(),
+                        "first_event_logged": first_event_logged,
+                    },
+                )
             gen.q.put(None)
 
     threading.Thread(target=_sync_stream, daemon=True).start()

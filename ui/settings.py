@@ -4061,23 +4061,225 @@ def open_settings(
 
     # ── Voice Tab ────────────────────────────────────────────────────
 
+    def _load_voice_model_rows():
+        from providers.model_catalog import rows_for_surface
+        from providers.model_catalog_cache import build_cached_model_catalog_rows
+        from providers.selection import list_quick_choices
+
+        rows = build_cached_model_catalog_rows(
+            defaults={},
+            quick_choices=list_quick_choices("voice", include_inactive=True),
+        )
+        return rows_for_surface(rows, "voice")
+
+    def _voice_model_summary_row(
+        title: str,
+        subtitle: str,
+        reason: str,
+        *,
+        ready: bool,
+        provider_label: str,
+    ) -> None:
+        with ui.row().classes("items-center gap-2 no-wrap w-full q-py-xs").style(
+            "border-bottom: 1px solid rgba(148, 163, 184, 0.12);"
+        ):
+            ui.icon("mic", size="sm").classes("text-primary")
+            with ui.column().classes("gap-0").style("min-width: 0; flex: 1;"):
+                ui.label(title).classes("text-sm text-weight-medium")
+                ui.label(subtitle).classes("text-grey-6 text-xs")
+            ui.badge(provider_label, color="blue-grey").props("outline dense")
+            ui.badge("ready" if ready else "setup", color="positive" if ready else "orange").props("outline dense").tooltip(reason)
+
+    def _provider_voice_model_row(row) -> None:
+        from providers.selection import add_quick_choice_for_model
+
+        def _pin_voice_model() -> None:
+            add_quick_choice_for_model(
+                row.model_id,
+                provider_id=row.provider_id,
+                display_name=row.display_name,
+                source="voice_settings",
+                capabilities_snapshot=row.capabilities_snapshot,
+                surface="voice",
+            )
+            ui.notify("Pinned to Voice Models", type="positive")
+
+        can_pin = row.configured and row.installed
+        with ui.row().classes("items-center gap-2 no-wrap w-full q-py-xs").style(
+            "border-bottom: 1px solid rgba(148, 163, 184, 0.12);"
+        ):
+            ui.label(row.provider_icon or "AI").classes("text-sm").style("width: 22px; text-align: center;")
+            with ui.column().classes("gap-0").style("min-width: 0; flex: 1;"):
+                ui.label(row.display_name).classes("text-sm text-weight-medium").style("line-height: 1.15;")
+                if row.display_name != row.model_id:
+                    ui.label(row.model_id).classes("text-grey-6 text-xs").style(
+                        "line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                    )
+            ui.badge(row.provider_display_name or row.provider_id, color="blue-grey").props("outline dense")
+            for task in row.capabilities_snapshot.get("tasks", []):
+                ui.badge(str(task).replace("_", " "), color="grey").props("outline dense")
+            if not row.configured:
+                ui.badge("connect", color="orange").props("outline dense").tooltip("Connect this provider in Providers.")
+            elif not row.installed:
+                ui.badge("unavailable", color="orange").props("outline dense")
+            pin_button = ui.button("Pin", icon="push_pin", on_click=_pin_voice_model).props("flat dense no-caps color=primary")
+            if not can_pin:
+                pin_button.disable()
+
     def _build_voice_tab() -> None:
         from voice import get_available_whisper_sizes
+        from voice.runtime import update_voice_runtime_settings
+        from voice.provider_catalog import (
+            build_voice_provider_catalog,
+            model_options_for_capability,
+            provider_options_for_capability,
+            selected_or_default_model,
+        )
+        from voice.openai_realtime import (
+            REALTIME_VOICE_OPTIONS,
+        )
         from tts import VOICE_CATALOG
 
         _settings_header(
             "Voice",
-            "Configure speech input and local text-to-speech.",
+            "Configure Talk, Dictation, Realtime Talk Voice, normal read-aloud, voice models, and diagnostics.",
             "mic",
         )
 
         voice_svc = state.voice_service
+        runtime_settings = state.voice_runtime_settings
+        voice_catalog = build_voice_provider_catalog(voice_service=voice_svc, tts_service=state.tts_service)
+
+        def _set_voice_runtime(**updates) -> None:
+            state.voice_runtime_settings = update_voice_runtime_settings(**updates)
+
+        def _set_voice_runtime_and_reopen(**updates) -> None:
+            _set_voice_runtime(**updates)
+            _reopen("Voice")
+
+        def _provider_value(capability: str, selected_provider: str) -> str:
+            options = provider_options_for_capability(voice_catalog, capability)
+            if selected_provider in options:
+                return selected_provider
+            return next(iter(options), "local")
+
+        talk_provider_value = _provider_value("talk", runtime_settings.talk_provider)
+        dictation_provider_value = _provider_value("dictation", runtime_settings.dictation_provider)
+        speech_output_provider_value = _provider_value("speech_output", runtime_settings.speech_output_provider)
+        talk_model_value = selected_or_default_model(
+            voice_catalog,
+            "talk",
+            talk_provider_value,
+            runtime_settings.talk_model,
+        )
+        dictation_model_value = selected_or_default_model(
+            voice_catalog,
+            "dictation",
+            dictation_provider_value,
+            runtime_settings.dictation_model,
+        )
+        speech_output_model_value = selected_or_default_model(
+            voice_catalog,
+            "speech_output",
+            speech_output_provider_value,
+            runtime_settings.speech_output_model,
+        )
+
+        def _set_talk_provider(provider_id: str) -> None:
+            _set_voice_runtime_and_reopen(
+                talk_provider=provider_id,
+                talk_model=selected_or_default_model(voice_catalog, "talk", provider_id, ""),
+            )
+
+        def _set_dictation_provider(provider_id: str) -> None:
+            _set_voice_runtime_and_reopen(
+                dictation_provider=provider_id,
+                dictation_model=selected_or_default_model(voice_catalog, "dictation", provider_id, ""),
+            )
+
+        def _set_speech_output_provider(provider_id: str) -> None:
+            _set_voice_runtime_and_reopen(
+                speech_output_provider=provider_id,
+                speech_output_model=selected_or_default_model(voice_catalog, "speech_output", provider_id, ""),
+            )
 
         with _settings_section(
-            "Voice Input",
-            "Talk to Thoth hands-free using local Whisper transcription.",
+            "Talk",
+            "Continuous voice conversation with normal Thoth. Talk may call the LLM, tools, browser automation, and approvals through the existing agent path.",
             icon="record_voice_over",
         ):
+            ui.label("Local Talk keeps microphone transcription on this machine. OpenAI Realtime sends live microphone audio to OpenAI while Talk is active.").classes("text-grey-6 text-xs")
+            talk_provider_options = provider_options_for_capability(voice_catalog, "talk")
+            ui.select(
+                label="Talk provider",
+                options=talk_provider_options,
+                value=talk_provider_value,
+                on_change=lambda e: _set_talk_provider(str(e.value)),
+            ).classes("w-full").props("dense outlined")
+            talk_model_options = model_options_for_capability(voice_catalog, "talk", talk_provider_value)
+            if talk_model_options:
+                ui.select(
+                    label="Talk model",
+                    options=talk_model_options,
+                    value=talk_model_value,
+                    on_change=lambda e: _set_voice_runtime(talk_model=e.value),
+                ).classes("w-full").props("dense outlined")
+            if talk_provider_value == "local":
+                ui.label("Local Talk uses local speech-to-text, then sends the finished text through the normal Thoth chat path.").classes("text-grey-6 text-xs")
+                caption_label = "Local captions"
+                caption_copy = "Shows local transcript text while Talk is listening."
+            else:
+                ui.label("Realtime Talk is a live voice-agent session. Substantive work still routes through Thoth's consult/control bridge.").classes("text-grey-6 text-xs")
+                caption_label = "Realtime captions"
+                caption_copy = "Shows live transcript text while the Realtime session is active."
+            ui.switch(
+                caption_label,
+                value=runtime_settings.captions_enabled,
+                on_change=lambda e: _set_voice_runtime(captions_enabled=bool(e.value)),
+            )
+            ui.label(caption_copy).classes("text-grey-6 text-xs")
+            if talk_provider_value == "openai_realtime":
+                ui.switch(
+                    "Fallback to local Talk if Realtime is unavailable",
+                    value=runtime_settings.realtime_fallback_to_local,
+                    on_change=lambda e: _set_voice_runtime(realtime_fallback_to_local=bool(e.value)),
+                )
+                ui.label("If Realtime cannot connect, Talk falls back to local microphone transcription plus the normal Thoth response flow.").classes("text-grey-6 text-xs")
+
+        if talk_provider_value == "openai_realtime":
+            with _settings_section(
+                "Realtime Talk Voice",
+                "Controls the voice used by the active OpenAI Realtime Talk session.",
+                icon="spatial_audio",
+            ):
+                ui.label("Voice applies to Realtime Talk only. It does not change local Kokoro read-aloud.").classes("text-grey-6 text-xs")
+                ui.select(
+                    label="Realtime voice",
+                    options=REALTIME_VOICE_OPTIONS,
+                    value=runtime_settings.realtime_voice,
+                    on_change=lambda e: _set_voice_runtime(realtime_voice=e.value),
+                ).classes("w-full").props("dense outlined")
+
+        with _settings_section(
+            "Dictation",
+            "Speech-to-text only. Dictation fills the composer and does not call the LLM until Send.",
+            icon="keyboard_voice",
+        ):
+            ui.label("Dictation is STT-only. It does not call the LLM, tools, or browser until you press Send.").classes("text-grey-6 text-xs")
+            ui.select(
+                label="Dictation provider",
+                options=provider_options_for_capability(voice_catalog, "dictation"),
+                value=dictation_provider_value,
+                on_change=lambda e: _set_dictation_provider(str(e.value)),
+            ).classes("w-full").props("dense outlined")
+            dictation_model_options = model_options_for_capability(voice_catalog, "dictation", dictation_provider_value)
+            if dictation_model_options:
+                ui.select(
+                    label="Dictation model",
+                    options=dictation_model_options,
+                    value=dictation_model_value,
+                    on_change=lambda e: _set_voice_runtime(dictation_model=e.value),
+                ).classes("w-full").props("dense outlined")
             whisper_sizes = get_available_whisper_sizes()
             whisper_labels = {
                 "tiny": "Tiny (~39 MB, fastest)", "base": "Base (~74 MB, balanced)",
@@ -4087,16 +4289,31 @@ def open_settings(
             ui.select(
                 label="Whisper model size", options=whisper_opts,
                 value=voice_svc.whisper_size,
-                on_change=lambda e: setattr(voice_svc, "whisper_size", e.value),
+                on_change=lambda e: (setattr(voice_svc, "whisper_size", e.value), _set_voice_runtime(dictation_model=f"local-whisper-{e.value}")),
             ).classes("w-full").props("dense outlined")
 
         tts = state.tts_service
 
         with _settings_section(
-            "Text-to-Speech",
-            "Hear Thoth read responses aloud using local Kokoro voices.",
+            "Normal Read-Aloud",
+            "Hear non-Realtime Thoth responses aloud using local Kokoro voices.",
             icon="volume_up",
         ):
+            ui.label("Normal Read-Aloud is local text chat playback. Realtime Talk uses the separate Realtime Talk Voice settings above.").classes("text-grey-6 text-xs")
+            ui.select(
+                label="Read-aloud provider",
+                options=provider_options_for_capability(voice_catalog, "speech_output"),
+                value=speech_output_provider_value,
+                on_change=lambda e: _set_speech_output_provider(str(e.value)),
+            ).classes("w-full").props("dense outlined")
+            speech_model_options = model_options_for_capability(voice_catalog, "speech_output", speech_output_provider_value)
+            if speech_model_options:
+                ui.select(
+                    label="Read-aloud model",
+                    options=speech_model_options,
+                    value=speech_output_model_value,
+                    on_change=lambda e: _set_voice_runtime(speech_output_model=e.value),
+                ).classes("w-full").props("dense outlined")
             _status_dot(
                 "Kokoro installed" if tts.is_installed() else "Kokoro not installed",
                 "ok" if tts.is_installed() else "inactive",
@@ -4143,6 +4360,127 @@ def open_settings(
                     tts.speak_now("Hello! I'm Thoth, your knowledgeable personal agent.")
 
                 ui.button("Test voice", icon="volume_up", on_click=_test).props("flat no-caps")
+
+        with _settings_section(
+            "Voice Models",
+            "Choose and review models for Talk, Dictation, realtime voice, transcription, and speech output. Provider credentials stay in Providers.",
+            icon="graphic_eq",
+        ):
+            from voice.local_provider import local_voice_provider_statuses
+
+            ui.label("Runtime Voice Models").classes("text-subtitle2")
+            with ui.column().classes("w-full gap-1"):
+                local_statuses = local_voice_provider_statuses(voice_svc, tts)
+                _voice_model_summary_row(
+                    local_statuses[0].display_name,
+                    f"Dictation and local Talk transcription - current size: {voice_svc.whisper_size}",
+                    local_statuses[0].reason,
+                    ready=local_statuses[0].ready,
+                    provider_label="Local",
+                )
+                _voice_model_summary_row(
+                    local_statuses[1].display_name,
+                    f"Speech output - current voice: {VOICE_CATALOG.get(tts.voice, tts.voice)}",
+                    local_statuses[1].reason,
+                    ready=local_statuses[1].ready,
+                    provider_label="Local",
+                )
+                for provider in voice_catalog:
+                    if provider.provider_id == "local":
+                        continue
+                    talk_models = provider.models_for("talk")
+                    if not talk_models:
+                        continue
+                    default_model = provider.default_talk_model or talk_models[0].model_id
+                    _voice_model_summary_row(
+                        f"{provider.label} Talk",
+                        f"Realtime voice-agent default: {default_model}",
+                        provider.reason,
+                        ready=provider.ready,
+                        provider_label=provider.label,
+                    )
+
+            ui.separator().classes("q-my-sm")
+            with ui.row().classes("items-center justify-between w-full"):
+                with ui.column().classes("gap-0"):
+                    ui.label("Provider Voice Models").classes("text-subtitle2")
+                    ui.label("Voice-only models are kept out of normal chat pickers. Pin them here for the Voice surface.").classes("text-grey-6 text-xs")
+                ui.button("Open Providers", icon="vpn_key", on_click=lambda: _reopen("Providers")).props("flat dense no-caps")
+
+            voice_models_container = ui.column().classes("w-full gap-1")
+
+            async def _load_voice_models() -> None:
+                voice_models_container.clear()
+                with voice_models_container:
+                    with ui.row().classes("items-center gap-2 text-grey-6 text-sm"):
+                        ui.spinner(size="sm")
+                        ui.label("Loading cached voice models...")
+                try:
+                    rows = await run.io_bound(_load_voice_model_rows)
+                except Exception as exc:
+                    logger.warning("Could not load voice model rows", exc_info=True)
+                    voice_models_container.clear()
+                    with voice_models_container:
+                        ui.label(f"Could not load voice models: {exc}").classes("text-warning text-sm")
+                    return
+                voice_models_container.clear()
+                with voice_models_container:
+                    if not rows:
+                        ui.label("No extra provider voice models in the cached model catalog yet. Runtime defaults above can still be ready. Refresh Models after connecting a provider to discover more options.").classes("text-grey-6 text-sm")
+                        return
+                    for row in rows[:40]:
+                        _provider_voice_model_row(row)
+                    if len(rows) > 40:
+                        ui.label(f"Showing 40 of {len(rows)} cached voice models. Use Models catalog search for the full list.").classes("text-grey-6 text-xs")
+
+            safe_ui_task(_load_voice_models, context="voice model rows load")
+
+        with _settings_section(
+            "Diagnostics",
+            "Check the local audio stack and provider readiness without moving credentials out of Providers.",
+            icon="troubleshoot",
+        ):
+            _status_dot(
+                f"Voice service: {voice_svc.state}",
+                "ok" if voice_svc.is_running else "inactive",
+            )
+            _status_dot(
+                "Kokoro speech output installed" if tts.is_installed() else "Kokoro speech output not installed",
+                "ok" if tts.is_installed() else "inactive",
+            )
+            from voice.openai_realtime import OpenAIRealtimeProvider
+
+            realtime_status = OpenAIRealtimeProvider().status()
+            openai_ready = realtime_status.ready
+            active_provider = next((provider for provider in voice_catalog if provider.provider_id == runtime_settings.talk_provider), None)
+            _status_dot(
+                f"Talk runtime: {(active_provider.label if active_provider else runtime_settings.talk_provider)}",
+                "ok" if active_provider and active_provider.ready else "inactive",
+            )
+            if active_provider:
+                ui.label(active_provider.reason).classes("text-grey-6 text-xs")
+            _status_dot(
+                f"Active voice session: {state.voice_coordinator.transport} / {state.voice_coordinator.state}",
+                "ok" if state.voice_coordinator.is_running else "inactive",
+            )
+            _status_dot(
+                f"OpenAI Realtime ready - using {realtime_status.display_name} default" if openai_ready else "OpenAI Realtime not configured",
+                "ok" if openai_ready else "inactive",
+            )
+            snapshot = state.voice_coordinator.diagnostic_snapshot()
+            latency = snapshot.get("realtime_latency_ms")
+            if isinstance(latency, dict) and latency:
+                latency_label = ", ".join(f"{key}: {value}ms" for key, value in latency.items())
+                ui.label(f"Realtime latency: {latency_label}").classes("text-grey-6 text-xs")
+            latency_summary = snapshot.get("realtime_latency_summary_ms")
+            if isinstance(latency_summary, dict) and latency_summary:
+                summary_label = ", ".join(f"{key.replace('_', ' ')}: {value}ms" for key, value in latency_summary.items())
+                ui.label(f"Turn timing: {summary_label}").classes("text-grey-6 text-xs")
+            ui.label(
+                f"Active ids: response={snapshot.get('active_realtime_response_id') or 'none'}, generation={snapshot.get('active_thoth_generation_id') or 'none'}"
+            ).classes("text-grey-6 text-xs")
+            ui.label("Talk may call LLMs and tools. Realtime sessions can have ongoing provider cost while active.").classes("text-grey-6 text-xs")
+            ui.button("Open Providers", icon="vpn_key", on_click=lambda: _reopen("Providers")).props("flat dense no-caps")
 
     # ── Channels Tab ─────────────────────────────────────────────────
 

@@ -10,6 +10,7 @@ Run:   python app.py          →   http://localhost:8080
 from __future__ import annotations
 
 import asyncio
+import builtins
 import logging
 import os
 import sys
@@ -44,6 +45,15 @@ os.environ.setdefault("USER_AGENT", f"Thoth/{_thoth_version}")
 
 logger = logging.getLogger(__name__)
 
+
+def _safe_console_print(message: object) -> None:
+    text = str(message)
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    try:
+        builtins.print(text)
+    except UnicodeEncodeError:
+        builtins.print(text.encode(encoding, errors="replace").decode(encoding, errors="replace"))
+
 from stability import (
     install_asyncio_exception_handler,
     mark_shutdown,
@@ -68,12 +78,36 @@ if _app_dir not in sys.path:
     sys.path.insert(0, _app_dir)
 
 from nicegui import ui, app, run
+from fastapi import HTTPException
 from app_port import THOTH_HOST_ENV, get_app_port
 from ui.performance import log_ui_perf
 from ui.timer_utils import deactivate_on_disconnect, defer_ui, safe_timer, safe_ui_task
 
 _APP_PORT = get_app_port()
 _APP_HOST = os.environ.get(THOTH_HOST_ENV) or None
+
+
+@app.post("/api/voice/realtime/client-secret")
+async def _voice_realtime_client_secret() -> dict:
+    """Mint a browser-safe OpenAI Realtime client secret.
+
+    The long-lived provider key stays on the server. The browser receives only
+    the ephemeral credential returned by OpenAI.
+    """
+    try:
+        from voice.openai_realtime import OpenAIRealtimeProvider, THOTH_REALTIME_INSTRUCTIONS
+        from voice.runtime import load_voice_runtime_settings
+
+        voice_settings = load_voice_runtime_settings()
+        return OpenAIRealtimeProvider(
+            model=voice_settings.talk_model,
+            voice=voice_settings.realtime_voice,
+        ).create_client_secret(
+            instructions=THOTH_REALTIME_INSTRUCTIONS,
+        )
+    except Exception as exc:
+        logger.warning("OpenAI Realtime client secret creation failed", exc_info=True)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 # ── Patch NiceGUI JSON serializer for surrogate safety ───────────────────────
@@ -214,15 +248,15 @@ def _check_oauth_tokens(_st=None) -> list[str]:
             status, detail = tool.check_token_health()
             if status in ("valid", "refreshed"):
                 label = "token healthy" if status == "valid" else "token refreshed"
-                print(f"[oauth] ✅ {display} {label}")
+                _safe_console_print(f"[oauth] ✅ {display} {label}")
             elif status == "expired":
                 msg = f"⚠️ {display} token expired — re-authenticate in Settings → Accounts"
                 warnings.append(msg)
-                print(f"[oauth] {msg}")
+                _safe_console_print(f"[oauth] {msg}")
             elif status == "error":
                 msg = f"⚠️ {display} token error: {detail}"
                 warnings.append(msg)
-                print(f"[oauth] {msg}")
+                _safe_console_print(f"[oauth] {msg}")
         except Exception as exc:
             logger.warning("OAuth check failed for %s: %s", display, exc)
 
@@ -283,7 +317,7 @@ async def on_startup():
 
     def _set(msg: str):
         _st.startup_status = msg
-        print(f"[startup] {msg}")
+        _safe_console_print(f"[startup] {msg}")
 
     _set("🔑 Applying API keys…")
     await asyncio.to_thread(apply_keys)
@@ -350,7 +384,7 @@ async def on_startup():
         loaded = sum(1 for r in results if r.success)
         failed = sum(1 for r in results if not r.success)
         if loaded or failed:
-            print(f"[startup] 🔌 Plugins: {loaded} loaded, {failed} failed")
+            _safe_console_print(f"[startup] 🔌 Plugins: {loaded} loaded, {failed} failed")
         for r in results:
             if not r.success and r.error:
                 _st.startup_warnings.append(f"⚠️ Plugin '{r.plugin_id}' failed: {r.error}")
@@ -372,7 +406,7 @@ async def on_startup():
             _ch_registry.all_channels(),
         )
         if migrated.get("migrated"):
-            print(
+            _safe_console_print(
                 f"[startup] 🔐 Migrated {migrated['migrated']} channel credential(s) "
                 "to channel keyring"
             )
@@ -391,7 +425,7 @@ async def on_startup():
             try:
                 ok = await _ch.start()
                 if ok:
-                    print(f"[startup] ✅ {_ch.display_name} auto-started")
+                    _safe_console_print(f"[startup] ✅ {_ch.display_name} auto-started")
                 else:
                     _st.startup_warnings.append(
                         f"⚠️ {_ch.display_name} failed to auto-start — check Settings → Channels"
@@ -411,7 +445,7 @@ async def on_startup():
             from tunnel import tunnel_manager
             if tunnel_manager.is_available():
                 tunnel_manager.start_tunnel(_APP_PORT, label="main_app")
-                print(f"[startup] ✅ Main-app tunnel auto-started on port {_APP_PORT}")
+                _safe_console_print(f"[startup] ✅ Main-app tunnel auto-started on port {_APP_PORT}")
         except Exception as exc:
             _st.startup_warnings.append(f"⚠️ Tunnel failed to auto-start: {exc}")
 
@@ -431,7 +465,7 @@ async def on_startup():
             coalesce=True,
             max_instances=1,
         )
-        print("[startup] ⏱️ OAuth periodic check scheduled (every 6 h)")
+        _safe_console_print("[startup] ⏱️ OAuth periodic check scheduled (every 6 h)")
     except Exception as exc:
         logger.warning("Could not schedule periodic OAuth check: %s", exc)
 
@@ -461,7 +495,7 @@ async def on_startup():
             max_instances=1,
             next_run_time=datetime.now() + timedelta(minutes=10),
         )
-        print("[startup] 🧹 Checkpoint cleanup scheduled (idle, every 6 h)")
+        _safe_console_print("[startup] 🧹 Checkpoint cleanup scheduled (idle, every 6 h)")
     except Exception as exc:
         logger.warning("Could not schedule checkpoint cleanup: %s", exc)
 
@@ -469,7 +503,7 @@ async def on_startup():
     # terminal panel (ui/terminal_widget._wire_pty).  This ensures the
     # initial shell prompt flows through the registered xterm.js
     # callback instead of being consumed before the UI connects.
-    print("[startup] 💻 Terminal bridge deferred to first panel open")
+    _safe_console_print("[startup] 💻 Terminal bridge deferred to first panel open")
 
     # ── Idle browser-tab eviction ────────────────────────────────────
     try:
@@ -494,7 +528,7 @@ async def on_startup():
             coalesce=True,
             max_instances=1,
         )
-        print("[startup] ⏱️ Browser idle-tab eviction scheduled (every 5 min, 10 min TTL)")
+        _safe_console_print("[startup] ⏱️ Browser idle-tab eviction scheduled (every 5 min, 10 min TTL)")
     except Exception as exc:
         logger.warning("Could not schedule browser idle eviction: %s", exc)
 
@@ -564,52 +598,52 @@ async def _cleanup_runtime(reason: str = "shutdown") -> None:
     cleanup_started = time.perf_counter()
     stop_performance_monitor()
     mark_shutdown(reason)
-    print(f"[shutdown] Cleaning up sessions ({reason})...")
+    _safe_console_print(f"[shutdown] Cleaning up sessions ({reason})...")
     try:
         # Stop channels before tunnels so webhook/socket clients can close cleanly.
         for _ch in _ch_registry.all_channels():
             try:
                 if _ch.is_running():
                     await asyncio.wait_for(_ch.stop(), timeout=10)
-                    print(f"[shutdown] {_ch.display_name} channel stopped")
+                    _safe_console_print(f"[shutdown] {_ch.display_name} channel stopped")
             except asyncio.TimeoutError:
-                print(f"[shutdown] {_ch.display_name} channel cleanup timed out")
+                _safe_console_print(f"[shutdown] {_ch.display_name} channel cleanup timed out")
             except Exception as exc:
-                print(f"[shutdown] {_ch.display_name} channel cleanup error: {exc}")
+                _safe_console_print(f"[shutdown] {_ch.display_name} channel cleanup error: {exc}")
     except Exception as exc:
-        print(f"[shutdown] Channel registry cleanup error: {exc}")
+        _safe_console_print(f"[shutdown] Channel registry cleanup error: {exc}")
     try:
         from tools.browser_tool import get_session_manager as _get_bsm
         _get_bsm().kill_all()
-        print("[shutdown] Browser session closed")
+        _safe_console_print("[shutdown] Browser session closed")
     except Exception as exc:
-        print(f"[shutdown] Browser cleanup error: {exc}")
+        _safe_console_print(f"[shutdown] Browser cleanup error: {exc}")
     try:
         from tools.shell_tool import get_session_manager as _get_ssm
         _get_ssm().kill_all()
-        print("[shutdown] Shell sessions closed")
+        _safe_console_print("[shutdown] Shell sessions closed")
     except Exception as exc:
-        print(f"[shutdown] Shell cleanup error: {exc}")
+        _safe_console_print(f"[shutdown] Shell cleanup error: {exc}")
     try:
         from terminal_bridge import TerminalBridge
         if TerminalBridge.has_instance():
             TerminalBridge.destroy()
-            print("[shutdown] Terminal bridge destroyed")
+            _safe_console_print("[shutdown] Terminal bridge destroyed")
     except Exception as exc:
-        print(f"[shutdown] Terminal bridge cleanup error: {exc}")
+        _safe_console_print(f"[shutdown] Terminal bridge cleanup error: {exc}")
     try:
         from tunnel import tunnel_manager
         tunnel_manager.stop_all()
-        print("[shutdown] Tunnels closed")
+        _safe_console_print("[shutdown] Tunnels closed")
     except Exception as exc:
-        print(f"[shutdown] Tunnel cleanup error: {exc}")
+        _safe_console_print(f"[shutdown] Tunnel cleanup error: {exc}")
     try:
         from mcp_client.runtime import shutdown as _mcp_shutdown
         _mcp_shutdown()
-        print("[shutdown] MCP sessions closed")
+        _safe_console_print("[shutdown] MCP sessions closed")
     except Exception as exc:
-        print(f"[shutdown] MCP cleanup error: {exc}")
-    print(f"[shutdown] Done in {(time.perf_counter() - cleanup_started):.1f}s")
+        _safe_console_print(f"[shutdown] MCP cleanup error: {exc}")
+    _safe_console_print(f"[shutdown] Done in {(time.perf_counter() - cleanup_started):.1f}s")
 
 
 async def _launcher_shutdown_handler(request: Request) -> JSONResponse:
@@ -788,6 +822,39 @@ async def index():
         mark_user_activity("send message")
         return send_message(text, state=state, p=p, cb=cb, voice_mode=voice_mode)
 
+    async def _send_active_voice_message(text: str, *, voice_mode: bool = False):
+        binding = getattr(p, "active_voice_binding", None)
+        if binding is not None and binding.is_current(state.thread_id):
+            return await binding.send_talk(text)
+        logger.info(
+            "voice.realtime.pipeline %s",
+            {
+                "stage": "active_voice_surface_missing",
+                "thread_id": state.thread_id,
+                "text_chars": len(str(text or "")),
+                "voice_mode": voice_mode,
+            },
+        )
+        return None
+
+    def _active_voice_surface() -> str:
+        binding = getattr(p, "active_voice_binding", None)
+        if binding is not None and binding.is_current(state.thread_id):
+            return str(binding.surface or "")
+        if getattr(state, "active_developer_workspace_id", None):
+            return "developer"
+        if getattr(state, "active_designer_project", None):
+            return "designer"
+        return "normal_chat"
+
+    from voice.agent_bridge import VoiceAgentBridge
+    _voice_bridge = VoiceAgentBridge(
+        send_message=_send_active_voice_message,
+        active_generation=lambda: _active_generations.get(state.thread_id),
+        surface=_active_voice_surface,
+        thread_id=lambda: state.thread_id or "",
+    )
+
     def _show_task_dialog(task, on_done):
         show_task_dialog(task, on_done, state=state, p=p)
 
@@ -872,6 +939,9 @@ async def index():
                     from designer.editor import build_designer_editor
 
                     def _exit_designer():
+                        from ui.voice_lifecycle import stop_voice_for_thread_change
+
+                        stop_voice_for_thread_change(state, p, reason="exit_designer")
                         state.active_designer_project = None
                         state.thread_id = None
                         state.thread_name = None
@@ -893,6 +963,9 @@ async def index():
                     from developer.ui import build_developer_workspace
 
                     def _exit_developer():
+                        from ui.voice_lifecycle import stop_voice_for_thread_change
+
+                        stop_voice_for_thread_change(state, p, reason="exit_developer")
                         prev = state.thread_id
                         state.active_developer_workspace_id = None
                         state.thread_id = None
@@ -1220,9 +1293,26 @@ async def index():
             _last_buddy_voice_state[0] = ""
             return
 
-        svc = state.voice_service
+        svc = state.voice_coordinator
         new_status = svc.get_status()
         st = svc.state
+        if svc.transport == "realtime":
+            if p.voice_status_label:
+                if st == "connecting":
+                    p.voice_status_label.text = "Connecting realtime Talk..."
+                elif st in {"connected", "listening"}:
+                    p.voice_status_label.text = "Realtime Talk - listening"
+                elif st == "thinking":
+                    p.voice_status_label.text = "Thinking..."
+                elif st == "waiting_for_approval":
+                    p.voice_status_label.text = "Waiting for approval..."
+                elif st == "speaking":
+                    p.voice_status_label.text = "Speaking..."
+                elif st == "error":
+                    p.voice_status_label.text = f"Realtime error: {new_status or 'connection failed'}"
+                else:
+                    p.voice_status_label.text = str(new_status or st)
+            return
         if st != _last_buddy_voice_state[0]:
             _last_buddy_voice_state[0] = st
             try:
@@ -1250,15 +1340,61 @@ async def index():
             elif st == "stopped":
                 p.voice_status_label.text = f"⚫ {new_status or 'Stopped'}"
 
+        if p.voice_status_label and state.voice_input_mode == "dictate":
+            if st == "listening":
+                p.voice_status_label.text = "Dictating - speak now..."
+            elif st == "transcribing":
+                p.voice_status_label.text = "Transcribing dictation..."
+            elif st == "muted":
+                p.voice_status_label.text = "Adding dictation..."
+        elif p.voice_status_label and state.voice_input_mode == "talk":
+            gen = _active_generations.get(state.thread_id)
+            if gen:
+                if gen.interrupt_data or state.pending_interrupt:
+                    p.voice_status_label.text = "Waiting for approval..."
+                elif gen.pending_tools:
+                    tool_names = {str(tool.get("name") or "") for tool in gen.pending_tools.values() if isinstance(tool, dict)}
+                    if any("browser" in name.lower() for name in tool_names):
+                        p.voice_status_label.text = "Using Browser..."
+                    else:
+                        p.voice_status_label.text = "Using Tool..."
+                elif state.tts_service and state.tts_service.is_speaking:
+                    p.voice_status_label.text = "Speaking..."
+                else:
+                    p.voice_status_label.text = "Thinking..."
+
         text = svc.get_transcription()
-        if text:
+        if text and state.voice_input_mode == "dictate":
+            binding = getattr(p, "active_voice_binding", None)
+            if binding is not None and binding.is_current(state.thread_id):
+                binding.append_dictation(text)
+            elif p.chat_input:
+                from voice.actions import append_dictation_text
+
+                p.chat_input.value = append_dictation_text(str(p.chat_input.value or ""), text)
+                p.chat_input.update()
+            else:
+                logger.info(
+                    "voice.realtime.pipeline %s",
+                    {
+                        "stage": "dictation_dropped_stale_binding",
+                        "thread_id": state.thread_id,
+                        "text_chars": len(str(text or "")),
+                    },
+                )
+                svc.unmute()
+                return
+            svc.unmute()
+            if p.voice_status_label:
+                p.voice_status_label.text = "Dictation added to composer"
+        elif text:
             if state.tts_service and state.tts_service.enabled:
                 state.tts_service.stop()
             if state.thread_name and state.thread_name.startswith("Thread "):
                 state.thread_name = text[:50]
                 _save_thread_meta(state.thread_id, state.thread_name)
                 rebuild_thread_list()
-            asyncio.create_task(_send_message(text, voice_mode=True))
+            asyncio.create_task(_voice_bridge.submit_user_transcript(text))
 
     _token_counter_state = {
         "in_flight": False,

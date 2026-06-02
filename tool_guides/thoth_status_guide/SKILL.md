@@ -26,12 +26,29 @@ QUERYING STATUS (thoth_status):
 - Use category='vision' to check the Vision model, provider/runtime model, enabled state, camera config, and provider/custom-endpoint readiness. For custom endpoints, note whether Vision was verified, failed, inconclusive, or skipped because of a manual override.
 - Use category='image_gen' to check the current image generation model.
 - Use category='video_gen' to check the current video generation model.
-- Use category='voice' for TTS voice, speed, enabled state, and Whisper STT model.
+- Use category='voice' for the full voice runtime: Talk, Dictate, local vs Realtime Talk, Dictation model, Speech Output model/voice, captions, Realtime readiness, active Thoth run status, active-run controls, and recent Realtime diagnostics.
 - Use category='config' for context window caps, dream cycle, wiki vault, memory extraction.
 - Use category='designer' to check designer project count and recent projects.
 - Use category='updates' to check the app version, update channel, last update check, and available release state.
 - Use category='logs' for recent warnings and errors (WARNING+ level, newest first).
 - Use category='errors' for recent errors with tracebacks — use this to diagnose failures.
+
+VOICE STATUS MODEL:
+- Thoth exposes only two user-facing voice modes: Talk and Dictate.
+- Dictate is STT-only. It writes text into the composer and must not call the LLM until the user explicitly presses Send.
+- Talk can use either Local Talk or Realtime Talk. These are runtimes/providers, not extra user-facing modes.
+- Local Talk uses local STT plus the normal Thoth send path, then local Speech Output when enabled.
+- Realtime Talk is a voice transport/backchannel. It gives live microphone/caption/speech behavior, but serious work still goes through the normal Thoth agent, tools, memory, browser/computer-control policy, and approval gates.
+- Realtime must not be treated as a second independent agent. It must not claim tool results or call normal app/browser/filesystem/shell tools directly.
+- The intended Realtime substantive bridge policy is consult/control only: substantive work goes through thoth_agent_consult, and active-run status/cancel/follow-up/steer goes through thoth_agent_control. Realtime may also have a quiet no-op wait_for_user action for silence/background/non-addressed audio; this is not a normal Thoth tool.
+- When category='voice' reports an active Thoth run, use that output to answer status questions such as "what are you doing?", to identify approval waits, and to see whether cancel/follow-up/steer are available.
+- Follow-up and steer requests received while a run is active are queued for a safe boundary and then routed through the normal Thoth send path.
+- If Realtime fails, check category='voice' first for recent voice.realtime.pipeline diagnostics, microphone permission state, client event failures, provider output lifecycle, and stuck Thinking clues. Then use category='logs' or category='errors' if more detail is needed.
+- Common failure patterns:
+  - Transcript appears but no thread update: check the Thoth consult bridge and active generation status.
+  - Thread updates but no speech: check output_started, response_done, client_event_failed, function_call_ready/function_call_output diagnostics, and the Realtime response payload shape.
+  - Stuck Thinking: check active Thoth run status, queued controls, producer errors, and recent realtime diagnostics.
+  - Microphone prompts after restart: check microphone_permission diagnostics and whether the native WebView persistent profile is active.
 
 READING LOGS:
 - Only check logs when diagnosing an actual failure or when the user explicitly asks.

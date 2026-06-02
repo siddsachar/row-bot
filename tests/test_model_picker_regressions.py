@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 import time
 
@@ -58,6 +59,44 @@ def test_inline_model_picker_uses_stale_while_refresh_cache():
     assert "_cur_mo_value" in picker_section
 
 
+def test_model_picker_labels_use_clean_text_without_mojibake(monkeypatch):
+    from providers.selection import (
+        format_model_choice_label,
+        list_model_choice_options,
+        model_ref,
+    )
+    import providers.selection as selection
+
+    cfg = {
+        "quick_choices": [{
+            "id": model_ref("openai", "gpt-4o"),
+            "kind": "model",
+            "provider_id": "openai",
+            "model_id": "gpt-4o",
+            "display_name": "GPT-4o",
+            "visibility": ["chat"],
+            "active": True,
+            "inactive_reason": "",
+            "capabilities_snapshot": {
+                "tasks": ["chat"],
+                "input_modalities": ["text"],
+                "output_modalities": ["text"],
+            },
+        }],
+    }
+
+    monkeypatch.setattr(selection, "load_provider_config", lambda: cfg)
+    labels = [
+        format_model_choice_label("openai", "gpt-4o"),
+        *[str(option["label"]) for option in list_model_choice_options("chat")],
+    ]
+
+    for label in labels:
+        assert "GPT" in label or "gpt" in label
+        assert not any(sentinel in label for sentinel in ("Ã", "Â", "â", "ð", "�"))
+        assert " - " in label
+
+
 def test_model_picker_cache_invalidates_when_provider_config_changes(tmp_path, monkeypatch):
     import ui.chat_components as chat_components
 
@@ -84,6 +123,27 @@ def test_model_picker_cache_invalidates_when_provider_config_changes(tmp_path, m
     config_path.write_text('{"quick_choices":[],"custom_endpoints":[]}', encoding="utf-8")
 
     assert chat_components._get_cached_model_picker_options() is None
+
+
+def test_chat_voice_status_literals_have_no_mojibake():
+    bad_sentinels = ("Ã", "Â", "â", "ð", "�")
+    paths = [
+        ROOT / "ui" / "streaming.py",
+        ROOT / "ui" / "chat.py",
+        ROOT / "ui" / "chat_components.py",
+        ROOT / "ui" / "sidebar.py",
+    ]
+    offenders: list[str] = []
+
+    for path in paths:
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if any(sentinel in node.value for sentinel in bad_sentinels):
+                    offenders.append(f"{path.name}:{getattr(node, 'lineno', '?')}: {node.value!r}")
+
+    assert offenders == []
 
 
 def test_model_picker_cache_returns_stale_options_for_background_refresh(tmp_path, monkeypatch):

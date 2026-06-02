@@ -362,8 +362,8 @@ def test_developer_inspector_does_not_periodically_rebuild():
     workspace_source = source.split("def build_developer_workspace(", 1)[1].split(
         "def _build_developer_inspector(", 1
     )[0]
-    assert "await send_message(text)" in workspace_source
-    assert "await send_message(text)\n        refresh" not in workspace_source
+    assert "await send_message(text, voice_mode=voice_mode)" in workspace_source
+    assert "await send_message(text, voice_mode=voice_mode)\n        refresh" not in workspace_source
 
 
 def test_developer_inspector_uses_snapshot_and_native_file_tree():

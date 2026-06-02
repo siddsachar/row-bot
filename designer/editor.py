@@ -911,7 +911,7 @@ def build_designer_editor(
                     _render_first_draft_cta()
                     _render_zero_state_quick_actions()
 
-                    async def _send_with_references(text: str) -> None:
+                    async def _send_with_references(text: str, *, voice_mode: bool = False) -> None:
                         pending_snapshot = [
                             {
                                 "name": item.get("name", ""),
@@ -938,7 +938,7 @@ def build_designer_editor(
                                 )
                                 save_project(project)
                                 _refresh_references_panel()
-                        await send_message(text)
+                        await send_message(text, voice_mode=voice_mode)
 
                     # File upload (hidden widget + drag-drop + paste)
                     _hidden_upload = build_file_upload(p, state)

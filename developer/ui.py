@@ -1374,8 +1374,8 @@ def build_developer_workspace(
                 except Exception:
                     ui.notify("Approval is pending. Reopen this Developer thread if the approval dialog is not visible.", type="warning")
 
-            async def _send(text: str) -> None:
-                await send_message(text)
+            async def _send(text: str, *, voice_mode: bool = False) -> None:
+                await send_message(text, voice_mode=voice_mode)
 
             build_chat_input_bar(
                 p,
