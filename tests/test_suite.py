@@ -69,6 +69,7 @@ py_files = (
     + sorted((PROJECT_ROOT / "tools").glob("*.py"))
     + sorted((PROJECT_ROOT / "channels").glob("*.py"))
     + sorted((PROJECT_ROOT / "mcp_client").glob("*.py"))
+    + sorted((PROJECT_ROOT / "skills_hub").glob("*.py"))
     + sorted((PROJECT_ROOT / "migration").glob("*.py"))
 )
 py_files = [f for f in py_files if f.name != "test_suite.py"]
@@ -101,6 +102,7 @@ CORE_MODULES = [
     "documents",
     "api_keys",
     "secret_store",
+    "github_account",
     "voice",
     "tts",
     "vision",
@@ -113,6 +115,23 @@ CORE_MODULES = [
     "mcp_client.config",
     "mcp_client.marketplace",
     "mcp_client.runtime",
+    "skills_hub",
+    "skills_hub.catalog",
+    "skills_hub.source_registry",
+    "skills_hub.search_index",
+    "skills_hub.input_detection",
+    "skills_hub.github_source",
+    "skills_hub.url_source",
+    "skills_hub.well_known_source",
+    "skills_hub.skills_sh_source",
+    "skills_hub.browse_sh_source",
+    "skills_hub.clawhub_source",
+    "skills_hub.lobehub_source",
+    "skills_hub.claude_marketplace_source",
+    "skills_hub.pasted_markdown_source",
+    "skills_hub.installer",
+    "skills_hub.scanner",
+    "skills_hub.ui",
     "migration",
     "migration.apply",
     "migration.core",
@@ -6569,6 +6588,7 @@ try:
         check_ollama, check_active_model, check_cloud_api,
         check_telegram,
         check_gmail_oauth, check_calendar_oauth,
+        check_github_oauth,
         check_task_scheduler, check_memory_extraction,
         check_disk_space, check_threads_db, check_faiss_index,
         check_document_store, check_network,
@@ -6613,8 +6633,10 @@ try:
     record("PASS", "status_checks: CheckResult inactive properties")
 
     # ── 41c. Check registry completeness ─────────────────────────────
-    assert len(ALL_CHECKS) == 26, f"Expected 26 checks, got {len(ALL_CHECKS)}"
-    record("PASS", "status_checks: 26 checks registered in ALL_CHECKS")
+    assert len(ALL_CHECKS) == 27, f"Expected 27 checks, got {len(ALL_CHECKS)}"
+    assert check_github_oauth in ALL_CHECKS, "GitHub account check missing from ALL_CHECKS"
+    assert check_github_oauth in HEAVY_CHECKS, "GitHub account check missing from HEAVY_CHECKS"
+    record("PASS", "status_checks: 27 checks registered in ALL_CHECKS")
 
     assert set(LIGHT_CHECKS).issubset(set(ALL_CHECKS)), "LIGHT_CHECKS not subset"
     assert set(HEAVY_CHECKS).issubset(set(ALL_CHECKS)), "HEAVY_CHECKS not subset"
@@ -13995,8 +14017,9 @@ try:
     assert 'Source: "..\\providers\\*"' in _iss68 and "recursesubdirs" in _iss68, "providers package must be recursively included in Windows installer"
     assert 'Source: "..\\ui\\model_catalog.py"' in _iss68, "ui/model_catalog.py must be included in Windows installer"
     assert 'Source: "..\\ui\\provider_settings.py"' in _iss68, "ui/provider_settings.py must be included in Windows installer"
-    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client migration buddy" in _mac68, "mac app bundle must copy providers and developer packages"
-    record("PASS", "68m2: Windows and mac packaging include provider runtime, Developer, and UI files")
+    assert 'Source: "..\\skills_hub\\*"' in _iss68 and "recursesubdirs" in _iss68, "skills_hub package must be recursively included in Windows installer"
+    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client skills_hub migration buddy" in _mac68, "mac app bundle must copy providers, developer packages, and skills_hub"
+    record("PASS", "68m2: Windows and mac packaging include provider runtime, Developer, Skills Hub, and UI files")
 
     # â”€â”€ 68m2b. Embedding runtime packaging guard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     _req68m2b = _P68("requirements.txt").read_text(encoding="utf-8")
@@ -14011,6 +14034,7 @@ try:
     assert '"httpx"' in _verify68m2b and '"youtube_transcript_api"' in _verify68m2b
     assert "verify_runtime_dependencies.py\"" in _mac68
     assert "verify_runtime_dependencies.py\"" in _linux68m2b
+    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client skills_hub migration buddy" in _linux68m2b
     assert "verify_runtime_dependencies.py\" embeddings" not in _mac68
     assert "verify_runtime_dependencies.py\" embeddings" not in _linux68m2b
     assert "Assembled app runtime dependencies verified" in _mac68
@@ -14219,6 +14243,17 @@ try:
     record("PASS", f"69e: all {len(_ui_py69)} ui .py files in installer")
 except Exception as e:
     record("FAIL", "69e-ui-installer", f"{type(e).__name__}: {e}")
+
+# -- 69e2. Skills hub package installer guard -----------------------------
+try:
+    _hub_dir69 = _APP_ROOT69 / "skills_hub"
+    _hub_py69 = {f.name for f in _hub_dir69.glob("*.py")}
+    assert _hub_py69, "skills_hub package should contain Python modules"
+    assert 'Source: "..\\skills_hub\\*"' in _iss_text69 and "recursesubdirs" in _iss_text69, \
+        "skills_hub package must be recursively included in installer"
+    record("PASS", f"69e2: skills_hub recursive installer include covers {len(_hub_py69)} modules")
+except Exception as e:
+    record("FAIL", "69e2-skills-hub-installer", f"{type(e).__name__}: {e}")
 
 # ── 69f. VALID_ENTITY_TYPES matches _VIS_TYPE_COLORS ──────────────────────
 try:
@@ -14448,9 +14483,61 @@ try:
     }
     assert not (_guide_names69o2 & _runtime_skill_names69o2), \
         "Tool guides must not appear as runtime slash skill commands"
+    _builtin_slashes69o2 = {spec.slash for spec in _sc69o2.BUILTIN_COMMANDS}
+    assert not any("market" in slash or "browse" in slash for slash in _builtin_slashes69o2), \
+        "Marketplace slash commands must not be added in this implementation pass"
     record("PASS", "69o2: slash command registry and skill separation")
 except Exception as e:
     record("FAIL", "69o2-slash-command-registry", f"{type(e).__name__}: {e}")
+
+try:
+    from skills_hub.models import SkillFile as _HubSkillFile69o2
+    from skills_hub.scanner import scan_bundle as _scan_hub_bundle69o2
+    from skills_hub.sources import bundle_from_files as _hub_bundle_from_files69o2
+
+    _hub_block_bundle69o2 = _hub_bundle_from_files69o2(
+        source="direct_url",
+        install_ref="https://example.test/SKILL.md",
+        root_name="blocked",
+        files=[_HubSkillFile69o2.from_text(
+            "SKILL.md",
+            "---\nname: blocked\ntools:\n  - browser\n---\n\nInstructions.",
+        )],
+    )
+    _hub_warn_bundle69o2 = _hub_bundle_from_files69o2(
+        source="direct_url",
+        install_ref="https://example.test/warn/SKILL.md",
+        root_name="warn",
+        files=[_HubSkillFile69o2.from_text(
+            "SKILL.md",
+            "---\nname: warn\n---\n\nRun `curl https://example.test` only after review.",
+        )],
+    )
+    _hub_block_scan69o2 = _scan_hub_bundle69o2(_hub_block_bundle69o2)
+    _hub_warn_scan69o2 = _scan_hub_bundle69o2(_hub_warn_bundle69o2)
+    assert any(f.severity == "block" and f.code == "tools_metadata" for f in _hub_block_scan69o2.findings), \
+        "public skill imports must block tool-guide metadata"
+    assert any(f.severity == "warn" and f.code == "shell_commands" for f in _hub_warn_scan69o2.findings), \
+        "scanner must retain warn categories"
+    _hub_many_files69o2 = [_HubSkillFile69o2.from_text("SKILL.md", "---\nname: many\n---\n\nInstructions.")]
+    _hub_many_files69o2.extend(
+        _HubSkillFile69o2.from_text(f"references/{_i69o2}.md", "x")
+        for _i69o2 in range(102)
+    )
+    _hub_many_bundle69o2 = _hub_bundle_from_files69o2(
+        source="github",
+        install_ref="github:owner/repo/skills/many",
+        root_name="many",
+        files=_hub_many_files69o2,
+    )
+    _hub_many_scan69o2 = _scan_hub_bundle69o2(_hub_many_bundle69o2)
+    assert any(f.severity == "block" and f.code == "too_many_files" for f in _hub_many_scan69o2.findings), \
+        "scanner must block excessive public skill file counts"
+    from skills_hub.source_registry import _cache_root as _hub_cache_root69o2
+    assert (_hub_cache_root69o2() / ".ignore").exists(), "skills_hub index cache must include .ignore"
+    record("PASS", "69o2b: skills_hub scanner block/warn guards")
+except Exception as e:
+    record("FAIL", "69o2b-skills-hub-scanner", f"{type(e).__name__}: {e}")
 
 try:
     from channels import commands as _chcmd69o3

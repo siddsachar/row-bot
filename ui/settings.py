@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import inspect
+import json
 import logging
 import os
 import pathlib
@@ -2166,21 +2167,38 @@ def open_settings(
         import skills as skills_mod
         from skills_activation import get_skill_telemetry
 
+        def _open_hub_browser() -> None:
+            try:
+                from skills_hub.ui import open_skills_hub_dialog
+
+                open_skills_hub_dialog(on_change=lambda: _reopen("Skills"))
+            except Exception as exc:
+                logger.warning("Skills hub not available: %s", exc, exc_info=True)
+                ui.notify("Skills hub is not available yet", type="warning")
+
         ui.label("✨ Skill Library").classes("text-h6")
         ui.label(
             "Available skills can be selected in chat and suggested when relevant."
         ).classes("text-grey-6 text-sm")
         ui.separator().classes("q-my-md")
 
-        with ui.row().classes("w-full justify-end q-mb-md"):
+        with ui.row().classes("w-full justify-end q-mb-md gap-2"):
+            ui.button(
+                "Browse Skills",
+                icon="travel_explore",
+                on_click=_open_hub_browser,
+            ).props("flat")
             ui.button("Create Skill", icon="add", on_click=lambda: _open_skill_editor()).props("color=primary")
 
         skills_container = ui.column().classes("w-full gap-2")
 
         def _refresh_skills_list():
+            from skills_hub.provenance import load_records
+
             skills_container.clear()
             all_skills = skills_mod.get_manual_skills()
             skill_telemetry = get_skill_telemetry()
+            hub_records = load_records()
             if not all_skills:
                 with skills_container:
                     ui.label("No skills found. Create one to get started!").classes("text-grey-5 italic")
@@ -2188,6 +2206,7 @@ def open_settings(
 
             with skills_container:
                 for sk in all_skills:
+                    hub_record = hub_records.get(sk.name)
                     with ui.card().classes("w-full q-pa-sm"):
                         with ui.row().classes("w-full items-center no-wrap"):
                             ui.switch(
@@ -2199,6 +2218,9 @@ def open_settings(
                             ui.space()
                             if sk.source == "bundled":
                                 ui.badge("Bundled", color="blue-grey").props("outline")
+                            elif hub_record:
+                                ui.badge("Public", color="orange").props("outline")
+                                ui.badge(hub_record.source.replace("_", " ").title(), color="blue").props("outline")
                             else:
                                 ui.badge("Custom", color="teal").props("outline")
                             _available = skills_mod.is_enabled(sk.name)
@@ -2223,7 +2245,27 @@ def open_settings(
                         ui.label(sk.description).classes("text-grey-6 text-sm q-pl-lg")
 
                         with ui.row().classes("q-pl-lg q-mt-xs gap-1"):
-                            if sk.source == "user":
+                            if hub_record:
+                                ui.button(
+                                    "Audit", icon="fact_check",
+                                    on_click=lambda _, n=sk.name: _open_hub_audit(n),
+                                ).props("flat dense size=sm")
+                                ui.button(
+                                    "Check Update", icon="sync",
+                                    on_click=lambda _, n=sk.name: _check_hub_update(n),
+                                ).props("flat dense size=sm")
+                                ui.button(
+                                    "Update", icon="download",
+                                    on_click=lambda _, n=sk.name: _update_hub_skill(n),
+                                ).props("flat dense size=sm")
+                                ui.button(
+                                    "Uninstall", icon="delete",
+                                    on_click=lambda _, n=sk.name: _confirm_uninstall_hub_skill(n),
+                                ).props("flat dense size=sm color=negative")
+                                _url = str(hub_record.metadata.get("url") or "")
+                                if _url:
+                                    ui.link("Open Source", _url, new_tab=True).classes("text-caption q-ml-sm")
+                            elif sk.source == "user":
                                 ui.button(
                                     "Edit", icon="edit",
                                     on_click=lambda _, n=sk.name: _open_skill_editor(n),
@@ -2237,6 +2279,71 @@ def open_settings(
                                     "Duplicate & Customise", icon="content_copy",
                                     on_click=lambda _, n=sk.name: _duplicate_skill(n),
                                 ).props("flat dense size=sm")
+
+        def _open_hub_audit(name: str) -> None:
+            from skills_hub.provenance import get_record
+
+            record = get_record(name)
+            if not record:
+                ui.notify("No hub provenance found for this skill", type="warning")
+                return
+            with ui.dialog() as dlg, ui.card().classes("w-[760px] max-w-full"):
+                ui.label(f"Audit: {record.local_name}").classes("text-h6")
+                ui.label("Public skill provenance and last scan summary.").classes("text-caption text-grey-6")
+                ui.markdown(
+                    "```json\n" + json.dumps(record.as_dict(), indent=2, default=str) + "\n```",
+                    extras=["fenced-code-blocks"],
+                ).classes("w-full")
+                with ui.row().classes("justify-end w-full"):
+                    ui.button("Close", on_click=dlg.close).props("flat")
+            dlg.open()
+
+        async def _check_hub_update(name: str) -> None:
+            from skills_hub.installer import check_update
+
+            note = ui.notification("Checking public skill source...", type="ongoing", spinner=True, timeout=None)
+            try:
+                result = await run.io_bound(check_update, name)
+                note.dismiss()
+                ui.notify(result.message, type="positive" if result.success else "warning")
+            except Exception as exc:
+                note.dismiss()
+                ui.notify(f"Update check failed: {exc}", type="negative")
+
+        async def _update_hub_skill(name: str) -> None:
+            from skills_hub.installer import update_skill
+
+            note = ui.notification("Updating public skill...", type="ongoing", spinner=True, timeout=None)
+            try:
+                result = await run.io_bound(update_skill, name)
+                note.dismiss()
+                ui.notify(result.message, type="positive" if result.success else "warning")
+                if result.success:
+                    _refresh_skills_list()
+            except Exception as exc:
+                note.dismiss()
+                ui.notify(f"Update failed: {exc}", type="negative")
+
+        def _confirm_uninstall_hub_skill(name: str) -> None:
+            sk = skills_mod.get_skill(name)
+            if not sk:
+                return
+            with ui.dialog() as dlg, ui.card():
+                ui.label(f"Uninstall public skill '{sk.display_name}'?").classes("text-body1")
+                ui.label("This removes the local skill folder and hub provenance.").classes("text-grey-6 text-sm")
+                with ui.row().classes("w-full justify-end gap-2 q-mt-md"):
+                    ui.button("Cancel", on_click=dlg.close).props("flat")
+
+                    def _do_uninstall():
+                        from skills_hub.installer import uninstall_skill
+
+                        result = uninstall_skill(name)
+                        ui.notify(result.message, type="positive" if result.success else "warning")
+                        dlg.close()
+                        _refresh_skills_list()
+
+                    ui.button("Uninstall", on_click=_do_uninstall).props("color=negative")
+            dlg.open()
 
         def _open_skill_editor(name=None):
             skill = skills_mod.get_skill(name) if name else None
@@ -2876,13 +2983,221 @@ def open_settings(
 
     # ── Accounts Tab ─────────────────────────────────────────────────
 
+    def _build_github_account_panel() -> None:
+        import github_account
+
+        github_generation = LoadGeneration()
+        github_status_state = {"status": None}
+
+        def _github_status_text(status=None, *, loading: bool = False) -> str:
+            if loading or status is None:
+                return "GitHub — Checking..."
+            if status.connected:
+                suffix = f" as {status.user}" if status.user else ""
+                source = status.source.replace("_", " ") or "GitHub"
+                return f"GitHub — ✅ Connected via {source}{suffix}"
+            if status.state == github_account.GITHUB_STATE_ANONYMOUS:
+                return "GitHub — Anonymous public access"
+            if status.state == github_account.GITHUB_STATE_INVALID_TOKEN:
+                return "GitHub — Reconnect needed"
+            if status.state in {
+                github_account.GITHUB_STATE_RATE_LIMITED,
+                github_account.GITHUB_STATE_SECONDARY_LIMITED,
+            }:
+                return "GitHub — Rate limited"
+            if status.state == github_account.GITHUB_STATE_OFFLINE:
+                return "GitHub — Unable to verify"
+            return "GitHub — Not connected"
+
+        with ui.expansion(_github_status_text(loading=True), icon="code").classes("w-full") as github_panel:
+            ui.label(
+                "GitHub access improves public skill browsing, private GitHub imports, Developer Studio, MCP setup, plugin fetches, and release checks."
+            ).classes("text-grey-6 text-sm")
+            status_col = ui.column().classes("gap-1")
+
+            def _update_github_header(status=None, *, loading: bool = False) -> None:
+                github_panel._props["label"] = _github_status_text(status, loading=loading)
+                github_panel.update()
+
+            def _set_github_header_text(text: str) -> None:
+                github_panel._props["label"] = text
+                github_panel.update()
+
+            def _format_rate(rate, label: str) -> str:
+                if not rate:
+                    return ""
+                reset = f", resets at {rate.reset_display}" if rate.reset_display else ""
+                if rate.limit:
+                    return f"{label}: {rate.remaining}/{rate.limit} requests remaining{reset}."
+                if rate.limited:
+                    return github_account.rate_limit_message(rate)
+                return ""
+
+            def _state_color(status) -> str:
+                if status.connected:
+                    return "text-positive"
+                if status.state == github_account.GITHUB_STATE_ANONYMOUS:
+                    return "text-grey-6"
+                if status.state in {
+                    github_account.GITHUB_STATE_INVALID_TOKEN,
+                    github_account.GITHUB_STATE_OFFLINE,
+                }:
+                    return "text-negative"
+                return "text-warning"
+
+            def _render_github_status(status=None) -> None:
+                status_col.clear()
+                if status is None:
+                    with status_col:
+                        with ui.row().classes("items-center gap-2 text-grey-6"):
+                            ui.spinner(size="xs")
+                            ui.label("Checking GitHub status...").classes("text-sm")
+                    _update_github_header(loading=True)
+                    return
+                github_status_state["status"] = status
+                with status_col:
+                    if status.connected:
+                        with ui.row().classes("items-center gap-2"):
+                            ui.icon("check_circle", color="positive").classes("text-lg")
+                            source = status.source.replace("_", " ") or "GitHub"
+                            user = f" as {status.user}" if status.user else ""
+                            ui.label(f"Connected via {source}{user}.").classes("text-positive text-sm")
+                    ui.label(status.settings_message or status.message).classes(f"{_state_color(status)} text-sm")
+                    if status.source:
+                        source = status.source.replace("_", " ")
+                        verified = "verified" if status.connected else "not currently usable"
+                        ui.label(f"Credential source: {source} ({verified}).").classes("text-grey-6 text-xs")
+                    else:
+                        ui.label("No GitHub token is configured; public sources can still use anonymous access.").classes("text-grey-6 text-xs")
+                    if status.gh_installed:
+                        gh_line = "GitHub CLI authenticated" if status.gh_authenticated else "GitHub CLI installed, not authenticated"
+                        ui.label(gh_line).classes("text-grey-6 text-xs")
+                    else:
+                        ui.label("GitHub CLI not found. Token fallback is available.").classes("text-grey-6 text-xs")
+                    for line in (
+                        _format_rate(status.rate_limit, "Authenticated" if status.source else "Anonymous"),
+                        _format_rate(status.anonymous_rate_limit, "Anonymous fallback"),
+                    ):
+                        if line:
+                            ui.label(line).classes("text-grey-6 text-xs")
+                    if status.last_checked:
+                        checked = datetime.fromtimestamp(status.last_checked).strftime("%H:%M:%S")
+                        ui.label(f"Last checked: {checked}.").classes("text-grey-6 text-xs")
+                _update_github_header(status)
+
+            _render_github_status(None)
+
+            with ui.expansion("Setup Guide", icon="help_outline").classes("w-full"):
+                ui.markdown(
+                    "Preferred: install GitHub CLI, then run `gh auth login -h github.com` in a terminal. "
+                    "Thoth can reuse that authentication for read-only GitHub API calls.\n\n"
+                    "If GitHub CLI already exists but the token is stale, run `gh auth refresh -h github.com` "
+                    "or use the reconnect buttons below.\n\n"
+                    "Token fallback: create a fine-grained personal access token. Public skill browsing only needs "
+                    "public read access. Private skill imports need repository Contents read access for selected "
+                    "repositories. Skills Hub does not need write permissions.",
+                    extras=["code-friendly", "fenced-code-blocks"],
+                ).classes("text-sm")
+
+            token_input, token_refresh = _secret_input("GitHub Personal Access Token", "GITHUB_TOKEN")
+
+            def _refresh_github_panel(status=None) -> None:
+                if status is None:
+                    _schedule_github_status_load(force=True)
+                    return
+                _render_github_status(status)
+
+            def _save_github_token() -> None:
+                val = _secret_value_or_notify(token_input.value, "GitHub token")
+                if not val:
+                    return
+                set_key("GITHUB_TOKEN", val)
+                token_input.value = ""
+                token_input.update()
+                token_refresh()
+                _refresh_github_panel()
+                ui.notify("GitHub token saved", type="positive")
+
+            async def _check_github_access() -> None:
+                try:
+                    status = await run.io_bound(github_account.check_github_access)
+                    _refresh_github_panel(status)
+                    ui.notify(status.message, type="positive" if status.connected else "warning")
+                except Exception as exc:
+                    ui.notify(f"GitHub access check failed: {exc}", type="negative")
+
+            def _start_github_cli_auth(mode: str) -> None:
+                try:
+                    import os
+                    import subprocess
+                    from developer.executables import resolve_github_cli
+
+                    gh_path = resolve_github_cli()
+                    if not gh_path:
+                        ui.notify("GitHub CLI was not found. Install gh or save a token instead.", type="warning")
+                        return
+                    args = [gh_path, "auth", mode, "-h", "github.com"]
+                    kwargs = {}
+                    if os.name == "nt":
+                        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+                    subprocess.Popen(args, **kwargs)
+                    ui.notify("GitHub CLI auth started. Return here and click Check GitHub when it completes.", type="info")
+                except Exception as exc:
+                    ui.notify(f"Could not start GitHub CLI auth: {exc}", type="negative")
+
+            def _use_anonymous_public_sources() -> None:
+                github_account.clear_github_status_cache()
+                ui.notify("Public Skills Hub sources will use anonymous GitHub access while auth is invalid or limited.", type="info")
+
+            def _clear_github_token() -> None:
+                _clear_secret("GITHUB_TOKEN", "GitHub token", token_refresh)
+                _refresh_github_panel()
+
+            async def _load_github_status(token: int, *, force: bool = False) -> None:
+                try:
+                    if force:
+                        github_account.clear_github_caches()
+                    status = await run.io_bound(
+                        lambda: github_account.get_verified_github_account_status(use_cache=not force)
+                    )
+                    if not github_generation.is_current(token):
+                        return
+                    _render_github_status(status)
+                except Exception as exc:
+                    if not github_generation.is_current(token):
+                        return
+                    status_col.clear()
+                    with status_col:
+                        with ui.row().classes("items-center gap-2"):
+                            ui.icon("error_outline", color="warning")
+                            ui.label(f"Could not check GitHub status: {exc}").classes("text-warning text-sm")
+                    _set_github_header_text("GitHub — Unable to verify")
+
+            def _schedule_github_status_load(*, force: bool = False) -> None:
+                token = github_generation.next()
+                _render_github_status(None)
+                safe_ui_task(lambda token=token, force=force: _load_github_status(token, force=force), context="github account status load")
+
+            with ui.row().classes("gap-2 items-center"):
+                ui.button("Save Token", icon="save", on_click=_save_github_token).props("outlined dense no-caps")
+                ui.button("Check GitHub", icon="check_circle", on_click=_check_github_access).props("flat dense no-caps")
+                ui.button("Reconnect CLI", icon="login", on_click=lambda: _start_github_cli_auth("login")).props("flat dense no-caps")
+                ui.button("Refresh CLI Auth", icon="refresh", on_click=lambda: _start_github_cli_auth("refresh")).props("flat dense no-caps")
+                ui.button("Use Anonymous For Public Sources", icon="public", on_click=_use_anonymous_public_sources).props("flat dense no-caps")
+                ui.button("Clear Saved Token", icon="delete", on_click=_clear_github_token).props(
+                    "flat dense color=negative no-caps"
+                )
+
+            _schedule_github_status_load()
+
     def _build_accounts_tab() -> None:
         _settings_header(
             "Accounts",
-            "Connect Google, X, and other personal accounts used by tools.",
+            "Connect GitHub, Google, X, and other personal accounts used by tools.",
             "group",
         )
 
+        _build_github_account_panel()
         _build_google_account_panel()
         _build_x_account_panel()
 

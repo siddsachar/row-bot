@@ -13,12 +13,17 @@ activation:
   phrases:
     - knowledge base
     - save to memory
+    - save this
+    - find it later
+    - remember this
     - organize documents
     - wiki vault
     - knowledge graph
   keywords:
     - knowledge
     - memory
+    - save
+    - remember
     - documents
     - wiki
     - vault

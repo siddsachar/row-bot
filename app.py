@@ -265,13 +265,41 @@ def _check_oauth_tokens(_st=None) -> list[str]:
     return warnings
 
 
+def _check_github_account_health(_st=None) -> list[str]:
+    """Check configured GitHub credentials without warning for anonymous use."""
+    warnings: list[str] = []
+    try:
+        import github_account
+
+        status = github_account.get_verified_github_account_status(use_cache=True)
+        if status.source and status.state in {
+            github_account.GITHUB_STATE_INVALID_TOKEN,
+            github_account.GITHUB_STATE_RATE_LIMITED,
+            github_account.GITHUB_STATE_SECONDARY_LIMITED,
+            github_account.GITHUB_STATE_OFFLINE,
+        }:
+            msg = f"GitHub account needs attention: {status.settings_message or status.message}"
+            warnings.append(msg)
+            _safe_console_print(f"[github] {msg}")
+        elif status.connected:
+            user = f" as {status.user}" if status.user else ""
+            _safe_console_print(f"[github] GitHub API healthy{user}")
+    except Exception as exc:
+        logger.warning("GitHub account health check failed: %s", exc)
+
+    if _st is not None:
+        _st.startup_warnings.extend(warnings)
+    return warnings
+
+
 def _periodic_oauth_check():
     """Background OAuth health check — runs every 6 hours."""
     warnings = _check_oauth_tokens()
+    warnings.extend(_check_github_account_health())
     if warnings:
         from notifications import notify as _oauth_notify
         for msg in warnings:
-            _oauth_notify("Token Expired", msg, sound="default",
+            _oauth_notify("Account Issue", msg, sound="default",
                           icon="⚠️", toast_type="warning")
 
 
@@ -451,6 +479,7 @@ async def on_startup():
 
     # ── Proactive OAuth token health check ───────────────────────────
     await asyncio.to_thread(_check_oauth_tokens, _st)
+    await asyncio.to_thread(_check_github_account_health, _st)
 
     # Schedule periodic re-check every 6 hours
     try:

@@ -28,6 +28,7 @@ def _write_skill(
     tags: list[str] | None = None,
     tools: list[str] | None = None,
     activation: dict[str, list[str]] | None = None,
+    instructions: str | None = None,
 ) -> None:
     skill_dir = root / "skills" / name
     skill_dir.mkdir(parents=True, exist_ok=True)
@@ -51,7 +52,7 @@ def _write_skill(
         for key, values in activation.items():
             lines.append(f"  {key}:")
             lines.extend(f"    - {value}" for value in values)
-    lines.extend(["---", "", f"Instructions for {name}."])
+    lines.extend(["---", "", instructions or f"Instructions for {name}."])
     (skill_dir / "SKILL.md").write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -182,6 +183,120 @@ def test_suggestions_ignore_common_stopwords(tmp_path):
         )
     ]
     assert names and names[0] == "meeting_notes"
+
+
+def test_suggestions_use_instruction_headings_and_body_for_sparse_skills(tmp_path):
+    _write_skill(
+        tmp_path,
+        "office_docx",
+        description="Generic office helper",
+        instructions=(
+            "Instructions for office documents.\n\n"
+            "## Tracked Changes\n"
+            "Read comments, revisions, and tracked changes from DOCX files.\n\n"
+            "## Converting To Images\n"
+            "Convert document pages to image previews for review workflows."
+        ),
+    )
+    _write_skill(
+        tmp_path,
+        "general_writer",
+        description="Generic writing helper",
+        instructions="Write concise prose for ordinary messages.",
+    )
+    skills, activation = _reload_skill_modules(tmp_path)
+    skills.load_skills()
+
+    suggestions = activation.suggest_skills(
+        "thread-a",
+        "read tracked changes from this docx and convert pages to images",
+    )
+
+    assert suggestions
+    assert suggestions[0].name == "office_docx"
+    assert "general_writer" not in {item.name for item in suggestions}
+
+
+def test_sparse_imported_style_skill_matches_without_activation_metadata(tmp_path):
+    _write_skill(
+        tmp_path,
+        "crontab_generate",
+        description="Crontab expression generator",
+        tags=["converted"],
+        instructions=(
+            "Converted from a public agent profile.\n\n"
+            "## Instructions\n"
+            "Create cron schedules and validate crontab expressions for recurring jobs."
+        ),
+    )
+    skills, activation = _reload_skill_modules(tmp_path)
+    skills.load_skills()
+
+    suggestions = activation.suggest_skills(
+        "thread-a",
+        "generate a cron expression for every monday morning",
+    )
+
+    assert suggestions
+    assert suggestions[0].name == "crontab_generate"
+
+
+def test_shared_instruction_terms_do_not_create_broad_suggestions(tmp_path):
+    for name in ("general_helper", "productivity_helper", "writing_helper"):
+        _write_skill(
+            tmp_path,
+            name,
+            description="Generic helper",
+            instructions=(
+                "## Workflow\n"
+                "Help create, review, improve, and organize content for routine work."
+            ),
+        )
+    skills, activation = _reload_skill_modules(tmp_path)
+    skills.load_skills()
+
+    assert activation.suggest_skills("thread-a", "help me review and improve this content") == []
+
+
+def test_skill_choice_search_uses_shared_weighted_matcher(tmp_path):
+    _write_skill(
+        tmp_path,
+        "meeting_notes",
+        description="Generic productivity helper",
+        instructions=(
+            "## Action Items\n"
+            "Extract decisions, owners, follow ups, and deadlines from meeting transcripts."
+        ),
+    )
+    _write_skill(
+        tmp_path,
+        "research_brief",
+        description="Research sources and produce a brief",
+        tags=["research"],
+    )
+    skills, activation = _reload_skill_modules(tmp_path)
+    skills.load_skills()
+
+    choices = activation.list_skill_choices("thread-a", query="owners and deadlines")
+
+    assert choices
+    assert choices[0].name == "meeting_notes"
+
+
+def test_chat_skill_picker_uses_shared_ranked_choices():
+    src = Path("ui/chat.py").read_text(encoding="utf-8")
+
+    assert "list_skill_choices as _list_chat_skill_choices" in src
+    assert "def _matches(skill)" not in src
+
+
+def test_chat_suppresses_draft_suggestions_after_use_or_dismiss():
+    src = Path("ui/chat.py").read_text(encoding="utf-8")
+
+    assert "suggestions_suppressed_text" in src
+    assert "def _suppress_skill_suggestions_for_current_draft" in src
+    assert "_cancel_skill_chip_refresh_task()" in src
+    assert "source.startswith(\"ui\")" in src
 
 
 def test_activation_metadata_drives_suggestions_without_prompt_bloat(tmp_path):

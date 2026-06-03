@@ -222,6 +222,43 @@ def check_x_oauth() -> CheckResult:
         return CheckResult("X OAuth", "error", str(exc), settings_tab="Accounts")
 
 
+def check_github_oauth() -> CheckResult:
+    """Check GitHub API credential health."""
+    try:
+        import github_account
+
+        status = github_account.get_verified_github_account_status(use_cache=True)
+        rate = status.rate_limit
+        quota = ""
+        if rate and rate.limit:
+            reset = f", resets {rate.reset_display}" if rate.reset_display else ""
+            quota = f" - {rate.remaining}/{rate.limit}{reset}"
+        if status.connected:
+            user = f" as {status.user}" if status.user else ""
+            return CheckResult("GitHub", "ok", f"Connected{user}{quota}", settings_tab="Accounts")
+        if status.state == github_account.GITHUB_STATE_ANONYMOUS:
+            anon = status.anonymous_rate_limit or status.rate_limit
+            detail = "Anonymous public access"
+            if anon and anon.limit:
+                detail += f" - {anon.remaining}/{anon.limit}"
+            return CheckResult("GitHub", "inactive", detail, settings_tab="Accounts")
+        if status.state == github_account.GITHUB_STATE_INVALID_TOKEN:
+            return CheckResult("GitHub", "error", status.settings_message or "Reconnect GitHub", settings_tab="Accounts")
+        if status.state in {
+            github_account.GITHUB_STATE_RATE_LIMITED,
+            github_account.GITHUB_STATE_SECONDARY_LIMITED,
+        }:
+            detail = status.settings_message or status.message or "GitHub rate limited"
+            return CheckResult("GitHub", "warn", detail, settings_tab="Accounts")
+        if status.state == github_account.GITHUB_STATE_NOT_CONFIGURED:
+            return CheckResult("GitHub", "inactive", "Not connected", settings_tab="Accounts")
+        if status.state == github_account.GITHUB_STATE_CONFIGURED_UNCHECKED:
+            return CheckResult("GitHub", "warn", "Credential discovered, not verified", settings_tab="Accounts")
+        return CheckResult("GitHub", "warn", status.settings_message or status.message or "Unable to check GitHub", settings_tab="Accounts")
+    except Exception as exc:
+        return CheckResult("GitHub", "error", str(exc), settings_tab="Accounts")
+
+
 def check_task_scheduler() -> CheckResult:
     """Check workflow scheduler, active runs, and pending approvals."""
     try:
@@ -590,6 +627,7 @@ ALL_CHECKS = [
     check_gmail_oauth,
     check_calendar_oauth,
     check_x_oauth,
+    check_github_oauth,
     check_task_scheduler,
     check_memory_extraction,
     check_dream_cycle,
@@ -631,6 +669,7 @@ HEAVY_CHECKS = [
     check_gmail_oauth,
     check_calendar_oauth,
     check_x_oauth,
+    check_github_oauth,
     check_memory_extraction,
     check_dream_cycle,
     check_wiki_vault,

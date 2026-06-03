@@ -98,6 +98,7 @@ Source: "..\api_keys.py";              DestDir: "{app}\app"; Flags: ignoreversio
 Source: "..\app_port.py";              DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\data_paths.py";            DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\secret_store.py";          DestDir: "{app}\app"; Flags: ignoreversion
+Source: "..\github_account.py";        DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\voice\*.py";              DestDir: "{app}\app\voice"; Flags: ignoreversion
 Source: "..\tts.py";                   DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\vision.py";                DestDir: "{app}\app"; Flags: ignoreversion
@@ -167,6 +168,7 @@ Source: "..\mcp_client\requirements.py"; DestDir: "{app}\app\mcp_client"; Flags:
 Source: "..\mcp_client\results.py";     DestDir: "{app}\app\mcp_client"; Flags: ignoreversion
 Source: "..\mcp_client\runtime.py";     DestDir: "{app}\app\mcp_client"; Flags: ignoreversion
 Source: "..\mcp_client\safety.py";      DestDir: "{app}\app\mcp_client"; Flags: ignoreversion
+Source: "..\skills_hub\*";              DestDir: "{app}\app\skills_hub"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; ── Migration wizard package ───────────────────────────────────────────────
 Source: "..\migration\__init__.py";     DestDir: "{app}\app\migration"; Flags: ignoreversion

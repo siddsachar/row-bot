@@ -15,6 +15,9 @@ activation:
     - competitor research
     - structured report
     - multi-source research
+    - look around
+    - real story
+    - investigate thoroughly
   keywords:
     - research
     - competitors
@@ -22,6 +25,7 @@ activation:
     - report
     - market
     - compare
+    - investigate
   negative_phrases:
     - meeting notes
     - action items

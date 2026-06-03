@@ -679,6 +679,7 @@ def build_chat(
                 disable_skill as _disable_chat_skill,
                 dismiss_suggestion as _dismiss_skill_suggestion,
                 get_activation_snapshot as _get_skill_activation_snapshot,
+                list_skill_choices as _list_chat_skill_choices,
                 pin_skill as _pin_chat_skill,
                 record_accept as _record_skill_accept,
                 reset_thread as _reset_chat_skills,
@@ -718,7 +719,7 @@ def build_chat(
                 if not _skills_for_chips.is_tool_guide(sk)
             ]
             _active_skill_names = {"names": list(_skill_snap.active)}
-            _draft_state = {"text": "", "version": 0}
+            _draft_state = {"text": "", "version": 0, "suggestions_suppressed_text": ""}
             _chip_refresh_task: dict[str, asyncio.Task | None] = {"task": None}
 
             def _ordered_skill_names(names) -> list[str]:
@@ -733,6 +734,20 @@ def build_chat(
             def _active_name_set() -> set[str]:
                 return set(_active_skill_names.get("names") or [])
 
+            def _skill_draft_key(text: str) -> str:
+                return re.sub(r"\s+", " ", str(text or "").strip()).lower()
+
+            def _cancel_skill_chip_refresh_task() -> None:
+                task = _chip_refresh_task.get("task")
+                if task and not task.done():
+                    task.cancel()
+
+            def _suppress_skill_suggestions_for_current_draft() -> None:
+                _draft_state["suggestions_suppressed_text"] = _skill_draft_key(
+                    _draft_state.get("text", "")
+                )
+                _cancel_skill_chip_refresh_task()
+
             def _refresh_skill_chips_now() -> None:
                 _render_skill_chips(_draft_state.get("text", ""))
 
@@ -743,6 +758,8 @@ def build_chat(
                     [*_active_skill_names.get("names", []), name]
                 )
                 clear_agent_cache()
+                if source.startswith("ui"):
+                    _suppress_skill_suggestions_for_current_draft()
                 _refresh_skill_chips_now()
 
             def _remove_skill(name: str) -> None:
@@ -757,6 +774,7 @@ def build_chat(
 
             def _dismiss_suggestion(name: str) -> None:
                 _dismiss_skill_suggestion(state.thread_id, name)
+                _suppress_skill_suggestions_for_current_draft()
                 _refresh_skill_chips_now()
 
             def _meaningful_skill_draft(text: str) -> bool:
@@ -764,6 +782,8 @@ def build_chat(
 
             def _suggestions_for_text(text: str, *, limit: int = 3):
                 if not _meaningful_skill_draft(text):
+                    return []
+                if _skill_draft_key(text) == _draft_state.get("suggestions_suppressed_text"):
                     return []
                 return _suggest_chat_skills(
                     state.thread_id,
@@ -791,31 +811,38 @@ def build_chat(
                     skill_list = ui.column().classes("w-full gap-2").style("max-height: 58vh; overflow-y: auto;")
 
                     def _render_skill_list() -> None:
-                        query = str(search.value or "").strip().lower()
+                        query = str(search.value or "").strip()
                         skill_list.clear()
-
-                        def _matches(skill) -> bool:
-                            haystack = " ".join([
-                                skill.name,
-                                skill.display_name,
-                                skill.description or "",
-                                " ".join(skill.tags or []),
-                            ]).lower()
-                            return not query or query in haystack
+                        ranked_choices = _list_chat_skill_choices(
+                            state.thread_id,
+                            query=query,
+                            limit=None,
+                        )
+                        ranked_names = [choice.name for choice in ranked_choices]
+                        ranked_name_set = set(ranked_names)
 
                         active_skills = [
                             _skills_for_chips.get_skill(name)
                             for name in _active_skill_names.get("names", [])
                         ]
-                        active_skills = [sk for sk in active_skills if sk and _matches(sk)]
+                        active_skills = [
+                            sk for sk in active_skills
+                            if sk and (not query or sk.name in ranked_name_set)
+                        ]
                         suggested = [
                             s for s in picker_suggestions
-                            if not query
-                            or query in " ".join([s.name, s.display_name, s.description, s.reason]).lower()
+                            if not query or s.name in ranked_name_set
                         ]
+                        available_by_name = {
+                            sk.name: sk
+                            for sk in _available_skills
+                            if sk.name not in _active_name_set()
+                            and sk.name not in picker_suggestions_by_name
+                        }
                         available = [
-                            sk for sk in _available_skills
-                            if sk.name not in _active_name_set() and sk.name not in picker_suggestions_by_name and _matches(sk)
+                            available_by_name[name]
+                            for name in ranked_names
+                            if name in available_by_name
                         ]
 
                         with skill_list:
@@ -914,9 +941,10 @@ def build_chat(
             def _queue_skill_chip_refresh(text: str) -> None:
                 _draft_state["text"] = str(text or "")
                 _draft_state["version"] = int(_draft_state.get("version", 0)) + 1
-                task = _chip_refresh_task.get("task")
-                if task and not task.done():
-                    task.cancel()
+                current_key = _skill_draft_key(_draft_state["text"])
+                if current_key != _draft_state.get("suggestions_suppressed_text"):
+                    _draft_state["suggestions_suppressed_text"] = ""
+                _cancel_skill_chip_refresh_task()
                 _chip_refresh_task["task"] = defer_ui(
                     lambda v=int(_draft_state["version"]): _debounced_skill_chip_refresh(v),
                     delay=0.25,

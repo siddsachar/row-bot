@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import pathlib
 import re
@@ -21,11 +22,33 @@ logger = logging.getLogger(__name__)
 DATA_DIR = pathlib.Path(os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth"))
 STATE_PATH = DATA_DIR / "skills_activation.json"
 MAX_TRACES = 200
+INSTRUCTION_SEARCH_CHAR_LIMIT = 3000
+HEADING_SEARCH_LIMIT = 30
+TERM_MAP_LIMIT = 240
+SPECIFICITY_CAP = 2.8
+SUGGESTION_MIN_SCORE = 6.0
+CHOICE_MIN_SCORE = 3.0
+ADDITIONAL_SUGGESTION_MIN_RATIO = 0.85
 _STOPWORDS = {
-    "about", "after", "all", "and", "are", "but", "can", "for", "from",
-    "has", "have", "into", "more", "not", "please", "should", "that",
-    "the", "then", "these", "this", "those", "use", "using", "when",
-    "will", "with", "you", "your",
+    "about", "actually", "after", "all", "and", "are", "around", "but",
+    "can", "decent", "every", "find", "for", "from", "give", "going", "has",
+    "have", "into", "less", "look", "looking", "make", "more", "need", "not",
+    "now", "obvious", "one", "page", "please", "real", "right", "should",
+    "that", "the", "then", "these", "this", "those", "under", "understand",
+    "use", "using", "want", "wants", "what", "when", "whether", "will",
+    "with", "you", "your",
+}
+_GENERIC_QUERY_TOKENS = {
+    "anything", "concept", "explain", "hello", "help", "question", "thing",
+    "stuff",
+}
+_TERM_SOURCE_PRIORITY = {
+    "activation": 6,
+    "name": 5,
+    "tag": 4,
+    "description": 3,
+    "heading": 2,
+    "instructions": 1,
 }
 
 
@@ -43,6 +66,22 @@ class SuggestedSkill:
     description: str
     reason: str
     score: float
+
+
+@dataclass(frozen=True)
+class SkillSearchProfile:
+    skill_name: str
+    weighted_terms: dict[str, float]
+    term_sources: dict[str, str]
+    phrases: tuple[tuple[str, str, float, str], ...]
+    negative_phrases: tuple[str, ...]
+    name_terms: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class SkillSearchCorpus:
+    profiles_by_name: dict[str, SkillSearchProfile]
+    specificity: dict[str, float]
 
 
 @dataclass(frozen=True)
@@ -138,7 +177,9 @@ def _ordered_unique(names: Iterable[str]) -> list[str]:
 
 
 def _normalize(text: str) -> str:
-    return re.sub(r"[^a-z0-9_ -]+", " ", str(text or "").lower()).strip()
+    split = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", str(text or ""))
+    split = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", split)
+    return re.sub(r"[^a-z0-9_./ -]+", " ", split.lower()).strip()
 
 
 def _slug(text: str) -> str:
@@ -146,17 +187,46 @@ def _slug(text: str) -> str:
     return re.sub(r"-+", "-", value).strip("-")
 
 
+def _singularize_token(token: str) -> str:
+    tok = str(token or "")
+    if len(tok) > 4 and tok.endswith("ies"):
+        return tok[:-3] + "y"
+    if len(tok) > 4 and tok.endswith("s") and not tok.endswith(("ss", "us", "is")):
+        return tok[:-1]
+    return tok
+
+
+def _token_list(text: str) -> list[str]:
+    tokens: list[str] = []
+    for raw in re.split(r"[\s_\-/.]+", _normalize(text)):
+        tok = _singularize_token(raw.strip())
+        if len(tok) >= 3 and tok not in _STOPWORDS:
+            tokens.append(tok)
+    return tokens
+
+
 def _tokens(text: str) -> set[str]:
-    return {
-        tok
-        for tok in re.split(r"[\s_\-/.]+", _normalize(text))
-        if len(tok) >= 3 and tok not in _STOPWORDS
-    }
+    return set(_token_list(text))
+
+
+def _is_generic_query(query_tokens: set[str]) -> bool:
+    return bool(query_tokens) and query_tokens.issubset(_GENERIC_QUERY_TOKENS)
 
 
 def _phrase_matches(query_norm: str, phrase: str) -> bool:
     phrase_norm = _normalize(phrase)
     return bool(phrase_norm and phrase_norm in query_norm)
+
+
+def _markdown_headings(text: str) -> list[str]:
+    headings: list[str] = []
+    for match in re.finditer(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$", str(text or ""), re.MULTILINE):
+        heading = re.sub(r"[`*_]+", "", match.group(1)).strip()
+        if heading:
+            headings.append(heading)
+        if len(headings) >= HEADING_SEARCH_LIMIT:
+            break
+    return headings
 
 
 def _all_manual_skills() -> list:
@@ -173,15 +243,112 @@ def _available_manual_skills() -> list:
     return [skill for skill in _all_manual_skills() if skills.is_enabled(skill.name)]
 
 
-def _skill_choice(skill, *, active: set[str] | None = None, disabled: set[str] | None = None) -> SkillChoice:
-    return SkillChoice(
-        name=skill.name,
-        display_name=getattr(skill, "display_name", skill.name),
-        slug=_slug(getattr(skill, "display_name", "") or skill.name) or _slug(skill.name),
-        description=getattr(skill, "description", "") or "",
-        active=skill.name in (active or set()),
-        disabled_here=skill.name in (disabled or set()),
+def _add_weighted_terms(
+    weighted_terms: dict[str, float],
+    term_sources: dict[str, str],
+    text: str,
+    *,
+    weight: float,
+    source: str,
+) -> None:
+    for term in _token_list(text):
+        if term not in weighted_terms and len(weighted_terms) >= TERM_MAP_LIMIT:
+            continue
+        weighted_terms[term] = min(10.0, weighted_terms.get(term, 0.0) + weight)
+        old_source = term_sources.get(term, "")
+        if _TERM_SOURCE_PRIORITY.get(source, 0) >= _TERM_SOURCE_PRIORITY.get(old_source, 0):
+            term_sources[term] = source
+
+
+def _add_phrase(
+    phrases: list[tuple[str, str, float, str]],
+    text: str,
+    *,
+    weight: float,
+    reason: str,
+) -> None:
+    raw = str(text or "").strip()
+    norm = _normalize(raw)
+    if norm:
+        phrases.append((raw, norm, weight, reason))
+
+
+def _build_skill_search_profile(skill) -> SkillSearchProfile:
+    activation = getattr(skill, "activation", {}) or {}
+    weighted_terms: dict[str, float] = {}
+    term_sources: dict[str, str] = {}
+    phrases: list[tuple[str, str, float, str]] = []
+
+    name_text = " ".join([
+        getattr(skill, "name", "") or "",
+        getattr(skill, "display_name", "") or "",
+        _slug(getattr(skill, "name", "") or "").replace("-", " "),
+        _slug(getattr(skill, "display_name", "") or "").replace("-", " "),
+    ])
+    _add_weighted_terms(weighted_terms, term_sources, name_text, weight=4.5, source="name")
+    _add_phrase(phrases, getattr(skill, "name", ""), weight=6.0, reason="name")
+    _add_phrase(phrases, getattr(skill, "display_name", ""), weight=6.0, reason="name")
+
+    description = getattr(skill, "description", "") or ""
+    _add_weighted_terms(weighted_terms, term_sources, description, weight=2.4, source="description")
+    if 3 <= len(_token_list(description)) <= 12:
+        _add_phrase(phrases, description, weight=4.0, reason="description")
+
+    _add_weighted_terms(
+        weighted_terms,
+        term_sources,
+        " ".join(getattr(skill, "tags", []) or []),
+        weight=3.2,
+        source="tag",
     )
+
+    for phrase in activation.get("phrases", []):
+        _add_weighted_terms(weighted_terms, term_sources, phrase, weight=5.5, source="activation")
+        _add_phrase(phrases, phrase, weight=10.0, reason="activation phrase")
+    for keyword in activation.get("keywords", []):
+        _add_weighted_terms(weighted_terms, term_sources, keyword, weight=5.0, source="activation")
+        if len(_token_list(keyword)) > 1:
+            _add_phrase(phrases, keyword, weight=7.0, reason="activation keyword")
+    for example in activation.get("examples", []):
+        _add_weighted_terms(weighted_terms, term_sources, example, weight=3.5, source="activation")
+        _add_phrase(phrases, example, weight=7.0, reason="activation example")
+
+    instructions = getattr(skill, "instructions", "") or ""
+    for heading in _markdown_headings(instructions):
+        _add_weighted_terms(weighted_terms, term_sources, heading, weight=1.8, source="heading")
+        _add_phrase(phrases, heading, weight=3.0, reason="instruction heading")
+    _add_weighted_terms(
+        weighted_terms,
+        term_sources,
+        instructions[:INSTRUCTION_SEARCH_CHAR_LIMIT],
+        weight=0.55,
+        source="instructions",
+    )
+
+    return SkillSearchProfile(
+        skill_name=getattr(skill, "name", ""),
+        weighted_terms=weighted_terms,
+        term_sources=term_sources,
+        phrases=tuple(phrases),
+        negative_phrases=tuple(activation.get("negative_phrases", []) or ()),
+        name_terms=tuple(_tokens(name_text)),
+    )
+
+
+def _build_skill_search_corpus(skill_list: Iterable) -> SkillSearchCorpus:
+    profiles: dict[str, SkillSearchProfile] = {}
+    document_frequency: dict[str, int] = {}
+    for skill in skill_list:
+        profile = _build_skill_search_profile(skill)
+        profiles[profile.skill_name] = profile
+        for term in profile.weighted_terms:
+            document_frequency[term] = document_frequency.get(term, 0) + 1
+    skill_count = max(1, len(profiles))
+    specificity = {
+        term: min(SPECIFICITY_CAP, 1.0 + math.log((skill_count + 1) / (df + 1)))
+        for term, df in document_frequency.items()
+    }
+    return SkillSearchCorpus(profiles_by_name=profiles, specificity=specificity)
 
 
 def _choice_match_fields(skill) -> list[str]:
@@ -203,31 +370,55 @@ def _choice_match_fields(skill) -> list[str]:
     return result
 
 
+def _skill_choice(skill, *, active: set[str] | None = None, disabled: set[str] | None = None) -> SkillChoice:
+    return SkillChoice(
+        name=skill.name,
+        display_name=getattr(skill, "display_name", skill.name),
+        slug=_slug(getattr(skill, "display_name", "") or skill.name) or _slug(skill.name),
+        description=getattr(skill, "description", "") or "",
+        active=skill.name in (active or set()),
+        disabled_here=skill.name in (disabled or set()),
+    )
+
+
 def list_skill_choices(thread_id: str = "", *, query: str = "", limit: int | None = None) -> list[SkillChoice]:
     """Return enabled manual runtime skills for channel/app command pickers."""
     query_norm = _normalize(query).replace("-", " ")
     query_compact = query_norm.replace(" ", "").replace("_", "")
+    query_tokens = _tokens(query)
     store = _load_store()
     state = _thread_state(store, thread_id or "default")
     active = set(resolve_active_skill_names(thread_id or "default"))
     disabled = set(state.get("disabled", []))
-    ranked: list[tuple[int, str, SkillChoice]] = []
-    for skill in _available_manual_skills():
+    available_skills = _available_manual_skills()
+    corpus = _build_skill_search_corpus(available_skills)
+    ranked: list[tuple[int, float, str, SkillChoice]] = []
+    for skill in available_skills:
         fields = _choice_match_fields(skill)
         if not query_norm:
             rank = 0
+            score = 0.0
         elif any(query_norm == field or query_compact == field for field in fields):
             rank = 0
+            score = 100.0
         elif any(field.startswith(query_norm) or field.startswith(query_compact) for field in fields):
             rank = 1
-        elif any(query_norm in field or query_compact in field for field in fields):
-            rank = 2
+            score = 80.0
         else:
-            continue
+            score, _reason = _skill_score(skill, query_norm, query_tokens, store.get("telemetry", {}), corpus)
+            if score >= CHOICE_MIN_SCORE:
+                rank = 2
+            elif any(query_norm in field or query_compact in field for field in fields):
+                rank = 3
+                score = 20.0
+            else:
+                continue
         choice = _skill_choice(skill, active=active, disabled=disabled)
-        ranked.append((rank, choice.display_name.lower(), choice))
-    ranked.sort(key=lambda item: (item[0], item[1]))
-    choices = [item[2] for item in ranked]
+        ranked.append((rank, -score, choice.display_name.lower(), choice))
+    ranked.sort(key=lambda item: (item[0], item[1], item[2]))
+    if query_norm and ranked and ranked[0][0] <= 1:
+        ranked = [item for item in ranked if item[0] == ranked[0][0]]
+    choices = [item[3] for item in ranked]
     return choices if limit is None else choices[:limit]
 
 
@@ -531,66 +722,152 @@ def resolve_active_skill_names(
     return [name for name in active if name in manual_names and name not in disabled]
 
 
-def _skill_score(skill, query_norm: str, query_tokens: set[str], telemetry: dict) -> tuple[float, str]:
-    activation = getattr(skill, "activation", {}) or {}
+def _skill_score(
+    skill,
+    query_norm: str,
+    query_tokens: set[str],
+    telemetry: dict,
+    corpus: SkillSearchCorpus | None = None,
+) -> tuple[float, str]:
+    if corpus is None:
+        corpus = _build_skill_search_corpus([skill])
+    profile = corpus.profiles_by_name.get(skill.name) or _build_skill_search_profile(skill)
     negative_matches = [
-        phrase for phrase in activation.get("negative_phrases", [])
+        phrase for phrase in profile.negative_phrases
         if _phrase_matches(query_norm, phrase)
     ]
     if negative_matches:
         return -10.0, "suppressed by " + ", ".join(negative_matches[:2])
 
-    haystack = _tokens(
-        " ".join([
-            skill.name,
-            skill.display_name,
-            skill.description,
-            " ".join(skill.tags or []),
-        ])
-    )
-    overlap = query_tokens & haystack
     score = 0.0
     reasons: list[str] = []
+    source_hits: dict[str, list[str]] = {}
+    source_specificity: dict[str, float] = {}
+    source_scores: dict[str, float] = {}
 
-    phrase_matches = [
-        phrase for phrase in activation.get("phrases", [])
-        if _phrase_matches(query_norm, phrase)
-    ]
-    if phrase_matches:
-        score += 10.0 + 3.0 * min(2, len(phrase_matches) - 1)
-        reasons.append("phrase " + ", ".join(phrase_matches[:2]))
+    phrase_hits: list[tuple[str, str]] = []
+    for raw, normalized, weight, reason in profile.phrases:
+        if normalized and normalized in query_norm:
+            score += weight
+            phrase_hits.append((reason, raw))
+    if phrase_hits:
+        reason, raw = phrase_hits[0]
+        reasons.append(f"matched {reason} {raw}")
 
-    keyword_matches: list[str] = []
-    for keyword in activation.get("keywords", []):
-        keyword_tokens = _tokens(keyword)
-        if not keyword_tokens:
+    overlap = query_tokens & set(profile.weighted_terms)
+    for term in overlap:
+        specificity = corpus.specificity.get(term, 1.0)
+        term_score = profile.weighted_terms.get(term, 0.0) * specificity
+        score += term_score
+        source = profile.term_sources.get(term, "instructions")
+        source_hits.setdefault(source, []).append(term)
+        source_specificity[source] = source_specificity.get(source, 0.0) + specificity
+        source_scores[source] = source_scores.get(source, 0.0) + term_score
+
+    prefix_term_hits: set[str] = set()
+    weighted_terms = set(profile.weighted_terms)
+    for query_token in query_tokens - overlap:
+        if len(query_token) < 5:
             continue
-        if len(keyword_tokens) == 1:
-            if next(iter(keyword_tokens)) in query_tokens:
-                keyword_matches.append(keyword)
-        elif keyword_tokens.issubset(query_tokens) or _phrase_matches(query_norm, keyword):
-            keyword_matches.append(keyword)
-    if keyword_matches:
-        score += 3.0 * min(4, len(keyword_matches))
-        reasons.append("keyword " + ", ".join(keyword_matches[:3]))
-
-    example_matches: list[str] = []
-    for example in activation.get("examples", []):
-        if _phrase_matches(query_norm, example):
-            example_matches.append(example)
+        best: tuple[float, str, str, float] | None = None
+        for term in weighted_terms:
+            if len(term) < 5:
+                continue
+            if not (term.startswith(query_token) or query_token.startswith(term)):
+                continue
+            specificity = corpus.specificity.get(term, 1.0)
+            term_score = profile.weighted_terms.get(term, 0.0) * specificity * 0.65
+            if best is None or term_score > best[0]:
+                best = (term_score, term, profile.term_sources.get(term, "instructions"), specificity)
+        if best is None:
             continue
-        example_tokens = _tokens(example)
-        if example_tokens:
-            ratio = len(query_tokens & example_tokens) / len(example_tokens)
-            if ratio >= 0.55 and len(query_tokens & example_tokens) >= 3:
-                example_matches.append(example)
-    if example_matches:
-        score += 7.0
-        reasons.append("example match")
+        term_score, term, source, specificity = best
+        score += term_score
+        prefix_term_hits.add(term)
+        source_hits.setdefault(source, []).append(term)
+        source_specificity[source] = source_specificity.get(source, 0.0) + specificity * 0.65
+        source_scores[source] = source_scores.get(source, 0.0) + term_score
 
-    if overlap:
-        score += 1.5 * min(3, len(overlap))
-        reasons.append("matches " + ", ".join(sorted(overlap)[:3]))
+    prefix_hits: list[str] = []
+    for query_token in query_tokens:
+        if any(
+            name_term.startswith(query_token)
+            or (len(name_term) >= 4 and query_token.startswith(name_term))
+            for name_term in profile.name_terms
+        ):
+            prefix_hits.append(query_token)
+    if prefix_hits:
+        score += min(20.0, 10.0 * len(set(prefix_hits)))
+        source_hits.setdefault("name", []).extend(prefix_hits)
+        source_specificity["name"] = source_specificity.get("name", 0.0) + 1.2 * len(set(prefix_hits))
+        source_scores["name"] = source_scores.get("name", 0.0) + 10.0 * len(set(prefix_hits))
+
+    if len(overlap) >= 2:
+        score += min(3.0, len(overlap) * 0.45)
+    if query_tokens and query_tokens.issubset(overlap):
+        score += 1.0
+
+    strong_phrase = any(
+        reason in {"activation phrase", "activation keyword", "activation example", "name", "description"}
+        for reason, _raw in phrase_hits
+    )
+    source_names = set(source_hits)
+    matched_terms = overlap | prefix_term_hits
+    specific_terms = {
+        term for term in matched_terms
+        if corpus.specificity.get(term, 1.0) >= 1.35
+    }
+    total_specificity = sum(corpus.specificity.get(term, 1.0) for term in matched_terms)
+    desc_tag_terms = set(source_hits.get("description", [])) | set(source_hits.get("tag", []))
+    heading_terms = set(source_hits.get("heading", []))
+    body_terms = set(source_hits.get("instructions", []))
+
+    name_evidence = source_specificity.get("name", 0.0) >= 1.4
+    activation_terms = set(source_hits.get("activation", []))
+    activation_evidence = (
+        source_specificity.get("activation", 0.0) >= 2.2
+        or (len(activation_terms & specific_terms) >= 2 and source_specificity.get("activation", 0.0) >= 1.4)
+    )
+    desc_tag_evidence = (
+        len(desc_tag_terms) >= 2 and source_specificity.get("description", 0.0) + source_specificity.get("tag", 0.0) >= 2.6
+    )
+    heading_body_evidence = (
+        bool(heading_terms)
+        and len((heading_terms | body_terms | desc_tag_terms) & specific_terms) >= 2
+        and total_specificity >= 3.4
+    )
+    body_only_evidence = (
+        source_names
+        and source_names.issubset({"instructions"})
+        and len(body_terms & specific_terms) >= 2
+        and total_specificity >= 2.75
+    )
+    multi_specific_evidence = len(specific_terms) >= 3 and total_specificity >= 4.2
+    evidence_ok = (
+        strong_phrase
+        or name_evidence
+        or activation_evidence
+        or desc_tag_evidence
+        or heading_body_evidence
+        or body_only_evidence
+        or multi_specific_evidence
+    )
+    if not evidence_ok:
+        return -5.0, "insufficient specific evidence"
+    if body_only_evidence:
+        score += 2.2
+
+    if not reasons and source_hits:
+        best_source = max(
+            source_hits,
+            key=lambda source: (
+                _TERM_SOURCE_PRIORITY.get(source, 0),
+                len(set(source_hits[source])),
+            ),
+        )
+        terms = ", ".join(sorted(set(source_hits[best_source]))[:3])
+        reasons.append(f"matched {best_source} terms {terms}")
+
     skill_meta = telemetry.get("skills", {}).get(skill.name, {})
     accepted = int(skill_meta.get("accepted", 0) or 0)
     dismissed = int(skill_meta.get("dismissed", 0) or 0)
@@ -619,6 +896,8 @@ def suggest_skills(
     query_tokens = _tokens(current_text)
     if not query_tokens:
         return []
+    if _is_generic_query(query_tokens):
+        return []
     active = set(resolve_active_skill_names(thread_id))
     excluded = (
         active
@@ -626,12 +905,14 @@ def suggest_skills(
         | set(state.get("dismissed", []))
         | set(extra_excluded or [])
     )
+    available_skills = _available_manual_skills()
+    corpus = _build_skill_search_corpus(available_skills)
     ranked: list[SuggestedSkill] = []
-    for skill in _available_manual_skills():
+    for skill in available_skills:
         if skill.name in excluded:
             continue
-        score, reason = _skill_score(skill, query_norm, query_tokens, store.get("telemetry", {}))
-        if score < 4.0:
+        score, reason = _skill_score(skill, query_norm, query_tokens, store.get("telemetry", {}), corpus)
+        if score < SUGGESTION_MIN_SCORE:
             continue
         ranked.append(SuggestedSkill(
             name=skill.name,
@@ -642,7 +923,15 @@ def suggest_skills(
             score=round(score, 2),
         ))
     ranked.sort(key=lambda item: (-item.score, item.display_name.lower()))
-    suggestions = ranked[:limit]
+    suggestions: list[SuggestedSkill] = []
+    if ranked:
+        top_score = ranked[0].score
+        min_additional = max(SUGGESTION_MIN_SCORE, round(top_score * ADDITIONAL_SUGGESTION_MIN_RATIO, 2))
+        for item in ranked:
+            if not suggestions or item.score >= min_additional:
+                suggestions.append(item)
+            if len(suggestions) >= limit:
+                break
     if suggestions and trace:
         record_trace(
             thread_id,

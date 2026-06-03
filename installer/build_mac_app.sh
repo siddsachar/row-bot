@@ -155,8 +155,8 @@ cp "$PROJECT_DIR/requirements.txt" "$APP_SRC/"
 mkdir -p "$APP_SRC/scripts"
 cp "$PROJECT_DIR/scripts/verify_runtime_dependencies.py" "$APP_SRC/scripts/"
 
-# Sub-packages (tools, channels, bundled_skills, tool_guides, ui, plugins, designer, developer, utils, providers, mcp_client, migration, buddy)
-for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client migration buddy; do
+# Sub-packages (tools, channels, bundled_skills, tool_guides, ui, plugins, designer, developer, utils, providers, mcp_client, skills_hub, migration, buddy)
+for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client skills_hub migration buddy; do
     if [ -d "$PROJECT_DIR/$pkg" ]; then
         rsync -a \
               --exclude='__pycache__' --exclude='*.pyc' \

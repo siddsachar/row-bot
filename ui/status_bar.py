@@ -53,6 +53,7 @@ _STATUS_ICON_MAP = {
     "Gmail OAuth": "email",
     "Calendar OAuth": "event",
     "X OAuth": "alternate_email",
+    "GitHub": "code",
     "Workflows": "flash_on",
     "Knowledge": "device_hub",
     "Dream Cycle": "brightness_3",

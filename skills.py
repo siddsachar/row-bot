@@ -156,7 +156,7 @@ def _normalize_activation_metadata(value) -> dict[str, list[str]]:
         return {}
     normalized: dict[str, list[str]] = {}
     limits = {
-        "phrases": 5,
+        "phrases": 8,
         "keywords": 12,
         "negative_phrases": 5,
         "examples": 3,
