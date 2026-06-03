@@ -55,6 +55,7 @@ BOT_COMMANDS = [
     BotCommand("help", "Show available commands"),
     BotCommand("newthread", "Start a new conversation"),
     BotCommand("model", "Switch model (cloud/local)"),
+    BotCommand("approval", "Switch approval mode"),
     BotCommand("tools", "List enabled tools"),
     BotCommand("stop", "Stop the current generation"),
     BotCommand("skill", "Use a skill in this conversation"),
@@ -181,6 +182,8 @@ from channels.media_capture import grab_generated_video as _grab_generated_video
 
 def build_channel_runtime_config(config: dict, purpose: str) -> dict:
     """Return a runtime config for Telegram message vs approval surfaces."""
+    from channels.runtime import approval_mode_for_config
+
     if purpose == "approval":
         runtime_surface = "approval"
         runtime_mode = "agent"
@@ -193,6 +196,7 @@ def build_channel_runtime_config(config: dict, purpose: str) -> dict:
             **(config.get("configurable") or {}),
             "runtime_surface": runtime_surface,
             "runtime_mode": runtime_mode,
+            "approval_mode": approval_mode_for_config(config),
         },
     }
 
@@ -635,6 +639,22 @@ async def _cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     context.chat_data["thread_config"] = config
 
     await update.message.reply_text(f"Switched to {canonical.display_label or canonical.ref}")
+
+
+async def _cmd_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /approval for this Telegram conversation."""
+    if not _is_authorised(update):
+        return
+    config = context.chat_data.get("thread_config")
+    if config is None:
+        chat_id = update.effective_chat.id
+        config = _get_or_create_thread(chat_id)
+        context.chat_data["thread_config"] = config
+    thread_id = (config.get("configurable") or {}).get("thread_id", "")
+    args = (update.message.text or "").split(maxsplit=1)
+    arg = args[1] if len(args) > 1 else ""
+    response = ch_commands.cmd_approval("telegram", arg, thread_id=thread_id)
+    await update.message.reply_text(response)
 
 
 async def _cmd_tools(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1338,6 +1358,7 @@ async def start_bot() -> bool:
     _app.add_handler(CommandHandler("help", _cmd_help))
     _app.add_handler(CommandHandler("newthread", _cmd_newthread))
     _app.add_handler(CommandHandler("model", _cmd_model))
+    _app.add_handler(CommandHandler("approval", _cmd_approval))
     _app.add_handler(CommandHandler("tools", _cmd_tools))
     _app.add_handler(CommandHandler("status", _cmd_status))
     _app.add_handler(CommandHandler("stop", _cmd_stop))

@@ -60,7 +60,7 @@ def build_sidebar(
         ``load_thread_messages(thread_id) -> list[dict]`` used to hydrate
         a thread when the user clicks it.
     """
-    from threads import _list_threads, _save_thread_meta, _delete_thread, _get_thread_project_id
+    from threads import _list_threads, _save_thread_meta, _delete_thread, _get_thread_project_id, _get_thread_approval_mode
     from tasks import get_running_tasks, stop_task
     from models import is_cloud_model, get_current_model
     from memory_extraction import set_active_thread
@@ -102,6 +102,8 @@ def build_sidebar(
                 state.active_developer_workspace_id = None
                 state.thread_id = None
                 state.thread_name = None
+                from approval_policy import DEFAULT_APPROVAL_MODE
+                state.thread_approval_mode = DEFAULT_APPROVAL_MODE
                 state.messages = []
                 p.pending_files.clear()
                 set_active_thread(None, previous_id=prev)
@@ -130,6 +132,8 @@ def build_sidebar(
                 state.thread_name = name
                 state.messages = []
                 state.thread_model_override = ""
+                from approval_policy import DEFAULT_APPROVAL_MODE
+                state.thread_approval_mode = DEFAULT_APPROVAL_MODE
                 p.pending_files.clear()
                 set_active_thread(tid, previous_id=prev)
                 rebuild_main(immediate=True, reason="new_thread")
@@ -369,6 +373,7 @@ def build_sidebar(
                 _thread_project_id = _rest[1] if len(_rest) > 1 else ""
                 _thread_type = _rest[2] if len(_rest) > 2 else ""
                 _dev_workspace_id = _rest[3] if len(_rest) > 3 else ""
+                _thread_approval_mode = _rest[4] if len(_rest) > 4 else ""
                 name = name or ""
                 is_active = tid == state.thread_id
                 is_running = tid in running_tids
@@ -377,7 +382,7 @@ def build_sidebar(
                 is_designer_thread = bool(_thread_project_id)
                 is_code_thread = _thread_type == "code" or bool(_dev_workspace_id)
 
-                async def _select(t=tid, n=name, mo=_thread_model_ov, pid=_thread_project_id, dev_ws=_dev_workspace_id):
+                async def _select(t=tid, n=name, mo=_thread_model_ov, pid=_thread_project_id, dev_ws=_dev_workspace_id, app_mode=_thread_approval_mode):
                     from ui.voice_lifecycle import stop_voice_for_thread_change
 
                     stop_voice_for_thread_change(state, p, reason="thread_select")
@@ -406,6 +411,7 @@ def build_sidebar(
                             state.thread_id = t
                             state.thread_name = n
                             state.thread_model_override = mo or ""
+                            state.thread_approval_mode = app_mode or await run.io_bound(_get_thread_approval_mode, t)
                             state.messages = await _load_messages_cached(t)
                             p.pending_files.clear()
                             set_active_thread(t, previous_id=prev)
@@ -426,6 +432,7 @@ def build_sidebar(
                             state.thread_id = t
                             state.thread_name = n
                             state.thread_model_override = mo or ""
+                            state.thread_approval_mode = app_mode or await run.io_bound(_get_thread_approval_mode, t)
                             state.messages = await _load_messages_cached(t)
                             p.pending_files.clear()
                             set_active_thread(t, previous_id=prev)
@@ -438,6 +445,7 @@ def build_sidebar(
                     state.thread_id = t
                     state.thread_name = n
                     state.thread_model_override = mo or ""
+                    state.thread_approval_mode = app_mode or await run.io_bound(_get_thread_approval_mode, t)
                     state.messages = await _load_messages_cached(t)
                     p.pending_files.clear()
                     set_active_thread(t, previous_id=prev)
@@ -468,6 +476,8 @@ def build_sidebar(
                         stop_voice_for_thread_change(state, p, reason="delete_active_thread")
                         state.thread_id = None
                         state.thread_name = None
+                        from approval_policy import DEFAULT_APPROVAL_MODE
+                        state.thread_approval_mode = DEFAULT_APPROVAL_MODE
                         state.messages = []
                         state.active_developer_workspace_id = None
                         rebuild_main()

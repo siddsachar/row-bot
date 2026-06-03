@@ -378,7 +378,7 @@ def test_developer_inspector_uses_snapshot_and_native_file_tree():
     assert "def refresh_snapshot_now" not in snapshot_source
     assert "fingerprint" in snapshot_source
     assert "previous.fingerprint == snapshot.fingerprint" in snapshot_source
-    assert "update_snapshot_approval_mode" in ui_source
+    assert "_get_thread_approval_mode" in snapshot_source
     assert "section_bodies" in ui_source
     assert "def _render_if_changed" in ui_source
     assert "ui.tree(nodes, on_select=_select)" in ui_source

@@ -31,6 +31,136 @@ _model_picker_options_cache: dict[str, Any] = {
     "options": [],
 }
 _model_picker_options_refresh_task: asyncio.Task | None = None
+_composer_css_added = False
+
+
+def ensure_composer_control_css() -> None:
+    """Install shared composer toolbar CSS once per process."""
+
+    global _composer_css_added
+    if _composer_css_added:
+        return
+    ui.add_css(
+        """
+        .thoth-composer-toolbar {
+          min-height: 40px;
+          align-items: center;
+          flex-wrap: nowrap;
+        }
+        .thoth-composer-control-group {
+          height: 34px;
+          min-height: 34px;
+          padding: 2px 6px;
+          border-radius: 999px;
+          border: 1px solid rgba(255,255,255,0.10);
+          background: rgba(255,255,255,0.045);
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+        .thoth-composer-voice-group {
+          height: 34px;
+          min-height: 34px;
+          padding: 2px 4px;
+          border-radius: 999px;
+          border: 1px solid rgba(255,255,255,0.08);
+          background: rgba(255,255,255,0.035);
+          display: flex;
+          align-items: center;
+          gap: 2px;
+        }
+        .thoth-composer-action-group {
+          height: 38px;
+          min-height: 38px;
+          padding: 2px 4px;
+          border-radius: 999px;
+          border: 1px solid rgba(255,255,255,0.10);
+          background: rgba(255,255,255,0.04);
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+        .thoth-composer-icon-button {
+          width: 30px;
+          height: 30px;
+          min-width: 30px;
+          min-height: 30px;
+          align-self: center;
+        }
+        .thoth-composer-icon-button .q-btn__content {
+          min-height: 30px;
+          line-height: 30px;
+        }
+        .thoth-composer-select {
+          height: 30px;
+          min-height: 30px;
+          align-self: center;
+        }
+        .thoth-composer-select .q-field__control {
+          height: 30px !important;
+          min-height: 30px !important;
+          padding: 0 2px !important;
+          align-items: center !important;
+        }
+        .thoth-composer-select .q-field__control-container,
+        .thoth-composer-select .q-field__native,
+        .thoth-composer-select .q-field__input {
+          height: 30px !important;
+          min-height: 30px !important;
+          line-height: 30px !important;
+          padding: 0 !important;
+          align-items: center !important;
+        }
+        .thoth-composer-select .q-field__native span {
+          line-height: 30px !important;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .thoth-composer-select .q-field__append,
+        .thoth-composer-select .q-field__marginal {
+          height: 30px !important;
+          min-height: 30px !important;
+          padding: 0 !important;
+          align-items: center !important;
+        }
+        .thoth-composer-select .q-icon {
+          font-size: 18px;
+          line-height: 30px;
+        }
+        .thoth-composer-separator {
+          height: 20px;
+          opacity: 0.35;
+          align-self: center;
+        }
+        .thoth-composer-left-gap {
+          width: 8px;
+          min-width: 8px;
+          height: 1px;
+        }
+        .thoth-composer-action-divider {
+          width: 1px;
+          height: 22px;
+          margin: 0 3px;
+          background: rgba(255,255,255,0.16);
+        }
+        .thoth-composer-send-button,
+        .thoth-composer-stop-button {
+          width: 34px;
+          height: 34px;
+          min-width: 34px;
+          min-height: 34px;
+          align-self: center;
+          box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+        }
+        .thoth-composer-send-button .q-btn__content,
+        .thoth-composer-stop-button .q-btn__content {
+          min-height: 34px;
+          line-height: 34px;
+        }
+        """
+    )
+    _composer_css_added = True
 
 
 async def _submit_voice_transcript(send_fn: Callable, text: str) -> None:
@@ -332,6 +462,8 @@ def build_chat_input_bar(
     on_model_switch
         Called after the thread model override changes.
     """
+    ensure_composer_control_css()
+
     # Attach handler
     async def _on_attach():
         if (sys.platform == "darwin" and os.environ.get("THOTH_NATIVE") == "1"
@@ -470,19 +602,20 @@ def build_chat_input_bar(
             if p.stop_btn:
                 p.stop_btn.props('icon=hourglass_top')
 
-        # Bottom bar: attach, model picker, voice, spacer, send, stop
-        with ui.row().classes("w-full items-center q-px-sm q-pb-sm q-pt-none gap-1"):
+        # Bottom bar: attach, model/approval, voice, spacer, send, stop
+        with ui.row().classes("w-full thoth-composer-toolbar q-px-sm q-pb-sm q-pt-none gap-1"):
             ui.button(icon="attach_file", on_click=_on_attach).props(
                 "flat round dense size=sm"
-            ).tooltip("Attach files")
+            ).classes("thoth-composer-icon-button").tooltip("Attach files")
 
-            # Inline model picker
-            if show_model_picker:
-                _build_inline_model_picker(
-                    state,
-                    open_settings=open_settings,
-                    on_model_switch=on_model_switch,
-                )
+            ui.element("div").classes("thoth-composer-left-gap")
+
+            build_composer_policy_cluster(
+                state,
+                open_settings=open_settings,
+                show_model_picker=show_model_picker,
+                on_model_switch=on_model_switch,
+            )
             from ui.voice_realtime_events import make_realtime_event_handler
 
             _on_realtime_event = make_realtime_event_handler(
@@ -509,7 +642,7 @@ def build_chat_input_bar(
                 state.voice_enabled = True
                 state.voice_coordinator.start_talk()
                 if p.dictate_btn:
-                    p.dictate_btn.props("color=grey")
+                    _set_dictate_button_active(p, False)
 
             def _start_realtime_talk() -> None:
                 from voice.openai_realtime import OpenAIRealtimeProvider
@@ -525,15 +658,14 @@ def build_chat_input_bar(
                         ui.notify(status.reason, type="negative", close_button=True)
                         state.voice_enabled = False
                         if p.voice_switch:
-                            p.voice_switch.value = False
-                            p.voice_switch.update()
+                            _set_talk_button_active(p, False)
                     return
                 state.voice_input_mode = "talk"
                 state.voice_enabled = True
                 _register_active_voice_binding()
                 session_id = state.voice_coordinator.start_realtime_talk()
                 if p.dictate_btn:
-                    p.dictate_btn.props("color=grey")
+                    _set_dictate_button_active(p, False)
                 delivered = run_realtime_client_js(
                     p,
                     start_realtime_client_js(
@@ -546,8 +678,7 @@ def build_chat_input_bar(
                     state.voice_enabled = False
                     state.voice_coordinator.stop()
                     if p.voice_switch:
-                        p.voice_switch.value = False
-                        p.voice_switch.update()
+                        _set_talk_button_active(p, False)
 
             def _stop_talk() -> None:
                 from voice.realtime_client import stop_realtime_client_js
@@ -562,14 +693,16 @@ def build_chat_input_bar(
                     binding.clear()
                 p.active_voice_binding = None
 
-            def _toggle_voice(e):
-                if e.value:
+            def _toggle_voice():
+                if not (state.voice_enabled and state.voice_input_mode == "talk"):
                     if state.voice_runtime_settings.talk_provider == "openai_realtime":
                         _start_realtime_talk()
                     else:
                         _start_local_talk()
+                    _set_talk_button_active(p, state.voice_enabled and state.voice_input_mode == "talk")
                 elif state.voice_input_mode == "talk":
                     _stop_talk()
+                    _set_talk_button_active(p, False)
 
             def _toggle_dictate():
                 if state.voice_enabled and state.voice_input_mode == "dictate":
@@ -580,36 +713,113 @@ def build_chat_input_bar(
                         binding.clear()
                     p.active_voice_binding = None
                     if p.dictate_btn:
-                        p.dictate_btn.props("color=grey")
+                        _set_dictate_button_active(p, False)
                     return
                 state.voice_input_mode = "dictate"
                 state.voice_enabled = True
                 _register_active_voice_binding()
                 state.voice_coordinator.start_dictation()
                 if p.voice_switch:
-                    p.voice_switch.value = False
-                    p.voice_switch.update()
+                    _set_talk_button_active(p, False)
                 if p.dictate_btn:
-                    p.dictate_btn.props("color=primary")
+                    _set_dictate_button_active(p, True)
 
-            p.voice_switch = ui.switch("Talk", value=state.voice_enabled and state.voice_input_mode == "talk", on_change=_toggle_voice).classes("text-xs")
-            p.dictate_btn = ui.button("Dictate", icon="keyboard_voice", on_click=_toggle_dictate).props(
-                f"flat dense no-caps color={'primary' if state.voice_enabled and state.voice_input_mode == 'dictate' else 'grey'}"
-            ).tooltip("Dictate into the composer")
             p.voice_status_label = ui.label("").classes("text-xs text-grey-6")
 
             ui.space()
 
-            ui.button(icon="send", on_click=_on_send).props(
-                "color=primary round dense size=sm"
-            ).tooltip("Send")
+            with ui.row().classes("items-center thoth-composer-action-group"):
+                with ui.row().classes("items-center thoth-composer-voice-group"):
+                    p.voice_switch = ui.button(icon="record_voice_over", on_click=_toggle_voice).props(
+                        "flat round dense size=sm"
+                    ).classes("thoth-composer-icon-button").tooltip("Talk")
+                    p.voice_switch.value = False
+                    _set_talk_button_active(p, state.voice_enabled and state.voice_input_mode == "talk")
+                    p.dictate_btn = ui.button(icon="keyboard_voice", on_click=_toggle_dictate).props(
+                        "flat round dense size=sm"
+                    ).classes("thoth-composer-icon-button").tooltip("Dictate into the composer")
+                    p.dictate_btn.value = False
+                    _set_dictate_button_active(p, state.voice_enabled and state.voice_input_mode == "dictate")
 
-            p.stop_btn = ui.button(icon="stop", on_click=_on_stop).props(
-                "round dense size=sm"
-            ).tooltip("Stop generation")
+                ui.element("div").classes("thoth-composer-action-divider")
+
+                ui.button(icon="send", on_click=_on_send).props(
+                    "color=primary round dense size=sm"
+                ).classes("thoth-composer-send-button").tooltip("Send")
+
+                p.stop_btn = ui.button(icon="stop", on_click=_on_stop).props(
+                    "round dense size=sm"
+                ).classes("thoth-composer-stop-button").tooltip("Stop generation")
             _has_active = state.thread_id in _active_generations
             if not _has_active:
                 p.stop_btn.disable()
+
+
+def _compact_select_style(*, min_width: int, max_width: int) -> str:
+    return (
+        f"min-width: {min_width}px; max-width: {max_width}px; "
+        "height: 30px; --q-field-padding: 0;"
+    )
+
+
+def _set_talk_button_active(p: P, active: bool) -> None:
+    button = getattr(p, "voice_switch", None)
+    if not button:
+        return
+    button.value = bool(active)
+    button.props(
+        "color=primary icon=graphic_eq unelevated"
+        if active
+        else "color=blue-grey-3 icon=record_voice_over"
+    )
+    try:
+        button.update()
+    except Exception:
+        logger.debug("Could not update Talk button state", exc_info=True)
+
+
+def _set_dictate_button_active(p: P, active: bool) -> None:
+    button = getattr(p, "dictate_btn", None)
+    if not button:
+        return
+    button.value = bool(active)
+    button.props(
+        "color=primary icon=keyboard_voice unelevated"
+        if active
+        else "color=blue-grey-3 icon=keyboard_voice"
+    )
+    try:
+        button.update()
+    except Exception:
+        logger.debug("Could not update Dictate button state", exc_info=True)
+
+
+def build_composer_policy_cluster(
+    state: AppState,
+    *,
+    open_settings: Callable | None = None,
+    show_model_picker: bool = True,
+    on_model_switch: Callable | None = None,
+    generation_getter: Callable[[], int] | None = None,
+    shell_generation: int | None = None,
+) -> None:
+    """Render the compact model and approval controls as one composer cluster."""
+
+    ensure_composer_control_css()
+
+    with ui.row().classes("items-center thoth-composer-control-group"):
+        if show_model_picker:
+            ui.icon("hub", size="18px").classes("text-grey-5")
+            _build_inline_model_picker(
+                state,
+                open_settings=open_settings,
+                on_model_switch=on_model_switch,
+                generation_getter=generation_getter,
+                shell_generation=shell_generation,
+            )
+            ui.separator().props("vertical").classes("thoth-composer-separator")
+        ui.icon("shield", size="18px").classes("text-grey-5")
+        _build_inline_approval_picker(state)
 
 
 def _build_inline_model_picker(
@@ -636,7 +846,7 @@ def _build_inline_model_picker(
     _cur_default = get_current_model()
     _cur_default_value = model_choice_value(_cur_default)
     _default_opt = "__default__"
-    _picker_opts = {_default_opt: f"Default - {_cur_default}"}
+    _picker_opts = {_default_opt: f"Default - {model_id_from_choice_value(_cur_default_value) or _cur_default}"}
 
     _cur_mo = state.thread_model_override or ""
     _cur_mo_value = model_choice_value(_cur_mo)
@@ -671,7 +881,7 @@ def _build_inline_model_picker(
             if value != _cur_mo_value:
                 _loaded_picker_values.add(value)
         if open_settings:
-            _picker_opts[_MORE_MODELS_SENTINEL] = _MORE_MODELS_SENTINEL
+            _picker_opts[_MORE_MODELS_SENTINEL] = "More models..."
 
     cached_options = _get_cached_model_picker_options()
     _cached_picker_stale = True
@@ -749,8 +959,8 @@ def _build_inline_model_picker(
         options=_picker_opts,
         value=_picker_val,
         on_change=_on_model_pick,
-    ).props("dense borderless use-input input-debounce=300").classes("text-xs").style(
-        "min-width: 140px; max-width: 220px;"
+    ).props("dense borderless options-dense hide-bottom-space").classes("text-xs thoth-composer-select").style(
+        _compact_select_style(min_width=170, max_width=260)
     ).tooltip("Select model for this thread")
 
     async def _load_picker_options() -> None:
@@ -798,9 +1008,46 @@ def _build_inline_model_picker(
             _picker_opts.pop(_LOADING_MODELS_SENTINEL, None)
             _picker_opts[_MODELS_UNAVAILABLE_SENTINEL] = "Pinned models unavailable"
             if open_settings:
-                _picker_opts[_MORE_MODELS_SENTINEL] = _MORE_MODELS_SENTINEL
+                _picker_opts[_MORE_MODELS_SENTINEL] = "More models..."
             _select.options = dict(_picker_opts)
             _select.update()
 
     if cached_options is None or _cached_picker_stale:
         defer_ui(_load_picker_options, delay=0.05)
+
+
+def _build_inline_approval_picker(state: AppState) -> None:
+    """Compact approval-mode picker rendered inside the input bar."""
+    from agent import clear_agent_cache
+    from approval_policy import DEFAULT_APPROVAL_MODE, approval_label, normalize_approval_mode
+    from threads import _set_thread_approval_mode
+
+    options = {
+        "block": "Block",
+        "approve": "Ask",
+        "allow_all": "Auto",
+    }
+    current = normalize_approval_mode(
+        getattr(state, "thread_approval_mode", "") or DEFAULT_APPROVAL_MODE,
+        DEFAULT_APPROVAL_MODE,
+    )
+    state.thread_approval_mode = current
+
+    async def _on_pick(e) -> None:
+        val = normalize_approval_mode(e.value, current)
+        if val == getattr(state, "thread_approval_mode", DEFAULT_APPROVAL_MODE):
+            return
+        state.thread_approval_mode = val
+        if state.thread_id:
+            await run.io_bound(_set_thread_approval_mode, state.thread_id, val)
+        clear_agent_cache()
+        e.sender.set_value(val)
+        ui.notify(f"Approval mode: {approval_label(val)}", type="info")
+
+    ui.select(
+        options=options,
+        value=current,
+        on_change=_on_pick,
+    ).props("dense borderless options-dense hide-bottom-space").classes("text-xs thoth-composer-select").style(
+        _compact_select_style(min_width=78, max_width=104)
+    ).tooltip("Approval mode for this thread")

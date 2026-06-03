@@ -4,14 +4,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
+from approval_policy import ApprovalMode, DEFAULT_APPROVAL_MODE, legacy_developer_mode_to_approval_mode
 
-ApprovalMode = Literal["read_only", "ask", "auto_edit", "agent_run"]
+
 TodoStatus = Literal["pending", "in_progress", "completed", "blocked"]
 ExecutionMode = Literal["local", "docker"]
 SandboxNetworkPolicy = Literal["off", "ask", "on"]
 
 
-DEFAULT_APPROVAL_MODE: ApprovalMode = "ask"
 DEFAULT_EXECUTION_MODE: ExecutionMode = "local"
 DEFAULT_SANDBOX_NETWORK: SandboxNetworkPolicy = "off"
 DEFAULT_SANDBOX_IMAGE = "nikolaik/python-nodejs:python3.11-nodejs20"
@@ -62,8 +62,7 @@ class DeveloperWorkspace:
         allowed = set(cls.__dataclass_fields__)
         values = {k: v for k, v in data.items() if k in allowed}
         ws = cls(**values)
-        if ws.approval_mode not in {"read_only", "ask", "auto_edit", "agent_run"}:
-            ws.approval_mode = DEFAULT_APPROVAL_MODE
+        ws.approval_mode = legacy_developer_mode_to_approval_mode(ws.approval_mode)
         if ws.execution_mode not in {"local", "docker"}:
             ws.execution_mode = DEFAULT_EXECUTION_MODE
         if ws.sandbox_network not in {"off", "ask", "on"}:

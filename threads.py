@@ -9,6 +9,8 @@ import time
 import gc
 from datetime import datetime, timedelta
 
+from approval_policy import DEFAULT_APPROVAL_MODE, normalize_approval_mode
+
 logger = logging.getLogger(__name__)
 
 # Store data in %APPDATA%/Thoth (writable even when app is in Program Files)
@@ -31,6 +33,7 @@ _THREAD_META_COLUMNS = {
     "project_id": "TEXT DEFAULT ''",
     "thread_type": "TEXT DEFAULT ''",
     "developer_workspace_id": "TEXT DEFAULT ''",
+    "approval_mode": "TEXT DEFAULT ''",
 }
 
 
@@ -65,7 +68,7 @@ def _list_threads(*, include_details: bool = False):
         rows = conn.execute(
             "SELECT thread_id, name, created_at, updated_at, COALESCE(model_override, ''), "
             "COALESCE(project_id, ''), COALESCE(thread_type, ''), "
-            "COALESCE(developer_workspace_id, '') "
+            "COALESCE(developer_workspace_id, ''), COALESCE(approval_mode, '') "
             "FROM thread_meta ORDER BY updated_at DESC"
         ).fetchall()
     else:
@@ -230,6 +233,37 @@ def _set_thread_developer_workspace(thread_id: str, workspace_id: str) -> None:
     conn.execute(
         "UPDATE thread_meta SET developer_workspace_id = ? WHERE thread_id = ?",
         (workspace_id, thread_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _get_thread_approval_mode_raw(thread_id: str) -> str:
+    """Return the stored thread approval mode without applying defaults."""
+    _ensure_thread_db()
+    conn = sqlite3.connect(DB_PATH)
+    row = conn.execute(
+        "SELECT COALESCE(approval_mode, '') FROM thread_meta WHERE thread_id = ?",
+        (thread_id,),
+    ).fetchone()
+    conn.close()
+    return str(row[0] or "") if row else ""
+
+
+def _get_thread_approval_mode(thread_id: str) -> str:
+    """Return the shared approval mode for a thread."""
+    raw = _get_thread_approval_mode_raw(thread_id)
+    return normalize_approval_mode(raw, DEFAULT_APPROVAL_MODE)
+
+
+def _set_thread_approval_mode(thread_id: str, mode: str) -> None:
+    """Persist the shared approval mode for a thread."""
+    _ensure_thread_db()
+    normalized = normalize_approval_mode(mode, DEFAULT_APPROVAL_MODE)
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "UPDATE thread_meta SET approval_mode = ? WHERE thread_id = ?",
+        (normalized, thread_id),
     )
     conn.commit()
     conn.close()

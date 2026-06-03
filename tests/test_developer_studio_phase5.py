@@ -56,7 +56,7 @@ def test_developer_runtime_policy_blocks_without_running(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    result = runtime.run_workspace_command(str(repo), "python --version", "read_only")
+    result = runtime.run_workspace_command(str(repo), "python -m pip install sampleproject", "block")
 
     assert result.ran is False
     assert result.decision.decision == "block"
@@ -83,7 +83,7 @@ def test_developer_runtime_requires_approval_for_install(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    result = runtime.run_workspace_command(str(repo), "python -m pip install sampleproject", "auto_edit")
+    result = runtime.run_workspace_command(str(repo), "python -m pip install sampleproject", "approve")
 
     assert result.ran is False
     assert result.decision.decision == "ask"
@@ -96,12 +96,12 @@ def test_developer_shell_command_records_file_side_effects(tmp_path, monkeypatch
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init"], cwd=str(repo), check=True, capture_output=True, text=True)
-    command = "python -c \"from pathlib import Path; Path('created.txt').write_text('hello\\n', encoding='utf-8')\""
+    command = "python -c \"from pathlib import Path; Path('created.txt').write_text('hello\\n', encoding='utf-8'); print('httpx. marker')\""
 
     blocked = runtime.run_workspace_shell_command(
         str(repo),
         command,
-        "auto_edit",
+        "approve",
         workspace_id="ws-1",
         thread_id="thread-1",
     )
@@ -111,7 +111,7 @@ def test_developer_shell_command_records_file_side_effects(tmp_path, monkeypatch
     result = runtime.run_workspace_shell_command(
         str(repo),
         command,
-        "auto_edit",
+        "approve",
         workspace_id="ws-1",
         thread_id="thread-1",
         confirmed=True,

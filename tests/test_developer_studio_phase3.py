@@ -29,7 +29,7 @@ def test_developer_agent_context_is_compact_and_policy_aware(tmp_path, monkeypat
 
     assert "[Developer Studio context]" in context
     assert f"Path: {repo.resolve()}" in context
-    assert "Approval mode: auto_edit" in context
+    assert "Approval mode: allow_all" in context
     assert "explicit destination" in context
     assert "- app.py" in context
     assert "- src/" in context

@@ -38,6 +38,7 @@ COMMANDS: list[ChannelCommand] = [
     ChannelCommand("/new",    "Start a new conversation thread", "cmd_new"),
     ChannelCommand("/status", "Show agent status",               "cmd_status"),
     ChannelCommand("/model",  "Show or switch the active model", "cmd_model"),
+    ChannelCommand("/approval", "Show or switch approval mode",  "cmd_approval"),
     ChannelCommand("/help",   "List available commands",         "cmd_help"),
     ChannelCommand("/tools",  "List enabled tools",              "cmd_tools"),
     ChannelCommand("/skill",  "Use a skill in this conversation", "cmd_skill"),
@@ -57,6 +58,7 @@ SKILL_COMMAND_TOKENS = {
 }
 
 RESET_COMMAND_TOKENS = {"/skill-reset", "/skillreset", "/skill_reset"}
+APPROVAL_COMMAND_TOKENS = {"/approval", "/approvals"}
 
 
 def command_token(text: str) -> str:
@@ -69,7 +71,7 @@ def command_token(text: str) -> str:
 
 def is_thread_scoped_command(text: str) -> bool:
     """Return True when a channel command needs the conversation thread id."""
-    return command_token(text) in SKILL_COMMAND_TOKENS
+    return command_token(text) in SKILL_COMMAND_TOKENS | APPROVAL_COMMAND_TOKENS
 
 
 def normalize_skill_command_text(text: str) -> str:
@@ -175,6 +177,40 @@ def cmd_model(channel_name: str, arg: str = "") -> str:
         "per-conversation model overrides through the shared command path. "
         "Configure the model in Thoth."
     )
+
+
+def cmd_approval(channel_name: str, arg: str = "", *, thread_id: str | None = None) -> str:
+    """Handle ``/approval [block|ask|auto]`` for channel conversations."""
+    if not thread_id:
+        return f"{channel_name} could not identify the current conversation thread."
+    try:
+        from approval_policy import approval_label, normalize_approval_mode
+        from threads import _get_thread_approval_mode, _set_thread_approval_mode
+        from agent import clear_agent_cache
+    except Exception as exc:
+        return f"Could not inspect approval mode: {exc}"
+
+    raw = str(arg or "").strip().lower()
+    aliases = {
+        "ask": "approve",
+        "approve": "approve",
+        "approval": "approve",
+        "block": "block",
+        "blocked": "block",
+        "auto": "allow_all",
+        "allow": "allow_all",
+        "allow_all": "allow_all",
+        "allow-all": "allow_all",
+    }
+    if not raw:
+        mode = _get_thread_approval_mode(thread_id)
+        return f"Current approval mode: **{approval_label(mode)}** (`{mode}`)."
+    mode = normalize_approval_mode(aliases.get(raw, raw), "")
+    if mode not in {"block", "approve", "allow_all"}:
+        return "Usage: `/approval block`, `/approval ask`, or `/approval auto`."
+    _set_thread_approval_mode(thread_id, mode)
+    clear_agent_cache()
+    return f"Approval mode set to **{approval_label(mode)}** (`{mode}`)."
 
 
 def cmd_help(channel_name: str) -> str:
@@ -323,6 +359,9 @@ def dispatch(
             thread_id=thread_id,
             enabled_tool_names=enabled_tool_names,
         )
+
+    if cmd in APPROVAL_COMMAND_TOKENS:
+        return cmd_approval(channel_name, arg, thread_id=thread_id)
 
     handler = _HANDLER_MAP.get(cmd)
     if handler is None:

@@ -1371,14 +1371,22 @@ def build_chat(
             if p.stop_btn:
                 p.stop_btn.props('icon=hourglass_top')
 
-        # Bottom bar inside card: attach, voice, spacer, send, stop
-        with ui.row().classes("w-full items-center q-px-sm q-pb-sm q-pt-none gap-1"):
+        # Bottom bar inside card: attach, model/approval, voice, spacer, send, stop
+        with ui.row().classes("w-full thoth-composer-toolbar q-px-sm q-pb-sm q-pt-none gap-1"):
             ui.button(icon="attach_file", on_click=_on_attach).props(
                 "flat round dense size=sm"
-            ).tooltip("Attach files")
+            ).classes("thoth-composer-icon-button").tooltip("Attach files")
 
-            from ui.chat_components import _build_inline_model_picker
-            _build_inline_model_picker(
+            ui.element("div").classes("thoth-composer-left-gap")
+
+            from ui.chat_components import (
+                _set_dictate_button_active,
+                _set_talk_button_active,
+                build_composer_policy_cluster,
+                ensure_composer_control_css,
+            )
+            ensure_composer_control_css()
+            build_composer_policy_cluster(
                 state,
                 open_settings=open_settings,
                 on_model_switch=_refresh_model_surface,
@@ -1410,7 +1418,7 @@ def build_chat(
                 state.voice_enabled = True
                 state.voice_coordinator.start_talk()
                 if p.dictate_btn:
-                    p.dictate_btn.props("color=grey")
+                    _set_dictate_button_active(p, False)
 
             def _start_realtime_talk() -> None:
                 from voice.openai_realtime import OpenAIRealtimeProvider
@@ -1426,14 +1434,13 @@ def build_chat(
                         ui.notify(status.reason, type="negative", close_button=True)
                         state.voice_enabled = False
                         if p.voice_switch:
-                            p.voice_switch.value = False
-                            p.voice_switch.update()
+                            _set_talk_button_active(p, False)
                     return
                 state.voice_input_mode = "talk"
                 state.voice_enabled = True
                 session_id = state.voice_coordinator.start_realtime_talk()
                 if p.dictate_btn:
-                    p.dictate_btn.props("color=grey")
+                    _set_dictate_button_active(p, False)
                 delivered = run_realtime_client_js(
                     p,
                     start_realtime_client_js(
@@ -1446,8 +1453,7 @@ def build_chat(
                     state.voice_enabled = False
                     state.voice_coordinator.stop()
                     if p.voice_switch:
-                        p.voice_switch.value = False
-                        p.voice_switch.update()
+                        _set_talk_button_active(p, False)
 
             def _stop_talk() -> None:
                 from voice.realtime_client import stop_realtime_client_js
@@ -1458,41 +1464,57 @@ def build_chat(
                 state.voice_enabled = False
                 state.voice_coordinator.stop()
 
-            def _toggle_voice(e):
-                if e.value:
+            def _toggle_voice():
+                if not (state.voice_enabled and state.voice_input_mode == "talk"):
                     if state.voice_runtime_settings.talk_provider == "openai_realtime":
                         _start_realtime_talk()
                     else:
                         _start_local_talk()
+                    _set_talk_button_active(p, state.voice_enabled and state.voice_input_mode == "talk")
                 elif state.voice_input_mode == "talk":
                     _stop_talk()
+                    _set_talk_button_active(p, False)
             def _toggle_dictate():
                 if state.voice_enabled and state.voice_input_mode == "dictate":
                     state.voice_enabled = False
                     state.voice_coordinator.stop()
                     if p.dictate_btn:
-                        p.dictate_btn.props("color=grey")
+                        _set_dictate_button_active(p, False)
                     return
                 state.voice_input_mode = "dictate"
                 state.voice_enabled = True
                 state.voice_coordinator.start_dictation()
                 if p.voice_switch:
-                    p.voice_switch.value = False
-                    p.voice_switch.update()
+                    _set_talk_button_active(p, False)
                 if p.dictate_btn:
-                    p.dictate_btn.props("color=primary")
+                    _set_dictate_button_active(p, True)
 
-            p.voice_switch = ui.switch("Talk", value=state.voice_enabled and state.voice_input_mode == "talk", on_change=_toggle_voice).classes("text-xs")
-            p.dictate_btn = ui.button("Dictate", icon="keyboard_voice", on_click=_toggle_dictate).props(
-                f"flat dense no-caps color={'primary' if state.voice_enabled and state.voice_input_mode == 'dictate' else 'grey'}"
-            ).tooltip("Dictate into the composer")
             p.voice_status_label = ui.label("").classes("text-xs text-grey-6")
 
             ui.space()  # push right-side items to the right
 
-            ui.button(icon="send", on_click=_on_send).props("color=primary round dense size=sm").tooltip("Send")
+            with ui.row().classes("items-center thoth-composer-action-group"):
+                with ui.row().classes("items-center thoth-composer-voice-group"):
+                    p.voice_switch = ui.button(icon="record_voice_over", on_click=_toggle_voice).props(
+                        "flat round dense size=sm"
+                    ).classes("thoth-composer-icon-button").tooltip("Talk")
+                    p.voice_switch.value = False
+                    _set_talk_button_active(p, state.voice_enabled and state.voice_input_mode == "talk")
+                    p.dictate_btn = ui.button(icon="keyboard_voice", on_click=_toggle_dictate).props(
+                        "flat round dense size=sm"
+                    ).classes("thoth-composer-icon-button").tooltip("Dictate into the composer")
+                    p.dictate_btn.value = False
+                    _set_dictate_button_active(p, state.voice_enabled and state.voice_input_mode == "dictate")
 
-            p.stop_btn = ui.button(icon="stop", on_click=_on_stop).props("round dense size=sm").tooltip("Stop generation")
+                ui.element("div").classes("thoth-composer-action-divider")
+
+                ui.button(icon="send", on_click=_on_send).props(
+                    "color=primary round dense size=sm"
+                ).classes("thoth-composer-send-button").tooltip("Send")
+
+                p.stop_btn = ui.button(icon="stop", on_click=_on_stop).props(
+                    "round dense size=sm"
+                ).classes("thoth-composer-stop-button").tooltip("Stop generation")
             _has_active = state.thread_id in _active_generations
             if not _has_active:
                 p.stop_btn.disable()

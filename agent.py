@@ -13,6 +13,8 @@ from langgraph.types import interrupt, Command
 from threads import pick_or_create_thread, checkpointer
 import logging
 
+from approval_policy import DEFAULT_APPROVAL_MODE, decision_for_action, normalize_approval_mode
+
 logger = logging.getLogger(__name__)
 
 
@@ -398,6 +400,7 @@ def _agent_runtime_diagnostics(config: dict | None = None, model_label: str | No
         "thread_id": str(configurable.get("thread_id") or "")[:8],
         "runtime_surface": configurable.get("runtime_surface"),
         "runtime_mode": configurable.get("runtime_mode"),
+        "approval_mode": normalize_approval_mode(configurable.get("approval_mode"), DEFAULT_APPROVAL_MODE),
         "recursion_limit": cfg.get("recursion_limit"),
         "recursion_limit_type": type(cfg.get("recursion_limit")).__name__,
     }
@@ -725,6 +728,7 @@ def _agent_runtime_system_context() -> str:
         "Use the provided tool interface when a tool is needed or explicitly requested. "
         "Do not claim this turn is Chat Only, and do not claim tools or long-term "
         "memory are unavailable because of older transcript messages. "
+        f"Approval mode for action-capable tools: {get_approval_mode()}. "
         f"{tool_line}"
     )
 # Extra tokens to account for content injected by _pre_model_trim that is NOT
@@ -1786,6 +1790,9 @@ _current_requested_runtime_mode_var: _contextvars.ContextVar[str] = _contextvars
 _current_selected_runtime_mode_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
     "current_selected_runtime_mode", default=""
 )
+_approval_mode_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
+    "approval_mode", default=DEFAULT_APPROVAL_MODE
+)
 _current_runtime_reason_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
     "current_runtime_reason", default=""
 )
@@ -1808,6 +1815,7 @@ def get_active_runtime_context() -> dict:
         "runtime_surface": _current_runtime_surface_var.get(""),
         "requested_runtime_mode": _current_requested_runtime_mode_var.get(""),
         "selected_runtime_mode": _current_selected_runtime_mode_var.get(""),
+        "approval_mode": get_approval_mode(),
         "runtime_reason": _current_runtime_reason_var.get(""),
         "model_override": _model_override_var.get(""),
         "enabled_tool_names": tuple(_current_enabled_tool_names_var.get(()) or ()),
@@ -1820,6 +1828,7 @@ def _set_active_runtime_context(
     runtime_surface: str = "",
     requested_runtime_mode: str = "",
     selected_runtime_mode: str = "",
+    approval_mode: str = DEFAULT_APPROVAL_MODE,
     runtime_reason: str = "",
     model_override: str = "",
     enabled_tool_names: list[str] | tuple[str, ...] | None = None,
@@ -1828,6 +1837,7 @@ def _set_active_runtime_context(
     _current_runtime_surface_var.set(runtime_surface or "")
     _current_requested_runtime_mode_var.set(requested_runtime_mode or "")
     _current_selected_runtime_mode_var.set(selected_runtime_mode or "")
+    _approval_mode_var.set(normalize_approval_mode(approval_mode, DEFAULT_APPROVAL_MODE))
     _current_runtime_reason_var.set(runtime_reason or "")
     _model_override_var.set(model_override or "")
     _current_enabled_tool_names_var.set(tuple(enabled_tool_names or ()))
@@ -1872,19 +1882,20 @@ _model_override_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
     "model_override", default=""
 )
 
-# ContextVar for task safety mode — propagates to tool executor threads
-# so self-gating tools (shell, gmail, etc.) can enforce per-task safety.
-# Values: "block" | "approve" | "allow_all" | "" (not in a task)
-_safety_mode_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
-    "safety_mode", default=""
-)
+# Compatibility alias for older workflow code paths that still import the old
+# safety-mode variable name. The value is the shared approval mode.
+_safety_mode_var = _approval_mode_var
+
+
+def get_approval_mode() -> str:
+    """Return the active shared approval mode for the current execution context."""
+
+    return normalize_approval_mode(_approval_mode_var.get(DEFAULT_APPROVAL_MODE), DEFAULT_APPROVAL_MODE)
 
 
 def get_safety_mode() -> str:
-    """Return the active safety mode for the current execution context.
-
-    Returns ``""`` when not running inside a background task."""
-    return _safety_mode_var.get()
+    """Compatibility alias for the active shared approval mode."""
+    return get_approval_mode()
 
 
 def is_background_workflow() -> bool:
@@ -2188,10 +2199,18 @@ def _wrap_with_interrupt_gate(tool) -> None:
                 args_str = repr(args[0]) if len(args) == 1 else repr(args)
                 if kwargs:
                     args_str += ", " + ", ".join(f"{k}={v!r}" for k, v in kwargs.items())
+            decision = decision_for_action(get_approval_mode())
+            if decision == "block":
+                return (f"BLOCKED: '{_label}' is unavailable while this "
+                        "thread is in Block approval mode. Do NOT retry this "
+                        "tool. Inform the user that this action was skipped "
+                        "and move on.")
+            if decision == "allow":
+                return _fn(*args, **kwargs)
             # In background workflows with block mode, refuse outright.
             # approve mode: fall through to interrupt() so the pipeline
             # can pause and let the user decide.
-            if _background_workflow_var.get() and _safety_mode_var.get() != "approve":
+            if False:
                 return (f"⚠️ BLOCKED: '{_label}' requires user confirmation "
                         "and cannot run in a background workflow. "
                         "Do NOT retry this tool. Inform the user that this "
@@ -2213,7 +2232,15 @@ def _wrap_with_interrupt_gate(tool) -> None:
 
         def _gated_run(*args, _fn=_orig, _label=label, _tname=tool.name, **kwargs):
             args_str = ", ".join(f"{k}={v!r}" for k, v in kwargs.items())
-            if _background_workflow_var.get() and _safety_mode_var.get() != "approve":
+            decision = decision_for_action(get_approval_mode())
+            if decision == "block":
+                return (f"BLOCKED: '{_label}' is unavailable while this "
+                        "thread is in Block approval mode. Do NOT retry this "
+                        "tool. Inform the user that this action was skipped "
+                        "and move on.")
+            if decision == "allow":
+                return _fn(*args, **kwargs)
+            if False:
                 return (f"⚠️ BLOCKED: '{_label}' requires user confirmation "
                         "and cannot run in a background workflow. "
                         "Do NOT retry this tool. Inform the user that this "
@@ -2445,7 +2472,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
     llm = get_llm_for(model_label) if use_override else get_llm()
 
     is_background = _background_workflow_var.get()
-    _mode = _safety_mode_var.get() if is_background else ""
+    approval_mode = get_approval_mode()
     effective_context = get_context_size(model_label)
     cache_key = frozenset(enabled_tool_names) | frozenset({
         f"ctx:{effective_context}",
@@ -2454,7 +2481,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
         f"runtime:{readiness.runtime_model}",
         f"ready:{readiness.capability_source}:{readiness.confidence}",
         f"bg:{is_background}",
-        f"safety:{_mode}",
+        f"approval:{approval_mode}",
     })
 
     if cache_key not in _agent_cache:
@@ -2494,19 +2521,19 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
             except Exception as exc:
                 logger.debug("Channel tool injection skipped: %s", exc)
 
-            if is_background:
+            if approval_mode in {"block", "approve"}:
                 # BG gating: block=strip destructive tools; approve=wrap
                 # via interrupt() for pause-and-approve; allow_all=keep all.
                 # run_command self-gates at runtime via classify_command.
-                if _mode == "block":
+                if approval_mode == "block":
                     lc_tools = [t for t in lc_tools
                                 if t.name not in destructive_names]
-                elif _mode == "approve":
+                elif approval_mode == "approve":
                     for t in lc_tools:
                         if t.name in destructive_names:
                             _wrap_with_interrupt_gate(t)
                 # else: allow_all — keep everything, no gates
-            else:
+            elif False:
                 # Interactive sessions: gate destructive tools with interrupt() —
                 # the graph will pause, yield an "interrupt" event, and wait for
                 # user approval before actually executing the tool.
@@ -2614,6 +2641,7 @@ def invoke_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         runtime_surface=runtime_surface,
         requested_runtime_mode=runtime_mode,
         selected_runtime_mode="agent",
+        approval_mode=configurable.get("approval_mode", DEFAULT_APPROVAL_MODE),
         runtime_reason="forced_agent" if runtime_mode == "agent" else runtime_mode,
         model_override=_model_ov or "",
         enabled_tool_names=enabled_tool_names,
@@ -2911,6 +2939,7 @@ def stream_chat_only(user_input: str, config: dict, *, stop_event: threading.Eve
         runtime_surface=str(configurable.get("runtime_surface") or "normal_chat"),
         requested_runtime_mode=str(configurable.get("runtime_mode") or "chat_only"),
         selected_runtime_mode="chat_only",
+        approval_mode=configurable.get("approval_mode", DEFAULT_APPROVAL_MODE),
         runtime_reason="chat_only",
         model_override=model_label,
         enabled_tool_names=(),
@@ -3036,6 +3065,7 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         runtime_surface=runtime_surface,
         requested_runtime_mode=runtime_mode,
         selected_runtime_mode="pending",
+        approval_mode=configurable.get("approval_mode", DEFAULT_APPROVAL_MODE),
         runtime_reason="evaluating",
         model_override=_model_ov or "",
         enabled_tool_names=enabled_tool_names,
@@ -3111,6 +3141,7 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         runtime_surface=runtime_surface,
         requested_runtime_mode=runtime_mode,
         selected_runtime_mode="agent",
+        approval_mode=configurable.get("approval_mode", DEFAULT_APPROVAL_MODE),
         runtime_reason=_current_runtime_reason_var.get(""),
         model_override=_model_ov or "",
         enabled_tool_names=enabled_tool_names,
@@ -3214,6 +3245,7 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
         runtime_surface=str(configurable.get("runtime_surface") or "agent"),
         requested_runtime_mode=str(configurable.get("runtime_mode") or "agent"),
         selected_runtime_mode="agent",
+        approval_mode=configurable.get("approval_mode", DEFAULT_APPROVAL_MODE),
         runtime_reason="resume",
         model_override=_model_ov or "",
         enabled_tool_names=enabled_tool_names,
@@ -3249,6 +3281,7 @@ def resume_invoke_agent(enabled_tool_names: list[str], config: dict, approved: b
         runtime_surface=str(configurable.get("runtime_surface") or "agent"),
         requested_runtime_mode=str(configurable.get("runtime_mode") or "agent"),
         selected_runtime_mode="agent",
+        approval_mode=configurable.get("approval_mode", DEFAULT_APPROVAL_MODE),
         runtime_reason="resume",
         model_override=_model_ov or "",
         enabled_tool_names=enabled_tool_names,

@@ -316,13 +316,13 @@ def _render_server_row(server_name: str, server_cfg: dict[str, Any], server_stat
                     )
                     ui.label(tool.get("name", "tool")).classes("font-medium")
                     if tool.get("destructive"):
-                        ui.badge("approval", color="red")
+                        ui.badge("action", color="red")
                     if tool.get("destructive"):
                         locked_approval = ui.row().classes("items-center gap-1 text-caption text-red")
-                        locked_approval.tooltip("Destructive MCP tools always interrupt for approval when enabled.")
+                        locked_approval.tooltip("Follows the current thread approval mode.")
                         with locked_approval:
                             ui.icon("lock", size="xs")
-                            ui.label("Approval always required")
+                            ui.label("Follows approval mode")
                     else:
                         ui.checkbox(
                             "Require approval",

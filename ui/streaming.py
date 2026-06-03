@@ -1694,11 +1694,18 @@ async def send_message(
 
     # Ensure a thread exists
     if state.thread_id is None:
+        from approval_policy import DEFAULT_APPROVAL_MODE, normalize_approval_mode
+        from threads import _set_thread_approval_mode
         tid = uuid.uuid4().hex[:12]
         name = text[:50]
         _save_thread_meta(tid, name)
         state.thread_id = tid
         state.thread_name = name
+        state.thread_approval_mode = normalize_approval_mode(
+            getattr(state, "thread_approval_mode", "") or DEFAULT_APPROVAL_MODE,
+            DEFAULT_APPROVAL_MODE,
+        )
+        _set_thread_approval_mode(tid, state.thread_approval_mode)
         state.messages = []
         state.show_onboarding = False
         # ``immediate=True`` so ``p.chat_container`` is ready for the
@@ -1869,6 +1876,7 @@ async def send_message(
             developer_context = await run.io_bound(
                 build_developer_agent_context,
                 state.active_developer_workspace_id,
+                state.thread_id,
             )
         except Exception:
             logger.debug("Failed to build Developer Studio context", exc_info=True)
@@ -1908,7 +1916,15 @@ async def send_message(
         if _plib.Path(f["name"]).suffix.lower() in IMAGE_EXTENSIONS:
             _img_cache[f["name"]] = f["data"]
 
+    from approval_policy import DEFAULT_APPROVAL_MODE, normalize_approval_mode
+    from threads import _get_thread_approval_mode
+
     _thread_mo = state.thread_model_override or ""
+    _thread_approval_mode = normalize_approval_mode(
+        getattr(state, "thread_approval_mode", "") or await run.io_bound(_get_thread_approval_mode, gen_thread_id),
+        DEFAULT_APPROVAL_MODE,
+    )
+    state.thread_approval_mode = _thread_approval_mode
     is_developer = bool(getattr(state, "active_developer_workspace_id", None))
     is_designer = bool(getattr(state, "active_designer_project", None))
     runtime_surface = "developer" if is_developer else "designer" if is_designer else "normal_chat"
@@ -1924,6 +1940,7 @@ async def send_message(
             "thread_id": gen_thread_id,
             "runtime_surface": runtime_surface,
             "runtime_mode": runtime_mode,
+            "approval_mode": _thread_approval_mode,
             **({"model_override": _thread_mo} if _thread_mo else {}),
             **({"developer_workspace_id": state.active_developer_workspace_id} if getattr(state, "active_developer_workspace_id", None) else {}),
             **({"developer_context": developer_context} if developer_context else {}),
@@ -2099,7 +2116,15 @@ async def resume_after_interrupt(
     except Exception:
         logger.debug("Buddy approval resolution event failed", exc_info=True)
 
+    from approval_policy import DEFAULT_APPROVAL_MODE, normalize_approval_mode
+    from threads import _get_thread_approval_mode
+
     _thread_mo = state.thread_model_override or ""
+    _thread_approval_mode = normalize_approval_mode(
+        getattr(state, "thread_approval_mode", "") or await run.io_bound(_get_thread_approval_mode, gen_thread_id),
+        DEFAULT_APPROVAL_MODE,
+    )
+    state.thread_approval_mode = _thread_approval_mode
     developer_context = ""
     if getattr(state, "active_developer_workspace_id", None):
         try:
@@ -2108,6 +2133,7 @@ async def resume_after_interrupt(
             developer_context = await run.io_bound(
                 build_developer_agent_context,
                 state.active_developer_workspace_id,
+                state.thread_id,
             )
         except Exception:
             logger.debug("Failed to build Developer Studio context for resume", exc_info=True)
@@ -2124,6 +2150,7 @@ async def resume_after_interrupt(
             "thread_id": gen_thread_id,
             "runtime_surface": runtime_surface,
             "runtime_mode": "agent",
+            "approval_mode": _thread_approval_mode,
             **({"model_override": _thread_mo} if _thread_mo else {}),
             **({"developer_workspace_id": state.active_developer_workspace_id} if getattr(state, "active_developer_workspace_id", None) else {}),
             **({"developer_context": developer_context} if developer_context else {}),

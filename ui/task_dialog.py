@@ -129,7 +129,7 @@ def show_task_dialog(
         delete_task,
         duplicate_task,
         list_tasks,
-        get_global_safety_mode,
+        get_global_approval_mode,
         detect_circular_subtasks,
         generate_webhook_secret,
         get_workflow_draft,
@@ -147,7 +147,7 @@ def show_task_dialog(
     _enabled = task.get("enabled", True) if task else True
     _model_ov = task.get("model_override") or "" if task else ""
     _prompts_data: list[str] = list(task["prompts"]) if task else [""]
-    _safety_mode = (task.get("safety_mode") or get_global_safety_mode()) if task else "block"
+    _approval_mode = (task.get("safety_mode") or get_global_approval_mode()) if task else "block"
     _steps_data: list[dict] = copy.deepcopy(task.get("steps") or []) if task else []
     _concurrency_group = (task.get("concurrency_group") or "") if task else ""
     _trigger_data: dict | None = task.get("trigger") if task else None
@@ -169,7 +169,7 @@ def show_task_dialog(
         _model_ov = str(_draft_payload.get("model_override") or "")
         _prompts_data = list(_draft_payload.get("prompts") or _prompts_data)
         _steps_data = copy.deepcopy(_draft_payload.get("steps") or _steps_data)
-        _safety_mode = str(_draft_payload.get("safety_mode") or _safety_mode or "block")
+        _approval_mode = str(_draft_payload.get("safety_mode") or _approval_mode or "block")
         _concurrency_group = str(_draft_payload.get("concurrency_group") or _concurrency_group or "")
         _trigger_data = _draft_payload.get("trigger") if isinstance(_draft_payload.get("trigger"), dict) else _trigger_data
         _tools_override_data = _draft_payload.get("tools_override")
@@ -290,21 +290,21 @@ def show_task_dialog(
                     "Description (optional)", value=_desc,
                 ).classes("w-full")
 
-                # Enabled toggle + Safety mode
+                # Enabled toggle + approval mode
                 with ui.row().classes("w-full items-center gap-4"):
                     enabled_switch = ui.switch("Enabled", value=_enabled)
-                    safety_sel = ui.select(
-                        label="Safety mode",
+                    approval_sel = ui.select(
+                        label="Approval mode",
                         options={
-                            "block": "🛡️ Block (no destructive tools)",
-                            "approve": "⏸️ Approve (pause for approval)",
-                            "allow_all": "⚡ Allow All (unrestricted)",
+                            "block": "Block",
+                            "approve": "Ask",
+                            "allow_all": "Auto",
                         },
-                        value=_safety_mode,
+                        value=_approval_mode,
                     ).classes("w-64").tooltip(
                         "Block: strips destructive tools. "
-                        "Approve: pauses for your approval before destructive actions. "
-                        "Allow All: unrestricted (legacy default)."
+                        "Ask: pauses for your approval before action-capable tools. "
+                        "Auto: allows action-capable tools."
                     )
 
                 # Model override dropdown
@@ -1641,7 +1641,7 @@ def show_task_dialog(
                 "model_override": cur_model_ov,
                 "prompts": clean_prompts,
                 "steps": cur_steps,
-                "safety_mode": safety_sel.value if safety_sel.value else "block",
+                "safety_mode": approval_sel.value if approval_sel.value else "block",
                 "schedule": _current_schedule_value(),
                 "delivery_channel": del_ch_sel.value or None,
                 "delivery_target": None,
@@ -1769,7 +1769,7 @@ def show_task_dialog(
                     cur_steps = []
 
                 cur_name = name_input.value.strip()
-                cur_safety = safety_sel.value if safety_sel.value else "block"
+                cur_approval = approval_sel.value if approval_sel.value else "block"
                 cur_model_ov = model_sel.value if model_sel.value != "__default__" else None
 
                 # ── Validation ──────────────────────────────────────
@@ -1961,7 +1961,7 @@ def show_task_dialog(
                             persistent_thread_id=_p_thread_id,
                             skills_override=cur_skills_override,
                             steps=cur_steps if cur_steps else None,
-                            safety_mode=cur_safety,
+                            safety_mode=cur_approval,
                             concurrency_group=cur_conc_group,
                             trigger=cur_trigger,
                             tools_override=cur_tools_override,
@@ -1992,8 +1992,8 @@ def show_task_dialog(
                             updates["prompts"] = clean_prompts
                         if cur_steps != (task.get("steps") or []):
                             updates["steps"] = cur_steps
-                        if cur_safety != (task.get("safety_mode") or "block"):
-                            updates["safety_mode"] = cur_safety
+                        if cur_approval != (task.get("safety_mode") or "block"):
+                            updates["safety_mode"] = cur_approval
                         if final_schedule != task.get("schedule"):
                             updates["schedule"] = final_schedule
                         if cur_enabled != task.get("enabled", True):

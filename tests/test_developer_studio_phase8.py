@@ -441,7 +441,7 @@ def test_tool_capsule_runner_uses_capsule_path_and_policy(tmp_path, monkeypatch)
     )
     capsules.set_capsule_enabled(capsule.id, True)
 
-    result = capsules.run_capsule_command(capsule.id, "python --version", "read_only")
+    result = capsules.run_capsule_command(capsule.id, "python -m pip install sampleproject", "block")
 
     assert result.ran is False
     assert result.decision.decision == "block"

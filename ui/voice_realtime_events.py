@@ -317,9 +317,10 @@ def _handle_realtime_fatal_error(
         state.voice_coordinator.start_talk()
         if p.voice_switch:
             p.voice_switch.value = True
+            p.voice_switch.props("color=primary icon=graphic_eq unelevated")
             p.voice_switch.update()
         if p.dictate_btn:
-            p.dictate_btn.props("color=grey")
+            p.dictate_btn.props("color=blue-grey-3 icon=keyboard_voice")
         ui.notify(
             f"{message} Falling back to local Talk.",
             type="warning",
@@ -332,6 +333,7 @@ def _handle_realtime_fatal_error(
     state.voice_enabled = False
     if p.voice_switch:
         p.voice_switch.value = False
+        p.voice_switch.props("color=blue-grey-3 icon=record_voice_over")
         p.voice_switch.update()
     ui.notify(message, type="negative", close_button=True, timeout=12000)
 

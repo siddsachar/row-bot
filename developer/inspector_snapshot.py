@@ -251,6 +251,13 @@ def _collect_snapshot_sync(workspace_id: str, thread_id: str | None) -> Inspecto
     workspace = get_workspace(workspace_id)
     if workspace is None:
         raise ValueError(f"Developer workspace not found: {workspace_id}")
+    if thread_id:
+        try:
+            from threads import _get_thread_approval_mode
+
+            workspace = replace(workspace, approval_mode=_get_thread_approval_mode(thread_id))  # type: ignore[arg-type]
+        except Exception:
+            logger.debug("Developer snapshot approval-mode lookup failed", exc_info=True)
     error = ""
     try:
         git_summary = detect_git_summary(workspace.path)

@@ -15,9 +15,12 @@ def test_composer_exposes_talk_and_dictate_only_for_voice():
     app_src = (ROOT / "app.py").read_text(encoding="utf-8")
 
     for source in (chat_src, components_src):
-        assert 'ui.switch("Talk"' in source
-        assert 'ui.button("Dictate"' in source
+        assert 'ui.button(icon="record_voice_over"' in source
+        assert 'ui.button(icon="keyboard_voice"' in source
+        assert 'ui.switch("Talk"' not in source
         assert 'ui.switch("ðŸŽ¤ Voice"' not in source
+        assert "_set_talk_button_active" in source
+        assert "_set_dictate_button_active" in source
         assert 'state.voice_input_mode = "talk"' in source
         assert 'state.voice_input_mode = "dictate"' in source
 

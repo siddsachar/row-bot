@@ -25,7 +25,7 @@ def test_developer_runtime_requires_approval_for_shell_control(tmp_path, monkeyp
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    result = runtime.run_workspace_command(str(repo), "python --version && python --version", "agent_run")
+    result = runtime.run_workspace_command(str(repo), "python --version && python --version", "approve")
 
     assert result.ran is False
     assert result.decision.decision == "ask"
@@ -36,7 +36,7 @@ def test_developer_runtime_tracks_and_stops_workspace_processes(tmp_path, monkey
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    result = runtime.start_workspace_process(str(repo), 'python -c "import time; time.sleep(30)"', "agent_run")
+    result = runtime.start_workspace_process(str(repo), 'python -c "import time; time.sleep(30)"', "allow_all")
     stopped = runtime.stop_workspace_processes(str(repo))
 
     assert result.ran is True

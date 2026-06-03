@@ -48,8 +48,11 @@ def test_developer_approval_policy_modes(tmp_path, monkeypatch):
     assert sandbox.decide_action("read_only", "edit").decision == "block"
     assert sandbox.decide_action("ask", "edit").decision == "ask"
     assert sandbox.decide_action("auto_edit", "edit").decision == "allow"
-    assert sandbox.decide_action("auto_edit", "git_push").decision == "ask"
+    assert sandbox.decide_action("auto_edit", "git_push").decision == "allow"
     assert sandbox.decide_action("agent_run", "start_server").decision == "allow"
+    assert sandbox.decide_action("block", "edit").decision == "block"
+    assert sandbox.decide_action("approve", "edit").decision == "ask"
+    assert sandbox.decide_action("allow_all", "git_push").decision == "allow"
     assert sandbox.action_needs_explicit_user_intent("git_push") is True
 
 
@@ -61,8 +64,8 @@ def test_developer_workspace_approval_mode_persists(tmp_path, monkeypatch):
     workspace = storage.add_or_update_local_workspace(str(repo))
     updated = storage.set_workspace_approval_mode(workspace.id, "auto_edit")
 
-    assert updated.approval_mode == "auto_edit"
-    assert storage.get_workspace(workspace.id).approval_mode == "auto_edit"
+    assert updated.approval_mode == "allow_all"
+    assert storage.get_workspace(workspace.id).approval_mode == "allow_all"
 
 
 def test_developer_git_status_and_branch_creation(tmp_path, monkeypatch):

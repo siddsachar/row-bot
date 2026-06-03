@@ -236,9 +236,8 @@ def run_workspace_shell_command(
 ) -> CommandResult:
     """Run a shell command in the workspace and ledger file side effects.
 
-    This is the Developer-native escape hatch for repo-specific commands. It
-    intentionally uses the platform shell, so Auto Edit still asks before
-    running it unless the caller has an explicit confirmation.
+    This is the Developer-native escape hatch for repo-specific commands.
+    Action-capable commands follow the shared thread approval mode.
     """
     root = pathlib.Path(workspace_path).expanduser().resolve()
     if not root.exists() or not root.is_dir():
@@ -251,9 +250,6 @@ def run_workspace_shell_command(
     except Exception:
         workspace = None
     decision = decide_action(approval_mode, action)  # type: ignore[arg-type]
-    decision = _apply_docker_network_policy(workspace, action, decision)
-    if decision.allowed and approval_mode == "auto_edit":
-        decision = ApprovalDecision("ask", "Auto Edit requires approval before running a shell command.")
     decision = _apply_docker_network_policy(workspace, action, decision)
     if decision.requires_approval and confirmed:
         decision = ApprovalDecision("allow", "User explicitly approved this shell command.")

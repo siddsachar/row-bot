@@ -9,6 +9,7 @@ from typing import Callable
 
 from nicegui import run, ui
 
+from approval_policy import approval_label
 from developer.storage import (
     add_or_update_local_workspace,
     clone_repository,
@@ -18,7 +19,6 @@ from developer.storage import (
     list_clone_parent_folders,
     list_workspaces,
     remove_workspace,
-    set_workspace_approval_mode,
     set_workspace_execution_settings,
     suggested_clone_name,
     workspace_updated_label,
@@ -49,7 +49,6 @@ from developer.inspector_snapshot import (
     InspectorSnapshot,
     get_snapshot,
     request_snapshot_refresh,
-    update_snapshot_approval_mode,
 )
 from developer.sandbox import decide_action
 from developer.state import DeveloperWorkspace
@@ -63,10 +62,9 @@ logger = logging.getLogger(__name__)
 
 
 _APPROVAL_MODE_HELP: dict[str, str] = {
-    "read_only": "Read only. Edits, commands, git changes, and pushes are blocked.",
-    "ask": "Reads and safe checks can run. Edits, installs, commits, pushes, and servers ask first.",
-    "auto_edit": "Can edit files and create branches. Shell commands, installs, servers, commits, and pushes ask first.",
-    "agent_run": "Can edit files, create branches, and start local run loops or dev servers. Installs, commits, and pushes still ask first.",
+    "block": "Reads and safe checks can run. Edits, commands, git changes, pushes, and PRs are blocked.",
+    "approve": "Reads and safe checks can run. Action-capable Developer operations ask first.",
+    "allow_all": "Reads, edits, commands, git changes, pushes, and PRs can run without approval.",
 }
 
 
@@ -111,7 +109,7 @@ def build_developer_tab(
 
     async def _open_workspace(workspace: DeveloperWorkspace) -> None:
         from memory_extraction import set_active_thread
-        from threads import _get_thread_model_override
+        from threads import _get_thread_approval_mode, _get_thread_model_override
 
         prev = state.thread_id
         thread_id = await run.io_bound(ensure_workspace_thread, workspace.id)
@@ -120,6 +118,7 @@ def build_developer_tab(
         state.thread_id = thread_id
         state.thread_name = f"Developer: {workspace.name}"
         state.thread_model_override = await run.io_bound(_get_thread_model_override, thread_id)
+        state.thread_approval_mode = await run.io_bound(_get_thread_approval_mode, thread_id)
         state.messages = await run.io_bound(load_thread_messages, thread_id)
         p.pending_files.clear()
         set_active_thread(thread_id, previous_id=prev)
@@ -397,7 +396,7 @@ def _render_custom_tools_home(state: AppState, refresh: Callable) -> None:
             "display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 0.85rem;"
         ):
             for tool in tools:
-                _render_custom_tool_card(tool, refresh)
+                _render_custom_tool_card(state, tool, refresh)
 
 
 def _render_custom_tool_draft_card(draft, refresh: Callable) -> None:
@@ -440,7 +439,13 @@ def _render_custom_tool_draft_card(draft, refresh: Callable) -> None:
             ui.label(warning).classes("text-xs text-amber-4")
 
 
-def _render_custom_tool_card(tool, refresh: Callable) -> None:
+def _render_custom_tool_card(state: AppState, tool, refresh: Callable) -> None:
+    def _approval_mode() -> str:
+        return getattr(state, "thread_approval_mode", "approve")
+
+    def _classify(command: str) -> dict:
+        return classify_custom_tool_command(command, approval_mode=_approval_mode())
+
     output_holder: dict[str, object] = {}
 
     def _output_box():
@@ -492,7 +497,7 @@ def _render_custom_tool_card(tool, refresh: Callable) -> None:
         return await future
 
     async def _test(command: str) -> None:
-        meta = classify_custom_tool_command(command)
+        meta = _classify(command)
         approved_once = False
         if meta.get("requires_approval"):
             approved_once = await _confirm_run_once(command, meta)
@@ -508,6 +513,7 @@ def _render_custom_tool_card(tool, refresh: Callable) -> None:
                     query=DEFAULT_CUSTOM_TOOL_TEST_QUERY,
                     approved_once=approved_once,
                     require_enabled=False,
+                    approval_mode=_approval_mode(),
                 )
             )
         except Exception as exc:
@@ -583,7 +589,7 @@ def _render_custom_tool_card(tool, refresh: Callable) -> None:
                         command_name = str(command.get("name", "Command"))
                         command_text = str(command.get("command", ""))
                         command_description = str(command.get("description", "")).strip()
-                        meta = classify_custom_tool_command(command_text)
+                        meta = _classify(command_text)
                         label = str(meta.get("label") or "Review")
                         badge_color = "green" if label == "Local" else ("orange" if meta.get("requires_approval") else "blue-grey")
                         with ui.row().classes("w-full items-center no-wrap gap-2").style("min-width: 0; overflow: hidden;"):
@@ -608,6 +614,13 @@ def _render_custom_tool_card(tool, refresh: Callable) -> None:
 
 def _show_custom_tool_wizard(state: AppState, refresh: Callable) -> None:
     active_workspace = _current_developer_workspace(state)
+
+    def _approval_mode() -> str:
+        return getattr(state, "thread_approval_mode", "approve")
+
+    def _classify(command: str) -> dict:
+        return classify_custom_tool_command(command, approval_mode=_approval_mode())
+
     with ui.dialog() as dlg, ui.card().classes("q-pa-md").style("min-width: min(900px, 94vw);"):
         with ui.row().classes("w-full items-center justify-between no-wrap"):
             with ui.column().classes("gap-0"):
@@ -757,13 +770,13 @@ def _show_custom_tool_wizard(state: AppState, refresh: Callable) -> None:
                     item
                     for item in draft.commands
                     if not custom_tool_command_needs_query(str(item.get("command", "")))
-                    and not classify_custom_tool_command(str(item.get("command", ""))).get("requires_approval")
+                    and not _classify(str(item.get("command", ""))).get("requires_approval")
                 ),
                 next(
                     (
                         item
                         for item in draft.commands
-                        if not classify_custom_tool_command(str(item.get("command", ""))).get("requires_approval")
+                        if not _classify(str(item.get("command", ""))).get("requires_approval")
                     ),
                     draft.commands[0],
                 ),
@@ -816,7 +829,7 @@ def _show_custom_tool_wizard(state: AppState, refresh: Callable) -> None:
                 draft.commands[0],
             )
             command_text = str(command.get("command", ""))
-            meta = classify_custom_tool_command(command_text)
+            meta = _classify(command_text)
             test_query = ""
             if custom_tool_command_needs_query(command_text):
                 query_control = controls.get("test_query")
@@ -843,6 +856,7 @@ def _show_custom_tool_wizard(state: AppState, refresh: Callable) -> None:
                         query=test_query,
                         approved_once=approved_once,
                         require_enabled=False,
+                        approval_mode=_approval_mode(),
                     )
                 )
             except Exception as exc:
@@ -889,20 +903,20 @@ def _show_custom_tool_wizard(state: AppState, refresh: Callable) -> None:
                         item
                         for item in commands
                         if not custom_tool_command_needs_query(str(item.get("command", "")))
-                        and not classify_custom_tool_command(str(item.get("command", ""))).get("requires_approval")
+                    and not _classify(str(item.get("command", ""))).get("requires_approval")
                     ),
                     next(
                         (
                             item
                             for item in commands
-                            if not classify_custom_tool_command(str(item.get("command", ""))).get("requires_approval")
+                            if not _classify(str(item.get("command", ""))).get("requires_approval")
                         ),
                         commands[0],
                     ),
                 )
                 smoke_name = str(smoke.get("name", "Command"))
                 smoke_text = str(smoke.get("command", ""))
-                smoke_meta = classify_custom_tool_command(smoke_text)
+                smoke_meta = _classify(smoke_text)
                 with ui.card().classes("w-full").style("padding: 0.75rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.10);"):
                     with ui.row().classes("w-full items-center justify-between no-wrap gap-2"):
                         with ui.column().classes("gap-0").style("min-width: 0;"):
@@ -925,7 +939,7 @@ def _show_custom_tool_wizard(state: AppState, refresh: Callable) -> None:
                     for command in commands:
                         command_name = str(command.get("name", "Command"))
                         command_text = str(command.get("command", ""))
-                        meta = classify_custom_tool_command(command_text)
+                        meta = _classify(command_text)
                         with ui.row().classes("w-full items-center no-wrap gap-2").style("min-width: 0; overflow: hidden;"):
                             with ui.column().classes("gap-0").style("min-width: 0; flex: 1 1 auto; overflow: hidden;"):
                                 with ui.row().classes("items-center gap-2 no-wrap"):
@@ -1248,21 +1262,6 @@ def build_developer_workspace(
                             ),
                         ).props("outline no-caps")
 
-    async def _set_mode(value: str) -> None:
-        try:
-            updated = await run.io_bound(set_workspace_approval_mode, workspace.id, value)
-        except Exception as exc:
-            ui.notify(str(exc), type="negative", close_button=True)
-            return
-        workspace.approval_mode = updated.approval_mode
-        update_snapshot_approval_mode(workspace.id, state.thread_id, updated.approval_mode)
-        request_snapshot_refresh(workspace.id, state.thread_id, reason="approval_mode", debounce=0.1)
-        _refresh_header_from_snapshot()
-        refresh = inspector_refresh.get("refresh")
-        if refresh is not None:
-            refresh()
-        ui.notify(f"Developer approval mode: {value.replace('_', ' ').title()}", type="info")
-
     async def _set_execution_mode(value: str) -> None:
         try:
             updated = await run.io_bound(
@@ -1283,15 +1282,9 @@ def build_developer_workspace(
         ui.notify(f"Developer execution mode: {label}", type="info")
 
     async def _create_branch(branch_name: str | None) -> None:
-        decision = decide_action(workspace.approval_mode, "git_branch")
+        decision = decide_action(getattr(state, "thread_approval_mode", "approve"), "git_branch")
         if decision.decision == "block":
             ui.notify(decision.reason, type="negative", close_button=True)
-            return
-        if decision.requires_approval:
-            ui.notify(
-                "Branch creation requires approval in this mode. Switch to Auto Edit or Agent Run, or create it manually.",
-                type="warning",
-            )
             return
         try:
             status = await run.io_bound(create_branch, workspace.path, branch_name or "")
@@ -1315,19 +1308,6 @@ def build_developer_workspace(
                     ui.label(workspace.path).classes("text-xs text-grey-6 ellipsis")
                 with ui.row().classes("items-center gap-2 no-wrap"):
                     _build_developer_skill_selector(state.thread_id)
-                    ui.select(
-                        {
-                            "read_only": "Read Only",
-                            "ask": "Ask Before Changes",
-                            "auto_edit": "Auto Edit",
-                            "agent_run": "Agent Run",
-                        },
-                        value=workspace.approval_mode,
-                        on_change=lambda e: safe_ui_task(
-                            lambda: _set_mode(e.value),
-                            context="developer approval mode change",
-                        ),
-                    ).props("dense outlined").classes("text-xs").style("min-width: 170px;")
                     ui.select(
                         {
                             "local": "Local",
@@ -1657,7 +1637,7 @@ def _build_developer_inspector_static(
 
         for name, label, icon, opened in (
             ("overview", "Overview", "dashboard", True),
-            ("safety", "Safety Policy", "shield", True),
+            ("safety", "Approval Policy", "shield", True),
             ("sandbox", "Sandbox", "inventory_2", True),
             ("todos", "Todos", "checklist", True),
             ("changes", "Changes", "difference", bool(snapshot.changed_files)),
@@ -1684,7 +1664,7 @@ def _build_developer_inspector_static(
 
         def _overview() -> None:
             ui.label(f"Workspace: {workspace_now.name}").classes("text-sm")
-            ui.label(f"Mode: {workspace_now.approval_mode.replace('_', ' ').title()}").classes("text-sm text-grey-6")
+            ui.label(f"Approval: {approval_label(workspace_now.approval_mode)}").classes("text-sm text-grey-6")
             ui.label(_APPROVAL_MODE_HELP.get(workspace_now.approval_mode, "")).classes("text-xs text-grey-6")
             if diff_stats and diff_stats.files:
                 with ui.row().classes("items-center gap-2"):
@@ -1797,7 +1777,7 @@ def _build_developer_inspector_static(
                     sandbox_ready = bool(sandbox_status and sandbox_status.available)
                     ui.badge("available" if sandbox_ready else "not ready", color="green" if sandbox_ready else "orange").props("outline")
             if workspace_now.execution_mode == "local":
-                ui.label("Commands run in the selected repo folder, with Developer approval policy guarding changes.").classes("text-xs text-grey-6")
+                ui.label("Commands run in the selected repo folder, with the thread approval mode guarding changes.").classes("text-xs text-grey-6")
             else:
                 ui.label("Commands run in a Docker shadow copy. The real repo changes only after importing an approved sandbox patch.").classes("text-xs text-grey-6")
                 image_input = ui.input(

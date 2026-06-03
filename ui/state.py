@@ -23,6 +23,7 @@ from tts import TTSService
 from vision import VisionService
 from tools.vision_tool import set_vision_service
 from nicegui import ui
+from approval_policy import DEFAULT_APPROVAL_MODE
 
 
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -36,6 +37,7 @@ class AppState:
         self.thread_id: str | None = None
         self.thread_name: str | None = None
         self.thread_model_override: str = ""  # cloud model override for current thread
+        self.thread_approval_mode: str = DEFAULT_APPROVAL_MODE
         self.messages: list[dict] = []
         self.current_model: str = get_current_model()
         self.context_size: int = get_user_context_size()
@@ -180,7 +182,7 @@ class P:
     token_bar: ui.linear_progress = None  # type: ignore[assignment]
     voice_status_label: ui.label = None  # type: ignore[assignment]
     stop_btn: ui.button = None          # type: ignore[assignment]
-    voice_switch: ui.switch = None      # type: ignore[assignment]
+    voice_switch: Any = None           # type: ignore[assignment]
     dictate_btn: ui.button = None       # type: ignore[assignment]
     realtime_event_sink: ui.element = None  # type: ignore[assignment]
     realtime_client: Any = None

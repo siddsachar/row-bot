@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from tools.base import BaseTool
 from tools import registry
 import tasks as tasks_db
+from approval_policy import approval_label, legacy_safety_mode_to_approval_mode
 
 logger = logging.getLogger(__name__)
 
@@ -115,13 +116,15 @@ class _TaskCreateInput(BaseModel):
             "Use {{prev_output}} and {{step.<id>.output}} for data passing between steps."
         ),
     )
-    safety_mode: str | None = Field(
+    approval_mode: str | None = Field(
         default=None,
         description=(
-            "Safety mode for this task: 'block' (block destructive tools), "
-            "'approve' (pause for approval before destructive tools), "
-            "'allow_all' (no restrictions). Defaults to 'block'."
+            "Approval mode for this task: 'block', 'approve', or 'allow_all'. Defaults to 'block'."
         ),
+    )
+    safety_mode: str | None = Field(
+        default=None,
+        description="Legacy alias for approval_mode.",
     )
     persistent_thread: bool = Field(
         default=False,
@@ -185,11 +188,13 @@ class _TaskUpdateInput(BaseModel):
             "Overrides prompts when set."
         ),
     )
+    approval_mode: str | None = Field(
+        default=None,
+        description="Approval mode: 'block', 'approve', or 'allow_all'.",
+    )
     safety_mode: str | None = Field(
         default=None,
-        description=(
-            "Safety mode: 'block', 'approve', or 'allow_all'."
-        ),
+        description="Legacy alias for approval_mode.",
     )
     enabled: bool | None = Field(
         default=None,
@@ -226,6 +231,7 @@ def _task_create(
     delivery_target: str | None = None,
     model: str | None = None,
     steps: list[dict] | None = None,
+    approval_mode: str | None = None,
     safety_mode: str | None = None,
     persistent_thread: bool = False,
 ) -> str:
@@ -239,6 +245,7 @@ def _task_create(
         p_thread_id = None
         if persistent_thread:
             p_thread_id = f"pt_{uuid.uuid4().hex[:10]}"
+        effective_approval_mode = legacy_safety_mode_to_approval_mode(approval_mode or safety_mode or "block")
 
         task_id = tasks_db.create_task(
             name=name,
@@ -254,7 +261,7 @@ def _task_create(
             model_override=model or None,
             persistent_thread_id=p_thread_id,
             steps=steps,
-            safety_mode=safety_mode or "block",
+            safety_mode=effective_approval_mode,
         )
 
         task = tasks_db.get_task(task_id)
@@ -276,7 +283,7 @@ def _task_create(
         else:
             parts.append(f"  Steps: {len(task['prompts'])}")
         if task.get("safety_mode") and task["safety_mode"] != "block":
-            parts.append(f"  Safety: {task['safety_mode']}")
+            parts.append(f"  Approval: {approval_label(task['safety_mode'])}")
         if task.get("delivery_channel"):
             parts.append(f"  Delivery: {task['delivery_channel']} → {task.get('delivery_target', 'default')}")
 
@@ -323,7 +330,7 @@ def _task_list(include_history: bool = False) -> str:
         else:
             entry["steps"] = len(t.get("prompts", []))
         if t.get("safety_mode") and t["safety_mode"] != "block":
-            entry["safety_mode"] = t["safety_mode"]
+            entry["approval_mode"] = t["safety_mode"]
         if t.get("delivery_channel"):
             entry["delivery"] = f"{t['delivery_channel']} → {t.get('delivery_target', 'default')}"
         if t.get("last_run"):
@@ -360,6 +367,7 @@ def _task_update(
     schedule: str | None = None,
     prompts: list[str] | None = None,
     steps: list[dict] | None = None,
+    approval_mode: str | None = None,
     safety_mode: str | None = None,
     enabled: bool | None = None,
     model: str | None = None,
@@ -379,8 +387,8 @@ def _task_update(
         updates["prompts"] = prompts
     if steps is not None:
         updates["steps"] = steps
-    if safety_mode is not None:
-        updates["safety_mode"] = safety_mode
+    if approval_mode is not None or safety_mode is not None:
+        updates["safety_mode"] = legacy_safety_mode_to_approval_mode(approval_mode or safety_mode or "block")
     if enabled is not None:
         updates["enabled"] = enabled
     if model is not None:
@@ -394,7 +402,7 @@ def _task_update(
             updates["persistent_thread_id"] = None
 
     if not updates:
-        return "No fields to update. Provide at least one of: name, schedule, prompts, steps, safety_mode, enabled, model, persistent_thread."
+        return "No fields to update. Provide at least one of: name, schedule, prompts, steps, approval_mode, enabled, model, persistent_thread."
 
     try:
         tasks_db.update_task(task_id, **updates)
@@ -409,7 +417,7 @@ def _task_update(
         if "steps" in updates:
             parts.append(f"  Pipeline: {len(task.get('steps', []))} steps")
         if "safety_mode" in updates:
-            parts.append(f"  Safety: {task.get('safety_mode', 'block')}")
+            parts.append(f"  Approval: {approval_label(task.get('safety_mode', 'block'))}")
         if "enabled" in updates:
             parts.append(f"  Enabled: {task.get('enabled', True)}")
 
@@ -531,7 +539,7 @@ class TaskTool(BaseTool):
                 name="task_update",
                 description=(
                     "Update an existing task. Can change name, schedule, "
-                    "prompts, steps, safety_mode, model, or enabled state. "
+                    "prompts, steps, approval_mode, model, or enabled state. "
                     "Requires the task ID from task_list. Only provide the "
                     "fields you want to change."
                 ),

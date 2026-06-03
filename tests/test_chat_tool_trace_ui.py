@@ -69,7 +69,7 @@ def test_chat_tool_trace_source_contracts():
     assert "_capture_balanced_browser_screenshot" in streaming_src
     assert "render_image_with_save(\n                                _b64_ss" not in streaming_src
     assert "Model selection now lives in the composer" in chat_src
-    assert "_build_inline_model_picker" in chat_src
+    assert "build_composer_policy_cluster" in chat_src
     assert 'list_model_choice_options("chat"' not in chat_src
     assert "on_model_change" not in chat_src
     assert "model_banner_container" in chat_src
@@ -80,7 +80,9 @@ def test_chat_tool_trace_source_contracts():
     assert "on_model_switch" in components_src
     assert "_MORE_MODELS_SENTINEL" in components_src
     assert "async def _on_model_pick" in components_src
-    assert "use-input" in components_src
+    picker_section = components_src.split("def _build_inline_model_picker", 1)[1]
+    assert "use-input" not in picker_section
+    assert "options-dense" in picker_section
     assert "if val == _picker_val" in components_src
     assert "get_model_max_context" in components_src
     assert "tool_trace.py" in installer_src

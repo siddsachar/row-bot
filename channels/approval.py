@@ -37,6 +37,7 @@ def resume_agent_sync(
     Returns ``(answer_text, new_interrupt_data_or_None, captured_images)``.
     """
     import agent as agent_mod
+    from channels.runtime import approval_mode_for_config
     from tools import registry as tool_registry
 
     enabled = [t.name for t in tool_registry.get_enabled_tools()]
@@ -46,6 +47,7 @@ def resume_agent_sync(
             **(config.get("configurable") or {}),
             "runtime_surface": "approval",
             "runtime_mode": "agent",
+            "approval_mode": approval_mode_for_config(config),
         },
     }
     answer_tokens: list[str] = []

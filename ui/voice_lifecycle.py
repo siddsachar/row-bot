@@ -59,9 +59,13 @@ def stop_voice_for_thread_change(state: AppState, p: P | None, *, reason: str = 
         if switch is not None:
             try:
                 switch.value = False
+                try:
+                    switch.props("color=blue-grey-3 icon=record_voice_over")
+                except Exception:
+                    logger.debug("Voice button props update during thread change failed", exc_info=True)
                 switch.update()
             except Exception:
-                logger.debug("Voice switch update during thread change failed", exc_info=True)
+                logger.debug("Voice button update during thread change failed", exc_info=True)
 
     if stopped:
         logger.info(

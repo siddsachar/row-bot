@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from tools.base import BaseTool
 from tools import registry
+from tools.approval_gate import gate_action
 
 logger = logging.getLogger(__name__)
 
@@ -57,14 +58,12 @@ def _check_for_updates() -> str:
         lines.append(info.notes_summary)
     lines.append("")
     lines.append(f"Release page: {info.html_url}")
-    lines.append("Use thoth_install_update to install (will prompt you for approval).")
+    lines.append("Use thoth_install_update to install (follows this thread's approval mode).")
     return "\n".join(lines)
 
 
 def _install_update(version: str = "") -> str:
     """Approval-gated install of the cached / requested update."""
-    from langgraph.types import interrupt
-
     import updater
 
     if updater.is_dev_install():
@@ -81,19 +80,23 @@ def _install_update(version: str = "") -> str:
     if info is None:
         return "No update available right now."
 
-    approval = interrupt({
-        "tool": "thoth_install_update",
-        "label": f"Install Thoth v{info.version}",
-        "description": (
-            f"Download and install Thoth v{info.version} from "
-            f"{info.html_url}. Thoth will close and the OS installer "
-            f"will run. Asset: {info.asset_name} "
-            f"({info.asset_size / 1_000_000:.1f} MB)."
-        ),
-        "args": {"version": info.version},
-    })
-    if not approval:
-        return "Install cancelled."
+    blocked = gate_action(
+        {
+            "tool": "thoth_install_update",
+            "label": f"Install Thoth v{info.version}",
+            "description": (
+                f"Download and install Thoth v{info.version} from "
+                f"{info.html_url}. Thoth will close and the OS installer "
+                f"will run. Asset: {info.asset_name} "
+                f"({info.asset_size / 1_000_000:.1f} MB)."
+            ),
+            "args": {"version": info.version},
+        },
+        blocked_message="BLOCKED: Installing updates is disabled in Block approval mode.",
+        cancelled_message="Install cancelled.",
+    )
+    if blocked:
+        return blocked
 
     try:
         path = updater.download_update(info)
@@ -135,7 +138,7 @@ class UpdaterTool(BaseTool):
     def description(self) -> str:
         return (
             "Check for and install Thoth updates from GitHub Releases. "
-            "Always asks for confirmation before installing."
+            "Install actions follow the current thread approval mode."
         )
 
     @property
@@ -165,9 +168,9 @@ class UpdaterTool(BaseTool):
                 func=_install_update,
                 name="thoth_install_update",
                 description=(
-                    "Download and install a Thoth update. Requires the user "
-                    "to confirm. On approval Thoth will close and hand off to "
-                    "the OS installer."
+                    "Download and install a Thoth update. Follows the current "
+                    "thread approval mode. When allowed, Thoth will close and "
+                    "hand off to the OS installer."
                 ),
                 args_schema=_InstallInput,
             ),

@@ -67,7 +67,26 @@ def _workspace_info() -> str:
     workspace, _root = _active_workspace()
     from developer.agent_context import build_developer_agent_context
 
-    return build_developer_agent_context(workspace.id)
+    return build_developer_agent_context(workspace.id, get_thread_id())
+
+
+def _active_approval_mode() -> str:
+    thread_id = get_thread_id()
+    if thread_id:
+        try:
+            from threads import _get_thread_approval_mode
+
+            return _get_thread_approval_mode(thread_id)
+        except Exception:
+            pass
+    try:
+        from agent import get_approval_mode
+
+        return get_approval_mode()
+    except Exception:
+        from approval_policy import DEFAULT_APPROVAL_MODE
+
+        return DEFAULT_APPROVAL_MODE
 
 
 class _ListFilesInput(BaseModel):
@@ -210,7 +229,7 @@ def _run_detected(command: str) -> str:
     result = run_workspace_command(
         workspace.path,
         chosen.command,
-        workspace.approval_mode,
+        _active_approval_mode(),
         workspace_id=workspace.id,
         thread_id=thread_id,
     )
@@ -228,7 +247,7 @@ def _run_command(command: str, timeout: int = 120) -> str:
     result = run_workspace_shell_command(
         workspace.path,
         command,
-        workspace.approval_mode,
+        _active_approval_mode(),
         workspace_id=workspace.id,
         thread_id=thread_id,
         timeout=max(5, min(int(timeout or 120), 600)),
@@ -246,7 +265,7 @@ def _run_command(command: str, timeout: int = 120) -> str:
         result = run_workspace_shell_command(
             workspace.path,
             command,
-            workspace.approval_mode,
+            _active_approval_mode(),
             workspace_id=workspace.id,
             thread_id=thread_id,
             timeout=max(5, min(int(timeout or 120), 600)),
@@ -261,7 +280,7 @@ class _GitBranchInput(BaseModel):
 
 def _create_branch(branch_name: str) -> str:
     workspace, _root = _active_workspace()
-    decision = decide_action(workspace.approval_mode, "git_branch")
+    decision = decide_action(_active_approval_mode(), "git_branch")
     if not decision.allowed:
         approval = interrupt({
             "tool": "developer_create_branch",
@@ -277,7 +296,7 @@ def _create_branch(branch_name: str) -> str:
 
 def _switch_branch(branch_name: str) -> str:
     workspace, _root = _active_workspace()
-    decision = decide_action(workspace.approval_mode, "git_branch")
+    decision = decide_action(_active_approval_mode(), "git_branch")
     if not decision.allowed:
         approval = interrupt({
             "tool": "developer_switch_branch",
@@ -298,7 +317,7 @@ class _GitCommitInput(BaseModel):
 
 def _commit_changes(message: str, paths: list[str] | None = None) -> str:
     workspace, _root = _active_workspace()
-    decision = decide_action(workspace.approval_mode, "git_commit")
+    decision = decide_action(_active_approval_mode(), "git_commit")
     if not decision.allowed:
         approval = interrupt({
             "tool": "developer_commit_changes",
@@ -315,7 +334,7 @@ def _commit_changes(message: str, paths: list[str] | None = None) -> str:
 
 def _push_current_branch() -> str:
     workspace, _root = _active_workspace()
-    result = push_current_branch(workspace.path, workspace.approval_mode, confirmed=False)
+    result = push_current_branch(workspace.path, _active_approval_mode(), confirmed=False)
     if result.decision and result.decision.requires_approval:
         approval = interrupt({
             "tool": "developer_push_current_branch",
@@ -325,7 +344,7 @@ def _push_current_branch() -> str:
         })
         if not approval:
             return "Push cancelled by user."
-        result = push_current_branch(workspace.path, workspace.approval_mode, confirmed=True)
+        result = push_current_branch(workspace.path, _active_approval_mode(), confirmed=True)
     return json.dumps(result.__dict__, indent=2, default=str)
 
 
@@ -335,7 +354,7 @@ class _GitFastForwardInput(BaseModel):
 
 def _fast_forward_merge(branch_name: str) -> str:
     workspace, _root = _active_workspace()
-    decision = decide_action(workspace.approval_mode, "git_branch")
+    decision = decide_action(_active_approval_mode(), "git_branch")
     if not decision.allowed:
         approval = interrupt({
             "tool": "developer_fast_forward_merge",
@@ -366,7 +385,7 @@ def _import_sandbox_changes(pending_change_id: str, summary: str = "") -> str:
         workspace_id=workspace.id,
         thread_id=thread_id,
         patch=pending.patch,
-        approval_mode=workspace.approval_mode,
+        approval_mode=_active_approval_mode(),
         summary=summary or f"Import sandbox changes from: {pending.command[:80]}",
         confirmed=False,
     )
@@ -383,7 +402,7 @@ def _import_sandbox_changes(pending_change_id: str, summary: str = "") -> str:
             workspace_id=workspace.id,
             thread_id=thread_id,
             patch=pending.patch,
-            approval_mode=workspace.approval_mode,
+            approval_mode=_active_approval_mode(),
             summary=summary or f"Import sandbox changes from: {pending.command[:80]}",
             confirmed=True,
         )
@@ -410,7 +429,7 @@ def _apply_patch(patch: str, summary: str = "") -> str:
     workspace, _root = _active_workspace()
     thread_id = get_thread_id()
     if workspace.execution_mode == "docker":
-        decision = decide_action(workspace.approval_mode, "edit")
+        decision = decide_action(_active_approval_mode(), "edit")
         if decision.decision == "block":
             return decision.reason
         if decision.requires_approval:
@@ -441,7 +460,7 @@ def _apply_patch(patch: str, summary: str = "") -> str:
         workspace_id=workspace.id,
         thread_id=thread_id,
         patch=patch,
-        approval_mode=workspace.approval_mode,
+        approval_mode=_active_approval_mode(),
         summary=summary,
         confirmed=False,
     )
@@ -458,7 +477,7 @@ def _apply_patch(patch: str, summary: str = "") -> str:
             workspace_id=workspace.id,
             thread_id=thread_id,
             patch=patch,
-            approval_mode=workspace.approval_mode,
+            approval_mode=_active_approval_mode(),
             summary=summary,
             confirmed=True,
         )
@@ -480,7 +499,7 @@ def _write_file(path: str, content: str, summary: str = "") -> str:
     workspace, _root = _active_workspace()
     thread_id = get_thread_id()
     if workspace.execution_mode == "docker":
-        decision = decide_action(workspace.approval_mode, "edit")
+        decision = decide_action(_active_approval_mode(), "edit")
         if decision.decision == "block":
             return decision.reason
         if decision.requires_approval:
@@ -511,7 +530,7 @@ def _write_file(path: str, content: str, summary: str = "") -> str:
         thread_id=thread_id,
         path=path,
         content=content,
-        approval_mode=workspace.approval_mode,
+        approval_mode=_active_approval_mode(),
         summary=summary,
         confirmed=False,
     )
@@ -529,7 +548,7 @@ def _write_file(path: str, content: str, summary: str = "") -> str:
             thread_id=thread_id,
             path=path,
             content=content,
-            approval_mode=workspace.approval_mode,
+            approval_mode=_active_approval_mode(),
             summary=summary,
             confirmed=True,
         )
@@ -590,11 +609,11 @@ class DeveloperTool(BaseTool):
             StructuredTool.from_function(func=_read_file, name="developer_read_file", description="Read a workspace-relative text file from the active Developer workspace.", args_schema=_ReadFileInput),
             StructuredTool.from_function(func=_search, name="developer_search", description="Search text in the active Developer workspace using a safe workspace-scoped search.", args_schema=_SearchInput),
             StructuredTool.from_function(func=_git_status, name="developer_git_status", description="Return structured Git state for the active Developer workspace."),
-            StructuredTool.from_function(func=_create_branch, name="developer_create_branch", description="Create a Git branch in the active Developer workspace using Developer approval policy.", args_schema=_GitBranchInput),
-            StructuredTool.from_function(func=_switch_branch, name="developer_switch_branch", description="Switch Git branches in the active Developer workspace using Developer approval policy.", args_schema=_GitBranchInput),
-            StructuredTool.from_function(func=_commit_changes, name="developer_commit_changes", description="Create a Git commit in the active Developer workspace using Developer approval policy.", args_schema=_GitCommitInput),
-            StructuredTool.from_function(func=_push_current_branch, name="developer_push_current_branch", description="Push the current branch to origin using Developer approval policy."),
-            StructuredTool.from_function(func=_fast_forward_merge, name="developer_fast_forward_merge", description="Fast-forward merge another branch into the current branch using Developer approval policy.", args_schema=_GitFastForwardInput),
+            StructuredTool.from_function(func=_create_branch, name="developer_create_branch", description="Create a Git branch in the active Developer workspace using the thread approval mode.", args_schema=_GitBranchInput),
+            StructuredTool.from_function(func=_switch_branch, name="developer_switch_branch", description="Switch Git branches in the active Developer workspace using the thread approval mode.", args_schema=_GitBranchInput),
+            StructuredTool.from_function(func=_commit_changes, name="developer_commit_changes", description="Create a Git commit in the active Developer workspace using the thread approval mode.", args_schema=_GitCommitInput),
+            StructuredTool.from_function(func=_push_current_branch, name="developer_push_current_branch", description="Push the current branch to origin using the thread approval mode."),
+            StructuredTool.from_function(func=_fast_forward_merge, name="developer_fast_forward_merge", description="Fast-forward merge another branch into the current branch using the thread approval mode.", args_schema=_GitFastForwardInput),
             StructuredTool.from_function(func=_diff, name="developer_get_diff", description="Return changed file summary or one file diff for the active Developer workspace.", args_schema=_DiffInput),
             StructuredTool.from_function(func=_update_todos, name="developer_update_todos", description="Create or update the visible Developer todo plan for this code thread.", args_schema=_TodoInput),
             StructuredTool.from_function(func=_run_detected, name="developer_run_detected_test", description="Run a command from the detected Developer test/lint/typecheck command list.", args_schema=_RunDetectedInput),

@@ -586,7 +586,7 @@ class McpClientFoundationTests(unittest.TestCase):
 
             agent.clear_agent_cache()
             bg_token = agent._background_workflow_var.set(True)
-            mode_token = agent._safety_mode_var.set(mode)
+            mode_token = agent._approval_mode_var.set(mode)
             try:
                 with patch.object(agent.tool_registry, "get_tool", return_value=_make_mcp_parent(tool)), \
                      patch.object(agent, "get_llm", return_value=object()), \
@@ -604,7 +604,7 @@ class McpClientFoundationTests(unittest.TestCase):
                     agent.get_agent_graph(["mcp"])
                     return captured_tools["mcp_manual_delete_note"].func()
             finally:
-                agent._safety_mode_var.reset(mode_token)
+                agent._approval_mode_var.reset(mode_token)
                 agent._background_workflow_var.reset(bg_token)
                 agent.clear_agent_cache()
 

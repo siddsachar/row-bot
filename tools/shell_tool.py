@@ -34,10 +34,9 @@ from datetime import datetime
 from typing import Any
 
 from langchain_core.tools import StructuredTool
-from langgraph.types import interrupt
-
 from tools.base import BaseTool
 from tools import registry
+from tools.approval_gate import gate_action
 
 logger = logging.getLogger(__name__)
 
@@ -489,14 +488,23 @@ class ShellTool(BaseTool):
 
         if classification == "needs_approval":
             # Determine execution context
-            _is_bg = False
-            _mode = ""
-            try:
-                from agent import is_background_workflow, get_safety_mode
-                _is_bg = is_background_workflow()
-                _mode = get_safety_mode()
-            except ImportError:
-                pass
+            blocked = gate_action(
+                {
+                    "tool": "run_command",
+                    "label": "Run shell command",
+                    "description": f"Run shell command: {command}",
+                    "args": {"command": command},
+                },
+                blocked_message=(
+                    f"BLOCKED: This command requires approval and cannot run "
+                    f"in Block approval mode: {command}"
+                ),
+                cancelled_message="Command cancelled by user.",
+            )
+            if blocked:
+                return blocked
+            _is_bg = True
+            _mode = "allow_all"
 
             if not _is_bg:
                 # Interactive session — always gate with interrupt
@@ -512,7 +520,7 @@ class ShellTool(BaseTool):
                 # Background task, block mode — refuse non-safe commands
                 return (
                     f"🚫 BLOCKED: This command requires approval and cannot "
-                    f"run in block safety mode: {command}"
+                    f"run in Block approval mode: {command}"
                 )
             elif _mode == "approve":
                 # Background task, approve mode — gate with interrupt

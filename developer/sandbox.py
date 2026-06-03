@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from developer.state import ApprovalMode
+from approval_policy import ApprovalMode, approval_label, decision_for_action, normalize_approval_mode
 
 
 DeveloperAction = Literal[
@@ -62,35 +62,14 @@ def decide_action(mode: ApprovalMode, action: DeveloperAction) -> ApprovalDecisi
     function so the same policy holds everywhere.
     """
     label = _ACTION_LABELS[action]
-
-    if mode == "read_only":
-        if action == "read":
-            return ApprovalDecision("allow", f"Read Only allows {label}.")
-        return ApprovalDecision("block", f"Read Only blocks attempts to {label}.")
-
-    if mode == "ask":
-        if action == "read" or action == "run_safe_command":
-            return ApprovalDecision("allow", f"Ask Before Changes allows {label}.")
-        return ApprovalDecision("ask", f"Ask Before Changes requires approval to {label}.")
-
-    if mode == "auto_edit":
-        if action in {"read", "edit", "run_safe_command", "git_branch", "git_worktree"}:
-            return ApprovalDecision("allow", f"Auto Edit allows {label} inside the workspace.")
-        return ApprovalDecision("ask", f"Auto Edit requires approval to {label}.")
-
-    if mode == "agent_run":
-        if action in {
-            "read",
-            "edit",
-            "run_safe_command",
-            "start_server",
-            "git_branch",
-            "git_worktree",
-        }:
-            return ApprovalDecision("allow", f"Agent Run allows {label} inside the workspace.")
-        return ApprovalDecision("ask", f"Agent Run requires approval to {label}.")
-
-    return ApprovalDecision("ask", f"Unknown mode requires approval to {label}.")
+    normalized = normalize_approval_mode(mode)
+    decision = decision_for_action(normalized, read_only=action in {"read", "run_safe_command"})
+    mode_label = approval_label(normalized)
+    if decision == "allow":
+        return ApprovalDecision("allow", f"{mode_label} allows {label}.")
+    if decision == "block":
+        return ApprovalDecision("block", f"{mode_label} blocks attempts to {label}.")
+    return ApprovalDecision("ask", f"{mode_label} requires approval to {label}.")
 
 
 def action_needs_explicit_user_intent(action: DeveloperAction) -> bool:

@@ -3951,16 +3951,18 @@ try:
 
     # ── 31a. Safety mode system replaces per-tool allowlists ────────
     assert "safety_mode" in _src_tasks31, \
-        "tasks.py must support safety_mode"
+        "tasks.py must keep safety_mode storage compatibility"
+    assert "get_task_approval_mode" in _src_tasks31, \
+        "tasks.py must expose shared approval-mode runtime helpers"
     assert "destructive_tool_names" in _src_agent31, \
         "agent.py must use destructive_tool_names from tool objects"
     assert "ContextVar" in _src_agent31, \
         "should use ContextVar for background workflow propagation"
-    record("PASS", "v3.6: safety mode system in tasks.py")
+    record("PASS", "v3.6: approval mode system in tasks.py")
 
     # ── 31b. Three-mode background tool gating in agent.py ───────────
     # The is_background branch must handle block/approve/allow_all.
-    _bg_section = _src_agent31[_src_agent31.index("if is_background:\n"):_src_agent31.index("if is_background:\n") + 800]
+    _bg_section = _src_agent31[_src_agent31.index("if approval_mode in"):_src_agent31.index("if approval_mode in") + 800]
     assert '== "block"' in _bg_section, \
         "BG tool gating must handle block mode"
     assert '== "approve"' in _bg_section, \
@@ -4007,22 +4009,20 @@ try:
 
     # ── 31f. run_task_background uses safety modes ─────────────────
     _run_bg_section = _src_tasks31[_src_tasks31.index("def run_task_background"):][:16000]
-    assert "safety_mode" in _run_bg_section, \
-        "run_task_background should check safety_mode"
+    assert "approval_mode" in _run_bg_section, \
+        "run_task_background should check approval_mode"
     assert "create_approval_request" in _run_bg_section, \
         "run_task_background should create approval requests for approve mode"
-    record("PASS", "v3.6: run_task_background uses safety mode system")
+    record("PASS", "v3.6: run_task_background uses approval mode system")
 
     # ── 31g. Shell tool uses is_background_workflow for gating ──────
-    assert "is_background_workflow" in _src_shell31, \
-        "shell_tool should import is_background_workflow"
-    assert "interrupt(" in _src_shell31, \
-        "shell_tool should use interrupt for interactive approval"
-    record("PASS", "v3.6: shell_tool checks background mode for gating")
+    assert "gate_action" in _src_shell31, \
+        "shell_tool should use the shared approval gate"
+    record("PASS", "v3.6: shell_tool uses shared approval gate")
 
     # ── 31h. Shell tool still uses interrupt for interactive ─────────
-    assert "interrupt(" in _src_shell31, \
-        "shell_tool should still use interrupt for interactive sessions"
+    assert "Run shell command" in _src_shell31, \
+        "shell_tool should provide an approval payload label"
     assert "Run shell command" in _src_shell31, \
         "shell_tool should have interactive interrupt label"
     record("PASS", "v3.6: shell_tool still uses interrupt for interactive")
@@ -4036,17 +4036,17 @@ try:
     record("PASS", "v3.6: gmail_tool sends (safety gated at step level)")
 
     # ── 31j. UI has safety mode selector ────────────────────────────
-    assert "safety_mode" in _src_ui31 or "Safety mode" in _src_ui31, \
-        "task editor should have safety mode selector"
+    assert "Approval mode" in _src_ui31, \
+        "task editor should have approval mode selector"
     assert "approve" in _src_ui31, \
         "task editor should include approve mode option"
-    record("PASS", "v3.6: UI task editor has safety mode selector")
+    record("PASS", "v3.6: UI task editor has approval mode selector")
 
     # ── 31k. UI save persists safety mode ────────────────────────────
     _save_section = _src_ui31[_src_ui31.index("def _save():"):][:5000]
-    assert "safety_mode" in _save_section or "cur_safety" in _save_section, \
-        "save should persist safety_mode"
-    record("PASS", "v3.6: UI save persists safety mode")
+    assert "cur_approval" in _save_section and "safety_mode" in _save_section, \
+        "save should persist approval mode through compatibility column"
+    record("PASS", "v3.6: UI save persists approval mode")
 
     # ── 31l. Prompts mention background task permissions ─────────────
     assert "background task" in _src_prompts31.lower() or \
@@ -4153,24 +4153,24 @@ try:
     record("PASS", "v3.6: tasks.py sets ContextVar for background")
 
     # ── 32e2. _safety_mode_var ContextVar exists and is set ──────────
-    assert "_safety_mode_var" in _src_agent32, \
-        "agent.py must define _safety_mode_var ContextVar"
-    assert "ContextVar" in _src_agent32.split("_safety_mode_var")[0][-200:] + \
-           _src_agent32.split("_safety_mode_var")[1][:200], \
-        "_safety_mode_var must be a ContextVar"
-    assert "_safety_mode_var.set(" in _src_tasks32, \
-        "tasks.py must set _safety_mode_var for background tasks"
-    record("PASS", "v3.12: _safety_mode_var ContextVar exists and tasks.py sets it")
+    assert "_approval_mode_var" in _src_agent32, \
+        "agent.py must define _approval_mode_var ContextVar"
+    assert "ContextVar" in _src_agent32.split("_approval_mode_var")[0][-200:] + \
+           _src_agent32.split("_approval_mode_var")[1][:200], \
+        "_approval_mode_var must be a ContextVar"
+    assert "_approval_mode_var.set(" in _src_tasks32, \
+        "tasks.py must set _approval_mode_var for background tasks"
+    record("PASS", "v3.12: _approval_mode_var ContextVar exists and tasks.py sets it")
 
     # ── 32e3. Shell tool reads safety mode in background branch ──────
-    assert "get_safety_mode" in _src_shell32, \
-        "shell_tool must import get_safety_mode"
+    assert "gate_action" in _src_shell32, \
+        "shell_tool must use shared approval gate"
     _shell_exec = _src_shell32[_src_shell32.index("def execute"):][:2500]
     assert "block" in _shell_exec and "approve" in _shell_exec, \
-        "shell execute() must handle block and approve safety modes"
+        "shell execute() must handle block and approve approval modes"
     assert "allow_all" in _shell_exec or "fall through" in _shell_exec, \
-        "shell execute() must handle allow_all (fall through)"
-    record("PASS", "v3.12: shell_tool reads safety mode in background branch")
+        "shell execute() must handle allow_all"
+    record("PASS", "v3.12: shell_tool reads shared approval mode")
 
     # ── 32e4. run_command NOT in shell destructive_tool_names ──────
     _src_shell32e4 = Path("tools/shell_tool.py").read_text(encoding="utf-8")
@@ -4261,8 +4261,8 @@ try:
     # Must set ContextVars for background execution
     assert "_background_workflow_var.set(True)" in _rgi_section, \
         "_resume_graph_interrupted must set _background_workflow_var"
-    assert "_safety_mode_var.set(" in _rgi_section, \
-        "_resume_graph_interrupted must set _safety_mode_var"
+    assert "_approval_mode_var.set(" in _rgi_section, \
+        "_resume_graph_interrupted must set _approval_mode_var"
     # Must handle chained interrupts (agent hits second tool)
     assert 'result.get("type") == "interrupt"' in _rgi_section, \
         "_resume_graph_interrupted must detect chained interrupts"
@@ -10315,12 +10315,12 @@ try:
 
     # ── AF1. Safety-mode gate on interrupt approval (P0 #5) ──────────
     # In run_task_background, after detecting an interrupt, the pipeline
-    # must check safety_mode before creating an approval request.
+    # must check approval_mode before creating an approval request.
     # Block mode → refuse, Allow_all → auto-resume, Approve → create approval.
     _rtb_af = _src_tasks_af[_src_tasks_af.index("def run_task_background"):][:20000]
-    assert 'safety_mode == "block"' in _rtb_af, \
+    assert 'approval_mode == "block"' in _rtb_af, \
         "run_task_background must check for block mode on interrupt"
-    assert 'safety_mode == "allow_all"' in _rtb_af, \
+    assert 'approval_mode == "allow_all"' in _rtb_af, \
         "run_task_background must check for allow_all mode on interrupt"
     # Block and allow_all should call resume_invoke_agent (not create approval)
     assert "resume_invoke_agent" in _rtb_af, \
@@ -10468,11 +10468,11 @@ try:
 
     # ── AF17. Safety gate in _resume_graph_interrupted (P0 #5 part 2) ─
     _rgi3_af = _src_tasks_af[_src_tasks_af.index("def _resume_graph_interrupted"):][:8000]
-    assert 'safety_mode == "block"' in _rgi3_af, \
+    assert 'approval_mode == "block"' in _rgi3_af, \
         "_resume_graph_interrupted must check block mode on chained interrupt"
-    assert 'safety_mode == "allow_all"' in _rgi3_af, \
+    assert 'approval_mode == "allow_all"' in _rgi3_af, \
         "_resume_graph_interrupted must check allow_all mode on chained interrupt"
-    record("PASS", "AF17: safety-mode gate in _resume_graph_interrupted")
+    record("PASS", "AF17: approval-mode gate in _resume_graph_interrupted")
 
     # ── AF18. _strip_quoted handles edge cases ───────────────────────
     from tools.shell_tool import _strip_quoted
@@ -19794,7 +19794,7 @@ try:
 
     _sandbox_src76 = (_dev_dir76 / "sandbox.py").read_text(encoding="utf-8")
     assert "def decide_action" in _sandbox_src76, "Developer sandbox should expose approval policy"
-    assert "read_only" in _sandbox_src76 and "agent_run" in _sandbox_src76, "Developer sandbox should support approval modes"
+    assert "decision_for_action" in _sandbox_src76 and "normalize_approval_mode" in _sandbox_src76, "Developer sandbox should support shared approval modes"
     assert "git_push" in _sandbox_src76 and "run_install" in _sandbox_src76, "Developer sandbox should gate risky actions"
     record("PASS", "76g: Developer approval policy exists")
 
@@ -19806,10 +19806,10 @@ try:
     record("PASS", "76h: Developer Git safety helpers exist")
 
     assert "set_workspace_approval_mode" in _storage_src76, "Developer storage should persist approval mode"
-    assert "Safety Policy" in _dev_ui_src76, "Developer inspector should show policy decisions"
+    assert "Approval Policy" in _dev_ui_src76, "Developer inspector should show policy decisions"
     assert "Create branch" in _dev_ui_src76, "Developer UI should expose explicit branch creation"
-    assert ".disable()" not in _dev_ui_src76[_dev_ui_src76.index("value=workspace.approval_mode"): _dev_ui_src76.index('ui.badge("Developer Preview"')], "approval mode picker should be enabled"
-    record("PASS", "76i: Developer UI exposes persisted approval mode and safety state")
+    assert "_build_inline_approval_picker" in _P76("ui/chat_components.py").read_text(encoding="utf-8"), "chat composer should expose thread approval mode picker"
+    record("PASS", "76i: Developer UI exposes shared thread approval mode state")
 
     _ctx_src76 = (_dev_dir76 / "agent_context.py").read_text(encoding="utf-8")
     _developer_tool_src76 = _P76("tools/developer_tool.py").read_text(encoding="utf-8")

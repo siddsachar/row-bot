@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from tools.base import BaseTool
 from tools import registry
+from tools.approval_gate import gate_action
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,14 @@ _DATA_DIR = pathlib.Path(
     os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")
 )
 _SKILL_VERSIONS_DIR = _DATA_DIR / "skill_versions"
+
+
+def _approval_gate_bool(payload: dict, *, blocked_message: str) -> bool:
+    return gate_action(
+        payload,
+        blocked_message=blocked_message,
+        cancelled_message="",
+    ) is None
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1029,7 +1038,11 @@ def _thoth_status(category: str) -> str:
 
 def _update_setting(setting: str, value: str) -> str:
     """Update a Thoth setting (with interrupt-based confirmation)."""
-    from langgraph.types import interrupt
+    def interrupt(payload: dict) -> bool:
+        return _approval_gate_bool(
+            payload,
+            blocked_message="BLOCKED: Changing Thoth settings is disabled in Block approval mode.",
+        )
 
     setting = setting.strip().lower()
     value = value.strip()
@@ -1402,7 +1415,11 @@ def _create_skill(
     tags: str = "",
 ) -> str:
     """Create a new user skill (requires confirmation, additive only)."""
-    from langgraph.types import interrupt
+    def interrupt(payload: dict) -> bool:
+        return _approval_gate_bool(
+            payload,
+            blocked_message="BLOCKED: Creating skills is disabled in Block approval mode.",
+        )
 
     # Validate name format
     name = name.strip().lower().replace(" ", "_")
@@ -1492,7 +1509,11 @@ def _version_backup(skill_name: str, content: str, reason: str) -> int:
 
 def _patch_skill(name: str, updated_instructions: str, reason: str) -> str:
     """Patch an existing skill with updated instructions (requires confirmation)."""
-    from langgraph.types import interrupt
+    def interrupt(payload: dict) -> bool:
+        return _approval_gate_bool(
+            payload,
+            blocked_message="BLOCKED: Patching skills is disabled in Block approval mode.",
+        )
 
     name = name.strip()
     if not name:

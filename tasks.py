@@ -37,6 +37,11 @@ from datetime import datetime, timedelta
 from functools import wraps
 from typing import Callable, TypeVar
 
+from approval_policy import (
+    DEFAULT_APPROVAL_MODE,
+    legacy_safety_mode_to_approval_mode,
+    normalize_approval_mode,
+)
 from data_paths import get_tasks_db_path, get_thoth_data_dir
 
 logger = logging.getLogger(__name__)
@@ -1004,6 +1009,7 @@ def create_task(
     if prompts is None:
         prompts = []
     model_override = _canonicalize_workflow_model_override(model_override)
+    safety_mode = legacy_safety_mode_to_approval_mode(safety_mode)
     # If steps provided, also sync prompts for backward compat
     if steps:
         assign_step_ids(steps)
@@ -1101,6 +1107,8 @@ def update_task(task_id: str, **kwargs) -> None:
             continue
         if key == "model_override":
             value = _canonicalize_workflow_model_override(value)
+        if key == "safety_mode":
+            value = legacy_safety_mode_to_approval_mode(value)
         if key == "steps" and isinstance(value, list):
             assign_step_ids(value)
             _canonicalize_workflow_steps(value)
@@ -1247,6 +1255,8 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     d["tools_override"] = json.loads(raw_tools) if raw_tools else None
     raw_channels = d.get("channels")
     d["channels"] = json.loads(raw_channels) if raw_channels else None
+    if d.get("safety_mode"):
+        d["safety_mode"] = legacy_safety_mode_to_approval_mode(d.get("safety_mode"))
     # Auto-convert: if steps is empty but prompts exist, synthesize steps
     if not d["steps"] and d["prompts"]:
         d["steps"] = _prompts_to_steps(d["prompts"])
@@ -2037,8 +2047,8 @@ def run_task_background(
         if step_outputs:
             last_response = list(step_outputs.values())[-1]
 
-        # Determine effective safety mode (block/approve/allow_all)
-        safety_mode = get_task_safety_mode(task)
+        # Determine effective approval mode (block/approve/allow_all)
+        approval_mode = get_task_approval_mode(task)
         effective_tool_names = enabled_tool_names
 
         # Skills override — set on thread so the pre-model hook picks it up
@@ -2058,9 +2068,9 @@ def run_task_background(
             )
 
         try:
-            from agent import _background_workflow_var, _safety_mode_var, _persistent_thread_var
+            from agent import _approval_mode_var, _background_workflow_var, _persistent_thread_var
             _background_workflow_var.set(True)
-            _safety_mode_var.set(safety_mode)
+            _approval_mode_var.set(approval_mode)
             _persistent_thread_var.set(bool(task.get("persistent_thread_id")))
 
             from agent import RECURSION_LIMIT_TASK
@@ -2069,6 +2079,7 @@ def run_task_background(
                     "thread_id": thread_id,
                     "runtime_surface": "workflow",
                     "runtime_mode": "agent",
+                    "approval_mode": approval_mode,
                 },
                 "recursion_limit": RECURSION_LIMIT_TASK,
             }
@@ -2228,7 +2239,7 @@ def run_task_background(
                                 # Safety-mode gate: only "approve" creates
                                 # an approval request.  Block → refuse,
                                 # allow_all → auto-resume.
-                                if safety_mode == "block":
+                                if approval_mode == "block":
                                     logger.info(
                                         "Task '%s' step %d: interrupt in block mode — refusing",
                                         task["name"], step_index + 1,
@@ -2244,7 +2255,7 @@ def run_task_background(
                                     step_succeeded = True
                                     break
 
-                                if safety_mode == "allow_all":
+                                if approval_mode == "allow_all":
                                     logger.info(
                                         "Task '%s' step %d: interrupt in allow_all mode — auto-approving",
                                         task["name"], step_index + 1,
@@ -2819,7 +2830,7 @@ def _prepare_task_thread(task: dict) -> str:
     - thread_meta creation
     - model_override propagation
     """
-    from threads import _save_thread_meta, _set_thread_model_override
+    from threads import _save_thread_meta, _set_thread_approval_mode, _set_thread_model_override
 
     thread_id = task.get("persistent_thread_id") or uuid.uuid4().hex[:12]
     if not task.get("notify_only"):
@@ -2830,6 +2841,7 @@ def _prepare_task_thread(task: dict) -> str:
         _save_thread_meta(thread_id, thread_name)
     if task.get("model_override"):
         _set_thread_model_override(thread_id, task["model_override"])
+    _set_thread_approval_mode(thread_id, get_task_approval_mode(task))
     return thread_id
 
 
@@ -3032,44 +3044,61 @@ def set_retry_max(value: int) -> None:
 
 # ── Global Safety Mode ──────────────────────────────────────────────────────
 
-_VALID_SAFETY_MODES = ("block", "approve", "allow_all")
+_VALID_APPROVAL_MODES = ("block", "approve", "allow_all")
+_VALID_SAFETY_MODES = _VALID_APPROVAL_MODES
 
 
-def get_global_safety_mode() -> str:
-    """Return the global default safety mode for new tasks."""
+def get_global_approval_mode() -> str:
+    """Return the global default approval mode for new tasks."""
     try:
         with open(_RETRY_CONFIG_PATH) as f:
             mode = json.load(f).get("safety_mode", "block")
-            return mode if mode in _VALID_SAFETY_MODES else "block"
+            return legacy_safety_mode_to_approval_mode(mode)
     except (FileNotFoundError, json.JSONDecodeError):
         return "block"
 
 
-def set_global_safety_mode(mode: str) -> None:
-    """Save the global safety mode setting."""
-    if mode not in _VALID_SAFETY_MODES:
-        raise ValueError(f"Invalid safety mode: {mode!r}. Must be one of {_VALID_SAFETY_MODES}")
+def set_global_approval_mode(mode: str) -> None:
+    """Save the global approval mode setting."""
+    normalized = normalize_approval_mode(mode, "")
+    if normalized not in _VALID_APPROVAL_MODES:
+        raise ValueError(f"Invalid approval mode: {mode!r}. Must be one of {_VALID_APPROVAL_MODES}")
     data = {}
     try:
         with open(_RETRY_CONFIG_PATH) as f:
             data = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         pass
-    data["safety_mode"] = mode
+    data["safety_mode"] = normalized
     with open(_RETRY_CONFIG_PATH, "w") as f:
         json.dump(data, f, indent=2)
 
 
-def get_task_safety_mode(task: dict) -> str:
-    """Return the effective safety mode for a task.
+def get_task_approval_mode(task: dict) -> str:
+    """Return the effective approval mode for a task.
 
     Uses the task's own setting if present, otherwise falls back to
     the global default.
     """
     mode = task.get("safety_mode")
-    if mode and mode in _VALID_SAFETY_MODES:
-        return mode
-    return get_global_safety_mode()
+    if mode:
+        return legacy_safety_mode_to_approval_mode(mode)
+    return get_global_approval_mode()
+
+
+def get_global_safety_mode() -> str:
+    """Compatibility alias for old workflow settings."""
+    return get_global_approval_mode()
+
+
+def set_global_safety_mode(mode: str) -> None:
+    """Compatibility alias for old workflow settings."""
+    set_global_approval_mode(mode)
+
+
+def get_task_safety_mode(task: dict) -> str:
+    """Compatibility alias for old workflow settings."""
+    return get_task_approval_mode(task)
 
 
 # ── Smart Tool Selection (auto-inference engine) ────────────────────────────
@@ -3524,7 +3553,7 @@ def _resume_graph_interrupted(
     """
     from agent import (
         resume_invoke_agent, TaskStoppedError,
-        _background_workflow_var, _safety_mode_var, _persistent_thread_var,
+        _approval_mode_var, _background_workflow_var, _persistent_thread_var,
     )
 
     run_id = state["run_id"]
@@ -3536,6 +3565,7 @@ def _resume_graph_interrupted(
             **(config.get("configurable") or {}),
             "runtime_surface": "workflow",
             "runtime_mode": "agent",
+            "approval_mode": get_task_approval_mode(task),
         },
     }
     step_outputs = state.get("step_outputs", {})
@@ -3543,7 +3573,7 @@ def _resume_graph_interrupted(
     total = len(steps)
     paused_step = steps[paused_step_index] if paused_step_index < total else {}
     step_id = paused_step.get("id", f"step_{paused_step_index + 1}")
-    safety_mode = get_task_safety_mode(task)
+    approval_mode = get_task_approval_mode(task)
     effective_tool_names = enabled_tool_names
 
     # Clear the "(paused)" suffix from the thread name
@@ -3554,7 +3584,7 @@ def _resume_graph_interrupted(
 
     def _run():
         _background_workflow_var.set(True)
-        _safety_mode_var.set(safety_mode)
+        _approval_mode_var.set(approval_mode)
         _persistent_thread_var.set(bool(task.get("persistent_thread_id")))
 
         _stop_event = threading.Event()
@@ -3606,7 +3636,7 @@ def _resume_graph_interrupted(
                 )
                 # Treat as success — result is empty, keep going
                 pass  # fall through to success path below
-            elif safety_mode == "block":
+            elif approval_mode == "block":
                 # Block mode — refuse the chained interrupt
                 logger.info(
                     "Task '%s' graph resume: chained interrupt in block mode — refusing",
@@ -3620,7 +3650,7 @@ def _resume_graph_interrupted(
                 except Exception as exc2:
                     logger.error("Block-mode resume denial failed: %s", exc2)
                 # Fall through to success path
-            elif safety_mode == "allow_all":
+            elif approval_mode == "allow_all":
                 # Allow_all — auto-approve the chained interrupt
                 logger.info(
                     "Task '%s' graph resume: chained interrupt in allow_all — auto-approving",
@@ -3926,8 +3956,8 @@ def _run_subtask_sync(
         if not steps:
             return None
 
-        # Apply child task's safety mode
-        child_safety = get_task_safety_mode(child_task)
+        # Apply child task's approval mode
+        child_approval = get_task_approval_mode(child_task)
         effective_tools = tool_names
 
         config = {
@@ -3935,6 +3965,7 @@ def _run_subtask_sync(
                 "thread_id": thread_id,
                 "runtime_surface": "workflow",
                 "runtime_mode": "agent",
+                "approval_mode": child_approval,
             },
             "recursion_limit": parent_config.get("recursion_limit", 50),
         }
@@ -3969,8 +4000,8 @@ def _run_subtask_sync(
                     # Subtasks do not support approval flow — if the
                     # agent triggered an interrupt(), handle it inline.
                     if isinstance(result, dict) and result.get("type") == "interrupt":
-                        child_safety = get_task_safety_mode(child_task)
-                        if child_safety == "allow_all":
+                        child_approval = get_task_approval_mode(child_task)
+                        if child_approval == "allow_all":
                             from agent import resume_invoke_agent
                             result = resume_invoke_agent(
                                 effective_tools, config,

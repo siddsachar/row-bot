@@ -148,6 +148,8 @@ def _new_thread(phone: str) -> str:
 # Agent execution
 # ──────────────────────────────────────────────────────────────────────
 def build_channel_runtime_config(config: dict, purpose: str) -> dict:
+    from channels.runtime import approval_mode_for_config
+
     if purpose == "approval":
         runtime_surface = "approval"
         runtime_mode = "agent"
@@ -160,6 +162,7 @@ def build_channel_runtime_config(config: dict, purpose: str) -> dict:
             **(config.get("configurable") or {}),
             "runtime_surface": runtime_surface,
             "runtime_mode": runtime_mode,
+            "approval_mode": approval_mode_for_config(config),
         },
     }
 

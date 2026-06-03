@@ -121,7 +121,7 @@ def push_current_branch(
     confirmed: bool = False,
     timeout: int = 120,
 ) -> GhResult:
-    """Push HEAD to origin after passing Developer approval policy."""
+    """Push HEAD to origin after passing the thread approval mode."""
     decision = decide_action(approval_mode, "git_push")
     if decision.requires_approval and confirmed:
         decision = ApprovalDecision("allow", "User explicitly approved this push.")

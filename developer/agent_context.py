@@ -46,7 +46,23 @@ def _top_level_inventory(path: pathlib.Path, *, limit: int = 40) -> list[str]:
     return rows
 
 
-def build_developer_agent_context(workspace_id: str) -> str:
+def _thread_approval_mode(thread_id: str, fallback: str) -> str:
+    if thread_id:
+        try:
+            from threads import _get_thread_approval_mode
+
+            return _get_thread_approval_mode(thread_id)
+        except Exception:
+            pass
+    try:
+        from approval_policy import normalize_approval_mode
+
+        return normalize_approval_mode(fallback)
+    except Exception:
+        return fallback or "approve"
+
+
+def build_developer_agent_context(workspace_id: str, thread_id: str = "") -> str:
     """Build a compact context prefix for Developer chat turns.
 
     This intentionally avoids reading arbitrary file contents.  The agent
@@ -60,12 +76,13 @@ def build_developer_agent_context(workspace_id: str) -> str:
     status = get_git_status(workspace.path)
     inventory = _top_level_inventory(path)
     shell_name = "PowerShell" if os.name == "nt" else "POSIX sh"
+    approval_mode = _thread_approval_mode(thread_id, workspace.approval_mode)
 
     lines = [
         "[Developer Studio context]",
         f"Workspace: {workspace.name}",
         f"Path: {workspace.path}",
-        f"Approval mode: {workspace.approval_mode}",
+        f"Approval mode: {approval_mode}",
         f"Execution mode: {workspace.execution_mode}",
         f"Sandbox network: {workspace.sandbox_network}",
         f"Command shell: {shell_name}",

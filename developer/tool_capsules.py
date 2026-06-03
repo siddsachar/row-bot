@@ -14,6 +14,7 @@ from typing import Any
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+from approval_policy import DEFAULT_APPROVAL_MODE
 from developer.runtime import CommandResult, classify_command_action, run_workspace_command, split_command
 from developer.sandbox import ApprovalDecision, decide_action
 from developer.sandbox_runtime import detect_container_runtime, run_docker_sandbox_command
@@ -28,6 +29,15 @@ CAPSULES_PATH = DEVELOPER_DIR / "tool_capsules.json"
 CUSTOM_TOOL_DRAFTS_PATH = DEVELOPER_DIR / "custom_tool_drafts.json"
 CAPSULE_INSTALL_ROOT = DEVELOPER_DIR / "tool-capsules"
 DEFAULT_CUSTOM_TOOL_TEST_QUERY = "python"
+
+
+def _active_approval_mode() -> ApprovalMode:
+    try:
+        from agent import get_approval_mode
+
+        return get_approval_mode()  # type: ignore[return-value]
+    except Exception:
+        return DEFAULT_APPROVAL_MODE
 
 
 @dataclass
@@ -901,7 +911,7 @@ def test_custom_tool_draft_command(
     draft_id: str,
     *,
     command_name: str = "",
-    approval_mode: ApprovalMode = "agent_run",
+    approval_mode: ApprovalMode = DEFAULT_APPROVAL_MODE,
     query: str = "",
 ) -> CommandResult:
     draft = get_custom_tool_draft(draft_id)
@@ -1140,9 +1150,9 @@ def run_custom_tool_command(
     return run_capsule_command(tool_id, command, approval_mode, require_enabled=require_enabled)
 
 
-def classify_custom_tool_command(command: str) -> dict:
+def classify_custom_tool_command(command: str, approval_mode: ApprovalMode | None = None) -> dict:
     action = classify_command_action(command)
-    decision = decide_action("agent_run", action)  # type: ignore[arg-type]
+    decision = decide_action(approval_mode or _active_approval_mode(), action)  # type: ignore[arg-type]
     label_by_action = {
         "run_safe_command": "Local",
         "run_network": "Network",
@@ -1164,7 +1174,7 @@ def _custom_tool_workspace(tool: ToolCapsule, *, network: bool = False) -> Devel
         name=tool.name,
         path=tool.installed_path,
         repo_url=tool.source_url,
-        approval_mode="agent_run",
+        approval_mode=_active_approval_mode(),
         execution_mode="docker",
         sandbox_network="on" if network else "off",
         sandbox_image=DEFAULT_SANDBOX_IMAGE,
@@ -1201,6 +1211,7 @@ def run_custom_tool_test_command(
     query: str = "",
     approved_once: bool = False,
     require_enabled: bool = False,
+    approval_mode: ApprovalMode = DEFAULT_APPROVAL_MODE,
 ) -> CommandResult:
     tool = next((item for item in list_capsules() if item.id == tool_id), None)
     if tool is None:
@@ -1210,7 +1221,7 @@ def run_custom_tool_test_command(
 
     command = substitute_custom_tool_query(command, query, default_query=DEFAULT_CUSTOM_TOOL_TEST_QUERY)
     action = classify_command_action(command)
-    decision = decide_action("agent_run", action)  # type: ignore[arg-type]
+    decision = decide_action(approval_mode, action)  # type: ignore[arg-type]
     if decision.requires_approval and not approved_once:
         return CommandResult(
             command=command,
@@ -1247,7 +1258,7 @@ def run_custom_tool_test_command(
     if approved_once and decision.requires_approval:
         decision = ApprovalDecision("allow", "User approved this Custom Tool test run once.")
         return _run_custom_tool_local_direct(tool, command, decision)
-    return run_workspace_command(tool.installed_path, command, "agent_run")
+    return run_workspace_command(tool.installed_path, command, approval_mode)
 
 
 def _friendly_capsule_name(root: Path, source_url: str = "") -> str:
@@ -1511,7 +1522,7 @@ def _run_promoted_capsule_command(capsule: ToolCapsule, command: dict[str, Any],
     result = run_capsule_command(
         capsule.id,
         command_text,
-        "agent_run",
+        "allow_all",
         require_enabled=False,
     )
     return _result_to_text(result)

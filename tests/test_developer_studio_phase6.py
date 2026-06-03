@@ -36,8 +36,8 @@ def test_developer_push_requires_approval_until_user_confirms(tmp_path, monkeypa
 
     monkeypatch.setattr(github, "_run", fake_run)
 
-    blocked = github.push_current_branch(str(repo), "agent_run")
-    allowed = github.push_current_branch(str(repo), "agent_run", confirmed=True)
+    blocked = github.push_current_branch(str(repo), "approve")
+    allowed = github.push_current_branch(str(repo), "approve", confirmed=True)
 
     assert blocked.ran is False
     assert blocked.decision.decision == "ask"
@@ -62,7 +62,7 @@ def test_developer_pr_uses_gh_cli_after_confirmed_approval(tmp_path, monkeypatch
 
     monkeypatch.setattr(github, "_run", fake_run)
 
-    result = github.create_pull_request(str(repo), "auto_edit", confirmed=True, title="Feature", body="Ready")
+    result = github.create_pull_request(str(repo), "allow_all", title="Feature", body="Ready")
 
     assert result.ran is True
     assert result.ok is True
@@ -91,13 +91,13 @@ def test_developer_pr_preview_uses_branch_and_changed_files(tmp_path, monkeypatc
     assert preview.changed_files == 2
 
 
-def test_developer_pr_is_blocked_in_read_only_even_when_clicked(tmp_path, monkeypatch):
+def test_developer_pr_is_blocked_in_block_even_when_clicked(tmp_path, monkeypatch):
     github = _fresh_modules(tmp_path, monkeypatch)
     repo = tmp_path / "repo"
     repo.mkdir()
     monkeypatch.setattr(github, "resolve_github_cli", lambda: "gh")
 
-    result = github.create_pull_request(str(repo), "read_only", confirmed=True)
+    result = github.create_pull_request(str(repo), "block", confirmed=True)
 
     assert result.ran is False
     assert result.decision.decision == "block"

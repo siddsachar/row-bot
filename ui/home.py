@@ -621,7 +621,7 @@ def build_home(
             designer_container = ui.column().classes("w-full h-full")
 
             def _open_designer_project(project, initial_prompt: str | None = None, staged_files=None):
-                from threads import _save_thread_meta, _set_thread_project_id
+                from threads import _get_thread_approval_mode, _save_thread_meta, _set_thread_project_id
                 from designer.storage import save_project
                 from memory_extraction import set_active_thread
 
@@ -642,6 +642,7 @@ def build_home(
                 state.thread_id = project.thread_id
                 state.thread_name = f"🎨 {project.name}"
                 state.thread_model_override = ""
+                state.thread_approval_mode = _get_thread_approval_mode(project.thread_id)
                 # Load existing messages from LangGraph checkpoint
                 from ui.helpers import load_thread_messages
                 state.messages = load_thread_messages(project.thread_id)

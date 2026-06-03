@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime
 
 from developer.state import DeveloperWorkspace
+from approval_policy import legacy_developer_mode_to_approval_mode
 
 logger = logging.getLogger(__name__)
 
@@ -139,9 +140,14 @@ def set_workspace_approval_mode(workspace_id: str, approval_mode: str) -> Develo
     workspace = get_workspace(workspace_id)
     if workspace is None:
         raise ValueError(f"Developer workspace not found: {workspace_id}")
-    if approval_mode not in {"read_only", "ask", "auto_edit", "agent_run"}:
-        raise ValueError(f"Unknown approval mode: {approval_mode}")
-    workspace.approval_mode = approval_mode  # type: ignore[assignment]
+    workspace.approval_mode = legacy_developer_mode_to_approval_mode(approval_mode)
+    if workspace.default_thread_id:
+        try:
+            from threads import _set_thread_approval_mode
+
+            _set_thread_approval_mode(workspace.default_thread_id, workspace.approval_mode)
+        except Exception:
+            logger.debug("Failed to mirror Developer approval mode to thread", exc_info=True)
     workspace.touch()
     return save_workspace(workspace)
 
@@ -248,17 +254,22 @@ def ensure_workspace_thread(workspace_id: str) -> str:
     if workspace is None:
         raise ValueError(f"Developer workspace not found: {workspace_id}")
     from threads import (
+        _get_thread_approval_mode_raw,
         _save_thread_meta,
+        _set_thread_approval_mode,
         _set_thread_developer_workspace,
         _set_thread_type,
         _thread_exists,
     )
 
     if workspace.default_thread_id and _thread_exists(workspace.default_thread_id):
+        if not _get_thread_approval_mode_raw(workspace.default_thread_id):
+            _set_thread_approval_mode(workspace.default_thread_id, workspace.approval_mode)
         return workspace.default_thread_id
     thread_id = uuid.uuid4().hex[:12]
     name = f"Developer: {workspace.name}"
     _save_thread_meta(thread_id, name)
+    _set_thread_approval_mode(thread_id, workspace.approval_mode)
     _set_thread_type(thread_id, "code")
     _set_thread_developer_workspace(thread_id, workspace.id)
     workspace.default_thread_id = thread_id
