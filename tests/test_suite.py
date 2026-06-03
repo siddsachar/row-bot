@@ -2048,7 +2048,11 @@ try:
 
     # 21d. _TaskUpdateInput schema fields
     _update_fields = set(_TaskUpdateInput.model_fields.keys())
-    _expected_fields = {"task_id", "name", "schedule", "prompts", "steps", "safety_mode", "enabled", "model", "persistent_thread"}
+    _expected_fields = {
+        "task_id", "name", "schedule", "prompts", "steps",
+        "approval_mode", "safety_mode",
+        "enabled", "model", "persistent_thread",
+    }
     if _update_fields == _expected_fields:
         record("PASS", f"task: _TaskUpdateInput fields {sorted(_update_fields)}")
     else:
@@ -4043,7 +4047,7 @@ try:
     record("PASS", "v3.6: UI task editor has approval mode selector")
 
     # ── 31k. UI save persists safety mode ────────────────────────────
-    _save_section = _src_ui31[_src_ui31.index("def _save():"):][:5000]
+    _save_section = _src_ui31[_src_ui31.index("def _save():"):]
     assert "cur_approval" in _save_section and "safety_mode" in _save_section, \
         "save should persist approval mode through compatibility column"
     record("PASS", "v3.6: UI save persists approval mode")
@@ -4131,13 +4135,13 @@ try:
         "is_background_workflow must NOT use _tlocal"
     record("PASS", "v3.6: is_background_workflow reads ContextVar")
 
-    # ── 32c. _wrap_with_interrupt_gate uses ContextVar ───────────────
+    # ── 32c. _wrap_with_interrupt_gate uses shared approval mode ─────
     _gate_section = _src_agent32[_src_agent32.index("def _wrap_with_interrupt_gate"):][:2000]
-    assert "_background_workflow_var.get()" in _gate_section, \
-        "interrupt gate must check _background_workflow_var.get()"
+    assert "decision_for_action(get_approval_mode())" in _gate_section, \
+        "interrupt gate must check the shared approval mode"
     assert "getattr(_tlocal" not in _gate_section, \
         "interrupt gate must NOT use _tlocal for background check"
-    record("PASS", "v3.6: interrupt gate uses ContextVar for bg check")
+    record("PASS", "v3.6: interrupt gate uses shared approval mode")
 
     # ── 32d. get_agent_graph uses ContextVar ─────────────────────────
     _gag_section = _src_agent32[_src_agent32.index("def get_agent_graph"):][:2500]

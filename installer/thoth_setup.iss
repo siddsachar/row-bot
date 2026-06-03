@@ -78,6 +78,7 @@ Type: filesandordirs; Name: "{app}\python"
 ; ── App source code ──────────────────────────────────────────────────────────
 Source: "..\app.py";                  DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\agent.py";                 DestDir: "{app}\app"; Flags: ignoreversion
+Source: "..\approval_policy.py";       DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\memory.py";                DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\memory_policy.py";         DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\memory_evolution.py";      DestDir: "{app}\app"; Flags: ignoreversion
@@ -136,6 +137,7 @@ Source: "..\channels\config.py";        DestDir: "{app}\app\channels"; Flags: ig
 Source: "..\channels\discord_channel.py"; DestDir: "{app}\app\channels"; Flags: ignoreversion
 Source: "..\channels\media.py";         DestDir: "{app}\app\channels"; Flags: ignoreversion
 Source: "..\channels\registry.py";      DestDir: "{app}\app\channels"; Flags: ignoreversion
+Source: "..\channels\runtime.py";       DestDir: "{app}\app\channels"; Flags: ignoreversion
 Source: "..\channels\slack.py";         DestDir: "{app}\app\channels"; Flags: ignoreversion
 Source: "..\channels\sms.py";           DestDir: "{app}\app\channels"; Flags: ignoreversion
 Source: "..\channels\telegram.py";      DestDir: "{app}\app\channels"; Flags: ignoreversion
@@ -181,6 +183,7 @@ Source: "..\migration\redaction.py";    DestDir: "{app}\app\migration"; Flags: i
 
 ; ── Tools package ────────────────────────────────────────────────────────────
 Source: "..\tools\__init__.py";        DestDir: "{app}\app\tools"; Flags: ignoreversion
+Source: "..\tools\approval_gate.py";   DestDir: "{app}\app\tools"; Flags: ignoreversion
 Source: "..\tools\base.py";            DestDir: "{app}\app\tools"; Flags: ignoreversion
 Source: "..\tools\registry.py";        DestDir: "{app}\app\tools"; Flags: ignoreversion
 Source: "..\tools\arxiv_tool.py";      DestDir: "{app}\app\tools"; Flags: ignoreversion
