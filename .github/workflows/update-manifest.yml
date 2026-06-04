@@ -1,5 +1,5 @@
 # =============================================================================
-# update-manifest.yml â€” Append a SHA256 manifest to a GitHub release body
+# update-manifest.yml - Append a SHA256 manifest to a GitHub release body
 #
 # When a release is published (or this workflow is dispatched), this job
 # downloads the release's installer, DMG, and Linux tarball assets, computes their SHA256
@@ -55,11 +55,11 @@ jobs:
           # release.yml uploads installer + DMG assets asynchronously after the
           # release is published, so the first `release: published` event may
           # fire before any assets exist. Poll up to 30 minutes for at least
-          # one matching asset before bailing out â€” the `release: edited`
+          # one matching asset before bailing out - the `release: edited`
           # trigger will retry if we still time out.
           tag="${{ steps.tag.outputs.value }}"
           repo="${{ github.repository }}"
-          attempts=60        # 60 Ã— 30s = 30 min
+          attempts=60        # 60 * 30s = 30 min
           for i in $(seq 1 $attempts); do
             rm -rf artifacts/* 2>/dev/null || true
             gh release download "$tag" \
@@ -74,7 +74,7 @@ jobs:
               echo "Found ${#files[@]} asset(s) on attempt $i"
               break
             fi
-            echo "Attempt $i/$attempts: no installer assets yet, waiting 30sâ€¦"
+            echo "Attempt $i/$attempts: no installer assets yet, waiting 30s..."
             sleep 30
           done
           ls -la artifacts/
@@ -87,7 +87,7 @@ jobs:
           shopt -s nullglob
           files=(artifacts/RowBotSetup_*.exe artifacts/Row-Bot-*-macOS-*.dmg artifacts/Row-Bot-*-Linux-*.tar.gz)
           if [ ${#files[@]} -eq 0 ]; then
-            echo "No installer artifacts found for ${{ steps.tag.outputs.value }} â€” skipping manifest"
+            echo "No installer artifacts found for ${{ steps.tag.outputs.value }} - skipping manifest"
             exit 0
           fi
           python scripts/append_sha_manifest.py \

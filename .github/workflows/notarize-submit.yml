@@ -1,14 +1,14 @@
-﻿# =============================================================================
-# notarize-submit.yml â€” Submit signed DMG to Apple for notarization
+# =============================================================================
+# notarize-submit.yml - Submit signed DMG to Apple for notarization
 #
 # Run this AFTER you've tested the signed DMG from the release build.
 # It uploads the DMG to Apple and confirms the submission is "In Progress".
 #
 # Input:
-#   build_run_id â€” GitHub Actions run ID that produced the Row-Bot-macOS artifact
+#   build_run_id - GitHub Actions run ID that produced the Row-Bot-macOS artifact
 #
 # Output (in the job log):
-#   Submission ID â€” use this in notarize-check.yml to poll status / staple
+#   Submission ID - use this in notarize-check.yml to poll status / staple
 # =============================================================================
 
 name: "Notarize: Submit DMG"
@@ -47,7 +47,7 @@ jobs:
           echo "Size: $(du -h "$DMG_PATH" | cut -f1)"
           echo ""
 
-          # â”€â”€ Submit (no timeout â€” let the ~700 MB upload finish) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          # Submit the DMG without a timeout so the large upload can finish.
           NOTARY_JSON="$RUNNER_TEMP/notary_submit.json"
           attempts=0
           max_attempts=3
@@ -81,7 +81,7 @@ jobs:
           echo "Upload accepted by Apple.  Submission ID: $SUBMISSION_ID"
           echo ""
 
-          # â”€â”€ Brief poll to confirm Apple shows "In Progress" â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          # Briefly poll to confirm Apple has accepted the submission.
           echo "Confirming submission is In Progress..."
           for i in $(seq 1 6); do
             sleep 30
@@ -95,7 +95,7 @@ jobs:
               echo "  Check ${i}/6: ${status}"
               if [ "$status" = "In Progress" ] || [ "$status" = "Accepted" ]; then
                 echo ""
-                echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+                echo "------------------------------------------------------------"
                 echo "  SUBMISSION CONFIRMED"
                 echo "  Submission ID : $SUBMISSION_ID"
                 echo "  Status        : $status"
@@ -103,7 +103,7 @@ jobs:
                 echo ""
                 echo "  Run 'Notarize: Check Status' with the Submission ID"
                 echo "  to poll progress and staple when ready."
-                echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+                echo "------------------------------------------------------------"
                 exit 0
               elif [ "$status" = "Invalid" ]; then
                 echo "::error::Apple immediately rejected the submission."
@@ -118,12 +118,12 @@ jobs:
             fi
           done
 
-          # If we got here, Apple took >3 min to show status â€” still OK
+          # If we got here, Apple took >3 min to show status - still OK
           echo ""
-          echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+          echo "------------------------------------------------------------"
           echo "  SUBMITTED (status not yet confirmed, but upload succeeded)"
           echo "  Submission ID : $SUBMISSION_ID"
           echo "  Build Run ID  : ${{ inputs.build_run_id }}"
           echo ""
           echo "  Run 'Notarize: Check Status' with the Submission ID."
-          echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+          echo "------------------------------------------------------------"
