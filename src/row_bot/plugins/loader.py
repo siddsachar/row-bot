@@ -67,6 +67,15 @@ class LoadResult:
 _load_results: list[LoadResult] = []
 
 
+def _install_plugin_api_compat_aliases() -> None:
+    """Preserve the public plugin import path for installed third-party plugins."""
+    import row_bot.plugins as _plugins_pkg
+    import row_bot.plugins.api as _plugins_api
+
+    sys.modules.setdefault("plugins", _plugins_pkg)
+    sys.modules.setdefault("plugins.api", _plugins_api)
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
 def load_plugins() -> list[LoadResult]:
     """Discover and load all installed plugins. Safe to call multiple times.
@@ -330,6 +339,7 @@ def _call_register_with_timeout(plugin_dir: pathlib.Path, api: PluginAPI) -> Non
     plugin_dir_str = str(plugin_dir)
     if plugin_dir_str not in sys.path:
         sys.path.insert(0, plugin_dir_str)
+    _install_plugin_api_compat_aliases()
 
     error_holder: list[Exception] = []
 

@@ -289,3 +289,26 @@ def test_port_consumers_no_longer_lookup_main_tunnel_on_literal_8080():
     assert "app_port = get_app_port()" in settings_source
     assert "/api/launcher-ping" in app_source
     assert '"port": _APP_PORT' in app_source
+
+
+def test_settings_lazy_tabs_use_package_imports():
+    settings_source = Path("src/row_bot/ui/settings.py").read_text(encoding="utf-8")
+
+    assert '__import__("row_bot.ui.buddy"' in settings_source
+    assert '__import__("row_bot.ui.mcp_settings"' in settings_source
+    assert '__import__("ui.' not in settings_source
+
+
+def test_plugin_loader_preserves_public_plugin_api_import(monkeypatch):
+    import sys
+
+    import row_bot.plugins.api as plugin_api
+    from row_bot.plugins import loader
+
+    monkeypatch.delitem(sys.modules, "plugins", raising=False)
+    monkeypatch.delitem(sys.modules, "plugins.api", raising=False)
+
+    loader._install_plugin_api_compat_aliases()
+
+    imported_api = __import__("plugins.api", fromlist=["PluginAPI"])
+    assert imported_api is plugin_api

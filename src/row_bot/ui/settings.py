@@ -5357,10 +5357,10 @@ def open_settings(
                     (tab_utils, "Utilities", _build_utilities_tab),
                     (tab_tracker, "Tracker", _build_tracker_tab),
                     (tab_knowledge, "Knowledge", _build_knowledge_tab),
-                    (tab_buddy, "Buddy", lambda: __import__("ui.buddy", fromlist=["build_buddy_settings_tab"]).build_buddy_settings_tab(_reopen)),
+                    (tab_buddy, "Buddy", lambda: __import__("row_bot.ui.buddy", fromlist=["build_buddy_settings_tab"]).build_buddy_settings_tab(_reopen)),
                     (tab_voice, "Voice", _build_voice_tab),
                     (tab_channels, "Channels", _build_channels_tab),
-                    (tab_mcp, "MCP", lambda: __import__("ui.mcp_settings", fromlist=["build_mcp_settings_tab"]).build_mcp_settings_tab(_reopen)),
+                    (tab_mcp, "MCP", lambda: __import__("row_bot.ui.mcp_settings", fromlist=["build_mcp_settings_tab"]).build_mcp_settings_tab(_reopen)),
                     (tab_plugins, "Plugins", _build_plugins_tab),
                     (tab_prefs, "Preferences", _build_preferences_tab),
                 ]
