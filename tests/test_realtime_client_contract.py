@@ -109,7 +109,7 @@ def test_realtime_client_serializes_response_create_with_arbiter():
 
 
 def test_realtime_events_let_auto_response_decide_before_fallback():
-    source = (ROOT / "ui" / "voice_realtime_events.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "ui" / "voice_realtime_events.py").read_text(encoding="utf-8")
     transcript_branch = source.split('if event_type == "transcript_final":', 1)[1].split('if event_type == "server_error":', 1)[0]
     fallback_branch = source.split('if event_type == "consult_fallback_needed":', 1)[1].split('if event_type == "transcript_final":', 1)[0]
     function_branch = source.split("async def _handle_function_call", 1)[1].split("async def _handle_forced_fallback", 1)[0]
@@ -137,7 +137,7 @@ def test_realtime_run_event_distinguishes_answers_from_status_cues():
 
 def test_realtime_client_removed_old_hybrid_speech_bridge():
     source = start_realtime_client_js(sink_id=1, session_id=1)
-    streaming_src = (ROOT / "ui" / "streaming.py").read_text(encoding="utf-8")
+    streaming_src = (ROOT / "src" / "row_bot" / "ui" / "streaming.py").read_text(encoding="utf-8")
 
     assert "speech_request_" not in source
     assert "scheduleSpeechFinished" not in source
@@ -148,7 +148,7 @@ def test_realtime_client_removed_old_hybrid_speech_bridge():
 
 
 def test_app_exposes_ephemeral_secret_endpoint_without_long_lived_key():
-    source = (ROOT / "app.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "app.py").read_text(encoding="utf-8")
     endpoint_source = source.split('@app.post("/api/voice/realtime/client-secret")', 1)[1].split("@", 1)[0]
 
     assert '@app.post("/api/voice/realtime/client-secret")' in source

@@ -274,7 +274,7 @@ def test_cli_status_can_be_authenticated_while_api_token_is_invalid(monkeypatch)
 
 
 def test_settings_exposes_github_account_panel():
-    source = open("ui/settings.py", "r", encoding="utf-8").read()
+    source = open("src/row_bot/ui/settings.py", "r", encoding="utf-8").read()
 
     assert "_build_github_account_panel" in source
     assert "GitHub Personal Access Token" in source
@@ -288,7 +288,7 @@ def test_settings_exposes_github_account_panel():
 
 
 def test_settings_github_label_does_not_verify_synchronously():
-    source = open("ui/settings.py", "r", encoding="utf-8").read()
+    source = open("src/row_bot/ui/settings.py", "r", encoding="utf-8").read()
     helper_start = source.index("def _github_status_text")
     helper_end = source.index("with ui.expansion(_github_status_text", helper_start)
     helper_body = source[helper_start:helper_end]
@@ -298,7 +298,7 @@ def test_settings_github_label_does_not_verify_synchronously():
 
 
 def test_settings_github_status_load_runs_off_ui_thread():
-    source = open("ui/settings.py", "r", encoding="utf-8").read()
+    source = open("src/row_bot/ui/settings.py", "r", encoding="utf-8").read()
     load_start = source.index("async def _load_github_status")
     load_end = source.index("with ui.row().classes(\"gap-2 items-center\")", load_start)
     load_body = source[load_start:load_end]

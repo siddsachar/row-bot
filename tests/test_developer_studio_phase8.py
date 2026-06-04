@@ -620,11 +620,11 @@ def test_tool_capsule_developer_ui_exposes_end_to_end_actions():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    source = (root / "developer" / "ui.py").read_text(encoding="utf-8")
-    capsules_source = (root / "developer" / "tool_capsules.py").read_text(encoding="utf-8")
-    tool_source = (root / "tools" / "developer_tool.py").read_text(encoding="utf-8")
-    global_tool_source = (root / "tools" / "custom_tool_builder_tool.py").read_text(encoding="utf-8")
-    utilities_source = (root / "ui" / "settings.py").read_text(encoding="utf-8")
+    source = (root / "src" / "row_bot" / "developer" / "ui.py").read_text(encoding="utf-8")
+    capsules_source = (root / "src" / "row_bot" / "developer" / "tool_capsules.py").read_text(encoding="utf-8")
+    tool_source = (root / "src" / "row_bot" / "tools" / "developer_tool.py").read_text(encoding="utf-8")
+    global_tool_source = (root / "src" / "row_bot" / "tools" / "custom_tool_builder_tool.py").read_text(encoding="utf-8")
+    utilities_source = (root / "src" / "row_bot" / "ui" / "settings.py").read_text(encoding="utf-8")
     guide_source = (root / "tool_guides" / "custom_tool_builder_guide" / "SKILL.md").read_text(encoding="utf-8")
 
     assert "Custom Tools" in source

@@ -61,7 +61,7 @@ def test_skills_sh_payload_and_sitemap_parsing():
 
 
 def test_skills_sh_sitemap_index_walks_child_skill_maps(monkeypatch):
-    current_skills_sh = importlib.import_module("skills_hub.skills_sh_source")
+    current_skills_sh = importlib.import_module("row_bot.skills_hub.skills_sh_source")
     calls: list[str] = []
 
     def fake_fetch_text(url, **_kwargs):
@@ -183,7 +183,7 @@ def test_lobehub_agents_convert_to_passive_skill_bundle():
 
 
 def test_lobehub_fetches_nested_config_prompt_when_index_is_shallow(monkeypatch):
-    current_lobehub = importlib.import_module("skills_hub.lobehub_source")
+    current_lobehub = importlib.import_module("row_bot.skills_hub.lobehub_source")
     payload = {
         "agents": [
             {
@@ -309,8 +309,8 @@ def test_marketplace_markdown_without_frontmatter_is_wrapped_before_bundle_parse
 
 
 def test_skills_sh_fetch_resolves_detail_page_install_command(monkeypatch):
-    current_skills_sh = importlib.import_module("skills_hub.skills_sh_source")
-    current_github = importlib.import_module("skills_hub.github_source")
+    current_skills_sh = importlib.import_module("row_bot.skills_hub.skills_sh_source")
+    current_github = importlib.import_module("row_bot.skills_hub.github_source")
     html = """
     <html><body>
       <code>npx skills add example/skills --skill research-brief</code>
@@ -333,8 +333,8 @@ def test_skills_sh_fetch_resolves_detail_page_install_command(monkeypatch):
 
 
 def test_skills_sh_source_ref_uses_recursive_github_lookup(monkeypatch):
-    current_skills_sh = importlib.import_module("skills_hub.skills_sh_source")
-    current_github = importlib.import_module("skills_hub.github_source")
+    current_skills_sh = importlib.import_module("row_bot.skills_hub.skills_sh_source")
+    current_github = importlib.import_module("row_bot.skills_hub.github_source")
     seen = {}
 
     def fake_fetch(self, install_ref):
@@ -365,8 +365,8 @@ def test_skills_sh_source_ref_uses_recursive_github_lookup(monkeypatch):
 
 
 def test_skills_sh_self_resolving_detail_page_uses_preview_fallback(monkeypatch):
-    current_skills_sh = importlib.import_module("skills_hub.skills_sh_source")
-    current_github = importlib.import_module("skills_hub.github_source")
+    current_skills_sh = importlib.import_module("row_bot.skills_hub.skills_sh_source")
+    current_github = importlib.import_module("row_bot.skills_hub.github_source")
     html = r'''
     <code>npx skills add vercel-labs/skills --skill find-skills</code>
     <script>self.__next_f.push([1,"{\"previewHtml\":\"\u003ch1\u003eFind Skills\u003c/h1\u003e\\n\u003cp\u003eDiscover installable public skills.\u003c/p\u003e\",\"restHtml\":\"$2b\"}"])</script>
@@ -389,8 +389,8 @@ def test_skills_sh_self_resolving_detail_page_uses_preview_fallback(monkeypatch)
 
 
 def test_skills_sh_uses_raw_github_skill_md_when_api_listing_is_unavailable(monkeypatch):
-    current_skills_sh = importlib.import_module("skills_hub.skills_sh_source")
-    current_github = importlib.import_module("skills_hub.github_source")
+    current_skills_sh = importlib.import_module("row_bot.skills_hub.skills_sh_source")
+    current_github = importlib.import_module("row_bot.skills_hub.github_source")
     calls: list[str] = []
 
     def fake_fetch_text(url, **_kwargs):
@@ -645,7 +645,7 @@ def test_github_source_uses_public_safe_headers(monkeypatch):
         calls.append(user_agent)
         return {"User-Agent": user_agent, "X-Test": "public-safe"}
 
-    monkeypatch.setattr("skills_hub.github_source.github_account.github_public_api_headers", fake_public_headers)
+    monkeypatch.setattr("row_bot.skills_hub.github_source.github_account.github_public_api_headers", fake_public_headers)
 
     headers = GitHubSource()._headers()
 
@@ -665,7 +665,7 @@ def test_github_source_reports_anonymous_fallback_status(monkeypatch):
         anonymous_ok=True,
     )
     monkeypatch.setattr(
-        "skills_hub.github_source.github_account.get_verified_github_account_status",
+        "row_bot.skills_hub.github_source.github_account.get_verified_github_account_status",
         lambda use_cache=True: status,
     )
 
@@ -688,8 +688,8 @@ def test_github_browse_reports_rate_limit_as_source_status(monkeypatch):
         None,
     )
 
-    monkeypatch.setattr("skills_hub.github_source._GITHUB_BACKOFF_UNTIL", 0)
-    monkeypatch.setattr("skills_hub.github_source._GITHUB_BACKOFF_MESSAGE", "")
+    monkeypatch.setattr("row_bot.skills_hub.github_source._GITHUB_BACKOFF_UNTIL", 0)
+    monkeypatch.setattr("row_bot.skills_hub.github_source._GITHUB_BACKOFF_MESSAGE", "")
     monkeypatch.setattr(GitHubSource, "_list_public_root", lambda self, root, limit: (_ for _ in ()).throw(err))
 
     result = GitHubSource().browse(limit=10)

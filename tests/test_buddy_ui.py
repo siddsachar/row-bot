@@ -18,9 +18,9 @@ def _read(relative: str) -> str:
 
 
 def test_buddy_ui_surfaces_are_wired():
-    app_src = _read("app.py")
-    sidebar_src = _read("ui/sidebar.py")
-    settings_src = _read("ui/settings.py")
+    app_src = _read("src/row_bot/app.py")
+    sidebar_src = _read("src/row_bot/ui/sidebar.py")
+    settings_src = _read("src/row_bot/ui/settings.py")
 
     assert '@ui.page("/buddy-overlay")' in app_src
     assert "build_in_app_buddy" in app_src
@@ -34,9 +34,9 @@ def test_buddy_ui_surfaces_are_wired():
 
 
 def test_buddy_events_are_emitted_from_runtime_sources():
-    streaming_src = _read("ui/streaming.py")
-    tasks_src = _read("tasks.py")
-    notifications_src = _read("notifications.py")
+    streaming_src = _read("src/row_bot/ui/streaming.py")
+    tasks_src = _read("src/row_bot/tasks.py")
+    notifications_src = _read("src/row_bot/notifications.py")
     brain_src = _read("buddy/brain.py")
 
     for marker in [
@@ -58,7 +58,7 @@ def test_buddy_events_are_emitted_from_runtime_sources():
 
 
 def test_buddy_desktop_and_packaging_hooks_exist():
-    launcher_src = _read("launcher.py")
+    launcher_src = _read("src/row_bot/launcher.py")
     inno_src = _read("installer/row_bot_setup.iss")
     mac_src = _read("installer/build_mac_app.sh")
     linux_src = _read("installer/build_linux_app.sh")
@@ -121,7 +121,7 @@ def test_buddy_desktop_and_packaging_hooks_exist():
 
 def test_buddy_runtime_supports_generated_art_as_primary_path():
     runtime_src = _read("static/buddy/runtime/buddy.js")
-    buddy_ui_src = _read("ui/buddy.py")
+    buddy_ui_src = _read("src/row_bot/ui/buddy.py")
     manifest_src = _read("static/buddy/builtins/glyph/manifest.json")
 
     assert "initGeneratedRoot" in runtime_src
@@ -190,8 +190,8 @@ def test_buddy_hatch_prompts_request_keyable_motion_assets():
 
 
 def test_buddy_settings_keeps_rive_import_out_of_normal_ux():
-    buddy_ui_src = _read("ui/buddy.py")
-    settings_src = _read("ui/settings.py")
+    buddy_ui_src = _read("src/row_bot/ui/buddy.py")
+    settings_src = _read("src/row_bot/ui/settings.py")
 
     assert "Install Buddy .riv" not in buddy_ui_src
     assert "accept='.riv'" not in buddy_ui_src
@@ -220,14 +220,14 @@ def test_buddy_settings_keeps_rive_import_out_of_normal_ux():
 
 
 def test_buddy_settings_does_not_render_loose_pack_labels():
-    buddy_ui_src = _read("ui/buddy.py")
+    buddy_ui_src = _read("src/row_bot/ui/buddy.py")
 
     assert 'for pack in packs:\n            ui.label(pack.name)' not in buddy_ui_src
     assert 'with ui.element("div").classes("row-bot-buddy-pack-grid")' in buddy_ui_src
 
 
 def test_buddy_settings_uses_visual_pack_picker():
-    buddy_ui_src = _read("ui/buddy.py")
+    buddy_ui_src = _read("src/row_bot/ui/buddy.py")
 
     assert "row-bot-buddy-pack-grid" in buddy_ui_src
     assert "row-bot-buddy-pack-card" in buddy_ui_src
@@ -253,7 +253,7 @@ def test_buddy_settings_uses_visual_pack_picker():
 
 
 def test_buddy_settings_save_preserves_latest_hatch_media():
-    buddy_ui_src = _read("ui/buddy.py")
+    buddy_ui_src = _read("src/row_bot/ui/buddy.py")
     save_section = buddy_ui_src.split("def _save()", 1)[1].split("async def _hatch()", 1)[0]
 
     assert "latest_cfg = get_buddy_config()" in save_section
@@ -264,7 +264,7 @@ def test_buddy_settings_save_preserves_latest_hatch_media():
 
 
 def test_buddy_settings_can_retry_motion_for_existing_hatch_art():
-    buddy_ui_src = _read("ui/buddy.py")
+    buddy_ui_src = _read("src/row_bot/ui/buddy.py")
     retry_section = buddy_ui_src.split("async def _retry_motion()", 1)[1].split("with ui.row().classes", 1)[0]
 
     assert "_selected_generated_pack_preview(latest_cfg)" in retry_section
@@ -276,7 +276,7 @@ def test_buddy_settings_can_retry_motion_for_existing_hatch_art():
 
 
 def test_buddy_settings_starts_full_hatch_generation_in_background():
-    buddy_ui_src = _read("ui/buddy.py")
+    buddy_ui_src = _read("src/row_bot/ui/buddy.py")
     hatch_section = buddy_ui_src.split("async def _hatch()", 1)[1].split("async def _retry_motion()", 1)[0]
 
     assert "start_hatch_generation_job" in hatch_section
@@ -287,7 +287,7 @@ def test_buddy_settings_starts_full_hatch_generation_in_background():
 
 
 def test_buddy_settings_can_retry_motion_for_selected_generated_pack():
-    buddy_ui_src = _read("ui/buddy.py")
+    buddy_ui_src = _read("src/row_bot/ui/buddy.py")
     preview_section = buddy_ui_src.split("def _selected_generated_pack_preview", 1)[1].split("def _select_pack", 1)[0]
 
     assert "selected_pack_id" in preview_section
@@ -299,7 +299,7 @@ def test_buddy_settings_can_retry_motion_for_selected_generated_pack():
 
 
 def test_buddy_settings_can_switch_generated_pack_to_still_only():
-    buddy_ui_src = _read("ui/buddy.py")
+    buddy_ui_src = _read("src/row_bot/ui/buddy.py")
     still_section = buddy_ui_src.split("def _use_still_only()", 1)[1].split("with ui.row().classes", 1)[0]
 
     assert "use_hatch_still_only" in still_section
@@ -310,7 +310,7 @@ def test_buddy_settings_can_switch_generated_pack_to_still_only():
 
 
 def test_buddy_settings_can_delete_generated_pack_from_picker():
-    buddy_ui_src = _read("ui/buddy.py")
+    buddy_ui_src = _read("src/row_bot/ui/buddy.py")
     delete_section = buddy_ui_src.split("def _delete_selected_generated_pack()", 1)[1].split("with ui.row().classes", 1)[0]
 
     assert "delete_generated_buddy_pack" in buddy_ui_src
@@ -324,7 +324,7 @@ def test_buddy_settings_can_delete_generated_pack_from_picker():
 
 
 def test_home_status_bar_shows_buddy_hatch_progress():
-    status_src = _read("ui/status_bar.py")
+    status_src = _read("src/row_bot/ui/status_bar.py")
 
     assert "get_hatch_generation_status" in status_src
     assert "row-bot-buddy-hatch-progress" in status_src
@@ -334,7 +334,7 @@ def test_home_status_bar_shows_buddy_hatch_progress():
 
 
 def test_buddy_settings_visibility_controls_are_not_redundant():
-    buddy_ui_src = _read("ui/buddy.py")
+    buddy_ui_src = _read("src/row_bot/ui/buddy.py")
 
     assert '_section("Visibility"' not in buddy_ui_src
     assert '_section("Where it appears"' in buddy_ui_src
@@ -351,7 +351,7 @@ def test_buddy_settings_visibility_controls_are_not_redundant():
 
 
 def test_buddy_settings_strips_redundant_pack_prefixes():
-    buddy_ui_src = _read("ui/buddy.py")
+    buddy_ui_src = _read("src/row_bot/ui/buddy.py")
 
     assert "def _display_pack_name" in buddy_ui_src
     assert 'value.lower().startswith("buddy ")' in buddy_ui_src
@@ -363,7 +363,7 @@ def test_buddy_settings_strips_redundant_pack_prefixes():
 
 
 def test_buddy_surface_sizing_and_docked_drag_are_targeted():
-    buddy_ui_src = _read("ui/buddy.py")
+    buddy_ui_src = _read("src/row_bot/ui/buddy.py")
     runtime_src = _read("static/buddy/runtime/buddy.js")
 
     assert '.row-bot-buddy-wrap[data-surface="sidebar"] .row-bot-buddy-stage' in buddy_ui_src
@@ -401,7 +401,7 @@ def test_buddy_surface_sizing_and_docked_drag_are_targeted():
 
 
 def test_buddy_sidebar_click_replaces_toolbar_buttons():
-    buddy_ui_src = _read("ui/buddy.py")
+    buddy_ui_src = _read("src/row_bot/ui/buddy.py")
 
     assert "row-bot-buddy-sidebar-action" in buddy_ui_src
     assert "data-buddy-sidebar-shell" in buddy_ui_src
@@ -413,7 +413,7 @@ def test_buddy_sidebar_click_replaces_toolbar_buttons():
 
 
 def test_buddy_status_bubbles_and_hot_apply_are_wired():
-    buddy_ui_src = _read("ui/buddy.py")
+    buddy_ui_src = _read("src/row_bot/ui/buddy.py")
     runtime_src = _read("static/buddy/runtime/buddy.js")
 
     assert "data-bubble-verbosity" in buddy_ui_src
@@ -479,7 +479,7 @@ def test_buddy_idle_video_uses_quiet_replay_cadence():
 
 def test_buddy_approval_motion_is_softened_and_state_changes_crossfade():
     runtime_src = _read("static/buddy/runtime/buddy.js")
-    buddy_ui_src = _read("ui/buddy.py")
+    buddy_ui_src = _read("src/row_bot/ui/buddy.py")
 
     assert "CLIP_CROSSFADE_MS = 280" in runtime_src
     assert "drawTransitionedSource" in runtime_src

@@ -229,9 +229,9 @@ def test_agent_pre_model_trim_injects_policy_block_and_touches_only_selected(tmp
     monkeypatch.setattr(agent, "get_current_model", lambda: "gpt-4o")
     monkeypatch.setattr(agent, "is_cloud_model", lambda model: True)
     monkeypatch.setattr(agent, "get_cloud_provider", lambda model: "openai")
-    monkeypatch.setattr("memory_policy.build_auto_recall", lambda *args, **kwargs: Decision)
-    monkeypatch.setattr("memory_policy.touch_selected_memories", lambda decision: touched.extend(m["id"] for m in decision.selected))
-    monkeypatch.setattr("memory_policy.record_recall_trace", lambda decision, **kwargs: None)
+    monkeypatch.setattr("row_bot.memory_policy.build_auto_recall", lambda *args, **kwargs: Decision)
+    monkeypatch.setattr("row_bot.memory_policy.touch_selected_memories", lambda decision: touched.extend(m["id"] for m in decision.selected))
+    monkeypatch.setattr("row_bot.memory_policy.record_recall_trace", lambda decision, **kwargs: None)
 
     messages = [
         SystemMessage(content="Root system"),

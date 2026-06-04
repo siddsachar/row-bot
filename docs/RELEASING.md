@@ -45,7 +45,8 @@ Row-Bot uses semantic versioning:
    Windows `installer/row_bot_setup.iss`, macOS `installer/build_mac_app.sh`,
    Linux `installer/build_linux_app.sh`, the Linux bootstrapper
    `installer/install-linux.sh`, and the installer payload notes in
-   `installer/README.md`.
+   `installer/README.md`. The current source-layout and payload contract is
+   summarized in [`docs/SOURCE_LAYOUT.md`](SOURCE_LAYOUT.md).
 7. Smoke-test first-run behavior against a clean data directory before building
    artifacts, especially setup wizard imports, provider config defaults, and
    Custom/Self-hosted endpoint setup.

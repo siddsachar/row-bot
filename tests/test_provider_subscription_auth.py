@@ -219,7 +219,7 @@ def test_codex_provider_definition_and_status_group(tmp_path, monkeypatch):
     assert AuthMethod.EXTERNAL_CLI in definition.auth_methods
     assert AuthMethod.OAUTH_DEVICE in definition.auth_methods
 
-    monkeypatch.setattr("providers.codex.discover_codex_credentials", lambda: {
+    monkeypatch.setattr("row_bot.providers.codex.discover_codex_credentials", lambda: {
         "label": "~/.codex/auth.json",
         "path_hash": "abc123",
         "exists": False,
@@ -281,7 +281,7 @@ def test_codex_auth_file_detection_is_not_implicit_configuration(tmp_path, monke
     import row_bot.providers.runtime as runtime
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr("providers.codex.discover_codex_credentials", lambda: {
+    monkeypatch.setattr("row_bot.providers.codex.discover_codex_credentials", lambda: {
         "label": "~/.codex/auth.json",
         "path_hash": "abc123",
         "exists": True,
@@ -394,7 +394,7 @@ def test_codex_oauth_token_save_uses_keyring_and_oauth_device_status(tmp_path, m
     import row_bot.providers.runtime as runtime
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr("providers.codex.discover_codex_credentials", lambda: {
+    monkeypatch.setattr("row_bot.providers.codex.discover_codex_credentials", lambda: {
         "label": "~/.codex/auth.json",
         "path_hash": "abc123",
         "exists": False,
@@ -444,7 +444,7 @@ def test_codex_explicit_external_reference_configures_status(tmp_path, monkeypat
     auth_path.write_text(json.dumps({"access_token": "secret-value"}), encoding="utf-8")
     reference = external_reference_metadata(auth_path)
     provider_config.save_provider_config({"providers": {"codex": reference}})
-    monkeypatch.setattr("providers.codex.discover_codex_credentials", lambda: {
+    monkeypatch.setattr("row_bot.providers.codex.discover_codex_credentials", lambda: {
         "label": "~/.codex/auth.json",
         "path_hash": "abc123",
         "exists": False,
@@ -463,7 +463,7 @@ def test_codex_keyring_token_configures_status_without_leaking_value(tmp_path, m
     import row_bot.providers.runtime as runtime
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr("providers.codex.discover_codex_credentials", lambda: {
+    monkeypatch.setattr("row_bot.providers.codex.discover_codex_credentials", lambda: {
         "label": "~/.codex/auth.json",
         "path_hash": "abc123",
         "exists": False,
@@ -641,7 +641,7 @@ def test_codex_model_infos_cache_live_catalog_and_fall_back_to_cache(tmp_path, m
 
 def test_codex_quick_choice_seed_only_adds_recommended_model(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr("providers.runtime.provider_status", lambda provider_id: {
+    monkeypatch.setattr("row_bot.providers.runtime.provider_status", lambda provider_id: {
         "configured": True,
         "runtime_enabled": True,
     })
@@ -677,7 +677,7 @@ def test_codex_quick_choices_are_hidden_until_runtime_enabled(tmp_path, monkeypa
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
-    monkeypatch.setattr("providers.runtime.provider_status", lambda provider_id: {
+    monkeypatch.setattr("row_bot.providers.runtime.provider_status", lambda provider_id: {
         "configured": True,
         "runtime_enabled": False,
     })
@@ -946,7 +946,7 @@ def test_runtime_status_and_factory_enable_codex_for_oauth_tokens(tmp_path, monk
     from row_bot.providers.transports.codex_responses import ChatCodexResponses
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr("providers.codex.discover_codex_credentials", lambda: {
+    monkeypatch.setattr("row_bot.providers.codex.discover_codex_credentials", lambda: {
         "label": "~/.codex/auth.json",
         "path_hash": "abc123",
         "exists": False,

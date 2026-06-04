@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_sidebar_groups_developer_threads_under_expandable_workspace_rows():
-    source = (ROOT / "ui" / "sidebar.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "ui" / "sidebar.py").read_text(encoding="utf-8")
     list_block = source.split("def _rebuild_thread_list()", 1)[1].split(
         "if len(threads) > SIDEBAR_MAX_THREADS:",
         1,
@@ -32,7 +32,7 @@ def test_sidebar_groups_developer_threads_under_expandable_workspace_rows():
 
 
 def test_sidebar_developer_grouping_preserves_thread_action_menu_on_children():
-    source = (ROOT / "ui" / "sidebar.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "ui" / "sidebar.py").read_text(encoding="utf-8")
     list_block = source.split("def _rebuild_thread_list()", 1)[1].split(
         "if len(threads) > SIDEBAR_MAX_THREADS:",
         1,
@@ -45,7 +45,7 @@ def test_sidebar_developer_grouping_preserves_thread_action_menu_on_children():
 
 
 def test_all_conversations_modal_reuses_developer_workspace_grouping():
-    source = (ROOT / "ui" / "sidebar.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "ui" / "sidebar.py").read_text(encoding="utf-8")
     modal_block = source.split("def _show_all():", 1)[1].split(
         "def _do_bulk_delete",
         1,
@@ -61,7 +61,7 @@ def test_all_conversations_modal_reuses_developer_workspace_grouping():
 
 
 def test_all_conversations_modal_folder_toggle_does_not_rebuild_sidebar():
-    source = (ROOT / "ui" / "sidebar.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "ui" / "sidebar.py").read_text(encoding="utf-8")
     modal_block = source.split("def _show_all():", 1)[1].split(
         "caption_bits = [",
         1,

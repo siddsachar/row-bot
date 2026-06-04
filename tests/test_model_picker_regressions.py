@@ -27,7 +27,7 @@ def test_agent_tool_error_uses_active_thread_override(tmp_path, monkeypatch):
 
 
 def test_inline_model_picker_tracks_current_value_for_default_switch():
-    source = (ROOT / "ui" / "chat_components.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "ui" / "chat_components.py").read_text(encoding="utf-8")
     picker_section = source.split("def _build_inline_model_picker", 1)[1]
 
     assert "_current_picker_value = [_picker_val]" in picker_section
@@ -37,7 +37,7 @@ def test_inline_model_picker_tracks_current_value_for_default_switch():
 
 
 def test_inline_model_picker_allows_chat_only_in_normal_chat_and_blocks_agent_only_surfaces():
-    source = (ROOT / "ui" / "chat_components.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "ui" / "chat_components.py").read_text(encoding="utf-8")
     picker_section = source.split("def _build_inline_model_picker", 1)[1]
 
     assert "check_tool_support(runtime_model)" not in picker_section
@@ -48,7 +48,7 @@ def test_inline_model_picker_allows_chat_only_in_normal_chat_and_blocks_agent_on
 
 
 def test_inline_model_picker_uses_stale_while_refresh_cache():
-    source = (ROOT / "ui" / "chat_components.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "ui" / "chat_components.py").read_text(encoding="utf-8")
     picker_section = source.split("def _build_inline_model_picker", 1)[1]
 
     assert "_get_cached_model_picker_options()" in picker_section
@@ -128,10 +128,10 @@ def test_model_picker_cache_invalidates_when_provider_config_changes(tmp_path, m
 def test_chat_voice_status_literals_have_no_mojibake():
     bad_sentinels = ("Ã", "Â", "â", "ð", "�")
     paths = [
-        ROOT / "ui" / "streaming.py",
-        ROOT / "ui" / "chat.py",
-        ROOT / "ui" / "chat_components.py",
-        ROOT / "ui" / "sidebar.py",
+        ROOT / "src" / "row_bot" / "ui" / "streaming.py",
+        ROOT / "src" / "row_bot" / "ui" / "chat.py",
+        ROOT / "src" / "row_bot" / "ui" / "chat_components.py",
+        ROOT / "src" / "row_bot" / "ui" / "sidebar.py",
     ]
     offenders: list[str] = []
 
@@ -172,7 +172,7 @@ def test_model_picker_cache_returns_stale_options_for_background_refresh(tmp_pat
 
 
 def test_chat_banner_uses_provider_resolution_for_local_custom_models():
-    source = (ROOT / "ui" / "chat.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "ui" / "chat.py").read_text(encoding="utf-8")
     surface_section = source.split("def _model_surface", 1)[1].split("def _render_model_banner", 1)[0]
 
     assert "resolve_provider_config(active_model" in surface_section
@@ -218,7 +218,7 @@ def test_non_tool_custom_endpoint_is_blocked_for_agent_mode(tmp_path, monkeypatc
 
 
 def test_agent_runtime_no_longer_uses_plain_chat_fallback():
-    source = (ROOT / "agent.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "agent.py").read_text(encoding="utf-8")
 
     assert "get_plain_chat_system_prompt" not in source
     assert "plain_custom" not in source
@@ -357,7 +357,7 @@ def test_brain_badge_marks_unprobed_custom_endpoint_probe_required(tmp_path, mon
 
 
 def test_models_tab_rerenders_brain_readiness_badge_on_model_change():
-    source = (ROOT / "ui" / "settings.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "ui" / "settings.py").read_text(encoding="utf-8")
     models_section = source.split("def _render_models_tab_content", 1)[1].split("def _collect_models_tab_data", 1)[0]
 
     assert "brain_readiness_slot_ref" in models_section
@@ -371,7 +371,7 @@ def test_models_tab_rerenders_brain_readiness_badge_on_model_change():
 
 
 def test_models_tab_validates_stale_vision_default_before_display():
-    source = (ROOT / "ui" / "settings.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "ui" / "settings.py").read_text(encoding="utf-8")
     models_section = source.split("def _render_models_tab_content", 1)[1].split("def _collect_models_tab_data", 1)[0]
 
     assert "vision_model_compatibility" in models_section

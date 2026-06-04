@@ -286,6 +286,7 @@ Row-Bot does not require a Row-Bot account, and there is no Row-Bot-hosted middl
 - [Contributing guide](CONTRIBUTING.md)
 - [Branching strategy](docs/BRANCHING.md)
 - [Release process](docs/RELEASING.md)
+- [Source layout and packaging](docs/SOURCE_LAYOUT.md)
 - [Security policy](SECURITY.md)
 - [Code of conduct](CODE_OF_CONDUCT.md)
 

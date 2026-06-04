@@ -28,19 +28,15 @@ for _stream in (sys.stdout, sys.stderr):
 
 # ── Ensure project root is on sys.path ──────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_PARENT = PROJECT_ROOT / "src"
+ROW_BOT_SRC = SRC_PARENT / "row_bot"
 os.chdir(PROJECT_ROOT)
 _TEST_DATA_DIR = PROJECT_ROOT / ".tmp" / "test_suite_thoth"
 _TEST_DATA_DIR.mkdir(parents=True, exist_ok=True)
 os.environ["ROW_BOT_DATA_DIR"] = str(_TEST_DATA_DIR)
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-TESTS_ROOT = PROJECT_ROOT / "tests"
-if str(TESTS_ROOT) not in sys.path:
-    sys.path.insert(0, str(TESTS_ROOT))
-
-from source_layout_compat import install_source_layout_compat
-
-install_source_layout_compat(PROJECT_ROOT)
+for _path in (SRC_PARENT, PROJECT_ROOT):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 PASS = 0
 FAIL = 0
@@ -66,9 +62,96 @@ def _source_layout_builder_manifest(builder_text: str) -> bool:
 
 def _tool_module_is_covered(module_name: str, covered_modules: set[str]) -> bool:
     return (
-        f"tools.{module_name}" in covered_modules
+        f"row_bot.tools.{module_name}" in covered_modules
         or f"row_bot.tools.{module_name}" in covered_modules
     )
+
+
+RUNTIME_MODULE_ROOTS = frozenset(
+    {
+        "agent",
+        "api_keys",
+        "app",
+        "app_port",
+        "approval_policy",
+        "brand",
+        "buddy",
+        "channels",
+        "data_paths",
+        "data_reader",
+        "designer",
+        "developer",
+        "document_extraction",
+        "documents",
+        "dream_cycle",
+        "embedding_config",
+        "embedding_providers",
+        "github_account",
+        "identity",
+        "insights",
+        "knowledge_graph",
+        "launcher",
+        "logging_config",
+        "mcp_client",
+        "memory",
+        "memory_evolution",
+        "memory_extraction",
+        "memory_policy",
+        "migration",
+        "models",
+        "notifications",
+        "plugins",
+        "prompts",
+        "providers",
+        "runtime_paths",
+        "secret_store",
+        "self_knowledge",
+        "skills",
+        "skills_activation",
+        "skills_hub",
+        "slash_commands",
+        "stability",
+        "startup_diagnostics",
+        "tasks",
+        "terminal_bridge",
+        "terminal_pty",
+        "threads",
+        "tools",
+        "tts",
+        "tunnel",
+        "ui",
+        "updater",
+        "utils",
+        "version",
+        "vision",
+        "voice",
+        "wiki_vault",
+    }
+)
+
+
+def _runtime_module_name(name: str) -> str:
+    root = name.split(".", 1)[0]
+    if name.startswith("row_bot.") or root not in RUNTIME_MODULE_ROOTS:
+        return name
+    return f"row_bot.{name}"
+
+
+def _source_path(path: str | Path) -> Path:
+    source_path = Path(path)
+    if source_path.is_absolute():
+        return source_path
+    parts = source_path.parts
+    if not parts:
+        return PROJECT_ROOT / source_path
+    first = parts[0]
+    if first in RUNTIME_MODULE_ROOTS or (
+        len(parts) == 1
+        and source_path.suffix == ".py"
+        and source_path.stem in RUNTIME_MODULE_ROOTS
+    ):
+        return ROW_BOT_SRC / source_path
+    return PROJECT_ROOT / source_path
 
 
 def record(status: str, name: str, detail: str = ""):
@@ -96,11 +179,7 @@ print("=" * 70)
 
 py_files = (
     sorted(PROJECT_ROOT.glob("*.py"))
-    + sorted((PROJECT_ROOT / "tools").glob("*.py"))
-    + sorted((PROJECT_ROOT / "channels").glob("*.py"))
-    + sorted((PROJECT_ROOT / "mcp_client").glob("*.py"))
-    + sorted((PROJECT_ROOT / "skills_hub").glob("*.py"))
-    + sorted((PROJECT_ROOT / "migration").glob("*.py"))
+    + sorted(ROW_BOT_SRC.rglob("*.py"))
 )
 py_files = [f for f in py_files if f.name != "test_suite.py"]
 
@@ -172,11 +251,12 @@ CORE_MODULES = [
 ]
 
 for mod_name in CORE_MODULES:
+    module_name = _runtime_module_name(mod_name)
     try:
-        importlib.import_module(mod_name)
-        record("PASS", f"import {mod_name}")
+        importlib.import_module(module_name)
+        record("PASS", f"import {module_name}")
     except Exception as e:
-        record("FAIL", f"import {mod_name}", f"{type(e).__name__}: {e}")
+        record("FAIL", f"import {module_name}", f"{type(e).__name__}: {e}")
 
 # ═════════════════════════════════════════════════════════════════════════════
 # 3. TOOL MODULE IMPORTS
@@ -187,34 +267,35 @@ print("=" * 70)
 
 TOOL_MODULES = [
     "tools",
-    "tools.base",
-    "tools.registry",
-    "tools.arxiv_tool",
-    "tools.calculator_tool",
-    "tools.calendar_tool",
-    "tools.chart_tool",
-    "tools.conversation_search_tool",
-    "tools.documents_tool",
-    "tools.duckduckgo_tool",
-    "tools.filesystem_tool",
-    "tools.gmail_tool",
-    "tools.memory_tool",
-    "tools.system_info_tool",
-    "tools.url_reader_tool",
-    "tools.vision_tool",
-    "tools.weather_tool",
-    "tools.web_search_tool",
-    "tools.wikipedia_tool",
-    "tools.wolfram_tool",
-    "tools.youtube_tool",
+    "row_bot.tools.base",
+    "row_bot.tools.registry",
+    "row_bot.tools.arxiv_tool",
+    "row_bot.tools.calculator_tool",
+    "row_bot.tools.calendar_tool",
+    "row_bot.tools.chart_tool",
+    "row_bot.tools.conversation_search_tool",
+    "row_bot.tools.documents_tool",
+    "row_bot.tools.duckduckgo_tool",
+    "row_bot.tools.filesystem_tool",
+    "row_bot.tools.gmail_tool",
+    "row_bot.tools.memory_tool",
+    "row_bot.tools.system_info_tool",
+    "row_bot.tools.url_reader_tool",
+    "row_bot.tools.vision_tool",
+    "row_bot.tools.weather_tool",
+    "row_bot.tools.web_search_tool",
+    "row_bot.tools.wikipedia_tool",
+    "row_bot.tools.wolfram_tool",
+    "row_bot.tools.youtube_tool",
 ]
 
 for mod_name in TOOL_MODULES:
+    module_name = _runtime_module_name(mod_name)
     try:
-        importlib.import_module(mod_name)
-        record("PASS", f"import {mod_name}")
+        importlib.import_module(module_name)
+        record("PASS", f"import {module_name}")
     except Exception as e:
-        record("FAIL", f"import {mod_name}", f"{type(e).__name__}: {e}")
+        record("FAIL", f"import {module_name}", f"{type(e).__name__}: {e}")
 
 # ═════════════════════════════════════════════════════════════════════════════
 # 4. CHANNEL MODULE IMPORTS
@@ -225,20 +306,21 @@ print("=" * 70)
 
 CHANNEL_MODULES = [
     "channels",
-    "channels.config",
-    "channels.telegram",
-    "channels.base",
-    "channels.registry",
-    "channels.media",
-    "channels.tool_factory",
+    "row_bot.channels.config",
+    "row_bot.channels.telegram",
+    "row_bot.channels.base",
+    "row_bot.channels.registry",
+    "row_bot.channels.media",
+    "row_bot.channels.tool_factory",
 ]
 
 for mod_name in CHANNEL_MODULES:
+    module_name = _runtime_module_name(mod_name)
     try:
-        importlib.import_module(mod_name)
-        record("PASS", f"import {mod_name}")
+        importlib.import_module(module_name)
+        record("PASS", f"import {module_name}")
     except Exception as e:
-        record("FAIL", f"import {mod_name}", f"{type(e).__name__}: {e}")
+        record("FAIL", f"import {module_name}", f"{type(e).__name__}: {e}")
 
 # ═════════════════════════════════════════════════════════════════════════════
 # 5. KEY FUNCTION / CLASS EXISTENCE
@@ -297,19 +379,19 @@ FUNCTION_CHECKS = [
     ("slash_commands", "resolve_command_text"),
     ("slash_commands", "dispatch_text_command"),
     ("notifications", "notify"),
-    ("channels.config", "get"),
-    ("channels.config", "set"),
-    ("channels.telegram", "start_bot"),
-    ("channels.telegram", "stop_bot"),
-    ("channels.telegram", "is_configured"),
-    ("channels.telegram", "is_running"),
-    ("tools.registry", "get_all_tools"),
-    ("tools.registry", "get_enabled_tools"),
-    ("tools.registry", "get_langchain_tools"),
-    ("tools.tracker_tool", "TrackerTool"),
-    ("tools.tracker_tool", "_tracker_log"),
-    ("tools.tracker_tool", "_tracker_query"),
-    ("tools.tracker_tool", "_tracker_delete"),
+    ("row_bot.channels.config", "get"),
+    ("row_bot.channels.config", "set"),
+    ("row_bot.channels.telegram", "start_bot"),
+    ("row_bot.channels.telegram", "stop_bot"),
+    ("row_bot.channels.telegram", "is_configured"),
+    ("row_bot.channels.telegram", "is_running"),
+    ("row_bot.tools.registry", "get_all_tools"),
+    ("row_bot.tools.registry", "get_enabled_tools"),
+    ("row_bot.tools.registry", "get_langchain_tools"),
+    ("row_bot.tools.tracker_tool", "TrackerTool"),
+    ("row_bot.tools.tracker_tool", "_tracker_log"),
+    ("row_bot.tools.tracker_tool", "_tracker_query"),
+    ("row_bot.tools.tracker_tool", "_tracker_delete"),
     ("launcher", "_ThothProcess"),
     ("launcher", "ThothTray"),
     ("launcher", "_show_splash"),
@@ -317,14 +399,15 @@ FUNCTION_CHECKS = [
 ]
 
 for mod_name, attr_name in FUNCTION_CHECKS:
+    module_name = _runtime_module_name(mod_name)
     try:
-        mod = importlib.import_module(mod_name)
+        mod = importlib.import_module(module_name)
         if hasattr(mod, attr_name):
-            record("PASS", f"{mod_name}.{attr_name} exists")
+            record("PASS", f"{module_name}.{attr_name} exists")
         else:
-            record("FAIL", f"{mod_name}.{attr_name} exists", "attribute not found")
+            record("FAIL", f"{module_name}.{attr_name} exists", "attribute not found")
     except Exception as e:
-        record("FAIL", f"{mod_name}.{attr_name} exists", f"import error: {e}")
+        record("FAIL", f"{module_name}.{attr_name} exists", f"import error: {e}")
 
 # ═════════════════════════════════════════════════════════════════════════════
 # 6. TOOL REGISTRY — all tools registered
@@ -449,7 +532,7 @@ print("10. NO STREAMLIT IMPORTS IN app.py")
 print("=" * 70)
 
 try:
-    source = (PROJECT_ROOT / "app.py").read_text(encoding="utf-8")
+    source = (ROW_BOT_SRC / "app.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
 
     streamlit_imports = []
@@ -478,7 +561,7 @@ print("11. NiceGUI APP AST PARSE + BASIC IMPORT CHECK")
 print("=" * 70)
 
 try:
-    source = (PROJECT_ROOT / "app.py").read_text(encoding="utf-8")
+    source = (ROW_BOT_SRC / "app.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     record("PASS", f"app.py AST parsed ({len(source):,} chars)")
 except Exception as e:
@@ -1030,7 +1113,7 @@ try:
 
     # _start_ollama skips if Ollama is already running (mock port check)
     import unittest.mock as _mock_ollama
-    with _mock_ollama.patch("launcher._is_ollama_running", return_value=True):
+    with _mock_ollama.patch("row_bot.launcher._is_ollama_running", return_value=True):
         # Should return immediately without launching anything
         _start_ollama()
         record("PASS", "launcher: _start_ollama no-op when already running")
@@ -2219,7 +2302,7 @@ try:
 
     # 22h. ui/home.py imports the new functions
     import ast as _ast
-    _home_src = Path("ui/home.py").read_text(encoding="utf-8")
+    _home_src = _source_path("ui/home.py").read_text(encoding="utf-8")
     _home_tree = _ast.parse(_home_src)
     _imported_names: set[str] = set()
     for node in _ast.walk(_home_tree):
@@ -2234,7 +2317,7 @@ try:
         record("FAIL", "activity: app missing imports", str(_missing_imports))
 
     # 22h-cc. Command Center imports the moved helpers
-    _cc_src = Path("ui/command_center.py").read_text(encoding="utf-8")
+    _cc_src = _source_path("ui/command_center.py").read_text(encoding="utf-8")
     for _cc_fn in ("get_recent_runs", "get_next_fire_times", "get_pending_approvals",
                    "respond_to_approval", "get_running_tasks", "get_task_logs"):
         if _cc_fn not in _cc_src:
@@ -2381,15 +2464,15 @@ try:
         delete_task(_tmp_id)
 
     # 23o. completed_delivery_failed status in command center or home
-    _home_src2 = Path("ui/home.py").read_text(encoding="utf-8")
-    _cc_src2 = Path("ui/command_center.py").read_text(encoding="utf-8")
+    _home_src2 = _source_path("ui/home.py").read_text(encoding="utf-8")
+    _cc_src2 = _source_path("ui/command_center.py").read_text(encoding="utf-8")
     if "completed_delivery_failed" in _home_src2 or "completed_delivery_failed" in _cc_src2:
         record("PASS", "delivery: completed_delivery_failed in UI")
     else:
         record("FAIL", "delivery: completed_delivery_failed missing from UI")
 
     # 23p. prompts.py has delivery channel guidance (telegram uses configured user ID)
-    _prompts_src = Path("prompts.py").read_text(encoding="utf-8")
+    _prompts_src = _source_path("prompts.py").read_text(encoding="utf-8")
     if "TELEGRAM_USER_ID" in _prompts_src and "delivery_channel" in _prompts_src:
         record("PASS", "delivery: prompts.py has delivery guidance")
     else:
@@ -3300,9 +3383,9 @@ try:
         record("FAIL", "vis: edges missing arrow specification")
 
     # --- 27q. UI wiring: _build_graph_panel exists in ui --------
-    _ui_graph_src = open(os.path.join(PROJECT_ROOT, "ui", "graph_panel.py"), encoding="utf-8").read()
-    _ui_home_src = open(os.path.join(PROJECT_ROOT, "ui", "home.py"), encoding="utf-8").read()
-    _ui_head_src = open(os.path.join(PROJECT_ROOT, "ui", "head_html.py"), encoding="utf-8").read()
+    _ui_graph_src = _source_path("ui/graph_panel.py").read_text(encoding="utf-8")
+    _ui_home_src = _source_path("ui/home.py").read_text(encoding="utf-8")
+    _ui_head_src = _source_path("ui/head_html.py").read_text(encoding="utf-8")
     _app_src = _ui_graph_src + _ui_home_src + _ui_head_src
     if "build_graph_panel" in _app_src:
         record("PASS", "vis: build_graph_panel() exists in ui")
@@ -3630,7 +3713,7 @@ try:
         record("FAIL", "telegram channel: missing from installer row_bot_setup.iss")
 
     # 29r. channels/__init__.py or channels/telegram.py exists
-    assert Path("channels/telegram.py").is_file(), "channels/telegram.py should exist"
+    assert _source_path("channels/telegram.py").is_file(), "channels/telegram.py should exist"
     record("PASS", "telegram channel: channels/telegram.py exists")
 
 except Exception as e:
@@ -3842,7 +3925,7 @@ try:
     record("PASS", "v3.6: kaleido in requirements.txt")
 
     # ── 30v. Gmail as_langchain_tools replaces send/draft with custom ─────
-    _gm_src30 = Path("tools/gmail_tool.py").read_text(encoding="utf-8")
+    _gm_src30 = _source_path("tools/gmail_tool.py").read_text(encoding="utf-8")
     assert "_make_custom_send" in _gm_src30
     assert "_make_custom_draft" in _gm_src30
     assert "_build_mime_message" in _gm_src30
@@ -3854,7 +3937,7 @@ try:
     record("PASS", "v3.6: email_guide SKILL.md has multi-attachment guidance")
 
     # ── 30x. channels/telegram.py has send_photo and send_document ────────
-    _tg_src30 = Path("channels/telegram.py").read_text(encoding="utf-8")
+    _tg_src30 = _source_path("channels/telegram.py").read_text(encoding="utf-8")
     assert "def send_photo" in _tg_src30
     assert "def send_document" in _tg_src30
     record("PASS", "v3.6: channels/telegram.py has send_photo and send_document")
@@ -3926,13 +4009,13 @@ try:
 
     # ── 30ze. _resume_agent_sync accepts interrupt_ids kwarg ──────────────
     _sig30ze = _insp30.signature(
-        __import__("channels.telegram", fromlist=["_resume_agent_sync"])._resume_agent_sync
+        __import__("row_bot.channels.telegram", fromlist=["_resume_agent_sync"])._resume_agent_sync
     )
     assert "interrupt_ids" in _sig30ze.parameters, f"params: {list(_sig30ze.parameters)}"
     record("PASS", "v3.6: _resume_agent_sync accepts interrupt_ids kwarg")
 
     # ── 30zf. _pending_interrupts guard in _handle_message ────────────────
-    _tg_chan_src30 = Path("channels/telegram.py").read_text(encoding="utf-8")
+    _tg_chan_src30 = _source_path("channels/telegram.py").read_text(encoding="utf-8")
     assert "chat_id in _pending_interrupts" in _tg_chan_src30, "pending interrupt guard missing"
     record("PASS", "v3.6: _handle_message blocks messages during pending interrupt")
 
@@ -3951,10 +4034,10 @@ try:
 
 # ── 30zi. _run_agent_sync returns tuple with captured media ────────────
     _sig30zi = _insp30.signature(
-        __import__("channels.telegram", fromlist=["_run_agent_sync"])._run_agent_sync
+        __import__("row_bot.channels.telegram", fromlist=["_run_agent_sync"])._run_agent_sync
     )
     # Check return annotation includes list[bytes] and list[str] for images and video paths
-    _tg_src30zi = Path("channels/telegram.py").read_text(encoding="utf-8")
+    _tg_src30zi = _source_path("channels/telegram.py").read_text(encoding="utf-8")
     assert "list[bytes]" in _tg_src30zi, "return type should include list[bytes]"
     assert "captured_image" in _tg_src30zi, "should track captured_images"
     record("PASS", "v3.6: _run_agent_sync returns tuple with captured images")
@@ -3976,12 +4059,12 @@ except Exception as e:
 # 31. TASK-SCOPED BACKGROUND PERMISSIONS (v3.6.0)
 # ═════════════════════════════════════════════════════════════════════════════
 try:
-    _src_agent31 = Path("agent.py").read_text(encoding="utf-8")
-    _src_tasks31 = Path("tasks.py").read_text(encoding="utf-8")
-    _src_shell31 = Path("tools/shell_tool.py").read_text(encoding="utf-8")
-    _src_gmail31 = Path("tools/gmail_tool.py").read_text(encoding="utf-8")
-    _src_prompts31 = Path("prompts.py").read_text(encoding="utf-8")
-    _src_ui31 = Path("ui/task_dialog.py").read_text(encoding="utf-8")
+    _src_agent31 = _source_path("agent.py").read_text(encoding="utf-8")
+    _src_tasks31 = _source_path("tasks.py").read_text(encoding="utf-8")
+    _src_shell31 = _source_path("tools/shell_tool.py").read_text(encoding="utf-8")
+    _src_gmail31 = _source_path("tools/gmail_tool.py").read_text(encoding="utf-8")
+    _src_prompts31 = _source_path("prompts.py").read_text(encoding="utf-8")
+    _src_ui31 = _source_path("ui/task_dialog.py").read_text(encoding="utf-8")
 
     # ── 31a. Safety mode system replaces per-tool allowlists ────────
     assert "safety_mode" in _src_tasks31, \
@@ -4138,11 +4221,11 @@ except Exception as e:
 # 32. SECURITY AUDIT — BACKGROUND FLAG PROPAGATION (v3.6.0)
 # ═════════════════════════════════════════════════════════════════════════════
 try:
-    _src_agent32 = Path("agent.py").read_text(encoding="utf-8")
-    _src_tasks32 = Path("tasks.py").read_text(encoding="utf-8")
-    _src_shell32 = Path("tools/shell_tool.py").read_text(encoding="utf-8")
-    _src_gmail32 = Path("tools/gmail_tool.py").read_text(encoding="utf-8")
-    _src_browser32 = Path("tools/browser_tool.py").read_text(encoding="utf-8")
+    _src_agent32 = _source_path("agent.py").read_text(encoding="utf-8")
+    _src_tasks32 = _source_path("tasks.py").read_text(encoding="utf-8")
+    _src_shell32 = _source_path("tools/shell_tool.py").read_text(encoding="utf-8")
+    _src_gmail32 = _source_path("tools/gmail_tool.py").read_text(encoding="utf-8")
+    _src_browser32 = _source_path("tools/browser_tool.py").read_text(encoding="utf-8")
 
     # ── 32a. Background flag is a ContextVar, NOT threading.local ────
     assert "_background_workflow_var" in _src_agent32, \
@@ -4207,7 +4290,7 @@ try:
     record("PASS", "v3.12: shell_tool reads shared approval mode")
 
     # ── 32e4. run_command NOT in shell destructive_tool_names ──────
-    _src_shell32e4 = Path("tools/shell_tool.py").read_text(encoding="utf-8")
+    _src_shell32e4 = _source_path("tools/shell_tool.py").read_text(encoding="utf-8")
     _destr_section = _src_shell32e4[_src_shell32e4.index("destructive_tool_names"):_src_shell32e4.index("destructive_tool_names") + 200]
     assert "run_command" not in _destr_section, \
         "run_command should not be in shell destructive_tool_names — shell self-gates"
@@ -4419,8 +4502,8 @@ try:
     record("PASS", "v3.6: safety modes gate destructive tools at sub-tool level")
 
     # ── 32k. Interactive channels do NOT set background flag ─────────
-    _src_tg32 = Path("channels/telegram.py").read_text(encoding="utf-8")
-    _src_ui32 = Path("app.py").read_text(encoding="utf-8")
+    _src_tg32 = _source_path("channels/telegram.py").read_text(encoding="utf-8")
+    _src_ui32 = _source_path("app.py").read_text(encoding="utf-8")
     # These should NEVER set background_workflow to True
     assert "_background_workflow_var" not in _src_tg32, \
         "SECURITY: Telegram must NOT set _background_workflow_var"
@@ -4975,7 +5058,7 @@ try:
     _delete_thread(_test_tid35)
 
     # ── 35x. models.py: conditional ollama import ────────────────────
-    _models_src35 = Path("models.py").read_text(encoding="utf-8")
+    _models_src35 = _source_path("models.py").read_text(encoding="utf-8")
     assert "_ollama_mod" in _models_src35, "should use conditional _ollama_mod"
     assert "import ollama as _ollama_mod" in _models_src35
     record("PASS", "cloud: models.py has conditional ollama import")
@@ -4988,7 +5071,7 @@ try:
     record("PASS", "cloud: models.py has dual-provider cloud LLM factory")
 
     # ── 35z. memory_extraction.py: uses get_llm_for, not ollama.chat ──
-    _me_src35 = Path("memory_extraction.py").read_text(encoding="utf-8")
+    _me_src35 = _source_path("memory_extraction.py").read_text(encoding="utf-8")
     assert "get_llm_for" in _me_src35, "should use get_llm_for"
     assert "HumanMessage" in _me_src35, "should use HumanMessage"
     # Should NOT have a bare `import ollama` or `ollama.chat`
@@ -5001,14 +5084,14 @@ try:
     record("PASS", "cloud: memory_extraction.py uses get_llm_for")
 
     # ── 35ab. agent.py: cloud-aware guards ───────────────────────────
-    _agent_src35 = Path("agent.py").read_text(encoding="utf-8")
+    _agent_src35 = _source_path("agent.py").read_text(encoding="utf-8")
     assert "is_cloud_model" in _agent_src35
     _cloud_count35 = _agent_src35.count("is_cloud_model")
     assert _cloud_count35 >= 4, f"Expected ≥4 is_cloud_model refs, got {_cloud_count35}"
     record("PASS", "cloud: agent.py has cloud-aware guards")
 
     # ── 35ac. launcher.py: conditional Ollama auto-start ─────────────
-    _launcher_src35 = Path("launcher.py").read_text(encoding="utf-8")
+    _launcher_src35 = _source_path("launcher.py").read_text(encoding="utf-8")
     assert "_start_ollama" in _launcher_src35, "launcher should have _start_ollama"
     assert "_is_ollama_running" in _launcher_src35, "launcher should check if Ollama is running"
     assert "_should_auto_start_ollama" in _launcher_src35, "launcher should gate Ollama startup on saved local runtime"
@@ -5017,7 +5100,7 @@ try:
     record("PASS", "cloud: launcher.py has conditional Ollama auto-start")
 
     # ── 35ad. telegram: /model command handler ───────────────────────
-    _tg_src35 = Path("channels/telegram.py").read_text(encoding="utf-8")
+    _tg_src35 = _source_path("channels/telegram.py").read_text(encoding="utf-8")
     assert "_cmd_model" in _tg_src35
     assert 'CommandHandler("model"' in _tg_src35
     assert "list_quick_model_ids" in _tg_src35, "telegram should use Quick Choices"
@@ -5025,7 +5108,7 @@ try:
     record("PASS", "cloud: telegram.py has updated /model command")
 
     # ── 35ae. conversation_search_tool handles 5-column rows ─────────
-    _cs_src35 = Path("tools/conversation_search_tool.py").read_text(encoding="utf-8")
+    _cs_src35 = _source_path("tools/conversation_search_tool.py").read_text(encoding="utf-8")
     assert "*_cs_rest" in _cs_src35
     record("PASS", "cloud: conversation_search_tool handles 5-column rows")
 
@@ -5033,8 +5116,8 @@ try:
     record("PASS", "cloud: email channel test removed (channel deleted)")
 
     # ── 35ag. UI: Providers tab + dual sections ────────────────────
-    _gui_src35 = Path("app.py").read_text(encoding="utf-8") + "".join(
-        f.read_text(encoding="utf-8") for f in sorted(Path("ui").glob("*.py"))
+    _gui_src35 = _source_path("app.py").read_text(encoding="utf-8") + "".join(
+        f.read_text(encoding="utf-8") for f in sorted(_source_path("ui").glob("*.py"))
     )
     assert "_build_cloud_tab" in _gui_src35
     assert "tab_cloud" in _gui_src35
@@ -5100,7 +5183,7 @@ try:
             _os35.environ["OPENROUTER_API_KEY"] = _old_or_env35c
 
     # ── 35ao. prompts.py: CLOUD MODELS section ───────────────────────
-    _prompts_src35 = Path("prompts.py").read_text(encoding="utf-8")
+    _prompts_src35 = _source_path("prompts.py").read_text(encoding="utf-8")
     assert "CLOUD MODELS" in _prompts_src35
     record("PASS", "cloud: prompts.py has CLOUD MODELS section")
 
@@ -5151,7 +5234,7 @@ try:
     record("PASS", "cloud: is_tool_compatible returns True for cloud models")
 
     # ── 35at. vision.py: conditional ollama import ────────────────────
-    _vision_src35 = Path("vision.py").read_text(encoding="utf-8")
+    _vision_src35 = _source_path("vision.py").read_text(encoding="utf-8")
     assert "_ollama_mod" in _vision_src35, "vision.py should use conditional import"
     assert "_analyze_cloud" in _vision_src35, "vision.py should have cloud analyze path"
     assert "_analyze_local" in _vision_src35, "vision.py should have local analyze path"
@@ -5169,7 +5252,7 @@ try:
     record("PASS", "cloud: _CLOUD_CACHE_PATH has correct filename")
 
     # ── 35aw. trending Ollama models: source code checks ─────────────
-    _models_src35 = open("models.py", encoding="utf-8").read()
+    _models_src35 = _source_path("models.py").open( encoding="utf-8").read()
     assert "def list_all_models" in _models_src35, "models.py should have daemon model list facade"
     assert "return sorted(set(list_local_models()))" in _models_src35, \
         "list_all_models should only return daemon-exposed Ollama models"
@@ -5194,7 +5277,7 @@ try:
     assert "start_model_catalog_refresh_background" in _gui_src35, "settings should refresh catalog in the background"
     assert "pull_model" not in _gui_src35, "settings/wizard should not download Ollama models"
     assert "on_download" not in _gui_src35, "model catalog should not expose download actions"
-    assert "fetch_ollama_library" not in Path("providers/ollama.py").read_text(encoding="utf-8"), \
+    assert "fetch_ollama_library" not in _source_path("providers/ollama.py").read_text(encoding="utf-8"), \
         "Ollama provider should not fetch public library rows"
     assert "_ollama_up" in _gui_src35, "app.py should track Ollama reachability"
     assert "ollama.com/download" in _gui_src35, "app.py should link to Ollama download"
@@ -5268,7 +5351,7 @@ try:
     record("PASS", "cloud: model switch toast and context cap")
 
     # ── 35bl. provider-specific emojis ────────────────────────────────
-    _mod_src35 = Path("models.py").read_text(encoding="utf-8")
+    _mod_src35 = _source_path("models.py").read_text(encoding="utf-8")
     assert 'get_provider_emoji' in _mod_src35, "models.py must define get_provider_emoji"
     assert 'get_provider_emoji' in _gui_src35, "app.py must use get_provider_emoji"
     assert '_PROVIDER_EMOJI' in _mod_src35, "models.py must define _PROVIDER_EMOJI mapping"
@@ -5284,7 +5367,7 @@ try:
 
     # ── 35bn. sidebar context counter respects model override ─────────
     assert 'model_override' in _gui_src35, "token counter must pass model override"
-    _agent_src35 = Path("agent.py").read_text(encoding="utf-8")
+    _agent_src35 = _source_path("agent.py").read_text(encoding="utf-8")
     assert 'model_override' in _agent_src35.split("def get_token_usage")[1][:400], \
         "get_token_usage must accept model_override param"
     assert 'model_name: str | None' in _mod_src35.split("def get_context_size")[1][:100], \
@@ -5568,7 +5651,7 @@ try:
     record("PASS", "skills: config persists to JSON")
 
     # ── 36n. agent.py has skills injection in pre-model hook ──────────
-    _src_agent36 = (PROJECT_ROOT / "agent.py").read_text(encoding="utf-8")
+    _src_agent36 = (ROW_BOT_SRC / "agent.py").read_text(encoding="utf-8")
     assert (
         "from skills import get_skills_prompt" in _src_agent36
         or "from row_bot.skills import get_skills_prompt" in _src_agent36
@@ -5581,7 +5664,7 @@ try:
     record("PASS", "skills: agent.py has skills injection")
 
     # ── 36o. threads.py has skills_override support ───────────────────
-    _src_threads36 = (PROJECT_ROOT / "threads.py").read_text(encoding="utf-8")
+    _src_threads36 = (ROW_BOT_SRC / "threads.py").read_text(encoding="utf-8")
     assert "skills_override" in _src_threads36, \
         "threads.py should have skills_override column"
     assert "def get_thread_skills_override" in _src_threads36
@@ -5589,7 +5672,7 @@ try:
     record("PASS", "skills: threads.py has skills_override support")
 
     # ── 36p. tasks.py has skills_override support ─────────────────────
-    _src_tasks36 = (PROJECT_ROOT / "tasks.py").read_text(encoding="utf-8")
+    _src_tasks36 = (ROW_BOT_SRC / "tasks.py").read_text(encoding="utf-8")
     assert "skills_override" in _src_tasks36, \
         "tasks.py should have skills_override column"
     assert "skills_override" in _src_tasks36[_src_tasks36.index("def update_task"):], \
@@ -5600,7 +5683,7 @@ try:
 
     # ── 36q. UI has Skills tab ──────────────────────────────
     _src_app36 = "".join(
-        f.read_text(encoding="utf-8") for f in sorted((PROJECT_ROOT / "ui").glob("*.py"))
+        f.read_text(encoding="utf-8") for f in sorted((ROW_BOT_SRC / "ui").glob("*.py"))
     )
     assert "_build_skills_tab" in _src_app36, \
         "ui/ should have _build_skills_tab function"
@@ -6171,7 +6254,7 @@ try:
     record("PASS", f"smoke: tool registry has {len(_tools37)} tools")
 
     # ── 37d. Prompt builder returns content ───────────────────────────
-    _prompt_src37 = (PROJECT_ROOT / "agent.py").read_text(encoding="utf-8")
+    _prompt_src37 = (ROW_BOT_SRC / "agent.py").read_text(encoding="utf-8")
     assert "AGENT_SYSTEM_PROMPT" in _prompt_src37
     record("PASS", "smoke: agent.py has system prompt logic")
 
@@ -6227,13 +6310,13 @@ try:
     record("PASS", "smoke: requirements.txt has content")
 
     # ── 37p. Launcher module imports ──────────────────────────────────
-    assert (PROJECT_ROOT / "launcher.py").exists()
+    assert (ROW_BOT_SRC / "launcher.py").exists()
     import ast as _ast37p
-    _ast37p.parse((PROJECT_ROOT / "launcher.py").read_text(encoding="utf-8"))
+    _ast37p.parse((ROW_BOT_SRC / "launcher.py").read_text(encoding="utf-8"))
     record("PASS", "smoke: launcher.py parses cleanly")
 
     # ── 37q. App NiceGUI parses cleanly ───────────────────────────────
-    _ast37p.parse((PROJECT_ROOT / "app.py").read_text(encoding="utf-8"))
+    _ast37p.parse((ROW_BOT_SRC / "app.py").read_text(encoding="utf-8"))
     record("PASS", "smoke: app.py parses cleanly")
 
     # ── 37r. Skills module round-trip (quick) ─────────────────────────
@@ -6800,7 +6883,7 @@ try:
                 f"{r.name}: expected tab '{_tabs_expected[r.name]}', got '{r.settings_tab}'"
     record("PASS", "status_checks: settings_tab mapping correct")
 
-    _sc_src41 = Path("ui/status_checks.py").read_text(encoding="utf-8")
+    _sc_src41 = _source_path("ui/status_checks.py").read_text(encoding="utf-8")
     assert "load_processed_files" in _sc_src41, \
         "Documents status must use processed document count, not vector-store file count"
     assert 'CheckResult("Workflows"' in _sc_src41, \
@@ -6824,7 +6907,7 @@ try:
     assert "open_settings" in sig_home.parameters
     record("PASS", "home: build_home accepts open_settings kwarg")
 
-    _cc_src41 = Path("ui/command_center.py").read_text(encoding="utf-8")
+    _cc_src41 = _source_path("ui/command_center.py").read_text(encoding="utf-8")
     assert "workflow_console_collapsed" in _cc_src41, \
         "Command Center must persist collapsed/expanded workflow console state"
     assert "workflow-console-rail" in _cc_src41, \
@@ -6833,7 +6916,7 @@ try:
         "Collapsed workflow rail must surface pending approval attention"
     record("PASS", "command_center: collapsed rail and approval attention contract")
 
-    _buddy_brain_src41 = Path("buddy/brain.py").read_text(encoding="utf-8")
+    _buddy_brain_src41 = _source_path("buddy/brain.py").read_text(encoding="utf-8")
     assert "owner_id" in _buddy_brain_src41 and "_dominant_activity" in _buddy_brain_src41, \
         "Buddy brain must use owned activities and deterministic priority"
     assert "_reconcile_durable_activity" in _buddy_brain_src41, \
@@ -7334,7 +7417,7 @@ try:
     record("PASS", "doc-extract: map/reduce/extract pipeline functions callable")
 
     # ── 46h. extract_from_document has map-reduce phases ─────────────
-    _dex_src = _inspect46.getsource(__import__("document_extraction").extract_from_document)
+    _dex_src = _inspect46.getsource(__import__("row_bot.document_extraction", fromlist=["extract_from_document"]).extract_from_document)
     assert "_map_summarize_window" in _dex_src, "extract_from_document must call _map_summarize_window"
     assert "_reduce_summaries" in _dex_src, "extract_from_document must call _reduce_summaries"
     assert "_extract_from_summary" in _dex_src, "extract_from_document must call _extract_from_summary"
@@ -7407,7 +7490,7 @@ try:
     record("PASS", "doc-extract: remove_document callable with display_name param")
 
     # ── 46p. Graph panel boot: createNetwork before applyFilters ─────
-    _gp_path = PROJECT_ROOT / "ui" / "graph_panel.py"
+    _gp_path = ROW_BOT_SRC / "ui" / "graph_panel.py"
     _gp_text = _gp_path.read_text(encoding="utf-8")
     _boot_idx = _gp_text.find("function boot()")
     assert _boot_idx > 0, "boot() function not found in graph_panel.py"
@@ -7422,7 +7505,7 @@ try:
     # ── 46q. graph_to_vis_json edges have id field ───────────────────
     _test_vis = _kg46.graph_to_vis_json(entity_id=None)
     assert "edges" in _test_vis, "graph_to_vis_json must return 'edges' key"
-    _kg_text = (PROJECT_ROOT / "knowledge_graph.py").read_text(encoding="utf-8")
+    _kg_text = (ROW_BOT_SRC / "knowledge_graph.py").read_text(encoding="utf-8")
     assert '"id": f"{src}__{tgt}__{rel}"' in _kg_text, \
         "graph_to_vis_json must add 'id' field to edges"
     record("PASS", "doc-extract: graph_to_vis_json edges include id field")
@@ -7438,7 +7521,7 @@ try:
     record("PASS", "doc-extract: rowBotGraphRedraw has createNetwork then applyFilters")
 
     # ── 46s. settings.py imports remove_document ─────────────────────
-    _settings_src = (PROJECT_ROOT / "ui" / "settings.py").read_text(encoding="utf-8")
+    _settings_src = (ROW_BOT_SRC / "ui" / "settings.py").read_text(encoding="utf-8")
     assert "remove_document" in _settings_src, "settings.py must import remove_document"
     assert "delete_entities_by_source" in _settings_src, \
         "settings.py must call delete_entities_by_source for cleanup"
@@ -7516,7 +7599,7 @@ try:
             _wv47._CONFIG_PATH = _orig_cfg47
 
     # ── 47c. delete_all_entities() calls clear_wiki_folder ────────────
-    _kg_src47 = (PROJECT_ROOT / "knowledge_graph.py").read_text(encoding="utf-8")
+    _kg_src47 = (ROW_BOT_SRC / "knowledge_graph.py").read_text(encoding="utf-8")
     assert "wiki_vault" in _kg_src47.split("def delete_all_entities")[1].split("\ndef ")[0], \
         "delete_all_entities must reference wiki_vault"
     assert "clear_wiki_folder" in _kg_src47.split("def delete_all_entities")[1].split("\ndef ")[0], \
@@ -7524,7 +7607,7 @@ try:
     record("PASS", "knowledge_graph: delete_all_entities calls wiki_vault.clear_wiki_folder")
 
     # ── 47d. Settings tab consolidation: Knowledge tab exists, Memory/Wiki removed
-    _settings_src47 = (PROJECT_ROOT / "ui" / "settings.py").read_text(encoding="utf-8")
+    _settings_src47 = (ROW_BOT_SRC / "ui" / "settings.py").read_text(encoding="utf-8")
     assert '_build_knowledge_tab' in _settings_src47, "settings.py must have _build_knowledge_tab"
     assert '_build_memory_tab' not in _settings_src47, "settings.py must NOT have _build_memory_tab"
     assert '_build_wiki_tab' not in _settings_src47, "settings.py must NOT have _build_wiki_tab"
@@ -7549,14 +7632,14 @@ try:
     record("PASS", "settings: clear_all_documents has confirm dialog")
 
     # ── 47g. Home page uses "Knowledge" not "Memory" ─────────────────
-    _home_src47 = (PROJECT_ROOT / "ui" / "home.py").read_text(encoding="utf-8")
+    _home_src47 = (ROW_BOT_SRC / "ui" / "home.py").read_text(encoding="utf-8")
     assert 'ui.tab("Knowledge"' in _home_src47, "home.py must use Knowledge tab"
     assert 'ui.tab("Memory"' not in _home_src47, "home.py must NOT use Memory tab"
     assert "Knowledge Extraction" in _home_src47, "home.py must say Knowledge Extraction"
     record("PASS", "home: Memory renamed to Knowledge everywhere")
 
     # ── 47h. status_checks.py uses Knowledge tab ─────────────────────
-    _sc_src47 = (PROJECT_ROOT / "ui" / "status_checks.py").read_text(encoding="utf-8")
+    _sc_src47 = (ROW_BOT_SRC / "ui" / "status_checks.py").read_text(encoding="utf-8")
     assert 'settings_tab="Memory"' not in _sc_src47, \
         "status_checks.py must NOT reference Memory tab"
     assert 'settings_tab="Knowledge"' in _sc_src47, \
@@ -7735,7 +7818,7 @@ try:
     record("PASS", "dream_cycle: VALID_RELATION_TYPES vocabulary exists with 30+ types")
 
     # ── 48i. app.py starts dream loop ────────────────────────────────
-    _app_src48 = (PROJECT_ROOT / "app.py").read_text(encoding="utf-8")
+    _app_src48 = (ROW_BOT_SRC / "app.py").read_text(encoding="utf-8")
     assert (
         "from dream_cycle import start_dream_loop" in _app_src48
         or "from row_bot.dream_cycle import start_dream_loop" in _app_src48
@@ -7746,21 +7829,21 @@ try:
     record("PASS", "dream_cycle: app.py imports and starts dream loop")
 
     # ── 48j. Knowledge tab has Dream Cycle section ───────────────────
-    _settings_src48 = (PROJECT_ROOT / "ui" / "settings.py").read_text(encoding="utf-8")
+    _settings_src48 = (ROW_BOT_SRC / "ui" / "settings.py").read_text(encoding="utf-8")
     assert "Dream Cycle" in _settings_src48, "settings.py must have Dream Cycle section"
     assert "dream_cycle" in _settings_src48, "settings.py must import dream_cycle"
     assert "Enable Dream Cycle" in _settings_src48, "settings.py must have Enable toggle"
     record("PASS", "dream_cycle: Preferences tab has Dream Cycle UI section")
 
     # ── 48k. Activity tab shows Dream Cycle ──────────────────────────
-    _home_src48 = (PROJECT_ROOT / "ui" / "home.py").read_text(encoding="utf-8")
+    _home_src48 = (ROW_BOT_SRC / "ui" / "home.py").read_text(encoding="utf-8")
     assert "Dream Cycle" in _home_src48, "home.py must have Dream Cycle section"
     assert "get_dream_status" in _home_src48, "home.py must call get_dream_status"
     assert "get_journal" in _home_src48, "home.py must call get_journal"
     record("PASS", "dream_cycle: Activity tab shows Dream Cycle + journal")
 
     # ── 48l. Source tags use dream_ prefix ───────────────────────────
-    _dc_src48 = (PROJECT_ROOT / "dream_cycle.py").read_text(encoding="utf-8")
+    _dc_src48 = (ROW_BOT_SRC / "dream_cycle.py").read_text(encoding="utf-8")
     assert 'source="dream_merge"' in _dc_src48, "Merge source must be dream_merge"
     # dream_enrich: enrich updates entity description but preserves original source
     # (no source= on update_entity to avoid overwriting provenance)
@@ -7828,7 +7911,7 @@ try:
     record("PASS", "memory_extraction: extraction journal functions exist")
 
     # ── 48v. Extraction has contradiction checking ───────────────────
-    _me_src48 = (PROJECT_ROOT / "memory_extraction.py").read_text(encoding="utf-8")
+    _me_src48 = (ROW_BOT_SRC / "memory_extraction.py").read_text(encoding="utf-8")
     assert "_check_contradiction" in _me_src48, \
         "memory_extraction must use _check_contradiction"
     assert "contradiction" in _me_src48.lower(), \
@@ -8332,7 +8415,7 @@ try:
         record("PASS", "plugins: remove_plugin_state clears config + secrets")
 
         # ── 49t. agent.py has plugin tool injection ──────────────────────
-        _agent_src49 = (_Path49(PROJECT_ROOT) / "agent.py").read_text(encoding="utf-8")
+        _agent_src49 = _source_path("agent.py").read_text(encoding="utf-8")
         assert "plugin_registry_mod.get_langchain_tools()" in _agent_src49, \
             "agent.py must import and use plugin registry tools"
         record("PASS", "plugins: agent.py hooks plugin tools into tool collection")
@@ -8343,7 +8426,7 @@ try:
         record("PASS", "plugins: agent.py hooks plugin skills into skill injection")
 
         # ── 49v. app.py calls load_plugins at startup ────────────────────
-        _app_src49 = (_Path49(PROJECT_ROOT) / "app.py").read_text(encoding="utf-8")
+        _app_src49 = _source_path("app.py").read_text(encoding="utf-8")
         assert "load_plugins" in _app_src49, "app.py must call load_plugins"
         assert "🔌 Loading plugins" in _app_src49
         record("PASS", "plugins: app.py loads plugins at startup")
@@ -8457,7 +8540,7 @@ try:
 
     # ── 50f. ui/settings.py contains Plugins tab ─────────────────────
     import ast as _ast50
-    _settings_src = open("ui/settings.py", encoding="utf-8").read()
+    _settings_src = _source_path("ui/settings.py").open( encoding="utf-8").read()
     assert 'tab_plugins = ui.tab("Plugins"' in _settings_src
     assert '"Plugins": tab_plugins' in _settings_src
     assert '_build_plugins_tab()' in _settings_src
@@ -8860,7 +8943,7 @@ try:
         if k == "OPENAI_API_KEY": return "sk-openai"
         if k == "OPENROUTER_API_KEY": return "sk-router"
         return None
-    with _mock52.patch("api_keys.get_key", _mock_both_keys):
+    with _mock52.patch("row_bot.api_keys.get_key", _mock_both_keys):
         _avail52 = get_available_image_models()
     assert len(_avail52) >= len(_OPENAI_MODELS), f"expected at least {len(_OPENAI_MODELS)}, got {len(_avail52)}"
     for _model52 in _OPENAI_MODELS:
@@ -8873,29 +8956,29 @@ try:
     # With only OpenRouter key — no models (OpenRouter has no images API)
     def _mock_router_only(k):
         return "sk-router" if k == "OPENROUTER_API_KEY" else None
-    with _mock52.patch("api_keys.get_key", _mock_router_only):
+    with _mock52.patch("row_bot.api_keys.get_key", _mock_router_only):
         _avail52b = get_available_image_models()
     assert _avail52b == {}, "OpenRouter-only should return no image models"
     record("PASS", "image_gen: get_available_image_models empty with only OpenRouter key")
 
     # With no keys
-    with _mock52.patch("api_keys.get_key", return_value=None):
+    with _mock52.patch("row_bot.api_keys.get_key", return_value=None):
         _avail52c = get_available_image_models()
     assert _avail52c == {}
     record("PASS", "image_gen: get_available_image_models returns empty with no keys")
 
     # ── 52m. _get_client — reads provider from config ───────────────
     # OpenAI provider selected
-    with _mock52.patch("tools.image_gen_tool._get_configured_selection", return_value="openai/gpt-image-1.5"), \
-         _mock52.patch("api_keys.get_key", lambda k: "sk-test" if k == "OPENAI_API_KEY" else None):
+    with _mock52.patch("row_bot.tools.image_gen_tool._get_configured_selection", return_value="openai/gpt-image-1.5"), \
+         _mock52.patch("row_bot.api_keys.get_key", lambda k: "sk-test" if k == "OPENAI_API_KEY" else None):
         _client52, _prov52, _pid52 = _igt._get_client()
         assert _prov52 == "OpenAI"
         assert _pid52 == "openai"
         record("PASS", "image_gen: _get_client uses OpenAI when openai/ selected")
 
     # Missing key for selected provider
-    with _mock52.patch("tools.image_gen_tool._get_configured_selection", return_value="openai/gpt-image-1.5"), \
-         _mock52.patch("api_keys.get_key", return_value=None):
+    with _mock52.patch("row_bot.tools.image_gen_tool._get_configured_selection", return_value="openai/gpt-image-1.5"), \
+         _mock52.patch("row_bot.api_keys.get_key", return_value=None):
         try:
             _igt._get_client()
             record("FAIL", "image_gen: _get_client should raise for missing provider key", "no error")
@@ -8919,8 +9002,8 @@ try:
     _mock_client52 = _mock52.MagicMock()
     _mock_client52.images.generate.return_value = _mock_response52
 
-    with _mock52.patch("tools.image_gen_tool._get_client", return_value=(_mock_client52, "OpenAI", "openai")), \
-         _mock52.patch("tools.image_gen_tool._get_configured_model", return_value="gpt-image-1.5"):
+    with _mock52.patch("row_bot.tools.image_gen_tool._get_client", return_value=(_mock_client52, "OpenAI", "openai")), \
+         _mock52.patch("row_bot.tools.image_gen_tool._get_configured_model", return_value="gpt-image-1.5"):
         _result52 = _generate_image(prompt="a red cat", size="1024x1024", quality="high")
 
     assert "Image generated successfully" in _result52
@@ -8946,8 +9029,8 @@ try:
     _mock_client_err = _mock52.MagicMock()
     _mock_client_err.images.generate.side_effect = Exception("API rate limit exceeded")
 
-    with _mock52.patch("tools.image_gen_tool._get_client", return_value=(_mock_client_err, "OpenAI", "openai")), \
-         _mock52.patch("tools.image_gen_tool._get_configured_model", return_value="gpt-image-1.5"):
+    with _mock52.patch("row_bot.tools.image_gen_tool._get_client", return_value=(_mock_client_err, "OpenAI", "openai")), \
+         _mock52.patch("row_bot.tools.image_gen_tool._get_configured_model", return_value="gpt-image-1.5"):
         _err_result = _generate_image(prompt="test")
     assert "Image generation failed" in _err_result
     assert "rate limit" in _err_result
@@ -8969,8 +9052,8 @@ try:
     _mock_client_edit = _mock52.MagicMock()
     _mock_client_edit.images.edit.return_value = _mock_edit_resp
 
-    with _mock52.patch("tools.image_gen_tool._get_client", return_value=(_mock_client_edit, "OpenAI", "openai")), \
-         _mock52.patch("tools.image_gen_tool._get_configured_model", return_value="gpt-image-1"):
+    with _mock52.patch("row_bot.tools.image_gen_tool._get_client", return_value=(_mock_client_edit, "OpenAI", "openai")), \
+         _mock52.patch("row_bot.tools.image_gen_tool._get_configured_model", return_value="gpt-image-1"):
         _edit_result52 = _edit_image(prompt="add a hat", image_source="last")
 
     assert "Image edited successfully" in _edit_result52
@@ -8993,8 +9076,8 @@ try:
 
     # ── 52o. _edit_image — missing source returns error string ───────
     _igt._image_cache.clear()
-    with _mock52.patch("tools.image_gen_tool._get_client", return_value=(_mock_client_edit, "OpenAI", "openai")), \
-         _mock52.patch("tools.image_gen_tool._get_configured_model", return_value="gpt-image-1"):
+    with _mock52.patch("row_bot.tools.image_gen_tool._get_client", return_value=(_mock_client_edit, "OpenAI", "openai")), \
+         _mock52.patch("row_bot.tools.image_gen_tool._get_configured_model", return_value="gpt-image-1"):
         _edit_miss = _edit_image(prompt="edit this", image_source="last")
     assert "No previously generated image" in _edit_miss
     record("PASS", "image_gen: _edit_image returns error for missing source")
@@ -9003,8 +9086,8 @@ try:
     _igt._last_generated_image = None
     _igt._image_cache.clear()
 
-    with _mock52.patch("tools.image_gen_tool._get_client", return_value=(_mock_client52, "OpenAI", "openai")), \
-         _mock52.patch("tools.image_gen_tool._get_configured_model", return_value="gpt-image-1.5"):
+    with _mock52.patch("row_bot.tools.image_gen_tool._get_client", return_value=(_mock_client52, "OpenAI", "openai")), \
+         _mock52.patch("row_bot.tools.image_gen_tool._get_configured_model", return_value="gpt-image-1.5"):
         _mock_client52.images.generate.reset_mock()
         _mock_client52.images.generate.return_value = _mock_response52
         _exec_result = _tool52.execute("a blue dog")
@@ -9060,7 +9143,7 @@ try:
     def _mock_google_key(k):
         if k == "GOOGLE_API_KEY": return "AIza-test"
         return None
-    with _mock52.patch("api_keys.get_key", _mock_google_key):
+    with _mock52.patch("row_bot.api_keys.get_key", _mock_google_key):
         _avail_g = get_available_image_models()
     assert len(_avail_g) == 6, f"expected 6 Google models, got {len(_avail_g)}"
     assert "google/gemini-3.1-flash-image-preview" in _avail_g
@@ -9073,7 +9156,7 @@ try:
         if k == "OPENAI_API_KEY": return "sk-openai"
         if k == "GOOGLE_API_KEY": return "AIza-test"
         return None
-    with _mock52.patch("api_keys.get_key", _mock_all_keys):
+    with _mock52.patch("row_bot.api_keys.get_key", _mock_all_keys):
         _avail_all = get_available_image_models()
     assert len(_avail_all) >= 9, f"expected at least 9 total models, got {len(_avail_all)}"
     assert any(k.startswith("openai/") for k in _avail_all)
@@ -9081,8 +9164,8 @@ try:
     record("PASS", "image_gen: get_available_image_models shows both providers")
 
     # ── 52ph. _get_client returns Google client ──────────────────────
-    with _mock52.patch("tools.image_gen_tool._get_configured_selection", return_value="google/gemini-3.1-flash-image-preview"), \
-         _mock52.patch("api_keys.get_key", lambda k: "AIza-test" if k == "GOOGLE_API_KEY" else None):
+    with _mock52.patch("row_bot.tools.image_gen_tool._get_configured_selection", return_value="google/gemini-3.1-flash-image-preview"), \
+         _mock52.patch("row_bot.api_keys.get_key", lambda k: "AIza-test" if k == "GOOGLE_API_KEY" else None):
         _gclient, _gprov, _gpid = _igt._get_client()
         assert _gprov == "Google"
         assert _gpid == "google"
@@ -9102,8 +9185,8 @@ try:
     _mock_gclient = _mock52.MagicMock()
     _mock_gclient.models.generate_content.return_value = _mock_gresponse
 
-    with _mock52.patch("tools.image_gen_tool._get_client", return_value=(_mock_gclient, "Google", "google")), \
-         _mock52.patch("tools.image_gen_tool._get_configured_model", return_value="gemini-3.1-flash-image-preview"):
+    with _mock52.patch("row_bot.tools.image_gen_tool._get_client", return_value=(_mock_gclient, "Google", "google")), \
+         _mock52.patch("row_bot.tools.image_gen_tool._get_configured_model", return_value="gemini-3.1-flash-image-preview"):
         _gresult = _generate_image(prompt="a red cat", size="1024x1024", quality="auto")
 
     assert "Image generated successfully" in _gresult
@@ -9131,8 +9214,8 @@ try:
     _mock_iclient = _mock52.MagicMock()
     _mock_iclient.models.generate_images.return_value = _mock_igen_resp
 
-    with _mock52.patch("tools.image_gen_tool._get_client", return_value=(_mock_iclient, "Google", "google")), \
-         _mock52.patch("tools.image_gen_tool._get_configured_model", return_value="imagen-4.0-generate-001"):
+    with _mock52.patch("row_bot.tools.image_gen_tool._get_client", return_value=(_mock_iclient, "Google", "google")), \
+         _mock52.patch("row_bot.tools.image_gen_tool._get_configured_model", return_value="imagen-4.0-generate-001"):
         _iresult = _generate_image(prompt="sunset over ocean", size="1536x1024")
 
     assert "Image generated successfully" in _iresult
@@ -9142,8 +9225,8 @@ try:
     record("PASS", "image_gen: _generate_image Imagen 4 uses generate_images API")
 
     # ── 52pk. _edit_image — Imagen 4 rejects editing ─────────────────
-    with _mock52.patch("tools.image_gen_tool._get_client", return_value=(_mock_iclient, "Google", "google")), \
-         _mock52.patch("tools.image_gen_tool._get_configured_model", return_value="imagen-4.0-generate-001"):
+    with _mock52.patch("row_bot.tools.image_gen_tool._get_client", return_value=(_mock_iclient, "Google", "google")), \
+         _mock52.patch("row_bot.tools.image_gen_tool._get_configured_model", return_value="imagen-4.0-generate-001"):
         _edit_rej = _edit_image(prompt="add hat", image_source="last")
     assert "not supported" in _edit_rej.lower()
     assert "imagen-4.0-generate-001" in _edit_rej
@@ -9164,8 +9247,8 @@ try:
     _mock_gedit_client = _mock52.MagicMock()
     _mock_gedit_client.models.generate_content.return_value = _mock_gedit_resp
 
-    with _mock52.patch("tools.image_gen_tool._get_client", return_value=(_mock_gedit_client, "Google", "google")), \
-         _mock52.patch("tools.image_gen_tool._get_configured_model", return_value="gemini-3.1-flash-image-preview"):
+    with _mock52.patch("row_bot.tools.image_gen_tool._get_client", return_value=(_mock_gedit_client, "Google", "google")), \
+         _mock52.patch("row_bot.tools.image_gen_tool._get_configured_model", return_value="gemini-3.1-flash-image-preview"):
         _gedit_result = _edit_image(prompt="add a crown", image_source="last")
 
     assert "Image edited successfully" in _gedit_result
@@ -9183,8 +9266,8 @@ try:
     _mock_gclient_err = _mock52.MagicMock()
     _mock_gclient_err.models.generate_content.side_effect = Exception("quota exceeded")
 
-    with _mock52.patch("tools.image_gen_tool._get_client", return_value=(_mock_gclient_err, "Google", "google")), \
-         _mock52.patch("tools.image_gen_tool._get_configured_model", return_value="gemini-3.1-flash-image-preview"):
+    with _mock52.patch("row_bot.tools.image_gen_tool._get_client", return_value=(_mock_gclient_err, "Google", "google")), \
+         _mock52.patch("row_bot.tools.image_gen_tool._get_configured_model", return_value="gemini-3.1-flash-image-preview"):
         _gerr = _generate_image(prompt="test")
     assert "Image generation failed" in _gerr
     assert "quota exceeded" in _gerr
@@ -9376,7 +9459,7 @@ try:
     # Google key only
     def _mock_google_key(k):
         return "gk-test" if k == "GOOGLE_API_KEY" else None
-    with _mock52v.patch("api_keys.get_key", _mock_google_key):
+    with _mock52v.patch("row_bot.api_keys.get_key", _mock_google_key):
         _avail_v = get_available_video_models()
     assert len(_avail_v) >= len(_VG_GOOGLE_MODELS), f"expected at least {len(_VG_GOOGLE_MODELS)}, got {len(_avail_v)}"
     for _model52v in _VG_GOOGLE_MODELS:
@@ -9387,14 +9470,14 @@ try:
     # xAI key only
     def _mock_xai_key(k):
         return "xk-test" if k == "XAI_API_KEY" else None
-    with _mock52v.patch("api_keys.get_key", _mock_xai_key):
+    with _mock52v.patch("row_bot.api_keys.get_key", _mock_xai_key):
         _avail_vx = get_available_video_models()
     assert len(_avail_vx) == len(_VG_XAI_MODELS)
     assert "xai/grok-imagine-video" in _avail_vx
     record("PASS", "video_gen: get_available_video_models lists xAI only")
 
     # No keys
-    with _mock52v.patch("api_keys.get_key", return_value=None):
+    with _mock52v.patch("row_bot.api_keys.get_key", return_value=None):
         _avail_vn = get_available_video_models()
     assert _avail_vn == {}
     record("PASS", "video_gen: get_available_video_models empty with no keys")
@@ -9578,13 +9661,13 @@ try:
 
     # ── 53j. agent.py wires plugin destructive names ────────────────
     from pathlib import Path as _Path53
-    _agent_src53 = (_Path53(PROJECT_ROOT) / "agent.py").read_text(encoding="utf-8")
+    _agent_src53 = _source_path("agent.py").read_text(encoding="utf-8")
     assert "plugin_registry_mod.get_destructive_names()" in _agent_src53, \
         "agent.py must call get_destructive_names()"
     record("PASS", "plugin_v2: agent.py wires plugin destructive names")
 
     # ── 53k. streaming.py has __IMAGE__ marker detection ─────────────
-    _stream_src53 = (_Path53(PROJECT_ROOT) / "ui" / "streaming.py").read_text(encoding="utf-8")
+    _stream_src53 = _source_path("ui/streaming.py").read_text(encoding="utf-8")
     assert '__IMAGE__:' in _stream_src53, "streaming.py must detect __IMAGE__ marker"
     assert 'render_image_with_save' in _stream_src53, \
         "streaming.py must render images via render_image_with_save"
@@ -9596,7 +9679,7 @@ try:
     record("PASS", "plugin_v2: streaming.py has __HTML__ marker detection")
 
     # ── 53m. render.py has __IMAGE__ + __HTML__ for thread reload ────
-    _render_src53 = (_Path53(PROJECT_ROOT) / "ui" / "render.py").read_text(encoding="utf-8")
+    _render_src53 = _source_path("ui/render.py").read_text(encoding="utf-8")
     assert '__IMAGE__:' in _render_src53, "render.py must detect __IMAGE__ marker"
     assert '__HTML__:' in _render_src53, "render.py must detect __HTML__ marker"
     assert '__CHART__:' in _render_src53, "render.py must detect __CHART__ marker"
@@ -9669,7 +9752,7 @@ except Exception as e:
 try:
     print("SECTION 54 · Google Account Unified Setup")
 
-    _settings_src54 = (PROJECT_ROOT / "ui" / "settings.py").read_text(encoding="utf-8")
+    _settings_src54 = (ROW_BOT_SRC / "ui" / "settings.py").read_text(encoding="utf-8")
 
     # ── 54a. _build_google_account_panel exists (inside Accounts tab) ──
     assert "_build_google_account_panel" in _settings_src54, \
@@ -9738,7 +9821,7 @@ try:
     record("PASS", "google_setup: Calendar ops checkboxes present")
 
     # ── 54m. app.py warning points to Accounts tab ─────────────────
-    _app_src54 = (PROJECT_ROOT / "app.py").read_text(encoding="utf-8")
+    _app_src54 = (ROW_BOT_SRC / "app.py").read_text(encoding="utf-8")
     assert "Settings → Accounts" in _app_src54
     assert "Settings → Tools → Gmail" not in _app_src54
     record("PASS", "google_setup: app.py warnings point to Settings → Accounts")
@@ -9891,26 +9974,26 @@ try:
     record("PASS", "channel_infra: tool_factory skips photo/doc when caps=False")
 
     # ── 55q. Email channel removed ───────────────────────────────────
-    assert not (PROJECT_ROOT / "channels" / "email.py").exists(), \
+    assert not (ROW_BOT_SRC / "channels" / "email.py").exists(), \
         "channels/email.py should be deleted"
     record("PASS", "channel_infra: channels/email.py removed")
 
     # ── 55r. Email removed from app.py ───────────────────────────────
-    _app_src55 = (PROJECT_ROOT / "app.py").read_text(encoding="utf-8")
-    assert "channels.email" not in _app_src55
+    _app_src55 = (ROW_BOT_SRC / "app.py").read_text(encoding="utf-8")
+    assert "row_bot.channels.email" not in _app_src55
     assert "_email_start" not in _app_src55
     record("PASS", "channel_infra: email removed from app.py")
 
     # ── 55s. Email removed from settings.py ──────────────────────────
-    _settings_src55 = (PROJECT_ROOT / "ui" / "settings.py").read_text(encoding="utf-8")
-    assert "channels.email" not in _settings_src55
+    _settings_src55 = (ROW_BOT_SRC / "ui" / "settings.py").read_text(encoding="utf-8")
+    assert "row_bot.channels.email" not in _settings_src55
     assert "Email Channel" not in _settings_src55
     assert "_update_email_status" not in _settings_src55
     record("PASS", "channel_infra: email removed from settings.py")
 
     # ── 55t. Email removed from tasks.py delivery ────────────────────
-    _tasks_src55 = (PROJECT_ROOT / "tasks.py").read_text(encoding="utf-8")
-    assert "channels.email" not in _tasks_src55
+    _tasks_src55 = (ROW_BOT_SRC / "tasks.py").read_text(encoding="utf-8")
+    assert "row_bot.channels.email" not in _tasks_src55
     assert "FromThoth:" not in _tasks_src55
     record("PASS", "channel_infra: email removed from tasks.py")
 
@@ -9929,13 +10012,13 @@ try:
     record("PASS", "channel_infra: app.py auto-start uses channel registry")
 
     # ── 55w. gmail_tool.py still exists (not touched) ────────────────
-    assert (PROJECT_ROOT / "tools" / "gmail_tool.py").exists()
+    assert (ROW_BOT_SRC / "tools" / "gmail_tool.py").exists()
     record("PASS", "channel_infra: gmail_tool.py still exists (email tool kept)")
 
     # ── 55x. status_checks has no email channel check ────────────────
-    _sc_src55 = (PROJECT_ROOT / "ui" / "status_checks.py").read_text(encoding="utf-8")
+    _sc_src55 = (ROW_BOT_SRC / "ui" / "status_checks.py").read_text(encoding="utf-8")
     assert "check_gmail_channel" not in _sc_src55
-    assert "channels.email" not in _sc_src55
+    assert "row_bot.channels.email" not in _sc_src55
     record("PASS", "channel_infra: status_checks email check removed")
 
     # ── 55y. validate_delivery rejects unknown channels ──────────────
@@ -9961,7 +10044,7 @@ try:
     print("SECTION 56 · Telegram Phase 1 – Inbound Media & Reactions")
     import inspect as _insp56
 
-    _tg_src56 = (PROJECT_ROOT / "channels" / "telegram.py").read_text(encoding="utf-8")
+    _tg_src56 = (ROW_BOT_SRC / "channels" / "telegram.py").read_text(encoding="utf-8")
 
     # ── 56a. _handle_voice exists and is callable ────────────────────
     from row_bot.channels.telegram import _handle_voice
@@ -10113,8 +10196,8 @@ except Exception as e:
 
 # ── Telegram Task Approval Wiring Tests ─────────────────────────────────────
 try:
-    _src_tg_appr = Path("channels/telegram.py").read_text(encoding="utf-8")
-    _src_tasks_appr = Path("tasks.py").read_text(encoding="utf-8")
+    _src_tg_appr = _source_path("channels/telegram.py").read_text(encoding="utf-8")
+    _src_tasks_appr = _source_path("tasks.py").read_text(encoding="utf-8")
 
     # ── tg_appr_a: send_task_approval function exists ────────────────
     assert "def send_task_approval(" in _src_tg_appr, \
@@ -10178,7 +10261,7 @@ try:
     record("PASS", "tg_appr: respond_to_approval resumes or stops pipeline")
 
     # ── tg_appr_i: unified channel selector (replaces old delivery dropdown) ──
-    _src_ui_appr = Path("ui/task_dialog.py").read_text(encoding="utf-8")
+    _src_ui_appr = _source_path("ui/task_dialog.py").read_text(encoding="utf-8")
     assert "Channels" in _src_ui_appr, \
         "task dialog should have unified Channels section"
     assert '"email"' not in _src_ui_appr.split("Channels")[1][:600], \
@@ -10352,10 +10435,10 @@ print("=" * 70)
 
 try:
     from pathlib import Path as _APath
-    _src_tasks_af = _APath("tasks.py").read_text(encoding="utf-8")
-    _src_shell_af = _APath("tools/shell_tool.py").read_text(encoding="utf-8")
-    _src_tg_af = _APath("channels/telegram.py").read_text(encoding="utf-8")
-    _src_sidebar_af = _APath("ui/sidebar.py").read_text(encoding="utf-8")
+    _src_tasks_af = _source_path("tasks.py").read_text(encoding="utf-8")
+    _src_shell_af = _source_path("tools/shell_tool.py").read_text(encoding="utf-8")
+    _src_tg_af = _source_path("channels/telegram.py").read_text(encoding="utf-8")
+    _src_sidebar_af = _source_path("ui/sidebar.py").read_text(encoding="utf-8")
 
     # ── AF1. Safety-mode gate on interrupt approval (P0 #5) ──────────
     # In run_task_background, after detecting an interrupt, the pipeline
@@ -10385,7 +10468,7 @@ try:
     # ── AF3. Double-approval idempotency (P0 #4) ─────────────────────
     # respond_to_approval already checks status='pending'. Command Center
     # (or sidebar) must handle the False return (already handled).
-    _src_cc_af = _APath("ui/command_center.py").read_text(encoding="utf-8")
+    _src_cc_af = _source_path("ui/command_center.py").read_text(encoding="utf-8")
     assert "ℹ️ Already handled" in _src_sidebar_af or \
            "ℹ️ Already handled" in _src_cc_af, \
         "command_center or sidebar must show 'Already handled' when respond_to_approval returns False"
@@ -10493,7 +10576,7 @@ try:
     record("PASS", "AF13: expired approval guard in respond_to_approval")
 
     # ── AF14. Destructive tool gating via tool property (P3 #16) ────
-    _src_agent_af14 = Path("agent.py").read_text(encoding="utf-8")
+    _src_agent_af14 = _source_path("agent.py").read_text(encoding="utf-8")
     assert "destructive_tool_names" in _src_agent_af14, \
         "agent.py must use destructive_tool_names from tool objects"
     record("PASS", "AF14: destructive tool gating via tool property")
@@ -10825,7 +10908,7 @@ try:
     # ── _eval_llm_condition context construction (no actual LLM call) ──
     # Verify the prompt is built correctly by mocking invoke_agent
     import unittest.mock as _mock_mod
-    with _mock_mod.patch("agent.invoke_agent", side_effect=ImportError("mock")):
+    with _mock_mod.patch("row_bot.agent.invoke_agent", side_effect=ImportError("mock")):
         # Should return False when invoke_agent fails, not crash
         _llm_result = _eval_cond("llm:Is this positive?", {
             "prev_output": "Great success!",
@@ -10836,23 +10919,23 @@ try:
     record("PASS", "COND34: llm: condition graceful failure")
 
     # Test llm: with mocked yes/no responses
-    with _mock_mod.patch("agent.invoke_agent", return_value="yes"):
+    with _mock_mod.patch("row_bot.agent.invoke_agent", return_value="yes"):
         assert _eval_cond("llm:test question", {
             "prev_output": "data", "step_outputs": {}, "task_id": "",
         }) is True
-    with _mock_mod.patch("agent.invoke_agent", return_value="no"):
+    with _mock_mod.patch("row_bot.agent.invoke_agent", return_value="no"):
         assert _eval_cond("llm:test question", {
             "prev_output": "data", "step_outputs": {}, "task_id": "",
         }) is False
-    with _mock_mod.patch("agent.invoke_agent", return_value="Yes, definitely"):
+    with _mock_mod.patch("row_bot.agent.invoke_agent", return_value="Yes, definitely"):
         assert _eval_cond("llm:test question", {
             "prev_output": "", "step_outputs": {}, "task_id": "",
         }) is True
-    with _mock_mod.patch("agent.invoke_agent", return_value=""):
+    with _mock_mod.patch("row_bot.agent.invoke_agent", return_value=""):
         assert _eval_cond("llm:test question", {
             "prev_output": "", "step_outputs": {}, "task_id": "",
         }) is False  # empty → False
-    with _mock_mod.patch("agent.invoke_agent", return_value=None):
+    with _mock_mod.patch("row_bot.agent.invoke_agent", return_value=None):
         assert _eval_cond("llm:test question", {
             "prev_output": "", "step_outputs": {}, "task_id": "",
         }) is False  # None → False
@@ -10863,7 +10946,7 @@ try:
     def _capture_invoke(prompt, tools, config, **kw):
         _captured_prompts.append(prompt)
         return "no"
-    with _mock_mod.patch("agent.invoke_agent", side_effect=_capture_invoke):
+    with _mock_mod.patch("row_bot.agent.invoke_agent", side_effect=_capture_invoke):
         _eval_cond("llm:Is it good?", {
             "prev_output": "main output here",
             "step_outputs": {"step_1": "first", "step_2": "second"},
@@ -10885,7 +10968,7 @@ try:
     def _capture_tools(prompt, tools, config, **kw):
         _captured_tools.append(tools)
         return "yes"
-    with _mock_mod.patch("agent.invoke_agent", side_effect=_capture_tools):
+    with _mock_mod.patch("row_bot.agent.invoke_agent", side_effect=_capture_tools):
         _eval_cond("llm:test", {
             "prev_output": "", "step_outputs": {}, "task_id": "",
         })
@@ -10901,7 +10984,7 @@ try:
     def _capture_big(prompt, tools, config, **kw):
         _big_prompts.append(prompt)
         return "yes"
-    with _mock_mod.patch("agent.invoke_agent", side_effect=_capture_big):
+    with _mock_mod.patch("row_bot.agent.invoke_agent", side_effect=_capture_big):
         _eval_cond("llm:test", _big_ctx)
     assert len(_big_prompts) == 1
     # The full prompt includes the question wrapper, so context_text portion should be capped
@@ -11199,19 +11282,19 @@ try:
     record("PASS", "BUG5l: extract_json_block empty object")
 
     # 5m: memory_extraction uses extract_json_block (not greedy regex)
-    _me56_src = (PROJECT_ROOT / "memory_extraction.py").read_text(encoding="utf-8")
+    _me56_src = (ROW_BOT_SRC / "memory_extraction.py").read_text(encoding="utf-8")
     assert "extract_json_block" in _me56_src, "memory_extraction should use extract_json_block"
     assert 'r"\\[.*\\]"' not in _me56_src, "memory_extraction should NOT use greedy regex"
     record("PASS", "BUG5m: memory_extraction uses bracket-counting parser")
 
     # 5n: document_extraction uses extract_json_block
-    _de56_src = (PROJECT_ROOT / "document_extraction.py").read_text(encoding="utf-8")
+    _de56_src = (ROW_BOT_SRC / "document_extraction.py").read_text(encoding="utf-8")
     assert "extract_json_block" in _de56_src
     assert 'r"\\[.*\\]"' not in _de56_src
     record("PASS", "BUG5n: document_extraction uses bracket-counting parser")
 
     # 5o: dream_cycle uses extract_json_block
-    _dc56_src = (PROJECT_ROOT / "dream_cycle.py").read_text(encoding="utf-8")
+    _dc56_src = (ROW_BOT_SRC / "dream_cycle.py").read_text(encoding="utf-8")
     assert "extract_json_block" in _dc56_src
     assert 'r"\\{.*\\}"' not in _dc56_src
     record("PASS", "BUG5o: dream_cycle uses bracket-counting parser")
@@ -11260,7 +11343,7 @@ try:
     record("PASS", "BUG2a: knowledge graph uses MultiDiGraph")
 
     # 2b: _load_graph creates MultiDiGraph
-    _kg56_src = (PROJECT_ROOT / "knowledge_graph.py").read_text(encoding="utf-8")
+    _kg56_src = (ROW_BOT_SRC / "knowledge_graph.py").read_text(encoding="utf-8")
     assert "nx.MultiDiGraph()" in _kg56_src
     assert "nx.DiGraph()" not in _kg56_src, "No DiGraph() remaining in source"
     record("PASS", "BUG2b: all DiGraph() replaced with MultiDiGraph()")
@@ -11828,21 +11911,21 @@ try:
 
     # 51o: Logging section exists in system settings tab builder
     import ast as _ast_51
-    _settings_src = open("ui/settings.py", encoding="utf-8").read()
+    _settings_src = _source_path("ui/settings.py").open( encoding="utf-8").read()
     assert "📝 Logging" in _settings_src, "Logging section label missing from settings"
     assert "set_file_log_level" in _settings_src, "set_file_log_level not wired in settings"
     assert "Open Log Folder" in _settings_src, "Open Log Folder button missing"
     record("PASS", "51o: Settings UI has Logging section with level picker and Open Folder")
 
     # 51p: Activity panel has Recent Logs section
-    _home_src = open("ui/home.py", encoding="utf-8").read()
+    _home_src = _source_path("ui/home.py").open( encoding="utf-8").read()
     assert "📝 Recent Logs" in _home_src, "Recent Logs section missing from home"
     assert "read_recent_logs" in _home_src, "read_recent_logs not wired in home"
     assert "View Full Log" in _home_src, "View Full Log button missing"
     record("PASS", "51p: Activity panel has Recent Logs section with viewer")
 
     # 51q: app.py imports and calls setup_file_logging
-    _app_src = open("app.py", encoding="utf-8").read()
+    _app_src = _source_path("app.py").open( encoding="utf-8").read()
     assert (
         "from logging_config import setup_file_logging" in _app_src
         or "from row_bot.logging_config import setup_file_logging" in _app_src
@@ -11851,23 +11934,23 @@ try:
     record("PASS", "51q: app.py imports and calls setup_file_logging")
 
     # 51r: agent.py has invoke_agent logging
-    _agent_src = open("agent.py", encoding="utf-8").read()
+    _agent_src = _source_path("agent.py").open( encoding="utf-8").read()
     assert "invoke_agent:" in _agent_src, "invoke_agent log prefix missing"
     assert "import time" in _agent_src, "time import missing for duration logging"
     record("PASS", "51r: agent.py has invoke_agent lifecycle logging")
 
     # 51s: tools/base.py has tool completion DEBUG log
-    _base_src = open("tools/base.py", encoding="utf-8").read()
+    _base_src = _source_path("tools/base.py").open( encoding="utf-8").read()
     assert "Tool '%s' completed" in _base_src or "completed, result_len" in _base_src
     record("PASS", "51s: tools/base.py logs tool completion at DEBUG level")
 
     # 51t: tasks.py has run_task_background logging
-    _tasks_src = open("tasks.py", encoding="utf-8").read()
+    _tasks_src = _source_path("tasks.py").open( encoding="utf-8").read()
     assert "run_task_background:" in _tasks_src
     record("PASS", "51t: tasks.py has workflow execution logging")
 
     # 51u: memory_extraction.py has extraction completion log
-    _memex_src = open("memory_extraction.py", encoding="utf-8").read()
+    _memex_src = _source_path("memory_extraction.py").open( encoding="utf-8").read()
     assert "Memory extraction complete" in _memex_src
     record("PASS", "51u: memory_extraction.py logs extraction completion")
 
@@ -12087,8 +12170,8 @@ try:
             _os52.environ["XAI_API_KEY"] = _old_xai_env52
 
     # ── 52q. provider runtime source code has provider chat imports ──
-    _mod_src52 = _P52("models.py").read_text(encoding="utf-8")
-    _provider_runtime_src52 = _P52("providers/runtime.py").read_text(encoding="utf-8")
+    _mod_src52 = _source_path("models.py").read_text(encoding="utf-8")
+    _provider_runtime_src52 = _source_path("providers/runtime.py").read_text(encoding="utf-8")
     assert "ChatAnthropic" in _provider_runtime_src52, "provider runtime should import ChatAnthropic"
     assert "ChatGoogleGenerativeAI" in _provider_runtime_src52, "provider runtime should import ChatGoogleGenerativeAI"
     assert "ChatXAI" in _provider_runtime_src52, "provider runtime should import ChatXAI"
@@ -12101,15 +12184,15 @@ try:
     record("PASS", "anth+goog+xai: provider runtime has anthropic + google + xai branches")
 
     # ── 52s. provider auth store checks new keys ─────────────────────
-    _auth_store_src52 = _P52("providers/auth_store.py").read_text(encoding="utf-8")
+    _auth_store_src52 = _source_path("providers/auth_store.py").read_text(encoding="utf-8")
     assert "ANTHROPIC_API_KEY" in _auth_store_src52
     assert "GOOGLE_API_KEY" in _auth_store_src52
     assert "XAI_API_KEY" in _auth_store_src52
     record("PASS", "anth+goog+xai: provider auth store checks ANTHROPIC + GOOGLE + XAI keys")
 
     # ── 52t. ui/settings.py imports validators ───────────────────────
-    _ui_src52 = _P52("ui/settings.py").read_text(encoding="utf-8")
-    _provider_ui_src52 = _ui_src52 + _P52("ui/provider_settings.py").read_text(encoding="utf-8")
+    _ui_src52 = _source_path("ui/settings.py").read_text(encoding="utf-8")
+    _provider_ui_src52 = _ui_src52 + _source_path("ui/provider_settings.py").read_text(encoding="utf-8")
     assert "validate_anthropic_key" in _ui_src52, "UI should import validate_anthropic_key"
     assert "validate_google_key" in _ui_src52, "UI should import validate_google_key"
     assert "validate_xai_key" in _ui_src52, "UI should import validate_xai_key"
@@ -12195,7 +12278,7 @@ try:
         record("WARN", "xai: langchain_xai not installed (pip install langchain-xai)")
 
     # ── 52ad. Setup wizard imports validators ────────────────────────
-    _wiz_src52 = _P52("ui/setup_wizard.py").read_text(encoding="utf-8")
+    _wiz_src52 = _source_path("ui/setup_wizard.py").read_text(encoding="utf-8")
     assert "validate_anthropic_key" in _wiz_src52, "Wizard should import validate_anthropic_key"
     assert "validate_google_key" in _wiz_src52, "Wizard should import validate_google_key"
     assert "validate_xai_key" in _wiz_src52, "Wizard should import validate_xai_key"
@@ -12217,7 +12300,7 @@ try:
     record("PASS", "anth+goog+xai: setup wizard validates and saves new keys")
 
     # ── 52ag. agent.py imports get_cloud_provider + _active_model_override
-    _agent_src52 = _P52("agent.py").read_text(encoding="utf-8")
+    _agent_src52 = _source_path("agent.py").read_text(encoding="utf-8")
     assert "get_cloud_provider" in _agent_src52, "agent.py should import get_cloud_provider"
     assert "_active_model_override" in _agent_src52, "agent.py should import _active_model_override"
     record("PASS", "anth+goog: agent.py imports get_cloud_provider + _active_model_override")
@@ -12292,7 +12375,7 @@ try:
     record("PASS", "anth+goog: consolidation preserves all messages without loss or duplication")
 
     # ── 52an. Banner uses dynamic provider labels ───────────────────
-    _chat_src52 = _P52("ui/chat.py").read_text(encoding="utf-8")
+    _chat_src52 = _source_path("ui/chat.py").read_text(encoding="utf-8")
     assert "provider_display_label" in _chat_src52, "Banner should use provider metadata labels"
     assert "model_id_from_choice_value" in _chat_src52, "Banner should display model ids from provider refs"
     assert "via cloud" not in _chat_src52, "Banner should not fall back to generic cloud provider text"
@@ -12321,7 +12404,7 @@ try:
     import row_bot.knowledge_graph as _kg57
     from pathlib import Path as _P57
 
-    _dc_src57 = _P57("dream_cycle.py").read_text(encoding="utf-8")
+    _dc_src57 = _source_path("dream_cycle.py").read_text(encoding="utf-8")
 
     # ── 57a. Pre-flight merge check requires same entity_type ────────
     _pairs_src57 = _inspect57.getsource(_dc57._find_cooccurring_pairs)
@@ -12509,7 +12592,7 @@ try:
     record("PASS", "wiki_tool: wiki_search removed, 4 tools remain")
 
     # ── 58e: prompts.py has no wiki_search references ────────────────
-    _prompts_src = open("prompts.py", "r", encoding="utf-8").read()
+    _prompts_src = _source_path("prompts.py").open( "r", encoding="utf-8").read()
     assert "wiki_search" not in _prompts_src, "prompts.py still references wiki_search"
     record("PASS", "prompts: no wiki_search references")
 
@@ -12594,13 +12677,13 @@ try:
         record("WARN", "check_vault_sync: vault not enabled (skipped)")
 
     # ── 58l: auto-recall policy trace in agent.py ────────────────────
-    _agent_src = open("agent.py", "r", encoding="utf-8").read()
+    _agent_src = _source_path("agent.py").open( "r", encoding="utf-8").read()
     assert "build_auto_recall" in _agent_src and "memory auto-recall trace" in _agent_src, \
         "agent.py should call memory policy and log recall trace"
     record("PASS", "agent: memory policy auto-recall trace present")
 
     # ── 58m: graph panel has edit trigger ─────────────────────────────
-    _gp_src = open("ui/graph_panel.py", "r", encoding="utf-8").read()
+    _gp_src = _source_path("ui/graph_panel.py").open( "r", encoding="utf-8").read()
     assert "graph-edit-trigger" in _gp_src, "graph_panel should have edit trigger element"
     assert "entity_editor" in _gp_src, "graph_panel should import entity_editor"
     record("PASS", "graph_panel: edit trigger + entity_editor import present")
@@ -12613,7 +12696,7 @@ try:
     record("PASS", "graph_panel: detail card has audit metadata")
 
     # ── 58n: settings has edit button in browse list ──────────────────
-    _settings_src = open("ui/settings.py", "r", encoding="utf-8").read()
+    _settings_src = _source_path("ui/settings.py").open( "r", encoding="utf-8").read()
     assert "entity_editor" in _settings_src, "settings should import entity_editor"
     assert "Edit" in _settings_src, "settings should have Edit button"
     record("PASS", "settings: entity editor Edit button in knowledge browse list")
@@ -12630,7 +12713,7 @@ try:
         assert _needle in _settings_src, f"settings Knowledge audit UI missing {_needle}"
     record("PASS", "settings: Phase 5 audit filters, review queue, trace and journal present")
 
-    _editor_src = open("ui/entity_editor.py", "r", encoding="utf-8").read()
+    _editor_src = _source_path("ui/entity_editor.py").open( "r", encoding="utf-8").read()
     for _needle in (
         "Audit and Provenance",
         "memory_evolution",
@@ -12648,7 +12731,7 @@ try:
     record("PASS", "settings: vault sync banner with Sync from Vault button")
 
     # ── 58p: status check wiki_vault returns warn on out-of-sync ─────
-    _sc_src = open("ui/status_checks.py", "r", encoding="utf-8").read()
+    _sc_src = _source_path("ui/status_checks.py").open( "r", encoding="utf-8").read()
     assert "check_vault_sync" in _sc_src, "status_checks should call check_vault_sync"
     assert "edited in vault" in _sc_src, "status_checks should mention 'edited in vault'"
     record("PASS", "status_checks: wiki vault returns warn on out-of-sync files")
@@ -13313,7 +13396,7 @@ try:
     record("PASS", "65ab: API constants correctly defined")
 
     # ── 65ac. Settings UI has Accounts tab with X section ────────────
-    _settings_src65 = open("ui/settings.py", encoding="utf-8").read()
+    _settings_src65 = _source_path("ui/settings.py").open( encoding="utf-8").read()
     assert "_build_accounts_tab" in _settings_src65, "Missing _build_accounts_tab"
     assert "x_tool" in _settings_src65.lower() or "XTool" in _settings_src65, \
         "Settings should reference XTool"
@@ -13830,7 +13913,7 @@ try:
     record("PASS", "67s: SMS setup_guide references Tunnel Settings")
 
     # ── 67t. app.py shutdown includes tunnel cleanup ────────────────
-    _app67 = open("app.py", encoding="utf-8").read()
+    _app67 = _source_path("app.py").open( encoding="utf-8").read()
     assert "tunnel_manager.stop_all()" in _app67
     record("PASS", "67t: app.py on_shutdown calls tunnel_manager.stop_all()")
 
@@ -13840,7 +13923,7 @@ try:
     record("PASS", "67u: requirements.txt includes pyngrok")
 
     # ── 67v. Tunnel Settings UI code exists ─────────────────────────
-    _settings67 = open("ui/settings.py", encoding="utf-8").read()
+    _settings67 = _source_path("ui/settings.py").open( encoding="utf-8").read()
     assert "Tunnel Settings" in _settings67
     assert "NGROK_AUTHTOKEN" in _settings67
     assert "tunnel_manager" in _settings67
@@ -13857,7 +13940,7 @@ try:
     record("PASS", "67x: ui/settings.py has main-app tunnel toggle")
 
     # ── 67y. SMS signature validation code exists ───────────────────
-    _sms_src67 = open("channels/sms.py", encoding="utf-8").read()
+    _sms_src67 = _source_path("channels/sms.py").open( encoding="utf-8").read()
     assert "X-Twilio-Signature" in _sms_src67
     assert "RequestValidator" in _sms_src67
     assert "SMS_INSECURE_NO_SIGNATURE" in _sms_src67
@@ -13970,7 +14053,7 @@ try:
     assert hasattr(_sk68, "TOOL_GUIDES_DIR")
     assert hasattr(_sk68, "is_tool_guide")
     assert hasattr(_sk68, "_is_tool_guide_active")
-    _skills_src68 = _P68("skills.py").read_text(encoding="utf-8")
+    _skills_src68 = _source_path("skills.py").read_text(encoding="utf-8")
     assert "manual enabled" in _skills_src68 and "active tool guides" in _skills_src68, \
         "skills startup log should distinguish manual skills from auto-active tool guides"
     assert _P68(_sk68.TOOL_GUIDES_DIR).is_dir(), f"TOOL_GUIDES_DIR not found: {_sk68.TOOL_GUIDES_DIR}"
@@ -14174,12 +14257,12 @@ try:
     record("PASS", f"68n: requirements.txt has all channel deps ({len(_req_pkgs68)} checked)")
 
     # ── 68o. Channel sub-modules in ISS match filesystem ────────────
-    _ch_files68 = [f.name for f in _P68("channels").glob("*.py") if f.name != "__pycache__"]
+    _ch_files68 = [f.name for f in _source_path("channels").glob("*.py") if f.name != "__pycache__"]
     assert _source_layout_windows_bundle(_iss68), "Windows installer must recursively include src/row_bot"
     record("PASS", f"68o: src/row_bot recursive include covers all {len(_ch_files68)} channel .py files")
 
     # ── 68p. Tool sub-modules in ISS match filesystem ───────────────
-    _tool_files68 = [f.name for f in _P68("tools").glob("*.py") if f.name != "__pycache__"]
+    _tool_files68 = [f.name for f in _source_path("tools").glob("*.py") if f.name != "__pycache__"]
     assert _source_layout_windows_bundle(_iss68), "Windows installer must recursively include src/row_bot"
     record("PASS", f"68p: src/row_bot recursive include covers all {len(_tool_files68)} tool .py files")
 
@@ -14206,8 +14289,8 @@ try:
 
     # ── 68s. WhatsApp bridge has required files ────────────────────
     # package-lock.json is generated by npm install at runtime, not committed
-    assert _P68("channels/whatsapp_bridge/bridge.js").is_file()
-    assert _P68("channels/whatsapp_bridge/package.json").is_file()
+    assert _source_path("channels/whatsapp_bridge/bridge.js").is_file()
+    assert _source_path("channels/whatsapp_bridge/package.json").is_file()
     record("PASS", "68s: WhatsApp bridge has bridge.js and package.json")
 
     # ── 68t. Channel activity tracking functions ────────────────────
@@ -14239,15 +14322,15 @@ _APP_ROOT69 = _P69_pathlib.Path(__file__).resolve().parents[1]
 
 # ── 69a. Every tool file has a matching import in tools/__init__.py ────────
 try:
-    _tool_dir69 = _APP_ROOT69 / "tools"
+    _tool_dir69 = ROW_BOT_SRC / "tools"
     _tool_files69 = {
         f.stem for f in _tool_dir69.glob("*_tool.py")
     }
     _init_text69 = (_tool_dir69 / "__init__.py").read_text(encoding="utf-8")
     _missing_imports69 = {
         t for t in _tool_files69
-        if f"import {t}" not in _init_text69 and f"from tools import {t}" not in _init_text69
-           and f"from tools.{t}" not in _init_text69
+        if f"import {t}" not in _init_text69 and f"from row_bot.tools import {t}" not in _init_text69
+           and f"from row_bot.tools.{t}" not in _init_text69
     }
     assert not _missing_imports69, f"Tool files not imported in __init__.py: {sorted(_missing_imports69)}"
     record("PASS", f"69a: all {len(_tool_files69)} tool files imported in tools/__init__.py")
@@ -14278,7 +14361,7 @@ except Exception as e:
 
 # ── 69d. Every channel .py file listed in installer ───────────────────────
 try:
-    _ch_dir69 = _APP_ROOT69 / "channels"
+    _ch_dir69 = ROW_BOT_SRC / "channels"
     _ch_py69 = {f.name for f in _ch_dir69.glob("*.py")}
     assert _source_layout_windows_bundle(_iss_text69), "Windows installer must recursively include src/row_bot"
     record("PASS", f"69d: src/row_bot recursive include covers all {len(_ch_py69)} channel .py files")
@@ -14287,7 +14370,7 @@ except Exception as e:
 
 # ── 69e. Every UI .py file listed in installer ────────────────────────────
 try:
-    _ui_dir69 = _APP_ROOT69 / "ui"
+    _ui_dir69 = ROW_BOT_SRC / "ui"
     _ui_py69 = {f.name for f in _ui_dir69.glob("*.py")}
     assert _source_layout_windows_bundle(_iss_text69), "Windows installer must recursively include src/row_bot"
     record("PASS", f"69e: src/row_bot recursive include covers all {len(_ui_py69)} ui .py files")
@@ -14296,7 +14379,7 @@ except Exception as e:
 
 # -- 69e2. Skills hub package installer guard -----------------------------
 try:
-    _hub_dir69 = _APP_ROOT69 / "skills_hub"
+    _hub_dir69 = ROW_BOT_SRC / "skills_hub"
     _hub_py69 = {f.name for f in _hub_dir69.glob("*.py")}
     assert _hub_py69, "skills_hub package should contain Python modules"
     assert _source_layout_windows_bundle(_iss_text69), "Windows installer must recursively include src/row_bot"
@@ -14597,10 +14680,10 @@ try:
     for _text69o3 in ("/help", "/status", "/tools", "/new", "/stop", "/model"):
         assert not _chcmd69o3.is_thread_scoped_command(_text69o3), \
             f"channel command should not be skill-thread scoped: {_text69o3}"
-    _slack_src69o3 = (_APP_ROOT69 / "channels" / "slack.py").read_text(encoding="utf-8")
-    _discord_src69o3 = (_APP_ROOT69 / "channels" / "discord_channel.py").read_text(encoding="utf-8")
-    _whatsapp_src69o3 = (_APP_ROOT69 / "channels" / "whatsapp.py").read_text(encoding="utf-8")
-    _sms_src69o3 = (_APP_ROOT69 / "channels" / "sms.py").read_text(encoding="utf-8")
+    _slack_src69o3 = _source_path("channels/slack.py").read_text(encoding="utf-8")
+    _discord_src69o3 = _source_path("channels/discord_channel.py").read_text(encoding="utf-8")
+    _whatsapp_src69o3 = _source_path("channels/whatsapp.py").read_text(encoding="utf-8")
+    _sms_src69o3 = _source_path("channels/sms.py").read_text(encoding="utf-8")
     for _name69o3, _src69o3 in {
         "slack": _slack_src69o3,
         "discord": _discord_src69o3,
@@ -14609,7 +14692,7 @@ try:
     }.items():
         assert "is_thread_scoped_command" in _src69o3, \
             f"{_name69o3} should use shared channel skill command token helper"
-    _tg_src69o3 = (_APP_ROOT69 / "channels" / "telegram.py").read_text(encoding="utf-8")
+    _tg_src69o3 = _source_path("channels/telegram.py").read_text(encoding="utf-8")
     assert 'BotCommand("skillreset"' in _tg_src69o3, "Telegram should register skillreset"
     assert 'BotCommand("stop"' in _tg_src69o3, "Telegram should register stop"
     assert 'CommandHandler("skillreset"' in _tg_src69o3, "Telegram should handle skillreset"
@@ -14704,7 +14787,7 @@ except Exception as e:
 
 # ── 69t. Configurable cloud context window ────────────────────────────────
 try:
-    _mod_src69t = Path("models.py").read_text(encoding="utf-8")
+    _mod_src69t = _source_path("models.py").read_text(encoding="utf-8")
 
     # Constants exist
     assert 'CLOUD_CONTEXT_SIZE_OPTIONS' in _mod_src69t, "models.py must define CLOUD_CONTEXT_SIZE_OPTIONS"
@@ -14739,7 +14822,7 @@ try:
     assert 'min(' in _gcp_body69t, "cloud context must be min(cap, native)"
 
     # UI imports the new symbols
-    _gui_src69t = Path("ui/settings.py").read_text(encoding="utf-8")
+    _gui_src69t = _source_path("ui/settings.py").read_text(encoding="utf-8")
     assert 'get_cloud_context_size' in _gui_src69t, "UI must import get_cloud_context_size"
     assert 'set_cloud_context_size' in _gui_src69t, "UI must import set_cloud_context_size"
     assert 'CLOUD_CONTEXT_SIZE_OPTIONS' in _gui_src69t, "UI must import CLOUD_CONTEXT_SIZE_OPTIONS"
@@ -14926,29 +15009,29 @@ try:
         """Call _pre_model_trim with controlled globals."""
         state = {"messages": list(messages)}
         patches = [
-            _patch71("agent.get_context_size", return_value=context_size),
-            _patch71("agent._keep_browser_snapshots", return_value=2),
-            _patch71("agent.is_background_workflow", return_value=False),
+            _patch71("row_bot.agent.get_context_size", return_value=context_size),
+            _patch71("row_bot.agent._keep_browser_snapshots", return_value=2),
+            _patch71("row_bot.agent.is_background_workflow", return_value=False),
             # Prevent auto-recall from running (needs FAISS / real DB)
-            _patch71("knowledge_graph.count_entities", return_value=0),
+            _patch71("row_bot.knowledge_graph.count_entities", return_value=0),
         ]
         # Mock provider detection for Anthropic tests
         if provider == "anthropic":
             patches += [
-                _patch71("agent._active_model_override",
+                _patch71("row_bot.agent._active_model_override",
                          **{"get.return_value": "claude-sonnet-4-20250514"}),
-                _patch71("agent.get_current_model",
+                _patch71("row_bot.agent.get_current_model",
                          return_value="claude-sonnet-4-20250514"),
-                _patch71("agent.is_cloud_model", return_value=True),
-                _patch71("agent.get_cloud_provider", return_value="anthropic"),
+                _patch71("row_bot.agent.is_cloud_model", return_value=True),
+                _patch71("row_bot.agent.get_cloud_provider", return_value="anthropic"),
             ]
         else:
             patches += [
-                _patch71("agent._active_model_override",
+                _patch71("row_bot.agent._active_model_override",
                          **{"get.return_value": "gpt-4o"}),
-                _patch71("agent.get_current_model", return_value="gpt-4o"),
-                _patch71("agent.is_cloud_model", return_value=True),
-                _patch71("agent.get_cloud_provider", return_value="openai"),
+                _patch71("row_bot.agent.get_current_model", return_value="gpt-4o"),
+                _patch71("row_bot.agent.is_cloud_model", return_value=True),
+                _patch71("row_bot.agent.get_cloud_provider", return_value="openai"),
             ]
         # Inject summary cache if requested
         old_cache = dict(_a71._summary_cache)
@@ -15292,7 +15375,7 @@ except Exception as e:
 
 # ── 72a2. Preview poll timer deactivates on disconnect ───────────────
 try:
-    _preview_src72a2 = (Path(PROJECT_ROOT) / "designer" / "preview.py").read_text(encoding="utf-8")
+    _preview_src72a2 = _source_path("designer/preview.py").read_text(encoding="utf-8")
     assert "_refresh_timer = ui.timer" in _preview_src72a2
     assert "ui.context.client.on_disconnect" in _preview_src72a2
     assert "_refresh_timer.deactivate()" in _preview_src72a2
@@ -17526,7 +17609,7 @@ try:
 
     # template_gallery module imports + initializes without error.
     import importlib as _imp_74c
-    _tg_74c = _imp_74c.import_module("designer.template_gallery")
+    _tg_74c = _imp_74c.import_module("row_bot.designer.template_gallery")
     # Reload to catch syntax issues under a fresh parse.
     _imp_74c.reload(_tg_74c)
     assert hasattr(_tg_74c, "show_new_project_dialog"), "gallery entrypoint missing"
@@ -17961,8 +18044,8 @@ except Exception as e:
 try:
     from pathlib import Path as _Path72d2
 
-    _editor72d2 = _Path72d2("designer/editor.py").read_text(encoding="utf-8")
-    _preview72d2 = _Path72d2("designer/preview.py").read_text(encoding="utf-8")
+    _editor72d2 = _source_path("designer/editor.py").read_text(encoding="utf-8")
+    _preview72d2 = _source_path("designer/preview.py").read_text(encoding="utf-8")
 
     assert "def _refresh_editor(*, force_preview: bool = False):" in _editor72d2
     assert _editor72d2.count("_refresh_editor(force_preview=True)") >= 2
@@ -17990,9 +18073,9 @@ except Exception as e:
 try:
     from pathlib import Path as _Path72e2
 
-    _editor72e2 = _Path72e2("designer/editor.py").read_text(encoding="utf-8")
-    _preview72e2 = _Path72e2("designer/preview.py").read_text(encoding="utf-8")
-    _bridge72e2 = _Path72e2("designer/interaction.py").read_text(encoding="utf-8")
+    _editor72e2 = _source_path("designer/editor.py").read_text(encoding="utf-8")
+    _preview72e2 = _source_path("designer/preview.py").read_text(encoding="utf-8")
+    _bridge72e2 = _source_path("designer/interaction.py").read_text(encoding="utf-8")
 
     assert "ui.keyboard(repeating=False).on(" in _editor72e2
     assert "emit({shortcut: e.shiftKey ? 'redo' : 'undo'});" in _editor72e2
@@ -18019,7 +18102,7 @@ except Exception as e:
 try:
     from pathlib import Path as _Path72e3
 
-    _nav72e3 = _Path72e3("designer/page_navigator.py").read_text(encoding="utf-8")
+    _nav72e3 = _source_path("designer/page_navigator.py").read_text(encoding="utf-8")
 
     assert "ui.context.client.safe_invoke(" in _nav72e3
     assert "lambda: ui.timer(0.05, _safe, once=True)" in _nav72e3
@@ -18558,7 +18641,7 @@ except Exception as e:
 try:
     import pathlib as _P72n4
 
-    _editor_src72n4 = (PROJECT_ROOT / "designer" / "editor.py").read_text(encoding="utf-8")
+    _editor_src72n4 = (ROW_BOT_SRC / "designer" / "editor.py").read_text(encoding="utf-8")
     assert "Speaker Notes" in _editor_src72n4
     assert "Generate Notes" in _editor_src72n4
     assert "Notes are saved per page" in _editor_src72n4
@@ -18753,7 +18836,7 @@ except Exception as e:
 try:
     import pathlib as _P72n9
 
-    _root72n9 = PROJECT_ROOT / "designer"
+    _root72n9 = ROW_BOT_SRC / "designer"
     _editor_src72n9 = (_root72n9 / "editor.py").read_text(encoding="utf-8")
     _nav_src72n9 = (_root72n9 / "page_navigator.py").read_text(encoding="utf-8")
     _export_src72n9 = (_root72n9 / "export_dialog.py").read_text(encoding="utf-8")
@@ -18771,7 +18854,7 @@ except Exception as e:
 # ── 72o. No external CDN in designer .py (except allowed) ───────────────
 try:
     import pathlib as _P72
-    _des_dir72 = PROJECT_ROOT / "designer"
+    _des_dir72 = ROW_BOT_SRC / "designer"
     _cdn_hits72 = []
     for _f72 in _des_dir72.glob("*.py"):
         _c72 = _f72.read_text(encoding="utf-8")
@@ -18936,7 +19019,7 @@ except Exception as e:
 
 # ── 72p5. Designer UI avoids invalid splitter slot usage ─────────────────
 try:
-    _designer_dir72p5 = PROJECT_ROOT / "designer"
+    _designer_dir72p5 = ROW_BOT_SRC / "designer"
     _bad_splitter_refs72p5 = []
     for _file72p5 in _designer_dir72p5.glob("*.py"):
         _content72p5 = _file72p5.read_text(encoding="utf-8")
@@ -19255,7 +19338,7 @@ except Exception as e:
 # ── 72r. sidebar _go_home / _new_thread clear designer ───────────
 try:
     import ast as _ast72r
-    _sidebar_src72r = Path("ui/sidebar.py").read_text(encoding="utf-8")
+    _sidebar_src72r = _source_path("ui/sidebar.py").read_text(encoding="utf-8")
     # _go_home should set active_designer_project = None
     assert "active_designer_project = None" in _sidebar_src72r, \
         "_go_home must clear active_designer_project"
@@ -19268,7 +19351,7 @@ except Exception as e:
 
 # ── 72s. sidebar icon uses 'brush' for designer threads ───────────
 try:
-    _sidebar_src72s = Path("ui/sidebar.py").read_text(encoding="utf-8")
+    _sidebar_src72s = _source_path("ui/sidebar.py").read_text(encoding="utf-8")
     assert "is_designer_thread" in _sidebar_src72s, "should detect designer threads"
     assert '"brush"' in _sidebar_src72s, "should use brush icon for designer threads"
     record("PASS", "72s: sidebar uses brush icon for designer threads")
@@ -19277,7 +19360,7 @@ except Exception as e:
 
 # ── 72t. _exit_designer clears thread state ──────────────────────
 try:
-    _app_src72t = Path("app.py").read_text(encoding="utf-8")
+    _app_src72t = _source_path("app.py").read_text(encoding="utf-8")
     # Find _exit_designer — should clear thread_id
     _idx72t = _app_src72t.index("def _exit_designer")
     _block72t = _app_src72t[_idx72t:_idx72t+400]
@@ -19289,7 +19372,7 @@ except Exception as e:
 
 # ── 72u. editor rename syncs thread name ─────────────────────────
 try:
-    _editor_src72u = Path("designer/editor.py").read_text(encoding="utf-8")
+    _editor_src72u = _source_path("designer/editor.py").read_text(encoding="utf-8")
     assert "_save_thread_meta" in _editor_src72u, "editor rename should call _save_thread_meta"
     record("PASS", "72u: editor rename syncs thread name")
 except Exception as e:
@@ -19307,14 +19390,14 @@ print("─" * 60)
 # 73a. updater module imports + exposes documented API
 try:
     import importlib
-    _u73 = importlib.import_module("updater")
+    _u73 = importlib.import_module("row_bot.updater")
     for _attr in ("UpdateInfo", "UpdateState", "check_for_updates",
                   "download_update", "install_and_restart", "verify_os_signature",
                   "get_update_state", "set_channel", "skip_version",
                   "parse_manifest", "compare_versions", "summary_for_status",
                   "start_update_scheduler", "stop_update_scheduler",
                   "is_dev_install", "UpdateError"):
-        assert hasattr(_u73, _attr), f"updater.{_attr} missing"
+        assert hasattr(_u73, _attr), f"row_bot.updater.{_attr} missing"
     record("PASS", "73a: updater module exposes full public API")
 except Exception as e:
     record("FAIL", "73a-updater-api", f"{type(e).__name__}: {e}")
@@ -19523,7 +19606,7 @@ except Exception as e:
 
 # 73m. status_bar wires the update pill
 try:
-    sb = Path("ui/status_bar.py").read_text(encoding="utf-8")
+    sb = _source_path("ui/status_bar.py").read_text(encoding="utf-8")
     assert "_refresh_update_pill" in sb
     assert (
         "ui/update_dialog" in sb
@@ -19536,7 +19619,7 @@ except Exception as e:
 
 # 73n. settings.py invokes build_update_section
 try:
-    s = Path("ui/settings.py").read_text(encoding="utf-8")
+    s = _source_path("ui/settings.py").read_text(encoding="utf-8")
     assert "build_update_section" in s, "settings.py must call build_update_section()"
     record("PASS", "73n: settings preferences exposes update section")
 except Exception as e:
@@ -19544,7 +19627,7 @@ except Exception as e:
 
 # 73o. app.py starts the update scheduler
 try:
-    a = Path("app.py").read_text(encoding="utf-8")
+    a = _source_path("app.py").read_text(encoding="utf-8")
     assert "start_update_scheduler" in a, "app.py must call start_update_scheduler"
     record("PASS", "73o: app.py wires updater scheduler")
 except Exception as e:
@@ -19580,13 +19663,13 @@ try:
     import os as _os74a
     _os74a.environ.setdefault("THOTH_HEADLESS", "1")
     import importlib as _imp74a
-    _imp74a.import_module("tools")
+    _imp74a.import_module("row_bot.tools")
     try:
-        _imp74a.import_module("designer.tool")
+        _imp74a.import_module("row_bot.designer.tool")
     except Exception:
         pass
     try:
-        _imp74a.import_module("channels.tool_factory")
+        _imp74a.import_module("row_bot.channels.tool_factory")
     except Exception:
         pass
     from row_bot.tools import registry as _reg74a
@@ -19596,7 +19679,7 @@ try:
     import row_bot.tools as _tpkg74a
     for _m in _pk74a.iter_modules(_tpkg74a.__path__):
         try:
-            _imp74a.import_module(f"tools.{_m.name}")
+            _imp74a.import_module(f"row_bot.tools.{_m.name}")
         except Exception:
             pass
 
@@ -19665,7 +19748,7 @@ try:
 
     _problems74b: list[str] = []
     for _root in ("tools", "designer", "channels", "plugins"):
-        _rp = _P74b(_root)
+        _rp = _source_path(_root)
         if not _rp.exists():
             continue
         for _py in _rp.rglob("*.py"):
@@ -19728,19 +19811,19 @@ try:
     from pathlib import Path as _P75
 
     # ── 75a. providers/catalog.py registers minimax ───────────────────
-    _catalog_src75 = _P75("providers/catalog.py").read_text(encoding="utf-8")
+    _catalog_src75 = _source_path("providers/catalog.py").read_text(encoding="utf-8")
     assert '"minimax"' in _catalog_src75, "catalog.py should register minimax provider"
     assert "MiniMax API" in _catalog_src75, "catalog.py should set MiniMax display name"
     assert "https://api.minimax.io/anthropic" in _catalog_src75, "catalog.py should have MiniMax base URL"
     record("PASS", "75a: providers/catalog.py registers minimax with correct base URL")
 
     # ── 75b. providers/auth_store.py has MINIMAX_API_KEY ─────────────
-    _auth_src75 = _P75("providers/auth_store.py").read_text(encoding="utf-8")
+    _auth_src75 = _source_path("providers/auth_store.py").read_text(encoding="utf-8")
     assert "MINIMAX_API_KEY" in _auth_src75, "auth_store.py should map minimax to MINIMAX_API_KEY"
     record("PASS", "75b: providers/auth_store.py maps minimax to MINIMAX_API_KEY")
 
     # ── 75c. providers/runtime.py has minimax branch ──────────────────
-    _runtime_src75 = _P75("providers/runtime.py").read_text(encoding="utf-8")
+    _runtime_src75 = _source_path("providers/runtime.py").read_text(encoding="utf-8")
     assert 'provider == "minimax"' in _runtime_src75, "runtime.py should have minimax branch"
     assert "https://api.minimax.io/anthropic" in _runtime_src75, "runtime.py should use MiniMax Anthropic-compatible URL"
     assert "minimax" in _runtime_src75, "runtime.py should include minimax in configured providers list"
@@ -19765,15 +19848,15 @@ try:
 
     # ── 75f. MiniMax is wired through the model facade/catalog ────────
     import row_bot.models as _models75
-    assert "MINIMAX_ANTHROPIC_BASE_URL" in _P75("models.py").read_text(encoding="utf-8")
+    assert "MINIMAX_ANTHROPIC_BASE_URL" in _source_path("models.py").read_text(encoding="utf-8")
     assert _models75.get_cloud_provider("MiniMax-M2.7") == "minimax"
     assert _models75.get_cloud_model_context("MiniMax-M2.7") == 204800
     assert _models75.get_provider_emoji("MiniMax-M2.7") == "M"
     record("PASS", "75f: models.py recognizes MiniMax model IDs and context")
 
     # ── 75g. Settings and setup wizard expose MiniMax key entry ──────
-    _settings_src75 = _P75("ui/settings.py").read_text(encoding="utf-8")
-    _wizard_src75 = _P75("ui/setup_wizard.py").read_text(encoding="utf-8")
+    _settings_src75 = _source_path("ui/settings.py").read_text(encoding="utf-8")
+    _wizard_src75 = _source_path("ui/setup_wizard.py").read_text(encoding="utf-8")
     assert "MINIMAX_API_KEY" in _settings_src75, "Settings should expose MiniMax API key"
     assert "MINIMAX_API_KEY" in _wizard_src75, "Setup wizard should expose MiniMax API key"
     record("PASS", "75g: Settings and setup wizard expose MiniMax API key")
@@ -19794,14 +19877,14 @@ print("─" * 60)
 try:
     from pathlib import Path as _P76
 
-    _dev_dir76 = _P76("developer")
+    _dev_dir76 = _source_path("developer")
     assert (_dev_dir76 / "__init__.py").exists(), "developer package should exist"
     assert (_dev_dir76 / "storage.py").exists(), "developer/storage.py should exist"
     assert (_dev_dir76 / "ui.py").exists(), "developer/ui.py should exist"
     assert (_dev_dir76 / "state.py").exists(), "developer/state.py should exist"
     record("PASS", "76a: developer package files exist")
 
-    _threads_src76 = _P76("threads.py").read_text(encoding="utf-8")
+    _threads_src76 = _source_path("threads.py").read_text(encoding="utf-8")
     assert '"thread_type": "TEXT DEFAULT \'\'' in _threads_src76, "threads.py should migrate thread_type"
     assert '"developer_workspace_id": "TEXT DEFAULT \'\'' in _threads_src76, "threads.py should migrate developer_workspace_id"
     assert 'return "code"' in _threads_src76, "classify_thread should support code threads"
@@ -19820,7 +19903,7 @@ try:
     record("PASS", "76c: Developer storage requires explicit clone destination")
 
     _dev_ui_src76 = (_dev_dir76 / "ui.py").read_text(encoding="utf-8")
-    _home_src76 = _P76("ui/home.py").read_text(encoding="utf-8")
+    _home_src76 = _source_path("ui/home.py").read_text(encoding="utf-8")
     assert 'ui.tab("Developer", icon="code")' in _home_src76, "Home should expose Developer tab"
     assert "build_developer_tab" in _home_src76, "Home should render Developer tab"
     assert "New Workspace" in _dev_ui_src76, "Developer home should use a setup dialog CTA"
@@ -19829,7 +19912,7 @@ try:
     assert _dev_ui_src76.count('ui.button("New Workspace"') == 1, "Developer home should not show duplicate New Workspace buttons"
     record("PASS", "76d: Home includes Developer tab")
 
-    _sidebar_src76 = _P76("ui/sidebar.py").read_text(encoding="utf-8")
+    _sidebar_src76 = _source_path("ui/sidebar.py").read_text(encoding="utf-8")
     assert '"code", "Code"' in _sidebar_src76, "Sidebar should expose Code filter"
     assert "active_developer_workspace_id" in _sidebar_src76, "Sidebar should restore Developer workspace state"
     assert '_thr_icon = "code"' in _sidebar_src76, "Sidebar should use code icon for code threads"
@@ -19863,11 +19946,11 @@ try:
     assert "set_workspace_approval_mode" in _storage_src76, "Developer storage should persist approval mode"
     assert "Approval Policy" in _dev_ui_src76, "Developer inspector should show policy decisions"
     assert "Create branch" in _dev_ui_src76, "Developer UI should expose explicit branch creation"
-    assert "_build_inline_approval_picker" in _P76("ui/chat_components.py").read_text(encoding="utf-8"), "chat composer should expose thread approval mode picker"
+    assert "_build_inline_approval_picker" in _source_path("ui/chat_components.py").read_text(encoding="utf-8"), "chat composer should expose thread approval mode picker"
     record("PASS", "76i: Developer UI exposes shared thread approval mode state")
 
     _ctx_src76 = (_dev_dir76 / "agent_context.py").read_text(encoding="utf-8")
-    _developer_tool_src76 = _P76("tools/developer_tool.py").read_text(encoding="utf-8")
+    _developer_tool_src76 = _source_path("tools/developer_tool.py").read_text(encoding="utf-8")
     _edits_src76 = (_dev_dir76 / "edits.py").read_text(encoding="utf-8")
     _ledger_src76 = (_dev_dir76 / "change_ledger.py").read_text(encoding="utf-8")
     assert "build_developer_agent_context" in _ctx_src76, "Developer context builder should exist"
@@ -19883,9 +19966,9 @@ try:
     assert "git\", \"apply\"" in _edits_src76, "Developer patch application should use git apply without shell composition"
     assert "write_file_to_workspace" in _edits_src76, "Developer file writes should go through the edit ledger"
     assert "record_change_set" in _ledger_src76 and "before_hash" in _ledger_src76, "Developer change ledger should record agent-owned edits"
-    _stream_src76 = _P76("ui/streaming.py").read_text(encoding="utf-8")
+    _stream_src76 = _source_path("ui/streaming.py").read_text(encoding="utf-8")
     _profile_src76 = (_dev_dir76 / "profile.py").read_text(encoding="utf-8")
-    _agent_src76 = _P76("agent.py").read_text(encoding="utf-8")
+    _agent_src76 = _source_path("agent.py").read_text(encoding="utf-8")
     assert "active_developer_workspace_id" in _stream_src76, "streaming should detect Developer workspace"
     assert "build_developer_agent_context" in _stream_src76, "streaming should build Developer context"
     assert "maybe_answer_workspace_identity" in _stream_src76, "streaming should short-circuit simple Developer identity questions"
@@ -19970,7 +20053,7 @@ try:
     assert "run_capsule_command" in _capsules_src76 and "run_workspace_command" in _capsules_src76, "Custom Tools should run through Developer runtime policy"
     assert "promote_capsule" in _capsules_src76 and "register_promoted_capsules_with_plugins" in _capsules_src76, "Custom Tools should promote into plugin-style tools"
     assert "remove_promoted_capsule_tool" in _capsules_src76, "Promoted Custom Tools should be removable without deleting source files"
-    _plugins_ui_src76 = _P76("plugins/ui_settings.py").read_text(encoding="utf-8")
+    _plugins_ui_src76 = _source_path("plugins/ui_settings.py").read_text(encoding="utf-8")
     assert "Custom Tools" in _plugins_ui_src76 and "remove_promoted_capsule_tool" in _plugins_ui_src76, "Plugins settings should show a separate Custom Tools section"
     assert "Custom Tools" in _dev_ui_src76 and "No commands found" in _dev_ui_src76, "Developer home should surface Custom Tools and commands"
     assert "New Custom Tool" in _dev_ui_src76 and "Repo URL or local folder" in _dev_ui_src76, "Developer home should guide repo-to-custom-tool creation"
@@ -19990,14 +20073,14 @@ try:
     assert _developer_guide76.exists(), "Developer tool guide should be bundled"
     for _skill76 in ["developer_coding", "developer_review", "developer_pr_prep", "developer_custom_tools"]:
         assert (_P76("bundled_skills") / _skill76 / "SKILL.md").exists(), f"Developer bundled skill missing: {_skill76}"
-    _agent_src76 = _P76("agent.py").read_text(encoding="utf-8")
-    _skills_src76 = _P76("skills.py").read_text(encoding="utf-8")
+    _agent_src76 = _source_path("agent.py").read_text(encoding="utf-8")
+    _skills_src76 = _source_path("skills.py").read_text(encoding="utf-8")
     assert "DEVELOPER_AUTO_SKILLS" in _agent_src76 and "active_tool_names" in _agent_src76, "Developer skills should be injected only for Developer active tools"
-    assert "developer_custom_tools" in _P76("developer/profile.py").read_text(encoding="utf-8"), "Developer Custom Tools skill should be auto-scoped to Developer mode"
+    assert "developer_custom_tools" in _source_path("developer/profile.py").read_text(encoding="utf-8"), "Developer Custom Tools skill should be auto-scoped to Developer mode"
     assert "extra_skill_names" in _skills_src76, "Skills prompt should support Developer-only extra skills"
-    _custom_tool_builder_tool_src76 = _P76("tools/custom_tool_builder_tool.py").read_text(encoding="utf-8")
+    _custom_tool_builder_tool_src76 = _source_path("tools/custom_tool_builder_tool.py").read_text(encoding="utf-8")
     _custom_tool_builder_guide76 = _P76("tool_guides/custom_tool_builder_guide/SKILL.md").read_text(encoding="utf-8")
-    _settings_src76 = _P76("ui/settings.py").read_text(encoding="utf-8")
+    _settings_src76 = _source_path("ui/settings.py").read_text(encoding="utf-8")
     assert "custom_tool_builder" in _developer_guide76.read_text(encoding="utf-8"), "Developer guide should teach Custom Tool creation flow"
     assert 'name="custom_tool_builder"' in _custom_tool_builder_tool_src76, "Custom Tool Builder should be a global utility tool"
     assert "Use `custom_tool_builder` for lifecycle state" in _custom_tool_builder_guide76, "Custom Tool Builder should own Custom Tool lifecycle state"
@@ -20009,15 +20092,15 @@ try:
     assert "Detached finalize refreshed transcript without full main rebuild" in _stream_src76, "Detached finalization should refresh only the transcript instead of rebuilding the workspace"
     assert "Do not reload the active thread here" in _stream_src76, "Active detached finalization should preserve optimistic user messages"
     assert "rebuild_main after detached finalize" not in _stream_src76, "Detached finalization should not rebuild the whole main area"
-    assert "refresh_chat_messages" in _stream_src76 and "cb.refresh_chat_messages = _refresh_chat_messages" in _P76("app.py").read_text(encoding="utf-8"), "Developer detached finalization should have a scoped transcript refresh callback"
-    _status_src76 = _P76("tools/row_bot_status_tool.py").read_text(encoding="utf-8")
+    assert "refresh_chat_messages" in _stream_src76 and "cb.refresh_chat_messages = _refresh_chat_messages" in _source_path("app.py").read_text(encoding="utf-8"), "Developer detached finalization should have a scoped transcript refresh callback"
+    _status_src76 = _source_path("tools/row_bot_status_tool.py").read_text(encoding="utf-8")
     assert "active for the current Developer workspace" in _status_src76, "Tool status should treat Developer as contextual"
     record("PASS", "76r: Developer guides, skills, progress, and contextual status are wired")
 
     _sandbox_runtime_src76 = (_dev_dir76 / "sandbox_runtime.py").read_text(encoding="utf-8")
     _executables_src76 = (_dev_dir76 / "executables.py").read_text(encoding="utf-8")
     _state_src76 = (_dev_dir76 / "state.py").read_text(encoding="utf-8")
-    _developer_tool_src76 = _P76("tools/developer_tool.py").read_text(encoding="utf-8")
+    _developer_tool_src76 = _source_path("tools/developer_tool.py").read_text(encoding="utf-8")
     _developer_guide_src76 = _developer_guide76.read_text(encoding="utf-8")
     assert "ExecutionMode" in _state_src76 and "execution_mode" in _state_src76, "Developer workspace should persist execution mode"
     assert "Docker Sandbox" in _dev_ui_src76 and "set_workspace_execution_settings" in _dev_ui_src76, "Developer UI should expose Docker Sandbox mode"

@@ -8,10 +8,10 @@ def test_ui_module_imports_and_dialog_callable():
 
     assert callable(hub_ui.open_skills_hub_dialog)
     assert callable(hub_ui.install_preview_bundle)
-    assert '"Install"' in Path("skills_hub/ui.py").read_text(encoding="utf-8")
-    assert "Install & Make Available" in Path("skills_hub/ui.py").read_text(encoding="utf-8")
-    assert "Import from Source" in Path("skills_hub/ui.py").read_text(encoding="utf-8")
-    assert "ui.select" not in Path("skills_hub/ui.py").read_text(encoding="utf-8")
+    assert '"Install"' in Path("src/row_bot/skills_hub/ui.py").read_text(encoding="utf-8")
+    assert "Install & Make Available" in Path("src/row_bot/skills_hub/ui.py").read_text(encoding="utf-8")
+    assert "Import from Source" in Path("src/row_bot/skills_hub/ui.py").read_text(encoding="utf-8")
+    assert "ui.select" not in Path("src/row_bot/skills_hub/ui.py").read_text(encoding="utf-8")
 
 
 def test_filter_chips_are_sources_not_trust_modes(monkeypatch):
@@ -31,7 +31,7 @@ def test_filter_chips_are_sources_not_trust_modes(monkeypatch):
 
 
 def test_skill_preview_uses_escaped_preformatted_text():
-    src = Path("skills_hub/ui.py").read_text(encoding="utf-8")
+    src = Path("src/row_bot/skills_hub/ui.py").read_text(encoding="utf-8")
 
     assert "html.escape" in src
     assert "skill-hub-preview-code" not in src
@@ -39,7 +39,7 @@ def test_skill_preview_uses_escaped_preformatted_text():
 
 
 def test_browse_dialog_has_no_outer_scroll_layout_regression():
-    src = Path("skills_hub/ui.py").read_text(encoding="utf-8")
+    src = Path("src/row_bot/skills_hub/ui.py").read_text(encoding="utf-8")
 
     assert "height: calc(100vh - 190px)" not in src
     assert "height:auto" not in src
@@ -51,7 +51,7 @@ def test_browse_dialog_has_no_outer_scroll_layout_regression():
 
 
 def test_settings_skills_tab_contains_browse_wiring():
-    src = Path("ui/settings.py").read_text(encoding="utf-8")
+    src = Path("src/row_bot/ui/settings.py").read_text(encoding="utf-8")
 
     assert "Browse Skills" in src
     assert "open_skills_hub_dialog" in src
@@ -65,7 +65,7 @@ def test_install_actions_pass_correct_enabled_default(tmp_path, monkeypatch):
     os.environ["THOTH_DATA_DIR"] = str(tmp_path)
     os.environ["ROW_BOT_DATA_DIR"] = str(tmp_path)
     for name in list(sys.modules):
-        if name == "skills" or name.startswith("skills_hub"):
+        if name == "row_bot.skills" or name.startswith("row_bot.skills_hub"):
             sys.modules.pop(name, None)
 
     from row_bot.skills_hub.models import InstallResult

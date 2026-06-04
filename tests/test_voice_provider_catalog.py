@@ -22,7 +22,7 @@ class FakeTTS:
 
 
 def test_voice_catalog_filters_models_by_runtime_capability(monkeypatch):
-    monkeypatch.setattr("voice.openai_realtime.get_key", lambda name: "sk-test")
+    monkeypatch.setattr("row_bot.voice.openai_realtime.get_key", lambda name: "sk-test")
 
     catalog = build_voice_provider_catalog(
         voice_service=SimpleNamespace(whisper_size="base"),
@@ -42,7 +42,7 @@ def test_voice_catalog_filters_models_by_runtime_capability(monkeypatch):
 
 
 def test_voice_catalog_reports_openai_realtime_default_ready_with_key(monkeypatch):
-    monkeypatch.setattr("voice.openai_realtime.get_key", lambda name: "sk-test")
+    monkeypatch.setattr("row_bot.voice.openai_realtime.get_key", lambda name: "sk-test")
 
     catalog = build_voice_provider_catalog(
         voice_service=SimpleNamespace(whisper_size="small"),
@@ -57,7 +57,7 @@ def test_voice_catalog_reports_openai_realtime_default_ready_with_key(monkeypatc
 
 
 def test_voice_catalog_marks_openai_realtime_setup_when_key_missing(monkeypatch):
-    monkeypatch.setattr("voice.openai_realtime.get_key", lambda name: "")
+    monkeypatch.setattr("row_bot.voice.openai_realtime.get_key", lambda name: "")
 
     catalog = build_voice_provider_catalog(
         voice_service=SimpleNamespace(whisper_size="base"),

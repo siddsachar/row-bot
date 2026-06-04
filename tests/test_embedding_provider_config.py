@@ -194,15 +194,15 @@ def test_markdown_loader_uses_builtin_encoding_fallback():
 
     assert pages
     assert "Cafe notes" in pages[0].page_content
-    assert "autodetect_encoding" not in Path("documents.py").read_text(encoding="utf-8")
+    assert "autodetect_encoding" not in Path("src/row_bot/documents.py").read_text(encoding="utf-8")
 
 
 def test_embedding_overhaul_source_contracts_are_wired():
     root = Path(".")
-    documents_src = (root / "documents.py").read_text(encoding="utf-8")
-    extraction_src = (root / "document_extraction.py").read_text(encoding="utf-8")
-    memory_src = (root / "memory_extraction.py").read_text(encoding="utf-8")
-    settings_src = (root / "ui" / "settings.py").read_text(encoding="utf-8")
+    documents_src = (root / "src" / "row_bot" / "documents.py").read_text(encoding="utf-8")
+    extraction_src = (root / "src" / "row_bot" / "document_extraction.py").read_text(encoding="utf-8")
+    memory_src = (root / "src" / "row_bot" / "memory_extraction.py").read_text(encoding="utf-8")
+    settings_src = (root / "src" / "row_bot" / "ui" / "settings.py").read_text(encoding="utf-8")
     installer_src = (root / "installer" / "row_bot_setup.iss").read_text(encoding="utf-8")
 
     assert "get_embedding_provider()" in documents_src

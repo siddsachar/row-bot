@@ -79,16 +79,16 @@ def test_stability_client_error_writes_local_report(data_dir, monkeypatch):
 
 
 def test_stability_source_contracts_are_wired():
-    app_src = Path("app.py").read_text(encoding="utf-8")
-    agent_src = Path("agent.py").read_text(encoding="utf-8")
-    head_src = Path("ui/head_html.py").read_text(encoding="utf-8")
-    timer_src = Path("ui/timer_utils.py").read_text(encoding="utf-8")
+    app_src = Path("src/row_bot/app.py").read_text(encoding="utf-8")
+    agent_src = Path("src/row_bot/agent.py").read_text(encoding="utf-8")
+    head_src = Path("src/row_bot/ui/head_html.py").read_text(encoding="utf-8")
+    timer_src = Path("src/row_bot/ui/timer_utils.py").read_text(encoding="utf-8")
     defer_src = timer_src.split("def defer_ui", 1)[1].split("def safe_ui_task", 1)[0]
-    settings_src = Path("ui/settings.py").read_text(encoding="utf-8")
-    catalog_src = Path("ui/model_catalog.py").read_text(encoding="utf-8")
-    dialog_src = Path("ui/task_dialog.py").read_text(encoding="utf-8")
-    graph_src = Path("ui/graph_panel.py").read_text(encoding="utf-8")
-    discord_src = Path("channels/discord_channel.py").read_text(encoding="utf-8")
+    settings_src = Path("src/row_bot/ui/settings.py").read_text(encoding="utf-8")
+    catalog_src = Path("src/row_bot/ui/model_catalog.py").read_text(encoding="utf-8")
+    dialog_src = Path("src/row_bot/ui/task_dialog.py").read_text(encoding="utf-8")
+    graph_src = Path("src/row_bot/ui/graph_panel.py").read_text(encoding="utf-8")
+    discord_src = Path("src/row_bot/channels/discord_channel.py").read_text(encoding="utf-8")
     installer_src = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
 
     assert "setup_stability_monitoring()" in app_src
@@ -141,10 +141,10 @@ def test_stability_source_contracts_are_wired():
     assert "loop.run_until_complete(client.close())" in discord_src
     assert "loop.shutdown_asyncgens()" in discord_src
     assert "stability.py" in installer_src
-    assert "self._quitting = False" in Path("launcher.py").read_text(encoding="utf-8")
-    assert 'name="quit-worker"' in Path("launcher.py").read_text(encoding="utf-8")
-    assert 'name="quit-watchdog"' in Path("launcher.py").read_text(encoding="utf-8")
-    assert "Quit watchdog forcing launcher exit after timeout" in Path("launcher.py").read_text(encoding="utf-8")
+    assert "self._quitting = False" in Path("src/row_bot/launcher.py").read_text(encoding="utf-8")
+    assert 'name="quit-worker"' in Path("src/row_bot/launcher.py").read_text(encoding="utf-8")
+    assert 'name="quit-watchdog"' in Path("src/row_bot/launcher.py").read_text(encoding="utf-8")
+    assert "Quit watchdog forcing launcher exit after timeout" in Path("src/row_bot/launcher.py").read_text(encoding="utf-8")
 
 
 def test_provider_qualified_cloud_defaults_validate_after_refresh(monkeypatch):

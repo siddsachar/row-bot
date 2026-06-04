@@ -119,9 +119,9 @@ def test_graph_vis_json_includes_audit_metadata(tmp_path, monkeypatch):
 
 
 def test_phase5_ui_sources_are_wired_to_audit_paths():
-    settings_src = open("ui/settings.py", "r", encoding="utf-8").read()
-    editor_src = open("ui/entity_editor.py", "r", encoding="utf-8").read()
-    graph_src = open("ui/graph_panel.py", "r", encoding="utf-8").read()
+    settings_src = open("src/row_bot/ui/settings.py", "r", encoding="utf-8").read()
+    editor_src = open("src/row_bot/ui/entity_editor.py", "r", encoding="utf-8").read()
+    graph_src = open("src/row_bot/ui/graph_panel.py", "r", encoding="utf-8").read()
 
     assert "knowledge_audit" in settings_src
     assert "Needs Review" in settings_src

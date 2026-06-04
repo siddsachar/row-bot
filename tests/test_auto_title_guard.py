@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_streaming_auto_title_uses_thread_name_source_guard():
-    source = (ROOT / "ui" / "streaming.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "ui" / "streaming.py").read_text(encoding="utf-8")
     send_block = source.split("async def send_message(", 1)[1]
 
     assert "should_auto_rename_thread" in send_block
@@ -18,7 +18,7 @@ def test_streaming_auto_title_uses_thread_name_source_guard():
 
 
 def test_voice_auto_title_uses_thread_name_source_guard():
-    source = (ROOT / "app.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "app.py").read_text(encoding="utf-8")
 
     assert "should_auto_rename_thread(state.thread_id, state.thread_name)" in source
     assert "rename_thread(state.thread_id, text[:50], source=\"auto\")" in source
@@ -26,7 +26,7 @@ def test_voice_auto_title_uses_thread_name_source_guard():
 
 
 def test_command_palette_new_thread_uses_create_thread_helper():
-    source = (ROOT / "ui" / "chat.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "ui" / "chat.py").read_text(encoding="utf-8")
     palette_block = source.split("async def _new_thread_from_palette", 1)[1]
 
     assert "create_thread(name, thread_id=tid)" in palette_block

@@ -108,8 +108,8 @@ def test_create_task_preserves_empty_channel_override(data_dir, monkeypatch):
 
 
 def test_workflow_delivery_ui_source_contracts():
-    home_src = open("ui/home.py", encoding="utf-8").read()
-    dialog_src = open("ui/task_dialog.py", encoding="utf-8").read()
+    home_src = open("src/row_bot/ui/home.py", encoding="utf-8").read()
+    dialog_src = open("src/row_bot/ui/task_dialog.py", encoding="utf-8").read()
 
     assert "Delivery defaults" in home_src
     assert "ui.menu()" in home_src

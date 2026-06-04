@@ -628,7 +628,7 @@ class McpClientFoundationTests(unittest.TestCase):
     def test_mcp_dynamic_tool_display_name_uses_actual_tool(self) -> None:
         import row_bot.agent as agent
 
-        with patch("mcp_client.runtime.get_catalog_snapshot", return_value={
+        with patch("row_bot.mcp_client.runtime.get_catalog_snapshot", return_value={
             "microsoft-learn-mcp": [
                 {
                     "prefixed_name": "mcp_microsoft_learn_mcp_microsoft_docs_search",

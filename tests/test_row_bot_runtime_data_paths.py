@@ -141,4 +141,3 @@ def test_runtime_persistence_modules_use_row_bot_data_dir(tmp_path):
             path.relative_to(row_bot_root)
         except ValueError as exc:
             raise AssertionError(f"{label} resolved outside ROW_BOT_DATA_DIR: {path}") from exc
-

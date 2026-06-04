@@ -9,7 +9,7 @@ def _read(path: str) -> str:
 
 
 def test_developer_recursion_limit_is_defined_separately():
-    source = _read("agent.py")
+    source = _read("src/row_bot/agent.py")
     assert "RECURSION_LIMIT_CHAT = 50" in source
     assert "RECURSION_LIMIT_TASK = 100" in source
     assert "RECURSION_LIMIT_DEVELOPER = 120" in source
@@ -19,7 +19,7 @@ def test_developer_recursion_limit_is_defined_separately():
 
 
 def test_developer_streaming_uses_mode_specific_limit_for_send_and_resume():
-    source = _read("ui/streaming.py")
+    source = _read("src/row_bot/ui/streaming.py")
     assert "recursion_limit_for_mode" in source
     assert "recursion_limit_for_mode(is_developer=is_developer)" in source
     assert source.count('"recursion_limit": recursion_limit') >= 2
@@ -28,7 +28,7 @@ def test_developer_streaming_uses_mode_specific_limit_for_send_and_resume():
 
 
 def test_developer_wind_down_and_recursion_error_are_checkpoint_oriented():
-    source = _read("agent.py")
+    source = _read("src/row_bot/agent.py")
     assert "Developer Studio step budget" in source
     assert "Checkpoint the coding task now" in source
     assert "files inspected or changed" in source

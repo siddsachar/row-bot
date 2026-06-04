@@ -102,7 +102,7 @@ def test_background_model_catalog_refresh_coalesces(monkeypatch):
 
 
 def test_settings_models_tab_is_cache_first():
-    src = open("ui/settings.py", encoding="utf-8").read()
+    src = open("src/row_bot/ui/settings.py", encoding="utf-8").read()
 
     assert "Load model settings" not in src
     assert "load_ollama_catalog_rows" not in src

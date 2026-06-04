@@ -87,7 +87,7 @@ def test_launcher_pywebview_api_exposes_file_and_folder_dialogs():
 
 
 def test_google_credentials_browse_uses_shared_file_picker_and_copy():
-    settings_src = Path("ui/settings.py").read_text(encoding="utf-8")
+    settings_src = Path("src/row_bot/ui/settings.py").read_text(encoding="utf-8")
 
     assert "path = await browse_file(" in settings_src
     assert "Select credentials.json (or client_secret_*.json)" in settings_src
