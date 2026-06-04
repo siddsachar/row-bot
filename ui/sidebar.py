@@ -7,6 +7,7 @@ the module stays decoupled from the main page layout.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from datetime import datetime
@@ -17,12 +18,17 @@ from ui.timer_utils import safe_timer
 
 from ui.state import AppState, P, _active_generations
 from ui.constants import SIDEBAR_MAX_THREADS
+from data_paths import get_thoth_data_dir
 
 logger = logging.getLogger(__name__)
 
 # Module-level so filter choice survives rebuild_main() re-renders.
 _SIDEBAR_FILTER: str = "all"  # one of: "all", "chat", "designer", "code", "workflow"
 _MODAL_FILTER: str = "all"
+_SIDEBAR_DEV_EXPANDED: set[str] = set()
+_SIDEBAR_DEV_EXPANDED_LOADED: bool = False
+_SIDEBAR_DEV_EXPANDED_HAS_SAVED_STATE: bool = False
+_SIDEBAR_DEV_DEFAULT_APPLIED: bool = False
 _SIDEBAR_AVATAR_CSS = """
 .sb-avatar { position: relative; }
 .sb-idle { color: #64748b; }
@@ -37,6 +43,55 @@ _SIDEBAR_AVATAR_CSS = """
 .sb-ring-spin { animation: sb-ring-spin 1.1s linear infinite; }
 @keyframes sb-ring-spin { to { transform: rotate(360deg); } }
 """
+
+
+def _sidebar_state_path():
+    return get_thoth_data_dir() / "sidebar_state.json"
+
+
+def _ensure_sidebar_dev_state_loaded() -> None:
+    global _SIDEBAR_DEV_EXPANDED
+    global _SIDEBAR_DEV_EXPANDED_LOADED
+    global _SIDEBAR_DEV_EXPANDED_HAS_SAVED_STATE
+    if _SIDEBAR_DEV_EXPANDED_LOADED:
+        return
+    path = _sidebar_state_path()
+    if not path.exists():
+        _SIDEBAR_DEV_EXPANDED = set()
+        _SIDEBAR_DEV_EXPANDED_HAS_SAVED_STATE = False
+        _SIDEBAR_DEV_EXPANDED_LOADED = True
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        has_dev_state = isinstance(data, dict) and "developer_workspace_expanded" in data
+        expanded = data.get("developer_workspace_expanded", []) if has_dev_state else []
+        _SIDEBAR_DEV_EXPANDED = {str(item) for item in expanded if str(item or "").strip()}
+        _SIDEBAR_DEV_EXPANDED_HAS_SAVED_STATE = has_dev_state
+    except Exception:
+        logger.debug("Failed to load sidebar state", exc_info=True)
+        _SIDEBAR_DEV_EXPANDED = set()
+        _SIDEBAR_DEV_EXPANDED_HAS_SAVED_STATE = False
+    _SIDEBAR_DEV_EXPANDED_LOADED = True
+
+
+def _persist_sidebar_dev_expanded() -> None:
+    global _SIDEBAR_DEV_EXPANDED_HAS_SAVED_STATE
+    try:
+        path = _sidebar_state_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload: dict[str, Any] = {}
+        if path.exists():
+            try:
+                existing = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(existing, dict):
+                    payload.update(existing)
+            except Exception:
+                logger.debug("Failed to merge existing sidebar state", exc_info=True)
+        payload["developer_workspace_expanded"] = sorted(_SIDEBAR_DEV_EXPANDED)
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        _SIDEBAR_DEV_EXPANDED_HAS_SAVED_STATE = True
+    except Exception:
+        logger.debug("Failed to persist sidebar state", exc_info=True)
 
 
 def build_sidebar(
@@ -65,6 +120,7 @@ def build_sidebar(
     from models import is_cloud_model, get_current_model
     from memory_extraction import set_active_thread
     from agent import clear_summary_cache
+    from ui.thread_actions import show_rename_thread_dialog
 
     # Keep a reference the caller can use
     _rebuild_thread_list_ref: list[Callable[[], None]] = [lambda: None]
@@ -348,6 +404,69 @@ def build_sidebar(
         if _SIDEBAR_FILTER != "all":
             classified = [c for c in classified if c[1] == _SIDEBAR_FILTER]
 
+        def _workspace_display(dev_ws: str) -> tuple[str, str]:
+            try:
+                from developer.storage import get_workspace
+
+                workspace = get_workspace(dev_ws)
+                if workspace is not None:
+                    return workspace.name or "Developer workspace", workspace.path or ""
+            except Exception:
+                logger.debug("Failed to load Developer workspace %s for sidebar", dev_ws, exc_info=True)
+            return "Missing workspace", dev_ws
+
+        def _sidebar_display_items(rows: list[tuple], filter_key: str) -> list[tuple[str, object, str, bool]]:
+            global _SIDEBAR_DEV_DEFAULT_APPLIED
+            _ensure_sidebar_dev_state_loaded()
+            if filter_key not in {"all", "code"}:
+                return [("thread", row, cat, False) for row, cat in rows]
+            groups: dict[str, dict] = {}
+            top_workspace_id = ""
+            for row, cat in rows:
+                dev_ws = row[7] if len(row) > 7 else ""
+                if cat != "code" or not dev_ws:
+                    continue
+                if not top_workspace_id:
+                    top_workspace_id = dev_ws
+                group = groups.get(dev_ws)
+                if group is None:
+                    workspace_name, workspace_path = _workspace_display(dev_ws)
+                    group = {
+                        "workspace_id": dev_ws,
+                        "name": workspace_name,
+                        "path": workspace_path,
+                        "updated": row[3] if len(row) > 3 else "",
+                        "rows": [],
+                    }
+                    groups[dev_ws] = group
+                group["rows"].append((row, cat))
+
+            if (
+                top_workspace_id
+                and not _SIDEBAR_DEV_EXPANDED_HAS_SAVED_STATE
+                and not _SIDEBAR_DEV_DEFAULT_APPLIED
+            ):
+                _SIDEBAR_DEV_EXPANDED.add(top_workspace_id)
+                _SIDEBAR_DEV_DEFAULT_APPLIED = True
+                _persist_sidebar_dev_expanded()
+
+            items: list[tuple[str, object, str, bool]] = []
+            seen_groups: set[str] = set()
+            for row, cat in rows:
+                dev_ws = row[7] if len(row) > 7 else ""
+                if cat == "code" and dev_ws:
+                    if dev_ws in seen_groups:
+                        continue
+                    seen_groups.add(dev_ws)
+                    group = groups[dev_ws]
+                    items.append(("developer_group", group, cat, False))
+                    if dev_ws in _SIDEBAR_DEV_EXPANDED:
+                        for child_row, child_cat in group["rows"]:
+                            items.append(("thread", child_row, child_cat, True))
+                    continue
+                items.append(("thread", row, cat, False))
+            return items
+
         def _fmt_ts(iso_str: str) -> str:
             try:
                 dt = datetime.fromisoformat(iso_str)
@@ -366,8 +485,50 @@ def build_sidebar(
                 )
                 return
 
-            visible = classified[:SIDEBAR_MAX_THREADS]
-            for row, _cat in visible:
+            display_items = _sidebar_display_items(classified, _SIDEBAR_FILTER)
+            visible = display_items[:SIDEBAR_MAX_THREADS]
+            for item_kind, payload, _cat, is_developer_child in visible:
+                if item_kind == "developer_group":
+                    group = payload
+                    workspace_id = str(group.get("workspace_id", ""))
+                    group_rows = list(group.get("rows", []))
+                    is_expanded = workspace_id in _SIDEBAR_DEV_EXPANDED
+                    is_active_workspace = (
+                        state.active_developer_workspace_id == workspace_id
+                        or any(row[0] == state.thread_id for row, _child_cat in group_rows)
+                    )
+
+                    def _toggle_workspace(wsid=workspace_id):
+                        if wsid in _SIDEBAR_DEV_EXPANDED:
+                            _SIDEBAR_DEV_EXPANDED.discard(wsid)
+                        else:
+                            _SIDEBAR_DEV_EXPANDED.add(wsid)
+                        _persist_sidebar_dev_expanded()
+                        _rebuild_thread_list()
+
+                    caption_bits = [
+                        f"{len(group_rows)} thread{'s' if len(group_rows) != 1 else ''}",
+                    ]
+                    latest = str(group.get("updated") or "")
+                    if latest:
+                        caption_bits.append(_fmt_ts(latest))
+                    with ui.item(on_click=_toggle_workspace).classes("w-full rounded").props("clickable").style(
+                        "min-height: 36px; padding: 4px 8px;"
+                    ):
+                        with ui.item_section().props("avatar").style("min-width: 28px;"):
+                            ui.icon("folder_open" if is_expanded else "folder", size="xs").classes(
+                                "text-primary" if is_active_workspace else "text-grey-6"
+                            )
+                        with ui.item_section():
+                            ui.item_label(str(group.get("name") or "Developer workspace")).classes("ellipsis").style(
+                                "font-size: 0.85rem;" + ("font-weight: 600;" if is_active_workspace else "")
+                            )
+                            ui.item_label(" - ".join(caption_bits)).props("caption").classes("text-grey-7").style(
+                                "font-size: 0.7rem;"
+                            )
+                    continue
+
+                row = payload
                 tid, name, created, updated, *_rest = row
                 _thread_model_ov = _rest[0] if _rest else ""
                 _thread_project_id = _rest[1] if len(_rest) > 1 else ""
@@ -483,9 +644,24 @@ def build_sidebar(
                         rebuild_main()
                     _rebuild_thread_list_ref[0]()
 
-                with ui.item(on_click=_select).classes("w-full rounded").props(
+                def _rename(t=tid, n=name):
+                    show_rename_thread_dialog(
+                        thread_id=t,
+                        current_name=n,
+                        state=state,
+                        rebuild_thread_list=_rebuild_thread_list_ref[0],
+                        rebuild_main=rebuild_main,
+                    )
+
+                item_classes = "w-full rounded"
+                item_style = "min-height: 40px; padding: 4px 8px;"
+                if is_developer_child:
+                    item_classes += " developer-thread-child"
+                    item_style += " margin-left: 18px; width: calc(100% - 18px);"
+
+                with ui.item(on_click=_select).classes(item_classes).props(
                     "clickable" + (" active" if is_active else "")
-                ).style("min-height: 40px; padding: 4px 8px;"):
+                ).style(item_style):
                     with ui.item_section().props("avatar").style("min-width: 28px;"):
                         if is_generating_tid:
                             _thr_icon = "autorenew"
@@ -527,11 +703,13 @@ def build_sidebar(
                                 "font-size: 0.7rem;"
                             )
                     with ui.item_section().props("side"):
-                        ui.button(
-                            icon="delete_outline", on_click=lambda e, t=tid: _delete(t)
-                        ).props("flat dense round size=xs color=grey-6").on(
-                            "click", js_handler="(e) => e.stopPropagation()"
-                        )
+                        action_btn = ui.button(icon="more_vert").props("flat dense round size=xs color=grey-6")
+                        action_btn.on("click", js_handler="(e) => e.stopPropagation()")
+                        with action_btn:
+                            with ui.menu():
+                                ui.menu_item("Rename", on_click=lambda t=tid, n=name: _rename(t, n))
+                                ui.separator()
+                                ui.menu_item("Delete", on_click=lambda t=tid: _delete(t))
 
             if len(threads) > SIDEBAR_MAX_THREADS:
                 def _show_all():
@@ -657,22 +835,62 @@ def build_sidebar(
                         def _rebuild_dialog_list() -> None:
                             list_container.clear()
                             # Filtered view of threads
-                            _filtered = [
-                                r for r in threads
-                                if (_MODAL_FILTER == "all"
-                                    or _cat_modal(r[5] if len(r) > 5 else "",
-                                                  r[0],
-                                                  r[6] if len(r) > 6 else "",
-                                                  r[7] if len(r) > 7 else "") == _MODAL_FILTER)
-                            ]
+                            _filtered = []
+                            for r in threads:
+                                _cat = _cat_modal(
+                                    r[5] if len(r) > 5 else "",
+                                    r[0],
+                                    r[6] if len(r) > 6 else "",
+                                    r[7] if len(r) > 7 else "",
+                                )
+                                if _MODAL_FILTER == "all" or _cat == _MODAL_FILTER:
+                                    _filtered.append((r, _cat))
                             with list_container:
                                 if not _filtered:
                                     ui.label("Nothing in this filter.").classes(
                                         "text-grey-6 q-pa-md"
                                     )
                                     return
+                                display_items = _sidebar_display_items(_filtered, _MODAL_FILTER)
                                 with ui.list().props("bordered separator").classes("w-full"):
-                                    for row in _filtered:
+                                    for item_kind, payload, _cat, is_developer_child in display_items:
+                                        if item_kind == "developer_group":
+                                            group = payload
+                                            workspace_id = str(group.get("workspace_id", ""))
+                                            group_rows = list(group.get("rows", []))
+                                            is_expanded = workspace_id in _SIDEBAR_DEV_EXPANDED
+                                            is_active_workspace = (
+                                                state.active_developer_workspace_id == workspace_id
+                                                or any(row[0] == state.thread_id for row, _child_cat in group_rows)
+                                            )
+
+                                            def _toggle_workspace(wsid=workspace_id):
+                                                if wsid in _SIDEBAR_DEV_EXPANDED:
+                                                    _SIDEBAR_DEV_EXPANDED.discard(wsid)
+                                                else:
+                                                    _SIDEBAR_DEV_EXPANDED.add(wsid)
+                                                _persist_sidebar_dev_expanded()
+                                                _rebuild_dialog_list()
+
+                                            caption_bits = [
+                                                f"{len(group_rows)} thread{'s' if len(group_rows) != 1 else ''}",
+                                            ]
+                                            latest = str(group.get("updated") or "")
+                                            if latest:
+                                                caption_bits.append(_fmt_ts(latest))
+                                            with ui.item(on_click=_toggle_workspace).props("clickable"):
+                                                with ui.item_section().props("avatar").style("min-width: 28px;"):
+                                                    ui.icon("folder_open" if is_expanded else "folder", size="xs").classes(
+                                                        "text-primary" if is_active_workspace else "text-grey-6"
+                                                    )
+                                                with ui.item_section():
+                                                    ui.item_label(str(group.get("name") or "Developer workspace")).classes("ellipsis").style(
+                                                        "font-weight: 600;" if is_active_workspace else ""
+                                                    )
+                                                    ui.item_label(" - ".join(caption_bits)).props("caption")
+                                            continue
+
+                                        row = payload
                                         tid, name, created, updated, *_rest2 = row
                                         _mo2 = _rest2[0] if _rest2 else ""
                                         _pid2 = _rest2[1] if len(_rest2) > 1 else ""
@@ -725,7 +943,23 @@ def build_sidebar(
                                             rebuild_main()
                                             _rebuild_thread_list_ref[0]()
 
-                                        with ui.item(on_click=_sel).props("clickable"):
+                                        def _ren(t=tid, n=name):
+                                            show_rename_thread_dialog(
+                                                thread_id=t,
+                                                current_name=n,
+                                                state=state,
+                                                rebuild_thread_list=_rebuild_thread_list_ref[0],
+                                                rebuild_main=rebuild_main,
+                                                on_renamed=lambda _saved: dlg.close(),
+                                            )
+
+                                        item_classes = ""
+                                        item_style = ""
+                                        if is_developer_child:
+                                            item_classes = "developer-thread-child"
+                                            item_style = "margin-left: 18px; width: calc(100% - 18px);"
+
+                                        with ui.item(on_click=_sel).classes(item_classes).props("clickable").style(item_style):
                                             if bulk.active:
                                                 with ui.item_section().props("avatar").style("min-width: 28px;"):
                                                     cb = ui.checkbox(value=bulk.is_selected(tid))
@@ -741,22 +975,22 @@ def build_sidebar(
                                                     )
                                             else:
                                                 with ui.item_section().props("avatar").style("min-width: 28px;"):
-                                                    ui.icon("chat_bubble_outline", size="xs")
+                                                    ui.icon("code" if is_developer_child else "chat_bubble_outline", size="xs")
                                             with ui.item_section():
                                                 ui.item_label(name)
                                                 if updated:
                                                     ui.item_label(_fmt_ts(updated)).props("caption")
                                             if not bulk.active:
                                                 with ui.item_section().props("side"):
-                                                    ui.button(
-                                                        icon="delete_outline",
-                                                        on_click=lambda e, t=tid: _del(t),
-                                                    ).props(
+                                                    action_btn = ui.button(icon="more_vert").props(
                                                         "flat dense round size=xs color=grey-6"
-                                                    ).on(
-                                                        "click",
-                                                        js_handler="(e) => e.stopPropagation()",
                                                     )
+                                                    action_btn.on("click", js_handler="(e) => e.stopPropagation()")
+                                                    with action_btn:
+                                                        with ui.menu():
+                                                            ui.menu_item("Rename", on_click=lambda t=tid, n=name: _ren(t, n))
+                                                            ui.separator()
+                                                            ui.menu_item("Delete", on_click=lambda t=tid: _del(t))
 
                         action_slot = ui.column().classes("w-full")
 

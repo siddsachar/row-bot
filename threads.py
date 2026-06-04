@@ -34,7 +34,14 @@ _THREAD_META_COLUMNS = {
     "thread_type": "TEXT DEFAULT ''",
     "developer_workspace_id": "TEXT DEFAULT ''",
     "approval_mode": "TEXT DEFAULT ''",
+    "name_source": "TEXT DEFAULT ''",
 }
+
+THREAD_NAME_SOURCE_AUTO = "auto"
+THREAD_NAME_SOURCE_MANUAL = "manual"
+_THREAD_NAME_SOURCES = {THREAD_NAME_SOURCE_AUTO, THREAD_NAME_SOURCE_MANUAL}
+_THREAD_NAME_MAX_LENGTH = 120
+_DEFAULT_AUTO_NAME_PREFIXES = ("Thread ", "\U0001f4bb Thread ")
 
 
 def _init_thread_db(*, raise_on_error: bool = False):
@@ -68,7 +75,8 @@ def _list_threads(*, include_details: bool = False):
         rows = conn.execute(
             "SELECT thread_id, name, created_at, updated_at, COALESCE(model_override, ''), "
             "COALESCE(project_id, ''), COALESCE(thread_type, ''), "
-            "COALESCE(developer_workspace_id, ''), COALESCE(approval_mode, '') "
+            "COALESCE(developer_workspace_id, ''), COALESCE(approval_mode, ''), "
+            "COALESCE(name_source, '') "
             "FROM thread_meta ORDER BY updated_at DESC"
         ).fetchall()
     else:
@@ -291,15 +299,175 @@ def _thread_exists(thread_id: str) -> bool:
     conn.close()
     return row is not None
 
+
+def _normalize_thread_name(name: str, *, fallback: str | None = None) -> str:
+    normalized = " ".join(str(name or "").strip().split())
+    if not normalized:
+        if fallback is None:
+            raise ValueError("Thread name cannot be empty.")
+        normalized = fallback
+    return normalized[:_THREAD_NAME_MAX_LENGTH].rstrip() or (fallback or "Untitled")
+
+
+def _normalize_thread_name_source(source: str | None) -> str:
+    value = str(source or "").strip().lower()
+    return value if value in _THREAD_NAME_SOURCES else THREAD_NAME_SOURCE_AUTO
+
+
+def create_thread(
+    name: str,
+    *,
+    thread_id: str | None = None,
+    thread_type: str = "",
+    developer_workspace_id: str = "",
+    project_id: str = "",
+    approval_mode: str = "",
+    model_override: str = "",
+    name_source: str = THREAD_NAME_SOURCE_AUTO,
+) -> str:
+    """Create or replace the metadata row for a conversation thread."""
+    _ensure_thread_db()
+    tid = str(thread_id or uuid.uuid4().hex[:12])
+    safe_name = _normalize_thread_name(name, fallback="Untitled")
+    safe_source = _normalize_thread_name_source(name_source)
+    safe_approval = (
+        normalize_approval_mode(approval_mode, DEFAULT_APPROVAL_MODE)
+        if str(approval_mode or "").strip()
+        else ""
+    )
+    now = datetime.now().isoformat()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            "INSERT INTO thread_meta ("
+            "thread_id, name, created_at, updated_at, model_override, project_id, "
+            "thread_type, developer_workspace_id, approval_mode, name_source"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(thread_id) DO UPDATE SET "
+            "name = excluded.name, updated_at = excluded.updated_at, "
+            "model_override = excluded.model_override, project_id = excluded.project_id, "
+            "thread_type = excluded.thread_type, "
+            "developer_workspace_id = excluded.developer_workspace_id, "
+            "approval_mode = excluded.approval_mode, name_source = excluded.name_source",
+            (
+                tid,
+                safe_name,
+                now,
+                now,
+                str(model_override or ""),
+                str(project_id or ""),
+                str(thread_type or ""),
+                str(developer_workspace_id or ""),
+                safe_approval,
+                safe_source,
+            ),
+        )
+        conn.commit()
+    return tid
+
+
+def rename_thread(
+    thread_id: str,
+    name: str,
+    *,
+    source: str = THREAD_NAME_SOURCE_MANUAL,
+) -> str:
+    """Rename a thread and mark whether the title is manual or generated."""
+    _ensure_thread_db()
+    tid = str(thread_id or "").strip()
+    if not tid:
+        raise ValueError("Thread id cannot be empty.")
+    safe_name = _normalize_thread_name(name)
+    safe_source = _normalize_thread_name_source(source)
+    now = datetime.now().isoformat()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            "INSERT INTO thread_meta (thread_id, name, created_at, updated_at, name_source) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(thread_id) DO UPDATE SET name = ?, updated_at = ?, name_source = ?",
+            (tid, safe_name, now, now, safe_source, safe_name, now, safe_source),
+        )
+        conn.commit()
+    return safe_name
+
+
+def get_thread_name(thread_id: str) -> str:
+    """Return the stored display name for a thread."""
+    _ensure_thread_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT COALESCE(name, '') FROM thread_meta WHERE thread_id = ?",
+            (thread_id,),
+        ).fetchone()
+    return str(row[0] or "") if row else ""
+
+
+def touch_thread(thread_id: str) -> None:
+    """Bump a thread's recency without changing its title."""
+    if not thread_id:
+        return
+    _ensure_thread_db()
+    now = datetime.now().isoformat()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            "UPDATE thread_meta SET updated_at = ? WHERE thread_id = ?",
+            (now, thread_id),
+        )
+        conn.commit()
+
+
+def get_thread_name_source(thread_id: str) -> str:
+    """Return ``auto``, ``manual``, or an empty legacy source marker."""
+    _ensure_thread_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT COALESCE(name_source, '') FROM thread_meta WHERE thread_id = ?",
+            (thread_id,),
+        ).fetchone()
+    return str(row[0] or "") if row else ""
+
+
+def _looks_like_auto_thread_name(name: str | None) -> bool:
+    value = str(name or "").strip()
+    if not value:
+        return True
+    if value in {"Thread", "\U0001f4bb Thread"}:
+        return True
+    return any(value.startswith(prefix) for prefix in _DEFAULT_AUTO_NAME_PREFIXES)
+
+
+def should_auto_rename_thread(thread_id: str, current_name: str | None = None) -> bool:
+    """Return True when generated-title logic may still replace this title."""
+    name = current_name if current_name is not None else get_thread_name(thread_id)
+    if get_thread_name_source(thread_id) == THREAD_NAME_SOURCE_MANUAL:
+        return False
+    return _looks_like_auto_thread_name(name)
+
+
+def list_developer_workspace_threads(workspace_id: str) -> list[tuple]:
+    """Return all thread metadata rows linked to a Developer workspace."""
+    _ensure_thread_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        rows = conn.execute(
+            "SELECT thread_id, name, created_at, updated_at, COALESCE(model_override, ''), "
+            "COALESCE(project_id, ''), COALESCE(thread_type, ''), "
+            "COALESCE(developer_workspace_id, ''), COALESCE(approval_mode, ''), "
+            "COALESCE(name_source, '') "
+            "FROM thread_meta WHERE COALESCE(developer_workspace_id, '') = ? "
+            "ORDER BY updated_at DESC",
+            (workspace_id,),
+        ).fetchall()
+    return rows
+
+
 def _save_thread_meta(thread_id: str, name: str):
     _ensure_thread_db()
     now = datetime.now().isoformat()
     conn = sqlite3.connect(DB_PATH)
     conn.execute(
-        "INSERT INTO thread_meta (thread_id, name, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?) "
+        "INSERT INTO thread_meta (thread_id, name, created_at, updated_at, name_source) "
+        "VALUES (?, ?, ?, ?, ?) "
         "ON CONFLICT(thread_id) DO UPDATE SET name = ?, updated_at = ?",
-        (thread_id, name, now, now, name, now),
+        (thread_id, name, now, now, THREAD_NAME_SOURCE_AUTO, name, now),
     )
     conn.commit()
     conn.close()

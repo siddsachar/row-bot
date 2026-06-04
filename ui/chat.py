@@ -63,12 +63,13 @@ def build_chat(
         provider_display_label,
     )
     from threads import (
-        _save_thread_meta,
+        create_thread,
         get_thread_skills_override,
     )
     from tasks import get_running_tasks, stop_task
     from tools import registry as tool_registry
     from ui.helpers import attach_thinking_to_message, persist_thread_media_state
+    from ui.thread_actions import show_rename_thread_dialog
 
     # Header
     _header_started = time.perf_counter()
@@ -91,7 +92,19 @@ def build_chat(
                 "round color=red size=sm"
             ).tooltip("Stop task")
         else:
-            p.chat_header_label = ui.label(str(state.thread_name or "Untitled")).classes("text-h5 flex-grow")
+            with ui.row().classes("items-center gap-1 no-wrap flex-grow").style("min-width: 0;"):
+                p.chat_header_label = ui.label(str(state.thread_name or "Untitled")).classes("text-h5 ellipsis").style("min-width: 0;")
+                if state.thread_id:
+                    ui.button(
+                        icon="edit",
+                        on_click=lambda: show_rename_thread_dialog(
+                            thread_id=state.thread_id or "",
+                            current_name=str(state.thread_name or ""),
+                            state=state,
+                            rebuild_thread_list=rebuild_thread_list,
+                            rebuild_main=rebuild_main,
+                        ),
+                    ).props("flat dense round size=sm").tooltip("Rename")
 
             # Model selection now lives in the composer, matching Designer.
 
@@ -1033,7 +1046,7 @@ def build_chat(
 
                 tid = uuid.uuid4().hex[:12]
                 name = f"Thread {datetime.now().strftime('%b %d, %H:%M')}"
-                await run.io_bound(_save_thread_meta, tid, name)
+                await run.io_bound(lambda: create_thread(name, thread_id=tid))
                 stop_voice_for_thread_change(state, p, reason="slash_new_thread")
                 prev = state.thread_id
                 prev_gen = _active_generations.get(prev) if prev else None
