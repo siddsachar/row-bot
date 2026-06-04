@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from skills_hub.catalog import search_skills
-from skills_hub.models import SourceResult, SkillHubEntry
-from skills_hub.search_index import search_entries, tokenize
-from skills_hub.source_registry import SkillSourceRegistry
+from row_bot.skills_hub.catalog import search_skills
+from row_bot.skills_hub.models import SourceResult, SkillHubEntry
+from row_bot.skills_hub.search_index import search_entries, tokenize
+from row_bot.skills_hub.source_registry import SkillSourceRegistry
 
 
 def _entry(
@@ -96,7 +96,7 @@ class _MockSource:
 
 def test_catalog_browse_empty_query_returns_public_source_results(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
-    import skills_hub.source_registry as source_registry
+    import row_bot.skills_hub.source_registry as source_registry
 
     monkeypatch.setattr(source_registry, "_write_source_cache", lambda *args, **kwargs: None)
     registry = SkillSourceRegistry([
@@ -114,7 +114,7 @@ def test_catalog_browse_empty_query_returns_public_source_results(tmp_path: Path
 
 def test_catalog_search_runs_across_all_mock_public_sources(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
-    import skills_hub.source_registry as source_registry
+    import row_bot.skills_hub.source_registry as source_registry
 
     monkeypatch.setattr(source_registry, "_write_source_cache", lambda *args, **kwargs: None)
     registry = SkillSourceRegistry([
@@ -131,7 +131,7 @@ def test_catalog_search_runs_across_all_mock_public_sources(tmp_path: Path, monk
 
 def test_source_filter_selects_grouped_github_manifest_sources(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
-    import skills_hub.source_registry as source_registry
+    import row_bot.skills_hub.source_registry as source_registry
 
     monkeypatch.setattr(source_registry, "_write_source_cache", lambda *args, **kwargs: None)
     registry = SkillSourceRegistry([
@@ -152,7 +152,7 @@ def test_source_filter_selects_grouped_github_manifest_sources(tmp_path: Path, m
 
 def test_source_cache_ignores_payloads_without_current_schema(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
-    import skills_hub.source_registry as source_registry
+    import row_bot.skills_hub.source_registry as source_registry
 
     path = source_registry._cache_path("skills_sh", "search", "python")
     path.write_text(json.dumps({

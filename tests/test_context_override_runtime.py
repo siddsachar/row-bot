@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 
 def test_default_local_llm_uses_capped_context(monkeypatch):
-    import models
+    import row_bot.models as models
 
     created = []
     monkeypatch.setattr(models, "_llm_instance", None)
@@ -21,7 +21,7 @@ def test_default_local_llm_uses_capped_context(monkeypatch):
 
 
 def test_context_size_change_clears_override_llm_cache(monkeypatch):
-    import models
+    import row_bot.models as models
 
     created = []
     models._override_llm_cache[("qwen3:14b", 32_768)] = object()
@@ -38,7 +38,7 @@ def test_context_size_change_clears_override_llm_cache(monkeypatch):
 
 
 def test_agent_graph_cache_uses_override_context(monkeypatch):
-    import agent
+    import row_bot.agent as agent
 
     override = "model:ollama:qwen3:14b"
     context_calls = []

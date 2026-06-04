@@ -1,9 +1,9 @@
 import json
 import base64
 
-import providers.config as provider_config
-from providers.auth_store import get_provider_secret, set_provider_secret
-from providers.codex import (
+import row_bot.providers.config as provider_config
+from row_bot.providers.auth_store import get_provider_secret, set_provider_secret
+from row_bot.providers.codex import (
     CODEX_OAUTH_CLIENT_ID,
     CodexDeviceAuthorization,
     CodexDeviceFlow,
@@ -24,9 +24,9 @@ from providers.codex import (
     start_codex_device_flow,
     summarize_auth_json,
 )
-from providers.models import AuthMethod, TransportMode
-from providers.selection import add_quick_choice_for_model, list_quick_model_ids
-from secret_store import _set_backend_for_tests
+from row_bot.providers.models import AuthMethod, TransportMode
+from row_bot.providers.selection import add_quick_choice_for_model, list_quick_model_ids
+from row_bot.secret_store import _set_backend_for_tests
 
 
 class _MemoryKeyring:
@@ -189,7 +189,7 @@ def test_codex_external_discovery_reports_shape_only(tmp_path):
 
 
 def test_external_credentials_includes_codex_metadata_without_values(tmp_path, monkeypatch):
-    import providers.external_credentials as external_credentials
+    import row_bot.providers.external_credentials as external_credentials
 
     codex_home = tmp_path / ".codex"
     codex_home.mkdir()
@@ -206,8 +206,8 @@ def test_external_credentials_includes_codex_metadata_without_values(tmp_path, m
 
 
 def test_codex_provider_definition_and_status_group(tmp_path, monkeypatch):
-    from providers.catalog import get_provider_definition
-    from providers.status import provider_status_cards
+    from row_bot.providers.catalog import get_provider_definition
+    from row_bot.providers.status import provider_status_cards
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     definition = get_provider_definition("codex")
@@ -232,7 +232,7 @@ def test_codex_provider_definition_and_status_group(tmp_path, monkeypatch):
 
 
 def test_codex_provider_ui_action_state_for_detected_and_configured_login():
-    from ui.provider_settings import _codex_action_state, _source_label
+    from row_bot.ui.provider_settings import _codex_action_state, _source_label
 
     detected = {
         "provider_id": "codex",
@@ -278,7 +278,7 @@ def test_codex_provider_ui_action_state_for_detected_and_configured_login():
 
 
 def test_codex_auth_file_detection_is_not_implicit_configuration(tmp_path, monkeypatch):
-    import providers.runtime as runtime
+    import row_bot.providers.runtime as runtime
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr("providers.codex.discover_codex_credentials", lambda: {
@@ -391,7 +391,7 @@ def test_codex_device_exchange_refresh_and_metadata_are_secret_safe():
 
 
 def test_codex_oauth_token_save_uses_keyring_and_oauth_device_status(tmp_path, monkeypatch):
-    import providers.runtime as runtime
+    import row_bot.providers.runtime as runtime
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr("providers.codex.discover_codex_credentials", lambda: {
@@ -437,7 +437,7 @@ def test_codex_oauth_token_save_uses_keyring_and_oauth_device_status(tmp_path, m
 
 
 def test_codex_explicit_external_reference_configures_status(tmp_path, monkeypatch):
-    import providers.runtime as runtime
+    import row_bot.providers.runtime as runtime
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     auth_path = tmp_path / "auth.json"
@@ -460,7 +460,7 @@ def test_codex_explicit_external_reference_configures_status(tmp_path, monkeypat
 
 
 def test_codex_keyring_token_configures_status_without_leaking_value(tmp_path, monkeypatch):
-    import providers.runtime as runtime
+    import row_bot.providers.runtime as runtime
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr("providers.codex.discover_codex_credentials", lambda: {
@@ -488,7 +488,7 @@ def test_codex_keyring_token_configures_status_without_leaking_value(tmp_path, m
 
 
 def test_codex_runtime_is_not_accidentally_routed_to_api_key_provider(tmp_path, monkeypatch):
-    import providers.runtime as runtime
+    import row_bot.providers.runtime as runtime
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     _set_backend_for_tests(_MemoryKeyring())
@@ -504,7 +504,7 @@ def test_codex_runtime_is_not_accidentally_routed_to_api_key_provider(tmp_path, 
 
 
 def test_codex_save_external_reference_persists_metadata_only(tmp_path, monkeypatch):
-    import providers.runtime as runtime
+    import row_bot.providers.runtime as runtime
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     auth_path = tmp_path / "auth.json"
@@ -525,7 +525,7 @@ def test_codex_save_external_reference_persists_metadata_only(tmp_path, monkeypa
 
 
 def test_codex_save_missing_external_reference_is_not_configured(tmp_path, monkeypatch):
-    import providers.runtime as runtime
+    import row_bot.providers.runtime as runtime
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     missing_path = tmp_path / "missing-auth.json"
@@ -673,7 +673,7 @@ def test_codex_quick_choice_seed_requires_configured_provider(tmp_path, monkeypa
 
 
 def test_codex_quick_choices_are_hidden_until_runtime_enabled(tmp_path, monkeypatch):
-    import api_keys
+    import row_bot.api_keys as api_keys
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
@@ -694,7 +694,7 @@ def test_codex_quick_choices_are_hidden_until_runtime_enabled(tmp_path, monkeypa
 
 def test_codex_runtime_builds_official_responses_request_shape(tmp_path, monkeypatch):
     from langchain_core.messages import HumanMessage, SystemMessage
-    from providers.transports.codex_responses import ChatCodexResponses
+    from row_bot.providers.transports.codex_responses import ChatCodexResponses
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     _set_backend_for_tests(_MemoryKeyring())
@@ -732,7 +732,7 @@ def test_codex_runtime_builds_official_responses_request_shape(tmp_path, monkeyp
 
 def test_codex_runtime_preserves_multimodal_human_image_blocks(tmp_path, monkeypatch):
     from langchain_core.messages import HumanMessage
-    from providers.transports.codex_responses import ChatCodexResponses
+    from row_bot.providers.transports.codex_responses import ChatCodexResponses
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     _set_backend_for_tests(_MemoryKeyring())
@@ -763,7 +763,7 @@ def test_codex_runtime_preserves_multimodal_human_image_blocks(tmp_path, monkeyp
 
 def test_codex_runtime_streams_text_deltas(tmp_path, monkeypatch):
     from langchain_core.messages import HumanMessage
-    from providers.transports.codex_responses import ChatCodexResponses
+    from row_bot.providers.transports.codex_responses import ChatCodexResponses
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     _set_backend_for_tests(_MemoryKeyring())
@@ -785,7 +785,7 @@ def test_codex_runtime_streams_text_deltas(tmp_path, monkeypatch):
 
 def test_codex_runtime_streams_final_assistant_message_without_deltas(tmp_path, monkeypatch):
     from langchain_core.messages import HumanMessage
-    from providers.transports.codex_responses import ChatCodexResponses
+    from row_bot.providers.transports.codex_responses import ChatCodexResponses
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     _set_backend_for_tests(_MemoryKeyring())
@@ -803,7 +803,7 @@ def test_codex_runtime_streams_final_assistant_message_without_deltas(tmp_path, 
 
 def test_codex_runtime_streams_function_call_chunks(tmp_path, monkeypatch):
     from langchain_core.messages import HumanMessage
-    from providers.transports.codex_responses import ChatCodexResponses
+    from row_bot.providers.transports.codex_responses import ChatCodexResponses
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     _set_backend_for_tests(_MemoryKeyring())
@@ -842,7 +842,7 @@ def test_codex_runtime_streams_function_call_chunks(tmp_path, monkeypatch):
 
 def test_codex_runtime_maps_function_call_items(tmp_path, monkeypatch):
     from langchain_core.messages import HumanMessage
-    from providers.transports.codex_responses import ChatCodexResponses
+    from row_bot.providers.transports.codex_responses import ChatCodexResponses
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     _set_backend_for_tests(_MemoryKeyring())
@@ -870,7 +870,7 @@ def test_codex_runtime_maps_function_call_items(tmp_path, monkeypatch):
 
 def test_codex_runtime_replays_tool_calls_before_tool_outputs(tmp_path, monkeypatch):
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-    from providers.transports.codex_responses import ChatCodexResponses
+    from row_bot.providers.transports.codex_responses import ChatCodexResponses
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     _set_backend_for_tests(_MemoryKeyring())
@@ -908,8 +908,8 @@ def test_codex_runtime_replays_tool_calls_before_tool_outputs(tmp_path, monkeypa
 
 def test_codex_runtime_refreshes_once_after_401(tmp_path, monkeypatch):
     from langchain_core.messages import HumanMessage
-    import providers.transports.codex_responses as codex_transport
-    from providers.transports.codex_responses import ChatCodexResponses
+    import row_bot.providers.transports.codex_responses as codex_transport
+    from row_bot.providers.transports.codex_responses import ChatCodexResponses
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     _set_backend_for_tests(_MemoryKeyring())
@@ -942,8 +942,8 @@ def test_codex_runtime_refreshes_once_after_401(tmp_path, monkeypatch):
 
 
 def test_runtime_status_and_factory_enable_codex_for_oauth_tokens(tmp_path, monkeypatch):
-    import providers.runtime as runtime
-    from providers.transports.codex_responses import ChatCodexResponses
+    import row_bot.providers.runtime as runtime
+    from row_bot.providers.transports.codex_responses import ChatCodexResponses
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr("providers.codex.discover_codex_credentials", lambda: {

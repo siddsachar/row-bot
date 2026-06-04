@@ -172,7 +172,7 @@ while IFS= read -r rel; do
 done < <(python3 "$MANIFEST_PY" --project-root "$PROJECT_DIR" --category runtime_script_files)
 
 # Historical contract now owned by scripts/app_payload_manifest.py:
-# for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client skills_hub migration buddy voice
+# for pkg in src/row_bot
 while IFS= read -r pkg; do
     [ -n "$pkg" ] || continue
     if [ -d "$PROJECT_DIR/$pkg" ]; then
@@ -190,7 +190,7 @@ done < <(python3 "$MANIFEST_PY" --project-root "$PROJECT_DIR" --category payload
 
 # Static assets and data directories.
 # Historical contract now owned by scripts/app_payload_manifest.py:
-# for dir in static sounds;
+# for dir in static sounds bundled_skills tool_guides;
 while IFS= read -r dir; do
     [ -n "$dir" ] || continue
     if [ -d "$PROJECT_DIR/$dir" ]; then

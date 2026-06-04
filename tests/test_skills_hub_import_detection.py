@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from skills_hub.input_detection import detect_source_input
-from skills_hub.pasted_markdown_source import PastedMarkdownSource
+from row_bot.skills_hub.input_detection import detect_source_input
+from row_bot.skills_hub.pasted_markdown_source import PastedMarkdownSource
 
 
 def test_detects_supported_source_input_forms():

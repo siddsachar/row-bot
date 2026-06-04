@@ -3,9 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+_RUNTIME_FILES = {"app.py", "launcher.py", "notifications.py", "tasks.py"}
+_RUNTIME_PREFIXES = (
+    "buddy/",
+    "designer/",
+    "ui/",
+)
 
 
 def _read(relative: str) -> str:
+    if relative in _RUNTIME_FILES or relative.startswith(_RUNTIME_PREFIXES):
+        relative = f"src/row_bot/{relative}"
     return (ROOT / relative).read_text(encoding="utf-8")
 
 
@@ -99,16 +107,16 @@ def test_buddy_desktop_and_packaging_hooks_exist():
     assert "cache_bust=False" in launcher_src
     assert "buddy_refresh" in launcher_src
     assert "_WINDOW_SCRIPT = r'''\nimport sys\nimport time" in launcher_src
-    assert '_APP_ICON_PATH = Path(__file__).resolve().parent / "row-bot.ico"' in launcher_src
+    assert "_APP_ICON_PATH = app_icon_path()" in launcher_src
     assert "icon=_ICON_PATH if _ICON_PATH and os.path.isfile(_ICON_PATH) else None" in launcher_src
     assert "url = _buddy_overlay_url(buddy_port)" in launcher_src
     assert "refresh_url = _buddy_overlay_url(buddy_port, cache_bust=True)" in launcher_src
     assert "existing.load_url(refresh_url)" in launcher_src
     assert '"url": url' in launcher_src
     assert "from buddy.desktop import open_buddy_overlay" not in launcher_src
-    assert "..\\buddy\\*.py" in inno_src
-    assert " migration buddy" in mac_src
-    assert " migration buddy" in linux_src
+    assert "..\\src\\row_bot\\*" in inno_src
+    assert "src/row_bot" in mac_src
+    assert "src/row_bot" in linux_src
 
 
 def test_buddy_runtime_supports_generated_art_as_primary_path():

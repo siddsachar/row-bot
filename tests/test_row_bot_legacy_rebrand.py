@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from migration import row_bot_legacy_rebrand as mig
+from row_bot.migration import row_bot_legacy_rebrand as mig
 
 
 class FakeKeyring:

@@ -7,14 +7,14 @@ from types import ModuleType
 
 import pytest
 
-import models
-import providers.runtime as runtime
-import providers.config as provider_config
-from providers.auth_store import get_provider_secret, provider_secret_status
-from providers.catalog import PROVIDER_DEFINITIONS, classify_model_capabilities, infer_provider_id, legacy_cache_to_model_infos
-from providers.model_catalog import build_model_catalog_rows
-from providers.models import AuthMethod, TransportMode
-from providers.opencode import (
+import row_bot.models as models
+import row_bot.providers.runtime as runtime
+import row_bot.providers.config as provider_config
+from row_bot.providers.auth_store import get_provider_secret, provider_secret_status
+from row_bot.providers.catalog import PROVIDER_DEFINITIONS, classify_model_capabilities, infer_provider_id, legacy_cache_to_model_infos
+from row_bot.providers.model_catalog import build_model_catalog_rows
+from row_bot.providers.models import AuthMethod, TransportMode
+from row_bot.providers.opencode import (
     OpenCodeUnsupportedRouteError,
     list_opencode_model_infos,
     opencode_known_route,
@@ -23,9 +23,9 @@ from providers.opencode import (
     opencode_model_transport,
     opencode_route_diagnostics,
 )
-from providers.readiness import evaluate_agent_readiness, evaluate_runtime_readiness
-from providers.resolution import resolve_provider_config
-from providers.selection import ModelSelectionError, add_quick_choice_for_model, canonicalize_model_selection, list_quick_choices, model_choice_value
+from row_bot.providers.readiness import evaluate_agent_readiness, evaluate_runtime_readiness
+from row_bot.providers.resolution import resolve_provider_config
+from row_bot.providers.selection import ModelSelectionError, add_quick_choice_for_model, canonicalize_model_selection, list_quick_choices, model_choice_value
 
 
 EXISTING_PROVIDER_IDS = (
@@ -602,7 +602,7 @@ def test_phase6_workflow_model_overrides_store_opencode_refs(tmp_path, monkeypat
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr("api_keys.get_cloud_config", lambda: {"starred_models": []})
-    import tasks
+    import row_bot.tasks as tasks
 
     tasks = importlib.reload(tasks)
 
@@ -621,7 +621,7 @@ def test_phase6_workflow_model_overrides_store_opencode_refs(tmp_path, monkeypat
 
 def test_phase6_channel_model_override_preserves_opencode_ref(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "threads"))
-    import threads
+    import row_bot.threads as threads
 
     threads = importlib.reload(threads)
     ref = "model:opencode_go:glm-5.1"
@@ -689,7 +689,7 @@ def test_phase7_opencode_404_diagnostic_mentions_route_without_fallback():
 
 def test_followup_opencode_model_level_anthropic_detection(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
-    import agent
+    import row_bot.agent as agent
 
     assert agent._provider_uses_anthropic_messages("opencode_zen", "claude-sonnet-4-5") is True
     assert agent._provider_uses_anthropic_messages("opencode_go", "qwen3.6-plus") is True
@@ -734,7 +734,7 @@ def test_ux_setup_wizard_exposes_and_saves_opencode_keys():
 
 
 def test_ux_setup_wizard_option_preserves_opencode_ref_without_noisy_label():
-    from ui.setup_wizard import cloud_model_setup_option
+    from row_bot.ui.setup_wizard import cloud_model_setup_option
 
     option = cloud_model_setup_option(
         "model:opencode_go:glm-5.1",
@@ -750,7 +750,7 @@ def test_ux_setup_wizard_option_preserves_opencode_ref_without_noisy_label():
 
 
 def test_ux_provider_status_counts_opencode_provider_qualified_cache(monkeypatch):
-    from providers.status import provider_status_cards
+    from row_bot.providers.status import provider_status_cards
 
     original = dict(models._cloud_model_cache)
     models._cloud_model_cache.clear()
@@ -794,8 +794,8 @@ def test_ux_opencode_api_keys_use_existing_keyring_backed_store(tmp_path, monkey
     for env_var in ("OPENCODE_ZEN_API_KEY", "OPENCODE_GO_API_KEY"):
         monkeypatch.delenv(env_var, raising=False)
 
-    import api_keys
-    import secret_store
+    import row_bot.api_keys as api_keys
+    import row_bot.secret_store as secret_store
 
     secret_store = importlib.reload(secret_store)
     api_keys = importlib.reload(api_keys)

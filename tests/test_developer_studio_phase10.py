@@ -22,13 +22,13 @@ def _fresh_modules(tmp_path, monkeypatch):
         "tools.developer_tool",
     ]:
         sys.modules.pop(name, None)
-    import developer.storage as storage
-    import developer.tool_context as tool_context
-    import developer.edits as edits
-    import developer.change_ledger as change_ledger
-    import developer.executables as executables
-    import developer.sandbox_runtime as sandbox_runtime
-    import tools.developer_tool as developer_tool
+    import row_bot.developer.storage as storage
+    import row_bot.developer.tool_context as tool_context
+    import row_bot.developer.edits as edits
+    import row_bot.developer.change_ledger as change_ledger
+    import row_bot.developer.executables as executables
+    import row_bot.developer.sandbox_runtime as sandbox_runtime
+    import row_bot.tools.developer_tool as developer_tool
 
     importlib.reload(executables)
     return (
@@ -67,7 +67,7 @@ def test_developer_native_tools_read_search_and_status(tmp_path, monkeypatch):
 
 
 def test_developer_runtime_classifies_quoted_tool_commands_as_safe():
-    from developer.runtime import classify_command_action, has_shell_control_operator
+    from row_bot.developer.runtime import classify_command_action, has_shell_control_operator
 
     local_markdown_parser = (
         'python -c "from pathlib import Path; '
@@ -239,7 +239,7 @@ def test_developer_tool_exposes_write_and_command_tools(tmp_path, monkeypatch):
 def test_status_reports_developer_as_contextual_when_active(tmp_path, monkeypatch):
     storage, tool_context, _edits, _ledger, _sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
     sys.modules.pop("tools.row_bot_status_tool", None)
-    import tools.row_bot_status_tool as row_bot_status_tool
+    import row_bot.tools.row_bot_status_tool as row_bot_status_tool
 
     repo = tmp_path / "repo"
     _init_repo(repo)
@@ -266,7 +266,7 @@ def test_developer_guides_and_skills_are_bundled():
 
 
 def test_developer_profile_removes_conflicting_generic_tools():
-    from developer.profile import effective_tool_names
+    from row_bot.developer.profile import effective_tool_names
 
     assert effective_tool_names(["filesystem", "shell", "image_gen"]) == [
         "image_gen",
@@ -278,8 +278,8 @@ def test_developer_skill_prompt_is_scoped_to_developer_mode(tmp_path, monkeypatc
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
     sys.modules.pop("skills", None)
 
-    import skills
-    from developer.profile import DEVELOPER_AUTO_SKILLS
+    import row_bot.skills as skills
+    from row_bot.developer.profile import DEVELOPER_AUTO_SKILLS
 
     importlib.reload(skills)
     skills.load_skills()
@@ -308,7 +308,7 @@ def test_developer_skill_prompt_is_scoped_to_developer_mode(tmp_path, monkeypatc
 
 
 def test_custom_tool_request_does_not_fall_back_to_shell_when_builder_disabled():
-    import agent
+    import row_bot.agent as agent
 
     config = {"configurable": {"thread_id": "test-custom-tool-disabled"}}
     prompt = "Turn https://github.com/github/gitignore into a Custom Tool"
@@ -322,7 +322,7 @@ def test_custom_tool_request_does_not_fall_back_to_shell_when_builder_disabled()
 
 
 def test_custom_tool_request_allows_builder_when_enabled(monkeypatch):
-    import agent
+    import row_bot.agent as agent
 
     prompt = "Turn https://github.com/github/gitignore into a Custom Tool"
     assert agent._custom_tool_builder_disabled_response(
@@ -332,7 +332,7 @@ def test_custom_tool_request_allows_builder_when_enabled(monkeypatch):
 
 
 def test_streaming_treats_deleted_nicegui_client_as_detached():
-    from ui.streaming import _ui_handle_client_deleted
+    from row_bot.ui.streaming import _ui_handle_client_deleted
 
     class DeletedElement:
         @property
@@ -400,7 +400,7 @@ def test_developer_inspector_uses_snapshot_and_native_file_tree():
 
 def test_developer_snapshot_noops_do_not_advance_version(tmp_path, monkeypatch):
     storage, _tool_context, _edits, _ledger, _sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
-    import developer.inspector_snapshot as inspector_snapshot
+    import row_bot.developer.inspector_snapshot as inspector_snapshot
 
     repo = tmp_path / "repo"
     _init_repo(repo)
@@ -548,7 +548,7 @@ def test_developer_workspace_persists_execution_settings(tmp_path, monkeypatch):
 
 def test_developer_executable_resolver_finds_standard_windows_installs(tmp_path, monkeypatch):
     _storage, _tool_context, _edits, _ledger, _sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
-    import developer.executables as executables
+    import row_bot.developer.executables as executables
 
     def fake_which(_name):
         return None
@@ -574,7 +574,7 @@ def test_developer_executable_resolver_finds_standard_windows_installs(tmp_path,
 
 def test_developer_executable_resolver_finds_macos_gui_installs(tmp_path, monkeypatch):
     _storage, _tool_context, _edits, _ledger, _sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
-    import developer.executables as executables
+    import row_bot.developer.executables as executables
 
     def fake_which(_name):
         return None

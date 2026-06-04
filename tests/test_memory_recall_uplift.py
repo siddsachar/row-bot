@@ -10,10 +10,10 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 def _fresh_memory_modules(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
-    import knowledge_graph
-    import memory
-    import memory_policy
-    import memory_extraction
+    import row_bot.knowledge_graph as knowledge_graph
+    import row_bot.memory as memory
+    import row_bot.memory_policy as memory_policy
+    import row_bot.memory_extraction as memory_extraction
 
     kg = importlib.reload(knowledge_graph)
     mem = importlib.reload(memory)
@@ -137,7 +137,7 @@ def test_explicit_memory_search_touches_only_filtered_results(tmp_path, monkeypa
     shown = kg.save_entity("fact", "Rosebud Code", "The user's code word is rosebud.", source="test")
     hidden = kg.save_entity("person", "Rosebud Person", "A person with the same keyword.", source="test")
 
-    import tools.memory_tool as memory_tool
+    import row_bot.tools.memory_tool as memory_tool
 
     result = memory_tool._search_memory("Rosebud", category="fact")
 
@@ -201,7 +201,7 @@ def test_memory_policy_skips_greetings_and_runtime_status(tmp_path, monkeypatch)
 
 def test_agent_pre_model_trim_injects_policy_block_and_touches_only_selected(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
-    import agent
+    import row_bot.agent as agent
     agent = importlib.reload(agent)
 
     selected = [{
@@ -253,8 +253,10 @@ def test_extraction_reads_checkpoint_messages_without_agent_graph(tmp_path, monk
     def _boom():
         raise AssertionError("get_agent_graph should not be called")
 
-    monkeypatch.setitem(sys.modules, "agent", SimpleNamespace(get_agent_graph=_boom))
-    import threads
+    fake_agent = SimpleNamespace(get_agent_graph=_boom)
+    monkeypatch.setitem(sys.modules, "agent", fake_agent)
+    monkeypatch.setitem(sys.modules, "row_bot.agent", fake_agent)
+    import row_bot.threads as threads
 
     monkeypatch.setattr(threads, "get_latest_checkpoint_messages", lambda thread_id: [
         HumanMessage(content="My project is Atlas."),

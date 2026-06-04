@@ -76,7 +76,7 @@ def test_all_conversations_modal_folder_toggle_does_not_rebuild_sidebar():
 def test_sidebar_developer_expanded_state_persists(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
     sys.modules.pop("ui.sidebar", None)
-    import ui.sidebar as sidebar
+    import row_bot.ui.sidebar as sidebar
 
     sidebar = importlib.reload(sidebar)
     state_file = tmp_path / "sidebar_state.json"

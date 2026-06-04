@@ -13,8 +13,9 @@ from typing import Any, Callable
 
 DEFAULT_PROMPT = "Think carefully and explain the tradeoffs of archival preservation versus public access."
 REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+for _path in (REPO_ROOT, REPO_ROOT / "src"):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 
 @dataclass
@@ -98,7 +99,7 @@ def _runtime_model_name(model: str) -> str:
 
 
 def run_direct_ollama(prompt: str, model: str, ctx: int, iteration: int) -> RunResult:
-    from models import _ollama_base_url
+    from row_bot.models import _ollama_base_url
 
     runtime_model = _runtime_model_name(model)
     result = RunResult("direct_ollama_stream", iteration, prompt, runtime_model)
@@ -170,7 +171,7 @@ def _collect_langchain_stream(prompt: str, llm: Any, case: str, model: str, iter
 
 def run_langchain_plain(prompt: str, model: str, ctx: int, iteration: int) -> RunResult:
     from langchain_ollama import ChatOllama
-    from models import _ollama_base_url
+    from row_bot.models import _ollama_base_url
 
     llm = ChatOllama(
         model=_runtime_model_name(model),
@@ -184,7 +185,7 @@ def run_langchain_plain(prompt: str, model: str, ctx: int, iteration: int) -> Ru
 def run_langchain_one_tool(prompt: str, model: str, ctx: int, iteration: int) -> RunResult:
     from langchain_core.tools import tool
     from langchain_ollama import ChatOllama
-    from models import _ollama_base_url
+    from row_bot.models import _ollama_base_url
 
     @tool
     def thoth_probe(value: str) -> str:
@@ -202,8 +203,8 @@ def run_langchain_one_tool(prompt: str, model: str, ctx: int, iteration: int) ->
 
 def run_langchain_enabled_tools(prompt: str, model: str, ctx: int, iteration: int) -> RunResult:
     from langchain_ollama import ChatOllama
-    from models import _ollama_base_url
-    from tools import registry as tool_registry
+    from row_bot.models import _ollama_base_url
+    from row_bot.tools import registry as tool_registry
 
     lc_tools = []
     for tool_obj in tool_registry.get_enabled_tools():
@@ -223,7 +224,7 @@ def _fill_checkpoint_stats(result: RunResult) -> None:
     if not result.thread_id:
         return
     try:
-        from threads import get_latest_checkpoint_messages
+        from row_bot.threads import get_latest_checkpoint_messages
 
         messages = get_latest_checkpoint_messages(result.thread_id)
         for msg in reversed(messages):
@@ -242,9 +243,9 @@ def _fill_checkpoint_stats(result: RunResult) -> None:
 
 
 def run_row_bot_agent(prompt: str, model: str, ctx: int, iteration: int, *, cleanup: bool) -> RunResult:
-    from agent import clear_agent_cache, stream_agent
-    from threads import _delete_thread, _save_thread_meta
-    from tools import registry as tool_registry
+    from row_bot.agent import clear_agent_cache, stream_agent
+    from row_bot.threads import _delete_thread, _save_thread_meta
+    from row_bot.tools import registry as tool_registry
 
     del ctx
     result = RunResult("row_bot_agent_stream", iteration, prompt, model)
@@ -322,7 +323,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if not args.model:
-        from models import get_current_model
+        from row_bot.models import get_current_model
 
         args.model = get_current_model()
 

@@ -12,7 +12,7 @@ def _case_dir():
 
 def _reload_embedding_config(monkeypatch, data_dir):
     monkeypatch.setenv("THOTH_DATA_DIR", str(data_dir))
-    import embedding_config
+    import row_bot.embedding_config as embedding_config
 
     return importlib.reload(embedding_config)
 
@@ -77,7 +77,7 @@ def test_embedding_config_recovers_from_invalid_values(monkeypatch):
 def test_nomic_dependency_is_explicit():
     requirements = Path("requirements.txt").read_text(encoding="utf-8")
 
-    import embedding_config
+    import row_bot.embedding_config as embedding_config
 
     assert "sentence-transformers" in requirements
     assert "langchain-huggingface" in requirements
@@ -129,7 +129,7 @@ def test_packaged_builds_verify_required_runtime_imports():
 
 
 def test_startup_diagnostics_reports_required_embedding_packages(monkeypatch):
-    import startup_diagnostics
+    import row_bot.startup_diagnostics as startup_diagnostics
 
     def _missing_transformers(name):
         if name == "transformers":
@@ -144,7 +144,7 @@ def test_startup_diagnostics_reports_required_embedding_packages(monkeypatch):
 
 
 def test_local_embedding_preflight_reports_missing_base_packages(monkeypatch):
-    import embedding_providers
+    import row_bot.embedding_providers as embedding_providers
 
     def _missing_base_package(name):
         if name == "sentence_transformers":
@@ -167,7 +167,7 @@ def test_local_embedding_preflight_reports_missing_base_packages(monkeypatch):
 def test_dimension_adapter_trims_query_and_document_vectors():
     from langchain_core.embeddings import Embeddings
 
-    from embedding_providers import _DimensionAdapter
+    from row_bot.embedding_providers import _DimensionAdapter
 
     class FakeProvider(Embeddings):
         def embed_query(self, text):
@@ -184,7 +184,7 @@ def test_dimension_adapter_trims_query_and_document_vectors():
 
 
 def test_markdown_loader_uses_builtin_encoding_fallback():
-    import documents
+    import row_bot.documents as documents
 
     path = _case_dir() / "notes.md"
     path.write_bytes("# Cafe notes\n\nSmart quote: \x93hello\x94".encode("latin-1"))

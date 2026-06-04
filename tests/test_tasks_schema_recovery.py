@@ -19,7 +19,7 @@ REQUIRED_TABLES = {
 def _fresh_tasks(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
     sys.modules.pop("tasks", None)
-    import tasks
+    import row_bot.tasks as tasks
 
     return importlib.reload(tasks)
 
@@ -123,7 +123,7 @@ def test_workflow_migration_skips_malformed_rows_after_schema_exists(tmp_path, m
 
 
 def test_launcher_recovery_args_and_backup_family(tmp_path, monkeypatch):
-    import launcher
+    import row_bot.launcher as launcher
 
     args = launcher._build_arg_parser().parse_args(["--reset-tasks-db"])
     assert args.reset_tasks_db is True

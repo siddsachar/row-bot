@@ -1,11 +1,11 @@
 import threading
 import time
 
-from providers.model_catalog_cache import CatalogCacheSnapshot
+from row_bot.providers.model_catalog_cache import CatalogCacheSnapshot
 
 
 def test_model_catalog_cache_round_trip(tmp_path, monkeypatch):
-    import providers.model_catalog_cache as cache
+    import row_bot.providers.model_catalog_cache as cache
 
     path = tmp_path / "model_catalog_cache.json"
     monkeypatch.setattr(cache, "CATALOG_CACHE_PATH", path)
@@ -30,9 +30,9 @@ def test_model_catalog_cache_round_trip(tmp_path, monkeypatch):
 
 
 def test_model_catalog_refresh_preserves_last_good_when_empty(tmp_path, monkeypatch):
-    import api_keys
-    import providers.config as provider_config
-    import providers.model_catalog_cache as cache
+    import row_bot.api_keys as api_keys
+    import row_bot.providers.config as provider_config
+    import row_bot.providers.model_catalog_cache as cache
 
     path = tmp_path / "model_catalog_cache.json"
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
@@ -58,10 +58,10 @@ def test_model_catalog_refresh_preserves_last_good_when_empty(tmp_path, monkeypa
 
 
 def test_model_catalog_refresh_prunes_stale_custom_quick_choices(tmp_path, monkeypatch):
-    import api_keys
-    import providers.config as provider_config
-    import providers.model_catalog_cache as cache
-    from providers.selection import add_quick_choice_for_model
+    import row_bot.api_keys as api_keys
+    import row_bot.providers.config as provider_config
+    import row_bot.providers.model_catalog_cache as cache
+    from row_bot.providers.selection import add_quick_choice_for_model
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
@@ -80,7 +80,7 @@ def test_model_catalog_refresh_prunes_stale_custom_quick_choices(tmp_path, monke
 
 
 def test_background_model_catalog_refresh_coalesces(monkeypatch):
-    import providers.model_catalog_cache as cache
+    import row_bot.providers.model_catalog_cache as cache
 
     started = threading.Event()
     release = threading.Event()
@@ -114,7 +114,7 @@ def test_settings_models_tab_is_cache_first():
 
 
 def test_model_catalog_keeps_saved_minimax_default_visible():
-    from providers.model_catalog import build_model_catalog_rows
+    from row_bot.providers.model_catalog import build_model_catalog_rows
 
     rows = build_model_catalog_rows(
         cloud_cache={},

@@ -5,8 +5,8 @@ import types
 
 
 def test_document_status_uses_processed_file_count(monkeypatch, tmp_path):
-    import documents
-    from ui.status_checks import check_document_store
+    import row_bot.documents as documents
+    from row_bot.ui.status_checks import check_document_store
 
     processed_path = tmp_path / "processed_files.json"
     vector_dir = tmp_path / "vector_store"
@@ -27,8 +27,8 @@ def test_document_status_uses_processed_file_count(monkeypatch, tmp_path):
 
 def test_workflow_status_reports_running_and_pending(monkeypatch, tmp_path):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
-    import tasks
-    from ui.status_checks import check_task_scheduler
+    import row_bot.tasks as tasks
+    from row_bot.ui.status_checks import check_task_scheduler
 
     monkeypatch.setattr(tasks, "_scheduler", types.SimpleNamespace(get_jobs=lambda: [object(), object()]))
     monkeypatch.setattr(tasks, "get_running_tasks", lambda: {"thread-1": {}, "thread-2": {}})
@@ -88,7 +88,7 @@ def test_home_status_icon_map_uses_safe_material_icons():
 
 
 def test_home_status_has_single_faiss_check():
-    from ui.status_checks import ALL_CHECKS, run_all_checks
+    from row_bot.ui.status_checks import ALL_CHECKS, run_all_checks
 
     faiss_check_count = sum(1 for fn in ALL_CHECKS if fn.__name__ == "check_faiss_index")
     assert faiss_check_count == 1
@@ -114,9 +114,9 @@ def test_command_center_has_persisted_collapsed_rail_contract():
 
 
 def test_buddy_state_machine_preserves_workflow_after_approval(monkeypatch):
-    import buddy.brain as brain_mod
-    from buddy.brain import BuddyBrain
-    from buddy.events import BuddyEvent, BuddyEventType
+    import row_bot.buddy.brain as brain_mod
+    from row_bot.buddy.brain import BuddyBrain
+    from row_bot.buddy.events import BuddyEvent, BuddyEventType
 
     now = 1000.0
     monkeypatch.setattr(
@@ -148,9 +148,9 @@ def test_buddy_state_machine_preserves_workflow_after_approval(monkeypatch):
 
 
 def test_buddy_state_machine_keeps_other_pending_approval(monkeypatch):
-    import buddy.brain as brain_mod
-    from buddy.brain import BuddyBrain
-    from buddy.events import BuddyEvent, BuddyEventType
+    import row_bot.buddy.brain as brain_mod
+    from row_bot.buddy.brain import BuddyBrain
+    from row_bot.buddy.events import BuddyEvent, BuddyEventType
 
     now = 2000.0
     monkeypatch.setattr(

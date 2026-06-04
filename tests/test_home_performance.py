@@ -11,8 +11,8 @@ def _read(path: str) -> str:
 
 
 def test_status_bar_render_cache_does_not_run_health_checks(monkeypatch) -> None:
-    import ui.status_bar as status_bar
-    from ui.status_checks import CheckResult
+    import row_bot.ui.status_bar as status_bar
+    from row_bot.ui.status_checks import CheckResult
 
     def _fail(*_args, **_kwargs):
         raise AssertionError("render cache path must not run health checks")
@@ -32,8 +32,8 @@ def test_status_bar_render_cache_does_not_run_health_checks(monkeypatch) -> None
 
 
 def test_status_bar_force_refresh_populates_cache(monkeypatch) -> None:
-    import ui.status_bar as status_bar
-    from ui.status_checks import CheckResult
+    import row_bot.ui.status_bar as status_bar
+    from row_bot.ui.status_checks import CheckResult
 
     result = CheckResult("Model", "ok", "test model")
     monkeypatch.setattr(status_bar, "run_all_checks", lambda: [result])

@@ -8,15 +8,16 @@ from pathlib import Path
 
 def _reload_hub(tmp_path: Path):
     os.environ["THOTH_DATA_DIR"] = str(tmp_path)
+    os.environ["ROW_BOT_DATA_DIR"] = str(tmp_path)
     for name in list(sys.modules):
         if name == "skills" or name.startswith("skills_hub"):
             sys.modules.pop(name, None)
-    import skills
-    import skills_hub.catalog as catalog
-    import skills_hub.installer as installer
-    import skills_hub.provenance as provenance
-    import skills_hub.scanner as scanner
-    import skills_hub.sources as sources
+    import row_bot.skills as skills
+    import row_bot.skills_hub.catalog as catalog
+    import row_bot.skills_hub.installer as installer
+    import row_bot.skills_hub.provenance as provenance
+    import row_bot.skills_hub.scanner as scanner
+    import row_bot.skills_hub.sources as sources
 
     importlib.reload(skills)
     return skills, catalog, installer, provenance, scanner, sources
@@ -46,7 +47,7 @@ def _skill_md(
 
 
 def _bundle(tmp_path: Path, name: str, *, files=None):
-    from skills_hub import sources
+    from row_bot.skills_hub import sources
 
     skill_files = files or [sources.SkillFile.from_text("SKILL.md", _skill_md(name), kind="markdown")]
     return sources.bundle_from_files(
@@ -60,8 +61,8 @@ def _bundle(tmp_path: Path, name: str, *, files=None):
 
 def test_direct_url_skill_md_bundle_parse(tmp_path, monkeypatch):
     _skills, _catalog, _installer, _prov, _scanner, _sources = _reload_hub(tmp_path)
-    from skills_hub.url_source import DirectURLSource
-    import skills_hub.url_source as url_source
+    from row_bot.skills_hub.url_source import DirectURLSource
+    import row_bot.skills_hub.url_source as url_source
 
     monkeypatch.setattr(url_source, "fetch_text", lambda _url: _skill_md("direct_skill"))
     bundle = DirectURLSource().fetch("https://example.test/direct/SKILL.md")
@@ -73,7 +74,7 @@ def test_direct_url_skill_md_bundle_parse(tmp_path, monkeypatch):
 
 def test_github_style_install_ref_parsing(tmp_path):
     _reload_hub(tmp_path)
-    from skills_hub.github_source import parse_github_install_ref
+    from row_bot.skills_hub.github_source import parse_github_install_ref
 
     parsed = parse_github_install_ref("openai/skills/skills/researcher")
     assert parsed is not None
@@ -89,7 +90,7 @@ def test_github_style_install_ref_parsing(tmp_path):
 
 def test_well_known_index_parsing(tmp_path):
     _reload_hub(tmp_path)
-    from skills_hub.well_known_source import parse_well_known_index
+    from row_bot.skills_hub.well_known_source import parse_well_known_index
 
     entries = parse_well_known_index(
         {
@@ -236,7 +237,7 @@ def test_replace_with_backup_behavior(tmp_path):
         _skill_md("replace_skill", body="New instructions."),
         kind="markdown",
     )
-    from skills_hub.sources import compute_bundle_hash
+    from row_bot.skills_hub.sources import compute_bundle_hash
     from dataclasses import replace
 
     changed = replace(changed, files=changed.files, content_hash=compute_bundle_hash(changed.files), instructions="New instructions.")

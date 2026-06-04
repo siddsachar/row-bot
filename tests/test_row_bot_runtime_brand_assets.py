@@ -4,8 +4,18 @@ from pathlib import Path
 
 from PIL import Image
 
+_RUNTIME_FILES = {"app.py", "launcher.py", "brand.py"}
+_RUNTIME_PREFIXES = (
+    "buddy/",
+    "channels/",
+    "designer/",
+    "ui/",
+)
+
 
 def _read(path: str) -> str:
+    if path in _RUNTIME_FILES or path.startswith(_RUNTIME_PREFIXES):
+        path = f"src/row_bot/{path}"
     return Path(path).read_text(encoding="utf-8")
 
 
@@ -52,8 +62,8 @@ def test_runtime_brand_assets_are_file_backed_and_visible():
     assert 'ui.label("Personal AI Sovereignty")' not in sidebar_src
     assert "APP_BRAND_ACCENT" in sidebar_src
 
-    assert '_APP_ICON_PATH = Path(__file__).resolve().parent / "row-bot.ico"' in launcher_src
-    assert '_APP_GLYPH_PATH = Path(__file__).resolve().parent / "static" / "row_bot_glyph_256.png"' in launcher_src
+    assert "_APP_ICON_PATH = app_icon_path()" in launcher_src
+    assert '_APP_GLYPH_PATH = static_dir() / "row_bot_glyph_256.png"' in launcher_src
     assert "tk.PhotoImage(file=GLYPH_PATH)" in launcher_src
     assert 'text="RB"' in launcher_src
     assert "\\U0001305F" not in launcher_src

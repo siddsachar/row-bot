@@ -5,8 +5,8 @@ from pathlib import Path
 
 
 def test_brand_constants_define_row_bot_identity():
-    import brand
-    from version import __version__
+    import row_bot.brand as brand
+    from row_bot.version import __version__
 
     assert __version__ == "4.0.0"
     assert brand.APP_DISPLAY_NAME == "Row-Bot"
@@ -29,8 +29,8 @@ def test_brand_constants_define_row_bot_identity():
 
 
 def test_data_path_helpers_default_to_row_bot_target(tmp_path, monkeypatch):
-    import brand
-    import data_paths
+    import row_bot.brand as brand
+    import row_bot.data_paths as data_paths
 
     data_paths = importlib.reload(data_paths)
 
@@ -47,7 +47,7 @@ def test_data_path_helpers_default_to_row_bot_target(tmp_path, monkeypatch):
 
 
 def test_row_bot_data_dir_ignores_legacy_runtime_env(tmp_path, monkeypatch):
-    import data_paths
+    import row_bot.data_paths as data_paths
 
     target = tmp_path / "target"
     legacy = tmp_path / "legacy"

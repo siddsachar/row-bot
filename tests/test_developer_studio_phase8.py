@@ -16,8 +16,8 @@ def _fresh_modules(tmp_path, monkeypatch):
         "tools.custom_tool_builder_tool",
     ]:
         sys.modules.pop(name, None)
-    import developer.storage as storage
-    import developer.tool_capsules as capsules
+    import row_bot.developer.storage as storage
+    import row_bot.developer.tool_capsules as capsules
 
     importlib.reload(storage)
     return importlib.reload(capsules)
@@ -237,7 +237,7 @@ def test_custom_tool_ai_generator_uses_repo_brief_and_validates_commands(tmp_pat
         def invoke(self, _messages):
             return _FakeMessage()
 
-    import models
+    import row_bot.models as models
 
     monkeypatch.setattr(models, "get_current_model", lambda: "fake")
     monkeypatch.setattr(models, "get_llm_for", lambda _model: _FakeLLM())
@@ -596,8 +596,8 @@ def test_tool_capsule_promotion_registers_plugin_tool_and_removes_safely(tmp_pat
     )
     promoted = capsules.promote_capsule(capsule.id)
 
-    from plugins import registry as plugin_registry
-    from plugins import state as plugin_state
+    from row_bot.plugins import registry as plugin_registry
+    from row_bot.plugins import state as plugin_state
 
     manifest = plugin_registry.get_manifest(promoted.promoted_plugin_id)
     tool_names = {tool.name for tool in plugin_registry.get_langchain_tools()}

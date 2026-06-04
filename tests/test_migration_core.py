@@ -9,7 +9,7 @@ from pathlib import Path
 
 class MigrationCoreTests(unittest.TestCase):
     def test_provider_normalization_and_source_serialization(self) -> None:
-        from migration import MigrationProvider, MigrationSource, normalize_provider
+        from row_bot.migration import MigrationProvider, MigrationSource, normalize_provider
 
         self.assertEqual(normalize_provider("hermes-agent"), MigrationProvider.HERMES)
         self.assertEqual(normalize_provider("ClawdBot"), MigrationProvider.OPENCLAW)
@@ -29,14 +29,14 @@ class MigrationCoreTests(unittest.TestCase):
         self.assertEqual(payload["discovered_files"], ["openclaw.json", "workspace/MEMORY.md"])
 
     def test_item_id_is_stable_and_report_safe(self) -> None:
-        from migration import MigrationCategory, make_item_id
+        from row_bot.migration import MigrationCategory, make_item_id
 
         self.assertEqual(make_item_id(MigrationCategory.SKILLS, "Ship It!"), "skills:ship-it")
         self.assertEqual(make_item_id("api_keys", "OPENAI API Key"), "api_keys:openai-api-key")
         self.assertEqual(make_item_id("mcp", ""), "mcp:item")
 
     def test_secret_items_are_not_selected_by_default(self) -> None:
-        from migration import (
+        from row_bot.migration import (
             MigrationAction,
             MigrationCategory,
             MigrationItem,
@@ -57,7 +57,7 @@ class MigrationCoreTests(unittest.TestCase):
         self.assertFalse(item.is_apply_candidate)
 
     def test_archive_only_items_are_never_apply_candidates(self) -> None:
-        from migration import MigrationAction, MigrationCategory, MigrationItem, MigrationStatus
+        from row_bot.migration import MigrationAction, MigrationCategory, MigrationItem, MigrationStatus
 
         item = MigrationItem(
             id="archive:sessions",
@@ -73,7 +73,7 @@ class MigrationCoreTests(unittest.TestCase):
         self.assertFalse(item.is_apply_candidate)
 
     def test_plan_summary_and_blocking_conflict_detection(self) -> None:
-        from migration import (
+        from row_bot.migration import (
             ConflictPolicy,
             MigrationAction,
             MigrationCategory,
@@ -110,7 +110,7 @@ class MigrationCoreTests(unittest.TestCase):
         self.assertEqual(set(plan.items_by_category()), {"skills", "identity", "archive"})
 
     def test_redacted_plan_serialization_masks_nested_secrets(self) -> None:
-        from migration import MigrationAction, MigrationCategory, MigrationItem, MigrationPlan, MigrationSource, REDACTED
+        from row_bot.migration import MigrationAction, MigrationCategory, MigrationItem, MigrationPlan, MigrationSource, REDACTED
 
         source = MigrationSource.from_path("hermes", "C:/Users/test/.hermes", found=True)
         item = MigrationItem(
@@ -137,7 +137,7 @@ class MigrationCoreTests(unittest.TestCase):
         self.assertIn("\"1\"", raw_text)
 
     def test_unredacted_serialization_is_available_for_internal_apply(self) -> None:
-        from migration import MigrationAction, MigrationCategory, MigrationItem, MigrationPlan, MigrationSource
+        from row_bot.migration import MigrationAction, MigrationCategory, MigrationItem, MigrationPlan, MigrationSource
 
         source = MigrationSource.from_path("hermes", "C:/Users/test/.hermes", found=True)
         item = MigrationItem(

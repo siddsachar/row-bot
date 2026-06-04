@@ -9,9 +9,9 @@ def _fresh_modules(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
     for name in ["developer.todos", "developer.review", "developer.storage"]:
         sys.modules.pop(name, None)
-    import developer.todos as todos
-    import developer.review as review
-    import developer.storage as storage
+    import row_bot.developer.todos as todos
+    import row_bot.developer.review as review
+    import row_bot.developer.storage as storage
 
     return importlib.reload(todos), importlib.reload(review), importlib.reload(storage)
 

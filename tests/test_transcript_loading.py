@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 def test_langchain_messages_to_ui_messages_preserves_visible_shapes():
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-    from ui.helpers import langchain_messages_to_ui_messages
+    from row_bot.ui.helpers import langchain_messages_to_ui_messages
 
     messages = [
         HumanMessage(content=[
@@ -38,7 +38,7 @@ def test_langchain_messages_to_ui_messages_preserves_visible_shapes():
 
 def test_langchain_messages_to_ui_messages_does_not_surface_reasoning_only_planning_after_vision_tool():
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-    from ui.helpers import langchain_messages_to_ui_messages
+    from row_bot.ui.helpers import langchain_messages_to_ui_messages
 
     messages = [
         HumanMessage(content="what do you see?"),
@@ -56,7 +56,7 @@ def test_langchain_messages_to_ui_messages_does_not_surface_reasoning_only_plann
 
 
 def test_process_attached_files_does_not_mark_failed_vision_as_analyzed():
-    from ui.helpers import process_attached_files
+    from row_bot.ui.helpers import process_attached_files
 
     class _Vision:
         enabled = True
@@ -81,13 +81,15 @@ def test_process_attached_files_does_not_mark_failed_vision_as_analyzed():
 def test_load_thread_messages_does_not_import_or_call_agent_graph(monkeypatch):
     from langchain_core.messages import AIMessage, HumanMessage
     import sys
-    import threads
-    import ui.helpers as helpers
+    import row_bot.threads as threads
+    import row_bot.ui.helpers as helpers
 
     def _boom(*args, **kwargs):
         raise AssertionError("get_agent_graph should not be used for transcript loading")
 
-    monkeypatch.setitem(sys.modules, "agent", SimpleNamespace(get_agent_graph=_boom))
+    fake_agent = SimpleNamespace(get_agent_graph=_boom)
+    monkeypatch.setitem(sys.modules, "agent", fake_agent)
+    monkeypatch.setitem(sys.modules, "row_bot.agent", fake_agent)
     monkeypatch.setattr(threads, "get_latest_checkpoint_messages", lambda thread_id: [
         HumanMessage(content="question"),
         AIMessage(content="answer"),
@@ -100,7 +102,7 @@ def test_load_thread_messages_does_not_import_or_call_agent_graph(monkeypatch):
 
 
 def test_get_latest_checkpoint_messages_reads_checkpointer_without_graph(monkeypatch):
-    import threads
+    import row_bot.threads as threads
 
     raw_messages = [object()]
 
@@ -117,8 +119,8 @@ def test_get_latest_checkpoint_messages_reads_checkpointer_without_graph(monkeyp
 def test_get_token_usage_reads_checkpoint_without_agent_graph(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
     from langchain_core.messages import HumanMessage
-    import agent
-    import threads
+    import row_bot.agent as agent
+    import row_bot.threads as threads
 
     def _boom(*args, **kwargs):
         raise AssertionError("get_agent_graph should not be used for token usage")
@@ -134,7 +136,7 @@ def test_get_token_usage_reads_checkpoint_without_agent_graph(tmp_path, monkeypa
 
 def test_append_checkpoint_messages_uses_checkpointer_string_versions(monkeypatch):
     from langchain_core.messages import HumanMessage
-    import threads
+    import row_bot.threads as threads
 
     writes = {}
 
@@ -169,7 +171,7 @@ def test_append_checkpoint_messages_uses_checkpointer_string_versions(monkeypatc
 
 def test_append_checkpoint_messages_repairs_legacy_int_versions(monkeypatch):
     from langchain_core.messages import HumanMessage
-    import threads
+    import row_bot.threads as threads
 
     writes = {}
 

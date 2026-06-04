@@ -18,7 +18,7 @@ class MigrationWizardUiTests(unittest.TestCase):
         self.assertGreater(settings_source.index("Open Migration Wizard"), settings_source.index("build_update_section"))
 
     def test_wizard_guidance_describes_safe_flow(self) -> None:
-        from ui.migration_wizard import field_help_text, wizard_step_titles, workflow_steps
+        from row_bot.ui.migration_wizard import field_help_text, wizard_step_titles, workflow_steps
 
         steps = workflow_steps()
         titles = wizard_step_titles()
@@ -31,7 +31,7 @@ class MigrationWizardUiTests(unittest.TestCase):
         self.assertIn("backed up", field_help_text("overwrite"))
 
     def test_warnings_are_humanized_and_deduplicated(self) -> None:
-        from ui.migration_wizard import friendly_warnings
+        from row_bot.ui.migration_wizard import friendly_warnings
 
         warnings = friendly_warnings((
             "secrets detected; import must be opt-in",
@@ -49,9 +49,9 @@ class MigrationWizardUiTests(unittest.TestCase):
         self.assertNotIn("opt-in", joined)
 
     def test_category_warnings_are_section_specific(self) -> None:
-        from migration import MigrationCategory, MigrationStatus, build_hermes_plan
-        from migration.fixtures import create_realistic_hermes_home
-        from ui.migration_wizard import category_warning_texts
+        from row_bot.migration import MigrationCategory, MigrationStatus, build_hermes_plan
+        from row_bot.migration.fixtures import create_realistic_hermes_home
+        from row_bot.ui.migration_wizard import category_warning_texts
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -75,9 +75,9 @@ class MigrationWizardUiTests(unittest.TestCase):
         self.assertTrue(any("Overwrite is on" in warning for warning in overwrite_identity))
 
     def test_selection_helpers_preserve_plan_metadata(self) -> None:
-        from migration import MigrationCategory, build_hermes_plan
-        from migration.fixtures import create_realistic_hermes_home
-        from ui.migration_wizard import category_counts, plan_with_selected_ids, selected_item_ids, selectable_item_ids
+        from row_bot.migration import MigrationCategory, build_hermes_plan
+        from row_bot.migration.fixtures import create_realistic_hermes_home
+        from row_bot.ui.migration_wizard import category_counts, plan_with_selected_ids, selected_item_ids, selectable_item_ids
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -101,9 +101,9 @@ class MigrationWizardUiTests(unittest.TestCase):
         self.assertEqual(rows["api_keys"]["selected"], 0)
 
     def test_category_cards_and_sections_share_order(self) -> None:
-        from migration import build_hermes_plan
-        from migration.fixtures import create_realistic_hermes_home
-        from ui.migration_wizard import category_counts, ordered_category_items
+        from row_bot.migration import build_hermes_plan
+        from row_bot.migration.fixtures import create_realistic_hermes_home
+        from row_bot.ui.migration_wizard import category_counts, ordered_category_items
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -117,9 +117,9 @@ class MigrationWizardUiTests(unittest.TestCase):
         self.assertEqual(card_order[:3], ["model", "settings", "mcp"])
 
     def test_conflicts_are_selectable_only_with_overwrite(self) -> None:
-        from migration import MigrationStatus, build_hermes_plan
-        from migration.fixtures import create_realistic_hermes_home
-        from ui.migration_wizard import non_selectable_item_note, selectable_category_item_ids, selectable_item_ids
+        from row_bot.migration import MigrationStatus, build_hermes_plan
+        from row_bot.migration.fixtures import create_realistic_hermes_home
+        from row_bot.ui.migration_wizard import non_selectable_item_note, selectable_category_item_ids, selectable_item_ids
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -141,9 +141,9 @@ class MigrationWizardUiTests(unittest.TestCase):
         self.assertEqual(non_selectable_item_note(conflict_item), "Turn on overwrite to select")
 
     def test_apply_report_paths_are_exposed_without_secret_leak(self) -> None:
-        from migration import apply_migration_plan, build_hermes_plan
-        from migration.fixtures import create_realistic_hermes_home
-        from ui.migration_wizard import result_report_paths
+        from row_bot.migration import apply_migration_plan, build_hermes_plan
+        from row_bot.migration.fixtures import create_realistic_hermes_home
+        from row_bot.ui.migration_wizard import result_report_paths
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

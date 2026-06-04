@@ -1,0 +1,229 @@
+"""Thoth UI â€” shared application state.
+
+Contains the singleton ``AppState``, the per-thread ``GenerationState``
+dataclass, the per-client ``P`` page-element holder and the global
+``_active_generations`` registry.
+
+Every UI module receives these objects as explicit parameters â€” no hidden
+closure captures.
+"""
+
+from __future__ import annotations
+
+import threading
+import queue
+from dataclasses import dataclass, field
+from typing import Any
+
+from row_bot.models import get_current_model, get_user_context_size
+from row_bot.voice import get_voice_service
+from row_bot.voice.coordinator import VoiceSessionCoordinator
+from row_bot.voice.runtime import load_voice_runtime_settings
+from row_bot.tts import TTSService
+from row_bot.vision import VisionService
+from row_bot.tools.vision_tool import set_vision_service
+from nicegui import ui
+from row_bot.approval_policy import DEFAULT_APPROVAL_MODE
+
+
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# SHARED APPLICATION STATE (module-level singleton)
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+class AppState:
+    """Shared backend state â€” lives for the lifetime of the server process."""
+
+    def __init__(self) -> None:
+        self.thread_id: str | None = None
+        self.thread_name: str | None = None
+        self.thread_model_override: str = ""  # cloud model override for current thread
+        self.thread_approval_mode: str = DEFAULT_APPROVAL_MODE
+        self.messages: list[dict] = []
+        self.current_model: str = get_current_model()
+        self.context_size: int = get_user_context_size()
+        self.is_generating: bool = False
+        self.stop_event: threading.Event = threading.Event()
+        self.pending_interrupt: dict | None = None
+        self.show_onboarding: bool = False  # set by helpers._is_first_run()
+        self.open_setup_center_on_next_load: bool = False
+        self.voice_enabled: bool = False
+        self.voice_input_mode: str = "talk"
+        self.voice_runtime_settings = load_voice_runtime_settings()
+        self.voice_service = get_voice_service()
+        self.voice_coordinator = VoiceSessionCoordinator(self.voice_service)
+        self.tts_service = TTSService()
+        self.vision_service = VisionService()
+        self.tts_service.voice_service = self.voice_coordinator
+        set_vision_service(self.vision_service)
+        self.attached_data_cache: dict[str, bytes] = {}
+        self.active_designer_project = None  # DesignerProject | None
+        self.active_developer_workspace_id: str | None = None
+        self.preferred_home_tab: str | None = None  # tab to select on next rebuild
+        self.preferred_developer_tab: str | None = None  # Developer subtab to select on next rebuild
+        # Per-thread message cache â€” avoids reading the LangGraph checkpoint
+        # on every thread switch.  Keys are thread_ids; values are the
+        # hydrated ``messages`` lists.  ``message_cache_dirty`` marks
+        # threads whose checkpoint has been written to by a background
+        # task (memory extraction, dream cycle, detached run finalize,
+        # summarization) and therefore MUST be re-read on next select.
+        self.message_cache: dict[str, list[dict]] = {}
+        self.message_cache_dirty: set[str] = set()
+
+    # â”€â”€ Message-cache helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    def cache_active_messages(self) -> None:
+        """Snapshot ``self.messages`` into the per-thread cache."""
+        tid = self.thread_id
+        if tid:
+            self.message_cache[tid] = list(self.messages)
+            self.message_cache_dirty.discard(tid)
+
+    def invalidate_thread_cache(self, thread_id: str | None) -> None:
+        """Drop a cached thread (e.g. on delete)."""
+        if not thread_id:
+            return
+        self.message_cache.pop(thread_id, None)
+        self.message_cache_dirty.discard(thread_id)
+
+    def mark_thread_dirty(self, thread_id: str | None) -> None:
+        """Mark a thread's cache stale so the next select re-reads
+        the checkpoint.  Safe to call with ``None`` / unknown ids."""
+        if thread_id and thread_id in self.message_cache:
+            self.message_cache_dirty.add(thread_id)
+
+
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# PER-THREAD GENERATION STATE
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+@dataclass
+class GenerationState:
+    """Tracks an in-flight generation for one thread.
+
+    Allows concurrent streaming across multiple threads.  The consumer
+    task checks ``detached`` before every UI update â€” when the user
+    switches away, UI writes stop but accumulation continues so the
+    response is ready when the user switches back.
+    """
+    thread_id: str
+    q: queue.Queue
+    stop_event: threading.Event
+    config: dict
+    enabled_tools: list
+    # Accumulated output
+    accumulated: str = ""
+    thinking_text: str = ""
+    tool_results: list = field(default_factory=list)
+    pending_tools: dict = field(default_factory=dict)
+    chart_data: list = field(default_factory=list)
+    captured_images: list = field(default_factory=list)
+    captured_images_persist: list = field(default_factory=list)
+    captured_videos: list = field(default_factory=list)
+    captured_videos_persist: list = field(default_factory=list)
+    browser_step_count: int = 0
+    interrupt_data: Any = None
+    interrupt_rendered: bool = False
+    status: str = "streaming"  # streaming | done | error | stopped
+    error: str = ""
+    # TTS / voice
+    voice_mode: bool = False
+    tts_active: bool = False
+    tts_buffer: str = ""
+    tts_spoken: int = 0
+    tts_in_code: bool = False
+    tts_allow_long: bool = False
+    voice_control_queue: list = field(default_factory=list)
+    realtime_tool_call_id: str = ""
+    realtime_tool_name: str = ""
+    realtime_consult_request: str = ""
+    realtime_forced_consult: bool = False
+    realtime_tool_output_sent: bool = False
+    realtime_streamed_speech_chunks: int = 0
+    realtime_stream_finalized: bool = False
+    # Consumer tracking
+    first_content: bool = False
+    thinking_collapsed: bool = False
+    # UI attachment â€” set to None when detached
+    detached: bool = False
+    assistant_md: Any = None
+    thinking_label: Any = None
+    thinking_md: Any = None
+    thinking_expansion: Any = None
+    thinking_code: Any = None
+    tool_col: Any = None
+    wrapper: Any = None
+
+
+# Global registry of active generations keyed by thread_id
+_active_generations: dict[str, GenerationState] = {}
+
+
+# â”€â”€ Startup gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+startup_ready = False
+startup_status = "Startingâ€¦"
+startup_warnings: list[str] = []  # toast messages queued during startup
+
+
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# PER-CLIENT UI ELEMENT HOLDER
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+class P:
+    """Per-client page element references.
+
+    Created once per ``@ui.page`` visit.  Passed to every builder function
+    so they can read/write shared UI elements without closures.
+    """
+    main_col: ui.column = None          # type: ignore[assignment]
+    chat_scroll: ui.scroll_area = None  # type: ignore[assignment]
+    chat_container: ui.column = None    # type: ignore[assignment]
+    thread_container: ui.column = None  # type: ignore[assignment]
+    thread_filter_container: ui.row = None  # type: ignore[assignment]
+    token_label: ui.label = None        # type: ignore[assignment]
+    token_bar: ui.linear_progress = None  # type: ignore[assignment]
+    voice_status_label: ui.label = None  # type: ignore[assignment]
+    stop_btn: ui.button = None          # type: ignore[assignment]
+    voice_switch: Any = None           # type: ignore[assignment]
+    dictate_btn: ui.button = None       # type: ignore[assignment]
+    realtime_event_sink: ui.element = None  # type: ignore[assignment]
+    realtime_client: Any = None
+    active_voice_binding: Any = None
+    pending_files: list[dict] = []
+    transcript_thread_id: str | None = None
+    transcript_generation: int = 0
+    transcript_rendered_keys: list[str] = []
+    transcript_window_start: int = 0
+    transcript_window_size: int = 0
+    transcript_total: int = 0
+    transcript_requested_thread_id: str | None = None
+    transcript_requested_start: int | None = None
+    chat_shell_generation: int = 0
+    chat_upload_js_installed: bool = False
+    file_chips_row: ui.row = None       # type: ignore[assignment]
+    chat_input: ui.textarea = None      # type: ignore[assignment]
+    chat_header_label: ui.label = None  # type: ignore[assignment]
+    model_banner_container: Any = None
+    settings_dlg: ui.dialog = None      # type: ignore[assignment]
+    export_dlg: ui.dialog = None        # type: ignore[assignment]
+    interrupt_dlg: ui.dialog = None     # type: ignore[assignment]
+    task_dlg: ui.dialog = None          # type: ignore[assignment]
+    # Terminal panel elements
+    terminal_toggle_bar: Any = None
+    terminal_panel: ui.column = None    # type: ignore[assignment]
+
+    terminal_chevron: ui.button = None  # type: ignore[assignment]
+    # Command Center (right drawer)
+    command_center_col: ui.column = None  # type: ignore[assignment]
+    # Sidebar avatar
+    sidebar_avatar: Any = None
+    sidebar_avatar_label: Any = None
+    # Designer
+    designer_preview_container: Any = None
+    designer_chat_container: Any = None
+    designer_page_nav: Any = None
+    developer_approval_container: Any = None
+
+    def __init__(self) -> None:
+        self.pending_files = []
+        self.active_voice_binding = None
+        self.chat_shell_generation = 0
+        self.chat_upload_js_installed = False

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from voice.realtime_client import (
+from row_bot.voice.realtime_client import (
     send_realtime_function_output_js,
     send_realtime_run_event_js,
     start_realtime_client_js,

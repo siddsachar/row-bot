@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 def test_attach_thinking_to_message_preserves_nonempty_reasoning():
-    from ui.helpers import attach_thinking_to_message
+    from row_bot.ui.helpers import attach_thinking_to_message
 
     msg = {"role": "assistant", "content": "final answer"}
 
@@ -13,7 +13,7 @@ def test_attach_thinking_to_message_preserves_nonempty_reasoning():
 
 
 def test_attach_thinking_to_message_skips_empty_reasoning():
-    from ui.helpers import attach_thinking_to_message
+    from row_bot.ui.helpers import attach_thinking_to_message
 
     msg = {"role": "assistant", "content": "final answer"}
 

@@ -3,7 +3,7 @@ import queue
 
 
 def test_stream_graph_preserves_text_on_tool_call_chunks():
-    from agent import _stream_graph
+    from row_bot.agent import _stream_graph
 
     class AIMessageChunk:
         def __init__(self, content="", *, tool_calls=None, tool_call_chunks=None):
@@ -59,7 +59,7 @@ def test_stream_graph_preserves_text_on_tool_call_chunks():
 
 
 def test_telegram_stream_consumer_returns_none_when_final_edit_fails():
-    from channels.telegram import _tg_edit_consumer
+    from row_bot.channels.telegram import _tg_edit_consumer
 
     class FakeSentMessage:
         def __init__(self):

@@ -8,14 +8,15 @@ from pathlib import Path
 
 def _reload_skill_modules(tmp_path: Path):
     os.environ["THOTH_DATA_DIR"] = str(tmp_path)
+    os.environ["ROW_BOT_DATA_DIR"] = str(tmp_path)
     for name in ("skills", "skills_activation", "channels.commands"):
         if name in sys.modules:
             importlib.reload(sys.modules[name])
         else:
             importlib.import_module(name)
-    import skills
-    import skills_activation
-    from channels import commands
+    import row_bot.skills as skills
+    import row_bot.skills_activation as skills_activation
+    from row_bot.channels import commands
 
     return skills, skills_activation, commands
 

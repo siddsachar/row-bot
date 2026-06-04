@@ -18,7 +18,7 @@ def data_dir(monkeypatch):
 
 
 def test_workflow_drafts_round_trip_and_delete(data_dir, monkeypatch):
-    import tasks
+    import row_bot.tasks as tasks
 
     monkeypatch.setattr(tasks, "_DB_PATH", str(data_dir / "tasks.db"))
     monkeypatch.setattr(tasks, "_scheduler", None)
@@ -56,7 +56,7 @@ def test_workflow_drafts_round_trip_and_delete(data_dir, monkeypatch):
 
 
 def test_stability_client_error_writes_local_report(data_dir, monkeypatch):
-    import stability
+    import row_bot.stability as stability
 
     stability = importlib.reload(stability)
     report_path = stability.record_client_error(
@@ -148,8 +148,8 @@ def test_stability_source_contracts_are_wired():
 
 
 def test_provider_qualified_cloud_defaults_validate_after_refresh(monkeypatch):
-    import models
-    import providers.codex as codex
+    import row_bot.models as models
+    import row_bot.providers.codex as codex
 
     with models._cloud_cache_lock:
         models._cloud_model_cache.clear()
@@ -168,7 +168,7 @@ def test_provider_qualified_cloud_defaults_validate_after_refresh(monkeypatch):
 
 
 def test_stability_suppresses_benign_windows_proactor_reset():
-    import stability
+    import row_bot.stability as stability
 
     context = {
         "handle": "<Handle _ProactorBasePipeTransport._call_connection_lost()>",
@@ -192,7 +192,7 @@ def test_stability_suppresses_benign_windows_proactor_reset():
 
 def test_checkpoint_cleanup_keeps_latest_and_prunes_old(data_dir, monkeypatch):
     import sqlite3
-    import threads
+    import row_bot.threads as threads
 
     threads = importlib.reload(threads)
     monkeypatch.setattr(threads, "DB_PATH", str(data_dir / "threads.db"))

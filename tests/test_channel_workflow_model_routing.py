@@ -6,9 +6,9 @@ import types
 
 import pytest
 
-import api_keys
-import providers.config as provider_config
-from providers.selection import (
+import row_bot.api_keys as api_keys
+import row_bot.providers.config as provider_config
+from row_bot.providers.selection import (
     add_quick_choice_for_model,
     canonicalize_model_selection,
     ModelSelectionError,
@@ -33,7 +33,7 @@ def _isolated_provider_config(tmp_path, monkeypatch):
 
 def _isolated_tasks_module(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
-    import tasks
+    import row_bot.tasks as tasks
 
     return importlib.reload(tasks)
 
@@ -90,7 +90,7 @@ def test_phase3_telegram_model_command_stores_canonical_ref():
 
 def test_phase3_telegram_thread_reload_keeps_full_model_ref(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "threads"))
-    import threads
+    import row_bot.threads as threads
 
     threads = importlib.reload(threads)
     ref = "model:custom_openai_lmstudio:qwen3.6-35b-a3b"
@@ -105,7 +105,7 @@ def test_phase3_telegram_thread_reload_keeps_full_model_ref(tmp_path, monkeypatc
 
 def test_phase0_workflow_delivery_status_is_separate_from_routing(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
-    import tasks
+    import row_bot.tasks as tasks
 
     tasks = importlib.reload(tasks)
     task = {"name": "Delivery Only", "delivery_channel": "", "channels": []}
@@ -287,6 +287,7 @@ def test_phase4_failed_custom_workflow_does_not_retry_default_provider(tmp_path,
 
     fake_agent.invoke_agent = _invoke_agent
     monkeypatch.setitem(sys.modules, "agent", fake_agent)
+    monkeypatch.setitem(sys.modules, "row_bot.agent", fake_agent)
 
     class _ImmediateThread:
         def __init__(self, target, *args, **kwargs):
@@ -329,6 +330,7 @@ def test_phase5_delivery_failure_is_separate_from_execution_success(tmp_path, mo
         repair_orphaned_tool_calls=lambda *_args, **_kwargs: None,
     )
     monkeypatch.setitem(sys.modules, "agent", fake_agent)
+    monkeypatch.setitem(sys.modules, "row_bot.agent", fake_agent)
 
     class _ImmediateThread:
         def __init__(self, target, *args, **kwargs):
@@ -365,7 +367,7 @@ def test_phase6_shared_model_command_is_provider_aware_and_read_only(tmp_path, m
         provider_id="custom_openai_lmstudio",
         display_name="Qwen Local",
     )
-    import channels.commands as commands
+    import row_bot.channels.commands as commands
 
     response = commands.cmd_model("Slack", "Qwen Local")
 
@@ -384,7 +386,7 @@ def test_phase6_shared_model_command_ambiguous_bare_fails_clearly(tmp_path, monk
         "models": [{"model_id": "qwen3.6-35b-a3b"}],
     })
     provider_config.save_provider_config(cfg)
-    import channels.commands as commands
+    import row_bot.channels.commands as commands
 
     response = commands.cmd_model("Discord", "qwen3.6-35b-a3b")
 
@@ -464,7 +466,7 @@ def test_phase9_legacy_model_diagnostics_are_read_only(tmp_path, monkeypatch):
         )
         conn.commit()
 
-    import threads
+    import row_bot.threads as threads
 
     threads = importlib.reload(threads)
     threads._save_thread_meta("tg_legacy", "Telegram legacy")

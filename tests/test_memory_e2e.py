@@ -89,7 +89,7 @@ def _cleanup():
     """Remove all test entities created during the run."""
     if _keep_data or not _cleanup_ids:
         return
-    import knowledge_graph as kg
+    import row_bot.knowledge_graph as kg
     try:
         conn = sqlite3.connect(kg.DB_PATH)
         for eid in _cleanup_ids:
@@ -121,8 +121,8 @@ def section_1():
 
     # 1a. Core imports
     try:
-        import knowledge_graph as kg
-        import memory as mem
+        import row_bot.knowledge_graph as kg
+        import row_bot.memory as mem
         record("PASS", "1a: core imports (knowledge_graph, memory)")
     except Exception as e:
         record("FAIL", "1a: core imports", str(e))
@@ -151,7 +151,7 @@ def section_1():
         record("SKIP", "1c: LLM check (fast mode)")
     else:
         try:
-            from models import get_current_model, get_llm_for
+            from row_bot.models import get_current_model, get_llm_for
             from langchain_core.messages import HumanMessage
             model = get_current_model()
             llm = get_llm_for(model)
@@ -174,7 +174,7 @@ def section_1():
 
     # 1e. Embedding model loads
     try:
-        from documents import get_embedding_model
+        from row_bot.documents import get_embedding_model
         emb = get_embedding_model()
         vec = emb.embed_query("test")
         if len(vec) > 0:
@@ -204,8 +204,8 @@ def section_2():
     print("SECTION 2 · Entity CRUD Lifecycle")
     print("=" * 70)
 
-    import knowledge_graph as kg
-    import memory as mem
+    import row_bot.knowledge_graph as kg
+    import row_bot.memory as mem
 
     t = _tag()
 
@@ -393,8 +393,8 @@ def section_3():
     print("SECTION 3 · Semantic Search & FAISS")
     print("=" * 70)
 
-    import knowledge_graph as kg
-    import memory as mem
+    import row_bot.knowledge_graph as kg
+    import row_bot.memory as mem
 
     t = _tag()
 
@@ -529,7 +529,7 @@ def section_4():
     print("SECTION 4 · Graph Structure & Traversal")
     print("=" * 70)
 
-    import knowledge_graph as kg
+    import row_bot.knowledge_graph as kg
 
     t = _tag()
 
@@ -670,7 +670,7 @@ def section_5():
         record("SKIP", "5: LLM extraction (fast mode)")
         return
 
-    from memory_extraction import _extract_from_conversation
+    from row_bot.memory_extraction import _extract_from_conversation
 
     # ── Test conversation with clear, unambiguous facts ──────────────
     t = _tag()
@@ -820,8 +820,8 @@ def section_6():
         record("SKIP", "6: dedup pipeline (fast mode)")
         return
 
-    from memory_extraction import _extract_from_conversation, _dedup_and_save
-    import knowledge_graph as kg
+    from row_bot.memory_extraction import _extract_from_conversation, _dedup_and_save
+    import row_bot.knowledge_graph as kg
 
     t = _tag()
 
@@ -959,8 +959,8 @@ def section_7():
         record("SKIP", "7: dream cycle (fast mode)")
         return
 
-    import knowledge_graph as kg
-    import dream_cycle as dc
+    import row_bot.knowledge_graph as kg
+    import row_bot.dream_cycle as dc
 
     t = _tag()
 
@@ -976,7 +976,7 @@ def section_7():
 
     # ── 7b. _find_thin_entities ──────────────────────────────────────
     try:
-        from dream_cycle import _find_thin_entities
+        from row_bot.dream_cycle import _find_thin_entities
         batch = [
             {"id": "a", "description": "Short"},
             {"id": "b", "description": "This is a longer description that has enough characters to pass"},
@@ -989,7 +989,7 @@ def section_7():
 
     # ── 7c. _merge_entities with real LLM ────────────────────────────
     try:
-        from dream_cycle import _merge_entities
+        from row_bot.dream_cycle import _merge_entities
 
         # Create two near-duplicate entities
         e1 = kg.save_entity("person", f"{PREFIX}JohnSmith_{t}", "Software developer who builds web apps", source="test")
@@ -1030,7 +1030,7 @@ def section_7():
 
     # ── 7d. _enrich_entity with real LLM ─────────────────────────────
     try:
-        from dream_cycle import _enrich_entity
+        from row_bot.dream_cycle import _enrich_entity
 
         thin_entity = kg.save_entity("person", f"{PREFIX}Tina_{t}", "Friend of user", source="test")
         _cleanup_ids.append(thin_entity["id"])
@@ -1054,7 +1054,7 @@ def section_7():
 
     # ── 7e. _infer_relation with real LLM ────────────────────────────
     try:
-        from dream_cycle import _infer_relation
+        from row_bot.dream_cycle import _infer_relation
 
         e_person = kg.save_entity("person", f"{PREFIX}Dave_{t}", "User's colleague at work", source="test")
         _cleanup_ids.append(e_person["id"])
@@ -1117,8 +1117,8 @@ def section_8():
         record("SKIP", "8: full extraction pipeline (fast mode)")
         return
 
-    from memory_extraction import _extract_from_conversation, _dedup_and_save
-    import knowledge_graph as kg
+    from row_bot.memory_extraction import _extract_from_conversation, _dedup_and_save
+    import row_bot.knowledge_graph as kg
 
     t = _tag()
 
@@ -1292,7 +1292,7 @@ def section_9():
     print("SECTION 9 · Graph Integrity & Thread Safety")
     print("=" * 70)
 
-    import knowledge_graph as kg
+    import row_bot.knowledge_graph as kg
     import threading
 
     t = _tag()
@@ -1421,9 +1421,9 @@ def section_10():
     print("SECTION 10 · Edge Cases & Robustness")
     print("=" * 70)
 
-    import knowledge_graph as kg
-    import memory as mem
-    from memory_extraction import _dedup_and_save
+    import row_bot.knowledge_graph as kg
+    import row_bot.memory as mem
+    from row_bot.memory_extraction import _dedup_and_save
 
     t = _tag()
 
@@ -1565,7 +1565,7 @@ def section_11():
         record("SKIP", "11: stress tests (fast mode)")
         return
 
-    from memory_extraction import _extract_from_conversation
+    from row_bot.memory_extraction import _extract_from_conversation
 
     # 11a. Empty conversation
     try:
@@ -1706,7 +1706,7 @@ def section_12():
     print("SECTION 12 · Repair & Maintenance Operations")
     print("=" * 70)
 
-    import knowledge_graph as kg
+    import row_bot.knowledge_graph as kg
 
     t = _tag()
 
@@ -1817,8 +1817,8 @@ def section_13():
     print("SECTION 13 · Document Loading & Chunking")
     print("=" * 70)
 
-    from documents import load_document_text, get_vector_store
-    from document_extraction import _split_into_windows
+    from row_bot.documents import load_document_text, get_vector_store
+    from row_bot.document_extraction import _split_into_windows
 
     test_path = _write_test_doc()
 
@@ -1927,13 +1927,13 @@ def section_14():
         record("SKIP", "14: document extraction (fast mode)")
         return
 
-    from document_extraction import (
+    from row_bot.document_extraction import (
         _map_summarize_window, _reduce_summaries,
         _extract_from_summary, _cross_window_dedup,
         extract_from_document, _split_into_windows,
     )
-    from documents import load_document_text
-    import knowledge_graph as kg
+    from row_bot.documents import load_document_text
+    import row_bot.knowledge_graph as kg
 
     test_path = _write_test_doc()
     t = _tag()
@@ -2147,7 +2147,7 @@ def section_15():
     print("SECTION 15 · Document FAISS & Retrieval")
     print("=" * 70)
 
-    from documents import (
+    from row_bot.documents import (
         get_vector_store, load_and_vectorize_document,
         is_file_processed, load_processed_files,
     )
@@ -2267,11 +2267,11 @@ def section_16():
     print("SECTION 16 · Document Cleanup & Source Deletion")
     print("=" * 70)
 
-    from documents import (
+    from row_bot.documents import (
         get_vector_store, remove_document,
         is_file_processed, load_processed_files,
     )
-    import knowledge_graph as kg
+    import row_bot.knowledge_graph as kg
 
     source_label = f"document:{_TEST_DOC_NAME}"
 

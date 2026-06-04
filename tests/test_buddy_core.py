@@ -6,7 +6,7 @@ import threading
 
 
 def test_buddy_event_bus_assigns_ids_and_retains_recent_events():
-    from buddy.events import BuddyEventBus, BuddyEventType
+    from row_bot.buddy.events import BuddyEventBus, BuddyEventType
 
     bus = BuddyEventBus(max_events=2)
     first = bus.emit(BuddyEventType.GENERATION_STARTED, source="test", payload={"label": "Thinking"})
@@ -19,9 +19,9 @@ def test_buddy_event_bus_assigns_ids_and_retains_recent_events():
 
 
 def test_buddy_brain_maps_events_to_runtime_friendly_state(monkeypatch):
-    import buddy.brain as brain_mod
-    from buddy.brain import BuddyBrain
-    from buddy.events import BuddyEvent, BuddyEventType
+    import row_bot.buddy.brain as brain_mod
+    from row_bot.buddy.brain import BuddyBrain
+    from row_bot.buddy.events import BuddyEvent, BuddyEventType
 
     monkeypatch.setattr(
         brain_mod,
@@ -39,9 +39,9 @@ def test_buddy_brain_maps_events_to_runtime_friendly_state(monkeypatch):
 
 
 def test_buddy_brain_decays_transient_actions_back_to_idle(monkeypatch):
-    import buddy.brain as brain_mod
-    from buddy.brain import BuddyBrain
-    from buddy.events import BuddyEvent, BuddyEventType
+    import row_bot.buddy.brain as brain_mod
+    from row_bot.buddy.brain import BuddyBrain
+    from row_bot.buddy.events import BuddyEvent, BuddyEventType
 
     now = 1000.0
     monkeypatch.setattr(
@@ -64,9 +64,9 @@ def test_buddy_brain_decays_transient_actions_back_to_idle(monkeypatch):
 
 
 def test_buddy_brain_returns_to_active_generation_after_tool_finishes(monkeypatch):
-    import buddy.brain as brain_mod
-    from buddy.brain import BuddyBrain
-    from buddy.events import BuddyEvent, BuddyEventType
+    import row_bot.buddy.brain as brain_mod
+    from row_bot.buddy.brain import BuddyBrain
+    from row_bot.buddy.events import BuddyEvent, BuddyEventType
 
     now = 1000.0
     monkeypatch.setattr(
@@ -96,9 +96,9 @@ def test_buddy_brain_returns_to_active_generation_after_tool_finishes(monkeypatc
 
 
 def test_buddy_brain_clears_approval_on_resolution(monkeypatch):
-    import buddy.brain as brain_mod
-    from buddy.brain import BuddyBrain
-    from buddy.events import BuddyEvent, BuddyEventType
+    import row_bot.buddy.brain as brain_mod
+    from row_bot.buddy.brain import BuddyBrain
+    from row_bot.buddy.events import BuddyEvent, BuddyEventType
 
     now = 1000.0
     monkeypatch.setattr(
@@ -133,9 +133,9 @@ def test_buddy_brain_clears_approval_on_resolution(monkeypatch):
 
 
 def test_buddy_brain_clears_legacy_generic_approval_after_resolution(monkeypatch):
-    import buddy.brain as brain_mod
-    from buddy.brain import BuddyBrain
-    from buddy.events import BuddyEvent, BuddyEventType
+    import row_bot.buddy.brain as brain_mod
+    from row_bot.buddy.brain import BuddyBrain
+    from row_bot.buddy.events import BuddyEvent, BuddyEventType
 
     now = 1000.0
     monkeypatch.setattr(
@@ -164,9 +164,9 @@ def test_buddy_brain_clears_legacy_generic_approval_after_resolution(monkeypatch
 
 
 def test_buddy_tick_processes_approval_resolution_before_later_workflow_events(monkeypatch):
-    import buddy.brain as brain_mod
-    from buddy.brain import BuddyBrain
-    from buddy.events import BuddyEventBus, BuddyEventType
+    import row_bot.buddy.brain as brain_mod
+    from row_bot.buddy.brain import BuddyBrain
+    from row_bot.buddy.events import BuddyEventBus, BuddyEventType
 
     now = 1000.0
     bus = BuddyEventBus()
@@ -199,9 +199,9 @@ def test_buddy_tick_processes_approval_resolution_before_later_workflow_events(m
 
 
 def test_buddy_brain_clears_workflow_after_denied_workflow_cancelled(monkeypatch):
-    import buddy.brain as brain_mod
-    from buddy.brain import BuddyBrain
-    from buddy.events import BuddyEvent, BuddyEventType
+    import row_bot.buddy.brain as brain_mod
+    from row_bot.buddy.brain import BuddyBrain
+    from row_bot.buddy.events import BuddyEvent, BuddyEventType
 
     now = 1000.0
     monkeypatch.setattr(
@@ -229,9 +229,9 @@ def test_buddy_brain_clears_workflow_after_denied_workflow_cancelled(monkeypatch
 
 
 def test_buddy_brain_denied_approval_clears_active_workflow(monkeypatch):
-    import buddy.brain as brain_mod
-    from buddy.brain import BuddyBrain
-    from buddy.events import BuddyEvent, BuddyEventType
+    import row_bot.buddy.brain as brain_mod
+    from row_bot.buddy.brain import BuddyBrain
+    from row_bot.buddy.events import BuddyEvent, BuddyEventType
 
     now = 1000.0
     monkeypatch.setattr(
@@ -257,12 +257,12 @@ def test_buddy_brain_denied_approval_clears_active_workflow(monkeypatch):
 
 
 def test_resume_pipeline_denial_emits_buddy_workflow_cancelled(monkeypatch):
-    import buddy.events as buddy_events
-    import notifications
-    import tasks
-    import threads
-    from buddy.events import BuddyEventType
-    from tools import registry
+    import row_bot.buddy.events as buddy_events
+    import row_bot.notifications as notifications
+    import row_bot.tasks as tasks
+    import row_bot.threads as threads
+    from row_bot.buddy.events import BuddyEventType
+    from row_bot.tools import registry
 
     emitted = []
     statuses = []
@@ -319,7 +319,7 @@ def test_resume_pipeline_denial_emits_buddy_workflow_cancelled(monkeypatch):
 
 
 def test_buddy_config_round_trips_to_temp_data_dir(monkeypatch, tmp_path):
-    import buddy.config as config_mod
+    import row_bot.buddy.config as config_mod
 
     monkeypatch.setattr(config_mod, "_DATA_DIR", tmp_path)
     monkeypatch.setattr(config_mod, "_BUDDY_CONFIG_PATH", tmp_path / "buddy_config.json")
@@ -333,7 +333,7 @@ def test_buddy_config_round_trips_to_temp_data_dir(monkeypatch, tmp_path):
 
 
 def test_buddy_config_loads_utf8_bom_file(monkeypatch, tmp_path):
-    import buddy.config as config_mod
+    import row_bot.buddy.config as config_mod
 
     config_path = tmp_path / "buddy_config.json"
     monkeypatch.setattr(config_mod, "_DATA_DIR", tmp_path)
@@ -347,9 +347,9 @@ def test_buddy_config_loads_utf8_bom_file(monkeypatch, tmp_path):
 
 
 def test_buddy_hatch_preview_generation_saves_preview(monkeypatch, tmp_path):
-    import buddy.assets as assets_mod
-    import buddy.config as config_mod
-    import buddy.hatch as hatch_mod
+    import row_bot.buddy.assets as assets_mod
+    import row_bot.buddy.config as config_mod
+    import row_bot.buddy.hatch as hatch_mod
 
     monkeypatch.setattr(config_mod, "_DATA_DIR", tmp_path)
     monkeypatch.setattr(config_mod, "_BUDDY_CONFIG_PATH", tmp_path / "buddy_config.json")
@@ -366,8 +366,8 @@ def test_buddy_hatch_preview_generation_saves_preview(monkeypatch, tmp_path):
     def _fake_generate(prompt: str, size: str = "auto", quality: str = "auto") -> str:
         return "Image generated successfully"
 
-    monkeypatch.setattr("tools.image_gen_tool._generate_image", _fake_generate)
-    monkeypatch.setattr("tools.image_gen_tool.get_and_clear_last_image", lambda: "iVBORw0KGgo=")
+    monkeypatch.setattr("row_bot.tools.image_gen_tool._generate_image", _fake_generate)
+    monkeypatch.setattr("row_bot.tools.image_gen_tool.get_and_clear_last_image", lambda: "iVBORw0KGgo=")
 
     draft = hatch_mod.generate_hatch_preview("tiny gold owl", pack_id="glyph")
 
@@ -388,10 +388,10 @@ def test_buddy_hatch_preview_generation_saves_preview(monkeypatch, tmp_path):
 
 
 def test_buddy_hatch_buddy_generation_activates_motion(monkeypatch, tmp_path):
-    import buddy.assets as assets_mod
-    import buddy.config as config_mod
-    import buddy.hatch as hatch_mod
-    import tools.video_gen_tool as video_mod
+    import row_bot.buddy.assets as assets_mod
+    import row_bot.buddy.config as config_mod
+    import row_bot.buddy.hatch as hatch_mod
+    import row_bot.tools.video_gen_tool as video_mod
 
     monkeypatch.setattr(config_mod, "_DATA_DIR", tmp_path)
     monkeypatch.setattr(config_mod, "_BUDDY_CONFIG_PATH", tmp_path / "buddy_config.json")
@@ -399,8 +399,8 @@ def test_buddy_hatch_buddy_generation_activates_motion(monkeypatch, tmp_path):
     monkeypatch.setattr(assets_mod, "_BUDDY_STATIC_DIR", tmp_path / "buddy_static")
     monkeypatch.setattr(assets_mod, "_USER_PACKS_DIR", tmp_path / "buddy_static" / "packs")
 
-    monkeypatch.setattr("tools.image_gen_tool._generate_image", lambda *args, **kwargs: "Image generated")
-    monkeypatch.setattr("tools.image_gen_tool.get_and_clear_last_image", lambda: "iVBORw0KGgo=")
+    monkeypatch.setattr("row_bot.tools.image_gen_tool._generate_image", lambda *args, **kwargs: "Image generated")
+    monkeypatch.setattr("row_bot.tools.image_gen_tool.get_and_clear_last_image", lambda: "iVBORw0KGgo=")
 
     generated_filenames: list[str] = []
 
@@ -426,7 +426,7 @@ def test_buddy_hatch_buddy_generation_activates_motion(monkeypatch, tmp_path):
         assert duration_seconds == 5
         return "Video generated"
 
-    monkeypatch.setattr("tools.video_gen_tool._animate_image", _fake_animate)
+    monkeypatch.setattr("row_bot.tools.video_gen_tool._animate_image", _fake_animate)
 
     draft = hatch_mod.generate_hatch_buddy("tiny gold owl", pack_id="glyph")
 
@@ -452,10 +452,10 @@ def test_buddy_hatch_buddy_generation_activates_motion(monkeypatch, tmp_path):
 
 
 def test_buddy_hatch_motion_pack_can_force_fresh_generation(monkeypatch, tmp_path):
-    import buddy.assets as assets_mod
-    import buddy.config as config_mod
-    import buddy.hatch as hatch_mod
-    import tools.video_gen_tool as video_mod
+    import row_bot.buddy.assets as assets_mod
+    import row_bot.buddy.config as config_mod
+    import row_bot.buddy.hatch as hatch_mod
+    import row_bot.tools.video_gen_tool as video_mod
 
     monkeypatch.setattr(config_mod, "_DATA_DIR", tmp_path)
     monkeypatch.setattr(config_mod, "_BUDDY_CONFIG_PATH", tmp_path / "buddy_config.json")
@@ -482,7 +482,7 @@ def test_buddy_hatch_motion_pack_can_force_fresh_generation(monkeypatch, tmp_pat
         video_mod._last_generated_video = {"path": str(motion_path), "filename": motion_path.name}
         return "Video generated"
 
-    monkeypatch.setattr("tools.video_gen_tool._animate_image", _fake_animate)
+    monkeypatch.setattr("row_bot.tools.video_gen_tool._animate_image", _fake_animate)
 
     draft = hatch_mod.generate_hatch_motion_pack("tiny gold owl", preview, pack_id="glyph", reuse_existing=False)
 
@@ -493,10 +493,10 @@ def test_buddy_hatch_motion_pack_can_force_fresh_generation(monkeypatch, tmp_pat
 
 def test_buddy_hatch_retry_motion_preserves_user_pack_manifest(monkeypatch, tmp_path):
     import json
-    import buddy.assets as assets_mod
-    import buddy.config as config_mod
-    import buddy.hatch as hatch_mod
-    import tools.video_gen_tool as video_mod
+    import row_bot.buddy.assets as assets_mod
+    import row_bot.buddy.config as config_mod
+    import row_bot.buddy.hatch as hatch_mod
+    import row_bot.tools.video_gen_tool as video_mod
 
     monkeypatch.setattr(config_mod, "_DATA_DIR", tmp_path)
     monkeypatch.setattr(config_mod, "_BUDDY_CONFIG_PATH", tmp_path / "buddy_config.json")
@@ -520,7 +520,7 @@ def test_buddy_hatch_retry_motion_preserves_user_pack_manifest(monkeypatch, tmp_
         video_mod._last_generated_video = {"path": str(motion_path), "filename": motion_path.name}
         return "Video generated"
 
-    monkeypatch.setattr("tools.video_gen_tool._animate_image", _fake_animate)
+    monkeypatch.setattr("row_bot.tools.video_gen_tool._animate_image", _fake_animate)
 
     draft = hatch_mod.generate_hatch_motion_pack("A tiny dog named Honey", preview, pack_id="hatch-existing", reuse_existing=False)
 
@@ -536,7 +536,7 @@ def test_buddy_hatch_retry_motion_preserves_user_pack_manifest(monkeypatch, tmp_
 
 
 def test_buddy_hatch_google_pacing_only_applies_to_real_google_generator(monkeypatch):
-    import buddy.hatch as hatch_mod
+    import row_bot.buddy.hatch as hatch_mod
 
     monkeypatch.setattr(hatch_mod, "_configured_video_model", lambda: "google/veo-3.1-generate-preview")
     monkeypatch.setenv("THOTH_BUDDY_GOOGLE_VIDEO_SPACING_SECONDS", "15")
@@ -547,7 +547,7 @@ def test_buddy_hatch_google_pacing_only_applies_to_real_google_generator(monkeyp
 
 def test_buddy_loader_recovers_overwritten_hatch_motion_pack_manifest(monkeypatch, tmp_path):
     import json
-    import buddy.assets as assets_mod
+    import row_bot.buddy.assets as assets_mod
 
     monkeypatch.setattr(assets_mod, "_BUDDY_STATIC_DIR", tmp_path / "buddy_static")
     monkeypatch.setattr(assets_mod, "_USER_PACKS_DIR", tmp_path / "buddy_static" / "packs")
@@ -583,7 +583,7 @@ def test_buddy_loader_recovers_overwritten_hatch_motion_pack_manifest(monkeypatc
 
 def test_buddy_loader_maps_stale_legacy_absolute_hatch_paths(monkeypatch, tmp_path):
     import json
-    import buddy.assets as assets_mod
+    import row_bot.buddy.assets as assets_mod
 
     row_bot_static = tmp_path / ".row-bot" / "buddy"
     monkeypatch.setattr(assets_mod, "_BUDDY_STATIC_DIR", row_bot_static)
@@ -623,9 +623,9 @@ def test_buddy_loader_maps_stale_legacy_absolute_hatch_paths(monkeypatch, tmp_pa
 
 def test_buddy_hatch_motion_pack_activation_copies_manifest_and_clips(monkeypatch, tmp_path):
     import json
-    import buddy.assets as assets_mod
-    import buddy.config as config_mod
-    import buddy.hatch as hatch_mod
+    import row_bot.buddy.assets as assets_mod
+    import row_bot.buddy.config as config_mod
+    import row_bot.buddy.hatch as hatch_mod
 
     monkeypatch.setattr(config_mod, "_DATA_DIR", tmp_path)
     monkeypatch.setattr(config_mod, "_BUDDY_CONFIG_PATH", tmp_path / "buddy_config.json")
@@ -657,9 +657,9 @@ def test_buddy_hatch_motion_pack_activation_copies_manifest_and_clips(monkeypatc
 
 
 def test_buddy_hatch_activation_copies_existing_preview(monkeypatch, tmp_path):
-    import buddy.assets as assets_mod
-    import buddy.config as config_mod
-    import buddy.hatch as hatch_mod
+    import row_bot.buddy.assets as assets_mod
+    import row_bot.buddy.config as config_mod
+    import row_bot.buddy.hatch as hatch_mod
 
     monkeypatch.setattr(config_mod, "_DATA_DIR", tmp_path)
     monkeypatch.setattr(config_mod, "_BUDDY_CONFIG_PATH", tmp_path / "buddy_config.json")
@@ -675,9 +675,9 @@ def test_buddy_hatch_activation_copies_existing_preview(monkeypatch, tmp_path):
 
 
 def test_buddy_hatch_motion_activation_copies_existing_video(monkeypatch, tmp_path):
-    import buddy.assets as assets_mod
-    import buddy.config as config_mod
-    import buddy.hatch as hatch_mod
+    import row_bot.buddy.assets as assets_mod
+    import row_bot.buddy.config as config_mod
+    import row_bot.buddy.hatch as hatch_mod
 
     monkeypatch.setattr(config_mod, "_DATA_DIR", tmp_path)
     monkeypatch.setattr(config_mod, "_BUDDY_CONFIG_PATH", tmp_path / "buddy_config.json")
@@ -693,7 +693,7 @@ def test_buddy_hatch_motion_activation_copies_existing_video(monkeypatch, tmp_pa
 
 
 def test_builtin_buddy_pack_contract_is_explicit():
-    from buddy.assets import REQUIRED_MOTION_CLIPS, list_buddy_packs, load_buddy_pack, static_url_for_path
+    from row_bot.buddy.assets import REQUIRED_MOTION_CLIPS, list_buddy_packs, load_buddy_pack, static_url_for_path
 
     expected_pack_ids = {"ember", "glyph", "lumen", "orbit", "pixel", "sprout"}
     expected_animation_map = {
@@ -738,7 +738,7 @@ def test_builtin_buddy_pack_contract_is_explicit():
 
 
 def test_buddy_hatch_motion_map_keeps_denial_out_of_approval_clip():
-    import buddy.hatch as hatch_mod
+    import row_bot.buddy.hatch as hatch_mod
 
     approval_spec = next(spec for spec in hatch_mod.MOTION_CLIP_SPECS if spec.id == "approval")
     error_spec = next(spec for spec in hatch_mod.MOTION_CLIP_SPECS if spec.id == "error")
@@ -750,13 +750,13 @@ def test_buddy_hatch_motion_map_keeps_denial_out_of_approval_clip():
 
 
 def test_buddy_hatch_motion_specs_use_provider_supported_duration():
-    import buddy.hatch as hatch_mod
+    import row_bot.buddy.hatch as hatch_mod
 
     assert all(spec.duration_seconds >= 5 for spec in hatch_mod.MOTION_CLIP_SPECS)
 
 
 def test_buddy_hatch_image_prompt_requests_single_avatar_not_pose_sheet():
-    import buddy.hatch as hatch_mod
+    import row_bot.buddy.hatch as hatch_mod
 
     prompt = hatch_mod._buddy_image_prompt("A tiny dog named Honey")
 
@@ -770,7 +770,7 @@ def test_buddy_hatch_image_prompt_requests_single_avatar_not_pose_sheet():
 
 
 def test_buddy_hatch_motion_prompt_keeps_avatar_framing_stable():
-    import buddy.hatch as hatch_mod
+    import row_bot.buddy.hatch as hatch_mod
 
     prompt = hatch_mod._buddy_motion_prompt("A tiny dog named Honey", "idle")
 
@@ -790,7 +790,7 @@ def test_buddy_hatch_motion_prompt_keeps_avatar_framing_stable():
 
 
 def test_buddy_hatch_preserves_opaque_full_frame_motion_source(tmp_path):
-    import buddy.hatch as hatch_mod
+    import row_bot.buddy.hatch as hatch_mod
     from PIL import Image
 
     preview = tmp_path / "preview.png"
@@ -809,7 +809,7 @@ def test_buddy_hatch_preserves_opaque_full_frame_motion_source(tmp_path):
 
 
 def test_buddy_hatch_composites_transparent_motion_source(tmp_path):
-    import buddy.hatch as hatch_mod
+    import row_bot.buddy.hatch as hatch_mod
     from PIL import Image
 
     preview = tmp_path / "preview.png"
@@ -827,7 +827,7 @@ def test_buddy_hatch_composites_transparent_motion_source(tmp_path):
 
 
 def test_stop_task_emits_buddy_cancel_immediately(monkeypatch):
-    import tasks as tasks_mod
+    import row_bot.tasks as tasks_mod
 
     seen: list[tuple[str, dict[str, str]]] = []
 
@@ -853,7 +853,7 @@ def test_stop_task_emits_buddy_cancel_immediately(monkeypatch):
 
 
 def test_buddy_hatch_background_job_starts_without_blocking(monkeypatch):
-    import buddy.hatch as hatch_mod
+    import row_bot.buddy.hatch as hatch_mod
 
     with hatch_mod._JOB_LOCK:
         hatch_mod._CURRENT_JOB.clear()
@@ -890,8 +890,8 @@ def test_buddy_hatch_background_job_starts_without_blocking(monkeypatch):
 
 
 def test_buddy_hatch_can_switch_user_pack_back_to_still_only(monkeypatch, tmp_path):
-    import buddy.assets as assets_mod
-    import buddy.hatch as hatch_mod
+    import row_bot.buddy.assets as assets_mod
+    import row_bot.buddy.hatch as hatch_mod
 
     monkeypatch.setattr(assets_mod, "_BUDDY_STATIC_DIR", tmp_path / "buddy_static")
     monkeypatch.setattr(assets_mod, "_USER_PACKS_DIR", tmp_path / "buddy_static" / "packs")
@@ -909,8 +909,8 @@ def test_buddy_hatch_can_switch_user_pack_back_to_still_only(monkeypatch, tmp_pa
 
 
 def test_buddy_can_delete_generated_hatch_pack(monkeypatch, tmp_path):
-    import buddy.assets as assets_mod
-    import buddy.hatch as hatch_mod
+    import row_bot.buddy.assets as assets_mod
+    import row_bot.buddy.hatch as hatch_mod
 
     monkeypatch.setattr(assets_mod, "_BUDDY_STATIC_DIR", tmp_path / "buddy_static")
     monkeypatch.setattr(assets_mod, "_USER_PACKS_DIR", tmp_path / "buddy_static" / "packs")
@@ -926,7 +926,7 @@ def test_buddy_can_delete_generated_hatch_pack(monkeypatch, tmp_path):
 
 
 def test_buddy_delete_generated_pack_rejects_bundled_pack_ids():
-    import buddy.assets as assets_mod
+    import row_bot.buddy.assets as assets_mod
 
     try:
         assets_mod.delete_generated_buddy_pack("glyph")
@@ -937,9 +937,9 @@ def test_buddy_delete_generated_pack_rejects_bundled_pack_ids():
 
 
 def test_buddy_brain_decays_stale_event_to_idle(monkeypatch):
-    import buddy.brain as brain_mod
-    from buddy.brain import BuddyBrain
-    from buddy.events import BuddyEvent, BuddyEventType
+    import row_bot.buddy.brain as brain_mod
+    from row_bot.buddy.brain import BuddyBrain
+    from row_bot.buddy.events import BuddyEvent, BuddyEventType
 
     monkeypatch.setattr(
         brain_mod,
@@ -957,7 +957,7 @@ def test_buddy_brain_decays_stale_event_to_idle(monkeypatch):
 
 
 def test_buddy_rive_asset_install_uses_user_static_dir(monkeypatch, tmp_path):
-    import buddy.assets as assets_mod
+    import row_bot.buddy.assets as assets_mod
 
     user_static = tmp_path / "buddy"
     monkeypatch.setattr(assets_mod, "_BUDDY_STATIC_DIR", user_static)
@@ -975,7 +975,7 @@ def test_buddy_rive_asset_install_uses_user_static_dir(monkeypatch, tmp_path):
 
 
 def test_buddy_import_surface_is_stable():
-    buddy = importlib.import_module("buddy")
+    buddy = importlib.import_module("row_bot.buddy")
 
     assert hasattr(buddy, "BuddyEventType")
     assert hasattr(buddy, "emit_buddy_event")

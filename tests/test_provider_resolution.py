@@ -1,7 +1,7 @@
-import providers.config as provider_config
-from providers.custom import custom_provider_id, save_custom_endpoint
-from providers.models import TransportMode
-from providers.resolution import resolve_provider_config
+import row_bot.providers.config as provider_config
+from row_bot.providers.custom import custom_provider_id, save_custom_endpoint
+from row_bot.providers.models import TransportMode
+from row_bot.providers.resolution import resolve_provider_config
 
 
 def test_resolve_provider_config_preserves_ollama_identity():

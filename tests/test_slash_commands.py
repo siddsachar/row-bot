@@ -8,14 +8,20 @@ from pathlib import Path
 
 def _reload_skill_command_modules(tmp_path: Path):
     os.environ["THOTH_DATA_DIR"] = str(tmp_path)
-    for name in ("skills", "skills_activation", "slash_commands"):
+    os.environ["ROW_BOT_DATA_DIR"] = str(tmp_path)
+    modules = [
+        "row_bot.skills",
+        "row_bot.skills_activation",
+        "row_bot.slash_commands",
+    ]
+    for name in modules:
         if name in sys.modules:
             importlib.reload(sys.modules[name])
         else:
             importlib.import_module(name)
-    import skills
-    import skills_activation
-    import slash_commands
+    import row_bot.skills as skills
+    import row_bot.skills_activation as skills_activation
+    import row_bot.slash_commands as slash_commands
 
     return skills, skills_activation, slash_commands
 
@@ -178,7 +184,7 @@ def test_prompt_injection_and_tool_guide_separation_for_runtime_commands(tmp_pat
     assert "alpha_skill" in command_names
     assert "alpha_tool_guide" not in command_names
 
-    import agent
+    import row_bot.agent as agent
     from langchain_core.messages import HumanMessage
 
     thread_id = "slash-prompt-thread"

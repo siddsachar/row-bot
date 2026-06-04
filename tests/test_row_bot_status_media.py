@@ -16,8 +16,8 @@ def _isolated_row_bot_data(tmp_path, monkeypatch):
 
 
 def test_row_bot_status_normalizes_dynamic_image_model_label(monkeypatch):
-    import tools.image_gen_tool as image_gen_tool
-    from tools.row_bot_status_tool import _normalize_provider_model_value
+    import row_bot.tools.image_gen_tool as image_gen_tool
+    from row_bot.tools.row_bot_status_tool import _normalize_provider_model_value
 
     monkeypatch.setattr(image_gen_tool, "get_available_image_models", lambda: {
         "openai/gpt-image-2": "⬡  GPT Image 2  (OpenAI)",
@@ -30,8 +30,8 @@ def test_row_bot_status_normalizes_dynamic_image_model_label(monkeypatch):
 
 
 def test_row_bot_status_normalizes_dynamic_video_model_label(monkeypatch):
-    import tools.video_gen_tool as video_gen_tool
-    from tools.row_bot_status_tool import _normalize_provider_model_value
+    import row_bot.tools.video_gen_tool as video_gen_tool
+    from row_bot.tools.row_bot_status_tool import _normalize_provider_model_value
 
     monkeypatch.setattr(video_gen_tool, "get_available_video_models", lambda: {
         "google/veo-3.1-generate-preview": "💎  Veo 3.1  (Google)",
@@ -43,8 +43,8 @@ def test_row_bot_status_normalizes_dynamic_video_model_label(monkeypatch):
 
 
 def test_row_bot_status_leaves_ambiguous_media_bare_id_unchanged(monkeypatch):
-    import tools.image_gen_tool as image_gen_tool
-    from tools.row_bot_status_tool import _normalize_provider_model_value
+    import row_bot.tools.image_gen_tool as image_gen_tool
+    from row_bot.tools.row_bot_status_tool import _normalize_provider_model_value
 
     monkeypatch.setattr(image_gen_tool, "get_available_image_models", lambda: {
         "openai/shared-image": "⬡  Shared Image  (OpenAI)",
@@ -55,7 +55,7 @@ def test_row_bot_status_leaves_ambiguous_media_bare_id_unchanged(monkeypatch):
 
 
 def test_row_bot_status_voice_reports_runtime_and_realtime(monkeypatch):
-    from tools.row_bot_status_tool import _query_voice
+    from row_bot.tools.row_bot_status_tool import _query_voice
 
     monkeypatch.setattr("voice.openai_realtime.get_key", lambda name: "")
 
@@ -83,8 +83,8 @@ def test_row_bot_status_voice_reports_active_run_controls(monkeypatch):
     import threading
     from types import SimpleNamespace
 
-    from tools.row_bot_status_tool import _query_voice
-    from ui.state import _active_generations
+    from row_bot.tools.row_bot_status_tool import _query_voice
+    from row_bot.ui.state import _active_generations
 
     monkeypatch.setattr("voice.openai_realtime.get_key", lambda name: "")
     _active_generations.clear()
@@ -109,10 +109,10 @@ def test_row_bot_status_voice_reports_active_run_controls(monkeypatch):
 
 def test_row_bot_status_media_update_seeds_quick_choices(monkeypatch):
     import langgraph.types
-    import providers.selection as provider_selection
-    import tools.image_gen_tool as image_gen_tool
-    import tools.registry as tool_registry
-    from tools.row_bot_status_tool import _update_setting
+    import row_bot.providers.selection as provider_selection
+    import row_bot.tools.image_gen_tool as image_gen_tool
+    import row_bot.tools.registry as tool_registry
+    from row_bot.tools.row_bot_status_tool import _update_setting
 
     calls = []
     monkeypatch.setattr(langgraph.types, "interrupt", lambda payload: True)
@@ -130,10 +130,10 @@ def test_row_bot_status_media_update_seeds_quick_choices(monkeypatch):
 
 
 def test_row_bot_status_rejects_unknown_provider_chat_model(tmp_path, monkeypatch):
-    import api_keys
-    import models
-    import providers.config as provider_config
-    from tools.row_bot_status_tool import _resolve_model_update_value
+    import row_bot.api_keys as api_keys
+    import row_bot.models as models
+    import row_bot.providers.config as provider_config
+    from row_bot.tools.row_bot_status_tool import _resolve_model_update_value
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
@@ -148,10 +148,10 @@ def test_row_bot_status_rejects_unknown_provider_chat_model(tmp_path, monkeypatc
 
 
 def test_row_bot_status_allows_installed_unknown_local_chat_model(tmp_path, monkeypatch):
-    import api_keys
-    import models
-    import providers.config as provider_config
-    from tools.row_bot_status_tool import _resolve_model_update_value
+    import row_bot.api_keys as api_keys
+    import row_bot.models as models
+    import row_bot.providers.config as provider_config
+    from row_bot.tools.row_bot_status_tool import _resolve_model_update_value
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
@@ -166,10 +166,10 @@ def test_row_bot_status_allows_installed_unknown_local_chat_model(tmp_path, monk
 
 
 def test_row_bot_status_rejects_local_model_without_vision_metadata(tmp_path, monkeypatch):
-    import api_keys
-    import models
-    import providers.config as provider_config
-    from tools.row_bot_status_tool import _resolve_model_update_value
+    import row_bot.api_keys as api_keys
+    import row_bot.models as models
+    import row_bot.providers.config as provider_config
+    from row_bot.tools.row_bot_status_tool import _resolve_model_update_value
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
@@ -184,12 +184,12 @@ def test_row_bot_status_rejects_local_model_without_vision_metadata(tmp_path, mo
 
 
 def test_row_bot_status_vision_model_update_persists_valid_model(tmp_path, monkeypatch):
-    import api_keys
+    import row_bot.api_keys as api_keys
     import langgraph.types
-    import models
-    import providers.config as provider_config
-    import tools.vision_tool as vision_tool
-    from tools.row_bot_status_tool import _update_setting
+    import row_bot.models as models
+    import row_bot.providers.config as provider_config
+    import row_bot.tools.vision_tool as vision_tool
+    from row_bot.tools.row_bot_status_tool import _update_setting
 
     calls = []
     vision_service = SimpleNamespace(model="moondream:latest")
@@ -200,7 +200,9 @@ def test_row_bot_status_vision_model_update_persists_valid_model(tmp_path, monke
     monkeypatch.setattr(models, "list_cloud_models", lambda provider=None: [])
     monkeypatch.setattr(models, "list_cloud_vision_models", lambda: [])
     monkeypatch.setattr(vision_tool, "_get_vision_service", lambda: vision_service)
-    monkeypatch.setitem(sys.modules, "agent", SimpleNamespace(clear_agent_cache=lambda: calls.append("clear")))
+    fake_agent = SimpleNamespace(clear_agent_cache=lambda: calls.append("clear"))
+    monkeypatch.setitem(sys.modules, "agent", fake_agent)
+    monkeypatch.setitem(sys.modules, "row_bot.agent", fake_agent)
 
     result = _update_setting("vision_model", "gemma3:4b")
 
@@ -210,13 +212,13 @@ def test_row_bot_status_vision_model_update_persists_valid_model(tmp_path, monke
 
 
 def test_row_bot_status_allows_codex_vision_quick_choice(tmp_path, monkeypatch):
-    import api_keys
-    import models
-    import providers.config as provider_config
-    import providers.runtime as provider_runtime
-    from providers.codex import fallback_codex_model_infos
-    from providers.selection import add_quick_choice_for_model
-    from tools.row_bot_status_tool import _resolve_model_update_value
+    import row_bot.api_keys as api_keys
+    import row_bot.models as models
+    import row_bot.providers.config as provider_config
+    import row_bot.providers.runtime as provider_runtime
+    from row_bot.providers.codex import fallback_codex_model_infos
+    from row_bot.providers.selection import add_quick_choice_for_model
+    from row_bot.tools.row_bot_status_tool import _resolve_model_update_value
 
     model_info = next(info for info in fallback_codex_model_infos() if info.model_id == "gpt-5.5")
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
@@ -238,10 +240,10 @@ def test_row_bot_status_allows_codex_vision_quick_choice(tmp_path, monkeypatch):
 
 
 def test_row_bot_status_vision_reports_custom_provider_probe(tmp_path, monkeypatch):
-    import providers.config as provider_config
-    import vision
-    from providers.custom import custom_provider_id, save_custom_endpoint
-    from tools.row_bot_status_tool import _query_vision
+    import row_bot.providers.config as provider_config
+    import row_bot.vision as vision
+    from row_bot.providers.custom import custom_provider_id, save_custom_endpoint
+    from row_bot.tools.row_bot_status_tool import _query_vision
 
     provider_id = custom_provider_id("lm-studio")
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
@@ -272,10 +274,10 @@ def test_row_bot_status_vision_reports_custom_provider_probe(tmp_path, monkeypat
 
 
 def test_row_bot_status_vision_reports_custom_provider_failure_without_ollama_wording(tmp_path, monkeypatch):
-    import providers.config as provider_config
-    import vision
-    from providers.custom import custom_provider_id, save_custom_endpoint
-    from tools.row_bot_status_tool import _query_vision
+    import row_bot.providers.config as provider_config
+    import row_bot.vision as vision
+    from row_bot.providers.custom import custom_provider_id, save_custom_endpoint
+    from row_bot.tools.row_bot_status_tool import _query_vision
 
     provider_id = custom_provider_id("lab")
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
@@ -305,10 +307,10 @@ def test_row_bot_status_vision_reports_custom_provider_failure_without_ollama_wo
 
 
 def test_row_bot_status_vision_treats_stale_empty_probe_as_unverified(tmp_path, monkeypatch):
-    import providers.config as provider_config
-    import vision
-    from providers.custom import custom_provider_id, save_custom_endpoint
-    from tools.row_bot_status_tool import _query_vision
+    import row_bot.providers.config as provider_config
+    import row_bot.vision as vision
+    from row_bot.providers.custom import custom_provider_id, save_custom_endpoint
+    from row_bot.tools.row_bot_status_tool import _query_vision
 
     provider_id = custom_provider_id("lm-studio")
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
@@ -338,10 +340,10 @@ def test_row_bot_status_vision_treats_stale_empty_probe_as_unverified(tmp_path, 
 
 
 def test_row_bot_status_vision_reports_manual_disabled_custom_endpoint(tmp_path, monkeypatch):
-    import providers.config as provider_config
-    import vision
-    from providers.custom import custom_provider_id, save_custom_endpoint
-    from tools.row_bot_status_tool import _query_vision
+    import row_bot.providers.config as provider_config
+    import row_bot.vision as vision
+    from row_bot.providers.custom import custom_provider_id, save_custom_endpoint
+    from row_bot.tools.row_bot_status_tool import _query_vision
 
     provider_id = custom_provider_id("lm-studio")
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
@@ -382,7 +384,7 @@ def test_row_bot_status_vision_reports_manual_disabled_custom_endpoint(tmp_path,
 
 
 def test_row_bot_status_update_setting_description_mentions_vision_model():
-    from tools.row_bot_status_tool import RowBotStatusTool
+    from row_bot.tools.row_bot_status_tool import RowBotStatusTool
 
     tools = {tool.name: tool for tool in RowBotStatusTool().as_langchain_tools()}
 
@@ -417,9 +419,9 @@ def test_row_bot_status_guide_mentions_voice_realtime_contract():
 
 
 def test_provider_status_summarizes_custom_probe_without_reprobe(tmp_path, monkeypatch):
-    import providers.config as provider_config
-    from providers.custom import save_custom_endpoint
-    from providers.status import summarize_providers
+    import row_bot.providers.config as provider_config
+    from row_bot.providers.custom import save_custom_endpoint
+    from row_bot.providers.status import summarize_providers
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     save_custom_endpoint({

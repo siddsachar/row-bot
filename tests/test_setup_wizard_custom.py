@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from providers.models import ModelInfo, TransportMode
-from ui.setup_wizard import build_custom_endpoint_setup_payload, custom_endpoint_model_options
+from row_bot.providers.models import ModelInfo, TransportMode
+from row_bot.ui.setup_wizard import build_custom_endpoint_setup_payload, custom_endpoint_model_options
 
 
 def test_custom_endpoint_setup_payload_uses_api_key_auth() -> None:

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from voice.openai_realtime import DEFAULT_REALTIME_MODEL
-from voice.provider_catalog import (
+from row_bot.voice.openai_realtime import DEFAULT_REALTIME_MODEL
+from row_bot.voice.provider_catalog import (
     build_voice_provider_catalog,
     model_options_for_capability,
     provider_options_for_capability,

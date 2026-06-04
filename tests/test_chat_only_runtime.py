@@ -4,7 +4,7 @@ import pytest
 
 
 def test_chat_only_prompt_is_compact_and_guards_against_imagined_tasks():
-    from prompts import get_chat_only_system_prompt
+    from row_bot.prompts import get_chat_only_system_prompt
 
     prompt = get_chat_only_system_prompt()
 
@@ -19,8 +19,8 @@ def test_chat_only_prompt_is_compact_and_guards_against_imagined_tasks():
 
 
 def _chat_ready_result():
-    from providers.models import TransportMode
-    from providers.readiness import ChatReadinessResult
+    from row_bot.providers.models import TransportMode
+    from row_bot.providers.readiness import ChatReadinessResult
 
     return ChatReadinessResult(
         ready=True,
@@ -36,8 +36,8 @@ def _chat_ready_result():
 
 def test_build_chat_only_messages_for_fresh_thread_has_no_hidden_history(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
-    import agent
-    import threads
+    import row_bot.agent as agent
+    import row_bot.threads as threads
 
     monkeypatch.setattr(threads, "get_latest_checkpoint_messages", lambda thread_id: [])
     monkeypatch.setattr(agent, "trim_messages", lambda messages, **kwargs: list(messages))
@@ -50,7 +50,7 @@ def test_build_chat_only_messages_for_fresh_thread_has_no_hidden_history(tmp_pat
 
 
 def test_chat_only_history_marks_prior_tools_without_tool_bodies():
-    import agent
+    import row_bot.agent as agent
 
     content = agent._chat_only_content_from_ui_message({
         "content": "Earlier answer",
@@ -71,9 +71,9 @@ def test_chat_only_history_marks_prior_tools_without_tool_bodies():
 def test_stream_chat_only_streams_and_persists_without_tools(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
     from langchain_core.messages import AIMessageChunk
-    import agent
-    import providers.readiness as readiness
-    import threads
+    import row_bot.agent as agent
+    import row_bot.providers.readiness as readiness
+    import row_bot.threads as threads
 
     class FakeLLM:
         def stream(self, messages):
@@ -103,9 +103,9 @@ def test_stream_chat_only_streams_and_persists_without_tools(tmp_path, monkeypat
 def test_stream_chat_only_reasoning_only_returns_error_without_persisting(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
     from langchain_core.messages import AIMessageChunk
-    import agent
-    import providers.readiness as readiness
-    import threads
+    import row_bot.agent as agent
+    import row_bot.providers.readiness as readiness
+    import row_bot.threads as threads
 
     class FakeLLM:
         def stream(self, messages):
@@ -131,9 +131,9 @@ def test_stream_chat_only_reasoning_only_returns_error_without_persisting(tmp_pa
 
 def test_stream_chat_only_llm_creation_error_names_selected_model(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
-    import agent
-    import providers.readiness as readiness
-    import threads
+    import row_bot.agent as agent
+    import row_bot.providers.readiness as readiness
+    import row_bot.threads as threads
 
     selected = "model:ollama:vendor/non-tool-chat:14b"
     monkeypatch.setattr(readiness, "evaluate_chat_readiness", lambda model_label: _chat_ready_result())
@@ -152,7 +152,7 @@ def test_stream_chat_only_llm_creation_error_names_selected_model(tmp_path, monk
 
 
 def test_friendly_api_error_does_not_call_generic_400_tool_error(monkeypatch):
-    import agent
+    import row_bot.agent as agent
 
     message = agent._friendly_api_error("status code: 400: bad request", "model:ollama:local-chat:14b")
 
@@ -162,8 +162,8 @@ def test_friendly_api_error_does_not_call_generic_400_tool_error(monkeypatch):
 
 def test_stream_agent_auto_routes_visible_chat_only_without_graph(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
-    import agent
-    import providers.readiness as readiness
+    import row_bot.agent as agent
+    import row_bot.providers.readiness as readiness
 
     def _boom(*args, **kwargs):
         raise AssertionError("Agent graph should not be constructed for Chat Only routing")
@@ -190,8 +190,8 @@ def test_stream_agent_auto_routes_visible_chat_only_without_graph(tmp_path, monk
 
 def test_stream_agent_logs_resolved_runtime_decision(tmp_path, monkeypatch, caplog):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
-    import agent
-    import providers.readiness as readiness
+    import row_bot.agent as agent
+    import row_bot.providers.readiness as readiness
 
     monkeypatch.setattr(
         readiness,
@@ -207,7 +207,7 @@ def test_stream_agent_logs_resolved_runtime_decision(tmp_path, monkeypatch, capl
     monkeypatch.setattr(agent, "_should_summarize", lambda *args, **kwargs: False)
     monkeypatch.setattr(agent, "_stream_graph", lambda *args, **kwargs: iter([("done", "agent")]))
 
-    with caplog.at_level(logging.INFO, logger="agent"):
+    with caplog.at_level(logging.INFO, logger="row_bot.agent"):
         events = list(agent.stream_agent(
             "hi",
             ["row_bot_status"],
@@ -224,11 +224,11 @@ def test_stream_agent_logs_resolved_runtime_decision(tmp_path, monkeypatch, capl
 
 
 def test_row_bot_status_model_reports_effective_runtime(monkeypatch):
-    import agent
-    import models
-    import providers.readiness as readiness
-    import providers.resolution as resolution
-    import tools.row_bot_status_tool as row_bot_status_tool
+    import row_bot.agent as agent
+    import row_bot.models as models
+    import row_bot.providers.readiness as readiness
+    import row_bot.providers.resolution as resolution
+    import row_bot.tools.row_bot_status_tool as row_bot_status_tool
 
     override_token = models._active_model_override.set("model:ollama:local-chat:14b")
     agent._set_active_runtime_context(
@@ -278,11 +278,11 @@ def test_row_bot_status_model_reports_effective_runtime(monkeypatch):
 
 
 def test_row_bot_status_model_labels_endpoint_types(monkeypatch):
-    import agent
-    import models
-    import providers.readiness as readiness
-    import providers.resolution as resolution
-    import tools.row_bot_status_tool as row_bot_status_tool
+    import row_bot.agent as agent
+    import row_bot.models as models
+    import row_bot.providers.readiness as readiness
+    import row_bot.providers.resolution as resolution
+    import row_bot.tools.row_bot_status_tool as row_bot_status_tool
 
     cases = [
         ("model:ollama:qwen", "ollama", "Ollama Local", "local", "local_private", "Local (Ollama)"),
@@ -322,7 +322,7 @@ def test_row_bot_status_model_labels_endpoint_types(monkeypatch):
 
 
 def test_ollama_parameter_schema_error_is_agent_mode_failure():
-    import agent
+    import row_bot.agent as agent
 
     message = "expected element type <function> but have <parameter> (status code: -1)"
 
@@ -335,8 +335,8 @@ def test_ollama_parameter_schema_error_is_agent_mode_failure():
 
 def test_stream_agent_auto_does_not_silently_fallback_on_tool_schema_error(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
-    import agent
-    import providers.readiness as readiness
+    import row_bot.agent as agent
+    import row_bot.providers.readiness as readiness
 
     message = "expected element type <function> but have <parameter> (status code: -1)"
     monkeypatch.setattr(
@@ -359,7 +359,7 @@ def test_stream_agent_auto_does_not_silently_fallback_on_tool_schema_error(tmp_p
 
 
 def test_agent_runtime_context_overrides_stale_chat_only_claims():
-    import agent
+    import row_bot.agent as agent
 
     context = agent._agent_runtime_system_context()
 
@@ -369,7 +369,7 @@ def test_agent_runtime_context_overrides_stale_chat_only_claims():
 
 
 def test_agent_graph_uses_provider_qualified_override(monkeypatch):
-    import agent
+    import row_bot.agent as agent
 
     captured = {}
     def _ready(model_label):
@@ -403,7 +403,7 @@ def test_agent_graph_uses_provider_qualified_override(monkeypatch):
 
 def test_stream_agent_forced_workflow_uses_agent_path(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
-    import agent
+    import row_bot.agent as agent
 
     monkeypatch.setattr(agent, "get_agent_graph", lambda *args, **kwargs: object())
     monkeypatch.setattr(agent, "_should_summarize", lambda *args, **kwargs: False)
@@ -424,7 +424,7 @@ def test_stream_agent_forced_workflow_uses_agent_path(tmp_path, monkeypatch):
 
 
 def test_stream_agent_coerces_string_recursion_limit(monkeypatch):
-    import agent
+    import row_bot.agent as agent
 
     captured = {}
 
@@ -460,7 +460,7 @@ def test_stream_agent_coerces_string_recursion_limit(monkeypatch):
 
 @pytest.mark.parametrize("tool_name", ["row_bot_status", "analyze_image"])
 def test_stream_graph_finalizes_reasoning_only_after_successful_tool_result(monkeypatch, tool_name):
-    import agent
+    import row_bot.agent as agent
     from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
     tool_call = {"name": tool_name, "args": {}, "id": "call_1", "type": "tool_call"}
@@ -521,7 +521,7 @@ def test_stream_graph_finalizes_reasoning_only_after_successful_tool_result(monk
 
 
 def test_stream_graph_finalization_failure_preserves_tool_result_without_fake_answer(monkeypatch):
-    import agent
+    import row_bot.agent as agent
     from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
     tool_result = ToolMessage(content="Tool says the answer is 42.", name="row_bot_status", tool_call_id="call_1")
@@ -576,7 +576,7 @@ def test_stream_graph_finalization_failure_preserves_tool_result_without_fake_an
 
 
 def test_stream_graph_finalizes_whitespace_only_answer_after_successful_tool_result(monkeypatch):
-    import agent
+    import row_bot.agent as agent
     from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
     tool_result = ToolMessage(

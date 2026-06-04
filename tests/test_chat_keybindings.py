@@ -2,8 +2,8 @@ from pathlib import Path
 import asyncio
 from types import SimpleNamespace
 
-from ui.chat_components import _submit_voice_transcript
-from ui.voice_lifecycle import stop_voice_for_thread_change
+from row_bot.ui.chat_components import _submit_voice_transcript
+from row_bot.ui.voice_lifecycle import stop_voice_for_thread_change
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -93,7 +93,7 @@ def test_talk_provider_selection_wires_realtime_without_third_mode():
 
 
 def test_realtime_fatal_error_message_mentions_quota():
-    from ui.voice_realtime_events import _friendly_realtime_error
+    from row_bot.ui.voice_realtime_events import _friendly_realtime_error
 
     detail = '{"type":"insufficient_quota","message":"You exceeded your current quota"}'
 

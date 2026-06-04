@@ -8,10 +8,10 @@ def test_row_bot_agent_visible_tool_ids_are_registered(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "row-bot-data"))
     monkeypatch.delenv("THOTH_DATA_DIR", raising=False)
 
-    import tools  # noqa: F401
-    import tools.row_bot_status_tool as row_bot_status_tool
-    import tools.updater_tool as updater_tool
-    from tools import registry
+    import row_bot.tools as tools # noqa: F401
+    import row_bot.tools.row_bot_status_tool as row_bot_status_tool
+    import row_bot.tools.updater_tool as updater_tool
+    from row_bot.tools import registry
 
     importlib.reload(row_bot_status_tool)
     importlib.reload(updater_tool)
@@ -35,7 +35,7 @@ def test_row_bot_agent_visible_tool_ids_are_registered(tmp_path, monkeypatch):
 
 
 def test_row_bot_status_guide_and_voice_bridge_use_row_bot_ids():
-    from voice.agent_bridge import REALTIME_ALLOWED_BRIDGE_TOOLS, REALTIME_ALLOWED_TOOLS, REALTIME_WAIT_TOOL
+    from row_bot.voice.agent_bridge import REALTIME_ALLOWED_BRIDGE_TOOLS, REALTIME_ALLOWED_TOOLS, REALTIME_WAIT_TOOL
 
     guide = Path("tool_guides/row_bot_status_guide/SKILL.md").read_text(encoding="utf-8")
 

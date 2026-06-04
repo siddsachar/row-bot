@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from voice.realtime_presenter import RealtimeSpeechChunker, RealtimeSpeechQueue
+from row_bot.voice.realtime_presenter import RealtimeSpeechChunker, RealtimeSpeechQueue
 
 
 def test_realtime_speech_chunker_emits_sentence_before_final_completion():

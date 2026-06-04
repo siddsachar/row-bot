@@ -7,8 +7,8 @@ import sys
 import textwrap
 import builtins
 
-import launcher
-import startup_diagnostics
+import row_bot.launcher as launcher
+import row_bot.startup_diagnostics as startup_diagnostics
 
 
 def test_preflight_reports_broken_torchcodec(monkeypatch, caplog):
@@ -100,7 +100,7 @@ def test_preflight_handles_real_broken_optional_package_subprocess(tmp_path):
     code = textwrap.dedent(
         """
         import logging
-        import startup_diagnostics
+        import row_bot.startup_diagnostics as startup_diagnostics
 
         logging.basicConfig(level=logging.WARNING, format="%(message)s")
         issues = startup_diagnostics.preflight_optional_native_packages()
@@ -110,9 +110,9 @@ def test_preflight_handles_real_broken_optional_package_subprocess(tmp_path):
         """
     )
     env = dict(os.environ)
-    root = str(Path(__file__).resolve().parent)
+    root = Path(__file__).resolve().parents[1]
     env["PYTHONPATH"] = os.pathsep.join(
-        part for part in (str(tmp_path), root, env.get("PYTHONPATH", "")) if part
+        part for part in (str(tmp_path), str(root / "src"), str(root), env.get("PYTHONPATH", "")) if part
     )
 
     result = subprocess.run(
@@ -142,8 +142,10 @@ def test_app_import_survives_broken_cv2_module(tmp_path):
     fake_cv2.write_text('raise OSError("libGL.so.1: cannot open shared object file")\n', encoding="utf-8")
     code = "import app; print('app-import-ok')"
     env = dict(os.environ)
-    root = str(Path(__file__).resolve().parent)
-    env["PYTHONPATH"] = os.pathsep.join(part for part in (str(tmp_path), root, env.get("PYTHONPATH", "")) if part)
+    root = Path(__file__).resolve().parents[1]
+    env["PYTHONPATH"] = os.pathsep.join(
+        part for part in (str(tmp_path), str(root / "src"), str(root), env.get("PYTHONPATH", "")) if part
+    )
 
     result = subprocess.run(
         [sys.executable, "-c", code],
@@ -159,7 +161,7 @@ def test_app_import_survives_broken_cv2_module(tmp_path):
 
 
 def test_vision_degrades_when_cv2_native_import_fails(monkeypatch):
-    import vision
+    import row_bot.vision as vision
 
     real_import = builtins.__import__
 
@@ -187,4 +189,5 @@ def test_windows_installer_replaces_embedded_python_on_install():
 
     assert "[InstallDelete]" in iss
     assert 'Type: filesandordirs; Name: "{app}\\python"' in iss
-    assert 'Source: "..\\startup_diagnostics.py"' in iss
+    assert 'Source: "..\\src\\row_bot\\*"' in iss
+    assert Path("src/row_bot/startup_diagnostics.py").is_file()

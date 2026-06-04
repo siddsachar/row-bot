@@ -11,7 +11,7 @@ class _FakeOllamaClient:
 
 
 def test_local_vision_strips_ollama_provider_ref(monkeypatch):
-    import vision
+    import row_bot.vision as vision
 
     client = _FakeOllamaClient()
     svc = vision.VisionService()
@@ -25,7 +25,7 @@ def test_local_vision_strips_ollama_provider_ref(monkeypatch):
 
 
 def test_local_vision_keeps_bare_ollama_model(monkeypatch):
-    import vision
+    import row_bot.vision as vision
 
     client = _FakeOllamaClient()
     svc = vision.VisionService()
@@ -39,7 +39,7 @@ def test_local_vision_keeps_bare_ollama_model(monkeypatch):
 
 
 def test_vision_provider_ref_routes_provider_path(monkeypatch):
-    import vision
+    import row_bot.vision as vision
 
     calls = []
     svc = vision.VisionService()
@@ -53,8 +53,8 @@ def test_vision_provider_ref_routes_provider_path(monkeypatch):
 
 
 def test_custom_openai_vision_ref_routes_provider_runtime(tmp_path, monkeypatch):
-    import providers.config as provider_config
-    import vision
+    import row_bot.providers.config as provider_config
+    import row_bot.vision as vision
 
     captured = {}
     svc = vision.VisionService()
@@ -81,9 +81,9 @@ def test_custom_openai_vision_ref_routes_provider_runtime(tmp_path, monkeypatch)
 
 
 def test_custom_openai_vision_ref_blocks_manual_disabled_endpoint(tmp_path, monkeypatch):
-    import providers.config as provider_config
-    import vision
-    from providers.custom import custom_provider_id, save_custom_endpoint
+    import row_bot.providers.config as provider_config
+    import row_bot.vision as vision
+    from row_bot.providers.custom import custom_provider_id, save_custom_endpoint
 
     provider_id = custom_provider_id("lm-studio")
     svc = vision.VisionService()
@@ -115,8 +115,8 @@ def test_custom_openai_vision_ref_blocks_manual_disabled_endpoint(tmp_path, monk
 
 
 def test_vision_compatibility_allows_unknown_provider_metadata(tmp_path, monkeypatch):
-    import providers.config as provider_config
-    import vision
+    import row_bot.providers.config as provider_config
+    import row_bot.vision as vision
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
 
@@ -127,7 +127,7 @@ def test_vision_compatibility_allows_unknown_provider_metadata(tmp_path, monkeyp
 
 
 def test_provider_vision_error_names_selected_provider_not_ollama(monkeypatch):
-    import vision
+    import row_bot.vision as vision
 
     svc = vision.VisionService()
     svc._model = "model:custom_openai_lab:local-vl"

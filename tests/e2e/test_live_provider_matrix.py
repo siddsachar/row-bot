@@ -88,7 +88,7 @@ def _run_agent_case(agent_module, *, model_ref: str, provider_id: str, prompt: s
 
 
 def _poison_thread(thread_id: str) -> None:
-    from threads import append_checkpoint_messages
+    from row_bot.threads import append_checkpoint_messages
 
     append_checkpoint_messages(
         thread_id,
@@ -164,9 +164,9 @@ def _run_poisoned_case(agent_module, *, model_ref: str, provider_id: str) -> dic
 
 
 def _discover_live_candidates() -> list[dict[str, str]]:
-    from providers.runtime import list_configured_provider_ids, provider_status
-    from providers.selection import list_quick_choices, model_ref
-    from providers.custom import list_custom_endpoints
+    from row_bot.providers.runtime import list_configured_provider_ids, provider_status
+    from row_bot.providers.selection import list_quick_choices, model_ref
+    from row_bot.providers.custom import list_custom_endpoints
 
     configured = set(list_configured_provider_ids())
     candidates: dict[str, dict[str, str]] = {}
@@ -220,7 +220,7 @@ def _classify_result(case: dict[str, Any]) -> str:
 
 @pytest.mark.skipif(not _enabled(), reason="set THOTH_LIVE_PROVIDER_E2E=1 to run real provider calls")
 def test_live_configured_provider_matrix():
-    import agent
+    import row_bot.agent as agent
 
     candidates = _discover_live_candidates()
     report: dict[str, Any] = {

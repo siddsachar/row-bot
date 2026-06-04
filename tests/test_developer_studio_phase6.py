@@ -8,7 +8,7 @@ import sys
 def _fresh_modules(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
     sys.modules.pop("developer.github", None)
-    import developer.github as github
+    import row_bot.developer.github as github
 
     return importlib.reload(github)
 

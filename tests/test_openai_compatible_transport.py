@@ -3,9 +3,9 @@ import json
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from providers.custom import custom_endpoint_profile
-from providers.tool_protocol import format_validation_retry_result
-from providers.transports.openai_compatible import ChatOpenAICompatible
+from row_bot.providers.custom import custom_endpoint_profile
+from row_bot.providers.tool_protocol import format_validation_retry_result
+from row_bot.providers.transports.openai_compatible import ChatOpenAICompatible
 
 
 class _Response:

@@ -1,10 +1,10 @@
-import api_keys
+import row_bot.api_keys as api_keys
 import base64
 import io
-import models
-import providers.config as provider_config
-from providers.capabilities import model_supports_surface
-from providers.custom import (
+import row_bot.models as models
+import row_bot.providers.config as provider_config
+from row_bot.providers.capabilities import model_supports_surface
+from row_bot.providers.custom import (
     CUSTOM_ENDPOINT_PROFILES,
     DEFAULT_CUSTOM_ENDPOINT_CONTEXT_FALLBACK,
     custom_model_cache_entries,
@@ -17,7 +17,7 @@ from providers.custom import (
     refresh_custom_endpoint_models,
     save_custom_endpoint,
 )
-from providers.selection import add_quick_choice_for_model, list_quick_choices, model_choice_value
+from row_bot.providers.selection import add_quick_choice_for_model, list_quick_choices, model_choice_value
 
 
 def test_custom_endpoint_catalog_reads_models_payload_and_common_capability_fields(tmp_path, monkeypatch):
@@ -267,7 +267,7 @@ def test_custom_endpoint_reasoning_capability_config_is_persisted(tmp_path, monk
 
 def test_custom_endpoint_save_no_auth_removes_stored_secret(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    import providers.custom as custom
+    import row_bot.providers.custom as custom
 
     deleted = []
     monkeypatch.setattr(custom, "delete_provider_secret", lambda provider_id, key: deleted.append((provider_id, key)))
@@ -916,7 +916,7 @@ def test_custom_endpoint_probe_records_vision_success_for_vision_model(tmp_path,
 
 def test_custom_endpoint_vision_probe_image_is_red():
     from PIL import Image
-    from providers.custom import VISION_PROBE_IMAGE_DATA_URL
+    from row_bot.providers.custom import VISION_PROBE_IMAGE_DATA_URL
 
     encoded = VISION_PROBE_IMAGE_DATA_URL.split(",", 1)[1]
     image = Image.open(io.BytesIO(base64.b64decode(encoded))).convert("RGB")
@@ -926,7 +926,7 @@ def test_custom_endpoint_vision_probe_image_is_red():
 
 
 def test_custom_endpoint_vision_probe_budget_allows_thinking_models():
-    from providers.custom import VISION_PROBE_MAX_TOKENS
+    from row_bot.providers.custom import VISION_PROBE_MAX_TOKENS
 
     assert VISION_PROBE_MAX_TOKENS >= 256
 
@@ -1205,7 +1205,7 @@ def test_custom_endpoint_probe_skips_vision_for_text_only_model(tmp_path, monkey
 
 
 def test_custom_probe_summary_reports_distinct_vision_states():
-    from providers.custom import custom_probe_summary
+    from row_bot.providers.custom import custom_probe_summary
 
     not_probed = custom_probe_summary({
         "classification": "agent_ready",
@@ -1238,8 +1238,8 @@ def test_custom_probe_summary_reports_distinct_vision_states():
 
 
 def test_custom_probe_checks_summary_is_compact_and_status_colored():
-    from providers.custom import custom_probe_summary
-    from ui.provider_settings import _probe_checks_summary
+    from row_bot.providers.custom import custom_probe_summary
+    from row_bot.ui.provider_settings import _probe_checks_summary
 
     ok = _probe_checks_summary(custom_probe_summary({
         "classification": "agent_ready",
@@ -1279,7 +1279,7 @@ def test_custom_probe_checks_summary_is_compact_and_status_colored():
 
 
 def test_custom_endpoint_manual_capability_ui_helper_builds_sparse_overrides():
-    from ui.provider_settings import _manual_capabilities_from_ui
+    from row_bot.ui.provider_settings import _manual_capabilities_from_ui
 
     assert _manual_capabilities_from_ui("auto", "auto", "") == {}
     assert _manual_capabilities_from_ui("on", "off", "65536") == {
@@ -1294,7 +1294,7 @@ def test_custom_endpoint_manual_capability_ui_helper_builds_sparse_overrides():
 
 
 def test_custom_endpoint_edit_payload_preserves_fixed_fields_for_display_name_only():
-    from ui.provider_settings import _custom_endpoint_edit_payload
+    from row_bot.ui.provider_settings import _custom_endpoint_edit_payload
 
     endpoint = {
         "id": "llama-cpp",
@@ -1327,7 +1327,7 @@ def test_custom_endpoint_edit_payload_preserves_fixed_fields_for_display_name_on
 
 
 def test_custom_endpoint_edit_payload_stales_probe_for_connection_and_advanced_changes():
-    from ui.provider_settings import _custom_endpoint_edit_payload
+    from row_bot.ui.provider_settings import _custom_endpoint_edit_payload
 
     endpoint = {
         "id": "lm-studio",
@@ -1411,7 +1411,7 @@ def test_custom_endpoint_probe_logs_failure(tmp_path, monkeypatch):
     save_custom_endpoint({"id": "dummy", "base_url": "http://127.0.0.1:8000/v1", "auth_required": False})
 
     import httpx
-    import providers.custom as custom
+    import row_bot.providers.custom as custom
 
     def _raise(*args, **kwargs):
         raise OSError("connection refused")
@@ -1467,7 +1467,7 @@ def test_custom_endpoint_probe_success_log_includes_round_trip_and_vision(tmp_pa
             yield b'data: {"choices":[{"delta":{"content":"p"}}]}'
 
     import httpx
-    import providers.custom as custom
+    import row_bot.providers.custom as custom
 
     monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: _GetResponse())
 
@@ -1712,7 +1712,7 @@ def test_no_auth_custom_endpoint_refresh_skips_secret_lookup(tmp_path, monkeypat
     save_custom_endpoint({"id": "dummy", "base_url": "http://127.0.0.1:8000/v1", "auth_required": False})
 
     import httpx
-    import providers.custom as custom
+    import row_bot.providers.custom as custom
 
     class _GetResponse:
         def raise_for_status(self):

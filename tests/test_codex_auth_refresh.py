@@ -4,9 +4,9 @@ from datetime import datetime, timedelta, timezone
 
 
 def _install_codex_secret_fixture(monkeypatch, *, access: str = "", refresh: str = "", account: str = "acct", expires_at: str = ""):
-    import providers.auth_store as auth_store
-    import providers.config as provider_config
-    from providers.models import AuthMethod
+    import row_bot.providers.auth_store as auth_store
+    import row_bot.providers.config as provider_config
+    from row_bot.providers.models import AuthMethod
 
     secrets = {
         "access_token": access,
@@ -28,7 +28,7 @@ def _install_codex_secret_fixture(monkeypatch, *, access: str = "", refresh: str
 
 
 def test_codex_token_health_valid_does_not_refresh(monkeypatch):
-    from providers import codex
+    from row_bot.providers import codex
 
     future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     _install_codex_secret_fixture(monkeypatch, access="access", refresh="refresh", expires_at=future)
@@ -41,7 +41,7 @@ def test_codex_token_health_valid_does_not_refresh(monkeypatch):
 
 
 def test_codex_token_health_refreshes_expired_token(monkeypatch):
-    from providers import codex
+    from row_bot.providers import codex
 
     past = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
     future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
@@ -69,7 +69,7 @@ def test_codex_token_health_refreshes_expired_token(monkeypatch):
 
 
 def test_codex_credentials_refresh_when_access_token_missing(monkeypatch):
-    from providers import codex
+    from row_bot.providers import codex
 
     future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     _install_codex_secret_fixture(monkeypatch, access="", refresh="refresh", expires_at="")
@@ -93,7 +93,7 @@ def test_codex_credentials_refresh_when_access_token_missing(monkeypatch):
 
 
 def test_codex_token_health_missing_refresh_requires_reconnect(monkeypatch):
-    from providers import codex
+    from row_bot.providers import codex
 
     _install_codex_secret_fixture(monkeypatch, access="", refresh="", expires_at="")
 
@@ -105,7 +105,7 @@ def test_codex_token_health_missing_refresh_requires_reconnect(monkeypatch):
 
 
 def test_codex_token_health_revoked_refresh_requires_reconnect(monkeypatch):
-    from providers import codex
+    from row_bot.providers import codex
 
     past = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
     _install_codex_secret_fixture(monkeypatch, access="old", refresh="refresh", expires_at=past)
@@ -120,8 +120,8 @@ def test_codex_token_health_revoked_refresh_requires_reconnect(monkeypatch):
 
 def test_streaming_codex_auth_block_message(monkeypatch, tmp_path):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
-    import ui.streaming as streaming
-    from providers import codex
+    import row_bot.ui.streaming as streaming
+    from row_bot.providers import codex
 
     monkeypatch.setattr(codex, "codex_runtime_block_message", lambda *, refresh_if_needed=True: "reconnect please")
 

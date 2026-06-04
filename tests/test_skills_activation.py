@@ -13,8 +13,8 @@ def _reload_skill_modules(tmp_path: Path):
             importlib.reload(sys.modules[name])
         else:
             importlib.import_module(name)
-    import skills
-    import skills_activation
+    import row_bot.skills as skills
+    import row_bot.skills_activation as skills_activation
 
     return skills, skills_activation
 
@@ -325,7 +325,7 @@ def test_activation_metadata_drives_suggestions_without_prompt_bloat(tmp_path):
     assert suggestions and suggestions[0].name == "meeting_notes"
     assert activation.suggest_skills("thread-a", "competitor research report") == []
 
-    import agent
+    import row_bot.agent as agent
     from langchain_core.messages import HumanMessage
 
     thread_id = "metadata-prompt-thread"
@@ -582,7 +582,7 @@ def test_agent_prompt_is_lean_until_chat_skills_are_active(tmp_path):
     skills, activation = _reload_skill_modules(tmp_path)
     skills.load_skills()
 
-    import agent
+    import row_bot.agent as agent
     from langchain_core.messages import HumanMessage
 
     thread_id = "prompt-thread"
@@ -620,7 +620,7 @@ def test_channel_dispatch_applies_skill_to_thread(tmp_path):
     skills, activation = _reload_skill_modules(tmp_path)
     skills.load_skills()
 
-    from channels import commands
+    from row_bot.channels import commands
 
     response = commands.dispatch("sms", "/skill research_brief", thread_id="sms_1")
     assert response and "research_brief" in response

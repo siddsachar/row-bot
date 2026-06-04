@@ -2,8 +2,8 @@ from types import SimpleNamespace
 
 
 def test_openai_fetch_keeps_new_image_generation_model(monkeypatch):
-    import models
-    import api_keys
+    import row_bot.models as models
+    import row_bot.api_keys as api_keys
 
     class _Response:
         def raise_for_status(self):
@@ -33,10 +33,10 @@ def test_openai_fetch_keeps_new_image_generation_model(monkeypatch):
 
 
 def test_dynamic_provider_image_model_appears_in_image_options(monkeypatch):
-    import api_keys
-    import models
-    from providers.catalog import model_info_from_metadata, model_info_to_cache_entry
-    from tools.image_gen_tool import get_available_image_models
+    import row_bot.api_keys as api_keys
+    import row_bot.models as models
+    from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
+    from row_bot.tools.image_gen_tool import get_available_image_models
 
     monkeypatch.setattr(api_keys, "get_key", lambda key: "sk-test" if key == "OPENAI_API_KEY" else "")
     info = model_info_from_metadata("openai", "gpt-image-2", display_name="GPT Image 2")
@@ -51,10 +51,10 @@ def test_dynamic_provider_image_model_appears_in_image_options(monkeypatch):
 
 
 def test_dynamic_provider_video_model_appears_in_video_options(monkeypatch):
-    import api_keys
-    import models
-    from providers.catalog import model_info_from_metadata, model_info_to_cache_entry
-    from tools.video_gen_tool import get_available_video_models
+    import row_bot.api_keys as api_keys
+    import row_bot.models as models
+    from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
+    from row_bot.tools.video_gen_tool import get_available_video_models
 
     monkeypatch.setattr(api_keys, "get_key", lambda key: "test" if key == "GOOGLE_API_KEY" else "")
     info = model_info_from_metadata("google", "veo-4.0-generate-preview", display_name="Veo 4")
@@ -69,10 +69,10 @@ def test_dynamic_provider_video_model_appears_in_video_options(monkeypatch):
 
 
 def test_google_nano_banana_catalog_entry_appears_in_image_options(monkeypatch):
-    import api_keys
-    import models
-    from providers.catalog import model_info_from_metadata, model_info_to_cache_entry
-    from tools.image_gen_tool import get_available_image_models
+    import row_bot.api_keys as api_keys
+    import row_bot.models as models
+    from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
+    from row_bot.tools.image_gen_tool import get_available_image_models
 
     monkeypatch.setattr(api_keys, "get_key", lambda key: "test" if key == "GOOGLE_API_KEY" else "")
     info = model_info_from_metadata("google", "gemini-3.1-flash-image-preview", display_name="Nano Banana 2")
@@ -86,10 +86,10 @@ def test_google_nano_banana_catalog_entry_appears_in_image_options(monkeypatch):
 
 
 def test_xai_imagine_catalog_entry_appears_in_image_options(monkeypatch):
-    import api_keys
-    import models
-    from providers.catalog import model_info_from_metadata, model_info_to_cache_entry
-    from tools.image_gen_tool import get_available_image_models
+    import row_bot.api_keys as api_keys
+    import row_bot.models as models
+    from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
+    from row_bot.tools.image_gen_tool import get_available_image_models
 
     monkeypatch.setattr(api_keys, "get_key", lambda key: "test" if key == "XAI_API_KEY" else "")
     info = model_info_from_metadata("xai", "grok-imagine-image", display_name="Grok Imagine")
@@ -103,12 +103,12 @@ def test_xai_imagine_catalog_entry_appears_in_image_options(monkeypatch):
 
 
 def test_grouped_quick_choices_seed_current_media_tool_defaults(tmp_path, monkeypatch):
-    import api_keys
-    import models
-    import providers.config as provider_config
-    from providers.catalog import model_info_from_metadata, model_info_to_cache_entry
-    from providers.selection import grouped_quick_choices
-    from tools import registry
+    import row_bot.api_keys as api_keys
+    import row_bot.models as models
+    import row_bot.providers.config as provider_config
+    from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
+    from row_bot.providers.selection import grouped_quick_choices
+    from row_bot.tools import registry
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})

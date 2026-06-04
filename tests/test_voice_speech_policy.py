@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from voice.speech_policy import make_speakable_response, user_requested_read_aloud
+from row_bot.voice.speech_policy import make_speakable_response, user_requested_read_aloud
 
 
 def test_speakable_response_truncates_long_answers():

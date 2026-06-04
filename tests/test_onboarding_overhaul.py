@@ -15,8 +15,8 @@ def _case_dir() -> Path:
 def _reload_onboarding(monkeypatch, data_dir: Path):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
     monkeypatch.delenv("THOTH_DATA_DIR", raising=False)
-    import ui.helpers as helpers
-    import ui.onboarding_state as onboarding_state
+    import row_bot.ui.helpers as helpers
+    import row_bot.ui.onboarding_state as onboarding_state
 
     importlib.reload(helpers)
     return importlib.reload(onboarding_state)
@@ -89,7 +89,7 @@ def test_default_workflow_templates_are_disabled_manual_and_mixed_complexity(mon
     data_dir = _case_dir()
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
     monkeypatch.delenv("THOTH_DATA_DIR", raising=False)
-    import tasks
+    import row_bot.tasks as tasks
 
     tasks = importlib.reload(tasks)
 
@@ -140,7 +140,7 @@ def test_existing_users_are_not_reseeded_automatically(monkeypatch):
     data_dir = _case_dir()
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
     monkeypatch.delenv("THOTH_DATA_DIR", raising=False)
-    import tasks
+    import row_bot.tasks as tasks
 
     tasks = importlib.reload(tasks)
     tasks.create_task(name="User workflow", prompts=["Do something"], enabled=False)
@@ -153,7 +153,7 @@ def test_existing_users_are_not_reseeded_automatically(monkeypatch):
 
 
 def test_setup_center_orders_steps_by_profile_intent():
-    from ui.onboarding_center import _ordered_setup_steps, _priority_steps_for_profile
+    from row_bot.ui.onboarding_center import _ordered_setup_steps, _priority_steps_for_profile
 
     ordered = [step for step, _meta in _ordered_setup_steps({"profile": ["designer", "workflows"]})]
 
@@ -184,8 +184,8 @@ def test_setup_center_only_offers_missing_workflow_starters(monkeypatch):
     data_dir = _case_dir()
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
     monkeypatch.delenv("THOTH_DATA_DIR", raising=False)
-    import tasks
-    import ui.onboarding_center as center
+    import row_bot.tasks as tasks
+    import row_bot.ui.onboarding_center as center
 
     tasks = importlib.reload(tasks)
     center = importlib.reload(center)
@@ -257,7 +257,7 @@ def test_onboarding_source_contracts_are_wired():
 
 
 def test_welcome_message_and_example_prompts_are_current():
-    from ui.constants import EXAMPLE_PROMPTS, welcome_message
+    from row_bot.ui.constants import EXAMPLE_PROMPTS, welcome_message
 
     local_msg = welcome_message(cloud=False)
     cloud_msg = welcome_message(cloud=True)

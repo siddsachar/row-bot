@@ -18,8 +18,8 @@ def _fresh_thread_action_modules(tmp_path, monkeypatch):
         "ui.thread_actions",
     ]:
         sys.modules.pop(name, None)
-    import threads
-    import ui.thread_actions as thread_actions
+    import row_bot.threads as threads
+    import row_bot.ui.thread_actions as thread_actions
 
     return importlib.reload(threads), importlib.reload(thread_actions)
 
@@ -39,8 +39,8 @@ def test_apply_thread_rename_updates_active_state_and_manual_source(tmp_path, mo
 
 def test_apply_thread_rename_routes_designer_thread_to_project_name(tmp_path, monkeypatch):
     threads, thread_actions = _fresh_thread_action_modules(tmp_path, monkeypatch)
-    from designer.state import DesignerProject
-    from designer.storage import load_project, save_project
+    from row_bot.designer.state import DesignerProject
+    from row_bot.designer.storage import load_project, save_project
 
     project = DesignerProject(id="project_1", name="Old name", thread_id="designer_thread")
     save_project(project)

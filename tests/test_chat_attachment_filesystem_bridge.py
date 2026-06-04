@@ -19,8 +19,8 @@ def _set_workspace(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(data_dir))
     inbox = tmp_path / "inbox"
     workspace = tmp_path / "workspace"
-    import channels.media as media
-    from tools import registry
+    import row_bot.channels.media as media
+    from row_bot.tools import registry
 
     monkeypatch.setattr(media, "_INBOX_DIR", inbox)
     registry.set_tool_config("filesystem", "workspace_root", str(workspace))
@@ -28,7 +28,7 @@ def _set_workspace(tmp_path, monkeypatch):
 
 
 def test_chat_attachment_materialization_copies_to_received_files(tmp_path, monkeypatch):
-    from ui.helpers import materialize_chat_attachments
+    from row_bot.ui.helpers import materialize_chat_attachments
 
     workspace = _set_workspace(tmp_path, monkeypatch)
     files = [
@@ -49,8 +49,8 @@ def test_chat_attachment_materialization_copies_to_received_files(tmp_path, monk
 
 
 def test_process_attached_files_includes_original_names_workspace_paths_and_cache(monkeypatch):
-    from ui.helpers import process_attached_files
-    import data_reader
+    from row_bot.ui.helpers import process_attached_files
+    import row_bot.data_reader as data_reader
 
     class FakePage:
         def extract_text(self):
@@ -93,7 +93,7 @@ def test_process_attached_files_includes_original_names_workspace_paths_and_cach
 
 def test_workspace_read_file_reads_received_file_paths_and_bare_alias(tmp_path, monkeypatch):
     workspace = _set_workspace(tmp_path, monkeypatch)
-    from tools.filesystem_tool import _make_pdf_aware_read_tool, get_and_clear_displayed_image
+    from row_bot.tools.filesystem_tool import _make_pdf_aware_read_tool, get_and_clear_displayed_image
     received = workspace / "Received Files"
     received.mkdir(parents=True)
     (received / "note.txt").write_text("hello", encoding="utf-8")
@@ -128,7 +128,7 @@ def test_workspace_read_file_reads_xlsx_when_dependency_available(tmp_path, monk
     import pandas as pd
 
     workspace = _set_workspace(tmp_path, monkeypatch)
-    from tools.filesystem_tool import _make_pdf_aware_read_tool
+    from row_bot.tools.filesystem_tool import _make_pdf_aware_read_tool
     received = workspace / "Received Files"
     received.mkdir(parents=True)
     path = received / "book.xlsx"
@@ -147,7 +147,7 @@ def test_workspace_read_file_reads_xls_when_dependency_available(tmp_path, monke
     import pandas as pd
 
     workspace = _set_workspace(tmp_path, monkeypatch)
-    from tools.filesystem_tool import _make_pdf_aware_read_tool
+    from row_bot.tools.filesystem_tool import _make_pdf_aware_read_tool
     received = workspace / "Received Files"
     received.mkdir(parents=True)
     path = received / "legacy.xls"
@@ -163,7 +163,7 @@ def test_workspace_read_file_reads_xls_when_dependency_available(tmp_path, monke
 
 def test_transcript_reload_strips_hidden_attachment_context():
     from langchain_core.messages import HumanMessage
-    from ui.helpers import langchain_messages_to_ui_messages, wrap_attachment_context
+    from row_bot.ui.helpers import langchain_messages_to_ui_messages, wrap_attachment_context
 
     hidden = wrap_attachment_context(
         "[Attached data file: rows.csv]\n"

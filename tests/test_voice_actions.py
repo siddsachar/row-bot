@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from voice.actions import ActiveVoiceSurfaceBinding, append_dictation_text, route_voice_transcript
+from row_bot.voice.actions import ActiveVoiceSurfaceBinding, append_dictation_text, route_voice_transcript
 
 
 def test_dictation_appends_to_existing_composer_text():

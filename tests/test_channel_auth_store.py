@@ -22,9 +22,9 @@ def data_dir():
 
 def _reload_auth_modules(monkeypatch, data_dir):
     monkeypatch.setenv("THOTH_DATA_DIR", str(data_dir))
-    import secret_store
-    import api_keys
-    import channels.auth_store as channel_auth
+    import row_bot.secret_store as secret_store
+    import row_bot.api_keys as api_keys
+    import row_bot.channels.auth_store as channel_auth
 
     secret_store = importlib.reload(secret_store)
     api_keys = importlib.reload(api_keys)
@@ -295,7 +295,7 @@ def test_runtime_getter_reads_channel_namespace(data_dir, monkeypatch):
     )
     channel_auth.set_channel_secret("telegram", "TELEGRAM_BOT_TOKEN", "tg-runtime")
 
-    import channels.telegram as telegram
+    import row_bot.channels.telegram as telegram
 
     telegram = importlib.reload(telegram)
     assert telegram._get_bot_token() == "tg-runtime"

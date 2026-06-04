@@ -2,9 +2,9 @@ from types import SimpleNamespace
 
 
 def test_designer_text_refinement_uses_active_agent_model(monkeypatch):
-    import designer.ai_content as ai_content
-    import models
-    import providers.readiness as readiness
+    import row_bot.designer.ai_content as ai_content
+    import row_bot.models as models
+    import row_bot.providers.readiness as readiness
 
     calls = {}
 
@@ -27,9 +27,9 @@ def test_designer_text_refinement_uses_active_agent_model(monkeypatch):
 
 
 def test_designer_speaker_notes_uses_active_agent_model(monkeypatch):
-    import designer.ai_content as ai_content
-    import models
-    import providers.readiness as readiness
+    import row_bot.designer.ai_content as ai_content
+    import row_bot.models as models
+    import row_bot.providers.readiness as readiness
 
     calls = {}
 

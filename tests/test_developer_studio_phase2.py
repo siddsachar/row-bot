@@ -9,10 +9,10 @@ def _fresh_modules(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
     for name in ["threads", "developer.storage", "developer.git", "developer.sandbox"]:
         sys.modules.pop(name, None)
-    import threads
-    import developer.storage as storage
-    import developer.git as dev_git
-    import developer.sandbox as sandbox
+    import row_bot.threads as threads
+    import row_bot.developer.storage as storage
+    import row_bot.developer.git as dev_git
+    import row_bot.developer.sandbox as sandbox
 
     return (
         importlib.reload(threads),

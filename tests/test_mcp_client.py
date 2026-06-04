@@ -30,12 +30,12 @@ class McpClientFoundationTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         try:
-            import mcp_client.runtime as runtime
+            import row_bot.mcp_client.runtime as runtime
             runtime.shutdown()
         except Exception:
             pass
         try:
-            import threads
+            import row_bot.threads as threads
             threads.conn.close()
         except Exception:
             pass
@@ -46,7 +46,7 @@ class McpClientFoundationTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def _reload_config(self):
-        import mcp_client.config as cfg
+        import row_bot.mcp_client.config as cfg
         return importlib.reload(cfg)
 
     def test_bad_config_degrades_to_empty_disabled_config(self) -> None:
@@ -73,7 +73,7 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertNotIn("abcdefghijklmnop", str(masked))
 
     def test_destructive_detection_uses_annotations_and_names(self) -> None:
-        from mcp_client.safety import is_destructive_tool, prefixed_tool_name
+        from row_bot.mcp_client.safety import is_destructive_tool, prefixed_tool_name
 
         self.assertTrue(is_destructive_tool("delete_file"))
         self.assertFalse(is_destructive_tool("search_messages"))
@@ -90,7 +90,7 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertEqual(prefixed_tool_name("My Server", "Delete File"), "mcp_my_server_delete_file")
 
     def test_marketplace_unknown_source_falls_back_to_curated_catalog(self) -> None:
-        import mcp_client.marketplace as marketplace
+        import row_bot.mcp_client.marketplace as marketplace
         importlib.reload(marketplace)
         with patch.object(marketplace, "_load_cache", return_value=[]):
             results = marketplace.search_marketplace("filesystem", sources=["unknown-source"], limit=5)
@@ -103,9 +103,9 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertEqual([entry.id for entry in status.entries], [entry.id for entry in results])
 
     def test_recommended_catalog_excludes_memory_and_marks_overlaps(self) -> None:
-        import mcp_client.marketplace as marketplace
+        import row_bot.mcp_client.marketplace as marketplace
         importlib.reload(marketplace)
-        from mcp_client.conflicts import conflicts_for_entry
+        from row_bot.mcp_client.conflicts import conflicts_for_entry
 
         recommended = [entry for entry in marketplace.CURATED_STARTER_CATALOG if entry.recommended]
         self.assertGreaterEqual(len(recommended), 10)
@@ -117,7 +117,7 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertEqual([conflict.capability for conflict in conflicts], ["browser"])
 
     def test_marketplace_import_preserves_trust_risk_and_overlap_metadata(self) -> None:
-        import mcp_client.marketplace as marketplace
+        import row_bot.mcp_client.marketplace as marketplace
         importlib.reload(marketplace)
 
         playwright = next(entry for entry in marketplace.CURATED_STARTER_CATALOG if entry.id == "microsoft-playwright")
@@ -131,8 +131,8 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertEqual(source["conflicts"][0]["capability"], "browser")
 
     def test_conflict_policy_uses_manual_selection_for_overlap_and_high_risk(self) -> None:
-        from mcp_client.conflicts import conflicts_for_server, requires_manual_tool_selection, unique_server_name
-        from ui.mcp_settings import _apply_probe_defaults
+        from row_bot.mcp_client.conflicts import conflicts_for_server, requires_manual_tool_selection, unique_server_name
+        from row_bot.ui.mcp_settings import _apply_probe_defaults
 
         overlap_cfg = {
             "name": "playwright",
@@ -163,7 +163,7 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertEqual(unique_server_name("Playwright MCP", {"playwright-mcp"}), "playwright-mcp-2")
 
     def test_marketplace_search_filters_unrelated_live_results(self) -> None:
-        import mcp_client.marketplace as marketplace
+        import row_bot.mcp_client.marketplace as marketplace
         importlib.reload(marketplace)
 
         live_results = [
@@ -188,7 +188,7 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertEqual(result.source_counts, {"curated": 1, "glama": 1})
 
     def test_marketplace_search_uses_curated_when_live_source_ignores_query(self) -> None:
-        import mcp_client.marketplace as marketplace
+        import row_bot.mcp_client.marketplace as marketplace
         importlib.reload(marketplace)
 
         ignored_query_results = [
@@ -207,7 +207,7 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertEqual([entry.name for entry in result.entries], ["Playwright MCP"])
 
     def test_marketplace_search_uses_directory_page_fallback(self) -> None:
-        import mcp_client.marketplace as marketplace
+        import row_bot.mcp_client.marketplace as marketplace
         importlib.reload(marketplace)
 
         html = """
@@ -240,7 +240,7 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertTrue(result.entries[1].metadata["page_fallback"])
 
     def test_marketplace_search_does_not_match_repository_host_only(self) -> None:
-        import mcp_client.marketplace as marketplace
+        import row_bot.mcp_client.marketplace as marketplace
         importlib.reload(marketplace)
 
         with patch.object(marketplace, "_load_cache", return_value=[]):
@@ -250,7 +250,7 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertEqual([entry.id for entry in result.entries], ["github-github-mcp-server"])
 
     def test_result_normalization_truncates_and_marks_errors(self) -> None:
-        from mcp_client.results import normalize_call_result
+        from row_bot.mcp_client.results import normalize_call_result
 
         result = SimpleNamespace(
             content=[SimpleNamespace(text="abcdef")],
@@ -262,7 +262,7 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertIn("Truncated MCP output", text)
 
     def test_mcp_array_schema_preserves_items_for_gemini_tools(self) -> None:
-        import mcp_client.runtime as runtime
+        import row_bot.mcp_client.runtime as runtime
 
         tool_info = runtime.McpToolInfo(
             server_name="playwright",
@@ -300,9 +300,9 @@ class McpClientFoundationTests(unittest.TestCase):
 
     def test_stdio_command_resolution_handles_missing_launchers(self) -> None:
         self._reload_config()
-        import mcp_client.requirements as requirements
+        import row_bot.mcp_client.requirements as requirements
         requirements = importlib.reload(requirements)
-        import mcp_client.runtime as runtime
+        import row_bot.mcp_client.runtime as runtime
         runtime = importlib.reload(runtime)
 
         command_name = "fake-mcp"
@@ -333,7 +333,7 @@ class McpClientFoundationTests(unittest.TestCase):
 
     def test_runtime_requirements_infer_non_curated_and_install_known_runtimes(self) -> None:
         self._reload_config()
-        import mcp_client.requirements as requirements
+        import row_bot.mcp_client.requirements as requirements
         requirements = importlib.reload(requirements)
 
         server_cfg = {"transport": "stdio", "command": "npx", "args": ["-y", "unknown-server"]}
@@ -394,7 +394,7 @@ class McpClientFoundationTests(unittest.TestCase):
 
     def test_playwright_chrome_install_handles_empty_process_output(self) -> None:
         self._reload_config()
-        import mcp_client.requirements as requirements
+        import row_bot.mcp_client.requirements as requirements
         requirements = importlib.reload(requirements)
 
         npx_path = str(Path(self._tmp.name, "npx.cmd" if os.name == "nt" else "npx"))
@@ -407,7 +407,7 @@ class McpClientFoundationTests(unittest.TestCase):
 
     def test_playwright_browser_install_uses_user_space_chromium(self) -> None:
         self._reload_config()
-        import mcp_client.requirements as requirements
+        import row_bot.mcp_client.requirements as requirements
         requirements = importlib.reload(requirements)
 
         npx_path = str(Path(self._tmp.name, "npx.cmd" if os.name == "nt" else "npx"))
@@ -436,8 +436,8 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertTrue(Path(requirements.playwright_browser_executable_path()).exists())
 
     def test_settings_rows_include_configured_tools_without_live_catalog(self) -> None:
-        from ui.mcp_settings import _OPEN_SERVER_EXPANSIONS, _display_tool_rows, _has_pending_enabled_servers, _requirement_label, _schema_summary, _server_expansion_default_open, _set_server_expansion_open
-        from mcp_client.requirements import requirements_for_server
+        from row_bot.ui.mcp_settings import _OPEN_SERVER_EXPANSIONS, _display_tool_rows, _has_pending_enabled_servers, _requirement_label, _schema_summary, _server_expansion_default_open, _set_server_expansion_open
+        from row_bot.mcp_client.requirements import requirements_for_server
 
         server_cfg = {
             "tools": {
@@ -489,7 +489,7 @@ class McpClientFoundationTests(unittest.TestCase):
 
     def test_stdio_server_discovers_and_calls_dynamic_tool(self) -> None:
         cfg = self._reload_config()
-        import mcp_client.runtime as runtime
+        import row_bot.mcp_client.runtime as runtime
 
         if not runtime.sdk_available():
             self.skipTest("mcp SDK is not installed")
@@ -561,7 +561,7 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertEqual(runtime.get_destructive_tool_names(), set())
 
     def test_background_allow_all_runs_mcp_destructive_tool_without_interrupt_gate(self) -> None:
-        import agent
+        import row_bot.agent as agent
         from langchain_core.tools import StructuredTool
 
         interrupt_calls: list[dict] = []
@@ -626,7 +626,7 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertEqual(interrupt_calls[0]["tool"], "mcp_manual_delete_note")
 
     def test_mcp_dynamic_tool_display_name_uses_actual_tool(self) -> None:
-        import agent
+        import row_bot.agent as agent
 
         with patch("mcp_client.runtime.get_catalog_snapshot", return_value={
             "microsoft-learn-mcp": [
@@ -641,7 +641,7 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertEqual(label, "MCP: microsoft_docs_search (microsoft-learn-mcp)")
 
     def test_mcp_browser_outputs_use_browser_loop_controls(self) -> None:
-        import agent
+        import row_bot.agent as agent
 
         messages = [HumanMessage(content="use playwright mcp to browse a shopping site")]
         for index in range(max(agent._keep_browser_snapshots() + 2, 10)):
@@ -670,11 +670,12 @@ class McpClientFoundationTests(unittest.TestCase):
 
     def test_row_bot_status_mcp_tool_toggle_controls_global_client(self) -> None:
         cfg = self._reload_config()
-        import mcp_client.runtime as runtime
+        import row_bot.mcp_client.runtime as runtime
         runtime = importlib.reload(runtime)
-        import tools.mcp_tool  # noqa: F401 - registers the MCP parent tool
-        from tools import registry as tool_registry
-        from tools.row_bot_status_tool import _update_setting
+        import row_bot.tools.mcp_tool # noqa: F401 - registers the MCP parent tool
+        from row_bot import tools
+        from row_bot.tools import registry as tool_registry
+        from row_bot.tools.row_bot_status_tool import _update_setting
 
         with patch.object(runtime, "discover_enabled_servers") as discover_mock:
             cfg.set_global_enabled(True)
@@ -703,7 +704,7 @@ class McpClientFoundationTests(unittest.TestCase):
 
     def test_bad_stdio_server_reports_failure_without_tools(self) -> None:
         cfg = self._reload_config()
-        import mcp_client.runtime as runtime
+        import row_bot.mcp_client.runtime as runtime
 
         if not runtime.sdk_available():
             self.skipTest("mcp SDK is not installed")

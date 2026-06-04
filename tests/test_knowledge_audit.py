@@ -5,7 +5,7 @@ import json
 
 
 def test_audit_summary_normalizes_status_source_tier_and_evidence():
-    from ui import knowledge_audit as audit
+    from row_bot.ui import knowledge_audit as audit
 
     mem = {
         "id": "m1",
@@ -39,7 +39,7 @@ def test_audit_summary_normalizes_status_source_tier_and_evidence():
 
 
 def test_filter_memories_uses_audit_fields_and_query():
-    from ui import knowledge_audit as audit
+    from row_bot.ui import knowledge_audit as audit
 
     memories = [
         {
@@ -68,7 +68,7 @@ def test_filter_memories_uses_audit_fields_and_query():
 
 
 def test_trace_and_journal_loaders_are_read_only(tmp_path, monkeypatch):
-    import memory_policy
+    import row_bot.memory_policy as memory_policy
 
     policy = importlib.reload(memory_policy)
     trace_path = tmp_path / "trace.json"
@@ -81,7 +81,7 @@ def test_trace_and_journal_loaders_are_read_only(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(policy, "_RECALL_TRACE_FILE", trace_path)
 
-    from ui import knowledge_audit as audit
+    from row_bot.ui import knowledge_audit as audit
 
     traces = audit.load_recent_recall_traces(limit=1)
 
@@ -90,7 +90,7 @@ def test_trace_and_journal_loaders_are_read_only(tmp_path, monkeypatch):
 
 def test_graph_vis_json_includes_audit_metadata(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
-    import knowledge_graph
+    import row_bot.knowledge_graph as knowledge_graph
 
     kg = importlib.reload(knowledge_graph)
     kg._skip_reindex = True

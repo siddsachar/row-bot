@@ -4,7 +4,7 @@ import logging
 
 
 def test_load_generation_tokens() -> None:
-    from ui.performance import LoadGeneration
+    from row_bot.ui.performance import LoadGeneration
 
     gen = LoadGeneration()
     assert gen.current == 0
@@ -18,7 +18,7 @@ def test_load_generation_tokens() -> None:
 
 
 def test_warn_if_slow_logs_warning(caplog) -> None:
-    from ui.performance import warn_if_slow
+    from row_bot.ui.performance import warn_if_slow
 
     with caplog.at_level(logging.WARNING, logger="thoth.ui.performance"):
         assert warn_if_slow("unit.test", 12.0, threshold_ms=1.0, rows=3)
@@ -28,7 +28,7 @@ def test_warn_if_slow_logs_warning(caplog) -> None:
 
 
 def test_timed_ui_section_logs_elapsed(caplog) -> None:
-    from ui.performance import timed_ui_section
+    from row_bot.ui.performance import timed_ui_section
 
     with caplog.at_level(logging.INFO, logger="thoth.ui.performance"):
         with timed_ui_section("unit.section", threshold_ms=10_000):
@@ -38,14 +38,14 @@ def test_timed_ui_section_logs_elapsed(caplog) -> None:
 
 
 def test_safe_ui_callback_records_error(monkeypatch) -> None:
-    from ui.performance import safe_ui_callback
+    from row_bot.ui.performance import safe_ui_callback
 
     recorded: list[tuple[str, str]] = []
 
     def fake_record(context: str, exc: BaseException) -> None:
         recorded.append((context, str(exc)))
 
-    import stability
+    import row_bot.stability as stability
 
     monkeypatch.setattr(stability, "record_ui_callback_error", fake_record)
 
@@ -58,7 +58,7 @@ def test_safe_ui_callback_records_error(monkeypatch) -> None:
 
 
 def test_transcript_window_bounds_large_threads() -> None:
-    from ui.transcript import choose_transcript_window, message_keys
+    from row_bot.ui.transcript import choose_transcript_window, message_keys
 
     small = choose_transcript_window(10, window_size=4)
     assert small.start == 0

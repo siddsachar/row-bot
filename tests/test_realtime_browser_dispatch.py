@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ui.state import P
-from ui.streaming import run_realtime_client_js
+from row_bot.ui.state import P
+from row_bot.ui.streaming import run_realtime_client_js
 
 
 ROOT = Path(__file__).resolve().parents[1]

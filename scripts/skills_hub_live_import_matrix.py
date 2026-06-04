@@ -13,8 +13,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+for _path in (PROJECT_ROOT, PROJECT_ROOT / "src"):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 
 DEFAULT_QUERIES = {
@@ -71,12 +72,12 @@ def main() -> int:
     data_dir.mkdir(parents=True, exist_ok=True)
     os.environ["ROW_BOT_DATA_DIR"] = str(data_dir)
 
-    from skills_hub.installer import install_bundle, uninstall_skill
-    from skills_hub.provenance import get_record
-    from skills_hub.scanner import scan_bundle
-    from skills_hub.source_registry import SkillSourceRegistry
-    from skills_hub.sources import parse_skill_markdown
-    import skills
+    from row_bot.skills_hub.installer import install_bundle, uninstall_skill
+    from row_bot.skills_hub.provenance import get_record
+    from row_bot.skills_hub.scanner import scan_bundle
+    from row_bot.skills_hub.source_registry import SkillSourceRegistry
+    from row_bot.skills_hub.sources import parse_skill_markdown
+    import row_bot.skills as skills
 
     registry = SkillSourceRegistry()
     rows: list[MatrixRow] = []

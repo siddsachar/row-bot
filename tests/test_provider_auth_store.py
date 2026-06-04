@@ -1,9 +1,9 @@
 import os
 
-import api_keys
-import providers.config as provider_config
-from providers.auth_store import get_provider_secret, provider_secret_status, set_provider_secret
-from secret_store import _set_backend_for_tests
+import row_bot.api_keys as api_keys
+import row_bot.providers.config as provider_config
+from row_bot.providers.auth_store import get_provider_secret, provider_secret_status, set_provider_secret
+from row_bot.secret_store import _set_backend_for_tests
 
 
 class _MemoryKeyring:

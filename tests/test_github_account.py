@@ -5,7 +5,7 @@ from email.message import Message
 import json
 import urllib.error
 
-import github_account
+import row_bot.github_account as github_account
 
 
 @dataclass(frozen=True)
@@ -308,8 +308,8 @@ def test_settings_github_status_load_runs_off_ui_thread():
 
 
 def test_status_bar_registers_github_account_pill():
-    from ui import status_checks
-    from ui.status_bar import _STATUS_ICON_MAP
+    from row_bot.ui import status_checks
+    from row_bot.ui.status_bar import _STATUS_ICON_MAP
 
     assert status_checks.check_github_oauth in status_checks.ALL_CHECKS
     assert status_checks.check_github_oauth in status_checks.HEAVY_CHECKS

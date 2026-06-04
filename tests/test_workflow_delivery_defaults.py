@@ -26,7 +26,7 @@ class _FakeChannel:
 
 
 def test_workflow_default_channels_default_to_web_app_only(data_dir, monkeypatch):
-    import tasks
+    import row_bot.tasks as tasks
 
     cfg_path = data_dir / "task_config.json"
     monkeypatch.setattr(tasks, "_TASK_CONFIG_PATH", str(cfg_path))
@@ -46,8 +46,8 @@ def test_get_task_channels_inherits_defaults_and_respects_overrides(
     data_dir,
     monkeypatch,
 ):
-    import tasks
-    from channels import registry as channel_registry
+    import row_bot.tasks as tasks
+    from row_bot.channels import registry as channel_registry
 
     cfg_path = data_dir / "task_config.json"
     monkeypatch.setattr(tasks, "_TASK_CONFIG_PATH", str(cfg_path))
@@ -74,8 +74,8 @@ def test_legacy_delivery_channel_is_treated_as_specific_override(
     data_dir,
     monkeypatch,
 ):
-    import tasks
-    from channels import registry as channel_registry
+    import row_bot.tasks as tasks
+    from row_bot.channels import registry as channel_registry
 
     cfg_path = data_dir / "task_config.json"
     monkeypatch.setattr(tasks, "_TASK_CONFIG_PATH", str(cfg_path))
@@ -96,7 +96,7 @@ def test_legacy_delivery_channel_is_treated_as_specific_override(
 
 
 def test_create_task_preserves_empty_channel_override(data_dir, monkeypatch):
-    import tasks
+    import row_bot.tasks as tasks
 
     monkeypatch.setattr(tasks, "_DB_PATH", str(data_dir / "tasks.db"))
     monkeypatch.setattr(tasks, "_scheduler", None)

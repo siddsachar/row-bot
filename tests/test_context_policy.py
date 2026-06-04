@@ -1,9 +1,9 @@
-import providers.config as provider_config
-from providers.custom import custom_provider_id, save_custom_endpoint
+import row_bot.providers.config as provider_config
+from row_bot.providers.custom import custom_provider_id, save_custom_endpoint
 
 
 def test_context_policy_uses_local_cap_for_ollama_ref(monkeypatch):
-    import models
+    import row_bot.models as models
 
     monkeypatch.setattr(models, "_num_ctx", 65_536)
     monkeypatch.setattr(models, "_cloud_num_ctx", 1_048_576)
@@ -19,7 +19,7 @@ def test_context_policy_uses_local_cap_for_ollama_ref(monkeypatch):
 
 
 def test_context_policy_uses_provider_cap_for_cloud_ref(monkeypatch):
-    import models
+    import row_bot.models as models
 
     monkeypatch.setattr(models, "_num_ctx", 65_536)
     monkeypatch.setattr(models, "_cloud_num_ctx", 131_072)
@@ -35,7 +35,7 @@ def test_context_policy_uses_provider_cap_for_cloud_ref(monkeypatch):
 
 
 def test_context_policy_coerces_string_context_caps(monkeypatch):
-    import models
+    import row_bot.models as models
 
     monkeypatch.setattr(models, "_num_ctx", "65536")
     monkeypatch.setattr(models, "_cloud_num_ctx", "262144")
@@ -53,7 +53,7 @@ def test_context_policy_coerces_string_context_caps(monkeypatch):
 
 
 def test_model_info_coerces_string_context_window():
-    from providers.models import ModelInfo, TransportMode
+    from row_bot.providers.models import ModelInfo, TransportMode
 
     info = ModelInfo(
         provider_id="openai",
@@ -68,7 +68,7 @@ def test_model_info_coerces_string_context_window():
 
 
 def test_context_setters_coerce_ui_string_values(monkeypatch):
-    import models
+    import row_bot.models as models
 
     monkeypatch.setattr(models, "_llm_instance", object())
     monkeypatch.setattr(models, "_current_model", "model:openai:gpt-5.5")
@@ -87,7 +87,7 @@ def test_context_setters_coerce_ui_string_values(monkeypatch):
 
 
 def test_local_llm_construction_does_not_force_reasoning(monkeypatch):
-    import models
+    import row_bot.models as models
 
     captured = {}
 
@@ -111,7 +111,7 @@ def test_local_llm_construction_does_not_force_reasoning(monkeypatch):
 
 
 def test_local_thinking_model_enables_reasoning(monkeypatch):
-    import models
+    import row_bot.models as models
 
     captured = {}
 
@@ -134,7 +134,7 @@ def test_local_thinking_model_enables_reasoning(monkeypatch):
 
 
 def test_context_policy_uses_local_cap_for_local_custom_endpoint(tmp_path, monkeypatch):
-    import models
+    import row_bot.models as models
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(models, "_num_ctx", 65_536)
@@ -165,7 +165,7 @@ def test_context_policy_uses_local_cap_for_local_custom_endpoint(tmp_path, monke
 
 
 def test_context_policy_uses_profile_fallback_for_unknown_local_custom_endpoint(tmp_path, monkeypatch):
-    import models
+    import row_bot.models as models
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(models, "_num_ctx", 65_536)
@@ -196,7 +196,7 @@ def test_context_policy_uses_profile_fallback_for_unknown_local_custom_endpoint(
 
 
 def test_context_policy_uses_provider_cap_for_remote_custom_endpoint(tmp_path, monkeypatch):
-    import models
+    import row_bot.models as models
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(models, "_num_ctx", 65_536)
@@ -226,7 +226,7 @@ def test_context_policy_uses_provider_cap_for_remote_custom_endpoint(tmp_path, m
 
 
 def test_context_policy_marks_custom_runtime_context_param(tmp_path, monkeypatch):
-    import models
+    import row_bot.models as models
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(models, "_num_ctx", 65_536)

@@ -1,8 +1,8 @@
 import asyncio
 from pathlib import Path
 
-import launcher
-from ui import helpers
+import row_bot.launcher as launcher
+from row_bot.ui import helpers
 
 
 def test_browse_file_prefers_pywebview_native_dialog(monkeypatch):

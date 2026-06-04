@@ -1,14 +1,14 @@
-import providers.config as provider_config
-from providers.custom import custom_provider_id, save_custom_endpoint
-from providers.models import TransportMode
-from providers.readiness import AGENT_MODE_MIN_CONTEXT, CHAT_ONLY_MIN_CONTEXT, evaluate_agent_readiness, evaluate_runtime_readiness
-from providers.resolution import resolve_provider_config
+import row_bot.providers.config as provider_config
+from row_bot.providers.custom import custom_provider_id, save_custom_endpoint
+from row_bot.providers.models import TransportMode
+from row_bot.providers.readiness import AGENT_MODE_MIN_CONTEXT, CHAT_ONLY_MIN_CONTEXT, evaluate_agent_readiness, evaluate_runtime_readiness
+from row_bot.providers.resolution import resolve_provider_config
 from types import SimpleNamespace
 
 
 def test_known_cloud_model_passes_readiness_without_live_probe(monkeypatch):
-    import providers.readiness as readiness
-    import models
+    import row_bot.providers.readiness as readiness
+    import row_bot.models as models
 
     monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
     monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
@@ -33,8 +33,8 @@ def test_known_cloud_model_passes_readiness_without_live_probe(monkeypatch):
 
 
 def test_context_below_32k_blocks_agent_mode(monkeypatch):
-    import providers.readiness as readiness
-    import models
+    import row_bot.providers.readiness as readiness
+    import row_bot.models as models
 
     monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
     monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
@@ -56,8 +56,8 @@ def test_context_below_32k_blocks_agent_mode(monkeypatch):
 
 
 def test_context_above_16k_below_32k_can_be_chat_only(monkeypatch):
-    import providers.readiness as readiness
-    import models
+    import row_bot.providers.readiness as readiness
+    import row_bot.models as models
 
     monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
     monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
@@ -80,7 +80,7 @@ def test_context_above_16k_below_32k_can_be_chat_only(monkeypatch):
 
 
 def test_readiness_coerces_string_context_override(monkeypatch):
-    import providers.readiness as readiness
+    import row_bot.providers.readiness as readiness
 
     monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
 
@@ -95,8 +95,8 @@ def test_readiness_coerces_string_context_override(monkeypatch):
 
 
 def test_openrouter_missing_tool_metadata_fails_closed(monkeypatch):
-    import providers.readiness as readiness
-    import models
+    import row_bot.providers.readiness as readiness
+    import row_bot.models as models
 
     monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
     monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
@@ -128,8 +128,8 @@ def test_openrouter_missing_tool_metadata_fails_closed(monkeypatch):
 
 
 def test_openrouter_missing_tool_metadata_can_be_chat_only(monkeypatch):
-    import providers.readiness as readiness
-    import models
+    import row_bot.providers.readiness as readiness
+    import row_bot.models as models
 
     monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
     monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
@@ -161,8 +161,8 @@ def test_openrouter_missing_tool_metadata_can_be_chat_only(monkeypatch):
 
 
 def test_openrouter_cached_tool_metadata_is_used_for_runtime_readiness(monkeypatch):
-    import providers.readiness as readiness
-    import models
+    import row_bot.providers.readiness as readiness
+    import row_bot.models as models
 
     model_id = "qwen/qwen3.7-max"
     monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
@@ -201,9 +201,9 @@ def test_openrouter_cached_tool_metadata_is_used_for_runtime_readiness(monkeypat
 
 
 def test_ollama_probe_can_promote_catalog_unknown_model_to_agent(monkeypatch):
-    import providers.ollama as ollama
-    import providers.readiness as readiness
-    import models
+    import row_bot.providers.ollama as ollama
+    import row_bot.providers.readiness as readiness
+    import row_bot.models as models
 
     monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
     monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
@@ -231,9 +231,9 @@ def test_ollama_probe_can_promote_catalog_unknown_model_to_agent(monkeypatch):
 
 
 def test_ollama_probe_failure_routes_to_chat_only(monkeypatch):
-    import providers.ollama as ollama
-    import providers.readiness as readiness
-    import models
+    import row_bot.providers.ollama as ollama
+    import row_bot.providers.readiness as readiness
+    import row_bot.models as models
 
     monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
     monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
@@ -263,9 +263,9 @@ def test_ollama_probe_failure_routes_to_chat_only(monkeypatch):
 
 
 def test_ollama_probe_timeout_blocks_instead_of_chat_only(monkeypatch):
-    import providers.ollama as ollama
-    import providers.readiness as readiness
-    import models
+    import row_bot.providers.ollama as ollama
+    import row_bot.providers.readiness as readiness
+    import row_bot.models as models
 
     monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
     monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
@@ -296,8 +296,8 @@ def test_ollama_probe_timeout_blocks_instead_of_chat_only(monkeypatch):
 
 def test_ollama_tool_probe_requires_tool_call_and_round_trip(monkeypatch):
     import sys
-    import models
-    import providers.ollama as ollama
+    import row_bot.models as models
+    import row_bot.providers.ollama as ollama
 
     calls = []
 
@@ -337,8 +337,8 @@ def test_ollama_tool_probe_requires_tool_call_and_round_trip(monkeypatch):
 
 
 def test_custom_endpoint_requires_tool_probe_even_with_manual_capability(tmp_path, monkeypatch):
-    import providers.readiness as readiness
-    import models
+    import row_bot.providers.readiness as readiness
+    import row_bot.models as models
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
@@ -379,8 +379,8 @@ def test_custom_endpoint_requires_tool_probe_even_with_manual_capability(tmp_pat
 
 
 def test_custom_endpoint_successful_tool_round_trip_probe_passes(tmp_path, monkeypatch):
-    import providers.readiness as readiness
-    import models
+    import row_bot.providers.readiness as readiness
+    import row_bot.models as models
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
@@ -430,8 +430,8 @@ def test_custom_endpoint_successful_tool_round_trip_probe_passes(tmp_path, monke
 
 
 def test_custom_endpoint_streamed_tool_probe_is_exposed_in_readiness(tmp_path, monkeypatch):
-    import providers.readiness as readiness
-    import models
+    import row_bot.providers.readiness as readiness
+    import row_bot.models as models
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})
@@ -481,8 +481,8 @@ def test_custom_endpoint_streamed_tool_probe_is_exposed_in_readiness(tmp_path, m
 
 
 def test_custom_endpoint_chat_probe_without_tools_is_chat_only(tmp_path, monkeypatch):
-    import providers.readiness as readiness
-    import models
+    import row_bot.providers.readiness as readiness
+    import row_bot.models as models
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(readiness, "provider_status", lambda provider_id: {"configured": True})

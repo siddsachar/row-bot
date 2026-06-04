@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from voice.local_provider import LocalKokoroProvider, LocalWhisperProvider, local_voice_provider_statuses
+from row_bot.voice.local_provider import LocalKokoroProvider, LocalWhisperProvider, local_voice_provider_statuses
 
 
 class FakeVoiceService:

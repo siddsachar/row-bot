@@ -20,8 +20,9 @@ from urllib.request import urlopen
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+for _path in (PROJECT_ROOT, PROJECT_ROOT / "src"):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 
 @dataclass
@@ -92,8 +93,8 @@ def _resolve_transcript_thread(selector: str) -> tuple[str, str]:
 
 
 def _profile_transcript(selector: str) -> CheckResult:
-    from ui.helpers import load_thread_messages
-    from ui.transcript import TRANSCRIPT_WINDOW_SIZE, choose_transcript_window, message_keys
+    from row_bot.ui.helpers import load_thread_messages
+    from row_bot.ui.transcript import TRANSCRIPT_WINDOW_SIZE, choose_transcript_window, message_keys
 
     thread_id, name = _resolve_transcript_thread(selector)
     before = _rss_mb()
@@ -122,7 +123,7 @@ def _resolve_latest_blank_thread() -> tuple[str, str]:
     db_path = _thoth_home() / "threads.db"
     if not db_path.exists():
         raise FileNotFoundError(f"threads.db not found at {db_path}")
-    from ui.helpers import load_thread_messages
+    from row_bot.ui.helpers import load_thread_messages
 
     with sqlite3.connect(db_path) as conn:
         rows = conn.execute(
@@ -140,8 +141,8 @@ def _resolve_latest_blank_thread() -> tuple[str, str]:
 
 
 def _profile_blank_thread() -> CheckResult:
-    from ui.helpers import load_thread_messages
-    from ui.transcript import TRANSCRIPT_WINDOW_SIZE, choose_transcript_window, message_keys
+    from row_bot.ui.helpers import load_thread_messages
+    from row_bot.ui.transcript import TRANSCRIPT_WINDOW_SIZE, choose_transcript_window, message_keys
 
     thread_id, name = _resolve_latest_blank_thread()
     before = _rss_mb()

@@ -36,9 +36,9 @@ class ApiKeyStorageTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.old_data_dir = os.environ.get("ROW_BOT_DATA_DIR")
         os.environ["ROW_BOT_DATA_DIR"] = self.temp_dir.name
-        import secret_store
-        import api_keys
-        from plugins import state as plugin_state
+        import row_bot.secret_store as secret_store
+        import row_bot.api_keys as api_keys
+        from row_bot.plugins import state as plugin_state
         self.secret_store = importlib.reload(secret_store)
         self.api_keys = importlib.reload(api_keys)
         self.plugin_state = importlib.reload(plugin_state)

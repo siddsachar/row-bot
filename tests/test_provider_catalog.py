@@ -1,10 +1,10 @@
 from pathlib import Path
 
-from providers.capabilities import model_supports_surface
-from providers.catalog import classify_model_capabilities, get_provider_definition, infer_provider_id, legacy_cache_to_model_infos, model_info_to_cache_entry
-from providers.model_catalog import CatalogModelRow, build_model_catalog_rows, rows_for_surface
-from providers.models import ModelInfo, TransportMode
-from providers.ollama import (
+from row_bot.providers.capabilities import model_supports_surface
+from row_bot.providers.catalog import classify_model_capabilities, get_provider_definition, infer_provider_id, legacy_cache_to_model_infos, model_info_to_cache_entry
+from row_bot.providers.model_catalog import CatalogModelRow, build_model_catalog_rows, rows_for_surface
+from row_bot.providers.models import ModelInfo, TransportMode
+from row_bot.providers.ollama import (
     is_ollama_cloud_offload_model,
     is_ollama_chat_candidate,
     ollama_catalog_rows,
@@ -265,7 +265,7 @@ def test_ollama_cloud_offload_models_keep_local_provider_but_cloud_risk():
 
 
 def test_ollama_cloud_offload_model_can_be_ready_without_local_list(monkeypatch):
-    import providers.model_catalog as catalog_view
+    import row_bot.providers.model_catalog as catalog_view
 
     monkeypatch.setattr(catalog_view, "_provider_status_by_id", lambda: {"ollama": {"configured": True, "source": "local_daemon"}})
     monkeypatch.setattr(catalog_view, "_custom_model_infos", lambda: [])
@@ -325,7 +325,7 @@ def test_xai_imagine_image_model_is_image_generation_surface():
 
 
 def test_model_catalog_splits_media_from_chat_and_preserves_pins(monkeypatch):
-    import providers.model_catalog as catalog_view
+    import row_bot.providers.model_catalog as catalog_view
 
     monkeypatch.setattr(catalog_view, "_provider_status_by_id", lambda: {})
     monkeypatch.setattr(catalog_view, "_custom_model_infos", lambda: [])
@@ -385,7 +385,7 @@ def test_model_catalog_splits_media_from_chat_and_preserves_pins(monkeypatch):
 
 
 def test_model_catalog_lists_voice_models_on_voice_surface(monkeypatch):
-    import providers.model_catalog as catalog_view
+    import row_bot.providers.model_catalog as catalog_view
 
     monkeypatch.setattr(catalog_view, "_provider_status_by_id", lambda: {"openai": {"configured": True}})
     monkeypatch.setattr(catalog_view, "_custom_model_infos", lambda: [])
@@ -411,7 +411,7 @@ def test_model_catalog_lists_voice_models_on_voice_surface(monkeypatch):
 
 
 def test_model_catalog_keeps_agent_incompatible_models_visible_as_chat_only(monkeypatch):
-    import providers.model_catalog as catalog_view
+    import row_bot.providers.model_catalog as catalog_view
 
     monkeypatch.setattr(catalog_view, "_provider_status_by_id", lambda: {"openrouter": {"configured": True}})
     monkeypatch.setattr(catalog_view, "_custom_model_infos", lambda: [])
@@ -444,7 +444,7 @@ def test_model_catalog_keeps_agent_incompatible_models_visible_as_chat_only(monk
 
 
 def test_openrouter_cached_tool_metadata_makes_agent_ready(monkeypatch):
-    import providers.model_catalog as catalog_view
+    import row_bot.providers.model_catalog as catalog_view
 
     monkeypatch.setattr(catalog_view, "_provider_status_by_id", lambda: {"openrouter": {"configured": True}})
     monkeypatch.setattr(catalog_view, "_custom_model_infos", lambda: [])
@@ -478,8 +478,8 @@ def test_openrouter_cached_tool_metadata_makes_agent_ready(monkeypatch):
 
 
 def test_model_catalog_does_not_resurrect_deleted_custom_default(tmp_path, monkeypatch):
-    import providers.config as provider_config
-    import providers.model_catalog as catalog_view
+    import row_bot.providers.config as provider_config
+    import row_bot.providers.model_catalog as catalog_view
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(catalog_view, "_provider_status_by_id", lambda: {})
@@ -498,7 +498,7 @@ def test_model_catalog_does_not_resurrect_deleted_custom_default(tmp_path, monke
 
 
 def test_openrouter_cached_no_tool_metadata_is_chat_only(monkeypatch):
-    import providers.model_catalog as catalog_view
+    import row_bot.providers.model_catalog as catalog_view
 
     monkeypatch.setattr(catalog_view, "_provider_status_by_id", lambda: {"openrouter": {"configured": True}})
     monkeypatch.setattr(catalog_view, "_custom_model_infos", lambda: [])
@@ -533,7 +533,7 @@ def test_openrouter_cached_no_tool_metadata_is_chat_only(monkeypatch):
 
 
 def test_model_catalog_ui_filters_and_bounds_large_provider_groups():
-    from ui.model_catalog import CATALOG_PROVIDER_ROW_LIMIT, _filter_catalog_rows, _visible_provider_rows
+    from row_bot.ui.model_catalog import CATALOG_PROVIDER_ROW_LIMIT, _filter_catalog_rows, _visible_provider_rows
 
     rows = [
         CatalogModelRow(
@@ -565,7 +565,7 @@ def test_model_catalog_ui_filters_and_bounds_large_provider_groups():
 
 
 def test_model_catalog_excludes_non_daemon_ollama_rows(monkeypatch):
-    import providers.model_catalog as catalog_view
+    import row_bot.providers.model_catalog as catalog_view
 
     monkeypatch.setattr(catalog_view, "_provider_status_by_id", lambda: {"ollama": {"configured": True, "source": "local_daemon"}})
     monkeypatch.setattr(catalog_view, "_custom_model_infos", lambda: [])
@@ -583,14 +583,14 @@ def test_model_catalog_excludes_non_daemon_ollama_rows(monkeypatch):
 
 
 def test_legacy_model_facade_uses_ollama_tool_capability_catalog():
-    from models import is_tool_compatible
+    from row_bot.models import is_tool_compatible
 
     assert is_tool_compatible("qwen3.6:27b") is True
     assert is_tool_compatible("qwen3.6:35b-a3b") is True
 
 
 def test_local_ollama_discovery_uses_http_fallback(monkeypatch):
-    import models
+    import row_bot.models as models
 
     monkeypatch.setattr(models, "_ollama_reachable", lambda: True)
     monkeypatch.setattr(models, "_ollama_client", lambda: None)
@@ -606,7 +606,7 @@ def test_local_ollama_discovery_uses_http_fallback(monkeypatch):
 
 
 def test_local_ollama_context_uses_http_show_fallback(monkeypatch):
-    import models
+    import row_bot.models as models
 
     models._model_max_ctx_cache.clear()
     monkeypatch.setattr(models, "is_cloud_model", lambda model_name: False)
@@ -633,7 +633,7 @@ def test_ollama_embedding_model_is_not_chat_surface():
 
 
 def test_ollama_catalog_includes_installed_unknown_chat_models(monkeypatch):
-    import providers.model_catalog as catalog_view
+    import row_bot.providers.model_catalog as catalog_view
 
     monkeypatch.setattr(catalog_view, "_provider_status_by_id", lambda: {"ollama": {"configured": True, "source": "local_daemon"}})
     monkeypatch.setattr(catalog_view, "_custom_model_infos", lambda: [])

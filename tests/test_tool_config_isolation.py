@@ -10,7 +10,7 @@ def test_registry_follows_row_bot_data_dir_after_import(tmp_path, monkeypatch):
     second = tmp_path / "second"
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(first))
 
-    from tools import registry
+    from row_bot.tools import registry
 
     registry = importlib.reload(registry)
     registry.set_tool_config("filesystem", "workspace_root", "alpha")
@@ -28,7 +28,7 @@ def test_registry_follows_row_bot_data_dir_after_import(tmp_path, monkeypatch):
 def test_registry_persists_unicode_config_with_utf8(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
 
-    from tools import registry
+    from row_bot.tools import registry
 
     registry = importlib.reload(registry)
     registry.set_tool_config("filesystem", "workspace_root", str(tmp_path / "Thoth ⚡"))
@@ -45,7 +45,7 @@ def test_filesystem_empty_workspace_defaults_to_row_bot_documents(tmp_path, monk
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setattr(Path, "home", lambda: home)
 
-    import tools.filesystem_tool as filesystem_tool
+    import row_bot.tools.filesystem_tool as filesystem_tool
 
     filesystem_tool = importlib.reload(filesystem_tool)
     root = filesystem_tool.FileSystemTool()._get_workspace_root()

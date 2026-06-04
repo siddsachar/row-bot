@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 def test_ui_module_imports_and_dialog_callable():
-    import skills_hub.ui as hub_ui
+    import row_bot.skills_hub.ui as hub_ui
 
     assert callable(hub_ui.open_skills_hub_dialog)
     assert callable(hub_ui.install_preview_bundle)
@@ -15,7 +15,7 @@ def test_ui_module_imports_and_dialog_callable():
 
 
 def test_filter_chips_are_sources_not_trust_modes(monkeypatch):
-    import skills_hub.ui as hub_ui
+    import row_bot.skills_hub.ui as hub_ui
 
     monkeypatch.setattr(hub_ui, "source_metadata", lambda: [
         {"id": "github", "source_group": "github", "display_name": "GitHub", "supports_browse": True},
@@ -63,13 +63,14 @@ def test_install_actions_pass_correct_enabled_default(tmp_path, monkeypatch):
     import sys
 
     os.environ["THOTH_DATA_DIR"] = str(tmp_path)
+    os.environ["ROW_BOT_DATA_DIR"] = str(tmp_path)
     for name in list(sys.modules):
         if name == "skills" or name.startswith("skills_hub"):
             sys.modules.pop(name, None)
 
-    from skills_hub.models import InstallResult
-    from skills_hub.sources import SkillFile, bundle_from_files
-    import skills_hub.ui as hub_ui
+    from row_bot.skills_hub.models import InstallResult
+    from row_bot.skills_hub.sources import SkillFile, bundle_from_files
+    import row_bot.skills_hub.ui as hub_ui
 
     bundle = bundle_from_files(
         source="direct_url",

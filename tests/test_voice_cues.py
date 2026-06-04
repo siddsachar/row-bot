@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from voice.cue_policy import VoiceCuePolicy
-from voice.cues import (
+from row_bot.voice.cue_policy import VoiceCuePolicy
+from row_bot.voice.cues import (
     VoiceCue,
     VoiceCuePriority,
     VoiceCueType,
@@ -13,7 +13,7 @@ from voice.cues import (
     tool_progress_cue,
     tool_start_cue,
 )
-from voice.output_controller import VoiceOutputController
+from row_bot.voice.output_controller import VoiceOutputController
 
 
 class Clock:

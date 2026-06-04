@@ -1,9 +1,4 @@
-"""Single source of truth for files copied into packaged Row-Bot apps.
-
-Phase 10.5A keeps the runtime source at the repository root.  The manifest
-therefore describes the current root layout while giving the installers and
-tests one place to update when the runtime later moves under ``src/row_bot``.
-"""
+"""Single source of truth for files copied into packaged Row-Bot apps."""
 
 from __future__ import annotations
 
@@ -22,26 +17,14 @@ ROOT_PYTHON_EXCLUDES = frozenset(
 )
 
 PAYLOAD_DIRS = (
-    "tools",
-    "channels",
-    "bundled_skills",
-    "tool_guides",
-    "ui",
-    "plugins",
-    "designer",
-    "developer",
-    "utils",
-    "providers",
-    "mcp_client",
-    "skills_hub",
-    "migration",
-    "buddy",
-    "voice",
+    "src/row_bot",
 )
 
 ASSET_DIRS = (
     "static",
     "sounds",
+    "bundled_skills",
+    "tool_guides",
 )
 
 ROOT_FILES = (

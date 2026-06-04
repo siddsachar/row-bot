@@ -1,6 +1,6 @@
 import json
 
-from providers.config import DEFAULT_ROUTE_PROFILES, load_provider_config, mask_provider_config, save_provider_config
+from row_bot.providers.config import DEFAULT_ROUTE_PROFILES, load_provider_config, mask_provider_config, save_provider_config
 
 
 def test_provider_config_normalizes_defaults(tmp_path):

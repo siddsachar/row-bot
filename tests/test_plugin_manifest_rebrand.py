@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from plugins.manifest import parse_manifest
+from row_bot.plugins.manifest import parse_manifest
 
 
 def _write_manifest(plugin_dir, payload: dict) -> None:

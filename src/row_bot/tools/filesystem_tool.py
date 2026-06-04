@@ -1,0 +1,509 @@
+"""Filesystem tool — sandboxed file operations within a user-configured workspace."""
+
+from __future__ import annotations
+
+from row_bot.brand import DEFAULT_WORKSPACE_DIR_NAME
+from row_bot.tools.base import BaseTool
+from row_bot.tools import registry
+
+# Operations the user can enable, grouped by risk level
+_SAFE_OPS = ["read_file", "list_directory", "file_search"]
+_WRITE_OPS = ["write_file", "copy_file", "export_to_pdf"]
+_DESTRUCTIVE_OPS = ["move_file", "file_delete"]
+ALL_OPERATIONS = _SAFE_OPS + _WRITE_OPS + _DESTRUCTIVE_OPS
+
+# Default: safe + write + move (move has interrupt gate)
+DEFAULT_OPERATIONS = _SAFE_OPS + _WRITE_OPS + ["move_file"]
+
+# Module-level buffer for images displayed via read_file.
+# The streaming layer reads and clears this after workspace_read_file calls.
+_last_displayed_image: dict | None = None  # {"b64": str, "name": str}
+
+def get_and_clear_displayed_image() -> dict | None:
+    """Return and clear the pending displayed image, if any."""
+    global _last_displayed_image
+    img = _last_displayed_image
+    _last_displayed_image = None
+    return img
+
+
+class FileSystemTool(BaseTool):
+
+    @property
+    def name(self) -> str:
+        return "filesystem"
+
+    @property
+    def display_name(self) -> str:
+        return "📁 Filesystem"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Read, write, search, copy, move, and delete files within a "
+            "sandboxed workspace folder. Use this when the user asks to "
+            "create files, read local files, organise folders, save notes, "
+            "or manage files on disk."
+        )
+
+    @property
+    def enabled_by_default(self) -> bool:
+        return True
+
+    @property
+    def required_api_keys(self) -> dict[str, str]:
+        return {}
+
+    @property
+    def config_schema(self) -> dict[str, dict]:
+        return {
+            "workspace_root": {
+                "label": "Workspace folder",
+                "type": "folder",
+                "default": "",
+            },
+            "selected_operations": {
+                "label": "Allowed operations",
+                "type": "multicheck",
+                "default": DEFAULT_OPERATIONS,
+                "options": ALL_OPERATIONS,
+            },
+        }
+
+    @property
+    def destructive_tool_names(self) -> set[str]:
+        return {"workspace_move_file", "workspace_file_delete"}
+
+    # ── Build the toolkit tools ──────────────────────────────────────────────
+    def _get_workspace_root(self) -> str:
+        import os
+        import pathlib
+        root = self.get_config("workspace_root", "")
+        if not root:
+            root = str(pathlib.Path.home() / "Documents" / DEFAULT_WORKSPACE_DIR_NAME)
+            self.set_config("workspace_root", root)
+        os.makedirs(root, exist_ok=True)
+        return root
+
+    def _get_selected_operations(self) -> list[str]:
+        ops = self.get_config("selected_operations", DEFAULT_OPERATIONS)
+        return [op for op in ops if op in ALL_OPERATIONS]
+
+    def as_langchain_tools(self) -> list:
+        """Return the selected FileManagementToolkit tools, sandboxed to
+        the configured workspace root.  The default ``read_file`` tool is
+        replaced with a custom version that can also read PDF files."""
+        import os
+        from langchain_community.agent_toolkits import FileManagementToolkit
+
+        root = self._get_workspace_root()
+
+        selected = self._get_selected_operations()
+        if not selected:
+            return []
+
+        # Separate custom tools from LangChain FileManagementToolkit tools
+        _CUSTOM_OPS = {"export_to_pdf"}
+        lc_selected = [op for op in selected if op not in _CUSTOM_OPS]
+
+        tools = []
+        if lc_selected:
+            toolkit = FileManagementToolkit(
+                root_dir=root,
+                selected_tools=lc_selected,
+            )
+            tools = toolkit.get_tools()
+
+        # Wrap each built-in tool to normalise paths, add sandbox
+        # redirect for out-of-workspace paths, rename to workspace_*,
+        # and enrich descriptions with scope info.
+        tools = [_wrap_tool_with_path_fix(t, root) for t in tools]
+
+        # Replace the default read_file with our PDF-aware version
+        if "read_file" in selected:
+            tools = [t for t in tools if t.name != "workspace_read_file"]
+            tools.append(_make_pdf_aware_read_tool(root))
+
+        # Add export_to_pdf sub-tool
+        if "export_to_pdf" in selected:
+            tools.append(_make_export_to_pdf_tool(root))
+
+        return tools
+
+    def execute(self, query: str) -> str:
+        # Not used — as_langchain_tools() provides individual tools directly
+        return "Use the individual file operations instead."
+
+
+def _max_read_chars() -> int:
+    from row_bot.models import get_tool_budget
+    return get_tool_budget(0.25, floor=30_000, ceiling=300_000)
+
+
+def _normalise_path(file_path: str, root_dir: str) -> str:
+    """Strip the workspace folder name from the front of *file_path* if the
+    LLM redundantly included it, and convert absolute paths that fall inside
+    the workspace to relative ones.
+
+    Examples (root_dir = ``D:\\ThothWorkspace``):
+    - ``ThothWorkspace/notes.txt``  →  ``notes.txt``
+    - ``D:\\ThothWorkspace\\notes.txt``  →  ``notes.txt``
+    - ``notes.txt``  →  ``notes.txt``  (unchanged)
+    """
+    import os
+    from pathlib import Path
+
+    fp = file_path.replace("\\", "/").strip().strip("/")
+    root_name = Path(root_dir).name  # e.g. "ThothWorkspace"
+
+    # Strip leading workspace folder name (case-insensitive)
+    if fp.lower().startswith(root_name.lower() + "/"):
+        fp = fp[len(root_name) + 1:]
+    elif fp.lower() == root_name.lower():
+        fp = "."
+
+    # Handle absolute paths inside the workspace
+    try:
+        resolved = Path(fp).resolve()
+        root_resolved = Path(root_dir).resolve()
+        if str(resolved).lower().startswith(str(root_resolved).lower()):
+            rel = os.path.relpath(resolved, root_resolved)
+            fp = rel.replace("\\", "/")
+    except (OSError, ValueError):
+        pass
+
+    return fp
+
+
+def _is_outside_workspace(value: str, root_dir: str) -> bool:
+    """Return True if *value* looks like an absolute path that falls outside
+    the workspace *root_dir*.  Relative paths are assumed to resolve inside."""
+    from pathlib import Path
+
+    v = value.replace("\\", "/").strip()
+    # Only flag absolute paths (Windows drive letter or Unix /)
+    if not (v.startswith("/") or (len(v) >= 2 and v[1] == ":")):
+        return False
+    try:
+        resolved = Path(v).resolve()
+        root_resolved = Path(root_dir).resolve()
+        return not str(resolved).lower().startswith(str(root_resolved).lower())
+    except (OSError, ValueError):
+        return False
+
+
+def _wrap_tool_with_path_fix(tool, root_dir: str):
+    """Return a copy of *tool* that:
+    1. Rejects absolute paths outside the workspace with a redirect hint.
+    2. Normalises paths the LLM provides (strips redundant workspace prefix).
+    3. Renames the tool to ``workspace_<name>`` so the LLM knows the scope.
+    4. Appends workspace-scope notice to the description.
+    """
+    from langchain_core.tools import StructuredTool
+
+    # Resolve the callable — class-based tools use _run, function tools use func
+    original_func = getattr(tool, "func", None) or getattr(tool, "_run", None)
+    if original_func is None:
+        return tool  # can't wrap tools without a callable
+
+    import inspect
+    sig = inspect.signature(original_func)
+    # Identify which parameters look like paths
+    _path_params = [
+        p.name for p in sig.parameters.values()
+        if "path" in p.name.lower() or "dir" in p.name.lower()
+           or p.name in ("source", "destination")
+    ]
+    if not _path_params:
+        # list_directory uses no named path param — its first arg is dir_path
+        if tool.name == "list_directory":
+            _path_params = list(sig.parameters.keys())[:1]
+
+    def _wrapped(**kwargs):
+        # ── Sandbox redirect: reject paths outside workspace ─────────
+        for key in _path_params:
+            if key in kwargs and isinstance(kwargs[key], str):
+                if _is_outside_workspace(kwargs[key], root_dir):
+                    return (
+                        f"Error: the path '{kwargs[key]}' is outside the "
+                        f"workspace folder ({root_dir}). This tool ONLY "
+                        f"operates within the workspace. Use the run_command "
+                        f"tool instead to access paths outside the workspace."
+                    )
+                kwargs[key] = _normalise_path(kwargs[key], root_dir)
+        return original_func(**kwargs)
+
+    # Rename to workspace_* and enrich description with scope
+    new_name = f"workspace_{tool.name}"
+    new_desc = (
+        f"{tool.description} "
+        f"(WORKSPACE ONLY — paths are relative to the workspace folder. "
+        f"For files outside the workspace, use run_command instead.)"
+    )
+
+    # Preserve the original input schema so StructuredTool passes kwargs
+    # correctly.  Class-based LangChain tools expose their schema via
+    # get_input_schema(); without this, **kwargs eats everything.
+    original_schema = None
+    if hasattr(tool, "get_input_schema"):
+        original_schema = tool.get_input_schema()
+
+    return StructuredTool.from_function(
+        func=_wrapped,
+        name=new_name,
+        description=new_desc,
+        args_schema=original_schema,
+    )
+
+
+def _make_pdf_aware_read_tool(root_dir: str):
+    """Create a ``read_file`` StructuredTool that can read both text and PDF
+    files.  Paths are resolved relative to *root_dir* and validated to stay
+    within the sandbox.  Output is capped dynamically to prevent
+    a single tool result from blowing up the agent context window."""
+    import os
+    from pathlib import Path
+    from langchain_core.tools import StructuredTool
+
+    def _cap(text: str, label: str = "") -> str:
+        """Truncate *text* to the dynamic budget with a notice if trimmed."""
+        limit = _max_read_chars()
+        if len(text) <= limit:
+            return text
+        suffix = (
+            f"\n\n[Truncated — showing first {limit:,} characters"
+            f"{label}. File is {len(text):,} characters total.]"
+        )
+        return text[:limit] + suffix
+
+    def read_file(file_path: str) -> str:
+        """Read the contents of a file. For PDF files, extracts all text
+        from every page. For CSV/Excel/JSON files, returns schema, stats,
+        and a preview. The file_path is relative to the workspace root.
+        For Excel files, append '::SheetName' to read a specific sheet
+        (e.g. 'data.xlsx::Sheet2')."""
+        # Parse optional sheet specifier for Excel files
+        sheet_name = ""
+        if "::" in file_path:
+            file_path, sheet_name = file_path.rsplit("::", 1)
+
+        file_path = _normalise_path(file_path, root_dir)
+        resolved = Path(root_dir) / file_path
+        resolved = resolved.resolve()
+
+        # Sandbox check — must stay within root
+        if not str(resolved).startswith(str(Path(root_dir).resolve())):
+            return (
+                f"Error: path '{file_path}' is outside the workspace folder "
+                f"({root_dir}). This tool ONLY operates within the workspace. "
+                f"Use the run_command tool instead to access paths outside "
+                f"the workspace."
+            )
+
+        if not resolved.exists() and "/" not in file_path.replace("\\", "/"):
+            received = Path(root_dir) / "Received Files" / file_path
+            if received.resolve().exists():
+                resolved = received.resolve()
+                file_path = f"Received Files/{file_path}"
+
+        if not resolved.exists():
+            return f"Error: file not found: {file_path}"
+
+        # ── Image files — display inline instead of reading as text ────
+        from row_bot.ui.constants import IMAGE_EXTENSIONS
+        if resolved.suffix.lower() in IMAGE_EXTENSIONS:
+            import base64 as _b64
+            global _last_displayed_image
+            try:
+                data = resolved.read_bytes()
+                b64 = _b64.b64encode(data).decode("ascii")
+                _last_displayed_image = {"b64": b64, "name": resolved.name}
+                size_kb = len(data) / 1024
+                if size_kb >= 1024:
+                    size_str = f"{size_kb / 1024:.1f} MB"
+                else:
+                    size_str = f"{size_kb:.0f} KB"
+                return (
+                    f"Displayed image: {file_path} ({size_str}). "
+                    f"The image is now shown inline in the chat. "
+                    f"To analyze its contents, use analyze_image with "
+                    f"source='file' and file_path='{file_path}'."
+                )
+            except Exception as exc:
+                return f"Error reading image '{file_path}': {exc}"
+
+        # ── Structured data files (CSV, Excel, JSON) ────────────────────
+        from row_bot.data_reader import is_data_file, read_data_file
+        if is_data_file(resolved.name):
+            return read_data_file(resolved, sheet=sheet_name,
+                                  max_chars=_max_read_chars())
+
+        if resolved.suffix.lower() == ".pdf":
+            try:
+                from pypdf import PdfReader
+                reader = PdfReader(str(resolved))
+                total_pages = len(reader.pages)
+                pages = []
+                for i, page in enumerate(reader.pages, 1):
+                    text = page.extract_text() or ""
+                    if text.strip():
+                        pages.append(f"--- Page {i} ---\n{text}")
+                if not pages:
+                    return f"PDF file '{file_path}' contains no extractable text."
+                full = "\n\n".join(pages)
+                return _cap(full, f" of {total_pages} pages")
+            except Exception as exc:
+                return f"Error reading PDF '{file_path}': {exc}"
+        else:
+            try:
+                text = resolved.read_text(encoding="utf-8", errors="replace")
+                return _cap(text)
+            except Exception as exc:
+                return f"Error reading '{file_path}': {exc}"
+
+    return StructuredTool.from_function(
+        func=read_file,
+        name="workspace_read_file",
+        description=(
+            "Read the contents of a file (including PDF, CSV, Excel, JSON, "
+            "and image files). For images, displays the image inline in chat. "
+            "For CSV/Excel/JSON, returns column schema, statistics, and a preview. "
+            "For Excel, append '::SheetName' to the path to read a specific sheet. "
+            "(WORKSPACE ONLY — file_path is relative to the workspace folder. "
+            "For files outside the workspace, use run_command instead.)"
+        ),
+    )
+
+
+# ── Export to PDF ────────────────────────────────────────────────────────────
+
+def _make_export_to_pdf_tool(root_dir: str):
+    """Return a tool that exports text/markdown content to a PDF file."""
+    from langchain_core.tools import StructuredTool
+    from pydantic import BaseModel as _BM, Field as _F
+
+    class _ExportPdfInput(_BM):
+        content: str = _F(
+            description=(
+                "The text or markdown content to render as a PDF. "
+                "Plain text and basic markdown are supported."
+            ),
+        )
+        filename: str = _F(
+            description=(
+                "Output filename (e.g. 'report.pdf'). Saved in the workspace folder. "
+                "The .pdf extension is added automatically if missing."
+            ),
+        )
+
+    def export_to_pdf(content: str, filename: str) -> str:
+        """Render markdown/text content as a PDF in the workspace."""
+        import concurrent.futures
+        import re as _re
+        from pathlib import Path as _Path
+
+        fname = filename.strip()
+        if not fname.lower().endswith(".pdf"):
+            fname += ".pdf"
+        out_path = _Path(root_dir) / fname
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Try Playwright (headless Chromium) for full Unicode/styling
+        try:
+            from playwright.sync_api import sync_playwright
+            import markdown2
+
+            html_body = markdown2.markdown(
+                content,
+                extras=["fenced-code-blocks", "tables", "code-friendly"],
+            )
+            css = (
+                "@page { size: A4; margin: 20mm 18mm; }"
+                "body { font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;"
+                "  font-size: 11pt; line-height: 1.5; color: #222; margin: 0; padding: 0; }"
+                "pre { background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px;"
+                "  padding: 8px 10px; font-size: 9pt; white-space: pre-wrap; word-break: break-all;"
+                "  font-family: Consolas, 'Courier New', monospace; }"
+                "code { background: #f0f0f0; padding: 1px 4px; border-radius: 3px;"
+                "  font-size: 9.5pt; font-family: Consolas, 'Courier New', monospace; }"
+                "pre code { background: none; padding: 0; }"
+                "table { border-collapse: collapse; margin: 8px 0; font-size: 10pt; }"
+                "th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; }"
+                "th { background: #f0f0f0; font-weight: 600; }"
+                "blockquote { border-left: 3px solid #ccc; margin: 8px 0; padding: 4px 12px; color: #555; }"
+                "img { max-width: 100%; height: auto; }"
+            )
+            html = (
+                f"<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                f"<style>{css}</style></head><body>{html_body}</body></html>"
+            )
+
+            def _render_in_worker() -> None:
+                pw = sync_playwright().start()
+                try:
+                    browser = pw.chromium.launch(headless=True)
+                    page = browser.new_page()
+                    page.set_content(html, wait_until="networkidle")
+                    page.pdf(
+                        path=str(out_path),
+                        format="A4",
+                        margin={
+                            "top": "20mm",
+                            "right": "18mm",
+                            "bottom": "20mm",
+                            "left": "18mm",
+                        },
+                        print_background=True,
+                    )
+                    page.close()
+                    browser.close()
+                finally:
+                    pw.stop()
+
+            # Playwright sync API must run outside the app's asyncio loop.
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                pool.submit(_render_in_worker).result()
+            return f"PDF saved to: {out_path}"
+
+        except Exception:
+            pass  # fall through to fpdf2
+
+        # Fallback: fpdf2 (basic text, no Unicode emoji support)
+        try:
+            from fpdf import FPDF
+        except ImportError:
+            return "Error: fpdf2 is not installed. Run: pip install fpdf2"
+
+        pdf = FPDF()
+        pdf.set_auto_page_break(auto=True, margin=20)
+        pdf.add_page()
+
+        def _safe(text: str) -> str:
+            return text.encode("latin-1", errors="replace").decode("latin-1")
+
+        # Strip markdown syntax for plain-text fallback
+        text = content
+        text = _re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+        text = _re.sub(r'```[\s\S]*?```', '[code block]', text)
+        text = _re.sub(r'#{1,6}\s+', '', text)
+
+        pdf.set_font("Helvetica", "", 10)
+        pdf.multi_cell(0, 5, _safe(text))
+
+        pdf.output(str(out_path))
+        return f"PDF saved to: {out_path}"
+
+    return StructuredTool.from_function(
+        func=export_to_pdf,
+        name="export_to_pdf",
+        description=(
+            "Export text or markdown content to a PDF file in the workspace. "
+            "Returns the absolute file path — useful for sending the "
+            "PDF via Telegram or email. "
+            "(WORKSPACE ONLY — saves to the configured workspace folder.)"
+        ),
+        args_schema=_ExportPdfInput,
+    )
+
+
+registry.register(FileSystemTool())

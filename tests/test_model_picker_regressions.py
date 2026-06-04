@@ -2,8 +2,8 @@ import ast
 from pathlib import Path
 import time
 
-import providers.config as provider_config
-from providers.custom import custom_provider_id, save_custom_endpoint
+import row_bot.providers.config as provider_config
+from row_bot.providers.custom import custom_provider_id, save_custom_endpoint
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,7 +14,7 @@ def test_agent_tool_error_uses_active_thread_override(tmp_path, monkeypatch):
     data_dir.mkdir()
     monkeypatch.setenv("THOTH_DATA_DIR", str(data_dir))
 
-    import agent
+    import row_bot.agent as agent
 
     token = agent._model_override_var.set("model:ollama:vendor/non-tool-chat:14b")
     try:
@@ -60,12 +60,12 @@ def test_inline_model_picker_uses_stale_while_refresh_cache():
 
 
 def test_model_picker_labels_use_clean_text_without_mojibake(monkeypatch):
-    from providers.selection import (
+    from row_bot.providers.selection import (
         format_model_choice_label,
         list_model_choice_options,
         model_ref,
     )
-    import providers.selection as selection
+    import row_bot.providers.selection as selection
 
     cfg = {
         "quick_choices": [{
@@ -98,7 +98,7 @@ def test_model_picker_labels_use_clean_text_without_mojibake(monkeypatch):
 
 
 def test_model_picker_cache_invalidates_when_provider_config_changes(tmp_path, monkeypatch):
-    import ui.chat_components as chat_components
+    import row_bot.ui.chat_components as chat_components
 
     config_path = tmp_path / "providers.json"
     config_path.write_text('{"quick_choices":[]}', encoding="utf-8")
@@ -147,7 +147,7 @@ def test_chat_voice_status_literals_have_no_mojibake():
 
 
 def test_model_picker_cache_returns_stale_options_for_background_refresh(tmp_path, monkeypatch):
-    import ui.chat_components as chat_components
+    import row_bot.ui.chat_components as chat_components
 
     config_path = tmp_path / "providers.json"
     config_path.write_text('{"quick_choices":[]}', encoding="utf-8")
@@ -193,8 +193,8 @@ def test_non_tool_custom_endpoint_is_blocked_for_agent_mode(tmp_path, monkeypatc
         "auth_required": False,
     })
 
-    import models
-    import providers.readiness as readiness
+    import row_bot.models as models
+    import row_bot.providers.readiness as readiness
 
     provider_id = custom_provider_id("lm-studio")
     model_ref = f"model:{custom_provider_id('lm-studio')}:qwen/qwen3.5-9b"
@@ -226,8 +226,8 @@ def test_agent_runtime_no_longer_uses_plain_chat_fallback():
 
 
 def test_brain_badge_uses_agent_readiness_for_provider_qualified_ollama(monkeypatch):
-    import models
-    import ui.settings as settings_ui
+    import row_bot.models as models
+    import row_bot.ui.settings as settings_ui
 
     monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
         model_ref="model:ollama:qwen3.6:27b",
@@ -251,8 +251,8 @@ def test_brain_badge_uses_agent_readiness_for_provider_qualified_ollama(monkeypa
 
 
 def test_brain_badge_marks_ollama_unknown_tools_as_unverified(monkeypatch):
-    import models
-    import ui.settings as settings_ui
+    import row_bot.models as models
+    import row_bot.ui.settings as settings_ui
 
     monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
         model_ref="model:ollama:gemma3:4b",
@@ -277,8 +277,8 @@ def test_brain_badge_marks_ollama_unknown_tools_as_unverified(monkeypatch):
 
 
 def test_brain_badge_keeps_openrouter_unknown_tools_visible(monkeypatch):
-    import models
-    import ui.settings as settings_ui
+    import row_bot.models as models
+    import row_bot.ui.settings as settings_ui
 
     monkeypatch.setattr(models, "get_context_policy", lambda value: models.ContextPolicy(
         model_ref="model:openrouter:vendor/chat",
@@ -310,8 +310,8 @@ def test_brain_badge_keeps_openrouter_unknown_tools_visible(monkeypatch):
 
 
 def test_brain_badge_marks_unprobed_custom_endpoint_probe_required(tmp_path, monkeypatch):
-    import models
-    import ui.settings as settings_ui
+    import row_bot.models as models
+    import row_bot.ui.settings as settings_ui
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     provider_id = custom_provider_id("lm-studio")

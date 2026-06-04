@@ -33,10 +33,11 @@ import urllib.error
 import urllib.request
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+for _path in (_REPO_ROOT, _REPO_ROOT / "src"):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
-from brand import APP_REPOSITORY, UPDATE_MANIFEST_MARKER, UPDATER_USER_AGENT
+from row_bot.brand import APP_REPOSITORY, UPDATE_MANIFEST_MARKER, UPDATER_USER_AGENT
 
 _MANIFEST_RE = re.compile(
     rf"<!--\s*{re.escape(UPDATE_MANIFEST_MARKER)}\s*-->\s*```manifest.*?```",

@@ -21,8 +21,9 @@ from typing import Any
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+for _path in (PROJECT_ROOT, PROJECT_ROOT / "src"):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 
 @dataclass(frozen=True)
@@ -81,11 +82,11 @@ TARGETS: dict[str, Target] = {
 
 def _load_modules(data_dir: Path):
     os.environ["ROW_BOT_DATA_DIR"] = str(data_dir)
-    import mcp_client.config as mcp_config
-    import mcp_client.marketplace as marketplace
-    import mcp_client.runtime as runtime
-    import ui.mcp_settings as mcp_settings
-    from mcp_client.safety import prefixed_tool_name
+    import row_bot.mcp_client.config as mcp_config
+    import row_bot.mcp_client.marketplace as marketplace
+    import row_bot.mcp_client.runtime as runtime
+    import row_bot.ui.mcp_settings as mcp_settings
+    from row_bot.mcp_client.safety import prefixed_tool_name
 
     mcp_config = importlib.reload(mcp_config)
     marketplace = importlib.reload(marketplace)

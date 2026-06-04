@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from approval_policy import (
+from row_bot.approval_policy import (
     approval_label,
     decision_for_action,
     legacy_developer_mode_to_approval_mode,

@@ -10,8 +10,8 @@ from pathlib import Path
 
 class MigrationPlannerTests(unittest.TestCase):
     def test_builds_hermes_preview_plan_from_realistic_fixture(self) -> None:
-        from migration import MigrationCategory, MigrationStatus, build_hermes_plan
-        from migration.fixtures import create_realistic_hermes_home
+        from row_bot.migration import MigrationCategory, MigrationStatus, build_hermes_plan
+        from row_bot.migration.fixtures import create_realistic_hermes_home
 
         with tempfile.TemporaryDirectory() as temp_dir:
             source = create_realistic_hermes_home(Path(temp_dir) / ".hermes")
@@ -43,8 +43,8 @@ class MigrationPlannerTests(unittest.TestCase):
         self.assertNotIn("linear-secret-token", raw_text)
 
     def test_include_secrets_marks_secret_items_sensitive(self) -> None:
-        from migration import MigrationCategory, MigrationStatus, build_hermes_plan
-        from migration.fixtures import create_realistic_hermes_home
+        from row_bot.migration import MigrationCategory, MigrationStatus, build_hermes_plan
+        from row_bot.migration.fixtures import create_realistic_hermes_home
 
         with tempfile.TemporaryDirectory() as temp_dir:
             source = create_realistic_hermes_home(Path(temp_dir) / ".hermes")
@@ -58,8 +58,8 @@ class MigrationPlannerTests(unittest.TestCase):
         self.assertTrue(any(item in plan.apply_candidates for item in secret_items))
 
     def test_builds_openclaw_preview_plan_from_legacy_fixture(self) -> None:
-        from migration import MigrationCategory, MigrationStatus, build_openclaw_plan
-        from migration.fixtures import create_realistic_openclaw_home
+        from row_bot.migration import MigrationCategory, MigrationStatus, build_openclaw_plan
+        from row_bot.migration.fixtures import create_realistic_openclaw_home
 
         with tempfile.TemporaryDirectory() as temp_dir:
             source = create_realistic_openclaw_home(Path(temp_dir) / ".clawdbot")
@@ -80,7 +80,7 @@ class MigrationPlannerTests(unittest.TestCase):
         self.assertGreaterEqual(plan.summary.archive_only, 4)
 
     def test_malformed_openclaw_config_warns_and_keeps_file_plan(self) -> None:
-        from migration import MigrationCategory, build_openclaw_plan
+        from row_bot.migration import MigrationCategory, build_openclaw_plan
 
         with tempfile.TemporaryDirectory() as temp_dir:
             source = Path(temp_dir) / ".openclaw"
@@ -93,8 +93,8 @@ class MigrationPlannerTests(unittest.TestCase):
         self.assertEqual(plan.summary.errors, 0)
 
     def test_target_conflicts_are_previewed_without_writes(self) -> None:
-        from migration import MigrationStatus, build_hermes_plan
-        from migration.fixtures import create_realistic_hermes_home
+        from row_bot.migration import MigrationStatus, build_hermes_plan
+        from row_bot.migration.fixtures import create_realistic_hermes_home
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
@@ -110,7 +110,7 @@ class MigrationPlannerTests(unittest.TestCase):
         self.assertTrue(plan.has_blocking_conflicts)
 
     def test_dispatcher_returns_empty_plan_for_missing_source(self) -> None:
-        from migration import build_migration_plan
+        from row_bot.migration import build_migration_plan
 
         with tempfile.TemporaryDirectory() as temp_dir:
             plan = build_migration_plan("hermes", Path(temp_dir) / "missing", target_root=Path(temp_dir) / "target")
@@ -120,8 +120,8 @@ class MigrationPlannerTests(unittest.TestCase):
         self.assertTrue(any("not found" in warning for warning in plan.warnings))
 
     def test_dispatcher_returns_empty_plan_for_wrong_provider_source(self) -> None:
-        from migration import build_migration_plan
-        from migration.fixtures import create_realistic_openclaw_home
+        from row_bot.migration import build_migration_plan
+        from row_bot.migration.fixtures import create_realistic_openclaw_home
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

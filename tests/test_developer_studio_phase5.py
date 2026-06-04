@@ -9,7 +9,7 @@ def _fresh_modules(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
     sys.modules.pop("developer.runtime", None)
     sys.modules.pop("developer.change_ledger", None)
-    import developer.runtime as runtime
+    import row_bot.developer.runtime as runtime
 
     return importlib.reload(runtime)
 
@@ -91,7 +91,7 @@ def test_developer_runtime_requires_approval_for_install(tmp_path, monkeypatch):
 
 def test_developer_shell_command_records_file_side_effects(tmp_path, monkeypatch):
     runtime = _fresh_modules(tmp_path, monkeypatch)
-    from developer import change_ledger
+    from row_bot.developer import change_ledger
 
     repo = tmp_path / "repo"
     repo.mkdir()

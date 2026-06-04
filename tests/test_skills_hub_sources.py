@@ -6,15 +6,15 @@ import zipfile
 
 import pytest
 
-from skills_hub import browse_sh_source, clawhub_source, skills_sh_source
-from skills_hub.browse_sh_source import github_blob_to_raw, parse_browse_sh_catalog
-from skills_hub.claude_marketplace_source import parse_claude_marketplace_manifest
-from skills_hub.clawhub_source import ClawHubSource, bundle_from_clawhub_zip, parse_clawhub_payload
-from skills_hub.github_source import GitHubSource, fair_merge_root_entries, list_matching_skill_entries, list_public_root_entries
-from skills_hub.lobehub_source import _bundle_from_lobehub_entry, load_lobehub_agent_detail, parse_lobehub_index
-from skills_hub.models import SkillBundle, SkillFile, SkillHubEntry
-from skills_hub.skills_sh_source import parse_skills_sh_payload, parse_skills_sh_sitemap, parse_skills_sh_sitemap_index
-from skills_hub.sources import bundle_from_marketplace_markdown, compute_bundle_hash
+from row_bot.skills_hub import browse_sh_source, clawhub_source, skills_sh_source
+from row_bot.skills_hub.browse_sh_source import github_blob_to_raw, parse_browse_sh_catalog
+from row_bot.skills_hub.claude_marketplace_source import parse_claude_marketplace_manifest
+from row_bot.skills_hub.clawhub_source import ClawHubSource, bundle_from_clawhub_zip, parse_clawhub_payload
+from row_bot.skills_hub.github_source import GitHubSource, fair_merge_root_entries, list_matching_skill_entries, list_public_root_entries
+from row_bot.skills_hub.lobehub_source import _bundle_from_lobehub_entry, load_lobehub_agent_detail, parse_lobehub_index
+from row_bot.skills_hub.models import SkillBundle, SkillFile, SkillHubEntry
+from row_bot.skills_hub.skills_sh_source import parse_skills_sh_payload, parse_skills_sh_sitemap, parse_skills_sh_sitemap_index
+from row_bot.skills_hub.sources import bundle_from_marketplace_markdown, compute_bundle_hash
 
 
 def _skill_md(name: str) -> str:
@@ -654,7 +654,7 @@ def test_github_source_uses_public_safe_headers(monkeypatch):
 
 
 def test_github_source_reports_anonymous_fallback_status(monkeypatch):
-    import github_account
+    import row_bot.github_account as github_account
 
     status = github_account.GitHubAccountStatus(
         connected=False,

@@ -17,7 +17,8 @@ def test_pytest_blocks_live_row_bot_user_state_writes():
 
 
 def test_voice_runtime_follows_changed_test_data_dir(tmp_path, monkeypatch):
-    import voice.runtime
+    import row_bot.voice.runtime
+    from row_bot import voice
 
     first = tmp_path / "first"
     second = tmp_path / "second"

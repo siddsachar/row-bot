@@ -138,6 +138,7 @@ Get-ChildItem "$PythonDir\python*._pth" | ForEach-Object {
     $lines = @($content)
     if ($lines -notcontains 'Lib\site-packages') { $lines += 'Lib\site-packages' }
     if ($lines -notcontains '..\app')             { $lines += '..\app' }
+    if ($lines -notcontains '..\app\src')         { $lines += '..\app\src' }
     if ($lines -notcontains 'Lib')                { $lines += 'Lib' }
 
     $lines | Set-Content $_.FullName

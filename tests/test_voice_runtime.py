@@ -6,7 +6,8 @@ import importlib
 def test_voice_runtime_settings_round_trip(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
 
-    import voice.runtime
+    import row_bot.voice.runtime
+    from row_bot import voice
 
     voice.runtime = importlib.reload(voice.runtime)
 

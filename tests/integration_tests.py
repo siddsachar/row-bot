@@ -59,7 +59,7 @@ def _cleanup_entities() -> None:
     """
     if not _cleanup_entity_ids:
         return
-    import knowledge_graph as kg
+    import row_bot.knowledge_graph as kg
     import sqlite3
     try:
         conn = sqlite3.connect(kg.DB_PATH)
@@ -80,7 +80,7 @@ def _cleanup_entities() -> None:
 
 def _cleanup_tasks() -> None:
     """Delete all test tasks created during the run."""
-    from tasks import delete_task
+    from row_bot.tasks import delete_task
     for tid in _cleanup_task_ids:
         try:
             delete_task(tid)
@@ -104,7 +104,7 @@ def check_ollama() -> bool:
 def check_model() -> str | None:
     """Return the current model name, or None if not available."""
     try:
-        from models import get_current_model
+        from row_bot.models import get_current_model
         model = get_current_model()
         import ollama
         ollama.show(model)
@@ -134,14 +134,14 @@ def section_1_prerequisites() -> bool:
 
     # Check core imports
     try:
-        from agent import invoke_agent, stream_agent  # noqa: F401
+        from row_bot.agent import invoke_agent, stream_agent  # noqa: F401
         record("PASS", "agent imports OK")
     except Exception as e:
         record("FAIL", "agent import failed", str(e))
         return False
 
     try:
-        from tools import registry  # noqa: F401
+        from row_bot.tools import registry  # noqa: F401
         enabled = registry.get_enabled_tools()
         record("PASS", f"Tool registry OK — {len(enabled)} tools enabled")
     except Exception as e:
@@ -149,15 +149,15 @@ def section_1_prerequisites() -> bool:
         return False
 
     try:
-        import knowledge_graph as kg  # noqa: F401
-        import memory  # noqa: F401
+        import row_bot.knowledge_graph as kg # noqa: F401
+        import row_bot.memory as memory # noqa: F401
         record("PASS", "Knowledge graph + memory imports OK")
     except Exception as e:
         record("FAIL", "KG/memory import failed", str(e))
         return False
 
     try:
-        from tasks import create_task, list_tasks, delete_task  # noqa: F401
+        from row_bot.tasks import create_task, list_tasks, delete_task  # noqa: F401
         record("PASS", "Task engine imports OK")
     except Exception as e:
         record("FAIL", "Task engine import failed", str(e))
@@ -178,8 +178,8 @@ def section_2_agent_basics():
         record("SKIP", "agent basics (fast mode)")
         return
 
-    from agent import invoke_agent, stream_agent
-    from tools import registry
+    from row_bot.agent import invoke_agent, stream_agent
+    from row_bot.tools import registry
 
     enabled = [t.name for t in registry.get_enabled_tools()]
 
@@ -246,7 +246,7 @@ def section_2_agent_basics():
             record("WARN", "agent: memory save tool not detected", str(tool_calls[:5]))
 
         # Verify entity was actually created
-        import memory as mem_db
+        import row_bot.memory as mem_db
         found = mem_db.find_by_subject(None, test_subject)
         if found:
             _cleanup_entity_ids.append(found["id"])
@@ -299,8 +299,8 @@ def section_3_memory_kg():
     print("\nSECTION 3 · Memory & Knowledge Graph")
     print("-" * 40)
 
-    import memory as mem
-    import knowledge_graph as kg
+    import row_bot.memory as mem
+    import row_bot.knowledge_graph as kg
 
     # --- 3a. Save entity ---
     subj = f"{_PREFIX}Alice_{_gen_id()}"
@@ -497,9 +497,9 @@ def section_4_extraction():
         record("SKIP", "extraction pipeline (fast mode)")
         return
 
-    from memory_extraction import _extract_from_conversation, _dedup_and_save
-    import memory as mem
-    import knowledge_graph as kg
+    from row_bot.memory_extraction import _extract_from_conversation, _dedup_and_save
+    import row_bot.memory as mem
+    import row_bot.knowledge_graph as kg
 
     tag = _gen_id()
 
@@ -629,10 +629,10 @@ def section_5_recall():
         record("SKIP", "recall pipeline (fast mode)")
         return
 
-    import memory as mem
-    import knowledge_graph as kg
-    from agent import invoke_agent
-    from tools import registry
+    import row_bot.memory as mem
+    import row_bot.knowledge_graph as kg
+    from row_bot.agent import invoke_agent
+    from row_bot.tools import registry
 
     enabled = [t.name for t in registry.get_enabled_tools()]
     tag = _gen_id()
@@ -710,7 +710,7 @@ def section_6_tools():
 
     # --- 6a. Calculator ---
     try:
-        from tools.calculator_tool import _calculate
+        from row_bot.tools.calculator_tool import _calculate
         result = _calculate("sqrt(144) + 2**10")
         if "1036" in result:
             record("PASS", "tool: calculator — sqrt(144) + 2^10 = 1036")
@@ -731,7 +731,7 @@ def section_6_tools():
 
     # --- 6c. DuckDuckGo search ---
     try:
-        from tools.duckduckgo_tool import DuckDuckGoTool
+        from row_bot.tools.duckduckgo_tool import DuckDuckGoTool
         ddg = DuckDuckGoTool()
         result = ddg.execute("Python programming language")
         if result and len(result) > 50:
@@ -743,7 +743,7 @@ def section_6_tools():
 
     # --- 6d. YouTube search ---
     try:
-        from tools.youtube_tool import _search_youtube
+        from row_bot.tools.youtube_tool import _search_youtube
         result = _search_youtube("Python tutorial", max_results=3)
         data = json.loads(result)
         if isinstance(data, list) and len(data) > 0:
@@ -757,7 +757,7 @@ def section_6_tools():
 
     # --- 6e. arXiv search ---
     try:
-        from tools.arxiv_tool import ArxivTool
+        from row_bot.tools.arxiv_tool import ArxivTool
         arxiv = ArxivTool()
         result = arxiv.execute("transformer attention mechanisms")
         if result and "No arXiv papers found" not in result:
@@ -771,7 +771,7 @@ def section_6_tools():
 
     # --- 6f. Conversation search ---
     try:
-        from tools.conversation_search_tool import _search_conversations, _list_conversations
+        from row_bot.tools.conversation_search_tool import _search_conversations, _list_conversations
         convos = _list_conversations()
         if convos and len(convos) > 10:
             record("PASS", f"tool: list_conversations returned {convos.count(chr(10))} lines")
@@ -782,7 +782,7 @@ def section_6_tools():
 
     # --- 6g. Tool registry ---
     try:
-        from tools import registry
+        from row_bot.tools import registry
         all_tools = registry.get_all_tools()
         enabled = registry.get_enabled_tools()
         lc_tools = registry.get_langchain_tools()
@@ -808,7 +808,7 @@ def section_7_tasks():
     print("\nSECTION 7 · Task Engine")
     print("-" * 40)
 
-    from tasks import (
+    from row_bot.tasks import (
         create_task, get_task, list_tasks, update_task, delete_task,
         expand_template_vars,
     )
@@ -934,7 +934,7 @@ def section_8_tts():
     print("-" * 40)
 
     try:
-        from tts import TTSService, VOICE_CATALOG
+        from row_bot.tts import TTSService, VOICE_CATALOG
         record("PASS", "tts: import OK")
     except ImportError as e:
         record("SKIP", "tts: module not available", str(e))
@@ -1011,8 +1011,8 @@ def section_9_agent_routing():
         record("SKIP", "agent tool routing (fast mode)")
         return
 
-    from agent import stream_agent
-    from tools import registry
+    from row_bot.agent import stream_agent
+    from row_bot.tools import registry
 
     enabled = [t.name for t in registry.get_enabled_tools()]
 
@@ -1088,8 +1088,8 @@ def section_9_agent_routing():
     # --- 9f. Link memories routing ---
     try:
         # First create two test entities
-        import memory as mem
-        import knowledge_graph as kg
+        import row_bot.memory as mem
+        import row_bot.knowledge_graph as kg
         subj_a = f"{_PREFIX}LinkA_{_gen_id()}"
         subj_b = f"{_PREFIX}LinkB_{_gen_id()}"
         ra = mem.save_memory("person", subj_a, f"{subj_a} is a test person for linking")
@@ -1123,11 +1123,11 @@ def section_10_e2e():
         record("SKIP", "end-to-end flow (fast mode)")
         return
 
-    from agent import invoke_agent
-    from tools import registry
-    from memory_extraction import _extract_from_conversation, _dedup_and_save
-    import memory as mem
-    import knowledge_graph as kg
+    from row_bot.agent import invoke_agent
+    from row_bot.tools import registry
+    from row_bot.memory_extraction import _extract_from_conversation, _dedup_and_save
+    import row_bot.memory as mem
+    import row_bot.knowledge_graph as kg
 
     enabled = [t.name for t in registry.get_enabled_tools()]
     tag = _gen_id()
@@ -1221,8 +1221,8 @@ def section_11_edge_cases():
     print("\nSECTION 11 · Data Integrity & Edge Cases")
     print("-" * 40)
 
-    import memory as mem
-    import knowledge_graph as kg
+    import row_bot.memory as mem
+    import row_bot.knowledge_graph as kg
 
     # --- 11a. Invalid category rejected ---
     try:
@@ -1349,7 +1349,7 @@ def section_12_tool_subttools():
 
     # --- 12a. Shell — classify_command: safe ---
     try:
-        from tools.shell_tool import classify_command
+        from row_bot.tools.shell_tool import classify_command
         result = classify_command("ls -la")
         if result == "safe":
             record("PASS", "shell: classify_command('ls -la') = safe")
@@ -1410,7 +1410,7 @@ def section_12_tool_subttools():
 
     # --- 12f. Filesystem — _normalise_path ---
     try:
-        from tools.filesystem_tool import _normalise_path
+        from row_bot.tools.filesystem_tool import _normalise_path
         # Should strip workspace folder prefix
         result = _normalise_path("ThothWorkspace/notes.txt", "D:\\ThothWorkspace")
         if result == "notes.txt":
@@ -1422,7 +1422,7 @@ def section_12_tool_subttools():
 
     # --- 12g. Filesystem — _is_outside_workspace ---
     try:
-        from tools.filesystem_tool import _is_outside_workspace
+        from row_bot.tools.filesystem_tool import _is_outside_workspace
         # Absolute path outside workspace → True
         outside = _is_outside_workspace("C:\\Windows\\system32\\cmd.exe", "D:\\ThothWorkspace")
         # Relative path → False (assumed inside)
@@ -1460,7 +1460,7 @@ def section_12_tool_subttools():
     try:
         import tempfile
         from pathlib import Path
-        from tools.chart_tool import _load_data
+        from row_bot.tools.chart_tool import _load_data
         # Create a temp CSV
         csv_path = Path(tempfile.mktemp(suffix=".csv"))
         csv_path.write_text("name,value\nAlice,10\nBob,20\nCharlie,30", encoding="utf-8")
@@ -1476,7 +1476,7 @@ def section_12_tool_subttools():
     # --- 12j. Chart — _build_figure (bar chart) ---
     try:
         import pandas as pd
-        from tools.chart_tool import _build_figure
+        from row_bot.tools.chart_tool import _build_figure
         df = pd.DataFrame({"category": ["A", "B", "C"], "amount": [10, 20, 30]})
         fig = _build_figure(df, "bar", "category", "amount", None, "Test Bar")
         fig_json = fig.to_json()
@@ -1513,7 +1513,7 @@ def section_12_tool_subttools():
     try:
         import tempfile
         from pathlib import Path
-        from tools.chart_tool import _create_chart
+        from row_bot.tools.chart_tool import _create_chart
         csv_path = Path(tempfile.mktemp(suffix=".csv"))
         csv_path.write_text("name,value\nX,5\nY,15\nZ,25", encoding="utf-8")
         png_path = Path(tempfile.mktemp(suffix=".png"))
@@ -1547,9 +1547,9 @@ def section_12_tool_subttools():
 
     # --- 12o. Memory — _link_memories direct invocation ---
     try:
-        import memory as mem
-        import knowledge_graph as kg
-        from tools.memory_tool import _link_memories
+        import row_bot.memory as mem
+        import row_bot.knowledge_graph as kg
+        from row_bot.tools.memory_tool import _link_memories
         subj_a = f"{_PREFIX}LinkDirect_A_{_gen_id()}"
         subj_b = f"{_PREFIX}LinkDirect_B_{_gen_id()}"
         ra = mem.save_memory("person", subj_a, "Link test person")
@@ -1576,7 +1576,7 @@ def section_12_tool_subttools():
 
     # --- 12q. Memory — _explore_connections direct invocation ---
     try:
-        from tools.memory_tool import _explore_connections
+        from row_bot.tools.memory_tool import _explore_connections
         result = _explore_connections(ra["id"], hops=1)
         if subj_b in result or "lives_in" in result:
             record("PASS", "memory: _explore_connections finds linked entity")
@@ -1608,7 +1608,7 @@ def section_12_tool_subttools():
 
     # --- 12t. System info --- 
     try:
-        from tools.system_info_tool import _get_system_info
+        from row_bot.tools.system_info_tool import _get_system_info
         info = _get_system_info()
         has_cpu = "[CPU]" in info
         has_mem = "[Memory]" in info
@@ -1622,7 +1622,7 @@ def section_12_tool_subttools():
 
     # --- 12u. Weather (live API, no key needed) ---
     try:
-        from tools.weather_tool import _get_current_weather
+        from row_bot.tools.weather_tool import _get_current_weather
         result = _get_current_weather("London")
         if "Temperature" in result and "Wind" in result:
             record("PASS", "weather: _get_current_weather('London') returned weather data")
@@ -1635,7 +1635,7 @@ def section_12_tool_subttools():
 
     # --- 12v. URL reader ---
     try:
-        from tools.url_reader_tool import _read_url
+        from row_bot.tools.url_reader_tool import _read_url
         result = _read_url("https://httpbin.org/html")
         if "Herman Melville" in result or "SOURCE_URL" in result:
             record("PASS", f"url_reader: fetched httpbin.org/html ({len(result)} chars)")
@@ -1648,7 +1648,7 @@ def section_12_tool_subttools():
 
     # --- 12w. Tracker — log + query + cleanup ---
     try:
-        from tools.tracker_tool import _tracker_log, _tracker_query, _get_db
+        from row_bot.tools.tracker_tool import _tracker_log, _tracker_query, _get_db
         tracker_name = f"{_PREFIX}Tracker_{_gen_id()}"
         log_result = _tracker_log(tracker_name, value="42", tracker_type="numeric", unit="kg")
         if "Logged" in log_result and tracker_name in log_result:
@@ -1685,7 +1685,7 @@ def section_13_channel_utils():
 
     # --- 13a. Telegram _split_message — short text (no split) ---
     try:
-        from channels.telegram import _split_message, MAX_TG_MESSAGE_LEN
+        from row_bot.channels.telegram import _split_message, MAX_TG_MESSAGE_LEN
         short = "Hello world"
         chunks = _split_message(short)
         if chunks == [short]:
@@ -1727,7 +1727,7 @@ def section_13_channel_utils():
 
     # --- 13d. Telegram _md_to_html — bold ---
     try:
-        from channels.telegram import _md_to_html
+        from row_bot.channels.telegram import _md_to_html
         result = _md_to_html("Hello **world**")
         if "<b>world</b>" in result:
             record("PASS", "telegram: _md_to_html converts **bold** to <b>")
@@ -1797,7 +1797,7 @@ def section_14_background_permissions():
 
     # --- 14a. _validate_delivery — no channel/target is valid ---
     try:
-        from tasks import _validate_delivery
+        from row_bot.tasks import _validate_delivery
         _validate_delivery(None, None)
         record("PASS", "task: _validate_delivery(None, None) passes")
     except Exception as e:
@@ -1846,7 +1846,7 @@ def section_14_background_permissions():
 
     # --- 14g. ContextVar — background_workflow default is False ---
     try:
-        from agent import _background_workflow_var, is_background_workflow
+        from row_bot.agent import _background_workflow_var, is_background_workflow
         if not is_background_workflow():
             record("PASS", "contextvar: is_background_workflow() defaults to False")
         else:
@@ -1867,7 +1867,7 @@ def section_14_background_permissions():
 
     # --- 14i. ContextVar — task_allowed_commands default is empty ---
     try:
-        from agent import _task_allowed_commands_var, _task_allowed_recipients_var
+        from row_bot.agent import _task_allowed_commands_var, _task_allowed_recipients_var
         cmds = _task_allowed_commands_var.get()
         recips = _task_allowed_recipients_var.get()
         if cmds == [] and recips == []:
@@ -1891,7 +1891,7 @@ def section_14_background_permissions():
 
     # --- 14k. Task with allowed_commands field ---
     try:
-        from tasks import create_task, get_task, update_task, delete_task
+        from row_bot.tasks import create_task, get_task, update_task, delete_task
         tag = _gen_id()
         task_id = create_task(
             name=f"{_PREFIX}Perm_{tag}",
@@ -1926,7 +1926,7 @@ def section_15_bugfix_verifications():
 
     # --- 15a. MPS fix — embedding model uses device="cpu" ---
     try:
-        from documents import get_embedding_model
+        from row_bot.documents import get_embedding_model
         model = get_embedding_model()
         # HuggingFaceEmbeddings stores model_kwargs; check the device
         model_kwargs = getattr(model, "model_kwargs", {})
@@ -1940,7 +1940,7 @@ def section_15_bugfix_verifications():
 
     # --- 15b. FAISS lock exists ---
     try:
-        import knowledge_graph as kg
+        import row_bot.knowledge_graph as kg
         import threading
         lock = getattr(kg, "_faiss_lock", None)
         if isinstance(lock, type(threading.Lock())):
@@ -1953,7 +1953,7 @@ def section_15_bugfix_verifications():
     # --- 15c. Email channel — _mark_as_read in _send_reply ---
     try:
         import inspect
-        from channels.email import _send_reply
+        from row_bot.channels.email import _send_reply
         source = inspect.getsource(_send_reply)
         if "_mark_as_read" in source:
             record("PASS", "bugfix: _send_reply calls _mark_as_read (email loop fix)")
@@ -1966,7 +1966,7 @@ def section_15_bugfix_verifications():
 
     # --- 15d. Email channel — _mark_as_read in _send_reply_and_get_id ---
     try:
-        from channels.email import _send_reply_and_get_id
+        from row_bot.channels.email import _send_reply_and_get_id
         source = inspect.getsource(_send_reply_and_get_id)
         if "_mark_as_read" in source:
             record("PASS", "bugfix: _send_reply_and_get_id calls _mark_as_read (email loop fix)")
@@ -1979,7 +1979,7 @@ def section_15_bugfix_verifications():
 
     # --- 15e. Embedding model produces valid vectors ---
     try:
-        from documents import get_embedding_model
+        from row_bot.documents import get_embedding_model
         model = get_embedding_model()
         vectors = model.embed_documents(["Hello world test"])
         if vectors and len(vectors) == 1 and len(vectors[0]) > 100:
@@ -1991,7 +1991,7 @@ def section_15_bugfix_verifications():
 
     # --- 15f. FAISS lock is used in rebuild_index ---
     try:
-        import knowledge_graph as kg
+        import row_bot.knowledge_graph as kg
         import inspect
         source = inspect.getsource(kg.rebuild_index)
         if "_faiss_lock" in source:
@@ -2013,7 +2013,7 @@ def section_15_bugfix_verifications():
 
     # --- 15h. Filesystem enabled_by_default is True ---
     try:
-        from tools.filesystem_tool import FileSystemTool
+        from row_bot.tools.filesystem_tool import FileSystemTool
         _fs15 = FileSystemTool()
         assert _fs15.enabled_by_default is True, f"got {_fs15.enabled_by_default}"
         record("PASS", "defaults: filesystem enabled_by_default is True")
@@ -2038,7 +2038,7 @@ def section_15_bugfix_verifications():
 
     # --- 15j. Shell enabled_by_default is True ---
     try:
-        from tools.shell_tool import ShellTool
+        from row_bot.tools.shell_tool import ShellTool
         assert ShellTool().enabled_by_default is True
         record("PASS", "defaults: shell enabled_by_default is True")
     except Exception as e:
@@ -2046,7 +2046,7 @@ def section_15_bugfix_verifications():
 
     # --- 15k. Browser enabled_by_default is True ---
     try:
-        from tools.browser_tool import BrowserTool
+        from row_bot.tools.browser_tool import BrowserTool
         assert BrowserTool().enabled_by_default is True
         record("PASS", "defaults: browser enabled_by_default is True")
     except Exception as e:
@@ -2054,7 +2054,7 @@ def section_15_bugfix_verifications():
 
     # --- 15l. DEFAULT_OPERATIONS includes move_file ---
     try:
-        from tools.filesystem_tool import DEFAULT_OPERATIONS
+        from row_bot.tools.filesystem_tool import DEFAULT_OPERATIONS
         assert "move_file" in DEFAULT_OPERATIONS, f"move_file not found: {DEFAULT_OPERATIONS}"
         assert "file_delete" not in DEFAULT_OPERATIONS, "file_delete should not be default"
         record("PASS", "defaults: DEFAULT_OPERATIONS includes move_file, excludes file_delete")
@@ -2072,7 +2072,7 @@ def section_16_skills():
 
     # --- 16a. skills.py imports and load_skills ---
     try:
-        import skills
+        import row_bot.skills as skills
         skills.load_skills()
         all_skills = skills.get_all_skills()
         assert len(all_skills) >= 5, f"expected ≥5 skills, got {len(all_skills)}"
@@ -2148,12 +2148,12 @@ def section_16_skills():
 
     # --- 16d. Thread skills override DB round-trip ---
     try:
-        from threads import (
+        from row_bot.threads import (
             get_thread_skills_override,
             set_thread_skills_override,
         )
         import sqlite3
-        from threads import DB_PATH as _threads_db
+        from row_bot.threads import DB_PATH as _threads_db
 
         # Create a temporary thread
         _test_tid = f"__TEST_skills_{uuid.uuid4().hex[:8]}"
@@ -2189,7 +2189,7 @@ def section_16_skills():
 
     # --- 16e. Task skills_override round-trip ---
     try:
-        from tasks import create_task, get_task, update_task, delete_task
+        from row_bot.tasks import create_task, get_task, update_task, delete_task
 
         tid = create_task(
             name="__TEST_skills_task",
@@ -2225,7 +2225,7 @@ def section_16_skills():
 
     # --- 16f. duplicate_task preserves skills_override ---
     try:
-        from tasks import create_task, get_task, duplicate_task, delete_task
+        from row_bot.tasks import create_task, get_task, duplicate_task, delete_task
 
         tid_orig = create_task(
             name="__TEST_skills_dup_orig",
@@ -2325,7 +2325,7 @@ def section_16_skills():
     # --- 16i. Agent injection source verification ---
     try:
         import inspect
-        from agent import _pre_model_trim
+        from row_bot.agent import _pre_model_trim
         source = inspect.getsource(_pre_model_trim)
         assert "get_skills_prompt" in source, "_pre_model_trim should call get_skills_prompt"
         assert "get_thread_skills_override" in source, \
@@ -2373,9 +2373,9 @@ def section_17_wiki_vault():
     import tempfile
 
     try:
-        import wiki_vault as wv
-        import knowledge_graph as kg
-        import memory as mem
+        import row_bot.wiki_vault as wv
+        import row_bot.knowledge_graph as kg
+        import row_bot.memory as mem
     except Exception as e:
         record("FAIL", "wiki_vault: module import", str(e))
         return
@@ -2514,7 +2514,7 @@ def section_17_wiki_vault():
 
             # --- 17i. WikiTool instantiation ---
             try:
-                from tools.wiki_tool import WikiTool
+                from row_bot.tools.wiki_tool import WikiTool
                 wt = WikiTool()
                 tools = wt.as_langchain_tools()
                 assert len(tools) == 4, f"Expected 4 tools, got {len(tools)}"
@@ -2546,7 +2546,7 @@ def section_18_document_extraction():
 
     import tempfile
     from pathlib import Path
-    from document_extraction import (
+    from row_bot.document_extraction import (
         _split_into_windows,
         _map_summarize_window,
         _reduce_summaries,
@@ -2556,9 +2556,9 @@ def section_18_document_extraction():
         get_extraction_status,
         stop_extraction,
     )
-    from documents import load_document_text
-    import knowledge_graph as kg
-    import memory as mem
+    from row_bot.documents import load_document_text
+    import row_bot.knowledge_graph as kg
+    import row_bot.memory as mem
 
     tag = _gen_id()
 
@@ -2675,7 +2675,7 @@ def section_18_document_extraction():
 
     # --- 18e. _dedup_and_save with custom source parameter ---
     try:
-        from memory_extraction import _dedup_and_save
+        from row_bot.memory_extraction import _dedup_and_save
         test_entities = [
             {
                 "category": "fact",
@@ -2717,8 +2717,8 @@ def section_19_v314_features():
     import tempfile
     import time as _time
 
-    import knowledge_graph as kg
-    import memory as mem
+    import row_bot.knowledge_graph as kg
+    import row_bot.memory as mem
 
     tag = _gen_id()
 
@@ -2750,7 +2750,7 @@ def section_19_v314_features():
 
     # --- 19b. Vault export → parse_entity_md round-trip ---
     try:
-        import wiki_vault as wv
+        import row_bot.wiki_vault as wv
     except Exception as e:
         record("FAIL", "v314: wiki_vault import", str(e))
         _cleanup_entities()
@@ -2883,7 +2883,7 @@ def section_19_v314_features():
 
     # --- 19h. _update_memory expanded fields ---
     try:
-        from tools.memory_tool import _update_memory
+        from row_bot.tools.memory_tool import _update_memory
         upd_result = _update_memory(
             eid_kw,
             f"{subj_kw} content updated via tool",
@@ -2904,7 +2904,7 @@ def section_19_v314_features():
 
     # --- 19i. _search_memory returns structured results ---
     try:
-        from tools.memory_tool import _search_memory
+        from row_bot.tools.memory_tool import _search_memory
         search_result = _search_memory(f"{subj_kw}_tooled")
         assert "No memories found" not in search_result, f"search returned nothing"
         parsed_results = json.loads(search_result)
@@ -2920,7 +2920,7 @@ def section_19_v314_features():
 
     # --- 19j. Entity editor importable and callable ---
     try:
-        from ui.entity_editor import open_entity_editor
+        from row_bot.ui.entity_editor import open_entity_editor
         import inspect
         sig = inspect.signature(open_entity_editor)
         assert "entity_id" in sig.parameters
@@ -2942,11 +2942,16 @@ def section_20_channel_infrastructure():
 
     # ── 20a. All channel modules import without error ────────────────
     try:
-        import channels.telegram
-        import channels.slack
-        import channels.sms
-        import channels.discord_channel
-        import channels.whatsapp
+        import row_bot.channels.telegram
+        from row_bot import channels
+        import row_bot.channels.slack
+        from row_bot import channels
+        import row_bot.channels.sms
+        from row_bot import channels
+        import row_bot.channels.discord_channel
+        from row_bot import channels
+        import row_bot.channels.whatsapp
+        from row_bot import channels
         record("PASS", "channels: all 5 channel modules import")
     except Exception as e:
         record("FAIL", "channels: module import", str(e))
@@ -2954,7 +2959,7 @@ def section_20_channel_infrastructure():
 
     # ── 20b. Registry has all 5 channels ─────────────────────────────
     try:
-        from channels.registry import all_channels, get, running_channels
+        from row_bot.channels.registry import all_channels, get, running_channels
         all_ch = all_channels()
         names = [c.name for c in all_ch]
         assert len(all_ch) == 5, f"Expected 5, got {len(all_ch)}"
@@ -2966,7 +2971,7 @@ def section_20_channel_infrastructure():
 
     # ── 20c. Each channel implements full ABC contract ───────────────
     try:
-        from channels.base import Channel
+        from row_bot.channels.base import Channel
         for ch in all_ch:
             assert isinstance(ch, Channel), f"{ch.name} not a Channel instance"
             assert ch.name, "empty name"
@@ -2985,7 +2990,7 @@ def section_20_channel_infrastructure():
 
     # ── 20d. Tool factory generates correct tools for each channel ───
     try:
-        from channels.tool_factory import create_channel_tools
+        from row_bot.channels.tool_factory import create_channel_tools
         total_tools = 0
         for ch in all_ch:
             tools = create_channel_tools(ch)
@@ -3046,7 +3051,7 @@ def section_20_channel_infrastructure():
 
     # ── 20h. DM pairing system works ────────────────────────────────
     try:
-        from channels.auth import (
+        from row_bot.channels.auth import (
             generate_pairing_code, verify_pairing_code,
             is_user_approved, revoke_user, cleanup_expired_codes,
         )
@@ -3096,7 +3101,7 @@ def section_20_channel_infrastructure():
 
     # ── 20j. Slash command dispatch ──────────────────────────────────
     try:
-        from channels.commands import dispatch, COMMANDS
+        from row_bot.channels.commands import dispatch, COMMANDS
 
         # Known commands
         result = dispatch("test", "/help")
@@ -3117,7 +3122,7 @@ def section_20_channel_infrastructure():
 
     # ── 20k. Channel config persistence ──────────────────────────────
     try:
-        from channels.config import get, set as ch_set
+        from row_bot.channels.config import get, set as ch_set
 
         ch_set("__test_ch__", "test_key", "test_val")
         val = get("__test_ch__", "test_key")
@@ -3130,7 +3135,7 @@ def section_20_channel_infrastructure():
 
     # ── 20l. Channel delivery (registry.deliver) ────────────────────
     try:
-        from channels.registry import deliver, validate_delivery
+        from row_bot.channels.registry import deliver, validate_delivery
 
         # Delivering to a non-running channel should fail gracefully
         status, detail = deliver("telegram", 12345, "test message")
@@ -3154,7 +3159,7 @@ def section_20_channel_infrastructure():
 
     # ── 20m. Media pipeline functions importable ─────────────────────
     try:
-        from channels.media import (
+        from row_bot.channels.media import (
             transcribe_audio, analyze_image,
             save_inbound_file, extract_document_text,
         )
@@ -3179,7 +3184,7 @@ def section_20_channel_infrastructure():
 
     # ── 20o. Status checks include channels ──────────────────────────
     try:
-        from ui.status_checks import check_channels, ALL_CHECKS
+        from row_bot.ui.status_checks import check_channels, ALL_CHECKS
         results = check_channels()
         assert isinstance(results, list), "check_channels should return list"
         # Should have results for registered channels
@@ -3209,7 +3214,7 @@ def section_20_channel_infrastructure():
     # ── 20q. Agent tool injection path exists ────────────────────────
     try:
         import inspect as _insp20
-        import agent as _agent20
+        import row_bot.agent as _agent20
         src = _insp20.getsource(_agent20)
         assert "create_channel_tools" in src, "agent.py should use create_channel_tools"
         assert "running_channels" in src, "agent.py should use running_channels"
@@ -3230,7 +3235,7 @@ def section_20_channel_infrastructure():
 
     # ── 20s. Channel capabilities cap check ──────────────────────────
     try:
-        from channels.registry import get as reg_get
+        from row_bot.channels.registry import get as reg_get
         # SMS should be text-only
         sms_ch = reg_get("sms")
         sms_tools = create_channel_tools(sms_ch)

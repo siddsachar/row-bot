@@ -2,8 +2,8 @@ from pathlib import Path
 import json
 from types import SimpleNamespace
 
-import app_port
-import launcher
+import row_bot.app_port as app_port
+import row_bot.launcher as launcher
 
 
 def test_get_app_port_defaults_and_validates_env():
@@ -232,7 +232,7 @@ def test_row_bot_process_stop_closes_parent_log_handle(monkeypatch, tmp_path):
 
 
 def test_launcher_shutdown_source_contracts_are_wired():
-    src = Path("launcher.py").read_text(encoding="utf-8")
+    src = Path("src/row_bot/launcher.py").read_text(encoding="utf-8")
 
     assert "/api/launcher-shutdown" in src
     assert "def _close_log_handle" in src
@@ -242,7 +242,7 @@ def test_launcher_shutdown_source_contracts_are_wired():
     assert "_GRACEFUL_SHUTDOWN_EXIT_TIMEOUT = 30.0" in src
     assert "_QUIT_WATCHDOG_TIMEOUT = 75.0" in src
     assert "graceful shutdown completed in" in src
-    assert "mark_shutdown(reason)" in Path("app.py").read_text(encoding="utf-8")
+    assert "mark_shutdown(reason)" in Path("src/row_bot/app.py").read_text(encoding="utf-8")
 
 
 def test_launcher_display_detection_on_headless_linux(monkeypatch):
@@ -257,7 +257,7 @@ def test_launcher_display_detection_on_headless_linux(monkeypatch):
 
 
 def test_designer_publish_uses_active_app_port(monkeypatch):
-    import designer.publish as publish
+    import row_bot.designer.publish as publish
 
     calls = []
 
@@ -280,9 +280,9 @@ def test_designer_publish_uses_active_app_port(monkeypatch):
 
 
 def test_port_consumers_no_longer_lookup_main_tunnel_on_literal_8080():
-    sms_source = Path("channels/sms.py").read_text(encoding="utf-8")
-    settings_source = Path("ui/settings.py").read_text(encoding="utf-8")
-    app_source = Path("app.py").read_text(encoding="utf-8")
+    sms_source = Path("src/row_bot/channels/sms.py").read_text(encoding="utf-8")
+    settings_source = Path("src/row_bot/ui/settings.py").read_text(encoding="utf-8")
+    app_source = Path("src/row_bot/app.py").read_text(encoding="utf-8")
 
     assert "tunnel_manager.get_url(get_app_port())" in sms_source
     assert "get_url(8080)" not in sms_source

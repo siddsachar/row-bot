@@ -9,8 +9,8 @@ def _fresh_modules(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
     for name in ["threads", "developer.storage", "developer.agent_context"]:
         sys.modules.pop(name, None)
-    import developer.storage as storage
-    import developer.agent_context as agent_context
+    import row_bot.developer.storage as storage
+    import row_bot.developer.agent_context as agent_context
 
     return importlib.reload(storage), importlib.reload(agent_context)
 

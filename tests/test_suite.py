@@ -304,7 +304,7 @@ print("6. TOOL REGISTRY CHECK")
 print("=" * 70)
 
 try:
-    from tools.registry import get_all_tools
+    from row_bot.tools.registry import get_all_tools
 
     EXPECTED_TOOLS = {
         "web_search", "duckduckgo", "wikipedia", "arxiv", "youtube",
@@ -342,7 +342,7 @@ print("7. LAUNCHER SPLASH SCREEN VALIDATION")
 print("=" * 70)
 
 try:
-    from launcher import _SPLASH_TK, _show_splash
+    from row_bot.launcher import _SPLASH_TK, _show_splash
 
     # Script must be a non-trivial string
     if isinstance(_SPLASH_TK, str) and len(_SPLASH_TK) > 100:
@@ -381,7 +381,7 @@ print("8. CHANNELS CONFIG ROUND-TRIP")
 print("=" * 70)
 
 try:
-    from channels import config as ch_config
+    from row_bot.channels import config as ch_config
 
     # Write a test value
     ch_config.set("_test", "round_trip", True)
@@ -405,7 +405,7 @@ print("9. THREAD DB CONNECTIVITY")
 print("=" * 70)
 
 try:
-    from threads import _list_threads
+    from row_bot.threads import _list_threads
     threads = _list_threads()
     record("PASS", f"thread DB: {len(threads)} threads")
 except Exception as e:
@@ -503,7 +503,7 @@ try:
     import pathlib
     import json
     from datetime import datetime, timedelta
-    from tools import tracker_tool as _tt
+    from row_bot.tools import tracker_tool as _tt
 
     # Use an isolated in-memory DB for tests (schema must match tracker_tool._get_db)
     _tracker_test_db = sqlite3.connect(":memory:")
@@ -823,7 +823,7 @@ print("=" * 70)
 
 # --- 15a. tts.VOICE_CATALOG — curated voices present ---------------------
 try:
-    from tts import VOICE_CATALOG, _DEFAULT_VOICE, _MODEL_URL, _VOICES_URL
+    from row_bot.tts import VOICE_CATALOG, _DEFAULT_VOICE, _MODEL_URL, _VOICES_URL
 
     if len(VOICE_CATALOG) >= 8:
         record("PASS", f"tts: VOICE_CATALOG has {len(VOICE_CATALOG)} voices")
@@ -852,7 +852,7 @@ except Exception as e:
 
 # --- 15b. tts._voice_lang() — language inference from voice ID -----------
 try:
-    from tts import _voice_lang
+    from row_bot.tts import _voice_lang
 
     LANG_EXPECTED = {
         "af_heart": "en-us",
@@ -878,7 +878,7 @@ except Exception as e:
 
 # --- 15c. tts._prepare_text() — markdown stripping & truncation ----------
 try:
-    from tts import _prepare_text, _FALLBACK_MSG
+    from row_bot.tts import _prepare_text, _FALLBACK_MSG
 
     # Basic markdown stripping
     result = _prepare_text("**Hello** world")
@@ -907,7 +907,7 @@ except Exception as e:
 # --- 15d. vision._CV_BACKEND is a valid OpenCV constant ------------------
 try:
     import cv2
-    from vision import _CV_BACKEND
+    from row_bot.vision import _CV_BACKEND
 
     EXPECTED_BACKENDS = {cv2.CAP_DSHOW, cv2.CAP_AVFOUNDATION, cv2.CAP_V4L2}
     if _CV_BACKEND in EXPECTED_BACKENDS:
@@ -940,7 +940,7 @@ except Exception as e:
 
 # --- 15e. notifications._play_sound exists and is callable ----------------
 try:
-    from notifications import _play_sound
+    from row_bot.notifications import _play_sound
 
     if callable(_play_sound):
         record("PASS", "notifications: _play_sound is callable")
@@ -951,7 +951,7 @@ except Exception as e:
 
 # --- 15f. launcher._SPLASH_TK contains os.name guard ---------------------
 try:
-    from launcher import _SPLASH_TK
+    from row_bot.launcher import _SPLASH_TK
 
     if "os.name == 'nt'" in _SPLASH_TK:
         record("PASS", "launcher: _SPLASH_TK has os.name == 'nt' guard")
@@ -977,7 +977,7 @@ except Exception as e:
 
 # ── 15f. Conditional Ollama auto-start helpers ──────────────────────────────
 try:
-    from launcher import (
+    from row_bot.launcher import (
         _is_ollama_running, _maybe_start_ollama, _model_ref_requires_ollama,
         _should_auto_start_ollama, _start_ollama, _OLLAMA_PORT,
     )
@@ -1025,7 +1025,7 @@ print("16. PROMPT CONTENT VALIDATION")
 print("=" * 70)
 
 try:
-    from prompts import AGENT_SYSTEM_PROMPT, SUMMARIZE_PROMPT, EXTRACTION_PROMPT
+    from row_bot.prompts import AGENT_SYSTEM_PROMPT, SUMMARIZE_PROMPT, EXTRACTION_PROMPT
 
     # --- 16a. AGENT_SYSTEM_PROMPT must contain key sections ---------------
     _EXPECTED_SECTIONS = [
@@ -1093,7 +1093,7 @@ try:
         record("PASS", f"prompt: EXTRACTION_PROMPT has all {len(_EXPECTED_CATEGORIES)} categories")
 
     # --- 16d. agent.py re-exports prompts correctly ----------------------
-    import agent as _agent_mod
+    import row_bot.agent as _agent_mod
     if getattr(_agent_mod, "AGENT_SYSTEM_PROMPT", None) is AGENT_SYSTEM_PROMPT:
         record("PASS", "prompt: agent.AGENT_SYSTEM_PROMPT is prompts.AGENT_SYSTEM_PROMPT")
     else:
@@ -1107,9 +1107,9 @@ except Exception as e:
 # SECTION 17 · Memory system integrity
 # ═════════════════════════════════════════════════════════════════════════════
 try:
-    import memory as _mem_mod
-    import memory_extraction as _me_mod
-    from tools import memory_tool as _mt_mod
+    import row_bot.memory as _mem_mod
+    import row_bot.memory_extraction as _me_mod
+    from row_bot.tools import memory_tool as _mt_mod
 
     # --- 17a. memory.py core functions -----------------------------------
 
@@ -1269,7 +1269,7 @@ try:
         record("FAIL", "memory: find_by_subject not callable")
 
     # _dedup_and_save uses find_by_subject (not find_duplicate)
-    import memory_extraction as _mex
+    import row_bot.memory_extraction as _mex
     _dedup_src = _inspect.getsource(_mex._dedup_and_save)
     if "find_by_subject" in _dedup_src:
         record("PASS", "extraction: _dedup_and_save uses find_by_subject")
@@ -1281,7 +1281,7 @@ try:
         record("FAIL", "extraction: _dedup_and_save still uses find_duplicate")
 
     # --- 17e. Prompt memory guidance -------------------------------------
-    from prompts import AGENT_SYSTEM_PROMPT as _asp
+    from row_bot.prompts import AGENT_SYSTEM_PROMPT as _asp
     _mem_checks = [
         ("DEDUPLICATION", "prompt has DEDUPLICATION guidance"),
         ("UPDATING MEMORIES", "prompt has UPDATING MEMORIES guidance"),
@@ -1295,7 +1295,7 @@ try:
             record("FAIL", f"prompt: {_desc}")
 
     # --- 17f. Auto-recall policy includes IDs ----------------------------
-    import memory_policy as _mp17
+    import row_bot.memory_policy as _mp17
     _format_src = _inspect.getsource(_mp17.format_recall_block)
     if "id=" in _format_src and "memory.get('id')" in _format_src:
         record("PASS", "memory_policy: recall block includes memory IDs")
@@ -1303,7 +1303,7 @@ try:
         record("FAIL", "memory_policy: recall block missing memory IDs")
 
     # --- 17g. Vague-type ban in add_relation & no auto-link ----------------
-    import knowledge_graph as _kg17
+    import row_bot.knowledge_graph as _kg17
 
     # _CATEGORY_RELATION_MAP and _auto_link_to_user should be REMOVED
     if not hasattr(_kg17, "_CATEGORY_RELATION_MAP"):
@@ -1475,7 +1475,7 @@ print("18. SHELL TOOL")
 print("=" * 70)
 
 try:
-    from tools.shell_tool import (
+    from row_bot.tools.shell_tool import (
         classify_command, ShellSession, ShellSessionManager,
         get_session_manager, get_shell_history, append_shell_history,
         clear_shell_history, ShellTool,
@@ -1563,7 +1563,7 @@ try:
     record("PASS", "shell: ShellTool class valid")
 
     # 18e. ShellTool registered in registry
-    from tools import registry as _sreg
+    from row_bot.tools import registry as _sreg
     _shell_t = _sreg.get_tool("shell")
     assert _shell_t is not None, "Shell tool not registered"
     record("PASS", "shell: registered in registry")
@@ -1626,7 +1626,7 @@ print("19. BROWSER TOOL")
 print("=" * 70)
 
 try:
-    from tools.browser_tool import (
+    from row_bot.tools.browser_tool import (
         BrowserTool, BrowserSession, BrowserSessionManager,
         get_session_manager as get_browser_session_manager,
         get_browser_history, append_browser_history, clear_browser_history,
@@ -1656,7 +1656,7 @@ try:
     record("PASS", "browser: 7 sub-tools with correct names")
 
     # 19c. BrowserTool registered in registry
-    from tools import registry as _breg
+    from row_bot.tools import registry as _breg
     _browser_t = _breg.get_tool("browser")
     assert _browser_t is not None, "Browser tool not registered"
     record("PASS", "browser: registered in registry")
@@ -1834,7 +1834,7 @@ print("=" * 70)
 
 try:
     from langchain_core.messages import ToolMessage as _TM, AIMessage as _AIM, HumanMessage as _HM
-    import agent as _agent_mod
+    import row_bot.agent as _agent_mod
 
     def _make_browser_tool_msg(name: str, url: str, title: str, body: str = "",
                                 tool_call_id: str = "tc_0"):
@@ -2016,7 +2016,7 @@ print("21. TASK TOOL")
 print("=" * 70)
 
 try:
-    from tools.task_tool import TaskTool, _task_update, _TaskUpdateInput
+    from row_bot.tools.task_tool import TaskTool, _task_update, _TaskUpdateInput
 
     _task_tool = TaskTool()
 
@@ -2081,14 +2081,14 @@ try:
         record("FAIL", "task: execute() message", f"got: {_exec_msg[:80]}")
 
     # 21h. _TaskCreateInput includes 'model' field
-    from tools.task_tool import _TaskCreateInput
+    from row_bot.tools.task_tool import _TaskCreateInput
     if "model" in _TaskCreateInput.model_fields:
         record("PASS", "task: _TaskCreateInput has 'model' field")
     else:
         record("FAIL", "task: _TaskCreateInput missing 'model' field")
 
     # 21i. get_llm_for returns ChatOllama instance
-    from models import get_llm_for
+    from row_bot.models import get_llm_for
     from langchain_ollama import ChatOllama as _ChatOllama
     # Verify function exists and signature accepts model_name
     import inspect as _inspect
@@ -2100,14 +2100,14 @@ try:
         record("FAIL", "task: get_llm_for signature", f"got params {_params}")
 
     # 21j. system prompt mentions MODEL OVERRIDE
-    from prompts import AGENT_SYSTEM_PROMPT
+    from row_bot.prompts import AGENT_SYSTEM_PROMPT
     if "MODEL OVERRIDE" in AGENT_SYSTEM_PROMPT:
         record("PASS", "task: AGENT_SYSTEM_PROMPT contains MODEL OVERRIDE")
     else:
         record("FAIL", "task: AGENT_SYSTEM_PROMPT missing MODEL OVERRIDE")
 
     # 21k. agent.get_agent_graph accepts model_override kwarg
-    import agent as _agent_mod
+    import row_bot.agent as _agent_mod
     _gag_sig = _inspect.signature(_agent_mod.get_agent_graph)
     if "model_override" in _gag_sig.parameters:
         record("PASS", "task: get_agent_graph accepts model_override")
@@ -2128,7 +2128,7 @@ print("=" * 70)
 
 try:
     # 22a. get_next_fire_times exists and returns a list
-    from tasks import get_next_fire_times
+    from row_bot.tasks import get_next_fire_times
     _fires = get_next_fire_times()
     if isinstance(_fires, list):
         record("PASS", f"activity: get_next_fire_times() returns list (len={len(_fires)})")
@@ -2143,7 +2143,7 @@ try:
         record("FAIL", "activity: get_next_fire_times limit", f"got {len(_fires2)}")
 
     # 22c. get_recent_runs exists and returns a list
-    from tasks import get_recent_runs
+    from row_bot.tasks import get_recent_runs
     _runs = get_recent_runs(5)
     if isinstance(_runs, list):
         record("PASS", f"activity: get_recent_runs(5) returns list (len={len(_runs)})")
@@ -2151,7 +2151,7 @@ try:
         record("FAIL", "activity: get_recent_runs()", f"got {type(_runs)}")
 
     # 22d. get_extraction_status exists and returns a dict with expected keys
-    from memory_extraction import get_extraction_status
+    from row_bot.memory_extraction import get_extraction_status
     _mem = get_extraction_status()
     if isinstance(_mem, dict) and "last_extraction" in _mem and "interval_hours" in _mem:
         record("PASS", f"activity: get_extraction_status() keys OK, interval={_mem['interval_hours']}h")
@@ -2165,14 +2165,14 @@ try:
         record("FAIL", "activity: extraction interval", f"got {_mem.get('interval_hours')}")
 
     # 22f. Channels expose is_configured / is_running
-    from channels.telegram import is_configured as _tg_cfg, is_running as _tg_run
+    from row_bot.channels.telegram import is_configured as _tg_cfg, is_running as _tg_run
     if callable(_tg_cfg) and callable(_tg_run):
         record("PASS", "activity: telegram is_configured/is_running callable")
     else:
         record("FAIL", "activity: telegram channel functions not callable")
 
     # 22f2. Channel registry has telegram registered
-    from channels import registry as _ch_reg22
+    from row_bot.channels import registry as _ch_reg22
     _tg_ch = _ch_reg22.get("telegram")
     if _tg_ch is not None and _tg_ch.name == "telegram":
         record("PASS", "activity: telegram registered in channel registry")
@@ -2180,7 +2180,7 @@ try:
         record("FAIL", "activity: telegram not in channel registry")
 
     # 22g. get_running_tasks returns a dict
-    from tasks import get_running_tasks
+    from row_bot.tasks import get_running_tasks
     _running = get_running_tasks()
     if isinstance(_running, dict):
         record("PASS", f"activity: get_running_tasks() returns dict (len={len(_running)})")
@@ -2237,7 +2237,7 @@ print("23. CHANNEL DELIVERY fixes")
 print("=" * 70)
 
 try:
-    from tasks import _validate_delivery, _deliver_to_channel
+    from row_bot.tasks import _validate_delivery, _deliver_to_channel
 
     # 23a. _validate_delivery accepts no-delivery case
     try:
@@ -2320,7 +2320,7 @@ try:
         record("FAIL", "delivery: unknown channel", f"got '{_result3_status}'")
 
     # 23l. create_task accepts telegram delivery without numeric target (target ignored)
-    from tasks import create_task, delete_task
+    from row_bot.tasks import create_task, delete_task
     try:
         _tg_id = create_task(name="TGDelivery", delivery_channel="telegram", prompts=["test"])
         delete_task(_tg_id)
@@ -2340,7 +2340,7 @@ try:
         record("FAIL", "delivery: create_task valid telegram", str(_e))
 
     # 23n. update_task rejects invalid delivery change
-    from tasks import update_task
+    from row_bot.tasks import update_task
     _tmp_id = create_task(name="UpdateTest", prompts=["test"])
     try:
         update_task(_tmp_id, delivery_channel="bogus_ch", delivery_target="x")
@@ -2366,7 +2366,7 @@ try:
         record("FAIL", "delivery: prompts.py delivery guidance incomplete")
 
     # 23q. telegram send_outbound raises RuntimeError when not running
-    from channels.telegram import send_outbound as _tg_send
+    from row_bot.channels.telegram import send_outbound as _tg_send
     try:
         _tg_send(12345, "test")
         record("FAIL", "delivery: telegram send_outbound should raise when not running")
@@ -2390,7 +2390,7 @@ try:
         record("FAIL", "delivery: telegram message missing task name prefix")
 
     # 23u. _record_run_start stores task_name and task_icon
-    from tasks import _record_run_start, _finish_run, _get_conn
+    from row_bot.tasks import _record_run_start, _finish_run, _get_conn
     _rrs_conn = _get_conn()
     _rrs_id = _record_run_start("fake_task_999", "fake_thread", 1,
                                  task_name="Test Run", task_icon="🧪")
@@ -2407,7 +2407,7 @@ try:
     _rrs_conn.close()
 
     # 23v. Run history survives task deletion (delete_after_run scenario)
-    from tasks import create_task, delete_task, get_recent_runs
+    from row_bot.tasks import create_task, delete_task, get_recent_runs
     _surv_id = create_task(name="Survival Test", prompts=["hi"],
                            notify_only=True, notify_label="test")
     _surv_run = _record_run_start(_surv_id, "surv_thread", 0,
@@ -2451,7 +2451,7 @@ except Exception as e:
 # ═════════════════════════════════════════════════════════════════════════════
 print("\n── 24. Task Engine Comprehensive Tests ──")
 try:
-    from tasks import (
+    from row_bot.tasks import (
         _parse_schedule, expand_template_vars, _build_trigger,
         create_task, get_task, list_tasks, update_task, delete_task,
         duplicate_task, _record_run_start, _update_run_progress,
@@ -2778,7 +2778,7 @@ except Exception as e:
 # SECTION 25 · Configurable retrieval compression
 # ═════════════════════════════════════════════════════════════════════════════
 try:
-    from tools.registry import get_global_config, set_global_config
+    from row_bot.tools.registry import get_global_config, set_global_config
 
     # ── 25a. Global config round-trip ────────────────────────────────────
     _prev = get_global_config("compression_mode", "off")
@@ -2792,7 +2792,7 @@ try:
 
     # ── 25b. Global config persisted to disk ─────────────────────────────
     import json as _json25
-    from tools.registry import _CONFIG_PATH as _cfg25
+    from row_bot.tools.registry import _CONFIG_PATH as _cfg25
     set_global_config("compression_mode", "off")
     with open(_cfg25) as _f25:
         _disk = _json25.load(_f25)
@@ -2803,7 +2803,7 @@ try:
     set_global_config("compression_mode", _prev)  # restore
 
     # ── 25c. _get_compressor returns LLMChainExtractor for 'deep' ────────
-    from agent import _get_compressor
+    from row_bot.agent import _get_compressor
     import inspect as _ins25
     _gc_src25 = _ins25.getsource(_get_compressor)
     if "LLMChainExtractor" in _gc_src25 and "deep" in _gc_src25:
@@ -2818,7 +2818,7 @@ try:
         record("FAIL", "compression: off mode code missing return None")
 
     # ── 25e. _compressed returns bare retriever when mode is 'off' ───────
-    from agent import _compressed
+    from row_bot.agent import _compressed
     from langchain_core.runnables import RunnableLambda as _RL25
     _fake_ret = _RL25(lambda x: x)
     set_global_config("compression_mode", "off")
@@ -2837,7 +2837,7 @@ try:
         record("FAIL", "compression: deep wrapping code missing CCR")
 
     # ── 25g. default mode is 'off' when no config exists ─────────────────
-    from tools.registry import _global_config as _gc25
+    from row_bot.tools.registry import _global_config as _gc25
     _saved_mode = _gc25.pop("compression_mode", None)
     _default = get_global_config("compression_mode", "off")
     if _default == "off":
@@ -2850,7 +2850,7 @@ try:
     set_global_config("compression_mode", _prev)
 
     # ── 25h. smart mode removed — no EmbeddingsFilter import ─────────────
-    import agent as _agent25
+    import row_bot.agent as _agent25
     _agent_src25 = _ins25.getsource(_agent25)
     if "EmbeddingsFilter" not in _agent_src25 and "smart" not in _gc_src25:
         record("PASS", "compression: smart mode fully removed")
@@ -2858,7 +2858,7 @@ try:
         record("FAIL", "compression: smart mode remnants in agent.py")
 
     # ── 25i. web_search_tool uses direct execute(), not get_retriever ────
-    from tools.web_search_tool import WebSearchTool as _WST25
+    from row_bot.tools.web_search_tool import WebSearchTool as _WST25
     _wst_src25 = _ins25.getsource(_WST25)
     if "def execute" in _wst_src25 and "_compressed" not in _wst_src25:
         record("PASS", "compression: web_search uses direct execute()")
@@ -2878,8 +2878,8 @@ print("26. KNOWLEDGE GRAPH")
 print("=" * 70)
 
 try:
-    import knowledge_graph as _kg_mod
-    import memory as _mem_compat
+    import row_bot.knowledge_graph as _kg_mod
+    import row_bot.memory as _mem_compat
 
     # --- 26a. Module imports correctly ------------------------------------
     record("PASS", "knowledge_graph: module imports")
@@ -3052,7 +3052,7 @@ try:
         record("FAIL", "memory compat: DB_PATH missing")
 
     # --- 26l. Memory tool has new sub-tools --------------------------------
-    from tools import memory_tool as _mt_kg
+    from row_bot.tools import memory_tool as _mt_kg
     _mt_src = _ins_kg.getsource(_mt_kg)
     if "link_memories" in _mt_src:
         record("PASS", "memory_tool: link_memories sub-tool present")
@@ -3084,7 +3084,7 @@ try:
             record("FAIL", f"memory_tool: sub-tool '{_tn}' missing")
 
     # --- 26m. Extraction prompt includes relations ------------------------
-    from prompts import EXTRACTION_PROMPT as _ep_kg
+    from row_bot.prompts import EXTRACTION_PROMPT as _ep_kg
     _extraction_checks = [
         ("relation_type", "extraction prompt has relation_type"),
         ("source_subject", "extraction prompt has source_subject"),
@@ -3099,7 +3099,7 @@ try:
             record("FAIL", f"prompt: {_desc}")
 
     # --- 26n. System prompt updated for knowledge graph -------------------
-    from prompts import AGENT_SYSTEM_PROMPT as _asp_kg
+    from row_bot.prompts import AGENT_SYSTEM_PROMPT as _asp_kg
     _kg_prompt_checks = [
         ("knowledge graph", "system prompt mentions knowledge graph"),
         ("link_memories", "system prompt mentions link_memories"),
@@ -3119,7 +3119,7 @@ try:
         record("PASS", "agent: auto-recall uses memory_policy.build_auto_recall")
     else:
         record("FAIL", "agent: auto-recall should use memory_policy.build_auto_recall")
-    import memory_policy as _mp_kg
+    import row_bot.memory_policy as _mp_kg
     _mp_src_kg = _ins_kg.getsource(_mp_kg.build_auto_recall)
     if "count_entities" in _mp_src_kg:
         record("PASS", "memory_policy: auto-recall checks count_entities")
@@ -3158,7 +3158,7 @@ print("SECTION 27 · Knowledge Graph Visualization")
 print(f"{'='*70}")
 
 try:
-    import knowledge_graph as _vis_kg
+    import row_bot.knowledge_graph as _vis_kg
     _ins_vis = importlib.import_module("inspect")
 
     # --- 27a. graph_to_vis_json exists ------------------------------------
@@ -3360,11 +3360,11 @@ try:
     print("SECTION 28 · Triple-based Extraction")
     print("-" * 40)
 
-    import memory_extraction as _me28
-    import memory as _mem28
-    import knowledge_graph as _kg28
+    import row_bot.memory_extraction as _me28
+    import row_bot.memory as _mem28
+    import row_bot.knowledge_graph as _kg28
     import inspect as _insp28
-    from prompts import EXTRACTION_PROMPT as _EP28
+    from row_bot.prompts import EXTRACTION_PROMPT as _EP28
 
     # --- 28a. Extraction prompt mentions "User" entity guidance -----------
     if '"User"' in _EP28 and "THE \"User\" ENTITY" in _EP28:
@@ -3496,12 +3496,12 @@ print("=" * 70)
 
 try:
     # 29a. channels.telegram module imports cleanly
-    import channels.telegram as _tg_mod
+    import row_bot.channels.telegram as _tg_mod
     record("PASS", "telegram channel: module imports")
 
     # 29b. TelegramChannel class exists and is a Channel subclass
-    from channels.telegram import TelegramChannel as _TgChanCls
-    from channels.base import Channel as _ChanBase29
+    from row_bot.channels.telegram import TelegramChannel as _TgChanCls
+    from row_bot.channels.base import Channel as _ChanBase29
     assert issubclass(_TgChanCls, _ChanBase29)
     record("PASS", "telegram channel: TelegramChannel is a Channel subclass")
 
@@ -3521,7 +3521,7 @@ try:
     record("PASS", "telegram channel: send_approval_request is callable")
 
     # 29f. TelegramChannel is in channels registry
-    from channels.registry import all_channels as _all_channels29
+    from row_bot.channels.registry import all_channels as _all_channels29
     _ch_names29 = [ch.name for ch in _all_channels29()]
     assert "telegram" in _ch_names29, f"'telegram' not in channel registry: {_ch_names29}"
     record("PASS", "telegram channel: registered in channels.registry")
@@ -3529,7 +3529,7 @@ try:
     # 29g. (removed — skip_tools no longer exists; channels handle their own registration)
 
     # 29h. send_photo and send_document exist in channels.telegram
-    from channels.telegram import send_photo as _sp, send_document as _sd
+    from row_bot.channels.telegram import send_photo as _sp, send_document as _sd
     import inspect as _insp29
     _sp_sig = _insp29.signature(_sp)
     _sd_sig = _insp29.signature(_sd)
@@ -3572,7 +3572,7 @@ try:
     record("PASS", "telegram channel: send_document method is callable")
 
     # 29n. _validate_delivery: unknown channel raises ValueError
-    from tasks import _validate_delivery
+    from row_bot.tasks import _validate_delivery
     try:
         _validate_delivery("no_such_channel", None)
         record("FAIL", "telegram tool: validate(unknown, None) should raise ValueError")
@@ -3620,23 +3620,23 @@ try:
     import tempfile, shutil
 
     # ── 30a. Gmail _resolve_file_path: returns original when not found ──
-    from tools.registry import get_tool as _gt30
+    from row_bot.tools.registry import get_tool as _gt30
     record("PASS", "v3.6: telegram sending now handled by channels.telegram")
 
     # ── 30b. channels.telegram has send_photo and send_document ────────────
-    from channels.telegram import send_photo as _sp30b, send_document as _sd30b
+    from row_bot.channels.telegram import send_photo as _sp30b, send_document as _sd30b
     assert callable(_sp30b)
     assert callable(_sd30b)
     record("PASS", "v3.6: channels.telegram has send_photo and send_document")
 
     # ── 30c. Gmail _resolve_file_path: same pattern ────────────────────────
-    from tools.gmail_tool import _resolve_file_path as _gm_resolve
+    from row_bot.tools.gmail_tool import _resolve_file_path as _gm_resolve
     _r30c = _gm_resolve("nonexistent_attachment.pdf")
     assert _r30c == "nonexistent_attachment.pdf", f"expected original back, got {_r30c}"
     record("PASS", "v3.6: gmail _resolve_file_path returns original for missing file")
 
     # ── 30d. TelegramChannel has send_message, send_photo, send_document ──
-    from channels.telegram import TelegramChannel as _TC30d
+    from row_bot.channels.telegram import TelegramChannel as _TC30d
     _tc30d = _TC30d()
     assert callable(getattr(_tc30d, "send_message", None))
     assert callable(getattr(_tc30d, "send_photo", None))
@@ -3649,20 +3649,20 @@ try:
     record("PASS", "v3.6: TelegramChannel capabilities has buttons attribute")
 
     # ── 30f. TelegramChannel is registered in channel registry ────────────
-    from channels.registry import all_channels as _all_ch30f
+    from row_bot.channels.registry import all_channels as _all_ch30f
     _ch_names30f = [ch.name for ch in _all_ch30f()]
     assert "telegram" in _ch_names30f, f"telegram not in channel registry: {_ch_names30f}"
     record("PASS", "v3.6: TelegramChannel registered in channel registry")
 
     # ── 30g. _CreateChartInput has save_to_file field ──────────────────────
-    from tools.chart_tool import _CreateChartInput as _CCI30
+    from row_bot.tools.chart_tool import _CreateChartInput as _CCI30
     assert "save_to_file" in _CCI30.model_fields, f"fields: {list(_CCI30.model_fields.keys())}"
     _stf_field = _CCI30.model_fields["save_to_file"]
     assert not _stf_field.is_required(), "save_to_file should be optional"
     record("PASS", "v3.6: _CreateChartInput has optional save_to_file field")
 
     # ── 30h. _create_chart accepts save_to_file parameter ──────────────────
-    from tools.chart_tool import _create_chart as _cc30
+    from row_bot.tools.chart_tool import _create_chart as _cc30
     _sig30h = _insp30.signature(_cc30)
     assert "save_to_file" in _sig30h.parameters, f"params: {list(_sig30h.parameters.keys())}"
     record("PASS", "v3.6: _create_chart function accepts save_to_file param")
@@ -3704,19 +3704,19 @@ try:
         shutil.rmtree(_tmpdir30i, ignore_errors=True)
 
     # ── 30j. Gmail _SendMessageInput has attachments field ─────────────────
-    from tools.gmail_tool import _SendMessageInput as _SMI30
+    from row_bot.tools.gmail_tool import _SendMessageInput as _SMI30
     assert "attachments" in _SMI30.model_fields, f"fields: {list(_SMI30.model_fields.keys())}"
     _att_field30 = _SMI30.model_fields["attachments"]
     assert not _att_field30.is_required(), "attachments should be optional"
     record("PASS", "v3.6: gmail _SendMessageInput has optional attachments field")
 
     # ── 30k. Gmail _CreateDraftInput has attachments field ─────────────────
-    from tools.gmail_tool import _CreateDraftInput as _CDI30
+    from row_bot.tools.gmail_tool import _CreateDraftInput as _CDI30
     assert "attachments" in _CDI30.model_fields, f"fields: {list(_CDI30.model_fields.keys())}"
     record("PASS", "v3.6: gmail _CreateDraftInput has optional attachments field")
 
     # ── 30l. _build_mime_message creates multipart with attachment ─────────
-    from tools.gmail_tool import _build_mime_message as _bmm30
+    from row_bot.tools.gmail_tool import _build_mime_message as _bmm30
     _tmpdir30l = tempfile.mkdtemp(prefix="thoth_test30l_")
     try:
         _att_file30 = Path(_tmpdir30l) / "test.txt"
@@ -3750,14 +3750,14 @@ try:
     record("PASS", "v3.6: _build_mime_message skips missing attachment files")
 
     # ── 30n. export_to_pdf in filesystem _WRITE_OPS ────────────────────────
-    from tools.filesystem_tool import _WRITE_OPS as _wo30
+    from row_bot.tools.filesystem_tool import _WRITE_OPS as _wo30
     assert "export_to_pdf" in _wo30, f"_WRITE_OPS: {_wo30}"
     record("PASS", "v3.6: export_to_pdf in filesystem _WRITE_OPS")
 
     # ── 30o. export_to_pdf creates a PDF file ──────────────────────────────
     _tmpdir30o = tempfile.mkdtemp(prefix="thoth_test30o_")
     try:
-        from tools.filesystem_tool import _make_export_to_pdf_tool as _mepdf
+        from row_bot.tools.filesystem_tool import _make_export_to_pdf_tool as _mepdf
         _pdf_tool30 = _mepdf(_tmpdir30o)
         _pdf_result30 = _pdf_tool30.invoke({
             "content": "# Test Report\n\nThis is a **test** document.\n\n- Item 1\n- Item 2\n",
@@ -3830,7 +3830,7 @@ try:
     record("PASS", "v3.6: channels/telegram.py has send_photo and send_document")
 
     # ── 30y. _md_to_html converts markdown to Telegram HTML ───────────────
-    from channels.telegram import _md_to_html as _mth30
+    from row_bot.channels.telegram import _md_to_html as _mth30
     _html30y = _mth30("**bold** and `code` and *italic*")
     assert "<b>bold</b>" in _html30y, f"bold not converted: {_html30y}"
     assert "<code>code</code>" in _html30y, f"code not converted: {_html30y}"
@@ -3857,7 +3857,7 @@ try:
     record("PASS", "v3.6: _md_to_html converts fenced code blocks")
 
     # ── 30z. _format_interrupt accepts list of dicts (agent format) ───────
-    from channels.telegram import _format_interrupt as _fi30
+    from row_bot.channels.telegram import _format_interrupt as _fi30
     _fi_list30 = _fi30([
         {"tool": "file_delete", "description": "Delete report.pdf", "args": {"path": "/x"}},
         {"tool": "send_email", "description": "Send to user@e.com"},
@@ -3874,7 +3874,7 @@ try:
     record("PASS", "v3.6: _format_interrupt handles single interrupt dict")
 
     # ── 30zb. _extract_interrupt_ids extracts multi-interrupt ids ─────────
-    from channels.telegram import _extract_interrupt_ids as _eii30
+    from row_bot.channels.telegram import _extract_interrupt_ids as _eii30
     _ids30 = _eii30([
         {"tool": "a", "__interrupt_id": "id1"},
         {"tool": "b", "__interrupt_id": "id2"},
@@ -3888,7 +3888,7 @@ try:
     record("PASS", "v3.6: _extract_interrupt_ids returns None for single interrupt")
 
     # ── 30zd. _is_corrupt_thread_error detects stuck tool call ────────────
-    from channels.telegram import _is_corrupt_thread_error as _icte30
+    from row_bot.channels.telegram import _is_corrupt_thread_error as _icte30
     assert _icte30(Exception("tool call was present without results"))
     assert _icte30(Exception("expected tool message after tool_calls"))
     assert not _icte30(Exception("some random error"))
@@ -3907,12 +3907,12 @@ try:
     record("PASS", "v3.6: _handle_message blocks messages during pending interrupt")
 
     # ── 30zg. _escape_html escapes required characters ────────────────────
-    from channels.telegram import _escape_html as _eh30
+    from row_bot.channels.telegram import _escape_html as _eh30
     assert _eh30("a & b < c > d") == "a &amp; b &lt; c &gt; d"
     record("PASS", "v3.6: _escape_html escapes &, <, >")
 
     # ── 30zh. _grab_vision_capture exists and is callable ─────────────────
-    from channels.telegram import _grab_vision_capture as _gvc30
+    from row_bot.channels.telegram import _grab_vision_capture as _gvc30
     assert callable(_gvc30)
     # Should return None when no vision service has captured anything
     _vc30 = _gvc30()
@@ -4059,7 +4059,7 @@ try:
     record("PASS", "v3.6: prompts mention background task permissions")
 
     # ── 31m. CRUD roundtrip: create + read permissions ───────────────
-    import tasks as _tasks31
+    import row_bot.tasks as _tasks31
     _test_id31 = _tasks31.create_task(
         name="__test_perms_31m__",
         prompts=["test"],
@@ -4424,7 +4424,7 @@ print("=" * 70)
 
 try:
     import tempfile, shutil, pathlib
-    from tools.filesystem_tool import (
+    from row_bot.tools.filesystem_tool import (
         FileSystemTool, DEFAULT_OPERATIONS, ALL_OPERATIONS,
         _SAFE_OPS, _WRITE_OPS, _DESTRUCTIVE_OPS,
     )
@@ -4581,7 +4581,7 @@ print("=" * 70)
 
 try:
     # ── 35a. Dynamic cache structure ──────────────────────────────────
-    from models import (
+    from row_bot.models import (
         _cloud_model_cache, is_cloud_model, is_cloud_available,
         is_openai_available, is_openrouter_available,
         list_cloud_models, list_starred_cloud_models,
@@ -4733,7 +4733,7 @@ try:
     record("PASS", "cloud: list_cloud_models with provider filter works")
 
     # ── 35g. star / unstar round-trip ────────────────────────────────
-    from api_keys import get_cloud_config, set_cloud_config, _CLOUD_CONFIG_PATH
+    from row_bot.api_keys import get_cloud_config, set_cloud_config, _CLOUD_CONFIG_PATH
     star_cloud_model("gpt-4o")
     starred = list_starred_cloud_models()
     assert "gpt-4o" in starred, "Starred model should appear in list"
@@ -4757,7 +4757,7 @@ try:
     _cloud_model_cache.pop("anthropic/claude-sonnet-4", None)
 
     # ── 35h2. refresh preserves cloud default on cache miss ──────────
-    import models as _models35_mod
+    import row_bot.models as _models35_mod
     _old_current35 = _models35_mod._current_model
     _old_llm35 = _models35_mod._llm_instance
     _old_cache35 = dict(_models35_mod._cloud_model_cache)
@@ -4809,8 +4809,8 @@ try:
     _old_goog_key35 = _os35.environ.pop("GOOGLE_API_KEY", None)
     _old_xai_key35 = _os35.environ.pop("XAI_API_KEY", None)
     try:
-        from api_keys import _load_keys as _lk35, _save_keys as _sk35
-        import providers.runtime as _provider_runtime35
+        from row_bot.api_keys import _load_keys as _lk35, _save_keys as _sk35
+        import row_bot.providers.runtime as _provider_runtime35
         _old_list_configured35 = _provider_runtime35.list_configured_provider_ids
         _keys35 = _lk35()
         _saved_oai35 = _keys35.pop("OPENAI_API_KEY", None)
@@ -4885,12 +4885,12 @@ try:
     record("PASS", "cloud: get_cloud_config returns needed keys")
 
     # ── 35r. api_keys: cloud config defaults ─────────────────────────
-    from api_keys import _DEFAULT_CLOUD_CONFIG
+    from row_bot.api_keys import _DEFAULT_CLOUD_CONFIG
     assert _DEFAULT_CLOUD_CONFIG["starred_models"] == []
     record("PASS", "cloud: config defaults correct")
 
     # ── 35s. api_keys: OPENAI + OPENROUTER key definitions ───────────
-    from api_keys import OPENROUTER_KEY_DEFINITIONS, OPENAI_KEY_DEFINITIONS
+    from row_bot.api_keys import OPENROUTER_KEY_DEFINITIONS, OPENAI_KEY_DEFINITIONS
     assert "OpenRouter API Key" in OPENROUTER_KEY_DEFINITIONS
     assert OPENROUTER_KEY_DEFINITIONS["OpenRouter API Key"] == "OPENROUTER_API_KEY"
     assert "OpenAI API Key" in OPENAI_KEY_DEFINITIONS
@@ -4908,8 +4908,8 @@ try:
     record("PASS", "cloud: set_cloud_config persists to disk")
 
     # ── 35u. threads: model_override column exists ───────────────────
-    from threads import _get_thread_model_override, _set_thread_model_override
-    from threads import DB_PATH as _tdb_path35
+    from row_bot.threads import _get_thread_model_override, _set_thread_model_override
+    from row_bot.threads import DB_PATH as _tdb_path35
     import sqlite3 as _sql35
     _conn35 = _sql35.connect(_tdb_path35)
     _cols35 = {r[1] for r in _conn35.execute("PRAGMA table_info(thread_meta)").fetchall()}
@@ -4919,7 +4919,7 @@ try:
 
     # ── 35v. threads: get/set model override ─────────────────────────
     _test_tid35 = "__test_cloud_35__"
-    from threads import _save_thread_meta, _delete_thread
+    from row_bot.threads import _save_thread_meta, _delete_thread
     _save_thread_meta(_test_tid35, "Cloud Test Thread")
     assert _get_thread_model_override(_test_tid35) == ""
     _set_thread_model_override(_test_tid35, "gpt-4o")
@@ -4930,7 +4930,7 @@ try:
     record("PASS", "cloud: get/set thread model override works")
 
     # ── 35w. _list_threads returns 6 columns (incl. project_id) ─────
-    from threads import _list_threads
+    from row_bot.threads import _list_threads
     _save_thread_meta(_test_tid35, "Cloud Test Thread 2")
     _threads35 = _list_threads()
     if _threads35:
@@ -5075,7 +5075,7 @@ try:
     record("PASS", "cloud: prompts.py has CLOUD MODELS section")
 
     # ── 35ap. persisted cloud cache: save + load round-trip ──────────
-    from models import _save_cloud_cache, _load_cloud_cache, _CLOUD_CACHE_PATH
+    from row_bot.models import _save_cloud_cache, _load_cloud_cache, _CLOUD_CACHE_PATH
     # Inject test entries into cache
     _cloud_model_cache["__test_persist_oai__"] = {"label": "t", "ctx": 128000, "provider": "openai", "vision": True}
     _cloud_model_cache["__test_persist_or__"] = {"label": "t2", "ctx": 64000, "provider": "openrouter", "vision": False}
@@ -5093,7 +5093,7 @@ try:
     record("PASS", "cloud: persisted cache save/load round-trip works")
 
     # ── 35aq. vision flag in cache entries ────────────────────────────
-    from models import list_cloud_vision_models, is_cloud_vision_model
+    from row_bot.models import list_cloud_vision_models, is_cloud_vision_model
     # Inject test entries with vision flags
     _cloud_model_cache["__vis_yes__"] = {"label": "v1", "ctx": 128000, "provider": "openai", "vision": True}
     _cloud_model_cache["__vis_no__"] = {"label": "v2", "ctx": 128000, "provider": "openrouter", "vision": False}
@@ -5148,7 +5148,7 @@ try:
     record("PASS", "cloud: Ollama model management is daemon-only")
 
     # ── 35ax. fetch_trending_ollama_models is importable ─────────────
-    from models import fetch_trending_ollama_models as _ftom, get_trending_models as _gtm
+    from row_bot.models import fetch_trending_ollama_models as _ftom, get_trending_models as _gtm
     assert callable(_ftom), "fetch_trending_ollama_models should be callable"
     assert callable(_gtm), "get_trending_models should be callable"
     assert _ftom() == [], "deprecated trending fetch should be a no-op"
@@ -5346,11 +5346,11 @@ print("=" * 70)
 
 try:
     # ── 36a. skills.py imports cleanly ─────────────────────────────────
-    import skills as _skills_mod36
+    import row_bot.skills as _skills_mod36
     record("PASS", "skills: module imports cleanly")
 
     # ── 36b. Skill dataclass fields ───────────────────────────────────
-    from skills import Skill
+    from row_bot.skills import Skill
     _sk = Skill(name="test", display_name="Test", icon="🧪",
                 description="desc", instructions="do stuff")
     assert _sk.name == "test"
@@ -5361,7 +5361,7 @@ try:
 
     # ── 36c. YAML frontmatter parser ─────────────────────────────────
     import tempfile, pathlib
-    from skills import _parse_skill_md
+    from row_bot.skills import _parse_skill_md
     _tmp_dir36 = tempfile.mkdtemp()
     _tmp_skill = pathlib.Path(_tmp_dir36) / "SKILL.md"
     _tmp_skill.write_text(
@@ -5406,7 +5406,7 @@ try:
     record("PASS", "skills: parser rejects missing frontmatter")
 
     # ── 36g. Bundled skills discovery ─────────────────────────────────
-    from skills import BUNDLED_SKILLS_DIR, _discover_skills
+    from row_bot.skills import BUNDLED_SKILLS_DIR, _discover_skills
     if BUNDLED_SKILLS_DIR.is_dir():
         _discovered = _discover_skills()
         assert len(_discovered) >= 8, f"expected ≥8 bundled skills, got {len(_discovered)}"
@@ -5529,7 +5529,7 @@ try:
     record("PASS", "skills: duplicate_skill")
 
     # ── 36m. Config persistence ───────────────────────────────────────
-    from skills import CONFIG_PATH
+    from row_bot.skills import CONFIG_PATH
     assert CONFIG_PATH.exists(), "skills_config.json should exist after load_skills"
     import json as _json36
     _cfg = _json36.loads(CONFIG_PATH.read_text(encoding="utf-8"))
@@ -5773,7 +5773,7 @@ try:
     record("PASS", "skills: estimate_tokens with explicit names")
 
     # ── 36ah. Config corruption recovery ─────────────────────────────
-    from skills import CONFIG_PATH as _cp36
+    from row_bot.skills import CONFIG_PATH as _cp36
     _backup_cfg = _cp36.read_text(encoding="utf-8") if _cp36.exists() else ""
     _cp36.write_text("NOT VALID JSON{{{", encoding="utf-8")
     # _load_config should return empty dict, not crash
@@ -5848,7 +5848,7 @@ try:
 
     # ── 36ap. Thread DB skills_override round-trip ──────────────────
     import sqlite3 as _sql36
-    from threads import (
+    from row_bot.threads import (
         DB_PATH as _threads_db36,
         get_thread_skills_override,
         set_thread_skills_override,
@@ -5877,7 +5877,7 @@ try:
         _conn36.close()
 
     # ── 36aq. Task DB skills_override round-trip ─────────────────────
-    from tasks import create_task as _ct36, get_task as _gt36, update_task as _ut36, delete_task as _dt36
+    from row_bot.tasks import create_task as _ct36, get_task as _gt36, update_task as _ut36, delete_task as _dt36
     _task_id36 = _ct36(
         name="__TEST_skills_task_suite",
         prompts=["test prompt"],
@@ -5899,7 +5899,7 @@ try:
         _dt36(_task_id36)
 
     # ── 36ar. duplicate_task copies skills_override (functional) ─────
-    from tasks import duplicate_task as _dup_task36
+    from row_bot.tasks import duplicate_task as _dup_task36
     _orig_id36 = _ct36(
         name="__TEST_skills_dup_orig",
         prompts=["dup test"],
@@ -5917,7 +5917,7 @@ try:
         _dt36(_orig_id36)
 
     # ── 36as. is_tool_guide helper ───────────────────────────────────
-    from skills import Skill as _Skill36, is_tool_guide as _is_tg36
+    from row_bot.skills import Skill as _Skill36, is_tool_guide as _is_tg36
     _guide_sk = _Skill36(name="g", display_name="G", icon="🔧", description="",
                           instructions="x", tools=["browser"])
     _manual_sk = _Skill36(name="m", display_name="M", icon="✨", description="",
@@ -5952,7 +5952,7 @@ try:
     record("PASS", "skills: get_manual_skills excludes tool guides")
 
     # ── 36au. tool guide auto-activation via _is_tool_guide_active ───
-    from skills import _is_tool_guide_active as _itga36
+    from row_bot.skills import _is_tool_guide_active as _itga36
     _tg_sk2 = _Skill36(name="tg2", display_name="TG2", icon="🔧",
                          description="", instructions="x", tools=["weather"])
     _tg_sk3 = _Skill36(name="tg3", display_name="TG3", icon="🔧",
@@ -6104,7 +6104,7 @@ print("=" * 70)
 try:
     # ── 37a. Thread DB: create, read, delete ──────────────────────────
     import sqlite3 as _sql37
-    from threads import DB_PATH as _threads_db37
+    from row_bot.threads import DB_PATH as _threads_db37
     _tid37 = f"__SMOKE_{uuid.uuid4().hex[:8]}"
     _conn37 = _sql37.connect(_threads_db37)
     _conn37.execute(
@@ -6123,7 +6123,7 @@ try:
     record("PASS", "smoke: thread DB CRUD")
 
     # ── 37b. Task DB: create, read, delete ────────────────────────────
-    from tasks import create_task as _ct37, get_task as _gt37, delete_task as _dt37
+    from row_bot.tasks import create_task as _ct37, get_task as _gt37, delete_task as _dt37
     _task_id37 = _ct37(name="__SMOKE_task", prompts=["hello"], description="smoke")
     _task37 = _gt37(_task_id37)
     assert _task37 is not None and _task37["name"] == "__SMOKE_task"
@@ -6132,7 +6132,7 @@ try:
     record("PASS", "smoke: task DB CRUD")
 
     # ── 37c. Tool registry populated ──────────────────────────────────
-    from tools.registry import get_all_tools
+    from row_bot.tools.registry import get_all_tools
     _tools37 = get_all_tools()
     assert len(_tools37) >= 10, f"expected ≥10 tools, got {len(_tools37)}"
     record("PASS", f"smoke: tool registry has {len(_tools37)} tools")
@@ -6143,49 +6143,49 @@ try:
     record("PASS", "smoke: agent.py has system prompt logic")
 
     # ── 37e. Models list available ────────────────────────────────────
-    import models as _models37
+    import row_bot.models as _models37
     assert hasattr(_models37, "list_all_models"), \
         "models.py should have list_all_models"
     record("PASS", "smoke: models module accessible")
 
     # ── 37f. Voice module imports ─────────────────────────────────────
-    import voice as _voice37
+    import row_bot.voice as _voice37
     assert hasattr(_voice37, "VoiceService"), "voice module should have VoiceService class"
     record("PASS", "smoke: voice module imports")
 
     # ── 37g. TTS module imports ───────────────────────────────────────
-    import tts as _tts37
+    import row_bot.tts as _tts37
     assert hasattr(_tts37, "TTSService"), "tts module should have TTSService class"
     record("PASS", "smoke: tts module imports")
 
     # ── 37h. Memory module imports ────────────────────────────────────
-    import memory as _mem37
+    import row_bot.memory as _mem37
     assert hasattr(_mem37, "search_memories"), "memory module should have search_memories"
     record("PASS", "smoke: memory module imports")
 
     # ── 37i. Documents module imports ─────────────────────────────────
-    import documents as _docs37
+    import row_bot.documents as _docs37
     record("PASS", "smoke: documents module imports")
 
     # ── 37j. Notifications module imports ─────────────────────────────
-    import notifications as _notif37
+    import row_bot.notifications as _notif37
     record("PASS", "smoke: notifications module imports")
 
     # ── 37k. UI package imports ─────────────────────────────────────
-    import ui as _ui37
+    import row_bot.ui as _ui37
     record("PASS", "smoke: ui package imports")
 
     # ── 37l. Channel modules import ───────────────────────────────────
-    from channels import config as _chcfg37
-    from channels import telegram as _chtg37
+    from row_bot.channels import config as _chcfg37
+    from row_bot.channels import telegram as _chtg37
     record("PASS", "smoke: channel modules import")
 
     # ── 37m. Data reader imports ──────────────────────────────────────
-    import data_reader as _dr37
+    import row_bot.data_reader as _dr37
     record("PASS", "smoke: data_reader module imports")
 
     # ── 37n. Memory extraction imports ────────────────────────────────
-    import memory_extraction as _me37
+    import row_bot.memory_extraction as _me37
     record("PASS", "smoke: memory_extraction module imports")
 
     # ── 37o. Requirements.txt exists and has content ──────────────────
@@ -6204,7 +6204,7 @@ try:
     record("PASS", "smoke: app.py parses cleanly")
 
     # ── 37r. Skills module round-trip (quick) ─────────────────────────
-    import skills as _sk37
+    import row_bot.skills as _sk37
     _sk37.load_skills()
     assert len(_sk37.get_all_skills()) >= 5
     record("PASS", "smoke: skills load_skills returns ≥5")
@@ -6221,7 +6221,7 @@ print("=" * 70)
 
 try:
     # ── 38a. VisionService.capture_and_analyze accepts source='file' ─────
-    from vision import VisionService as _VS38
+    from row_bot.vision import VisionService as _VS38
     import inspect as _insp38
     _sig38 = _insp38.signature(_VS38.capture_and_analyze)
     _params38 = list(_sig38.parameters.keys())
@@ -6241,7 +6241,7 @@ try:
     record("PASS", "image: _analyze_from_file returns error for missing file")
 
     # ── 38d. Vision tool schema includes file_path parameter ─────────────
-    from tools.vision_tool import VisionTool as _VT38
+    from row_bot.tools.vision_tool import VisionTool as _VT38
     _vt38 = _VT38()
     _tools38 = _vt38.as_langchain_tools()
     _schema38 = _tools38[0].args_schema.model_json_schema()
@@ -6250,7 +6250,7 @@ try:
     record("PASS", "image: vision tool schema includes file_path and source")
 
     # ── 38e. Filesystem tool has get_and_clear_displayed_image ────────────
-    from tools.filesystem_tool import (
+    from row_bot.tools.filesystem_tool import (
         get_and_clear_displayed_image as _gcdi38,
         _last_displayed_image as _ldi38_initial,
     )
@@ -6260,8 +6260,8 @@ try:
 
     # ── 38f. Filesystem image detection: read_file on image returns display msg ──
     import tempfile, os, base64 as _b6438
-    from tools.filesystem_tool import _make_pdf_aware_read_tool as _mprt38
-    import tools.filesystem_tool as _fstmod38
+    from row_bot.tools.filesystem_tool import _make_pdf_aware_read_tool as _mprt38
+    import row_bot.tools.filesystem_tool as _fstmod38
     _td38 = tempfile.mkdtemp()
     # Create a tiny valid JPEG (smallest valid JPEG is 107 bytes, use a stub)
     _jpeg_stub = b"\xff\xd8\xff\xe0" + b"\x00" * 50
@@ -6284,7 +6284,7 @@ try:
     record("PASS", "image: filesystem read_file detects and displays images")
 
     # ── 38g. _img_data_uri MIME detection ────────────────────────────────
-    from ui.streaming import _img_data_uri as _idu38
+    from row_bot.ui.streaming import _img_data_uri as _idu38
     _jpeg_b6438 = _b6438.b64encode(b"\xff\xd8\xff\xe0test").decode()
     _png_b6438 = _b6438.b64encode(b"\x89PNG\r\n\x1a\ntest").decode()
     _gif_b6438 = _b6438.b64encode(b"GIF89atest").decode()
@@ -6300,7 +6300,7 @@ try:
     record("PASS", "image: vision_guide SKILL.md present")
 
     # ── 38i. GenerationState.captured_images exists ──────────────────────
-    from ui.state import GenerationState as _GS38
+    from row_bot.ui.state import GenerationState as _GS38
     import queue as _q38, threading as _t38
     _gs38 = _GS38(
         thread_id="test", q=_q38.Queue(), stop_event=_t38.Event(),
@@ -6325,7 +6325,7 @@ try:
     record("PASS", "image: filesystem read_file still works for text files")
 
     # ── 38k. utils.media helpers: is_image_filename / is_base64_image ────
-    from utils.media import (
+    from row_bot.utils.media import (
         is_image_filename as _iif38k,
         is_base64_image as _ib638k,
         image_ext_from_b64 as _ie638k,
@@ -6365,7 +6365,7 @@ try:
     import uuid as _uuid38l
     _tid38l = f"test_d1_{_uuid38l.uuid4().hex[:8]}"
     # Write a tiny PNG to the thread's media dir
-    from threads import save_media_file as _smf38l
+    from row_bot.threads import save_media_file as _smf38l
     _png_bytes38l = (
         b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
         b"\x00\x00\x00\x01\x00\x00\x00\x01"
@@ -6376,7 +6376,7 @@ try:
     _fname38l = "gen_000.png"
     _smf38l(_tid38l, _fname38l, _png_bytes38l)
     _msgs38l = [{"role": "assistant", "content": "hi", "images": [_fname38l]}]
-    from ui.helpers import _build_conversation_html as _bch38l
+    from row_bot.ui.helpers import _build_conversation_html as _bch38l
     _html38l = _bch38l("test thread", _msgs38l, thread_id=_tid38l)
     assert "data:image/png;base64," in _html38l, \
         f"filename-only image not hydrated to data URI (html len={len(_html38l)})"
@@ -6408,26 +6408,26 @@ print("=" * 70)
 
 try:
     # ── 39a. _check_google_token returns 'missing' for nonexistent path ──
-    from tools.gmail_tool import _check_google_token as _gck39
+    from row_bot.tools.gmail_tool import _check_google_token as _gck39
     _s39a, _d39a = _gck39("/nonexistent/path/token.json")
     assert _s39a == "missing", f"expected 'missing', got '{_s39a}'"
     record("PASS", "oauth: _check_google_token returns 'missing' for bad path")
 
     # ── 39b. Calendar _check_google_token also returns 'missing' ─────────
-    from tools.calendar_tool import _check_google_token as _cck39
+    from row_bot.tools.calendar_tool import _check_google_token as _cck39
     _s39b, _d39b = _cck39("/nonexistent/path/token.json")
     assert _s39b == "missing", f"expected 'missing', got '{_s39b}'"
     record("PASS", "oauth: calendar _check_google_token returns 'missing'")
 
     # ── 39c. GmailTool.check_token_health method exists ──────────────────
-    from tools.gmail_tool import GmailTool as _GT39
+    from row_bot.tools.gmail_tool import GmailTool as _GT39
     _gt39 = _GT39()
     assert hasattr(_gt39, "check_token_health"), "GmailTool missing check_token_health"
     assert callable(_gt39.check_token_health), "check_token_health not callable"
     record("PASS", "oauth: GmailTool.check_token_health exists")
 
     # ── 39d. CalendarTool.check_token_health method exists ───────────────
-    from tools.calendar_tool import CalendarTool as _CT39
+    from row_bot.tools.calendar_tool import CalendarTool as _CT39
     _ct39 = _CT39()
     assert hasattr(_ct39, "check_token_health"), "CalendarTool missing check_token_health"
     assert callable(_ct39.check_token_health), "check_token_health not callable"
@@ -6454,13 +6454,13 @@ try:
     record("PASS", "oauth: _check_google_token handles corrupt token file")
 
     # ── 39g. _check_oauth_tokens skips disabled tools ────────────────────
-    from tools import registry as _reg39
+    from row_bot.tools import registry as _reg39
     # Temporarily disable both tools and verify no warnings
     _orig_gmail_en = _reg39.is_enabled("gmail")
     _orig_cal_en = _reg39.is_enabled("calendar")
     _reg39.set_enabled("gmail", False)
     _reg39.set_enabled("calendar", False)
-    from app import _check_oauth_tokens as _coauth39
+    from row_bot.app import _check_oauth_tokens as _coauth39
     _w39g = _coauth39()
     assert _w39g == [], f"expected [] when tools disabled, got {_w39g}"
     # Restore original states
@@ -6469,7 +6469,7 @@ try:
     record("PASS", "oauth: _check_oauth_tokens skips disabled tools")
 
     # ── 39h. _periodic_oauth_check callable ──────────────────────────────
-    from app import _periodic_oauth_check as _poc39
+    from row_bot.app import _periodic_oauth_check as _poc39
     assert callable(_poc39), "_periodic_oauth_check not callable"
     record("PASS", "oauth: _periodic_oauth_check is callable")
 
@@ -6482,8 +6482,8 @@ print("40. ARXIV TOOL REWRITE")
 # ═══════════════════════════════════════════════════════════════════════
 try:
     # ── 40a. ArxivTool is registered ─────────────────────────────────
-    from tools.arxiv_tool import ArxivTool as _AT40
-    from tools import registry as _reg40
+    from row_bot.tools.arxiv_tool import ArxivTool as _AT40
+    from row_bot.tools import registry as _reg40
     _at40 = _AT40()
     assert "arxiv" in _reg40._tools, "ArxivTool not registered"
     record("PASS", "arxiv: ArxivTool registered")
@@ -6586,7 +6586,7 @@ print("-" * 70)
 
 try:
     # ── 41a. Module imports ──────────────────────────────────────────
-    from ui.status_checks import (
+    from row_bot.ui.status_checks import (
         CheckResult, ALL_CHECKS, LIGHT_CHECKS, HEAVY_CHECKS,
         run_all_checks, run_light_checks,
         check_ollama, check_active_model, check_cloud_api,
@@ -6599,7 +6599,7 @@ try:
     )
     record("PASS", "status_checks: module imports")
 
-    from ui.status_bar import (
+    from row_bot.ui.status_bar import (
         build_status_bar, _load_avatar_config, _save_avatar_config,
         _AVATAR_EMOJIS, _RING_COLORS, _DEFAULT_EMOJI, _DEFAULT_COLOR,
         _force_refresh,
@@ -6679,7 +6679,7 @@ try:
     # ── 41f. Avatar config round-trip ────────────────────────────────
     import tempfile, json as _json41
     from pathlib import Path as _P41
-    import ui.status_bar as _sb41
+    import row_bot.ui.status_bar as _sb41
 
     _orig_path = _sb41._USER_CONFIG_PATH
     _orig_dir = _sb41._DATA_DIR
@@ -6724,7 +6724,7 @@ try:
     # ── 41h. Force refresh populates cache ───────────────────────────
     fr = _force_refresh()
     assert len(fr) >= 19, f"force_refresh returned {len(fr)} results (expected >= 19)"
-    from ui.status_bar import _status_cache, _cache_time
+    from row_bot.ui.status_bar import _status_cache, _cache_time
     assert len(_status_cache) >= 19
     assert _cache_time > 0
     record("PASS", "status_bar: force_refresh populates cache")
@@ -6786,7 +6786,7 @@ try:
     record("PASS", "status_bar: build_status_bar accepts open_settings param")
 
     # ── 41n. home.py accepts open_settings kwarg ─────────────────────
-    from ui.home import build_home as _bh41
+    from row_bot.ui.home import build_home as _bh41
     sig_home = _insp41.signature(_bh41)
     assert "open_settings" in sig_home.parameters
     record("PASS", "home: build_home accepts open_settings kwarg")
@@ -6808,7 +6808,7 @@ try:
     record("PASS", "buddy: owned state-machine contract")
 
     # ── 41o. Sidebar avatar CSS and helper ───────────────────────────
-    from ui.sidebar import _SIDEBAR_AVATAR_CSS
+    from row_bot.ui.sidebar import _SIDEBAR_AVATAR_CSS
     assert "sb-avatar" in _SIDEBAR_AVATAR_CSS
     assert "sb-idle" in _SIDEBAR_AVATAR_CSS
     assert "sb-streaming" in _SIDEBAR_AVATAR_CSS
@@ -6823,7 +6823,7 @@ try:
     record("PASS", "sidebar: avatar CSS has all 8 reactive state classes")
 
     # ── 41p. P has sidebar avatar fields ─────────────────────────────
-    from ui.state import P as _P41
+    from row_bot.ui.state import P as _P41
     assert hasattr(_P41, "sidebar_avatar"), "P missing sidebar_avatar"
     assert hasattr(_P41, "sidebar_avatar_label"), "P missing sidebar_avatar_label"
     record("PASS", "state: P has sidebar_avatar + sidebar_avatar_label fields")
@@ -6831,7 +6831,7 @@ try:
     # ── 41q. Avatar config supports mode/image fields ────────────────
     import tempfile as _tf41q, json as _json41q
     from pathlib import Path as _P41q
-    import ui.status_bar as _sb41q
+    import row_bot.ui.status_bar as _sb41q
     _orig_path_q = _sb41q._USER_CONFIG_PATH
     _orig_dir_q = _sb41q._DATA_DIR
     try:
@@ -6871,7 +6871,7 @@ print("=" * 70)
 import tempfile as _tf42
 
 try:
-    import wiki_vault as _wv42
+    import row_bot.wiki_vault as _wv42
 
     # ── 42a. Module imports ──────────────────────────────────────────
     record("PASS", "wiki_vault: module imports")
@@ -7046,7 +7046,7 @@ print("43. AUTO-RECALL IMPROVEMENTS")
 print("=" * 70)
 
 try:
-    import knowledge_graph as _kg43
+    import row_bot.knowledge_graph as _kg43
     import inspect as _ins43
 
     # ── 43a. graph_enhanced_recall signature ─────────────────────────
@@ -7106,7 +7106,7 @@ print("44. WIKI TOOL")
 print("=" * 70)
 
 try:
-    from tools.wiki_tool import WikiTool as _WT44
+    from row_bot.tools.wiki_tool import WikiTool as _WT44
 
     # ── 44a. Tool class basic attributes ─────────────────────────────
     _wt44 = _WT44()
@@ -7216,7 +7216,7 @@ print("=" * 70)
 
 try:
     # ── 46a. New map-reduce prompts exist with placeholders ──────────
-    from prompts import DOC_MAP_PROMPT, DOC_REDUCE_PROMPT, DOC_EXTRACT_PROMPT
+    from row_bot.prompts import DOC_MAP_PROMPT, DOC_REDUCE_PROMPT, DOC_EXTRACT_PROMPT
     assert isinstance(DOC_MAP_PROMPT, str) and len(DOC_MAP_PROMPT) > 50
     for _ph in ["{document_title}", "{section_number}", "{total_sections}", "{document_text}"]:
         assert _ph in DOC_MAP_PROMPT, f"DOC_MAP_PROMPT missing placeholder {_ph}"
@@ -7236,12 +7236,12 @@ try:
     record("PASS", "doc-extract: DOC_EXTRACT_PROMPT defined with selective guidance")
 
     # ── 46b. Legacy alias still works ────────────────────────────────
-    from prompts import DOCUMENT_EXTRACTION_PROMPT as _DEP
+    from row_bot.prompts import DOCUMENT_EXTRACTION_PROMPT as _DEP
     assert _DEP is DOC_EXTRACT_PROMPT, "DOCUMENT_EXTRACTION_PROMPT should alias DOC_EXTRACT_PROMPT"
     record("PASS", "doc-extract: DOCUMENT_EXTRACTION_PROMPT legacy alias intact")
 
     # ── 46c. EXTRACTION_PROMPT lists all 10 entity types ─────────────
-    from prompts import EXTRACTION_PROMPT as _EP
+    from row_bot.prompts import EXTRACTION_PROMPT as _EP
     _TEN_TYPES = ["person", "preference", "fact", "event", "place",
                   "project", "organisation", "concept", "skill", "media"]
     for _t in _TEN_TYPES:
@@ -7250,14 +7250,14 @@ try:
 
     # ── 46d. load_document_text is callable ──────────────────────────
     import inspect as _inspect46
-    from documents import load_document_text as _ldt
+    from row_bot.documents import load_document_text as _ldt
     assert callable(_ldt), "load_document_text not callable"
     _sig = _inspect46.signature(_ldt)
     assert "file_path" in _sig.parameters, "missing file_path param"
     record("PASS", "doc-extract: load_document_text() callable with file_path param")
 
     # ── 46e. _split_into_windows produces correct windows ────────────
-    from document_extraction import _split_into_windows
+    from row_bot.document_extraction import _split_into_windows
     _w1 = _split_into_windows("Hello world", window_size=100, overlap=10)
     assert len(_w1) == 1, f"expected 1 window, got {len(_w1)}"
     _long = "A" * 250
@@ -7269,7 +7269,7 @@ try:
     record("PASS", "doc-extract: _split_into_windows correct count + overlap")
 
     # ── 46f. _cross_window_dedup merges same-subject entities ────────
-    from document_extraction import _cross_window_dedup
+    from row_bot.document_extraction import _cross_window_dedup
     _dupes = [
         {"category": "person", "subject": "Alice", "content": "A researcher."},
         {"category": "person", "subject": "Alice", "content": "Works at MIT."},
@@ -7288,7 +7288,7 @@ try:
     record("PASS", "doc-extract: _cross_window_dedup merges same-subject entities")
 
     # ── 46g. Map/reduce/extract functions exist and are callable ─────
-    from document_extraction import _map_summarize_window, _reduce_summaries, _extract_from_summary
+    from row_bot.document_extraction import _map_summarize_window, _reduce_summaries, _extract_from_summary
     assert callable(_map_summarize_window), "_map_summarize_window not callable"
     assert callable(_reduce_summaries), "_reduce_summaries not callable"
     assert callable(_extract_from_summary), "_extract_from_summary not callable"
@@ -7312,14 +7312,14 @@ try:
     record("PASS", "doc-extract: extract_from_document uses map-reduce + hub entity")
 
     # ── 46i. DocumentLoader.supported_file_types includes new formats ─
-    from documents import DocumentLoader
+    from row_bot.documents import DocumentLoader
     _sft = DocumentLoader.supported_file_types
     assert ".md" in _sft, ".md not in supported_file_types"
     assert ".pdf" in _sft and ".txt" in _sft, "existing formats missing"
     record("PASS", "doc-extract: DocumentLoader supports .md (+ .html/.epub if deps available)")
 
     # ── 46j. _dedup_and_save accepts source parameter ────────────────
-    from memory_extraction import _dedup_and_save
+    from row_bot.memory_extraction import _dedup_and_save
     _sig_ds = _inspect46.signature(_dedup_and_save)
     assert "source" in _sig_ds.parameters, "missing source param"
     _default = _sig_ds.parameters["source"].default
@@ -7327,7 +7327,7 @@ try:
     record("PASS", "doc-extract: _dedup_and_save accepts source param (default='extraction')")
 
     # ── 46k. queue_extraction adds to queue ──────────────────────────
-    import document_extraction as _dex
+    import row_bot.document_extraction as _dex
     with _dex._queue_lock:
         _saved_queue = list(_dex._extraction_queue)
         _dex._extraction_queue.clear()
@@ -7352,7 +7352,7 @@ try:
     record("PASS", "doc-extract: get_extraction_status returns None when idle")
 
     # ── 46m. delete_entities_by_source exists and is callable ────────
-    import knowledge_graph as _kg46
+    import row_bot.knowledge_graph as _kg46
     assert callable(getattr(_kg46, "delete_entities_by_source", None)), \
         "knowledge_graph missing delete_entities_by_source"
     _sig_des = _inspect46.signature(_kg46.delete_entities_by_source)
@@ -7367,7 +7367,7 @@ try:
     record("PASS", "doc-extract: delete_entities_by_source_prefix callable")
 
     # ── 46o. remove_document exists in documents.py ──────────────────
-    from documents import remove_document as _rd46
+    from row_bot.documents import remove_document as _rd46
     assert callable(_rd46), "remove_document not callable"
     _sig_rd = _inspect46.signature(_rd46)
     assert "display_name" in _sig_rd.parameters, "missing display_name param"
@@ -7425,7 +7425,7 @@ print("47. WIKI CLEANUP & KNOWLEDGE TAB CONSOLIDATION")
 print("=" * 70)
 
 try:
-    import wiki_vault as _wv47
+    import row_bot.wiki_vault as _wv47
     import tempfile, pathlib
 
     # ── 47a. clear_wiki_folder() clears wiki/ preserves raw/ + conversations/
@@ -7466,7 +7466,7 @@ try:
             (_vault47 / "wiki" / "person").mkdir(parents=True, exist_ok=True)
             (_vault47 / "wiki" / "person" / "Orphan.md").write_text("stale")
             # rebuild with no entities → orphan should be removed
-            import knowledge_graph as _kg47
+            import row_bot.knowledge_graph as _kg47
             _orig_db47 = _kg47.DB_PATH
             _kg47.DB_PATH = str(pathlib.Path(_td47) / "test_kg47.db")
             _kg47._init_db()
@@ -7543,7 +7543,7 @@ print("48. DREAM CYCLE")
 print("=" * 70)
 
 try:
-    import dream_cycle as _dc48
+    import row_bot.dream_cycle as _dc48
 
     # ── 48a. Module imports and has key functions ─────────────────────
     for fn_name in (
@@ -7667,7 +7667,7 @@ try:
     record("PASS", "dream_cycle: _find_thin_entities filters correctly")
 
     # ── 48h. LLM prompts exist in prompts.py ─────────────────────────
-    import prompts as _p48
+    import row_bot.prompts as _p48
     assert hasattr(_p48, "DREAM_MERGE_PROMPT"), "DREAM_MERGE_PROMPT missing"
     assert hasattr(_p48, "DREAM_ENRICH_PROMPT"), "DREAM_ENRICH_PROMPT missing"
     assert hasattr(_p48, "DREAM_INFER_PROMPT"), "DREAM_INFER_PROMPT missing"
@@ -7692,7 +7692,7 @@ try:
     record("PASS", "dream_cycle: DREAM_INFER_PROMPT has evidence+confidence+direction requirements")
 
     # ── 48h3. VALID_RELATION_TYPES exists in knowledge_graph ─────────
-    import knowledge_graph as _kg48
+    import row_bot.knowledge_graph as _kg48
     assert hasattr(_kg48, "VALID_RELATION_TYPES"), "VALID_RELATION_TYPES must exist"
     assert isinstance(_kg48.VALID_RELATION_TYPES, set), "VALID_RELATION_TYPES must be a set"
     assert len(_kg48.VALID_RELATION_TYPES) >= 30, \
@@ -7785,7 +7785,7 @@ try:
     record("PASS", "dream_cycle: enrichment has fact-grounding verification")
 
     # ── 48u. Extraction journal exists ───────────────────────────────
-    import memory_extraction as _me48
+    import row_bot.memory_extraction as _me48
     assert hasattr(_me48, "get_extraction_journal"), "get_extraction_journal must exist"
     assert hasattr(_me48, "_append_extraction_journal"), "_append_extraction_journal must exist"
     assert hasattr(_me48, "_JOURNAL_FILE"), "_JOURNAL_FILE must exist"
@@ -7808,7 +7808,7 @@ try:
 
     # ── 48x. Relation alias normalization ────────────────────────────
     import inspect as _inspect48
-    from knowledge_graph import normalize_relation_type as _nrt48, _RELATION_ALIASES
+    from row_bot.knowledge_graph import normalize_relation_type as _nrt48, _RELATION_ALIASES
     assert callable(_nrt48), "normalize_relation_type must be callable"
     assert isinstance(_RELATION_ALIASES, dict), "_RELATION_ALIASES must be a dict"
     assert len(_RELATION_ALIASES) >= 30, \
@@ -7836,7 +7836,7 @@ try:
     record("PASS", "knowledge_graph: add_relation uses normalize_relation_type")
 
     # ── 48z. Journal viewers exist in home.py ────────────────────────
-    import ui.home as _home48
+    import row_bot.ui.home as _home48
     _home_src48 = _inspect48.getsource(_home48)
     assert "dream" in _home_src48.lower() and "journal" in _home_src48.lower(), \
         "ui/home.py must have dream journal viewer"
@@ -7897,7 +7897,7 @@ try:
     record("PASS", "dream: batch rotation with stored offset in run_dream_cycle")
 
     # ── 48ag. Extraction vague-type rejection ────────────────────────
-    import memory_extraction as _me48
+    import row_bot.memory_extraction as _me48
     _me_src48 = _inspect48.getsource(_me48)
     assert "_EXTRACTION_BANNED_TYPES" in _me_src48, \
         "memory_extraction must define _EXTRACTION_BANNED_TYPES"
@@ -7918,13 +7918,13 @@ try:
     record("PASS", "dream: pre-flight merge check skips probable duplicates")
 
     # ── 48aj. uses relation tightened in infer prompt ────────────────
-    from prompts import DREAM_INFER_PROMPT as _dip48
+    from row_bot.prompts import DREAM_INFER_PROMPT as _dip48
     assert "NOT merely mentions" in _dip48 or "not merely mentions" in _dip48.lower(), \
         "DREAM_INFER_PROMPT must clarify uses means actively employs, not mentions"
     record("PASS", "prompt: uses relation tightened in DREAM_INFER_PROMPT")
 
     # ── 48ak. Run Dream Cycle Now button in graph panel ──────────────
-    import ui.graph_panel as _gp48
+    import row_bot.ui.graph_panel as _gp48
     _gp_src48 = _inspect48.getsource(_gp48)
     assert "run_dream_now" in _gp_src48 or "Dream" in _gp_src48, \
         "graph_panel must have a Run Dream Cycle button"
@@ -7950,7 +7950,7 @@ try:
     record("PASS", "dream: confidence decay + pruning on stale inferences")
 
     # ── 48an. system snapshot lazy-loads manual skill counts ────────
-    import skills as _skills48an
+    import row_bot.skills as _skills48an
     _skills48an._skills_cache.clear()
     _skills48an._enabled.clear()
     _snapshot48an = _dc48._collect_system_snapshot()
@@ -7995,13 +7995,13 @@ try:
     from pathlib import Path as _Path49
 
     # ── 49a. Plugin package imports ──────────────────────────────────
-    from plugins import manifest as _manifest49
-    from plugins import api as _api49
-    from plugins import state as _state49
-    from plugins import registry as _registry49
-    from plugins import loader as _loader49
-    from plugins import sandbox as _sandbox49
-    import secret_store as _secret_store49
+    from row_bot.plugins import manifest as _manifest49
+    from row_bot.plugins import api as _api49
+    from row_bot.plugins import state as _state49
+    from row_bot.plugins import registry as _registry49
+    from row_bot.plugins import loader as _loader49
+    from row_bot.plugins import sandbox as _sandbox49
+    import row_bot.secret_store as _secret_store49
     record("PASS", "plugins: all 6 modules import successfully")
 
     class _FakeKeyring49:
@@ -8358,9 +8358,9 @@ print("=" * 70)
 
 try:
     # ── 50a. UI modules import ───────────────────────────────────────
-    from plugins.ui_settings import build_plugins_tab, _get_missing_keys
-    from plugins.ui_plugin_dialog import open_plugin_dialog
-    import secret_store as _secret_store50
+    from row_bot.plugins.ui_settings import build_plugins_tab, _get_missing_keys
+    from row_bot.plugins.ui_plugin_dialog import open_plugin_dialog
+    import row_bot.secret_store as _secret_store50
     record("PASS", "plugins-ui: ui_settings and ui_plugin_dialog import successfully")
 
     class _FakeKeyring50:
@@ -8379,8 +8379,8 @@ try:
     _secret_store50._set_backend_for_tests(_FakeKeyring50())
 
     # ── 50b. _get_missing_keys with no required keys ─────────────────
-    import plugins.manifest as _manifest50
-    import plugins.state as _state50
+    import row_bot.plugins.manifest as _manifest50
+    import row_bot.plugins.state as _state50
     _state50.remove_plugin_state("test-ui-plugin")  # clean disk remnants from prior runs
     _state50._reset()
     _mk_manifest = _manifest50.PluginManifest(
@@ -8458,13 +8458,13 @@ try:
     import tempfile as _tempfile51
     import pathlib as _pathlib51
 
-    import plugins.marketplace as _mkt51
-    import plugins.installer as _inst51
+    import row_bot.plugins.marketplace as _mkt51
+    import row_bot.plugins.installer as _inst51
 
     # ── 51a. Marketplace modules import ──────────────────────────────
-    from plugins.marketplace import MarketplaceIndex, MarketplaceEntry, _parse_index
-    from plugins.installer import InstallResult, is_installed
-    from plugins.ui_marketplace import open_marketplace_dialog
+    from row_bot.plugins.marketplace import MarketplaceIndex, MarketplaceEntry, _parse_index
+    from row_bot.plugins.installer import InstallResult, is_installed
+    from row_bot.plugins.ui_marketplace import open_marketplace_dialog
     record("PASS", "marketplace: all modules import successfully")
 
     # ── 51b. _parse_index with sample data ───────────────────────────
@@ -8645,7 +8645,7 @@ try:
         # ── 51r. check_updates with marketplace data ─────────────────
         # Re-install v1 of mock plugin
         _inst51.install_plugin("mock-install-test", source_dir=_src_dir)
-        import plugins.manifest as _manifest51
+        import row_bot.plugins.manifest as _manifest51
         _manifests = [_manifest51.PluginManifest(
             id="mock-install-test",
             name="Mock Install Test",
@@ -8698,8 +8698,8 @@ try:
     import unittest.mock as _mock52
     from pathlib import Path as _Path52
 
-    from tools import image_gen_tool as _igt
-    from tools.image_gen_tool import (
+    from row_bot.tools import image_gen_tool as _igt
+    from row_bot.tools.image_gen_tool import (
         ImageGenTool,
         IMAGE_GEN_MODELS,
         IMAGE_SIZES,
@@ -9174,7 +9174,7 @@ try:
     record("PASS", "image_gen: constants are well-formed")
 
     # ── 52r. Tool registered in registry ─────────────────────────────
-    from tools.registry import get_tool
+    from row_bot.tools.registry import get_tool
     _reg_tool52 = get_tool("image_gen")
     assert _reg_tool52 is not None, "image_gen not found in registry"
     assert _reg_tool52.name == "image_gen"
@@ -9210,7 +9210,7 @@ try:
     record("PASS", "image_gen: same-thread image cache preserved")
 
     # ── 52t. _detect_mime detects correct types ──────────────────────
-    from tools.image_gen_tool import _detect_mime
+    from row_bot.tools.image_gen_tool import _detect_mime
     assert _detect_mime(b"\xff\xd8\xff\xe0rest") == "image/jpeg"
     assert _detect_mime(b"\xff\xd8\xff\xe1rest") == "image/jpeg"
     assert _detect_mime(b"RIFF\x00\x00\x00\x00WEBPrest") == "image/webp"
@@ -9219,7 +9219,7 @@ try:
     record("PASS", "image_gen: _detect_mime detects JPEG, WebP, PNG, fallback")
 
     # ── 52u. render_image_with_save is importable ────────────────────
-    from ui.render import render_image_with_save, _img_ext
+    from row_bot.ui.render import render_image_with_save, _img_ext
     assert callable(render_image_with_save)
     record("PASS", "image_gen: render_image_with_save is importable")
 
@@ -9246,8 +9246,8 @@ try:
     import unittest.mock as _mock52v
     from pathlib import Path as _Path52v
 
-    from tools import video_gen_tool as _vgt
-    from tools.video_gen_tool import (
+    from row_bot.tools import video_gen_tool as _vgt
+    from row_bot.tools.video_gen_tool import (
         VideoGenTool,
         VIDEO_GEN_MODELS,
         DEFAULT_MODEL as _VG_DEFAULT,
@@ -9380,14 +9380,14 @@ try:
     record("PASS", "video_gen: VIDEO_GEN_MODELS flat list covers all models")
 
     # ── 52½l. Tool is registered in the registry ─────────────────────
-    from tools import registry as _treg52v
+    from row_bot.tools import registry as _treg52v
     _reg_v = _treg52v.get_tool("video_gen")
     assert _reg_v is not None, "video_gen not found in registry"
     assert _reg_v.name == "video_gen"
     record("PASS", "video_gen: tool is registered in the registry")
 
     # ── 52½m. Status tool knows about video_gen ──────────────────────
-    from tools.row_bot_status_tool import _QUERY_HANDLERS as _qh52v
+    from row_bot.tools.row_bot_status_tool import _QUERY_HANDLERS as _qh52v
     assert "video_gen" in _qh52v, "video_gen not in status query handlers"
     record("PASS", "video_gen: status tool has video_gen query handler")
 
@@ -9401,7 +9401,7 @@ try:
     record("PASS", "video_gen: tool guide exists and references tools")
 
     # ── 52½o. Side-channel for media_capture ─────────────────────────
-    from channels.media_capture import grab_generated_video as _grab_vid
+    from row_bot.channels.media_capture import grab_generated_video as _grab_vid
     _vgt._last_generated_video = {"path": "/tmp/test.mp4", "filename": "test.mp4"}
     _grabbed = _grab_vid()
     assert _grabbed == "/tmp/test.mp4"
@@ -9411,7 +9411,7 @@ try:
     record("PASS", "video_gen: media_capture.grab_generated_video works")
 
     # ── 52½p. GenerationState has video fields ───────────────────────
-    from ui.state import GenerationState as _GS52v
+    from row_bot.ui.state import GenerationState as _GS52v
     import threading as _thr52v
     import queue as _q52v
     _gs = _GS52v(thread_id="test", q=_q52v.Queue(), stop_event=_thr52v.Event(),
@@ -9423,7 +9423,7 @@ try:
     record("PASS", "video_gen: GenerationState has captured_videos fields")
 
     # ── 52½q. render_video_with_save exists ──────────────────────────
-    from ui.render import render_video_with_save as _rvws
+    from row_bot.ui.render import render_video_with_save as _rvws
     assert callable(_rvws)
     record("PASS", "video_gen: render_video_with_save is importable and callable")
 
@@ -9440,10 +9440,10 @@ print("53. PLUGIN API v2 — RICH RETURNS & DESTRUCTIVE ACTIONS")
 print("=" * 70)
 
 try:
-    from plugins import api as _api53
-    from plugins import registry as _registry53
-    from plugins import state as _state53
-    from plugins import manifest as _manifest53
+    from row_bot.plugins import api as _api53
+    from row_bot.plugins import registry as _registry53
+    from row_bot.plugins import state as _state53
+    from row_bot.plugins import manifest as _manifest53
 
     # ── 53a. PluginTool has destructive_tool_names (default empty) ───
     class _SimpleTool53(_api53.PluginTool):
@@ -9727,7 +9727,7 @@ try:
     print("SECTION 55 · Channel Infrastructure")
 
     # ── 55a. Channel ABC importable ──────────────────────────────────
-    from channels.base import Channel, ChannelCapabilities, ConfigField
+    from row_bot.channels.base import Channel, ChannelCapabilities, ConfigField
     record("PASS", "channel_infra: Channel ABC importable")
 
     # ── 55b. Channel is abstract — can't instantiate ────────────────
@@ -9754,7 +9754,7 @@ try:
     record("PASS", "channel_infra: ConfigField dataclass works")
 
     # ── 55e. Channel registry importable ─────────────────────────────
-    from channels.registry import (
+    from row_bot.channels.registry import (
         register, get, all_channels, running_channels,
         configured_channels, deliver, validate_delivery, _reset,
     )
@@ -9773,7 +9773,7 @@ try:
     record("PASS", "channel_infra: all_channels() includes telegram")
 
     # ── 55h. TelegramChannel implements Channel ABC ──────────────────
-    from channels.telegram import TelegramChannel
+    from row_bot.channels.telegram import TelegramChannel
     assert issubclass(TelegramChannel, Channel)
     record("PASS", "channel_infra: TelegramChannel subclasses Channel")
 
@@ -9802,7 +9802,7 @@ try:
     record("PASS", "channel_infra: make_thread_id returns correct format")
 
     # ── 55l. Media pipeline importable ───────────────────────────────
-    from channels.media import transcribe_audio, analyze_image, save_inbound_file
+    from row_bot.channels.media import transcribe_audio, analyze_image, save_inbound_file
     assert callable(transcribe_audio)
     assert callable(analyze_image)
     assert callable(save_inbound_file)
@@ -9819,7 +9819,7 @@ try:
     record("PASS", "channel_infra: save_inbound_file persists to inbox")
 
     # ── 55n. Tool factory importable ─────────────────────────────────
-    from channels.tool_factory import create_channel_tools
+    from row_bot.channels.tool_factory import create_channel_tools
     assert callable(create_channel_tools)
     record("PASS", "channel_infra: tool_factory importable")
 
@@ -9924,37 +9924,37 @@ try:
     _tg_src56 = (PROJECT_ROOT / "channels" / "telegram.py").read_text(encoding="utf-8")
 
     # ── 56a. _handle_voice exists and is callable ────────────────────
-    from channels.telegram import _handle_voice
+    from row_bot.channels.telegram import _handle_voice
     assert callable(_handle_voice)
     record("PASS", "tg_media: _handle_voice exists and is callable")
 
     # ── 56b. _handle_photo exists and is callable ────────────────────
-    from channels.telegram import _handle_photo
+    from row_bot.channels.telegram import _handle_photo
     assert callable(_handle_photo)
     record("PASS", "tg_media: _handle_photo exists and is callable")
 
     # ── 56c. _handle_document exists and is callable ─────────────────
-    from channels.telegram import _handle_document
+    from row_bot.channels.telegram import _handle_document
     assert callable(_handle_document)
     record("PASS", "tg_media: _handle_document exists and is callable")
 
     # ── 56d. _react helper exists and is callable ────────────────────
-    from channels.telegram import _react
+    from row_bot.channels.telegram import _react
     assert callable(_react)
     record("PASS", "tg_media: _react helper exists and is callable")
 
     # ── 56e. _send_agent_response helper exists ──────────────────────
-    from channels.telegram import _send_agent_response
+    from row_bot.channels.telegram import _send_agent_response
     assert callable(_send_agent_response)
     record("PASS", "tg_media: _send_agent_response helper exists")
 
     # ── 56f. _run_agent_for_message helper exists ────────────────────
-    from channels.telegram import _run_agent_for_message
+    from row_bot.channels.telegram import _run_agent_for_message
     assert callable(_run_agent_for_message)
     record("PASS", "tg_media: _run_agent_for_message helper exists")
 
     # Also import _handle_message for test 56u
-    from channels.telegram import _handle_message as _hm56
+    from row_bot.channels.telegram import _handle_message as _hm56
 
     # ── 56g. Voice handler calls transcribe_audio ────────────────────
     _voice_src56 = _insp56.getsource(_handle_voice)
@@ -10161,12 +10161,12 @@ except Exception as e:
 
 # ── Smart Tool Selection / Auto-Inference Tests ─────────────────────────────
 try:
-    from tasks import (
+    from row_bot.tasks import (
         infer_tools_for_prompt, _build_keyword_map,
         invalidate_keyword_map_cache, _ALWAYS_INCLUDE_TOOLS,
         _INFERENCE_STOP_WORDS,
     )
-    from tools.base import BaseTool
+    from row_bot.tools.base import BaseTool
 
     # ── BaseTool.inference_keywords default ──
     class _DummyTool(BaseTool):
@@ -10253,7 +10253,7 @@ try:
     record("PASS", "tool_select: 'check my calendar' matches calendar tool")
 
     # ── tools_override DB schema ──
-    from tasks import create_task, get_task, update_task, delete_task
+    from row_bot.tasks import create_task, get_task, update_task, delete_task
     _to_id = create_task(
         name="tools_override_test",
         prompts=["test prompt"],
@@ -10284,7 +10284,7 @@ try:
 
     # ── Cache invalidation ──
     invalidate_keyword_map_cache()
-    from tasks import _keyword_map_cache
+    from row_bot.tasks import _keyword_map_cache
     assert _keyword_map_cache is None, "Cache should be None after invalidation"
     record("PASS", "tool_select: keyword map cache invalidation works")
 
@@ -10401,7 +10401,7 @@ try:
     assert "_strip_quoted(" in _src_shell_af, \
         "classify_command must call _strip_quoted before unsafe operator check"
     # Functional test: quoted operators should NOT trigger needs_approval
-    from tools.shell_tool import classify_command as _cc_af
+    from row_bot.tools.shell_tool import classify_command as _cc_af
     assert _cc_af('echo "hello > world"') == "safe", \
         f"Quoted > must be safe, got {_cc_af('echo \"hello > world\"')}"
     assert _cc_af("echo 'hello | world'") == "safe", \
@@ -10479,7 +10479,7 @@ try:
     record("PASS", "AF17: approval-mode gate in _resume_graph_interrupted")
 
     # ── AF18. _strip_quoted handles edge cases ───────────────────────
-    from tools.shell_tool import _strip_quoted
+    from row_bot.tools.shell_tool import _strip_quoted
     # Escaped quotes inside double quotes
     assert ">" not in _strip_quoted('echo "hello \\" > world"'), \
         "_strip_quoted must handle escaped quotes"
@@ -10493,7 +10493,7 @@ try:
     record("PASS", "AF18: _strip_quoted edge cases (escaped, unterminated, empty)")
 
     # ── AF19. Functional test: delete_task cleans up pipeline_state ───
-    import tasks as _tasks_af
+    import row_bot.tasks as _tasks_af
     _af_id = _tasks_af.create_task(name="__af_cleanup_test__", prompts=["test"])
     # Manually create a pipeline_state entry
     _af_conn = _tasks_af._get_conn()
@@ -10570,7 +10570,7 @@ print("CONDITION OPERATOR TESTS")
 print("=" * 70)
 
 try:
-    from tasks import evaluate_condition as _eval_cond
+    from row_bot.tasks import evaluate_condition as _eval_cond
 
     _ctx = {"prev_output": "", "step_outputs": {}, "task_id": "test"}
 
@@ -10668,7 +10668,7 @@ try:
     record("PASS", "COND22: unknown operator returns False")
 
     # ── _parse_condition_expr tests ─────────────────────────────────
-    from ui.task_dialog import _parse_condition_expr
+    from row_bot.ui.task_dialog import _parse_condition_expr
     assert _parse_condition_expr("contains:hello") == ("contains:", "hello")
     assert _parse_condition_expr("empty") == ("empty", "")
     assert _parse_condition_expr("gt:50") == ("gt:", "50")
@@ -10746,7 +10746,7 @@ try:
     record("PASS", "COND30: compound edge cases (empty, single, triple)")
 
     # ── _split_compound bracket nesting ─────────────────────────────
-    from tasks import _split_compound
+    from row_bot.tasks import _split_compound
     assert _split_compound("a,b,c") == ["a", "b", "c"]
     assert _split_compound("and:[x,y],z") == ["and:[x,y]", "z"]
     assert _split_compound("a,or:[b,c],d") == ["a", "or:[b,c]", "d"]
@@ -10765,7 +10765,7 @@ try:
     record("PASS", "COND32: json: inside compound operators")
 
     # ── expand_template_vars with step_outputs ──────────────────────
-    from tasks import expand_template_vars
+    from row_bot.tasks import expand_template_vars
     _tv_out = expand_template_vars(
         "Result: {{step.analysis.output}} and {{prev_output}}",
         task_id="t1",
@@ -10870,7 +10870,7 @@ try:
     record("PASS", "COND38: llm: context truncation at 32000 chars")
 
     # ── _resolve_step_index ─────────────────────────────────────────
-    from tasks import _resolve_step_index
+    from row_bot.tasks import _resolve_step_index
     _test_steps = [
         {"id": "step_1", "type": "prompt"},
         {"id": "step_2", "type": "condition"},
@@ -10948,7 +10948,7 @@ try:
     record("PASS", "COND42: no next field — linear fall-through")
 
     # ── generate_pipeline_mermaid tests ─────────────────────────────
-    from tasks import generate_pipeline_mermaid
+    from row_bot.tasks import generate_pipeline_mermaid
 
     # COND43: basic linear pipeline generates valid mermaid
     _m_steps = [
@@ -10990,7 +10990,7 @@ try:
     record("PASS", "COND46: generate_pipeline_mermaid empty steps")
 
     # ── assign_step_ids tests ───────────────────────────────────────
-    from tasks import assign_step_ids
+    from row_bot.tasks import assign_step_ids
 
     # COND47: assigns {type}_{counter} IDs to steps without IDs
     _id_steps = [
@@ -11087,7 +11087,7 @@ print("\n" + "=" * 70)
 print("56. MEMORY SYSTEM BUG FIXES")
 print("=" * 70)
 try:
-    import knowledge_graph as _kg56
+    import row_bot.knowledge_graph as _kg56
     import inspect as _ins56
     import threading as _th56
 
@@ -11207,7 +11207,7 @@ try:
     # 1d: simulation — _skip_reindex is reset even on exception
     _kg56._skip_reindex = True
     # Call _dedup_and_save with empty list — should reset flag
-    from memory_extraction import _dedup_and_save as _dds56
+    from row_bot.memory_extraction import _dedup_and_save as _dds56
     _dds56([], source="test")
     assert _kg56._skip_reindex is False, "_skip_reindex should be False after empty call"
     record("PASS", "BUG1d: _skip_reindex reset after empty extraction")
@@ -11346,8 +11346,8 @@ except Exception as e:
 # 49. DOCUMENT EXTRACTION IMPROVEMENTS
 # ═══════════════════════════════════════════════════════════════════════════
 try:
-    import knowledge_graph as _kg49
-    import prompts as _pr49
+    import row_bot.knowledge_graph as _kg49
+    import row_bot.prompts as _pr49
     import inspect as _insp49
 
     # ── 49a. Document relation types in VALID_RELATION_TYPES ─────────
@@ -11397,7 +11397,7 @@ try:
     record("PASS", "49g: DOC_EXTRACT_PROMPT confidence floor aligned to 0.80")
 
     # ── 49h. Hub entity dedup in extract_from_document ───────────────
-    import document_extraction as _de49
+    import row_bot.document_extraction as _de49
     _de49_src = _insp49.getsource(_de49.extract_from_document)
     assert "find_by_subject" in _de49_src, "extract_from_document should check for existing hub"
     assert "update_memory" in _de49_src, "extract_from_document should update existing hub"
@@ -11414,7 +11414,7 @@ try:
     record("PASS", "49j: min description length (30) gate in extract_from_document")
 
     # ── 49k. Cross-source merge threshold in _dedup_and_save ─────────
-    import memory_extraction as _me49
+    import row_bot.memory_extraction as _me49
     _me49_src = _insp49.getsource(_me49._dedup_and_save)
     assert "cross-source" in _me49_src.lower() or "Cross-source" in _me49_src, \
         "_dedup_and_save should have cross-source merge check"
@@ -11460,7 +11460,7 @@ except Exception as e:
 print("\n── Section 50: Prompt‑Injection Defence ──")
 try:
     # ── Layer 1: System prompt hardening ─────────────────────────────────
-    import prompts as _pmod
+    import row_bot.prompts as _pmod
 
     assert "SECURITY AWARENESS" in _pmod.AGENT_SYSTEM_PROMPT, \
         "AGENT_SYSTEM_PROMPT must contain SECURITY AWARENESS section"
@@ -11482,7 +11482,7 @@ try:
     record("PASS", "50c: background mode has security guidance")
 
     # ── Layer 2: Content tagging — untrusted tools set ───────────────────
-    from agent import _UNTRUSTED_TOOLS, _scan_injection_patterns
+    from row_bot.agent import _UNTRUSTED_TOOLS, _scan_injection_patterns
 
     assert isinstance(_UNTRUSTED_TOOLS, frozenset), \
         "_UNTRUSTED_TOOLS must be a frozenset"
@@ -11574,7 +11574,7 @@ try:
     record("PASS", "50s: warning format includes ⚠ and category name")
 
     # ── Layer 3: Browser URL exfiltration guard ──────────────────────────
-    from tools.browser_tool import _check_exfiltration_url
+    from row_bot.tools.browser_tool import _check_exfiltration_url
 
     # Normal URLs should pass
     assert _check_exfiltration_url("https://google.com") == "", \
@@ -11608,7 +11608,7 @@ try:
     record("PASS", "50x: invalid URL returns empty without crash")
 
     # ── Layer 5: Markdown image exfiltration guard ───────────────────────
-    from ui.render import _sanitize_exfil_images
+    from row_bot.ui.render import _sanitize_exfil_images
 
     # Normal image should pass through
     _normal_img = "![photo](https://example.com/cat.jpg)"
@@ -11656,7 +11656,7 @@ except Exception as e:
 # ═══════════════════════════════════════════════════════════════════════
 print("\n── Section 51: Persistent Logging ──")
 try:
-    import logging_config
+    import row_bot.logging_config as logging_config
     import logging
     import json
     import tempfile
@@ -11775,7 +11775,7 @@ try:
     record("PASS", "51l: retention period is 7 days")
 
     # 51m: check_logging health check exists and runs
-    from ui.status_checks import check_logging, ALL_CHECKS
+    from row_bot.ui.status_checks import check_logging, ALL_CHECKS
     result = check_logging()
     assert result.name == "Logging"
     assert result.status in ("ok", "warn", "error", "inactive")
@@ -11871,7 +11871,7 @@ try:
     record("PASS", "anth+goog: requirements.txt has new packages")
 
     # ── 52b. api_keys.py key definitions ─────────────────────────────
-    from api_keys import (
+    from row_bot.api_keys import (
         ANTHROPIC_KEY_DEFINITIONS, GOOGLE_KEY_DEFINITIONS,
         get_key as _gk52, _load_keys as _lk52, _save_keys as _sk52,
     )
@@ -11882,7 +11882,7 @@ try:
     record("PASS", "anth+goog: api_keys defines ANTHROPIC and GOOGLE key defs")
 
     # ── 52c. models.py base URL constants ────────────────────────────
-    from models import (
+    from row_bot.models import (
         ANTHROPIC_BASE_URL, GOOGLE_GENAI_BASE_URL, XAI_BASE_URL,
         is_anthropic_available, is_google_available, is_xai_available,
         validate_anthropic_key, validate_google_key, validate_xai_key,
@@ -12274,8 +12274,8 @@ print("=" * 70)
 
 try:
     import inspect as _inspect57
-    import dream_cycle as _dc57
-    import knowledge_graph as _kg57
+    import row_bot.dream_cycle as _dc57
+    import row_bot.knowledge_graph as _kg57
     from pathlib import Path as _P57
 
     _dc_src57 = _P57("dream_cycle.py").read_text(encoding="utf-8")
@@ -12394,7 +12394,7 @@ try:
     record("PASS", "dream_tune: inference confidence floor raised to 0.80")
 
     # ── 57k. Confidence floor aligned with memory extraction ─────────
-    import memory_extraction as _me57
+    import row_bot.memory_extraction as _me57
     _me_src57 = _inspect57.getsource(_me57)
     assert "< 0.80" in _me_src57, \
         "memory_extraction confidence floor must be 0.80"
@@ -12434,12 +12434,12 @@ print("=" * 70)
 
 try:
     # ── 58a: Entity editor module imports ────────────────────────────
-    from ui.entity_editor import open_entity_editor
+    from row_bot.ui.entity_editor import open_entity_editor
     assert callable(open_entity_editor), "open_entity_editor should be callable"
     record("PASS", "entity_editor: module imports & open_entity_editor callable")
 
     # ── 58b: _UpdateMemoryInput has expanded fields ──────────────────
-    from tools.memory_tool import _UpdateMemoryInput
+    from row_bot.tools.memory_tool import _UpdateMemoryInput
     expected_fields = {"memory_id", "content", "subject", "entity_type", "aliases", "tags"}
     actual_fields = set(_UpdateMemoryInput.model_fields.keys())
     assert actual_fields == expected_fields, f"Expected {expected_fields}, got {actual_fields}"
@@ -12447,14 +12447,14 @@ try:
 
     # ── 58c: _update_memory accepts new kwargs ───────────────────────
     import inspect as _insp58
-    from tools.memory_tool import _update_memory
+    from row_bot.tools.memory_tool import _update_memory
     sig = _insp58.signature(_update_memory)
     for param_name in ("subject", "entity_type", "aliases", "tags"):
         assert param_name in sig.parameters, f"_update_memory missing param '{param_name}'"
     record("PASS", "update_memory: function accepts subject/entity_type/aliases/tags kwargs")
 
     # ── 58d: wiki_search removed from wiki tools ─────────────────────
-    from tools.wiki_tool import WikiTool as _WT58
+    from row_bot.tools.wiki_tool import WikiTool as _WT58
     _wt58 = _WT58()
     _tool_names = [t.name for t in _wt58.as_langchain_tools()]
     assert "wiki_search" not in _tool_names, f"wiki_search still in tools: {_tool_names}"
@@ -12471,14 +12471,14 @@ try:
     record("PASS", "prompts: no wiki_search references")
 
     # ── 58f: search_memory retrieves no-touch then touches shown results
-    import tools.memory_tool as _mt58
+    import row_bot.tools.memory_tool as _mt58
     _search_src = _insp58.getsource(_mt58._search_memory)
     assert "retrieve_memory_candidates" in _search_src and "touch_recalled" in _search_src, \
         "_search_memory should retrieve candidates then touch shown results"
     record("PASS", "search_memory: no-touch retrieval then explicit touch")
 
     # ── 58g: candidate retrieval has keyword fallback ────────────────
-    import knowledge_graph as _kg58
+    import row_bot.knowledge_graph as _kg58
     _recall_src = _insp58.getsource(_kg58.retrieve_memory_candidates)
     _kw_src58 = _insp58.getsource(_kg58._keyword_candidate_hits)
     assert "_keyword_candidate_hits" in _recall_src, \
@@ -12495,7 +12495,7 @@ try:
     record("PASS", "fts_search_entities: optional FTS5/BM25 lexical search")
 
     # ── 58h: wiki vault _AUTO_HEADER updated ─────────────────────────
-    import wiki_vault as _wv58
+    import row_bot.wiki_vault as _wv58
     assert "sync back" in _wv58._AUTO_HEADER, \
         f"_AUTO_HEADER should mention sync: {_wv58._AUTO_HEADER[:80]}"
     record("PASS", "wiki_vault: _AUTO_HEADER mentions sync")
@@ -12644,7 +12644,7 @@ print("=" * 70)
 
 try:
     # 59a. terminal_pty imports and helpers
-    from terminal_pty import PtySession, detect_shell, detect_platform
+    from row_bot.terminal_pty import PtySession, detect_shell, detect_platform
     record("PASS", "terminal: terminal_pty imports")
 
     # 59b. detect_shell returns valid (path, type)
@@ -12664,7 +12664,7 @@ try:
     record("PASS", f"terminal: detect_platform → {_plat_info['os']} {_plat_info['arch']}")
 
     # 59d. get_platform_context returns non-empty string
-    from prompts import get_platform_context
+    from row_bot.prompts import get_platform_context
     _ctx = get_platform_context()
     assert isinstance(_ctx, str) and len(_ctx) > 20, \
         f"Platform context too short: {_ctx!r}"
@@ -12672,14 +12672,14 @@ try:
     record("PASS", "terminal: get_platform_context non-empty")
 
     # 59e. terminal_bridge imports and singleton pattern
-    from terminal_bridge import TerminalBridge
+    from row_bot.terminal_bridge import TerminalBridge
     assert callable(getattr(TerminalBridge, "get_instance", None))
     assert callable(getattr(TerminalBridge, "has_instance", None))
     assert callable(getattr(TerminalBridge, "destroy", None))
     record("PASS", "terminal: TerminalBridge singleton API")
 
     # 59f. strip_ansi helper
-    from terminal_bridge import strip_ansi
+    from row_bot.terminal_bridge import strip_ansi
     assert strip_ansi("\x1b[31mhello\x1b[0m") == "hello", \
         "strip_ansi should remove color codes"
     assert strip_ansi("\x1b[1;32mgreen\x1b[0m text") == "green text"
@@ -12726,14 +12726,14 @@ try:
         _sh59.rmtree(_pty2_cwd, ignore_errors=True)
 
     # 59i. classify_command regression — ensure still works after shell_tool changes
-    from tools.shell_tool import classify_command as _cc59
+    from row_bot.tools.shell_tool import classify_command as _cc59
     assert _cc59("ls -la") == "safe"
     assert _cc59("rm -rf /") == "blocked"
     assert _cc59("pip install requests") == "needs_approval"
     record("PASS", "terminal: classify_command regression OK")
 
     # 59j. terminal_widget imports
-    from ui.terminal_widget import build_terminal_panel
+    from row_bot.ui.terminal_widget import build_terminal_panel
     assert callable(build_terminal_panel)
     record("PASS", "terminal: terminal_widget imports")
 
@@ -12776,7 +12776,7 @@ try:
     record("PASS", "terminal: bridge restart method exists")
 
     # 59p. read_terminal tool in shell tool
-    from tools.shell_tool import ShellTool as _ST59
+    from row_bot.tools.shell_tool import ShellTool as _ST59
     _st59 = _ST59()
     _tools59 = _st59.as_langchain_tools()
     _tool_names59 = [t.name for t in _tools59]
@@ -12784,7 +12784,7 @@ try:
     record("PASS", "terminal: read_terminal tool registered")
 
     # 59q. _wire_pty function importable
-    from ui.terminal_widget import _wire_pty
+    from row_bot.ui.terminal_widget import _wire_pty
     assert callable(_wire_pty)
     record("PASS", "terminal: _wire_pty importable")
 
@@ -12829,7 +12829,7 @@ print("=" * 70)
 
 try:
     import sqlite3 as _sq60
-    from threads import (
+    from row_bot.threads import (
         _save_thread_meta, _delete_thread, _thread_exists,
         DB_PATH as _DB60,
         save_thread_summary, load_thread_summary, clear_thread_summary,
@@ -12920,7 +12920,7 @@ try:
     record("PASS", "60c: summary persistence save/load/clear")
 
     # ── 60d. _prepare_task_thread — fresh thread ─────────────────────
-    from tasks import _prepare_task_thread
+    from row_bot.tasks import _prepare_task_thread
     _task60d = {"name": "Test Task 60d", "icon": "⚡"}
     _tid60d = _prepare_task_thread(_task60d)
     assert len(_tid60d) == 12, f"expected 12-char hex, got {len(_tid60d)}"
@@ -12950,7 +12950,7 @@ try:
     record("PASS", "60f: _prepare_task_thread skips thread_meta for notify_only")
 
     # ── 60g. _prepare_task_thread — sets model_override ──────────────
-    from threads import _get_thread_model_override
+    from row_bot.threads import _get_thread_model_override
     _task60g = {
         "name": "Model Override 60g", "icon": "🧠",
         "model_override": "test-model-60g",
@@ -12961,7 +12961,7 @@ try:
     record("PASS", "60g: _prepare_task_thread sets model_override")
 
     # ── 60h. delete_task preserves task_runs ──────────────────────────
-    from tasks import create_task, delete_task, get_recent_runs, _record_run_start, _finish_run
+    from row_bot.tasks import create_task, delete_task, get_recent_runs, _record_run_start, _finish_run
     _tid60h = create_task(name="__test_60h__", prompts=["test"])
     _run60h = _record_run_start(_tid60h, "thread_60h", 1,
                                  task_name="__test_60h__", task_icon="⚡")
@@ -12971,7 +12971,7 @@ try:
     _found60h = any(r["id"] == _run60h for r in _recent60h)
     assert _found60h, "task_run should survive delete_task"
     # Cleanup
-    from tasks import _get_conn as _gc60h
+    from row_bot.tasks import _get_conn as _gc60h
     _c60h = _gc60h()
     _c60h.execute("DELETE FROM task_runs WHERE id = ?", (_run60h,))
     _c60h.commit()
@@ -12979,7 +12979,7 @@ try:
     record("PASS", "60h: delete_task preserves task_runs")
 
     # ── 60i. persistent_thread in tool schema ────────────────────────
-    from tools.task_tool import _TaskCreateInput, _TaskUpdateInput
+    from row_bot.tools.task_tool import _TaskCreateInput, _TaskUpdateInput
     _fields60i = _TaskCreateInput.model_fields
     assert "persistent_thread" in _fields60i, "missing persistent_thread in _TaskCreateInput"
     _fields60i_u = _TaskUpdateInput.model_fields
@@ -12988,7 +12988,7 @@ try:
 
     # ── 60j. _fire_completion_triggers no longer imports _new_thread_id ──
     import inspect as _insp60
-    import tasks as _tasks60
+    import row_bot.tasks as _tasks60
     _src60j = _insp60.getsource(_tasks60._fire_completion_triggers)
     assert "_new_thread_id" not in _src60j, \
         "_fire_completion_triggers should not import _new_thread_id"
@@ -12997,7 +12997,7 @@ try:
     record("PASS", "60j: _fire_completion_triggers uses _prepare_task_thread")
 
     # ── 60k. _persistent_thread_var exists in agent.py ───────────────
-    from agent import _persistent_thread_var
+    from row_bot.agent import _persistent_thread_var
     assert _persistent_thread_var.get() is False, "default should be False"
     record("PASS", "60k: _persistent_thread_var exists with correct default")
 
@@ -13024,7 +13024,7 @@ print("=" * 70)
 
 try:
     # ── 65a. Module imports without error ────────────────────────────
-    from tools.x_tool import (
+    from row_bot.tools.x_tool import (
         XTool, _RateLimiter, _format_tweet, _format_user,
         _load_token, _save_token, _token_expired, _run_oauth_flow,
         _load_tier_info, _save_tier_info,
@@ -13037,13 +13037,13 @@ try:
     record("PASS", "65a: x_tool module imports cleanly")
 
     # ── 65b. XTool is a BaseTool subclass ────────────────────────────
-    from tools.base import BaseTool as _BT65
+    from row_bot.tools.base import BaseTool as _BT65
     _x65 = XTool()
     assert isinstance(_x65, _BT65), "XTool should subclass BaseTool"
     record("PASS", "65b: XTool subclasses BaseTool")
 
     # ── 65c. Tool is in the registry ─────────────────────────────────
-    from tools import registry as _reg65
+    from row_bot.tools import registry as _reg65
     _reg_tool65 = _reg65.get_tool("x")
     assert _reg_tool65 is not None, "XTool not found in registry"
     record("PASS", "65c: XTool registered in tools.registry")
@@ -13289,7 +13289,7 @@ try:
     record("PASS", "65ae: _RateLimiter.check returns None for unknown endpoint")
 
     # ── 65af. _parse_time_param with relative times ──────────────────
-    from tools.x_tool import _parse_time_param
+    from row_bot.tools.x_tool import _parse_time_param
     _pt_1h = _parse_time_param("1h")
     assert _pt_1h is not None and _pt_1h.endswith("Z"), f"1h should produce ISO 8601, got {_pt_1h}"
     assert "T" in _pt_1h, "should have T separator"
@@ -13315,7 +13315,7 @@ try:
     record("PASS", "65ag: _parse_time_param ISO 8601 passthrough")
 
     # ── 65ah. _strip_unsupported_operators ────────────────────────────
-    from tools.x_tool import _strip_unsupported_operators
+    from row_bot.tools.x_tool import _strip_unsupported_operators
     assert _strip_unsupported_operators("AI regulation") == "AI regulation"
     assert _strip_unsupported_operators("AI since:2026-04-15") == "AI"
     assert _strip_unsupported_operators("grok within_time:1h") == "grok"
@@ -13335,7 +13335,7 @@ try:
     record("PASS", "65ai: _XReadInput has start_time and end_time fields")
 
     # ── 65aj. x_guide SKILL.md exists and is a tool guide ────────────
-    import skills as _skills65
+    import row_bot.skills as _skills65
     _skills65.load_skills()
     _xg = _skills65.get_skill("x_guide")
     assert _xg is not None, "x_guide skill should exist"
@@ -13393,7 +13393,7 @@ try:
         yield ("updates", {})
 
     # We need _stream_graph and _content_to_str from agent
-    from agent import _stream_graph, _content_to_str
+    from row_bot.agent import _stream_graph, _content_to_str
     import inspect as _inspect66
     import logging as _log66
 
@@ -13511,9 +13511,9 @@ try:
     import asyncio as _asyncio66
     import queue as _queue66
     import threading as _threading66
-    import ui.helpers as _helpers66
-    import ui.streaming as _streaming66
-    from ui.state import AppState as _AppState66, GenerationState as _GenerationState66, P as _P66, _active_generations as _active66
+    import row_bot.ui.helpers as _helpers66
+    import row_bot.ui.streaming as _streaming66
+    from row_bot.ui.state import AppState as _AppState66, GenerationState as _GenerationState66, P as _P66, _active_generations as _active66
 
     _gen66c4 = _GenerationState66(
         thread_id="test-detached-cleanup-66c4",
@@ -13663,7 +13663,7 @@ try:
     print("SECTION 67 · Tunnel & Webhook Infrastructure")
 
     # ── 67a. tunnel.py imports ──────────────────────────────────────
-    from tunnel import (
+    from row_bot.tunnel import (
         TunnelProvider, NgrokProvider, TunnelManager,
         TunnelError, tunnel_manager as _tm67,
     )
@@ -13723,32 +13723,32 @@ try:
     record("PASS", "67i: TunnelError exception class works")
 
     # ── 67j. Channel ABC has webhook_port property ──────────────────
-    from channels.base import Channel as _Chan67
+    from row_bot.channels.base import Channel as _Chan67
     assert hasattr(_Chan67, "webhook_port")
     assert hasattr(_Chan67, "needs_tunnel")
     record("PASS", "67j: Channel ABC has webhook_port and needs_tunnel properties")
 
     # ── 67k. SMS channel uses main-app port (no separate webhook) ────
-    from channels.sms import SMSChannel as _SMS67
+    from row_bot.channels.sms import SMSChannel as _SMS67
     _sms67 = _SMS67()
     assert _sms67.webhook_port is None, "SMS should not have its own webhook port"
     assert _sms67.needs_tunnel is True, "SMS still needs a tunnel (main-app tunnel)"
     record("PASS", "67k: SMS webhook_port None, needs_tunnel True (uses main-app)")
 
     # ── 67l. Telegram channel needs_tunnel False ────────────────────
-    from channels.telegram import TelegramChannel as _Tg67
+    from row_bot.channels.telegram import TelegramChannel as _Tg67
     _tg67 = _Tg67()
     assert _tg67.webhook_port is None
     assert _tg67.needs_tunnel is False
     record("PASS", "67l: Telegram webhook_port None, needs_tunnel False")
 
     # ── 67m. check_tunnel exists in status_checks ───────────────────
-    from ui.status_checks import check_tunnel as _ct67, LIGHT_CHECKS as _lc67
+    from row_bot.ui.status_checks import check_tunnel as _ct67, LIGHT_CHECKS as _lc67
     assert callable(_ct67)
     record("PASS", "67m: check_tunnel function exists and is callable")
 
     # ── 67n. check_tunnel returns CheckResult ───────────────────────
-    from ui.status_checks import CheckResult as _CR67
+    from row_bot.ui.status_checks import CheckResult as _CR67
     _cr67 = _ct67()
     assert isinstance(_cr67, _CR67)
     assert _cr67.name == "Tunnel"
@@ -13760,7 +13760,7 @@ try:
     record("PASS", "67o: check_tunnel is registered in LIGHT_CHECKS")
 
     # ── 67p. SMS has webhook hardening vars ─────────────────────────
-    import channels.sms as _sms_mod67
+    import row_bot.channels.sms as _sms_mod67
     assert hasattr(_sms_mod67, "_rate_limits")
     assert hasattr(_sms_mod67, "_RATE_LIMIT")
     assert _sms_mod67._RATE_LIMIT == 30
@@ -13838,22 +13838,22 @@ print("=" * 70)
 
 try:
     from pathlib import Path as _P68
-    from version import __version__ as _ver68
+    from row_bot.version import __version__ as _ver68
 
     # ── 68a. New modules import cleanly ─────────────────────────────
-    import tunnel as _tun68
+    import row_bot.tunnel as _tun68
     record("PASS", "68a: import tunnel")
 
-    import tools.x_tool as _xt68
+    import row_bot.tools.x_tool as _xt68
     record("PASS", "68a: import tools.x_tool")
 
-    import channels.approval as _ap68
+    import row_bot.channels.approval as _ap68
     record("PASS", "68a: import channels.approval")
 
-    import channels.media_capture as _mc68
+    import row_bot.channels.media_capture as _mc68
     record("PASS", "68a: import channels.media_capture")
 
-    import channels.thread_repair as _tr68
+    import row_bot.channels.thread_repair as _tr68
     record("PASS", "68a: import channels.thread_repair")
 
     # ── 68b. channels.thread_repair — is_corrupt_thread_error ───────
@@ -13923,7 +13923,7 @@ try:
     record("PASS", f"68g: XTool operations — all={len(_xt68.ALL_OPERATIONS)}, default={len(_xt68.DEFAULT_OPERATIONS)}")
 
     # ── 68h. skills module — tool guide support ─────────────────────
-    import skills as _sk68
+    import row_bot.skills as _sk68
     assert hasattr(_sk68, "TOOL_GUIDES_DIR")
     assert hasattr(_sk68, "is_tool_guide")
     assert hasattr(_sk68, "_is_tool_guide_active")
@@ -13949,13 +13949,13 @@ try:
     record("PASS", f"68i: all {len(_expected_guides68)} tool guides present")
 
     # ── 68j. All 5 channel adapter modules importable with correct class ─
-    import channels.telegram as _tg68j
-    import channels.whatsapp as _wa68j
-    import channels.discord_channel as _dc68j
-    import channels.slack as _sl68j
-    import channels.sms as _sms68j
+    import row_bot.channels.telegram as _tg68j
+    import row_bot.channels.whatsapp as _wa68j
+    import row_bot.channels.discord_channel as _dc68j
+    import row_bot.channels.slack as _sl68j
+    import row_bot.channels.sms as _sms68j
     # After import, channels self-register in the registry
-    import channels.registry as _cr68
+    import row_bot.channels.registry as _cr68
     _all_ch68 = _cr68.all_channels()
     _ch_names68 = {getattr(c, "name", str(c)) for c in _all_ch68}
     _expected_ch68 = {"telegram", "whatsapp", "discord", "slack", "sms"}
@@ -13968,7 +13968,7 @@ try:
         record("PASS", "68j: all 5 channel adapter modules importable")
 
     # ── 68k. Channel.capabilities dataclass ─────────────────────────
-    import channels.base as _cb68
+    import row_bot.channels.base as _cb68
     assert hasattr(_cb68, "ChannelCapabilities")
     assert hasattr(_cb68, "Channel")
     assert hasattr(_cb68, "record_activity")
@@ -14261,7 +14261,7 @@ except Exception as e:
 
 # ── 69f. VALID_ENTITY_TYPES matches _VIS_TYPE_COLORS ──────────────────────
 try:
-    from knowledge_graph import VALID_ENTITY_TYPES as _vet69, _VIS_TYPE_COLORS as _vtc69
+    from row_bot.knowledge_graph import VALID_ENTITY_TYPES as _vet69, _VIS_TYPE_COLORS as _vtc69
     _missing_colors69 = set(_vet69) - set(_vtc69.keys())
     assert not _missing_colors69, f"Entity types missing vis colors: {_missing_colors69}"
     record("PASS", f"69f: all {len(_vet69)} entity types have visualization colors")
@@ -14270,8 +14270,8 @@ except Exception as e:
 
 # ── 69g. Agent prompt category list matches VALID_ENTITY_TYPES ────────────
 try:
-    from prompts import AGENT_SYSTEM_PROMPT as _asp69
-    from knowledge_graph import VALID_ENTITY_TYPES as _vet69g
+    from row_bot.prompts import AGENT_SYSTEM_PROMPT as _asp69
+    from row_bot.knowledge_graph import VALID_ENTITY_TYPES as _vet69g
     for _cat69g in _vet69g:
         # self_knowledge may only be in agent prompt (not extraction)
         if _cat69g == "self_knowledge":
@@ -14284,7 +14284,7 @@ except Exception as e:
 
 # ── 69h. Every tool module contributes at least one registered tool ────────
 try:
-    from tools import registry as _reg69
+    from row_bot.tools import registry as _reg69
     _all_tools69 = _reg69.get_all_tools()
     _registered69 = {t.name for t in _all_tools69}
     # Map each registered tool back to its defining module
@@ -14302,7 +14302,7 @@ except Exception as e:
 # ── 69i. Tool guides link to valid tool names ─────────────────────────────
 try:
     import yaml as _yaml69
-    from tools import registry as _reg69i
+    from row_bot.tools import registry as _reg69i
     _registered_names69i = {t.name for t in _reg69i.get_all_tools()}
     _guides_dir69 = _APP_ROOT69 / "tool_guides"
     _bad_guides69 = []
@@ -14373,8 +14373,8 @@ except Exception as e:
 
 # ── 69l. FEATURE_MANIFEST covers all registered tools (warning-only) ──────
 try:
-    from self_knowledge import FEATURE_MANIFEST as _fm69l
-    from tools import registry as _reg69l
+    from row_bot.self_knowledge import FEATURE_MANIFEST as _fm69l
+    from row_bot.tools import registry as _reg69l
     _manifest_keywords69l = " ".join(
         f["keywords"] + " " + f["feature"].lower() for f in _fm69l
     )
@@ -14396,7 +14396,7 @@ except Exception as e:
 
 # ── 69m. identity.py functions all importable and consistent ──────────────
 try:
-    from identity import (
+    from row_bot.identity import (
         get_identity_config, save_identity_config, sanitize_personality,
         get_assistant_name, get_personality,
         is_self_improvement_enabled, set_self_improvement_enabled,
@@ -14410,7 +14410,7 @@ except Exception as e:
 
 # ── 69n. self_knowledge module exports ────────────────────────────────────
 try:
-    from self_knowledge import (
+    from row_bot.self_knowledge import (
         ABOUT_THOTH, SKILL_CREATION_GUIDANCE, FEATURE_MANIFEST,
         build_identity_line, get_dynamic_state, build_self_knowledge_block,
         lookup_features,
@@ -14425,9 +14425,9 @@ except Exception as e:
 
 # ── 69o. RowBotStatusTool has expected query categories ────────────────────
 try:
-    from tools.row_bot_status_tool import _QUERY_HANDLERS as _qh69o
-    from tools.row_bot_status_tool import _query_skills as _query_skills69o
-    import skills as _skills69o
+    from row_bot.tools.row_bot_status_tool import _QUERY_HANDLERS as _qh69o
+    from row_bot.tools.row_bot_status_tool import _query_skills as _query_skills69o
+    import row_bot.skills as _skills69o
     _expected_cats69o = {
         "overview", "version", "model", "channels", "memory", "skills",
         "tools", "mcp", "providers", "insights", "api_keys", "identity", "tasks", "logs", "errors",
@@ -14456,8 +14456,8 @@ except Exception as e:
 
 # ── 69p. prompts.py dynamic builder works ─────────────────────────────────
 try:
-    import slash_commands as _sc69o2
-    import skills as _skills69o2
+    import row_bot.slash_commands as _sc69o2
+    import row_bot.skills as _skills69o2
 
     if not _skills69o2.skills_loaded():
         _skills69o2.load_skills()
@@ -14495,9 +14495,9 @@ except Exception as e:
     record("FAIL", "69o2-slash-command-registry", f"{type(e).__name__}: {e}")
 
 try:
-    from skills_hub.models import SkillFile as _HubSkillFile69o2
-    from skills_hub.scanner import scan_bundle as _scan_hub_bundle69o2
-    from skills_hub.sources import bundle_from_files as _hub_bundle_from_files69o2
+    from row_bot.skills_hub.models import SkillFile as _HubSkillFile69o2
+    from row_bot.skills_hub.scanner import scan_bundle as _scan_hub_bundle69o2
+    from row_bot.skills_hub.sources import bundle_from_files as _hub_bundle_from_files69o2
 
     _hub_block_bundle69o2 = _hub_bundle_from_files69o2(
         source="direct_url",
@@ -14537,14 +14537,14 @@ try:
     _hub_many_scan69o2 = _scan_hub_bundle69o2(_hub_many_bundle69o2)
     assert any(f.severity == "block" and f.code == "too_many_files" for f in _hub_many_scan69o2.findings), \
         "scanner must block excessive public skill file counts"
-    from skills_hub.source_registry import _cache_root as _hub_cache_root69o2
+    from row_bot.skills_hub.source_registry import _cache_root as _hub_cache_root69o2
     assert (_hub_cache_root69o2() / ".ignore").exists(), "skills_hub index cache must include .ignore"
     record("PASS", "69o2b: skills_hub scanner block/warn guards")
 except Exception as e:
     record("FAIL", "69o2b-skills-hub-scanner", f"{type(e).__name__}: {e}")
 
 try:
-    from channels import commands as _chcmd69o3
+    from row_bot.channels import commands as _chcmd69o3
 
     for _text69o3 in ("/skill a", "/skills", "/skill-reset", "/skillreset", "/skill_reset", "/noskill"):
         assert _chcmd69o3.is_thread_scoped_command(_text69o3), \
@@ -14576,7 +14576,7 @@ except Exception as e:
     record("FAIL", "69o3-channel-skill-command-plumbing", f"{type(e).__name__}: {e}")
 
 try:
-    from prompts import get_agent_system_prompt as _gasp69p, AGENT_SYSTEM_PROMPT as _asp69p
+    from row_bot.prompts import get_agent_system_prompt as _gasp69p, AGENT_SYSTEM_PROMPT as _asp69p
     _dyn69p = _gasp69p()
     assert "personal assistant" in _dyn69p.lower()
     assert len(_dyn69p) > 500  # substantial prompt
@@ -14611,7 +14611,7 @@ except Exception as e:
 
 # ── 69r. No orphaned tool files (in tools/ but not registered) ────────────
 try:
-    from tools import registry as _reg69r
+    from row_bot.tools import registry as _reg69r
     _all_tools69r = _reg69r.get_all_tools()
     _covered_modules69r = {type(t).__module__ for t in _all_tools69r}
     _tool_files69r = {f.stem for f in (_APP_ROOT69 / "tools").glob("*_tool.py")}
@@ -14626,7 +14626,7 @@ except Exception as e:
 
 # ── 69s. Insights module exports and constants ────────────────────────────
 try:
-    import insights as _ins69s
+    import row_bot.insights as _ins69s
     # Verify required exports exist
     for _fn in ("add_insight", "get_insights", "get_active_insights",
                 "dismiss_insight", "pin_insight", "auto_prune",
@@ -14669,7 +14669,7 @@ try:
         "default cloud context should be 128K (131072)"
 
     # Options include 32K through 1M
-    from models import CLOUD_CONTEXT_SIZE_OPTIONS, CLOUD_CONTEXT_SIZE_LABELS, DEFAULT_CLOUD_CONTEXT_SIZE
+    from row_bot.models import CLOUD_CONTEXT_SIZE_OPTIONS, CLOUD_CONTEXT_SIZE_LABELS, DEFAULT_CLOUD_CONTEXT_SIZE
     assert CLOUD_CONTEXT_SIZE_OPTIONS == [32768, 65536, 131072, 262144, 524288, 1048576], \
         f"CLOUD_CONTEXT_SIZE_OPTIONS mismatch: {CLOUD_CONTEXT_SIZE_OPTIONS}"
     assert len(CLOUD_CONTEXT_SIZE_LABELS) == len(CLOUD_CONTEXT_SIZE_OPTIONS), \
@@ -14710,8 +14710,8 @@ except Exception as e:
 # ═════════════════════════════════════════════════════════════════════════════
 print("\n70. Context Management Revamp")
 try:
-    import agent as _agent70
-    from prompts import SUMMARIZE_PROMPT as _SP70
+    import row_bot.agent as _agent70
+    from row_bot.prompts import SUMMARIZE_PROMPT as _SP70
     from langchain_core.messages import (
         SystemMessage as _SM70,
         HumanMessage as _HM70,
@@ -14865,7 +14865,7 @@ except Exception as e:
 # verify the output, rather than just inspecting source code.
 print("\n71. Context Management Revamp — E2E pipeline tests")
 try:
-    import agent as _a71
+    import row_bot.agent as _a71
     from unittest.mock import patch as _patch71
     from langchain_core.messages import (
         SystemMessage as _SM71,
@@ -15202,45 +15202,45 @@ print("=" * 70)
 
 # ── 72a. All designer modules import cleanly ─────────────────────────────
 try:
-    from designer.state import (
+    from row_bot.designer.state import (
         DesignerProject, DesignerPage, DesignerReference,
         BrandConfig, ProjectBrief, ASPECT_RATIOS,
     )
-    from designer.brand import get_all_presets
-    from designer.briefing import build_initial_design_request, project_has_build_brief
-    from designer.components import (
+    from row_bot.designer.brand import get_all_presets
+    from row_bot.designer.briefing import build_initial_design_request, project_has_build_brief
+    from row_bot.designer.components import (
         DesignerComponent, list_components, get_component, render_component_html,
     )
-    from designer.critique import critique_page_html, apply_page_repairs
-    from designer.setup_flow import create_project_from_setup, prepare_project_creation
-    from designer.thumbnail import compute_thumbnail_dimensions
-    from designer.storage import (
+    from row_bot.designer.critique import critique_page_html, apply_page_repairs
+    from row_bot.designer.setup_flow import create_project_from_setup, prepare_project_creation
+    from row_bot.designer.thumbnail import compute_thumbnail_dimensions
+    from row_bot.designer.storage import (
         save_project, load_project, list_projects,
         delete_project, duplicate_project, load_reference_bytes,
     )
-    from designer.history import snapshot, list_snapshots, restore_snapshot, delete_history, UndoStack
-    from designer.interaction import inject_bridge_js, patch_html_text, get_parent_listener_js
-    from designer.html_ops import (
+    from row_bot.designer.history import snapshot, list_snapshots, restore_snapshot, delete_history, UndoStack
+    from row_bot.designer.interaction import inject_bridge_js, patch_html_text, get_parent_listener_js
+    from row_bot.designer.html_ops import (
         ELEMENT_ID_ATTR, COMPONENT_NAME_ATTR,
         summarize_page_html, wrap_asset_fragment, insert_component_in_html,
     )
-    from designer.prompt import build_designer_prompt
-    from designer.preview import build_preview, inject_brand_variables
-    from designer.export import export_html, export_pdf
-    from designer.references import (
+    from row_bot.designer.prompt import build_designer_prompt
+    from row_bot.designer.preview import build_preview, inject_brand_variables
+    from row_bot.designer.export import export_html, export_pdf
+    from row_bot.designer.references import (
         persist_project_references,
         find_project_reference,
         delete_project_reference,
     )
-    from designer.session import prepare_project_mutation
-    from designer.tool import DesignerTool, set_active_project, get_undo_stack
-    from designer.ai_content import (
+    from row_bot.designer.session import prepare_project_mutation
+    from row_bot.designer.tool import DesignerTool, set_active_project, get_undo_stack
+    from row_bot.designer.ai_content import (
         generate_image_html, insert_image_into_page, refine_text,
         refine_text_in_html, generate_speaker_notes,
         build_chart_png, build_chart_interactive_html,
         chart_to_img_tag,
     )
-    from designer import snapshot as _snap72_alias, UndoStack as _us72_alias
+    from row_bot.designer import snapshot as _snap72_alias, UndoStack as _us72_alias
     record("PASS", "72a: all designer modules import cleanly")
 except Exception as e:
     record("FAIL", "72a-designer-imports", f"{type(e).__name__}: {e}")
@@ -15268,7 +15268,7 @@ except Exception as e:
 
 # ── 72b-phase21a. Designer mode taxonomy + interaction graph + asset media fields ──
 try:
-    from designer.state import (
+    from row_bot.designer.state import (
         DESIGNER_MODES, DEFAULT_DESIGNER_MODE,
         normalize_designer_mode, default_page_kind_for_mode,
         DesignerInteraction, DesignerAsset,
@@ -15373,14 +15373,14 @@ except Exception as e:
 
 # ── 72b-phase21b. Media-aware fragment builder + summary + resolution ────
 try:
-    from designer.html_ops import (
+    from row_bot.designer.html_ops import (
         build_media_fragment, wrap_asset_fragment, summarize_page_html,
     )
-    from designer.render_assets import (
+    from row_bot.designer.render_assets import (
         normalize_inline_media_sources, resolve_project_media_sources,
     )
-    from designer.storage import save_asset_bytes, delete_project
-    from designer.state import DesignerAsset as _DA21b, DesignerProject as _DP21b, DesignerPage as _DPg21b
+    from row_bot.designer.storage import save_asset_bytes, delete_project
+    from row_bot.designer.state import DesignerAsset as _DA21b, DesignerProject as _DP21b, DesignerPage as _DPg21b
 
     # build_media_fragment — image path
     _img_frag = build_media_fragment(
@@ -15428,7 +15428,7 @@ try:
 
     # Designer editor open path must canonicalize stored HTML to asset refs,
     # not persist render-time data URIs into project JSON.
-    from designer.editor import _canonicalize_stored_image_refs
+    from row_bot.designer.editor import _canonicalize_stored_image_refs
     _p21b_canon = _DP21b(id="__test72b-phase21b-canon__", name="Canon")
     _p21b_canon.pages = [_DPg21b(
         html='<img data-asset-id="asset-canon" src="data:image/png;base64,iVBORw0KGgo=" />',
@@ -15469,10 +15469,10 @@ except Exception as e:
 
 # ── 72b-phase21c. Brand-enriched prompt helper + cache key ───────────────
 try:
-    from designer.ai_content import (
+    from row_bot.designer.ai_content import (
         _brand_enriched_prompt, brand_theme_cache_key, _tone_motion_language,
     )
-    from designer.state import (
+    from row_bot.designer.state import (
         DesignerProject as _DP21c, BrandConfig as _BC21c, ProjectBrief as _PB21c,
     )
 
@@ -15558,13 +15558,13 @@ except Exception as e:
 
 # ── 72b-phase21d. Video generator helpers (mocked provider) ──────────────
 try:
-    import designer.ai_content as _ai21d
-    import tools.video_gen_tool as _vgt21d
-    from designer.ai_content import generate_video_bytes, animate_image_bytes
-    from designer.state import (
+    import row_bot.designer.ai_content as _ai21d
+    import row_bot.tools.video_gen_tool as _vgt21d
+    from row_bot.designer.ai_content import generate_video_bytes, animate_image_bytes
+    from row_bot.designer.state import (
         DesignerProject as _DP21d, BrandConfig as _BC21d, ProjectBrief as _PB21d,
     )
-    from designer.storage import delete_project, load_asset_bytes
+    from row_bot.designer.storage import delete_project, load_asset_bytes
     import tempfile as _tf21d, os as _os21d
 
     # Create a temp mp4 on disk to simulate provider output
@@ -15644,13 +15644,13 @@ except Exception as e:
 
 # ── 72b-phase21e. Video sub-tools (mocked provider) ─────────────────────
 try:
-    import designer.tool as _dtool21e
-    import tools.video_gen_tool as _vgt21e
-    from designer.state import (
+    import row_bot.designer.tool as _dtool21e
+    import row_bot.tools.video_gen_tool as _vgt21e
+    from row_bot.designer.state import (
         DesignerProject as _DP21e, DesignerPage as _DPage21e,
     )
-    from designer.storage import delete_project
-    from designer.session import set_active_project, get_ui_active_project
+    from row_bot.designer.storage import delete_project
+    from row_bot.designer.session import set_active_project, get_ui_active_project
     import tempfile as _tf21e, os as _os21e
 
     _mp4_bytes_e = b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00fake-mp4"
@@ -15739,10 +15739,10 @@ except Exception as e:
 
 # ── 72b-phase21g. Command palette logic ─────────────────────────────────
 try:
-    from designer.command_palette import (
+    from row_bot.designer.command_palette import (
         PaletteItem, build_palette_items, filter_items, tool_prefill,
     )
-    from designer.state import (
+    from row_bot.designer.state import (
         DesignerProject as _DP21g, DesignerPage as _DPage21g,
         DesignerAsset as _DA21g,
     )
@@ -15814,11 +15814,11 @@ except Exception as e:
 
 # ── 72b-phase21h. Brand-lint read-only scanner ──────────────────────────
 try:
-    from designer.brand_lint import (
+    from row_bot.designer.brand_lint import (
         lint_page, lint_project, LintFinding,
         _brand_hexes, _brand_fonts, _hex6, _channel_delta,
     )
-    from designer.state import (
+    from row_bot.designer.state import (
         DesignerProject as _DP21h, DesignerPage as _DPage21h,
         BrandConfig as _BC21h,
     )
@@ -15943,8 +15943,8 @@ try:
     assert "off_palette" in _rep_dirty["category_counts"]
 
     # Test 8: Sub-tool registration + basic invocation
-    import designer.tool as _dtool21h
-    from designer.session import set_active_project as _sap21h, get_ui_active_project as _gap21h
+    import row_bot.designer.tool as _dtool21h
+    from row_bot.designer.session import set_active_project as _sap21h, get_ui_active_project as _gap21h
     _prior21h = _gap21h()
     _proj_tool = _DP21h(
         id="__test72b-phase21h-tool__", name="Tool",
@@ -15963,7 +15963,7 @@ try:
     finally:
         _sap21h(_prior21h)
         try:
-            from designer.storage import delete_project as _dp21h
+            from row_bot.designer.storage import delete_project as _dp21h
             _dp21h(_proj_tool.id)
         except Exception:
             pass
@@ -15981,10 +15981,10 @@ except Exception as e:
 
 # ── 72b-phase21i. Zero-state sidebar quick actions ──────────────────────
 try:
-    from designer.zero_state import (
+    from row_bot.designer.zero_state import (
         QuickAction, get_quick_actions, is_project_empty, _ACTIONS_BY_MODE,
     )
-    from designer.state import (
+    from row_bot.designer.state import (
         DesignerProject as _DP21i, DesignerPage as _DPage21i,
         DesignerAsset as _DA21i, DESIGNER_MODES,
     )
@@ -16068,14 +16068,14 @@ except Exception as e:
 
 # ── 73a. Phase 2.2 — Mode-conditioned system prompt ─────────────────────
 try:
-    from designer.prompt import (
+    from row_bot.designer.prompt import (
         build_designer_prompt as _bdp73a,
         _rules_for_mode,
         _interactive_tools_block,
         _DECK_JS_RULE,
         _INTERACTIVE_RUNTIME_RULE,
     )
-    from designer.state import DesignerProject as _DP73a
+    from row_bot.designer.state import DesignerProject as _DP73a
 
     # Deck prompt: keeps the "no JavaScript" clause and does NOT advertise
     # interactive sub-tools.
@@ -16151,7 +16151,7 @@ except Exception as e:
 
 # ── 73b. Phase 2.2 — Agent-HTML sanitizer strips scripts/handlers ───────
 try:
-    from designer.html_ops import sanitize_agent_html
+    from row_bot.designer.html_ops import sanitize_agent_html
 
     # <script> tags removed.
     _h = '<div>ok</div><script>alert(1)</script><p>after</p>'
@@ -16186,7 +16186,7 @@ try:
     assert sanitize_agent_html("plain text") == "plain text"
 
     # Sanitizer is wired into _set_pages / _update_page / _add_page.
-    import designer.tool as _dt73b
+    import row_bot.designer.tool as _dt73b
     import inspect as _ins73b
     for _fn_name in ("_set_pages", "_update_page", "_add_page"):
         _src = _ins73b.getsource(getattr(_dt73b, _fn_name))
@@ -16198,7 +16198,7 @@ except Exception as e:
 
 # ── 73c. Phase 2.2 — Runtime bridge loader ──────────────────────────────
 try:
-    from designer.runtime import (
+    from row_bot.designer.runtime import (
         RUNTIME_MARKER_ATTR,
         build_routes_payload,
         inject_runtime,
@@ -16252,7 +16252,7 @@ try:
 
     # Sanitizer preserves runtime script (guard from 73b still valid after
     # inject_runtime).
-    from designer.html_ops import sanitize_agent_html as _san73c
+    from row_bot.designer.html_ops import sanitize_agent_html as _san73c
     _after = _san73c(_out73c)
     assert '<script data-row-bot-runtime="1">' in _after
     assert '__row_bot_routes__' in _after
@@ -16263,13 +16263,13 @@ except Exception as e:
 
 # ── 73d. Phase 2.2 — Multi-route preview rendering ──────────────────────
 try:
-    from designer.preview import (
+    from row_bot.designer.preview import (
         render_multi_route_html,
         _ensure_page_route_ids,
         _extract_body_inner,
         INTERACTIVE_MODES,
     )
-    from designer.state import DesignerProject as _DP73d, DesignerPage as _DPage73d
+    from row_bot.designer.state import DesignerProject as _DP73d, DesignerPage as _DPage73d
 
     assert INTERACTIVE_MODES == {"landing", "app_mockup", "storyboard"}
 
@@ -16345,7 +16345,7 @@ except Exception as e:
 
 # ── 73e. Phase 2.2 — Interactive-mode sub-tools ───────────────────────
 try:
-    from designer.tool import (
+    from row_bot.designer.tool import (
         DesignerTool as _DT73e,
         _set_mode as _set_mode_73e,
         _add_screen as _add_screen_73e,
@@ -16354,11 +16354,11 @@ try:
         _preview_screen as _preview_73e,
         _reorder_routes as _reorder_73e,
     )
-    from designer.state import (
+    from row_bot.designer.state import (
         DesignerProject as _DP73e,
         DesignerPage as _DPage73e,
     )
-    from designer.session import set_active_project as _set_active_73e
+    from row_bot.designer.session import set_active_project as _set_active_73e
 
     # Set up a landing project with two routes.
     _p73e = _DP73e(
@@ -16478,7 +16478,7 @@ try:
     record("PASS", "73e: interactive sub-tools + mode-gated surface")
 except Exception as e:
     try:
-        from designer.session import set_active_project as _reset73e
+        from row_bot.designer.session import set_active_project as _reset73e
         _reset73e(None)
     except Exception:
         pass
@@ -16486,11 +16486,11 @@ except Exception as e:
 
 # ── 73f. Phase 2.2 — Dual publish path ────────────────────────────────
 try:
-    from designer.publish import (
+    from row_bot.designer.publish import (
         build_publish_bytes as _build_bytes_73f,
         publish_project as _publish_73f,
     )
-    from designer.state import (
+    from row_bot.designer.state import (
         DesignerProject as _DP73f,
         DesignerPage as _DPage73f,
     )
@@ -16564,15 +16564,15 @@ except Exception as e:
 
 # ── 73g. Phase 2.2 — Mode picker in setup flow ────────────────────────
 try:
-    from designer.setup_flow import (
+    from row_bot.designer.setup_flow import (
         DESIGNER_MODE_CHOICES,
         MODE_CHOICE_AUTO,
         infer_mode_from_output_type as _infer_mode_73g,
         resolve_project_mode as _resolve_mode_73g,
         create_project_from_setup as _create_73g,
     )
-    from designer.briefing import build_initial_design_request as _build_req_73g
-    from designer.state import ProjectBrief as _PB73g
+    from row_bot.designer.briefing import build_initial_design_request as _build_req_73g
+    from row_bot.designer.state import ProjectBrief as _PB73g
 
     # Mode choices exposed for the UI
     _choice_keys = [key for key, _ in DESIGNER_MODE_CHOICES]
@@ -16649,11 +16649,11 @@ except Exception as e:
 
 # ── 73h. Phase 2.2 — Routes-aware navigator helpers ──────────────────
 try:
-    from designer.page_navigator import (
+    from row_bot.designer.page_navigator import (
         navigator_item_caption,
         navigator_action_labels,
     )
-    from designer.state import (
+    from row_bot.designer.state import (
         DesignerProject as _DP73h,
         DesignerPage as _DPage73h,
     )
@@ -16714,12 +16714,12 @@ except Exception as e:
 
 # ── 73i. Phase 2.2 — Phone-frame chrome for app_mockup ───────────────
 try:
-    from designer.preview import (
+    from row_bot.designer.preview import (
         get_preview_chrome as _chrome_73i,
         PHONE_BEZEL_PADDING_PX,
         PHONE_NOTCH_WIDTH_PX,
     )
-    from designer.state import (
+    from row_bot.designer.state import (
         DesignerProject as _DP73i,
     )
 
@@ -16755,13 +16755,13 @@ except Exception as e:
 
 # ── 73j. Phase 2.2 — Hotspot recorder helpers ────────────────────────
 try:
-    from designer.hotspot_recorder import (
+    from row_bot.designer.hotspot_recorder import (
         build_hotspot_recorder_spec as _spec_73j,
         record_hotspot as _record_73j,
         is_interactive_project as _is_interactive_73j,
         HOTSPOT_ACTION_CHOICES as _actions_73j,
     )
-    from designer.state import (
+    from row_bot.designer.state import (
         DesignerProject as _DP73j,
         DesignerPage as _DPG73j,
     )
@@ -16867,11 +16867,11 @@ except Exception as e:
 
 # ── 73k. Phase 2.2 — Route graph helpers ─────────────────────────────
 try:
-    from designer.route_graph import (
+    from row_bot.designer.route_graph import (
         build_route_graph as _rg_73k,
         route_graph_summary as _rgs_73k,
     )
-    from designer.state import (
+    from row_bot.designer.state import (
         DesignerProject as _DP73k,
         DesignerPage as _DPG73k,
         DesignerInteraction as _DI73k,
@@ -16949,17 +16949,17 @@ except Exception as e:
 
 # ── 73l. Phase 2.2 — Agent-mutation diff helpers ─────────────────────
 try:
-    from designer.mutation_diff import (
+    from row_bot.designer.mutation_diff import (
         compute_html_diff as _diff_73l,
         find_last_agent_snapshot as _last_agent_73l,
         diff_last_agent_change as _diff_last_73l,
     )
-    from designer.history import (
+    from row_bot.designer.history import (
         snapshot as _snap_73l,
         list_snapshots as _list_snaps_73l,
         delete_history as _del_hist_73l,
     )
-    from designer.state import (
+    from row_bot.designer.state import (
         DesignerProject as _DP73l,
         DesignerPage as _DPG73l,
     )
@@ -17029,7 +17029,7 @@ except Exception as e:
 
 # ── 73m. Phase 2.2 — Publish QR lightbox helpers ─────────────────────
 try:
-    from designer.qr_utils import (
+    from row_bot.designer.qr_utils import (
         generate_qr_png_b64 as _qr_73m,
         decode_qr_data_uri as _qr_decode_73m,
     )
@@ -17053,7 +17053,7 @@ try:
     assert _qr_decode_73m("https://example.com") == b""
 
     # Importing share_dialog must not raise and must expose the QR helper.
-    import designer.share_dialog as _sd_73m
+    import row_bot.designer.share_dialog as _sd_73m
     assert hasattr(_sd_73m, "show_share_dialog")
     assert _sd_73m.generate_qr_png_b64 is _qr_73m
 
@@ -17070,8 +17070,8 @@ except Exception as e:
 # section, so stray inner data-row-bot-route attributes no longer collapse the
 # page to a blank background.
 try:
-    from designer.preview import render_multi_route_html as _rmr73p
-    from designer.state import DesignerProject as _DP73p, DesignerPage as _DPage73p
+    from row_bot.designer.preview import render_multi_route_html as _rmr73p
+    from row_bot.designer.state import DesignerProject as _DP73p, DesignerPage as _DPage73p
 
     _inner_html73p = (
         '<!DOCTYPE html><html data-row-bot-route="home"><head>'
@@ -17138,7 +17138,7 @@ except Exception as e:
 # every interactive mode into a 1920×1080 slide, which caused landing pages
 # to cram all their sections into one overflow:hidden block.
 try:
-    from designer.state import (
+    from row_bot.designer.state import (
         ASPECT_RATIOS as _AR73q,
         DESIGNER_MODES as _DM73q,
         default_aspect_for_mode,
@@ -17174,7 +17174,7 @@ except Exception as e:
 # landing page.  Expected: landing → landing viewport, app_mockup → phone,
 # deck stays 16:9, and caller-provided aspect_ratio overrides the default.
 try:
-    from designer.setup_flow import create_project_from_setup as _cpfs73r
+    from row_bot.designer.setup_flow import create_project_from_setup as _cpfs73r
 
     _pl73r = _cpfs73r("blank_canvas", mode="landing")
     assert _pl73r.mode == "landing"
@@ -17213,8 +17213,8 @@ except Exception as e:
 # <style> blocks. Fix merges every page's <style>/<link rel=stylesheet>
 # blocks into the shell head, deduped.
 try:
-    from designer.preview import render_multi_route_html as _rmr73s
-    from designer.state import DesignerProject as _DP73s, DesignerPage as _DPage73s
+    from row_bot.designer.preview import render_multi_route_html as _rmr73s
+    from row_bot.designer.state import DesignerProject as _DP73s, DesignerPage as _DPage73s
 
     _p0_73s = (
         '<!DOCTYPE html><html><head>'
@@ -17280,13 +17280,13 @@ except Exception as e:
 
 # ── 74a. Phase 2.3.A — Template.mode + get_templates_for_mode ─────────────
 try:
-    from designer.templates import (
+    from row_bot.designer.templates import (
         Template as _Tmpl74a,
         get_templates as _get_templates_74a,
         get_templates_for_mode as _tmpls_for_mode_74a,
         get_template as _get_template_74a,
     )
-    from designer.state import DESIGNER_MODES as _MODES74a
+    from row_bot.designer.state import DESIGNER_MODES as _MODES74a
 
     # Template dataclass exposes a mode field that defaults to "deck".
     _default_tmpl_74a = _Tmpl74a(
@@ -17337,12 +17337,12 @@ except Exception as e:
 
 # ── 74b. Phase 2.3.B — Blank starter per mode + legacy alias ──────────────
 try:
-    from designer.templates import (
+    from row_bot.designer.templates import (
         get_template as _get_template_74b,
         get_templates as _get_templates_74b,
         get_templates_for_mode as _tmpls_for_mode_74b,
     )
-    from designer.setup_flow import (
+    from row_bot.designer.setup_flow import (
         create_project_from_setup as _cpfs_74b,
         default_project_name_for_template as _default_name_74b,
     )
@@ -17435,14 +17435,14 @@ except Exception as e:
 
 # ── 74c. Phase 2.3.C — Mode picker primary control + resolve via template ─
 try:
-    from designer.setup_flow import (
+    from row_bot.designer.setup_flow import (
         DESIGNER_MODE_PICKER_CHOICES as _PICKER_74c,
         DESIGNER_MODE_CHOICES as _ALL_CHOICES_74c,
         MODE_CHOICE_AUTO as _AUTO_74c,
         resolve_project_mode as _resolve_mode_74c,
         create_project_from_setup as _cpfs_74c,
     )
-    from designer.state import ProjectBrief as _PB_74c
+    from row_bot.designer.state import ProjectBrief as _PB_74c
 
     # Picker list excludes "auto" (UI never offers it).
     _picker_keys_74c = [k for k, _ in _PICKER_74c]
@@ -17503,12 +17503,12 @@ except Exception as e:
 
 # ── 74d. Phase 2.3.D — Gallery mode-filtered + starter fallback ───────────
 try:
-    from designer.templates import (
+    from row_bot.designer.templates import (
         get_templates_for_mode as _tmpls_mode_74d,
         get_template as _get_t_74d,
     )
     import inspect as _inspect_74d
-    import designer.template_gallery as _tg_74d
+    import row_bot.designer.template_gallery as _tg_74d
 
     # Gallery source filters by mode before category.
     _grid_src_74d = _inspect_74d.getsource(_tg_74d.show_new_project_dialog)
@@ -17540,7 +17540,7 @@ try:
 
     # Empty mode still returns the full list (back-compat for callers
     # not yet mode-aware).
-    from designer.templates import get_templates as _all_74d
+    from row_bot.designer.templates import get_templates as _all_74d
     assert len(_tmpls_mode_74d("")) == len(_all_74d()), "empty mode != full list"
 
     record("PASS", "74d: Gallery mode-filtered + starter fallback")
@@ -17550,10 +17550,10 @@ except Exception as e:
 
 # ── 74e. Phase 2.3.E — canvas_choices_for_mode + mode-aware canvas UI ─────
 try:
-    from designer.setup_flow import canvas_choices_for_mode as _canvas_74e
-    from designer.state import ASPECT_RATIOS as _AR_74e, default_aspect_for_mode as _def_74e
+    from row_bot.designer.setup_flow import canvas_choices_for_mode as _canvas_74e
+    from row_bot.designer.state import ASPECT_RATIOS as _AR_74e, default_aspect_for_mode as _def_74e
     import inspect as _inspect_74e
-    import designer.template_gallery as _tg_74e
+    import row_bot.designer.template_gallery as _tg_74e
 
     # Each mode returns a non-empty list of (key, label) tuples, every
     # key present in ASPECT_RATIOS.
@@ -17606,9 +17606,9 @@ except Exception as e:
 
 # ── 74f. Phase 2.3.F — briefing derives label from mode, not output_type ──
 try:
-    from designer.briefing import build_initial_design_request as _build_req_74f
-    from designer.setup_flow import create_project_from_setup as _cpfs_74f
-    from designer.state import ProjectBrief as _PB_74f, DESIGNER_MODES as _MODES_74f
+    from row_bot.designer.briefing import build_initial_design_request as _build_req_74f
+    from row_bot.designer.setup_flow import create_project_from_setup as _cpfs_74f
+    from row_bot.designer.state import ProjectBrief as _PB_74f, DESIGNER_MODES as _MODES_74f
 
     # Empty brief + landing mode → request mentions "landing page"
     # (derived from DESIGNER_MODES label), NOT the generic "design".
@@ -17663,7 +17663,7 @@ try:
     # briefing module source no longer falls back to "design" as the
     # default label (the sentinel string is gone from the first line).
     import inspect as _inspect_74f
-    import designer.briefing as _br_74f
+    import row_bot.designer.briefing as _br_74f
     _src_74f = _inspect_74f.getsource(_br_74f.build_initial_design_request)
     assert 'or "design"' not in _src_74f, (
         "briefing should derive default label from mode, not hardcoded 'design'"
@@ -17676,13 +17676,13 @@ except Exception as e:
 
 # ── 74g. Phase 2.3.G — Interactive seed templates ────────────────────────
 try:
-    from designer.templates import (
+    from row_bot.designer.templates import (
         get_template as _gt_74g,
         get_templates as _gts_74g,
         get_templates_for_mode as _gtfm_74g,
     )
-    from designer.setup_flow import create_project_from_setup as _cpfs_74g
-    from designer.state import ProjectBrief as _PB_74g
+    from row_bot.designer.setup_flow import create_project_from_setup as _cpfs_74g
+    from row_bot.designer.state import ProjectBrief as _PB_74g
 
     _expected_74g = {
         "landing_hero": ("landing", "landing", 1),
@@ -17772,10 +17772,10 @@ except Exception as e:
 
 # ── 72b2. Session bindings are thread-aware; pending files are per client ─
 try:
-    from agent import _current_thread_id_var as _tid72b2
-    from designer.session import get_active_project as _get_active72b2
-    from designer.session import get_undo_stack as _get_undo72b2
-    from ui.state import P as _P72b2
+    from row_bot.agent import _current_thread_id_var as _tid72b2
+    from row_bot.designer.session import get_active_project as _get_active72b2
+    from row_bot.designer.session import get_undo_stack as _get_undo72b2
+    from row_bot.ui.state import P as _P72b2
 
     _proj72b2a = DesignerProject(id="__test72b2a__", name="Thread A")
     _proj72b2a.thread_id = "thread-72b2-a"
@@ -18008,7 +18008,7 @@ except Exception as e:
 
 # ── 72g. Tool undo integration — _update_page + undo/redo ───────────────
 try:
-    from designer.tool import _update_page, _add_page, _set_brand, _delete_page
+    from row_bot.designer.tool import _update_page, _add_page, _set_brand, _delete_page
 
     _p72g = DesignerProject(id="__test72g__", name="Tool Undo")
     _p72g.pages = [DesignerPage(html="<p>Start</p>", title="Start")]
@@ -18101,7 +18101,7 @@ except Exception as e:
 
 # ── 72h2. Project summary exposes asset IDs and full page HTML ───────────
 try:
-    from designer.tool import _get_project, _get_page_html
+    from row_bot.designer.tool import _get_project, _get_page_html
 
     _wrapped72h2, _asset72h2 = wrap_asset_fragment(
         '<img src="data:image/png;base64,AAAA" alt="Hero skyline" />',
@@ -18170,8 +18170,8 @@ except Exception as e:
 try:
     import base64 as _b6472i2
 
-    from designer.tool import _insert_image, _move_image, _replace_image
-    from tools.image_gen_tool import _image_cache as _cache72i2
+    from row_bot.designer.tool import _insert_image, _move_image, _replace_image
+    from row_bot.tools.image_gen_tool import _image_cache as _cache72i2
 
     _png72i2 = _b6472i2.b64decode(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Zr3sAAAAASUVORK5CYII="
@@ -18211,7 +18211,7 @@ except Exception as e:
 try:
     from bs4 import BeautifulSoup as _BS72i3
 
-    from designer.tool import _duplicate_element, _get_project, _move_element, _restyle_element
+    from row_bot.designer.tool import _duplicate_element, _get_project, _move_element, _restyle_element
 
     _p72i3 = DesignerProject(id="__test72i3__", name="Element Tools")
     _p72i3.pages = [
@@ -18291,7 +18291,7 @@ except Exception as e:
 
 # ── 72l. Asset image helper builds targetable image markup ───────────────
 try:
-    from designer.tool import _build_asset_image_tag
+    from row_bot.designer.tool import _build_asset_image_tag
 
     _html72l = _build_asset_image_tag("asset-72l", width=600, alt='John "Doe" & team')
     assert 'src="asset://asset-72l"' in _html72l
@@ -18304,7 +18304,7 @@ except Exception as e:
 
 # ── 72m. Asset attribute escaping helper ─────────────────────────────────
 try:
-    from designer.tool import _escape_attr as _escape_attr72m
+    from row_bot.designer.tool import _escape_attr as _escape_attr72m
 
     assert _escape_attr72m('he said "hi"') == 'he said &quot;hi&quot;'
     assert _escape_attr72m("5 < 7 & yes") == "5 &lt; 7 &amp; yes"
@@ -18410,8 +18410,8 @@ except Exception as e:
 
 # ── 72n2. designer_generate_notes saves notes and updates project summary ─
 try:
-    import designer.ai_content as _aic72n2
-    from designer.tool import _generate_notes, _get_project, _get_page_html
+    import row_bot.designer.ai_content as _aic72n2
+    from row_bot.designer.tool import _generate_notes, _get_project, _get_page_html
 
     _p72n2 = DesignerProject(
         id="__test72n2__",
@@ -18455,7 +18455,7 @@ except Exception as e:
 
 # ── 72n3. presenter mode reuses reveal deck with notes sidebar ───────────
 try:
-    from designer.presentation import _build_reveal_html
+    from row_bot.designer.presentation import _build_reveal_html
 
     _p72n3 = DesignerProject(
         name="Presenter",
@@ -18480,8 +18480,8 @@ try:
     import pathlib as _Path72n3b
     import tempfile as _tmp72n3b
 
-    import designer.presentation as _pres72n3b
-    import designer.publish as _pub72n3b
+    import row_bot.designer.presentation as _pres72n3b
+    import row_bot.designer.publish as _pub72n3b
 
     _p72n3b = DesignerProject(
         id="__test72n3b__",
@@ -18523,7 +18523,7 @@ except Exception as e:
 
 # ── 72n5. designer_resize_project updates canvas dimensions ───────────────
 try:
-    from designer.tool import _resize_project
+    from row_bot.designer.tool import _resize_project
 
     _p72n5 = DesignerProject(id="__test72n5__", name="Resize Tool")
     set_active_project(_p72n5)
@@ -18548,7 +18548,7 @@ except Exception as e:
 try:
     from bs4 import BeautifulSoup as _BS72n5b
 
-    from designer.canvas_resize import fit_page_html_to_canvas
+    from row_bot.designer.canvas_resize import fit_page_html_to_canvas
 
     _html72n5b = "<html><body style='display:flex;align-items:center;justify-content:center;background:#123456;'><h1>Deck</h1></body></html>"
     _resized72n5b = fit_page_html_to_canvas(
@@ -18574,7 +18574,7 @@ try:
     import pathlib as _Path72n6
     import tempfile as _tmp72n6
 
-    import designer.publish as _pub72n6
+    import row_bot.designer.publish as _pub72n6
 
     _p72n6 = DesignerProject(
         id="__test72n6__",
@@ -18605,9 +18605,9 @@ except Exception as e:
 
 # ── 72n7. channel share reuses publish flow and default targets ───────────
 try:
-    import designer.share as _share72n7
-    import channels.registry as _registry72n7
-    from channels.base import ChannelCapabilities as _ChannelCapabilities72n7
+    import row_bot.designer.share as _share72n7
+    import row_bot.channels.registry as _registry72n7
+    from row_bot.channels.base import ChannelCapabilities as _ChannelCapabilities72n7
 
     _sent72n7 = []
 
@@ -18665,8 +18665,8 @@ try:
     import pathlib as _Path72n8
     import tempfile as _tmp72n8
 
-    import designer.share as _share72n8
-    import tools.x_tool as _xt72n8
+    import row_bot.designer.share as _share72n8
+    import row_bot.tools.x_tool as _xt72n8
 
     _orig_export_png_files72n8 = _share72n8.export_png_files
     _orig_xtool72n8 = _xt72n8.XTool
@@ -18741,7 +18741,7 @@ except Exception as e:
 
 # ── 72p. DesignerProject.thread_id field ──────────────────────────
 try:
-    from designer.state import DesignerProject as _DP72p, ProjectBrief as _PB72p
+    from row_bot.designer.state import DesignerProject as _DP72p, ProjectBrief as _PB72p
     _p72p = _DP72p(name="Thread Test")
     assert _p72p.thread_id is None, "thread_id should default to None"
     _p72p.thread_id = "abc123"
@@ -18946,8 +18946,8 @@ except Exception as e:
 try:
     import base64 as _b6472p6b
 
-    from designer.render_assets import resolve_project_image_sources as _resolve72p6b
-    from designer.storage import save_reference_bytes as _save_ref72p6b
+    from row_bot.designer.render_assets import resolve_project_image_sources as _resolve72p6b
+    from row_bot.designer.storage import save_reference_bytes as _save_ref72p6b
 
     _png72p6b = _b6472p6b.b64decode(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Zr3sAAAAASUVORK5CYII="
@@ -19011,7 +19011,7 @@ except Exception as e:
 
 # ── 72p8. designer_get_reference resolves saved references ───────────────
 try:
-    from designer.tool import _get_reference as _get_reference72p8
+    from row_bot.designer.tool import _get_reference as _get_reference72p8
 
     _p72p8 = DesignerProject(id="__test72p8__", name="Reference Tool")
     persist_project_references(
@@ -19068,7 +19068,7 @@ except Exception as e:
 
 # ── 72p10. Component insertion helper and tool remain targetable ─────────
 try:
-    from designer.tool import _get_project as _get_project72p10, _insert_component as _insert_component72p10
+    from row_bot.designer.tool import _get_project as _get_project72p10, _insert_component as _insert_component72p10
 
     _page72p10 = "<html><body><section><h1>Deck</h1></section></body></html>"
     _inserted72p10, _element_id72p10, _selector72p10 = insert_component_in_html(
@@ -19107,7 +19107,7 @@ except Exception as e:
 
 # ── 72p11. Page critique flags hierarchy, contrast, readability, spacing ─
 try:
-    from designer.tool import _critique_page as _critique_page72p11
+    from row_bot.designer.tool import _critique_page as _critique_page72p11
 
     _long_copy72p11 = " ".join(["This sentence intentionally stretches the page density."] * 18)
     _html72p11 = (
@@ -19142,7 +19142,7 @@ except Exception as e:
 
 # ── 72p12. Safe repairs tighten spacing and improve readability ──────────
 try:
-    from designer.tool import _apply_repairs as _apply_repairs72p12
+    from row_bot.designer.tool import _apply_repairs as _apply_repairs72p12
 
     _long_copy72p12 = " ".join(["This paragraph should be constrained and easier to scan."] * 16)
     _html72p12 = (
@@ -19183,7 +19183,7 @@ except Exception as e:
 
 # ── 72q. threads.py project_id column + helpers ──────────────────
 try:
-    from threads import (
+    from row_bot.threads import (
         _save_thread_meta as _stm72q, _set_thread_project_id as _stp72q,
         _get_thread_project_id as _gtp72q, _list_threads as _lt72q,
         _delete_thread as _dt72q,
@@ -19276,7 +19276,7 @@ except Exception as e:
 
 # 73b. version comparison
 try:
-    import updater as _u73b
+    import row_bot.updater as _u73b
     assert _u73b.compare_versions("3.17.0", "3.18.0") > 0
     assert _u73b.compare_versions("3.17.0", "3.17.0") == 0
     assert _u73b.compare_versions("3.17.0", "3.16.5") < 0
@@ -19287,7 +19287,7 @@ except Exception as e:
 
 # 73c. manifest parser — happy path + missing block
 try:
-    import updater as _u73c
+    import row_bot.updater as _u73c
     body = (
         "# Notes\n\n<!-- row-bot-update-manifest -->\n"
         "```manifest\nschema: 1\nfiles:\n"
@@ -19309,7 +19309,7 @@ except Exception as e:
 
 # 73d. _parse_release picks platform-correct asset & extracts SHA from manifest
 try:
-    import updater as _u73d, platform as _plat73d
+    import row_bot.updater as _u73d, platform as _plat73d
     body = (
         "Notes\n\n<!-- row-bot-update-manifest -->\n"
         "```manifest\nschema: 1\nfiles:\n"
@@ -19348,7 +19348,7 @@ try:
     _os73e.environ["ROW_BOT_DATA_DIR"] = str(_tmp_dir)
     if "updater" in sys.modules:
         del sys.modules["updater"]
-    import updater as _u73e
+    import row_bot.updater as _u73e
     cfg = _tmp_dir / "update_config.json"
     if cfg.exists():
         cfg.unlink()
@@ -19375,7 +19375,7 @@ except Exception as e:
 
 # 73f. summary_for_status returns expected keys
 try:
-    import updater as _u73f
+    import row_bot.updater as _u73f
     s = _u73f.summary_for_status()
     for k in ("current_version", "channel", "auto_check", "last_check",
               "last_success", "update_available", "available_version",
@@ -19389,7 +19389,7 @@ except Exception as e:
 
 # 73g. dev install detection — checkout has .git, so should be True
 try:
-    import updater as _u73g
+    import row_bot.updater as _u73g
     is_dev = _u73g.is_dev_install()
     # We're running in the repo, so this should be True
     assert is_dev is True, f"expected dev_install True (running from checkout), got {is_dev}"
@@ -19403,8 +19403,8 @@ try:
     if "tools" in sys.modules:
         _imp73h.reload(sys.modules["tools"])
     else:
-        import tools  # noqa: F401
-    from tools import registry as _reg73h
+        import row_bot.tools as tools # noqa: F401
+    from row_bot.tools import registry as _reg73h
     t = _reg73h.get_tool("row_bot_updater")
     assert t is not None, "row_bot_updater not registered"
     names = [x.name for x in t.as_langchain_tools()]
@@ -19416,7 +19416,7 @@ except Exception as e:
 
 # 73i. row_bot_status 'updates' category exists
 try:
-    from tools.row_bot_status_tool import _QUERY_HANDLERS as _qh73i
+    from row_bot.tools.row_bot_status_tool import _QUERY_HANDLERS as _qh73i
     assert "updates" in _qh73i, "_QUERY_HANDLERS missing 'updates'"
     out = _qh73i["updates"]()
     assert "**Updates**" in out
@@ -19427,9 +19427,9 @@ except Exception as e:
 
 # 73j. self_knowledge surfaces update_available line when set
 try:
-    import updater as _u73j
-    from updater import UpdateInfo as _UI73j
-    from self_knowledge import get_dynamic_state as _gds73j
+    import row_bot.updater as _u73j
+    from row_bot.updater import UpdateInfo as _UI73j
+    from row_bot.self_knowledge import get_dynamic_state as _gds73j
     _u73j._state = None  # force reload
     st = _u73j.get_update_state()
     st.available = _UI73j(
@@ -19538,11 +19538,11 @@ try:
         _imp74a.import_module("channels.tool_factory")
     except Exception:
         pass
-    from tools import registry as _reg74a
+    from row_bot.tools import registry as _reg74a
 
     # Force-load every tool module so registry.register() runs.
     import pkgutil as _pk74a
-    import tools as _tpkg74a
+    import row_bot.tools as _tpkg74a
     for _m in _pk74a.iter_modules(_tpkg74a.__path__):
         try:
             _imp74a.import_module(f"tools.{_m.name}")
@@ -19696,7 +19696,7 @@ try:
     record("PASS", "75c: providers/runtime.py has minimax branch with correct URL")
 
     # ── 75d. infer_provider_id routes MiniMax model IDs correctly ─────
-    from providers.catalog import infer_provider_id as _infer75
+    from row_bot.providers.catalog import infer_provider_id as _infer75
     assert _infer75("MiniMax-M2.7") == "minimax", "MiniMax-M2.7 should infer to minimax provider"
     assert _infer75("MiniMax-M2.7-highspeed") == "minimax", "MiniMax-M2.7-highspeed should infer to minimax provider"
     assert _infer75("MiniMax-M2.5") == "minimax", "MiniMax-M2.5 should infer to minimax provider"
@@ -19704,8 +19704,8 @@ try:
     record("PASS", "75d: infer_provider_id routes MiniMax M2 model IDs to minimax")
 
     # ── 75e. minimax provider definition is well-formed ───────────────
-    from providers.catalog import get_provider_definition as _gpd75
-    from providers.models import TransportMode as _TM75
+    from row_bot.providers.catalog import get_provider_definition as _gpd75
+    from row_bot.providers.models import TransportMode as _TM75
     _mm_def75 = _gpd75("minimax")
     assert _mm_def75 is not None, "minimax provider definition should exist"
     assert _mm_def75.default_transport == _TM75.ANTHROPIC_MESSAGES, "minimax should use ANTHROPIC_MESSAGES transport"
@@ -19713,7 +19713,7 @@ try:
     record("PASS", "75e: minimax provider definition uses ANTHROPIC_MESSAGES transport")
 
     # ── 75f. MiniMax is wired through the model facade/catalog ────────
-    import models as _models75
+    import row_bot.models as _models75
     assert "MINIMAX_ANTHROPIC_BASE_URL" in _P75("models.py").read_text(encoding="utf-8")
     assert _models75.get_cloud_provider("MiniMax-M2.7") == "minimax"
     assert _models75.get_cloud_model_context("MiniMax-M2.7") == 204800

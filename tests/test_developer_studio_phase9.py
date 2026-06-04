@@ -7,7 +7,7 @@ import sys
 def _fresh_modules(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
     sys.modules.pop("developer.devcontainer", None)
-    import developer.devcontainer as devcontainer
+    import row_bot.developer.devcontainer as devcontainer
 
     return importlib.reload(devcontainer)
 

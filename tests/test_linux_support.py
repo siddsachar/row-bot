@@ -7,11 +7,27 @@ import sys
 import tarfile
 from pathlib import Path
 
-import launcher
+import row_bot.launcher as launcher
 import pytest
-import updater
+import row_bot.updater as updater
 from scripts import app_payload_manifest
 from scripts import check_linux_native_baseline
+
+REQUIRED_RUNTIME_PACKAGES = (
+    "voice",
+    "buddy",
+    "migration",
+    "providers",
+    "mcp_client",
+    "plugins",
+    "skills_hub",
+    "tools",
+    "channels",
+    "ui",
+    "designer",
+    "developer",
+    "utils",
+)
 
 
 def _linux_launcher_template() -> str:
@@ -34,6 +50,22 @@ def _windows_installer_sources() -> set[str]:
 def _windows_source_covers_dir(sources: set[str], directory: str) -> bool:
     prefix = _win_source_path(directory + "/")
     return any(source.startswith(prefix) for source in sources)
+
+
+def _read_root_wrapper_source(relative_path: str) -> str:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from pathlib import Path; import sys; sys.stdout.write(Path(sys.argv[1]).read_text(encoding='utf-8'))",
+            relative_path,
+        ],
+        text=True,
+        capture_output=True,
+        check=True,
+        timeout=20,
+    )
+    return result.stdout
 
 
 def test_linux_asset_selection(monkeypatch):
@@ -123,13 +155,16 @@ def test_windows_asset_selection_accepts_legacy_setup_name(monkeypatch):
 
 def test_root_launch_entrypoints_remain_source_compatible():
     manifest = app_payload_manifest.build_manifest(Path("."))
-    app_src = Path("app.py").read_text(encoding="utf-8")
-    launcher_src = Path("launcher.py").read_text(encoding="utf-8")
+    app_src = _read_root_wrapper_source("app.py")
+    launcher_src = _read_root_wrapper_source("launcher.py")
+    app_impl_src = Path("src/row_bot/app.py").read_text(encoding="utf-8")
 
     assert "app.py" in manifest["root_python_files"]
     assert "launcher.py" in manifest["root_python_files"]
-    assert 'if __name__ in {"__main__", "__mp_main__"}:' in app_src
-    assert "ui.run(**_run_kwargs)" in app_src
+    assert 'runpy.run_module("row_bot.app", run_name="__main__")' in app_src
+    assert 'if __name__ in {"__main__", "__mp_main__"}:' in app_impl_src
+    assert "ui.run(**_run_kwargs)" in app_impl_src
+    assert "from row_bot.launcher import main" in launcher_src
     assert 'if __name__ == "__main__":\n    main()' in launcher_src
 
 
@@ -138,18 +173,10 @@ def test_app_payload_manifest_declares_required_runtime_payload():
     payload_dirs = set(manifest["payload_dirs"])
     asset_dirs = set(manifest["asset_dirs"])
 
-    assert {
-        "voice",
-        "buddy",
-        "migration",
-        "providers",
-        "mcp_client",
-        "plugins",
-        "skills_hub",
-        "tool_guides",
-        "bundled_skills",
-    } <= payload_dirs
-    assert {"static", "sounds"} <= asset_dirs
+    assert "src/row_bot" in payload_dirs
+    for package in REQUIRED_RUNTIME_PACKAGES:
+        assert Path("src/row_bot", package).is_dir(), f"runtime package missing: {package}"
+    assert {"static", "sounds", "tool_guides", "bundled_skills"} <= asset_dirs
     assert "requirements.txt" in manifest["root_files"]
     assert "row-bot.ico" in manifest["root_files"]
     assert "scripts/verify_runtime_dependencies.py" in manifest["runtime_script_files"]
@@ -292,8 +319,9 @@ def test_linux_build_script_declares_expected_package_contract():
     assert 'numpy<2.3; python_version < "3.14"' in requirements
     assert "scripts/check_linux_native_baseline.py" in script
     assert "Checking native CPU baselines" in script
-    for package in ("tools", "channels", "bundled_skills", "providers", "mcp_client", "migration", "voice"):
-        assert package in manifest["payload_dirs"]
+    assert "src/row_bot" in manifest["payload_dirs"]
+    for package in REQUIRED_RUNTIME_PACKAGES:
+        assert Path("src/row_bot", package).is_dir()
     for category in ("root_python_files", "root_files", "runtime_script_files", "payload_dirs", "asset_dirs"):
         assert f"--category {category}" in script
 
@@ -418,7 +446,7 @@ def test_linux_one_line_installer_declares_verified_release_contract():
 
 def test_thread_list_initializes_missing_thread_meta(monkeypatch, tmp_path):
     import sqlite3
-    import threads
+    import row_bot.threads as threads
 
     db_path = tmp_path / "threads.db"
     monkeypatch.setattr(threads, "DB_PATH", str(db_path))
@@ -450,7 +478,7 @@ def test_launcher_linux_default_is_direct_browser(monkeypatch):
 
 
 def test_release_workflows_reference_linux_artifact():
-    from version import __version__
+    from row_bot.version import __version__
 
     release = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
     manifest = Path(".github/workflows/update-manifest.yml").read_text(encoding="utf-8")
@@ -492,7 +520,7 @@ def test_release_workflows_reference_linux_artifact():
 
 
 def test_release_manifest_script_uses_brand_contract():
-    from brand import APP_REPOSITORY, UPDATE_MANIFEST_MARKER, UPDATER_USER_AGENT
+    from row_bot.brand import APP_REPOSITORY, UPDATE_MANIFEST_MARKER, UPDATER_USER_AGENT
     from scripts import append_sha_manifest
 
     block = append_sha_manifest.build_manifest_block({"Row-Bot-4.0.0-Windows-x64.exe": "e" * 64})
@@ -522,31 +550,18 @@ def test_packagers_exclude_tests_directory():
     mac_builder = Path("installer/build_mac_app.sh").read_text(encoding="utf-8")
     manifest = app_payload_manifest.build_manifest(Path("."))
 
-    assert "tests" not in windows_installer
+    assert 'Source: "..\\tests' not in windows_installer
+    assert 'DestDir: "{app}\\app\\tests' not in windows_installer
     assert "OutputBaseFilename=Row-Bot-{#MyAppVersion}-Windows-x64" in windows_installer
     assert " tests" not in linux_builder
     assert " tests" not in mac_builder
     assert not any(name.startswith("test_") for name in manifest["root_python_files"])
     assert not any(name.endswith("_test.py") for name in manifest["root_python_files"])
     assert not any(name.endswith("_harness.py") for name in manifest["root_python_files"])
-    assert {
-        "tools",
-        "channels",
-        "bundled_skills",
-        "tool_guides",
-        "ui",
-        "plugins",
-        "designer",
-        "developer",
-        "utils",
-        "providers",
-        "mcp_client",
-        "skills_hub",
-        "migration",
-        "buddy",
-        "voice",
-    } <= set(manifest["payload_dirs"])
-    assert {"static", "sounds"} <= set(manifest["asset_dirs"])
+    assert set(manifest["payload_dirs"]) == {"src/row_bot"}
+    for package in REQUIRED_RUNTIME_PACKAGES:
+        assert Path("src/row_bot", package).is_dir()
+    assert {"static", "sounds", "bundled_skills", "tool_guides"} <= set(manifest["asset_dirs"])
     for builder in (linux_builder, mac_builder):
         assert "scripts/app_payload_manifest.py" in builder
         assert "--category payload_dirs" in builder

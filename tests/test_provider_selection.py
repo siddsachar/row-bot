@@ -1,8 +1,8 @@
 import pathlib
 
-import api_keys
-import providers.config as provider_config
-from providers.selection import (
+import row_bot.api_keys as api_keys
+import row_bot.providers.config as provider_config
+from row_bot.providers.selection import (
     add_quick_choice_for_model,
     deactivate_quick_choice,
     deactivate_quick_choice_for_error,
@@ -292,7 +292,7 @@ def test_stale_missing_custom_model_is_pruned_when_endpoint_models_are_known(tmp
 
 
 def test_model_choice_options_disambiguate_same_model_id_by_provider(tmp_path, monkeypatch):
-    import providers.runtime as provider_runtime
+    import row_bot.providers.runtime as provider_runtime
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
@@ -351,8 +351,8 @@ def test_unknown_bare_selection_resolves_to_ollama_not_openrouter(tmp_path, monk
 
 
 def test_codex_vision_quick_choice_survives_capability_refresh(tmp_path, monkeypatch):
-    import providers.runtime as provider_runtime
-    from providers.codex import fallback_codex_model_infos
+    import row_bot.providers.runtime as provider_runtime
+    from row_bot.providers.codex import fallback_codex_model_infos
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
@@ -448,7 +448,7 @@ def test_grouped_quick_choices_refreshes_stale_capability_snapshots(tmp_path, mo
 
 
 def test_custom_quick_choice_refreshes_from_endpoint_model_cache(tmp_path, monkeypatch):
-    from providers.custom import custom_provider_id, save_custom_endpoint
+    from row_bot.providers.custom import custom_provider_id, save_custom_endpoint
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
@@ -493,7 +493,7 @@ def test_custom_quick_choice_refreshes_from_endpoint_model_cache(tmp_path, monke
 
 
 def test_quick_choice_refresh_preserves_openrouter_cached_tool_metadata(tmp_path, monkeypatch):
-    import models
+    import row_bot.models as models
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
@@ -558,7 +558,7 @@ def test_include_values_does_not_resurrect_inactive_vision_choice(tmp_path, monk
 
 
 def test_include_values_respects_custom_endpoint_manual_vision_off_without_quick_choice(tmp_path, monkeypatch):
-    from providers.custom import save_custom_endpoint
+    from row_bot.providers.custom import save_custom_endpoint
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     provider_id = "custom_openai_lm-studio"

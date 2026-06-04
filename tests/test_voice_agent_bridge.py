@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import threading
 
-from voice.agent_bridge import (
+from row_bot.voice.agent_bridge import (
     REALTIME_ALLOWED_BRIDGE_TOOLS,
     REALTIME_ALLOWED_TOOLS,
     REALTIME_DIRECT_TOOL_POLICY,

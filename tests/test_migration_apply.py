@@ -23,7 +23,7 @@ class _FakeKeyring:
 
 
 def _install_fake_keyring():
-    import secret_store
+    import row_bot.secret_store as secret_store
     backend = _FakeKeyring()
     secret_store._set_backend_for_tests(backend)
     return secret_store
@@ -31,8 +31,8 @@ def _install_fake_keyring():
 
 class MigrationApplyTests(unittest.TestCase):
     def test_applies_selected_hermes_items_and_archives_report_only_state(self) -> None:
-        from migration import MigrationStatus, apply_migration_plan, build_hermes_plan
-        from migration.fixtures import create_realistic_hermes_home
+        from row_bot.migration import MigrationStatus, apply_migration_plan, build_hermes_plan
+        from row_bot.migration.fixtures import create_realistic_hermes_home
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -63,8 +63,8 @@ class MigrationApplyTests(unittest.TestCase):
             self.assertIn("[redacted]", archive_token_text)
 
     def test_existing_targets_are_backed_up_before_overwrite(self) -> None:
-        from migration import apply_migration_plan, build_hermes_plan
-        from migration.fixtures import create_realistic_hermes_home
+        from row_bot.migration import apply_migration_plan, build_hermes_plan
+        from row_bot.migration.fixtures import create_realistic_hermes_home
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -82,9 +82,9 @@ class MigrationApplyTests(unittest.TestCase):
             self.assertTrue(result.backup_manifest)
 
     def test_secret_apply_requires_explicit_secret_plan(self) -> None:
-        from migration import apply_migration_plan, build_hermes_plan
-        from migration.fixtures import create_realistic_hermes_home
-        from api_keys import get_key_for_data_dir
+        from row_bot.migration import apply_migration_plan, build_hermes_plan
+        from row_bot.migration.fixtures import create_realistic_hermes_home
+        from row_bot.api_keys import get_key_for_data_dir
 
         secret_store = _install_fake_keyring()
 
@@ -108,8 +108,8 @@ class MigrationApplyTests(unittest.TestCase):
             secret_store._set_backend_for_tests(None)
 
     def test_openclaw_daily_memory_import_uses_markdown_target(self) -> None:
-        from migration import apply_migration_plan, build_openclaw_plan
-        from migration.fixtures import create_realistic_openclaw_home
+        from row_bot.migration import apply_migration_plan, build_openclaw_plan
+        from row_bot.migration.fixtures import create_realistic_openclaw_home
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -128,9 +128,9 @@ class MigrationApplyTests(unittest.TestCase):
             self.assertIn("2026-02.md", daily_memory_text)
 
     def test_multiple_secret_writes_backup_original_api_key_file_once(self) -> None:
-        from migration import apply_migration_plan, build_hermes_plan
-        from migration.fixtures import create_realistic_hermes_home
-        from api_keys import get_key_for_data_dir
+        from row_bot.migration import apply_migration_plan, build_hermes_plan
+        from row_bot.migration.fixtures import create_realistic_hermes_home
+        from row_bot.api_keys import get_key_for_data_dir
 
         secret_store = _install_fake_keyring()
 
@@ -159,8 +159,8 @@ class MigrationApplyTests(unittest.TestCase):
             secret_store._set_backend_for_tests(None)
 
     def test_apply_requires_backup_unless_explicitly_overridden(self) -> None:
-        from migration import MigrationApplyOptions, apply_migration_plan, build_hermes_plan
-        from migration.fixtures import create_realistic_hermes_home
+        from row_bot.migration import MigrationApplyOptions, apply_migration_plan, build_hermes_plan
+        from row_bot.migration.fixtures import create_realistic_hermes_home
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -174,7 +174,7 @@ class MigrationApplyTests(unittest.TestCase):
         self.assertTrue(result.report_dir)
 
     def test_item_errors_do_not_stop_report_generation(self) -> None:
-        from migration import (
+        from row_bot.migration import (
             MigrationAction,
             MigrationCategory,
             MigrationItem,

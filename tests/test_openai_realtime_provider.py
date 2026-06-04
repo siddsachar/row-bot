@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from voice.openai_realtime import (
+from row_bot.voice.openai_realtime import (
     CLIENT_SECRETS_URL,
     DEFAULT_REALTIME_MODEL,
     OpenAIRealtimeProvider,
     ROW_BOT_REALTIME_INSTRUCTIONS,
 )
-from voice.agent_bridge import REALTIME_ALLOWED_TOOLS, REALTIME_WAIT_TOOL
+from row_bot.voice.agent_bridge import REALTIME_ALLOWED_TOOLS, REALTIME_WAIT_TOOL
 
 
 def test_openai_realtime_status_requires_openai_key(monkeypatch):

@@ -6,9 +6,9 @@ import json
 
 def _fresh_modules(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
-    import knowledge_graph
-    import memory
-    import memory_evolution
+    import row_bot.knowledge_graph as knowledge_graph
+    import row_bot.memory as memory
+    import row_bot.memory_evolution as memory_evolution
 
     kg = importlib.reload(knowledge_graph)
     importlib.reload(memory)
@@ -102,7 +102,7 @@ def test_mark_user_modified_restores_active_and_sets_actor(tmp_path, monkeypatch
 
 def test_memory_tool_conflict_marks_existing_needs_review(tmp_path, monkeypatch):
     kg, _evo = _fresh_modules(tmp_path, monkeypatch)
-    import tools.memory_tool as memory_tool
+    import row_bot.tools.memory_tool as memory_tool
 
     memory_tool = importlib.reload(memory_tool)
     existing = kg.save_entity("fact", "Current city", "User lives in London.", source="live")
@@ -119,7 +119,7 @@ def test_memory_tool_conflict_marks_existing_needs_review(tmp_path, monkeypatch)
 
 def test_memory_tool_update_marks_manual_authority_and_search_shows_status(tmp_path, monkeypatch):
     kg, _evo = _fresh_modules(tmp_path, monkeypatch)
-    import tools.memory_tool as memory_tool
+    import row_bot.tools.memory_tool as memory_tool
 
     memory_tool = importlib.reload(memory_tool)
     entity = kg.save_entity(
@@ -145,7 +145,7 @@ def test_memory_tool_update_marks_manual_authority_and_search_shows_status(tmp_p
 
 def test_extraction_document_source_sets_resource_provenance(tmp_path, monkeypatch):
     kg, _evo = _fresh_modules(tmp_path, monkeypatch)
-    import memory_extraction
+    import row_bot.memory_extraction as memory_extraction
 
     extraction = importlib.reload(memory_extraction)
     saved = extraction._dedup_and_save(
@@ -166,8 +166,8 @@ def test_extraction_document_source_sets_resource_provenance(tmp_path, monkeypat
 
 def test_extraction_conflict_marks_review_without_overwrite(tmp_path, monkeypatch):
     kg, _evo = _fresh_modules(tmp_path, monkeypatch)
-    import memory_extraction
-    import tools.memory_tool as memory_tool
+    import row_bot.memory_extraction as memory_extraction
+    import row_bot.tools.memory_tool as memory_tool
 
     extraction = importlib.reload(memory_extraction)
     memory_tool = importlib.reload(memory_tool)
@@ -196,8 +196,8 @@ def test_extraction_conflict_marks_review_without_overwrite(tmp_path, monkeypatc
 
 def test_document_extraction_hub_and_entities_get_document_context(tmp_path, monkeypatch):
     kg, _evo = _fresh_modules(tmp_path, monkeypatch)
-    import document_extraction
-    import memory_extraction
+    import row_bot.document_extraction as document_extraction
+    import row_bot.memory_extraction as memory_extraction
 
     doc = importlib.reload(document_extraction)
     importlib.reload(memory_extraction)
@@ -232,7 +232,7 @@ def test_document_extraction_hub_and_entities_get_document_context(tmp_path, mon
 
 def test_wiki_import_marks_high_authority_user_edit(tmp_path, monkeypatch):
     kg, _evo = _fresh_modules(tmp_path, monkeypatch)
-    import wiki_vault
+    import row_bot.wiki_vault as wiki_vault
 
     wiki = importlib.reload(wiki_vault)
     vault = tmp_path / "vault"
@@ -262,7 +262,7 @@ def test_wiki_import_marks_high_authority_user_edit(tmp_path, monkeypatch):
 
 def test_wiki_export_does_not_create_false_sync(tmp_path, monkeypatch):
     kg, _evo = _fresh_modules(tmp_path, monkeypatch)
-    import wiki_vault
+    import row_bot.wiki_vault as wiki_vault
 
     wiki = importlib.reload(wiki_vault)
     wiki.set_vault_path(str(tmp_path / "vault"))
@@ -275,7 +275,7 @@ def test_wiki_export_does_not_create_false_sync(tmp_path, monkeypatch):
 
 def test_policy_skips_needs_review_and_superseded_by_default(tmp_path, monkeypatch):
     kg, _evo = _fresh_modules(tmp_path, monkeypatch)
-    import memory_policy
+    import row_bot.memory_policy as memory_policy
 
     policy = importlib.reload(memory_policy)
     review = kg.save_entity(

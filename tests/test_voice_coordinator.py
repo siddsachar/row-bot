@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from queue import SimpleQueue
 
-from voice.coordinator import VoiceSessionCoordinator
+from row_bot.voice.coordinator import VoiceSessionCoordinator
 
 
 class FakeVoiceService:

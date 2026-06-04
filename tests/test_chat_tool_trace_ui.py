@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ui.tool_trace import (
+from row_bot.ui.tool_trace import (
     canonical_tool_name,
     display_tool_content,
     group_tool_results,

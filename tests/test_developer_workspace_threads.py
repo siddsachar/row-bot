@@ -12,8 +12,8 @@ def _fresh_modules(tmp_path, monkeypatch):
         "developer.storage",
     ]:
         sys.modules.pop(name, None)
-    import threads
-    import developer.storage as storage
+    import row_bot.threads as threads
+    import row_bot.developer.storage as storage
 
     return importlib.reload(threads), importlib.reload(storage)
 
