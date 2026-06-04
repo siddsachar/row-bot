@@ -221,10 +221,14 @@ def _looks_like_custom_tool_source(path: Path) -> bool:
         return False
     indicators = (
         ".git",
+        "row-bot-custom-tool.json",
+        ".row-bot-custom-tool.json",
+        "custom-tool.json",
+        "row-bot-capsule.json",
         "thoth-custom-tool.json",
         ".thoth-custom-tool.json",
-        "custom-tool.json",
         "thoth-capsule.json",
+        ".thoth-capsule.json",
         "README.md",
         "README.rst",
         "README.txt",
@@ -259,9 +263,13 @@ def parse_capsule_manifest(installed_path: str) -> dict:
     """
     root = Path(installed_path).expanduser().resolve()
     for filename in (
+        "row-bot-custom-tool.json",
+        ".row-bot-custom-tool.json",
+        "custom-tool.json",
+        "row-bot-capsule.json",
+        ".row-bot-capsule.json",
         "thoth-custom-tool.json",
         ".thoth-custom-tool.json",
-        "custom-tool.json",
         "thoth-capsule.json",
         ".thoth-capsule.json",
         "capsule.json",
@@ -717,8 +725,26 @@ def write_capsule_manifest(
     root = Path(installed_path).expanduser().resolve()
     if not root.exists() or not root.is_dir():
         raise ValueError(f"Custom Tool folder does not exist: {installed_path}")
-    legacy_manifest_path = root / "thoth-capsule.json"
-    manifest_path = legacy_manifest_path if legacy_manifest_path.exists() else root / "thoth-custom-tool.json"
+    existing_manifest_path = next(
+        (
+            root / filename
+            for filename in (
+                "row-bot-custom-tool.json",
+                ".row-bot-custom-tool.json",
+                "custom-tool.json",
+                "row-bot-capsule.json",
+                ".row-bot-capsule.json",
+                "thoth-custom-tool.json",
+                ".thoth-custom-tool.json",
+                "thoth-capsule.json",
+                ".thoth-capsule.json",
+                "capsule.json",
+            )
+            if (root / filename).exists()
+        ),
+        None,
+    )
+    manifest_path = existing_manifest_path or root / "row-bot-custom-tool.json"
     if manifest_path.exists() and not overwrite:
         raise FileExistsError(f"Custom Tool config already exists: {manifest_path}")
     payload = proposal.to_manifest() if isinstance(proposal, CapsuleManifestProposal) else dict(proposal)
@@ -942,7 +968,18 @@ def create_tool_from_draft(draft_id: str, *, overwrite: bool = False, community:
     root = Path(draft.installed_path).expanduser().resolve()
     manifest_exists = any(
         (root / filename).exists()
-        for filename in ("thoth-custom-tool.json", ".thoth-custom-tool.json", "custom-tool.json", "thoth-capsule.json")
+        for filename in (
+            "row-bot-custom-tool.json",
+            ".row-bot-custom-tool.json",
+            "custom-tool.json",
+            "row-bot-capsule.json",
+            ".row-bot-capsule.json",
+            "thoth-custom-tool.json",
+            ".thoth-custom-tool.json",
+            "thoth-capsule.json",
+            ".thoth-capsule.json",
+            "capsule.json",
+        )
     )
     if not manifest_exists or overwrite:
         write_capsule_manifest(draft.installed_path, proposal, overwrite=overwrite)
@@ -1545,7 +1582,7 @@ def _build_manifest(capsule: ToolCapsule):
         id=capsule.promoted_plugin_id or promoted_plugin_id(capsule.id),
         name=capsule.name,
         version="1.0.0",
-        min_thoth_version="0.1.0",
+        min_row_bot_version="0.1.0",
         author=PluginAuthor(name="Custom Tool"),
         description=f"Promoted Custom Tool from {capsule.source_url}",
         icon="extension",

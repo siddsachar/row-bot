@@ -40,7 +40,7 @@ def test_realtime_client_js_uses_voice_agent_webrtc_lifecycle():
 
 
 def test_realtime_client_has_function_output_and_run_event_helpers():
-    assert "ThothRealtimeVoice.stop" in stop_realtime_client_js()
+    assert "RowBotRealtimeVoice.stop" in stop_realtime_client_js()
 
     output_source = send_realtime_function_output_js(
         call_id="call_1",
@@ -78,7 +78,7 @@ def test_realtime_client_has_function_output_and_run_event_helpers():
     assert "if (key === 'silent') return;" in client_source
     assert "out[key] = String(value);" in client_source
     assert "!localMeta.silent" in client_source
-    assert "metadata: Object.assign({thoth_origin" not in client_source
+    assert "metadata: Object.assign({row_bot_origin" not in client_source
     assert "metadata: responseMetadata(meta" in client_source
 
 
@@ -125,9 +125,9 @@ def test_realtime_run_event_distinguishes_answers_from_status_cues():
     source = start_realtime_client_js(sink_id=4, session_id=4)
 
     assert "const answerOrigin = origin === 'final' || origin === 'stream_chunk' || origin.includes('result');" in source
-    assert "Speak this Thoth response naturally and faithfully" in source
+    assert "Speak this Row-Bot response naturally and faithfully" in source
     assert "Do not add framing, summarize, or ask follow-up questions" in source
-    assert "Speak exactly this brief Thoth status" in source
+    assert "Speak exactly this brief Row-Bot status" in source
     assert "Do not add details or ask follow-up questions" in source
     assert "Say this concise Thoth status/result" not in source
     assert "origin === 'tool_progress'" in source

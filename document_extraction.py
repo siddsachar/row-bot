@@ -559,7 +559,7 @@ def _ensure_worker() -> None:
     if _worker_thread is not None and _worker_thread.is_alive():
         return
     _worker_thread = threading.Thread(
-        target=_worker_loop, daemon=True, name="thoth-doc-extract",
+        target=_worker_loop, daemon=True, name="row-bot-doc-extract",
     )
     _worker_thread.start()
 

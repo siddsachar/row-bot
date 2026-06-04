@@ -42,7 +42,7 @@ from approval_policy import (
     legacy_safety_mode_to_approval_mode,
     normalize_approval_mode,
 )
-from data_paths import get_tasks_db_path, get_thoth_data_dir
+from data_paths import get_tasks_db_path, get_row_bot_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ _subtask_depth_var: ContextVar[int] = ContextVar("subtask_depth", default=0)
 _MAX_SUBTASK_DEPTH = 2
 
 # ── Persistence ──────────────────────────────────────────────────────────────
-_DATA_DIR = get_thoth_data_dir()
+_DATA_DIR = get_row_bot_data_dir()
 _DATA_DIR.mkdir(parents=True, exist_ok=True)
 _DB_PATH = str(get_tasks_db_path())
 _OLD_WF_DB = str(_DATA_DIR / "workflows.db")

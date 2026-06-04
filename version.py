@@ -1,3 +1,3 @@
-"""Single source of truth for the Thoth version number."""
+"""Single source of truth for the Row-Bot version number."""
 
-__version__ = "3.23.1"
+__version__ = "4.0.0"

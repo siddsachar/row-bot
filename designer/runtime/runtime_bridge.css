@@ -1,46 +1,46 @@
 /* Thoth Designer — interactive runtime styles.
    Route sections are stacked; only the active one is visible. Visibility is
-   scoped to the outer host section (data-thoth-route-host) so that any stray
-   data-thoth-route attributes inside agent-authored page HTML do not get
-   hidden by our rules.  State-scoped overlays (<div data-thoth-when="cart-open">)
-   follow <html data-thoth-state>. */
+   scoped to the outer host section (data-row-bot-route-host) so that any stray
+   data-row-bot-route attributes inside agent-authored page HTML do not get
+   hidden by our rules.  State-scoped overlays (<div data-row-bot-when="cart-open">)
+   follow <html data-row-bot-state>. */
 
-[data-thoth-route-host] {
+[data-row-bot-route-host] {
     display: none;
     opacity: 0;
     transition: opacity 220ms ease;
 }
-[data-thoth-route-host][data-thoth-route-active] {
+[data-row-bot-route-host][data-row-bot-route-active] {
     display: block;
     opacity: 1;
 }
 
-html[data-thoth-transition="slide_left"] [data-thoth-route-host][data-thoth-route-active] {
-    animation: thoth-slide-left 260ms ease both;
+html[data-row-bot-transition="slide_left"] [data-row-bot-route-host][data-row-bot-route-active] {
+    animation: row-bot-slide-left 260ms ease both;
 }
-html[data-thoth-transition="slide_up"] [data-thoth-route-host][data-thoth-route-active] {
-    animation: thoth-slide-up 260ms ease both;
+html[data-row-bot-transition="slide_up"] [data-row-bot-route-host][data-row-bot-route-active] {
+    animation: row-bot-slide-up 260ms ease both;
 }
-html[data-thoth-transition="none"] [data-thoth-route-host][data-thoth-route-active] {
+html[data-row-bot-transition="none"] [data-row-bot-route-host][data-row-bot-route-active] {
     transition: none;
     animation: none;
 }
 
-@keyframes thoth-slide-left {
+@keyframes row-bot-slide-left {
     from { transform: translateX(24px); opacity: 0; }
     to   { transform: translateX(0);    opacity: 1; }
 }
-@keyframes thoth-slide-up {
+@keyframes row-bot-slide-up {
     from { transform: translateY(24px); opacity: 0; }
     to   { transform: translateY(0);    opacity: 1; }
 }
 
 /* State-scoped overlays: hidden by default, shown when matching state is set. */
-[data-thoth-when] {
+[data-row-bot-when] {
     display: none;
 }
 
 /* Interactive affordances */
-[data-thoth-action] {
+[data-row-bot-action] {
     cursor: pointer;
 }

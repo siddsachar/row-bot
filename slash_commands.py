@@ -329,13 +329,13 @@ def dispatch_text_command(
             enabled_tool_names=enabled_tool_names,
         )
     if spec.id == "status":
-        from tools.thoth_status_tool import _thoth_status
+        from tools.row_bot_status_tool import _row_bot_status
 
-        return _thoth_status("overview")
+        return _row_bot_status("overview")
     if spec.id == "tools":
-        from tools.thoth_status_tool import _thoth_status
+        from tools.row_bot_status_tool import _row_bot_status
 
-        return _thoth_status("tools")
+        return _row_bot_status("tools")
     if spec.id == "help":
         return help_text(include_skills=True)
     if spec.id == "new":

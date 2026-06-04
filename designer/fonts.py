@@ -24,13 +24,15 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
+from data_paths import get_row_bot_data_dir
+
 logger = logging.getLogger(__name__)
 
 # ── Paths ─────────────────────────────────────────────────────────────────
 _STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 _FONTS_DIR = _STATIC_DIR / "fonts"
 _MANIFEST_PATH = _FONTS_DIR / "manifest.json"
-_CACHE_DIR = Path.home() / ".thoth" / "font_cache"
+_CACHE_DIR = get_row_bot_data_dir() / "font_cache"
 
 # ── Load manifest ─────────────────────────────────────────────────────────
 _manifest: dict[str, dict[str, str]] = {}

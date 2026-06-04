@@ -4,19 +4,19 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Thoth</string>
+    <string>Row-Bot</string>
     <key>CFBundleDisplayName</key>
-    <string>Thoth</string>
+    <string>Row-Bot</string>
     <key>CFBundleIdentifier</key>
-    <string>com.thoth.assistant</string>
+    <string>ai.row-bot.assistant</string>
     <key>CFBundleVersion</key>
-    <string>3.23.1</string>
+    <string>4.0.0</string>
     <key>CFBundleShortVersionString</key>
-    <string>3.23.1</string>
+    <string>4.0.0</string>
     <key>CFBundleExecutable</key>
-    <string>thoth</string>
+    <string>row-bot</string>
     <key>CFBundleIconFile</key>
-    <string>thoth</string>
+    <string>row-bot</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>
@@ -26,6 +26,6 @@
     <key>LSUIElement</key>
     <false/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Thoth uses the microphone for voice-to-text (speech recognition).</string>
+    <string>Row-Bot uses the microphone for voice-to-text (speech recognition).</string>
 </dict>
 </plist>

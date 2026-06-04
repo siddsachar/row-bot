@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Start Thoth.command — macOS one-click installer & launcher
+# Start Row-Bot.command â€” macOS one-click installer & launcher
 #
 # Double-click this file in Finder to:
-#   • First run:  Install dependencies, set up Thoth, then launch
-#   • After that: Just launch Thoth (fast, ~3 seconds)
+#   â€¢ First run:  Install dependencies, set up Row-Bot, then launch
+#   â€¢ After that: Just launch Row-Bot (fast, ~3 seconds)
 #
 # Works on Apple Silicon (M1/M2/M3/M4) and Intel Macs.
 # =============================================================================
 
 set -euo pipefail
 
-# ── Ensure Homebrew paths are available ──────────────────────────────────────
+# â”€â”€ Ensure Homebrew paths are available â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # When Finder launches a .command file, PATH is minimal and doesn't include
 # Homebrew.  Add common Homebrew locations so we can find python3, brew, ollama.
 for brew_prefix in /opt/homebrew /usr/local; do
@@ -20,7 +20,7 @@ for brew_prefix in /opt/homebrew /usr/local; do
     fi
 done
 
-# ── Colours ──────────────────────────────────────────────────────────────────
+# â”€â”€ Colours â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 
@@ -29,21 +29,21 @@ ok()    { echo -e "${GREEN}[  OK]${NC}  $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 fail()  { echo -e "${RED}[FAIL]${NC}  $*"; exit 1; }
 
-# ── Resolve project root ────────────────────────────────────────────────────
+# â”€â”€ Resolve project root â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$SCRIPT_DIR"
 VENV_DIR="$PROJECT_DIR/.venv"
-THOTH_HOME="$HOME/.thoth"
-THOTH_VERSION="$(awk -F'"' '/__version__/ { print $2; exit }' "$PROJECT_DIR/version.py" 2>/dev/null || true)"
-if [ -z "$THOTH_VERSION" ]; then
-    THOTH_VERSION="3.16.0"
+ROW_BOT_HOME="$HOME/.row-bot"
+ROW_BOT_VERSION="$(awk -F'"' '/__version__/ { print $2; exit }' "$PROJECT_DIR/version.py" 2>/dev/null || true)"
+if [ -z "$ROW_BOT_VERSION" ]; then
+    ROW_BOT_VERSION="4.0.0"
 fi
 OLLAMA_PORT=11434
 
-# ── Is this a first-time install? ───────────────────────────────────────────
+# â”€â”€ Is this a first-time install? â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if [ -d "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/activate" ]; then
     # =====================================================================
-    #  FAST PATH — already installed, just launch
+    #  FAST PATH â€” already installed, just launch
     # =====================================================================
     source "$VENV_DIR/bin/activate"
 
@@ -70,22 +70,22 @@ if [ -d "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/activate" ]; then
         fi
     fi
 
-    # ── Version-aware upgrade ────────────────────────────────────────
+    # â”€â”€ Version-aware upgrade â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     INSTALLED_VERSION=""
-    if [ -f "$THOTH_HOME/installed_version" ]; then
-        INSTALLED_VERSION=$(cat "$THOTH_HOME/installed_version" 2>/dev/null || true)
+    if [ -f "$ROW_BOT_HOME/installed_version" ]; then
+        INSTALLED_VERSION=$(cat "$ROW_BOT_HOME/installed_version" 2>/dev/null || true)
     fi
 
-    if [ "$INSTALLED_VERSION" != "$THOTH_VERSION" ]; then
-        echo -e "${CYAN}[INFO]${NC}  Upgrading Thoth $INSTALLED_VERSION → $THOTH_VERSION..."
+    if [ "$INSTALLED_VERSION" != "$ROW_BOT_VERSION" ]; then
+        echo -e "${CYAN}[INFO]${NC}  Upgrading Row-Bot $INSTALLED_VERSION â†’ $ROW_BOT_VERSION..."
         pip install -r "$PROJECT_DIR/requirements.txt" --quiet 2>&1 | while IFS= read -r line; do
             if [[ "$line" == *"Successfully installed"* ]]; then
                 echo "  $line"
             fi
         done
         python -m playwright install chromium 2>&1 | tail -1
-        mkdir -p "$THOTH_HOME"
-        echo "$THOTH_VERSION" > "$THOTH_HOME/installed_version"
+        mkdir -p "$ROW_BOT_HOME"
+        echo "$ROW_BOT_VERSION" > "$ROW_BOT_HOME/installed_version"
         echo -e "${GREEN}[  OK]${NC}  Upgrade complete"
     fi
 
@@ -94,19 +94,19 @@ if [ -d "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/activate" ]; then
 fi
 
 # =====================================================================
-#  INSTALL PATH — first time setup
+#  INSTALL PATH â€” first time setup
 # =====================================================================
 
 echo ""
 echo -e "${BOLD}============================================${NC}"
-echo -e "${BOLD} 𓁟  Thoth — macOS Setup${NC}"
+echo -e "${BOLD} ð“Ÿ  Row-Bot â€” macOS Setup${NC}"
 echo -e "${BOLD}============================================${NC}"
 echo ""
-echo "  This will install Thoth and its dependencies."
-echo "  It takes 5–15 minutes depending on your internet."
+echo "  This will install Row-Bot and its dependencies."
+echo "  It takes 5â€“15 minutes depending on your internet."
 echo ""
 
-# ── Helper: find a suitable Python ───────────────────────────────────────────
+# â”€â”€ Helper: find a suitable Python â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 find_python() {
     PYTHON_CMD=""
     for cmd in python3.12 python3.11 python3.10 python3 python; do
@@ -123,13 +123,13 @@ find_python() {
     return 1
 }
 
-# ── Helper: ensure Homebrew is installed ─────────────────────────────────────
+# â”€â”€ Helper: ensure Homebrew is installed â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 ensure_brew() {
     if command -v brew &>/dev/null; then
         return 0
     fi
     echo ""
-    warn "Homebrew is not installed. Thoth needs it to install Python and Ollama."
+    warn "Homebrew is not installed. Row-Bot needs it to install Python and Ollama."
     echo ""
     echo -e "  ${BOLD}Homebrew${NC} is a free, widely-used macOS package manager."
     echo -e "  The installer will ask for your ${BOLD}Mac password${NC} and may take a few minutes."
@@ -160,7 +160,7 @@ ensure_brew() {
     fi
 }
 
-# ── 1. Check Python ─────────────────────────────────────────────────────────
+# â”€â”€ 1. Check Python â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 info "Checking Python..."
 
 if find_python; then
@@ -173,7 +173,7 @@ else
         info "Installing Python via Homebrew..."
         brew install python@3.12
 
-        # Refresh PATH — include Homebrew's versioned & unversioned symlinks
+        # Refresh PATH â€” include Homebrew's versioned & unversioned symlinks
         for brew_prefix in /opt/homebrew /usr/local; do
             if [ -d "$brew_prefix/bin" ]; then
                 export PATH="$brew_prefix/bin:$PATH"
@@ -199,7 +199,7 @@ else
     fi
 fi
 
-# ── 2. Check / install Ollama ────────────────────────────────────────────────
+# â”€â”€ 2. Check / install Ollama â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 info "Checking Ollama..."
 
 if command -v ollama &>/dev/null; then
@@ -221,11 +221,11 @@ else
         echo ""
         echo -e "  ${BOLD}Download Ollama:${NC}  https://ollama.com/download/mac"
         echo ""
-        warn "Continuing without Ollama — Thoth needs it to run language models."
+        warn "Continuing without Ollama â€” Row-Bot needs it to run language models."
     fi
 fi
 
-# ── 3. Create virtual environment ───────────────────────────────────────────
+# â”€â”€ 3. Create virtual environment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 info "Creating Python virtual environment..."
 "$PYTHON_CMD" -m venv "$VENV_DIR"
 source "$VENV_DIR/bin/activate"
@@ -236,7 +236,7 @@ info "Upgrading pip..."
 pip install --upgrade pip --quiet 2>&1
 ok "pip upgraded"
 
-# ── 4. Install Python packages ──────────────────────────────────────────────
+# â”€â”€ 4. Install Python packages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 info "Installing Python packages (this takes a few minutes)..."
 
 REQUIREMENTS="$PROJECT_DIR/requirements.txt"
@@ -259,16 +259,16 @@ info "Installing Playwright Chromium browser..."
 python -m playwright install chromium 2>&1 | tail -1
 ok "Playwright Chromium installed"
 
-# ── 5. Save project location ────────────────────────────────────────────────
-mkdir -p "$THOTH_HOME"
-echo "$PROJECT_DIR" > "$THOTH_HOME/thoth_home"
-echo "$THOTH_VERSION" > "$THOTH_HOME/installed_version"
-ok "Saved project location to ~/.thoth/thoth_home"
+# â”€â”€ 5. Save project location â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+mkdir -p "$ROW_BOT_HOME"
+echo "$PROJECT_DIR" > "$ROW_BOT_HOME/row_bot_home"
+echo "$ROW_BOT_VERSION" > "$ROW_BOT_HOME/installed_version"
+ok "Saved project location to ~/.row-bot/row_bot_home"
 
-# ── 6. Set up Thoth.app ─────────────────────────────────────────────────────
-info "Setting up Thoth.app..."
+# â”€â”€ 6. Set up Row-Bot.app â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+info "Setting up Row-Bot.app..."
 
-APP_DIR="$PROJECT_DIR/Thoth.app"
+APP_DIR="$PROJECT_DIR/Row-Bot.app"
 CONTENTS="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
@@ -283,19 +283,19 @@ cat > "$CONTENTS/Info.plist" << PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Thoth</string>
+    <string>Row-Bot</string>
     <key>CFBundleDisplayName</key>
-    <string>Thoth</string>
+    <string>Row-Bot</string>
     <key>CFBundleIdentifier</key>
-    <string>com.thoth.assistant</string>
+    <string>ai.row-bot.assistant</string>
     <key>CFBundleVersion</key>
-    <string>${THOTH_VERSION}</string>
+    <string>${ROW_BOT_VERSION}</string>
     <key>CFBundleShortVersionString</key>
-    <string>${THOTH_VERSION}</string>
+    <string>${ROW_BOT_VERSION}</string>
     <key>CFBundleExecutable</key>
-    <string>thoth</string>
+    <string>row-bot</string>
     <key>CFBundleIconFile</key>
-    <string>thoth</string>
+    <string>row-bot</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>
@@ -305,28 +305,28 @@ cat > "$CONTENTS/Info.plist" << PLIST
     <key>LSUIElement</key>
     <false/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Thoth uses the microphone for voice-to-text (speech recognition).</string>
+    <string>Row-Bot uses the microphone for voice-to-text (speech recognition).</string>
 </dict>
 </plist>
 PLIST
 
-# Executable — reads ~/.thoth/thoth_home to find project
-cat > "$MACOS_DIR/thoth" << 'APPSCRIPT'
+# Executable â€” reads ~/.row-bot/row_bot_home to find project
+cat > "$MACOS_DIR/row-bot" << 'APPSCRIPT'
 #!/usr/bin/env bash
-# Thoth.app launcher — finds the project via ~/.thoth/thoth_home
+# Row-Bot.app launcher â€” finds the project via ~/.row-bot/row_bot_home
 
-THOTH_HOME_FILE="$HOME/.thoth/thoth_home"
+ROW_BOT_HOME_FILE="$HOME/.row-bot/row_bot_home"
 
-if [ ! -f "$THOTH_HOME_FILE" ]; then
-    osascript -e 'display dialog "Thoth has not been set up yet.\n\nDouble-click \"Start Thoth.command\" first to install." buttons {"OK"} default button "OK" with icon stop with title "Thoth"' 2>/dev/null
+if [ ! -f "$ROW_BOT_HOME_FILE" ]; then
+    osascript -e 'display dialog "Row-Bot has not been set up yet.\n\nDouble-click \"Start Row-Bot.command\" first to install." buttons {"OK"} default button "OK" with icon stop with title "Row-Bot"' 2>/dev/null
     exit 1
 fi
 
-PROJECT_DIR="$(cat "$THOTH_HOME_FILE")"
+PROJECT_DIR="$(cat "$ROW_BOT_HOME_FILE")"
 VENV_DIR="$PROJECT_DIR/.venv"
 
 if [ ! -d "$VENV_DIR" ]; then
-    osascript -e 'display dialog "Thoth virtual environment not found.\n\nRun \"Start Thoth.command\" to reinstall." buttons {"OK"} default button "OK" with icon stop with title "Thoth"' 2>/dev/null
+    osascript -e 'display dialog "Row-Bot virtual environment not found.\n\nRun \"Start Row-Bot.command\" to reinstall." buttons {"OK"} default button "OK" with icon stop with title "Row-Bot"' 2>/dev/null
     exit 1
 fi
 
@@ -356,36 +356,36 @@ fi
 cd "$PROJECT_DIR"
 exec python launcher.py
 APPSCRIPT
-chmod +x "$MACOS_DIR/thoth"
+chmod +x "$MACOS_DIR/row-bot"
 
-ok "Thoth.app created"
+ok "Row-Bot.app created"
 
 # Offer to copy to /Applications
 echo ""
-echo -e "  ${CYAN}Would you like to copy Thoth.app to /Applications?${NC}"
-echo -e "  This lets you launch Thoth from Spotlight, Launchpad, or Dock."
+echo -e "  ${CYAN}Would you like to copy Row-Bot.app to /Applications?${NC}"
+echo -e "  This lets you launch Row-Bot from Spotlight, Launchpad, or Dock."
 echo ""
 read -r -p "  Copy to /Applications? [Y/n] " COPY_ANSWER
 COPY_ANSWER=${COPY_ANSWER:-Y}
 
 if [[ "$COPY_ANSWER" =~ ^[Yy]$ ]]; then
-    if [ -d "/Applications/Thoth.app" ]; then
-        rm -rf "/Applications/Thoth.app"
+    if [ -d "/Applications/Row-Bot.app" ]; then
+        rm -rf "/Applications/Row-Bot.app"
     fi
-    cp -R "$APP_DIR" "/Applications/Thoth.app"
-    ok "Copied to /Applications/Thoth.app"
-    echo -e "    ${CYAN}Tip:${NC} Open Thoth from Spotlight (⌘+Space → type \"Thoth\")"
+    cp -R "$APP_DIR" "/Applications/Row-Bot.app"
+    ok "Copied to /Applications/Row-Bot.app"
+    echo -e "    ${CYAN}Tip:${NC} Open Row-Bot from Spotlight (âŒ˜+Space â†’ type \"Row-Bot\")"
 else
-    echo -e "    ${CYAN}Tip:${NC} You can drag Thoth.app to your Dock anytime."
+    echo -e "    ${CYAN}Tip:${NC} You can drag Row-Bot.app to your Dock anytime."
 fi
 
-# ── Done ─────────────────────────────────────────────────────────────────────
+# â”€â”€ Done â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 echo ""
 echo -e "${BOLD}============================================${NC}"
-echo -e "${GREEN} ✓  Thoth installation complete!${NC}"
+echo -e "${GREEN} âœ“  Row-Bot installation complete!${NC}"
 echo -e "${BOLD}============================================${NC}"
 echo ""
-echo "  Launching Thoth for the first time..."
+echo "  Launching Row-Bot for the first time..."
 echo "  The setup wizard will help you choose between local and cloud models."
 echo ""
 sleep 2

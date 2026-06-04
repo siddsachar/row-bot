@@ -12,11 +12,12 @@ import tempfile
 import time
 from typing import Optional
 
+from data_paths import get_row_bot_data_dir
 from designer.state import DesignerProject
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR = pathlib.Path(os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth"))
+DATA_DIR = get_row_bot_data_dir()
 DESIGNER_DIR = DATA_DIR / "designer"
 PROJECTS_DIR = DESIGNER_DIR / "projects"
 REFERENCES_DIR = DESIGNER_DIR / "references"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Callable
 
+from brand import APP_BRAND_ACCENT, APP_BRAND_ACCENT_RGB
 from nicegui import run, ui
 
 from designer.brand import extract_brand_from_url, get_all_presets
@@ -242,11 +243,11 @@ def show_new_project_dialog(
                 value=selected_mode["value"],
                 on_change=lambda e: _on_mode_change(e),
             ).props(
-                "color=blue-grey-9 text-color=amber "
-                "toggle-color=amber toggle-text-color=dark "
+                "color=blue-grey-9 text-color=blue-3 "
+                "toggle-color=primary toggle-text-color=white "
                 "unelevated dense spread no-caps"
             ).classes("w-full").style(
-                "--q-primary:#f59e0b;"
+                f"--q-primary:{APP_BRAND_ACCENT};"
             )
 
         ui.separator().classes("q-my-sm")
@@ -379,8 +380,9 @@ def show_new_project_dialog(
                                                 _fn() if not e.value else None
                                             ),
                                         ).props("dense").style(
-                                            "background:rgba(245,158,11,0.12);"
-                                            "color:#fbbf24;border:1px solid rgba(245,158,11,0.3);"
+                                            f"background:rgba({APP_BRAND_ACCENT_RGB},0.14);"
+                                            f"color:{APP_BRAND_ACCENT};"
+                                            f"border:1px solid rgba({APP_BRAND_ACCENT_RGB},0.34);"
                                         )
 
                             async def _handle_upload(e) -> None:
@@ -519,7 +521,8 @@ def show_new_project_dialog(
                             ).props("flat dense no-caps")
                             for _b in (examples_btn, goal_btn, attach_chip_btn):
                                 _b.style(
-                                    "color:#fbbf24;border:1px solid rgba(245,158,11,0.25);"
+                                    f"color:{APP_BRAND_ACCENT};"
+                                    f"border:1px solid rgba({APP_BRAND_ACCENT_RGB},0.30);"
                                     "border-radius:999px;padding:2px 10px;"
                                 )
 
@@ -867,7 +870,7 @@ def show_new_project_dialog(
                                     ui.label(f"{len(tmpl.pages)} page{'s' if len(tmpl.pages) != 1 else ''}").classes("text-xs text-grey-6")
                                     ui.label(tmpl.aspect_ratio).classes("text-xs text-grey-6")
                                 ui.label(infer_output_type_for_template(tmpl.id)).classes("text-xs").style(
-                                    "color: #fbbf24; font-weight: 600;"
+                                    f"color: {APP_BRAND_ACCENT}; font-weight: 600;"
                                 )
 
         _render_category_buttons()

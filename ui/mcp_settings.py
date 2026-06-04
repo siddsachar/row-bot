@@ -6,6 +6,7 @@ import json
 import re
 from typing import Any, Callable
 
+from brand import APP_DISPLAY_NAME
 from nicegui import run, ui
 
 from ui.timer_utils import defer_ui
@@ -118,7 +119,7 @@ def _source_badges(source: dict[str, Any]) -> list[tuple[str, str]]:
     if risk:
         badges.append((f"{risk} risk", "red" if risk == "high" else "orange" if risk == "medium" else "green"))
     if source.get("not_verified_by_thoth"):
-        badges.append(("not audited by Thoth", "grey"))
+        badges.append((f"not audited by {APP_DISPLAY_NAME}", "grey"))
     return badges
 
 
@@ -193,7 +194,7 @@ def _has_pending_enabled_servers(servers: dict[str, dict[str, Any]], statuses: d
 
 def build_mcp_settings_tab(reopen: Callable[[str], None] | None = None) -> None:
     ui.label("External MCP Tools").classes("text-h6")
-    ui.label("Connect external Model Context Protocol servers without letting one bad server affect Thoth.").classes("text-grey-6 text-sm")
+    ui.label(f"Connect external Model Context Protocol servers without letting one bad server affect {APP_DISPLAY_NAME}.").classes("text-grey-6 text-sm")
 
     def _refresh():
         if reopen:
@@ -385,14 +386,14 @@ def _render_requirement_rows(server_name: str, server_cfg: dict[str, Any], refre
             ui.label(_requirement_label(requirement)).classes("font-medium")
             ui.badge("available" if check.available else "missing", color="green" if check.available else "orange")
             if requirement.managed:
-                ui.badge("Thoth can install", color="blue")
+                ui.badge(f"{APP_DISPLAY_NAME} can install", color="blue")
             else:
                 ui.badge("manual setup", color="grey")
             if check.source == "managed":
                 ui.badge("managed", color="purple")
             if not check.available and check.installable:
                 async def _install(runtime_id=requirement.id, label=requirement.label, enabled=bool(server_cfg.get("enabled"))):
-                    note = ui.notification(f"Installing {label} for Thoth...", type="ongoing", spinner=True, timeout=None)
+                    note = ui.notification(f"Installing {label} for {APP_DISPLAY_NAME}...", type="ongoing", spinner=True, timeout=None)
                     try:
                         result = await run.io_bound(install_managed_runtime, runtime_id)
                         note.dismiss()
@@ -408,7 +409,7 @@ def _render_requirement_rows(server_name: str, server_cfg: dict[str, Any], refre
                         ui.notify(f"Install failed: {exc}", type="negative")
                     refresh()
 
-                ui.button("Install in Thoth", icon="download", on_click=_install).props("flat dense")
+                ui.button(f"Install in {APP_DISPLAY_NAME}", icon="download", on_click=_install).props("flat dense")
             elif not check.available and requirement.setup_url:
                 ui.link("Setup", requirement.setup_url, new_tab=True).classes("text-caption")
         if not check.available:
@@ -494,7 +495,7 @@ def _open_import_dialog(refresh: Callable[[], None]) -> None:
 def _open_marketplace_dialog(refresh: Callable[[], None]) -> None:
     with ui.dialog() as dialog, ui.card().classes("w-[900px] max-w-full"):
         ui.label("Connect MCP Tools").classes("text-h6")
-        ui.label("Recommended starters and directory results are imported disabled until tested. Thoth labels overlap/risk, but does not audit third-party servers.").classes("text-caption text-grey-6")
+        ui.label(f"Recommended starters and directory results are imported disabled until tested. {APP_DISPLAY_NAME} labels overlap/risk, but does not audit third-party servers.").classes("text-caption text-grey-6")
 
         async def _search():
             results_col.clear()

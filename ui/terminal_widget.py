@@ -52,8 +52,8 @@ def build_terminal_panel(p, state, tool_registry) -> None:
     if not tool_registry.is_enabled("shell"):
         return
 
-    _panel_id = f"thoth-term-panel-{id(p)}"
-    _drag_id = f"thoth-term-drag-{id(p)}"
+    _panel_id = f"row-bot-term-panel-{id(p)}"
+    _drag_id = f"row-bot-term-drag-{id(p)}"
 
     # ── Toggle callback ──────────────────────────────────────────────
     def _toggle_terminal():

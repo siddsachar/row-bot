@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
+from brand import APP_DISPLAY_NAME
 from nicegui import ui
 
 from ui.state import AppState, P, _active_generations
@@ -113,7 +114,7 @@ async def handle_realtime_event(
             host=str(payload.get("host") or ""),
         )
         if permission_state == "denied":
-            ui.notify("Microphone permission is denied for this Thoth window.", type="negative", close_button=True, timeout=10000)
+            ui.notify(f"Microphone permission is denied for this {APP_DISPLAY_NAME} window.", type="negative", close_button=True, timeout=10000)
         return
 
     if event_type in {"output_started", "output_item_started"}:
@@ -228,7 +229,7 @@ async def _handle_function_call(
     name = str(payload.get("name") or "")
     call_id = str(payload.get("call_id") or "")
     state.voice_coordinator.set_realtime_state(
-        "consulting_thoth" if name == "thoth_agent_consult" else "listening",
+        "consulting_row_bot" if name == "row_bot_agent_consult" else "listening",
         detail=name,
         session_id=session_id,
     )
@@ -280,7 +281,7 @@ async def _handle_forced_fallback(
         thread_id=lambda: state.thread_id,
     )
     text = str(payload.get("text") or "")
-    state.voice_coordinator.set_realtime_state("consulting_thoth", detail="forced_fallback", session_id=session_id)
+    state.voice_coordinator.set_realtime_state("consulting_row_bot", detail="forced_fallback", session_id=session_id)
     state.voice_coordinator.mark_realtime_latency("forced_consult_started")
     result = await bridge.force_consult_if_substantive(
         text,

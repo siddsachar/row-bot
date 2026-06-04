@@ -1,18 +1,18 @@
 # =============================================================================
-# notarize-check.yml — Check notarization status and staple if accepted
+# notarize-check.yml - Check notarization status and staple if accepted
 #
 # Run this after submitting via notarize-submit.yml.
-# Does a SINGLE status check (no polling loop) — takes seconds, not minutes.
+# Does a SINGLE status check (no polling loop) - takes seconds, not minutes.
 # Re-run it as often as you like until Apple finishes processing.
 #
 # Inputs:
-#   submission_id — Apple notarization UUID (from notarize-submit.yml log)
-#   build_run_id  — GitHub Actions run ID that produced the Thoth-macOS artifact
+#   submission_id - Apple notarization UUID (from notarize-submit.yml log)
+#   build_run_id  - GitHub Actions run ID that produced the Row-Bot-macOS artifact
 #
 # Outcomes:
-#   In Progress → prints status, exits successfully.  Run again later.
-#   Accepted    → staples DMG, uploads Thoth-macOS-stapled artifact.
-#   Invalid     → dumps Apple's rejection log, exits with error.
+#   In Progress - prints status, exits successfully.  Run again later.
+#   Accepted    - staples DMG, uploads Row-Bot-macOS-stapled artifact.
+#   Invalid     - dumps Apple's rejection log, exits with error.
 # =============================================================================
 
 name: "Notarize: Check Status"
@@ -36,7 +36,7 @@ jobs:
       - name: Download signed DMG from build run
         uses: actions/download-artifact@v8
         with:
-          name: Thoth-macOS
+          name: Row-Bot-macOS
           path: dist
           run-id: ${{ inputs.build_run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -51,7 +51,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          DMG_PATH="$(ls dist/Thoth-*-macOS-*.dmg | head -n1)"
+          DMG_PATH="$(ls dist/Row-Bot-*-macOS-*.dmg | head -n1)"
           echo "DMG: $DMG_PATH"
           echo "Submission ID: $SUBMISSION_ID"
           echo ""
@@ -74,16 +74,16 @@ jobs:
 
           case "$status" in
             "In Progress")
-              echo "══════════════════════════════════════════════════════════════"
+              echo "------------------------------------------------------------"
               echo "  STILL PROCESSING"
               echo "  Apple is still reviewing the submission."
               echo "  Re-run this workflow to check again."
-              echo "══════════════════════════════════════════════════════════════"
+              echo "------------------------------------------------------------"
               ;;
             Accepted)
               echo "Notarization ACCEPTED! Stapling ticket into DMG..."
               # Apple CloudKit can take a few minutes to propagate the ticket
-              # after notarization is accepted — retry with backoff.
+              # after notarization is accepted - retry with backoff.
               STAPLE_OK=false
               for attempt in 1 2 3 4 5; do
                 echo "Staple attempt $attempt/5..."
@@ -93,7 +93,7 @@ jobs:
                 fi
                 if [ "$attempt" -lt 5 ]; then
                   wait_secs=$((attempt * 30))
-                  echo "Staple not ready yet — waiting ${wait_secs}s before retry..."
+                  echo "Staple not ready yet - waiting ${wait_secs}s before retry..."
                   sleep "$wait_secs"
                 fi
               done
@@ -105,11 +105,11 @@ jobs:
               echo "Verifying staple..."
               xcrun stapler validate "$DMG_PATH"
               echo ""
-              echo "══════════════════════════════════════════════════════════════"
+              echo "------------------------------------------------------------"
               echo "  STAPLED DMG READY"
-              echo "  Download the 'Thoth-macOS-stapled' artifact from this run,"
+              echo "  Download the 'Row-Bot-macOS-stapled' artifact from this run,"
               echo "  verify locally, then attach to the GitHub Release."
-              echo "══════════════════════════════════════════════════════════════"
+              echo "------------------------------------------------------------"
               ;;
             Invalid)
               echo "::error::Notarization REJECTED by Apple."
@@ -131,6 +131,6 @@ jobs:
         if: steps.status.outputs.status == 'Accepted'
         uses: actions/upload-artifact@v7
         with:
-          name: Thoth-macOS-stapled
-          path: dist/Thoth-*-macOS-*.dmg
+          name: Row-Bot-macOS-stapled
+          path: dist/Row-Bot-*-macOS-*.dmg
           retention-days: 90

@@ -57,6 +57,6 @@ When the user asks you to **review your memories**, **check what you know**, **c
 
 ## Insights Review
 
-11. **Check Automated Insights** — When performing a reflection, also check for pending insights from the dream cycle. Use `thoth_status` with category `insights` to see active insight counts, last analysis time, and recent insight titles; read `~/.thoth/insights.json` only when you need the full bodies/evidence or need to update statuses.
+11. **Check Automated Insights** — When performing a reflection, also check for pending insights from the dream cycle. Use `row_bot_status` with category `insights` to see active insight counts, last analysis time, and recent insight titles; read `~/.row-bot/insights.json` only when you need the full bodies/evidence or need to update statuses.
 12. **Present Insights** — For each active insight (status "new" or "pinned"), summarize it for the user with category, severity, and the suggestion. Group by category.
 13. **Act on Insights** — Ask the user what to do with each insight: dismiss it, investigate further, or apply the suggestion. For skill proposals with drafts, offer to create the skill. After the user decides, update the insight status accordingly by editing the insights file.

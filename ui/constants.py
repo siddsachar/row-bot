@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import re
 
+from brand import APP_DISPLAY_NAME
+
 # ═════════════════════════════════════════════════════════════════════════════
 # WELCOME / EXAMPLES
 # ═════════════════════════════════════════════════════════════════════════════
@@ -38,13 +40,13 @@ _WELCOME_BODY = """\
 def welcome_message(cloud: bool = False) -> str:
     if cloud:
         header = (
-            "👋 **Welcome to Thoth — your personal AI workspace.**\n\n"
-            "Your selected model runs in the cloud, while Thoth stores your "
+            f"👋 **Welcome to {APP_DISPLAY_NAME} — your personal AI workspace.**\n\n"
+            f"Your selected model runs in the cloud, while {APP_DISPLAY_NAME} stores your "
             "conversations, memory, documents, workflows, and settings locally."
         )
     else:
         header = (
-            "👋 **Welcome to Thoth — your private AI workspace.**\n\n"
+            f"👋 **Welcome to {APP_DISPLAY_NAME} — your private AI workspace.**\n\n"
             "Your selected model runs locally. Conversations, memory, documents, "
             "workflows, and settings stay on this machine unless you connect external services."
         )

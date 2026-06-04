@@ -192,7 +192,7 @@ def sandbox_shadow_path(workspace_id: str) -> pathlib.Path:
 
 def sandbox_container_name(workspace_id: str) -> str:
     digest = hashlib.sha1(workspace_id.encode("utf-8")).hexdigest()[:16]
-    return f"thoth-dev-{digest}"
+    return f"row-bot-dev-{digest}"
 
 
 def get_docker_sandbox_status(workspace: DeveloperWorkspace) -> SandboxStatus:
@@ -556,7 +556,7 @@ def start_docker_sandbox_process(
             returncode=None,
             stderr=str(exc),
         )
-    log_name = f"thoth-dev-{hashlib.sha1((command + str(time.time())).encode('utf-8')).hexdigest()[:10]}.log"
+    log_name = f"row-bot-dev-{hashlib.sha1((command + str(time.time())).encode('utf-8')).hexdigest()[:10]}.log"
     log_path = f"/tmp/{log_name}"
     script = f"nohup /bin/sh -lc {shlex.quote(command)} > {shlex.quote(log_path)} 2>&1 & echo $!"
     proc = subprocess.run(

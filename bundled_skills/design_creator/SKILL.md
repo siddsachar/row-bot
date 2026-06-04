@@ -100,7 +100,7 @@ Count blocks BEFORE writing HTML. A 2-page brief beats a cramped 1-page brief th
 
 - **No decorative overlap on text.** Don't place absolutely-positioned CSS art (blobs, mascots, chef figures, illustrated shapes) on top of headings or body copy. Give it its own column/row, push it behind with `opacity` + `z-index:0` and a readable text background, or omit it. For real imagery, use a typed image slot.
 - **Button rows stay horizontal.** Two buttons side-by-side use `display:flex; gap:12–24px;` with `flex:1` on the primary. Secondary/ghost buttons must be visibly distinct from the primary (ghost/outline) — never two identical filled pills.
-- **Typed image slots over overlays.** When a page will receive an AI image, author the target as `<div data-thoth-image-slot="NAME" style="width:100%;aspect-ratio:16/9;"></div>`. `designer_generate_image` and `designer_insert_image` fill it automatically, sized to cover. Or pass `position="replace:.my-class"` to target a specific container. Never ship a floating absolute-positioned overlay unless the user asked for one.
+- **Typed image slots over overlays.** When a page will receive an AI image, author the target as `<div data-row-bot-image-slot="NAME" style="width:100%;aspect-ratio:16/9;"></div>`. `designer_generate_image` and `designer_insert_image` fill it automatically, sized to cover. Or pass `position="replace:.my-class"` to target a specific container. Never ship a floating absolute-positioned overlay unless the user asked for one.
 
 ## 3d. Critique-repair loop (mandatory after rewrites)
 
@@ -124,10 +124,10 @@ After initial generation:
 
 These two modes use a sandboxed runtime — **never write `<script>` tags or inline `onclick=`**. Wire interactivity declaratively:
 
-- Mark each screen's outer container with `data-thoth-route="<route_id>"`.
-- For navigation, put `data-thoth-action="navigate:<route_id>"` on the clickable element. Optional `data-thoth-transition="slide_left|slide_right|slide_up|fade|none"`.
-- For UI state toggles (dark mode, expanded panel, notifications on/off), use `data-thoth-action="toggle_state:<key>"` and style the on-state with `[data-thoth-state-<key>="on"]` selectors on `<html>`.
-- For media playback buttons, use `data-thoth-action="play_media:<asset_id>"`.
+- Mark each screen's outer container with `data-row-bot-route="<route_id>"`.
+- For navigation, put `data-row-bot-action="navigate:<route_id>"` on the clickable element. Optional `data-row-bot-transition="slide_left|slide_right|slide_up|fade|none"`.
+- For UI state toggles (dark mode, expanded panel, notifications on/off), use `data-row-bot-action="toggle_state:<key>"` and style the on-state with `[data-row-bot-state-<key>="on"]` selectors on `<html>`.
+- For media playback buttons, use `data-row-bot-action="play_media:<asset_id>"`.
 
 Prefer the dedicated tools over hand-editing these attributes:
 - `designer_add_screen` to add a new route.

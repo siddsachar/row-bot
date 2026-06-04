@@ -3,16 +3,16 @@ from __future__ import annotations
 import copy
 import json
 import logging
-import os
 import pathlib
 import tempfile
 from typing import Any, Callable
 
+from data_paths import get_row_bot_data_dir
 import secret_store
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR = pathlib.Path(os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth"))
+DATA_DIR = get_row_bot_data_dir()
 CONFIG_PATH = DATA_DIR / "providers.json"
 CONFIG_VERSION = 1
 

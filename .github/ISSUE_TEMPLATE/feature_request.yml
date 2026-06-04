@@ -14,7 +14,7 @@ body:
     id: proposal
     attributes:
       label: Proposed solution
-      description: What should Thoth do?
+      description: What should Row-Bot do?
     validations:
       required: true
   - type: dropdown

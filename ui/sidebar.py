@@ -13,12 +13,13 @@ import uuid
 from datetime import datetime
 from typing import Any, Callable
 
+from brand import APP_BRAND_ACCENT, APP_DISPLAY_NAME
 from nicegui import run, ui
 from ui.timer_utils import safe_timer
 
 from ui.state import AppState, P, _active_generations
 from ui.constants import SIDEBAR_MAX_THREADS
-from data_paths import get_thoth_data_dir
+from data_paths import get_row_bot_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ _SIDEBAR_AVATAR_CSS = """
 
 
 def _sidebar_state_path():
-    return get_thoth_data_dir() / "sidebar_state.json"
+    return get_row_bot_data_dir() / "sidebar_state.json"
 
 
 def _ensure_sidebar_dev_state_loaded() -> None:
@@ -127,17 +128,18 @@ def build_sidebar(
 
     with ui.left_drawer(value=True, fixed=True).style(
         "width: 280px;"
-    ).classes("thoth-panel-card"):
-        # Logo - always Thoth branding, independent of identity settings
+    ).classes("row-bot-panel-card"):
+        # Logo - always app branding, independent of identity settings
         ui.html(
-            '<div style="display:flex; align-items:center; gap:8px;">'
-            '<span style="font-size:1.6rem; color:gold;">𓁟</span>'
-            '<span style="font-size:1.25rem; font-weight:600; color:gold;'
-            ' letter-spacing:0.5px;">Thoth</span></div>',
+            f'<div style="display:flex; align-items:center; gap:10px; margin:0 0 12px 0;">'
+            f'<img src="/static/row_bot_glyph_256.png" alt="" '
+            f'style="width:92px; height:auto; display:block; flex:0 0 auto;">'
+            f'<div style="display:flex; flex-direction:column; gap:4px; min-width:0;">'
+            f'<span style="font-size:1.35rem; font-weight:600; color:{APP_BRAND_ACCENT};'
+            f' letter-spacing:0.5px; line-height:1.05;">{APP_DISPLAY_NAME}</span>'
+            f'<span style="font-size:12px; color:#9ca3af; line-height:1.25;">'
+            f'Personal AI Sovereignty</span></div></div>',
             sanitize=False,
-        )
-        ui.label("Personal AI Sovereignty").classes("text-xs text-grey-6").style(
-            "margin-top: -2px;"
         )
         ui.separator()
 
@@ -197,7 +199,7 @@ def build_sidebar(
 
             ui.button("＋ New", on_click=_new_thread).classes("flex-grow").props("color=primary")
 
-        with ui.column().classes("w-full gap-1 q-mt-sm thoth-inner-panel"):
+        with ui.column().classes("w-full gap-1 q-mt-sm row-bot-inner-panel"):
             ui.label("Conversations").classes("text-subtitle2")
             # Filter pill row - rebuilt by _rebuild_thread_list so counts stay current
             p.thread_filter_container = ui.row().classes(
@@ -228,7 +230,7 @@ def build_sidebar(
                 return f"{delta // 3600}h ago"
             return f"{delta // 86400}d ago"
 
-        with ui.column().classes("w-full gap-0 q-mt-sm thoth-inner-panel"):
+        with ui.column().classes("w-full gap-0 q-mt-sm row-bot-inner-panel"):
             _ch_monitor_container = ui.column().classes("w-full gap-0")
 
         def _build_channel_monitor() -> None:
@@ -395,10 +397,10 @@ def build_sidebar(
                         on_click=_set_filter,
                     ).props(
                         "dense no-caps size=sm rounded "
-                        + ("color=amber" if is_on else "flat color=grey-5")
+                        + ("color=primary" if is_on else "flat color=grey-5")
                     ).style("font-size: 0.72rem; padding: 2px 8px;")
                     if is_on:
-                        btn.classes("thoth-pill-active")
+                        btn.classes("row-bot-pill-active")
 
         # Apply filter
         if _SIDEBAR_FILTER != "all":
@@ -693,7 +695,7 @@ def build_sidebar(
                             "text-primary" if is_active else "text-grey-6"
                         )
                         if is_generating_tid:
-                            _icon_el.classes(add="thoth-spin")
+                            _icon_el.classes(add="row-bot-spin")
                     with ui.item_section():
                         ui.item_label(name).classes("ellipsis").style(
                             "font-size: 0.85rem;" + ("font-weight: 600;" if is_active else "")
@@ -823,7 +825,7 @@ def build_sidebar(
                                         on_click=_set_mf,
                                     ).props(
                                         "dense no-caps size=sm rounded "
-                                        + ("color=amber" if is_on else "flat color=grey-5")
+                                        + ("color=primary" if is_on else "flat color=grey-5")
                                     ).style(
                                         "font-size: 0.72rem; padding: 2px 8px;"
                                     )

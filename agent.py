@@ -2592,7 +2592,7 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                 prompt=get_agent_system_prompt(),
                 pre_model_hook=_pre_model_trim,
                 checkpointer=checkpointer,
-                name="thoth_agent",
+                name="row_bot_agent",
             )
             _agent_cache[cache_key] = agent
 

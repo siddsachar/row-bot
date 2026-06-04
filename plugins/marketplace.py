@@ -1,7 +1,7 @@
 """Plugin marketplace — fetch and cache the plugin index from GitHub.
 
 The index is a JSON file (``index.json``) stored in the
-``thoth-plugins`` monorepo on GitHub.  This module fetches it via the
+``row-bot-plugins`` monorepo on GitHub.  This module fetches it via the
 raw GitHub URL, caches it locally with a TTL, and provides query helpers.
 """
 
@@ -15,21 +15,24 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from data_paths import get_row_bot_data_dir
+
 logger = logging.getLogger(__name__)
 
-DATA_DIR = pathlib.Path(
-    os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")
-)
+DATA_DIR = get_row_bot_data_dir()
 _CACHE_PATH = DATA_DIR / "marketplace_cache.json"
 
 # Default TTL: 1 hour
 CACHE_TTL_SECONDS = 3600
 
-# The raw GitHub URL — set via THOTH_PLUGIN_INDEX_URL env var or default.
+# The raw GitHub URL — set via ROW_BOT_PLUGIN_INDEX_URL env var or default.
 # Users/CI can override this for testing.
 DEFAULT_INDEX_URL = os.environ.get(
+    "ROW_BOT_PLUGIN_INDEX_URL",
+) or os.environ.get(
     "THOTH_PLUGIN_INDEX_URL",
-    "https://raw.githubusercontent.com/siddsachar/thoth-plugins/main/index.json",
+) or (
+    "https://raw.githubusercontent.com/siddsachar/row-bot-plugins/main/index.json"
 )
 
 
@@ -45,7 +48,7 @@ class MarketplaceEntry:
     author_name: str = ""
     author_github: str = ""
     tags: list[str] = field(default_factory=list)
-    min_thoth_version: str = ""
+    min_row_bot_version: str = ""
     tool_count: int = 0
     skill_count: int = 0
     verified: bool = False
@@ -189,7 +192,7 @@ def _fetch_from_url(url: str) -> dict:
     import urllib.request
     import urllib.error
 
-    req = urllib.request.Request(url, headers={"User-Agent": "Thoth-Plugin-Client"})
+    req = urllib.request.Request(url, headers={"User-Agent": "Row-Bot-Plugin-Client"})
     with urllib.request.urlopen(req, timeout=15) as resp:
         data = json.loads(resp.read().decode("utf-8"))
     if not isinstance(data, dict):
@@ -234,7 +237,7 @@ def _parse_index(raw: dict) -> MarketplaceIndex:
             author_name=author.get("name", "") if isinstance(author, dict) else "",
             author_github=author.get("github", "") if isinstance(author, dict) else "",
             tags=entry.get("tags", []),
-            min_thoth_version=entry.get("min_thoth_version", ""),
+            min_row_bot_version=entry.get("min_row_bot_version", entry.get("min_thoth_version", "")),
             tool_count=provides.get("tools", 0) if isinstance(provides, int) is False else 0,
             skill_count=provides.get("skills", 0) if isinstance(provides, int) is False else 0,
             verified=entry.get("verified", False),

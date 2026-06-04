@@ -164,10 +164,10 @@ def test_coordinator_tracks_realtime_tool_output_and_barge_in_lifecycle():
     coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
 
     session_id = coordinator.start_realtime_talk()
-    coordinator.queue_realtime_tool_call({"call_id": "call_1", "name": "thoth_agent_consult", "request": "do work"})
+    coordinator.queue_realtime_tool_call({"call_id": "call_1", "name": "row_bot_agent_consult", "request": "do work"})
     assert coordinator.consume_realtime_tool_call() == {
         "call_id": "call_1",
-        "name": "thoth_agent_consult",
+        "name": "row_bot_agent_consult",
         "request": "do work",
     }
     assert coordinator.consume_realtime_tool_call() is None
@@ -192,8 +192,8 @@ def test_coordinator_resets_realtime_runtime_state_between_sessions():
     coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
 
     first_session = coordinator.start_realtime_talk()
-    coordinator.queue_realtime_tool_call({"call_id": "call_1", "name": "thoth_agent_consult", "request": "do work"})
-    coordinator.set_active_thoth_generation("gen_1")
+    coordinator.queue_realtime_tool_call({"call_id": "call_1", "name": "row_bot_agent_consult", "request": "do work"})
+    coordinator.set_active_row_bot_generation("gen_1")
     coordinator.record_realtime_output_started(response_id="resp_1", output_item_id="item_1", session_id=first_session)
     coordinator.record_barge_in(reason="user_speech_started", session_id=first_session)
 
@@ -204,7 +204,7 @@ def test_coordinator_resets_realtime_runtime_state_between_sessions():
     assert snapshot["state"] == "connecting"
     assert snapshot["active_realtime_response_id"] == ""
     assert snapshot["active_realtime_output_item_id"] == ""
-    assert snapshot["active_thoth_generation_id"] == ""
+    assert snapshot["active_row_bot_generation_id"] == ""
     assert snapshot["playback_active"] is False
     assert snapshot["barge_in_reason"] == ""
     assert coordinator.consume_realtime_tool_call() is None
@@ -230,13 +230,13 @@ def test_coordinator_clears_active_generation_when_final_response_completes():
     coordinator = VoiceSessionCoordinator(service)  # type: ignore[arg-type]
 
     session_id = coordinator.start_realtime_talk()
-    coordinator.set_active_thoth_generation("gen_1")
+    coordinator.set_active_row_bot_generation("gen_1")
     coordinator.record_realtime_output_started(response_id="resp_1", output_item_id="item_1", session_id=session_id)
 
     coordinator.record_realtime_output_done(session_id=session_id, clear_generation=True)
 
     snapshot = coordinator.diagnostic_snapshot()
-    assert snapshot["active_thoth_generation_id"] == ""
+    assert snapshot["active_row_bot_generation_id"] == ""
     assert snapshot["active_realtime_response_id"] == ""
     assert snapshot["active_realtime_output_item_id"] == ""
     assert snapshot["state"] == "listening"
@@ -273,7 +273,7 @@ def test_coordinator_summarizes_realtime_turn_latency():
     coordinator.mark_realtime_latency("transcript_final", now=100.25)
     coordinator.mark_realtime_latency("function_call_ready", now=100.3)
     coordinator.mark_realtime_latency("forced_consult_started", now=100.4)
-    coordinator.mark_realtime_latency("thoth_consult_started", now=100.5)
+    coordinator.mark_realtime_latency("row_bot_consult_started", now=100.5)
     coordinator.mark_realtime_latency("first_token", now=101.0)
     coordinator.mark_realtime_latency("first_speakable_chunk", now=101.25)
     coordinator.mark_realtime_latency("first_substantive_audio_requested", now=101.3)
@@ -287,10 +287,10 @@ def test_coordinator_summarizes_realtime_turn_latency():
         "speech_stop_to_transcript_final": 250,
         "speech_stop_to_function_call_ready": 299,
         "speech_stop_to_forced_consult": 400,
-        "speech_stop_to_thoth_start": 500,
+        "speech_stop_to_row_bot_start": 500,
         "speech_stop_to_first_token": 1000,
         "speech_stop_to_first_speakable_chunk": 1250,
-        "speech_stop_to_first_spoken_thoth": 1299,
+        "speech_stop_to_first_spoken_row_bot": 1299,
         "transcript_final_to_forced_consult": 150,
         "consult_to_first_token": 500,
         "first_token_to_first_speakable_chunk": 250,

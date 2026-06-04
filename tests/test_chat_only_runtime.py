@@ -56,14 +56,14 @@ def test_chat_only_history_marks_prior_tools_without_tool_bodies():
         "content": "Earlier answer",
         "tool_results": [
             {
-                "name": "thoth_status",
+                "name": "row_bot_status",
                 "content": "SECRET_STATUS_BODY with current model and enabled tools",
             }
         ],
     })
 
     assert "Earlier Agent Mode turn used tool(s):" in content
-    assert "- thoth_status" in content
+    assert "- row_bot_status" in content
     assert "SECRET_STATUS_BODY" not in content
     assert "enabled tools" not in content
 
@@ -210,7 +210,7 @@ def test_stream_agent_logs_resolved_runtime_decision(tmp_path, monkeypatch, capl
     with caplog.at_level(logging.INFO, logger="agent"):
         events = list(agent.stream_agent(
             "hi",
-            ["thoth_status"],
+            ["row_bot_status"],
             {"configurable": {"thread_id": "thread-chat", "runtime_surface": "normal_chat", "runtime_mode": "auto"}},
         ))
 
@@ -223,12 +223,12 @@ def test_stream_agent_logs_resolved_runtime_decision(tmp_path, monkeypatch, capl
     assert "tools_bound=True" in runtime_logs[-1]
 
 
-def test_thoth_status_model_reports_effective_runtime(monkeypatch):
+def test_row_bot_status_model_reports_effective_runtime(monkeypatch):
     import agent
     import models
     import providers.readiness as readiness
     import providers.resolution as resolution
-    import tools.thoth_status_tool as thoth_status_tool
+    import tools.row_bot_status_tool as row_bot_status_tool
 
     override_token = models._active_model_override.set("model:ollama:local-chat:14b")
     agent._set_active_runtime_context(
@@ -266,7 +266,7 @@ def test_thoth_status_model_reports_effective_runtime(monkeypatch):
     )
 
     try:
-        output = thoth_status_tool._query_model()
+        output = row_bot_status_tool._query_model()
     finally:
         models._active_model_override.reset(override_token)
 
@@ -277,12 +277,12 @@ def test_thoth_status_model_reports_effective_runtime(monkeypatch):
     assert "Override active (global default: model:ollama:qwen3.6:27b)" in output
 
 
-def test_thoth_status_model_labels_endpoint_types(monkeypatch):
+def test_row_bot_status_model_labels_endpoint_types(monkeypatch):
     import agent
     import models
     import providers.readiness as readiness
     import providers.resolution as resolution
-    import tools.thoth_status_tool as thoth_status_tool
+    import tools.row_bot_status_tool as row_bot_status_tool
 
     cases = [
         ("model:ollama:qwen", "ollama", "Ollama Local", "local", "local_private", "Local (Ollama)"),
@@ -316,7 +316,7 @@ def test_thoth_status_model_labels_endpoint_types(monkeypatch):
             ),
         )
 
-        output = thoth_status_tool._query_model()
+        output = row_bot_status_tool._query_model()
 
         assert f"Type: {expected_type}" in output
 
@@ -458,7 +458,7 @@ def test_stream_agent_coerces_string_recursion_limit(monkeypatch):
     assert isinstance(captured["recursion_limit"], int)
 
 
-@pytest.mark.parametrize("tool_name", ["thoth_status", "analyze_image"])
+@pytest.mark.parametrize("tool_name", ["row_bot_status", "analyze_image"])
 def test_stream_graph_finalizes_reasoning_only_after_successful_tool_result(monkeypatch, tool_name):
     import agent
     from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
@@ -524,10 +524,10 @@ def test_stream_graph_finalization_failure_preserves_tool_result_without_fake_an
     import agent
     from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
-    tool_result = ToolMessage(content="Tool says the answer is 42.", name="thoth_status", tool_call_id="call_1")
+    tool_result = ToolMessage(content="Tool says the answer is 42.", name="row_bot_status", tool_call_id="call_1")
     state_messages = [
         HumanMessage(content="use the tool"),
-        AIMessage(content="", tool_calls=[{"name": "thoth_status", "args": {}, "id": "call_1", "type": "tool_call"}]),
+        AIMessage(content="", tool_calls=[{"name": "row_bot_status", "args": {}, "id": "call_1", "type": "tool_call"}]),
         tool_result,
         AIMessage(content="", additional_kwargs={"reasoning_content": "I should summarize the tool result."}),
     ]
@@ -568,7 +568,7 @@ def test_stream_graph_finalization_failure_preserves_tool_result_without_fake_an
     ))
 
     tool_done = next(payload for event_type, payload in events if event_type == "tool_done")
-    assert tool_done["raw_name"] == "thoth_status"
+    assert tool_done["raw_name"] == "row_bot_status"
     assert tool_done["content"] == "Tool says the answer is 42."
     assert ("thinking_token", "still only reasoning") in events
     assert events[-1] == ("error", "The model returned reasoning but no final answer. Try again or switch models.")

@@ -39,11 +39,11 @@ from embedding_providers import (
     get_embedding_provider,
     release_embedding_resources,
 )
+from data_paths import get_row_bot_data_dir
 
 logger = logging.getLogger(__name__)
 
-# Store data in %APPDATA%/Thoth (writable even when app is in Program Files)
-DATA_DIR = pathlib.Path(os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth"))
+DATA_DIR = get_row_bot_data_dir()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 PROCESSED_FILES_PATH = DATA_DIR / "processed_files.json"

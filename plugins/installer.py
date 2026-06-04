@@ -17,18 +17,18 @@ import zipfile
 from dataclasses import dataclass
 from typing import Any
 
+from data_paths import get_row_bot_data_dir
+
 logger = logging.getLogger(__name__)
 
-DATA_DIR = pathlib.Path(
-    os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")
-)
+DATA_DIR = get_row_bot_data_dir()
 PLUGINS_DIR = DATA_DIR / "installed_plugins"
 
 # Base URL for downloading plugins from the monorepo
 # Each plugin directory is downloaded as: {BASE_URL}/plugins/{plugin_id}/
 DEFAULT_REPO_URL = os.environ.get(
     "THOTH_PLUGIN_REPO_URL",
-    "https://github.com/siddsachar/thoth-plugins",
+    "https://github.com/siddsachar/row-bot-plugins",
 )
 
 
@@ -242,7 +242,7 @@ def _download_plugin(plugin_id: str, dest: pathlib.Path) -> None:
         zip_path = pathlib.Path(tmp) / "repo.zip"
 
         req = urllib.request.Request(
-            archive_url, headers={"User-Agent": "Thoth-Plugin-Installer"}
+            archive_url, headers={"User-Agent": "Row-Bot-Plugin-Installer"}
         )
         with urllib.request.urlopen(req, timeout=60) as resp:
             with open(zip_path, "wb") as f:
@@ -250,7 +250,7 @@ def _download_plugin(plugin_id: str, dest: pathlib.Path) -> None:
 
         # Extract the plugin directory from the zip
         with zipfile.ZipFile(zip_path, "r") as zf:
-            # GitHub zips have a top-level dir like "thoth-plugins-main/"
+            # GitHub zips have a top-level dir like "row-bot-plugins-main/"
             top_dirs = {name.split("/")[0] for name in zf.namelist() if "/" in name}
             if len(top_dirs) != 1:
                 raise ValueError(f"Unexpected zip structure: {top_dirs}")

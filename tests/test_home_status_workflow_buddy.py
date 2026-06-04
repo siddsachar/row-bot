@@ -70,7 +70,7 @@ def test_home_status_uses_compact_icon_pills():
     assert "aria-label" in src
     assert "mid = (len(items) + 1) // 2" not in src
     assert "for row_items in (items[:mid], items[mid:])" not in src
-    assert "thoth-buddy-hatch-progress" in src
+    assert "row-bot-buddy-hatch-progress" in src
     assert "extraction_pill" in src
     assert ".tooltip(f\"{r.name}: {r.status_label} - {r.detail}\")" in src
     for status_name in ("Ollama", "Documents", "Search", "MCP", "Plugins"):

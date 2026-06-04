@@ -59,7 +59,7 @@ def test_chat_tool_trace_source_contracts():
     streaming_src = Path("ui/streaming.py").read_text(encoding="utf-8")
     chat_src = Path("ui/chat.py").read_text(encoding="utf-8")
     components_src = Path("ui/chat_components.py").read_text(encoding="utf-8")
-    installer_src = Path("installer/thoth_setup.iss").read_text(encoding="utf-8")
+    installer_src = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
 
     assert "group_tool_results" in render_src
     assert "group_tool_results" in streaming_src or "_finish_live_tool_result" in streaming_src

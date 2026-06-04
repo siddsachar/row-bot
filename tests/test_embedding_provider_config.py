@@ -91,7 +91,7 @@ def test_packaged_builds_verify_required_runtime_imports():
     mac_build = Path("installer/build_mac_app.sh").read_text(encoding="utf-8")
     linux_build = Path("installer/build_linux_app.sh").read_text(encoding="utf-8")
     legacy_deps = Path("installer/install_deps.bat").read_text(encoding="utf-8")
-    windows_installer = Path("installer/thoth_setup.iss").read_text(encoding="utf-8")
+    windows_installer = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
 
     assert '"embeddings"' in verifier
     assert '"core"' in verifier
@@ -120,7 +120,7 @@ def test_packaged_builds_verify_required_runtime_imports():
     assert "verify_runtime_dependencies.py\" embeddings" not in linux_build
     assert "Assembled app runtime dependencies verified" in mac_build
     assert "Assembled Linux runtime dependencies verified" in linux_build
-    assert "THOTH_INSTALL_ROOT=\"$RESOURCES\"" in mac_build
+    assert "ROW_BOT_INSTALL_ROOT=\"$RESOURCES\"" in mac_build
     unsafe_tests_cleanup = "find \"$PYTHON_PREFIX/lib\" -type d -name 'tests'"
     assert unsafe_tests_cleanup not in mac_build
     assert unsafe_tests_cleanup not in linux_build
@@ -203,7 +203,7 @@ def test_embedding_overhaul_source_contracts_are_wired():
     extraction_src = (root / "document_extraction.py").read_text(encoding="utf-8")
     memory_src = (root / "memory_extraction.py").read_text(encoding="utf-8")
     settings_src = (root / "ui" / "settings.py").read_text(encoding="utf-8")
-    installer_src = (root / "installer" / "thoth_setup.iss").read_text(encoding="utf-8")
+    installer_src = (root / "installer" / "row_bot_setup.iss").read_text(encoding="utf-8")
 
     assert "get_embedding_provider()" in documents_src
     assert "index_metadata_matches(VECTOR_STORE_DIR)" in documents_src

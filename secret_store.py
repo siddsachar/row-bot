@@ -1,4 +1,4 @@
-"""Small OS keyring wrapper for Thoth secrets.
+"""Small OS keyring wrapper for Row-Bot secrets.
 
 This module intentionally stays tiny: it delegates persistence to the
 platform keyring when available and reports failures to callers instead of
@@ -13,15 +13,17 @@ import os
 import pathlib
 from typing import Any
 
+from brand import APP_DATA_DIR_ENV, KEYRING_SERVICE_PREFIX, default_data_dir
+
 logger = logging.getLogger(__name__)
 
-DATA_DIR = pathlib.Path(os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth"))
+DATA_DIR = pathlib.Path(os.environ.get(APP_DATA_DIR_ENV) or default_data_dir())
 
 
 def service_name_for(data_dir: pathlib.Path | str) -> str:
-    """Return the keyring service name for a Thoth data directory."""
+    """Return the keyring service name for a Row-Bot data directory."""
     path = pathlib.Path(data_dir).resolve()
-    return f"Thoth:{hashlib.sha256(str(path).encode('utf-8')).hexdigest()[:12]}"
+    return f"{KEYRING_SERVICE_PREFIX}:{hashlib.sha256(str(path).encode('utf-8')).hexdigest()[:12]}"
 
 
 SERVICE_NAME = service_name_for(DATA_DIR)
@@ -72,7 +74,7 @@ def _account(name: str, *, namespace: str = "api_keys") -> str:
 
 def is_available() -> bool:
     """Return True when the configured backend can round-trip a probe secret."""
-    probe = "__thoth_keyring_probe__"
+    probe = "__row_bot_keyring_probe__"
     try:
         set_secret(probe, "ok", namespace="health")
         ok = get_secret(probe, namespace="health") == "ok"

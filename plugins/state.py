@@ -1,8 +1,8 @@
 """Plugin state persistence — enable/disable, config, and secrets.
 
-Stores plugin state in ``~/.thoth/plugin_state.json``. Plugin secrets are
+Stores plugin state in ``~/.row-bot/plugin_state.json``. Plugin secrets are
 stored in the OS keyring when available, with metadata in
-``~/.thoth/plugin_secrets.json``.
+``~/.row-bot/plugin_secrets.json``.
 
 This module is the ONLY place plugin state is read/written.
 """
@@ -18,10 +18,11 @@ from datetime import datetime, timezone
 from typing import Any
 
 import secret_store
+from data_paths import get_row_bot_data_dir
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR = pathlib.Path(os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth"))
+DATA_DIR = get_row_bot_data_dir()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 _STATE_PATH = DATA_DIR / "plugin_state.json"

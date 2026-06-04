@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # =============================================================================
-# build_mac_release.sh — Package Thoth into a distributable macOS zip
+# build_mac_release.sh â€” Package Row-Bot into a distributable macOS zip
 #
-# Creates:  installer/Thoth-<version>-macOS.zip
+# Creates:  installer/Row-Bot-<version>-macOS.zip
 #
-# The zip contains the full project directory with "Start Thoth.command"
+# The zip contains the full project directory with "Start Row-Bot.command"
 # at the top level.  Users unzip, double-click the .command file, and
 # everything is installed automatically.
 #
@@ -24,7 +24,7 @@ print(ns.get('__version__', '0.0.0'))
 PY
 )"
 VERSION="${1:-$DEFAULT_VERSION}"
-OUTPUT_NAME="Thoth-${VERSION}-macOS"
+OUTPUT_NAME="Row-Bot-${VERSION}-macOS"
 OUTPUT_ZIP="${OUTPUT_DIR:-$SCRIPT_DIR}/${OUTPUT_NAME}.zip"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'
@@ -35,13 +35,13 @@ ok()    { echo -e "${GREEN}[  OK]${NC}  $*"; }
 
 echo ""
 echo -e "${BOLD}============================================${NC}"
-echo -e "${BOLD} 𓂀  Build Thoth macOS Release Zip${NC}"
+echo -e "${BOLD} ð“‚€  Build Row-Bot macOS Release Zip${NC}"
 echo -e "${BOLD}============================================${NC}"
 echo ""
 
-# ── Sanity checks ───────────────────────────────────────────────────────────
-if [ ! -f "$PROJECT_DIR/Start Thoth.command" ]; then
-    echo -e "${RED}[FAIL]${NC}  Start Thoth.command not found at project root."
+# â”€â”€ Sanity checks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+if [ ! -f "$PROJECT_DIR/Start Row-Bot.command" ]; then
+    echo -e "${RED}[FAIL]${NC}  Start Row-Bot.command not found at project root."
     exit 1
 fi
 
@@ -50,16 +50,16 @@ if [ ! -f "$PROJECT_DIR/requirements.txt" ]; then
     exit 1
 fi
 
-# ── Ensure shell scripts are executable ─────────────────────────────────────
-chmod +x "$PROJECT_DIR/Start Thoth.command"
-chmod +x "$PROJECT_DIR/installer/Thoth.app/Contents/MacOS/thoth" 2>/dev/null || true
+# â”€â”€ Ensure shell scripts are executable â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+chmod +x "$PROJECT_DIR/Start Row-Bot.command"
+chmod +x "$PROJECT_DIR/installer/Row-Bot.app/Contents/MacOS/row-bot" 2>/dev/null || true
 find "$PROJECT_DIR/installer" -name "*.sh" -exec chmod +x {} \;
 
-# ── Build zip ───────────────────────────────────────────────────────────────
+# â”€â”€ Build zip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 info "Building zip archive (excluding dev/runtime files)..."
 
-# Create a staging directory named "Thoth" so the zip extracts to Thoth/
-STAGING="$(mktemp -d)/Thoth"
+# Create a staging directory named "Row-Bot" so the zip extracts to Row-Bot/
+STAGING="$(mktemp -d)/Row-Bot"
 rsync -a --exclude='.venv' \
          --exclude='.venv-linux' \
          --exclude='__pycache__' \
@@ -95,18 +95,18 @@ rsync -a --exclude='.venv' \
 rm -f "$OUTPUT_ZIP"
 
 cd "$(dirname "$STAGING")"
-zip -r "$OUTPUT_ZIP" "Thoth"
+zip -r "$OUTPUT_ZIP" "Row-Bot"
 rm -rf "$STAGING"
 
-# ── Summary ─────────────────────────────────────────────────────────────────
+# â”€â”€ Summary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 ZIP_SIZE=$(du -h "$OUTPUT_ZIP" | cut -f1)
 ok "Created $OUTPUT_ZIP ($ZIP_SIZE)"
 
 echo ""
 echo "  Contents:"
-echo "    • Start Thoth.command   (double-click to install & launch)"
-echo "    • Source files, requirements.txt, tools/, channels/"
-echo "    • installer/Thoth.app/  (template, copied to /Applications at install)"
+echo "    â€¢ Start Row-Bot.command   (double-click to install & launch)"
+echo "    â€¢ Source files, requirements.txt, tools/, channels/"
+echo "    â€¢ installer/Row-Bot.app/  (template, copied to /Applications at install)"
 echo ""
 echo "  Upload this zip to GitHub Releases for distribution."
 echo ""

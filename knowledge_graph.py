@@ -44,6 +44,8 @@ import threading
 import networkx as nx
 import numpy as np
 
+from data_paths import get_row_bot_data_dir
+
 logger = logging.getLogger(__name__)
 
 # Lock protecting FAISS index reads/writes — FAISS is not thread-safe
@@ -127,9 +129,7 @@ def extract_json_block(text: str, bracket: str = "[") -> str | None:
     return None  # unbalanced brackets
 
 # ── Data directory ───────────────────────────────────────────────────────────
-_DATA_DIR = pathlib.Path(
-    os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")
-)
+_DATA_DIR = get_row_bot_data_dir()
 _DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 DB_PATH = str(_DATA_DIR / "memory.db")

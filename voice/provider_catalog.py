@@ -64,7 +64,7 @@ def build_voice_provider_catalog(
                 provider_id="local",
                 capability="talk",
                 is_default=True,
-                reason="Microphone transcription, then normal Thoth agent handling.",
+                reason="Microphone transcription, then normal Row-Bot agent handling.",
             ),
         ),
         dictation_models=(
@@ -109,7 +109,7 @@ def build_voice_provider_catalog(
                 capability="talk",
                 is_default=True,
                 ready=realtime_status.ready,
-                reason="Realtime voice-agent session routed through the Thoth consult/control bridge.",
+                reason="Realtime voice-agent session routed through the Row-Bot consult/control bridge.",
             ),
         ),
         default_talk_model=DEFAULT_REALTIME_MODEL,

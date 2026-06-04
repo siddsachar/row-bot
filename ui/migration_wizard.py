@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, Callable
 
+from brand import APP_DISPLAY_NAME
+from data_paths import get_row_bot_data_dir
 from nicegui import run, ui
 
 from migration import (
@@ -53,10 +54,10 @@ DEFAULT_EXPANDED_CATEGORIES = (
 )
 
 WIZARD_FLOW_STEPS = (
-    "Choose the agent to migrate from, then pick the old agent folder and the Thoth target folder.",
+    f"Choose the agent to migrate from, then pick the old agent folder and the {APP_DISPLAY_NAME} target folder.",
     "Run a read-only scan. This only builds a preview; it does not write to either folder.",
     "Review what will migrate, what is skipped, what is archive-only, and which files conflict.",
-    "Confirm and apply selected items. Thoth writes backups and a redacted migration report.",
+    f"Confirm and apply selected items. {APP_DISPLAY_NAME} writes backups and a redacted migration report.",
 )
 
 WIZARD_STEP_TITLES = (
@@ -66,9 +67,9 @@ WIZARD_STEP_TITLES = (
 )
 
 FIELD_HELP = {
-    "provider": "Choose the app you are migrating from. Thoth uses this to look for the right files and folders.",
-    "source": "The old Hermes/OpenClaw home folder. Thoth reads from this folder during scan and apply.",
-    "target": "The Thoth data folder to write into. For tests, use a disposable target folder instead of your real Thoth profile.",
+    "provider": f"Choose the app you are migrating from. {APP_DISPLAY_NAME} uses this to look for the right files and folders.",
+    "source": f"The old Hermes/OpenClaw home folder. {APP_DISPLAY_NAME} reads from this folder during scan and apply.",
+    "target": f"The {APP_DISPLAY_NAME} data folder to write into. For tests, use a disposable target folder instead of your real {APP_DISPLAY_NAME} profile.",
     "secrets": "Off by default. Turn on only when you intentionally want to copy API keys or tokens into the target.",
     "overwrite": "Off by default. Conflicting files stay unselected unless this is enabled; selected conflicts are backed up before replacement.",
     "confirm": "Required before apply so preview review stays separate from writing files.",
@@ -81,7 +82,7 @@ def friendly_warning_text(warning: str) -> str:
     if "secret" in normalized:
         return "API keys or tokens were found, but they are not selected by default. Turn on Include API keys and tokens in step 1 only if you want to copy them."
     if "archive-only" in normalized:
-        return "Some source files are kept for reference only. Thoth will copy them into the migration report, not activate them in your live setup."
+        return f"Some source files are kept for reference only. {APP_DISPLAY_NAME} will copy them into the migration report, not activate them in your live setup."
     if "conflicting target" in normalized or "conflict" in normalized:
         return "Some target files already exist. Leave overwrite off to skip them, or turn overwrite on after reviewing what will be replaced."
     return text
@@ -115,13 +116,13 @@ def category_warning_texts(
         elif any(item.status == MigrationStatus.SENSITIVE for item in items):
             messages.append("API keys or tokens are selected. Review them carefully; migration reports will hide their values.")
     if category_value == MigrationCategory.ARCHIVE.value and any(item.is_archive_only for item in items):
-        messages.append("These files are kept for reference only. Thoth copies them into the migration report, not into the live setup.")
+        messages.append(f"These files are kept for reference only. {APP_DISPLAY_NAME} copies them into the migration report, not into the live setup.")
     if category_value == MigrationCategory.MCP.value:
-        messages.append("MCP servers stay disabled after import until you review and enable them in Thoth.")
+        messages.append(f"MCP servers stay disabled after import until you review and enable them in {APP_DISPLAY_NAME}.")
     if category_value in {MigrationCategory.CHANNELS.value, MigrationCategory.SETTINGS.value} and any(
         item.status == MigrationStatus.SKIPPED and item.requires_confirmation for item in items
     ):
-        messages.append("These settings need manual review before Thoth can safely activate them.")
+        messages.append(f"These settings need manual review before {APP_DISPLAY_NAME} can safely activate them.")
     return tuple(dict.fromkeys(messages))
 
 
@@ -138,7 +139,7 @@ def field_help_text(key: str) -> str:
 
 
 def default_thoth_data_dir() -> Path:
-    return Path(os.environ.get("THOTH_DATA_DIR") or Path.home() / ".thoth").expanduser()
+    return get_row_bot_data_dir(create=False)
 
 
 def default_source_dir(provider: str) -> Path:
@@ -250,7 +251,7 @@ def build_migration_wizard_tab(reopen: Callable[[str], None] | None = None) -> N
     }
 
     ui.label("Migration Wizard").classes("text-h6")
-    ui.label("Move selected identity, memory, skills, model settings, and reviewed credentials into Thoth with a scan-first apply flow.").classes("text-body2 text-grey-6")
+    ui.label(f"Move selected identity, memory, skills, model settings, and reviewed credentials into {APP_DISPLAY_NAME} with a scan-first apply flow.").classes("text-body2 text-grey-6")
 
     provider = None
     source_path = None
@@ -273,7 +274,7 @@ def build_migration_wizard_tab(reopen: Callable[[str], None] | None = None) -> N
     async def _browse_target() -> None:
         from ui.helpers import browse_folder
 
-        picked = await browse_folder("Select Thoth data folder", str(target_path.value or default_thoth_data_dir()))
+        picked = await browse_folder(f"Select {APP_DISPLAY_NAME} data folder", str(target_path.value or default_thoth_data_dir()))
         if picked:
             target_path.value = picked
 
@@ -502,9 +503,9 @@ def build_migration_wizard_tab(reopen: Callable[[str], None] | None = None) -> N
             ui.label(field_help_text("source")).classes("text-caption text-grey-6")
             ui.button("Browse old agent folder", icon="folder_open", on_click=_browse_source).props("flat dense")
 
-            target_path = ui.input("Thoth target data folder", value=str(default_thoth_data_dir())).classes("w-full q-mt-sm")
+            target_path = ui.input(f"{APP_DISPLAY_NAME} target data folder", value=str(default_thoth_data_dir())).classes("w-full q-mt-sm")
             ui.label(field_help_text("target")).classes("text-caption text-grey-6")
-            ui.button("Browse Thoth target folder", icon="folder_open", on_click=_browse_target).props("flat dense")
+            ui.button(f"Browse {APP_DISPLAY_NAME} target folder", icon="folder_open", on_click=_browse_target).props("flat dense")
 
             include_secrets = ui.checkbox("Include API keys and tokens", value=False).classes("q-mt-sm")
             ui.label(field_help_text("secrets")).classes("text-caption text-grey-6 q-ml-md")

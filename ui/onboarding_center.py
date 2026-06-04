@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+from brand import APP_DISPLAY_NAME
 from nicegui import ui
 
 from ui.onboarding_state import (
@@ -103,7 +104,7 @@ def show_setup_center(
                 with ui.column().classes("gap-0"):
                     ui.label("Setup Center").classes("text-h4 text-weight-medium")
                     ui.label(
-                        "Finish the parts of Thoth you want now. Everything here is optional after model setup."
+                        f"Finish the parts of {APP_DISPLAY_NAME} you want now. Everything here is optional after model setup."
                     ).classes("text-grey-6 text-sm")
                 ui.button(icon="close", on_click=dialog.close).props("flat round size=sm")
 

@@ -24,13 +24,13 @@ from typing import Optional
 
 import yaml
 
+from data_paths import get_row_bot_data_dir
+
 logger = logging.getLogger(__name__)
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 
-DATA_DIR = pathlib.Path(
-    os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")
-)
+DATA_DIR = get_row_bot_data_dir()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 USER_SKILLS_DIR = DATA_DIR / "skills"

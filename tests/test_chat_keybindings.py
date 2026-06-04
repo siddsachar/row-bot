@@ -53,7 +53,7 @@ def test_talk_provider_selection_wires_realtime_without_third_mode():
         assert "start_realtime_talk" in source
         assert "start_realtime_client_js" in source
         assert "realtime_fallback_to_local" in source
-        assert "thoth-realtime-event" in source
+        assert "row-bot-realtime-event" in source
         assert "make_realtime_event_handler" in source
 
     events_src = (ROOT / "ui" / "voice_realtime_events.py").read_text(encoding="utf-8")
@@ -232,8 +232,8 @@ def test_realtime_voice_uses_guarded_progress_cues_during_thoth_stream():
     assert "tool_progress_cue" in streaming_src
     assert "results_found_cue" in streaming_src
     assert 'mark_realtime_latency("first_token")' in streaming_src
-    assert 'mark_realtime_latency("thoth_tool_started")' in streaming_src
-    assert 'mark_realtime_latency("thoth_tool_done")' in streaming_src
+    assert 'mark_realtime_latency("row_bot_tool_started")' in streaming_src
+    assert 'mark_realtime_latency("row_bot_tool_done")' in streaming_src
     assert "RealtimeSpeechQueue" in streaming_src
     assert "realtime_stream_chunk_queued" in streaming_src
     assert "realtime_stream_chunk_flushed" in streaming_src
@@ -241,8 +241,8 @@ def test_realtime_voice_uses_guarded_progress_cues_during_thoth_stream():
     assert "realtime_function_output_silent_after_stream" in streaming_src
     assert 'allow_long=gen.tts_allow_long or state.voice_coordinator.transport == "realtime"' in streaming_src
     assert "spoken_stream_chars" in presenter_src
-    assert "Speak this Thoth response naturally and faithfully" in client_src
-    assert "Speak exactly this brief Thoth status" in client_src
+    assert "Speak this Row-Bot response naturally and faithfully" in client_src
+    assert "Speak exactly this brief Row-Bot status" in client_src
 
 
 def test_realtime_browser_event_logging_is_not_duplicated_for_ordinary_events():

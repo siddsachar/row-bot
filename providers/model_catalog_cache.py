@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import pathlib
 import threading
 import time
@@ -10,11 +9,13 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Iterable
 
+from data_paths import get_row_bot_data_dir
+
 logger = logging.getLogger(__name__)
 
 CACHE_VERSION = 1
 CATALOG_CACHE_TTL_SECONDS = 6 * 60 * 60
-_DATA_DIR = pathlib.Path(os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth"))
+_DATA_DIR = get_row_bot_data_dir()
 CATALOG_CACHE_PATH = _DATA_DIR / "model_catalog_cache.json"
 
 _refresh_lock = threading.Lock()

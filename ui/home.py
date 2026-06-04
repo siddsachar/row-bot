@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime
 from typing import Callable
 
+from brand import APP_BRAND_ACCENT_RGB, APP_DISPLAY_NAME
 from nicegui import run, ui
 
 from ui.state import AppState, P
@@ -37,7 +38,7 @@ def _task_read_unavailable(exc: Exception) -> None:
             with ui.column().classes("gap-1").style("min-width: 0;"):
                 ui.label("Workflow data unavailable").classes("text-subtitle2")
                 ui.label(
-                    "Thoth tried to repair the task database. "
+                    f"{APP_DISPLAY_NAME} tried to repair the task database. "
                     "Restart once, or run launcher.py --reset-tasks-db if this persists."
                 ).classes("text-grey-5 text-sm")
 
@@ -73,7 +74,7 @@ def build_home(
 
     # ── Tab toggle ───────────────────────────────────────────────────
     with ui.tabs().classes("w-full shrink-0").props(
-        "no-caps inline-label active-color=amber indicator-color=amber "
+        "no-caps inline-label active-color=primary indicator-color=primary "
         "align=center"
     ).style("border-bottom: 1px solid rgba(255,255,255,0.08);") as home_tabs:
         tasks_tab = ui.tab("Workflows", icon="bolt")
@@ -96,7 +97,7 @@ def build_home(
 
     def _render_lazy_placeholder(label: str) -> None:
         with ui.column().classes("w-full h-full items-center justify-center gap-2"):
-            ui.spinner(size="lg", color="amber")
+            ui.spinner(size="lg", color="primary")
             ui.label(f"Loading {label}...").classes("text-grey-5 text-sm")
 
     def _load_home_tab(name: str) -> None:
@@ -110,7 +111,7 @@ def build_home(
         if e.value == 'Knowledge':
             ui.run_javascript(
                 'setTimeout(function() {'
-                '  if (window.thothGraphRedraw) window.thothGraphRedraw();'
+                '  if (window.rowBotGraphRedraw) window.rowBotGraphRedraw();'
                 '}, 50);'
             )
 
@@ -162,14 +163,14 @@ def build_home(
                         and not _setup_progress["dismissed_home_card"]
                     ):
                         with ui.card().classes("w-full q-pa-md").style(
-                            "border: 1px solid rgba(96, 165, 250, 0.28);"
-                            "background: rgba(59, 130, 246, 0.08);"
+                            f"border: 1px solid rgba({APP_BRAND_ACCENT_RGB}, 0.32);"
+                            f"background: rgba({APP_BRAND_ACCENT_RGB}, 0.10);"
                             "border-radius: 8px;"
                         ):
                             with ui.row().classes("w-full items-center gap-3 no-wrap"):
                                 ui.icon("waving_hand").classes("text-blue-3")
                                 with ui.column().classes("gap-0").style("min-width: 0; flex: 1;"):
-                                    ui.label("Finish setting up Thoth").classes("text-subtitle2")
+                                    ui.label(f"Finish setting up {APP_DISPLAY_NAME}").classes("text-subtitle2")
                                     ui.label(
                                         f"{_setup_progress['done']} of {_setup_progress['total']} setup areas handled. "
                                         "You can resume anytime from the hello button in the sidebar."
@@ -375,7 +376,7 @@ def build_home(
                             _wf_select_btn.on("click", _toggle_wf_select)
                         ui.button("New Workflow", icon="add", on_click=lambda: show_task_dialog(
                             None, _refresh_home_tiles,
-                        )).props("outline dense no-caps color=amber").style(
+                        )).props("outline dense no-caps color=primary").style(
                             "font-weight: 600; font-size: 0.95rem;"
                         )
 

@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Callable
 
+from brand import APP_BRAND_ACCENT
 from nicegui import ui
 from ui.timer_utils import defer_ui, safe_timer
 
@@ -24,7 +25,7 @@ _COMMAND_CENTER_CONFIG_KEY = "workflow_console_collapsed"
 
 _COMMAND_CENTER_CSS = """
 <style>
-.thoth-command-center-drawer {
+.row-bot-command-center-drawer {
     transition: width 180ms ease, max-width 180ms ease;
     overflow: hidden;
 }
@@ -45,7 +46,7 @@ _COMMAND_CENTER_CSS = """
     width: 42px;
     height: 42px;
     border: 1px solid rgba(255, 215, 0, 0.28);
-    color: #ffd54f;
+    color: __ROW_BOT_BRAND_ACCENT__;
     background: rgba(255, 215, 0, 0.08);
 }
 .workflow-console-rail-label {
@@ -99,14 +100,15 @@ _COMMAND_CENTER_CSS = """
 .workflow-console-scroll {
     width: 100%;
 }
-.thoth-command-center-drawer.workflow-console-collapsed .workflow-console-rail {
+.row-bot-command-center-drawer.workflow-console-collapsed .workflow-console-rail {
     display: flex;
 }
-.thoth-command-center-drawer.workflow-console-collapsed .workflow-console-scroll {
+.row-bot-command-center-drawer.workflow-console-collapsed .workflow-console-scroll {
     display: none;
 }
 </style>
 """
+_COMMAND_CENTER_CSS = _COMMAND_CENTER_CSS.replace("__ROW_BOT_BRAND_ACCENT__", APP_BRAND_ACCENT)
 
 
 def _load_command_center_collapsed() -> bool:
@@ -233,7 +235,7 @@ def build_command_center(
 
     with ui.right_drawer(value=True, fixed=True).style(
         f"width: {_drawer_width()}px; padding: 0; position: relative;"
-    ).classes("thoth-panel-card thoth-command-center-drawer").props(
+    ).classes("row-bot-panel-card row-bot-command-center-drawer").props(
         f"no-swipe-open no-swipe-close width={_drawer_width()}"
     ) as drawer:
         drawer._props["data-workflow-console-drawer"] = "1"
@@ -327,12 +329,12 @@ def build_command_center(
           with ui.column().classes("w-full gap-2").style(
               "overflow: hidden; padding: 6px 8px;"
           ):
-            with ui.column().classes("w-full gap-2 thoth-inner-panel"):
+            with ui.column().classes("w-full gap-2 row-bot-inner-panel"):
                 with ui.row().classes("w-full items-start justify-between no-wrap"):
                     with ui.column().classes("gap-0"):
                         ui.label("Workflow Console").classes(
                             "text-subtitle1 font-bold"
-                        ).style("color: gold; letter-spacing: 0.5px;")
+                        ).style(f"color: {APP_BRAND_ACCENT}; letter-spacing: 0.5px;")
                         ui.label(
                             "Background Agents"
                         ).classes("text-xs text-grey-6").style(
@@ -341,7 +343,7 @@ def build_command_center(
                     ui.button(icon="chevron_right", on_click=_toggle_drawer).props(
                         "round flat dense"
                     ).tooltip("Collapse workflow console").style(
-                        "color: #ffd54f; margin-top: -2px;"
+                        f"color: {APP_BRAND_ACCENT}; margin-top: -2px;"
                     )
 
                 # ════════════════════════════════════════════════════
@@ -425,7 +427,7 @@ def build_command_center(
                                     value=(step + 1) / total,
                                     show_value=False
                                 ).classes("flex-grow").props(
-                                    "color=amber"
+                                    "color=primary"
                                 ).style("height: 4px;")
                                 if started:
                                     ui.label(_elapsed(started)).classes(
@@ -811,7 +813,7 @@ def build_command_center(
                                 icon="refresh", on_click=_retry
                             ).props(
                                 "round flat dense size=xs"
-                            ).style("color: #f0c040;").tooltip("Retry").on(
+                            ).style(f"color: {APP_BRAND_ACCENT};").tooltip("Retry").on(
                                 "click",
                                 js_handler="(e) => e.stopPropagation()",
                             )
@@ -822,7 +824,7 @@ def build_command_center(
             # ════════════════════════════════════════════════════
             # §6  INSIGHTS  (separate inner panel)
             # ════════════════════════════════════════════════════
-            with ui.column().classes("w-full gap-2 thoth-inner-panel"):
+            with ui.column().classes("w-full gap-2 row-bot-inner-panel"):
                 _insights_container = ui.column().classes("w-full gap-0")
 
                 def _rebuild_insights() -> None:
@@ -936,7 +938,7 @@ def build_command_center(
                             if is_pinned:
                                 ui.icon(
                                     "push_pin", size="xs"
-                                ).classes("text-amber")
+                                ).classes("text-primary")
 
                         # Body
                         if body:
@@ -983,7 +985,7 @@ def build_command_center(
                                     "Unpin", on_click=_unpin
                                 ).props(
                                     "flat dense no-caps size=xs"
-                                ).style("color: #f0c040;")
+                                ).style(f"color: {APP_BRAND_ACCENT};")
                             else:
                                 def _pin(i=iid):
                                     pin_insight(i)
@@ -994,7 +996,7 @@ def build_command_center(
                                     "Pin", on_click=_pin
                                 ).props(
                                     "flat dense no-caps size=xs"
-                                ).style("color: #f0c040;")
+                                ).style(f"color: {APP_BRAND_ACCENT};")
 
                             # Investigate — opens chat with context
                             def _investigate(

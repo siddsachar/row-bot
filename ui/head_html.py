@@ -6,6 +6,7 @@ vis-network, and custom Thoth styles/scripts.
 
 from __future__ import annotations
 
+from brand import APP_BRAND_ACCENT
 from nicegui import ui
 
 HEAD_HTML = """\
@@ -25,8 +26,8 @@ mermaid.initialize({
 </script>
 <script>
 (function() {
-  if (window.__thothClientErrorReporterInstalled) return;
-  window.__thothClientErrorReporterInstalled = true;
+  if (window.__rowBotClientErrorReporterInstalled) return;
+  window.__rowBotClientErrorReporterInstalled = true;
   function report(kind, payload) {
     try {
       var body = Object.assign({
@@ -43,7 +44,7 @@ mermaid.initialize({
       }).catch(function() {});
     } catch (err) {}
   }
-  window.thothReportClientEvent = report;
+  window.rowBotReportClientEvent = report;
   window.addEventListener('error', function(event) {
     report('error', {
       message: event.message || '',
@@ -93,33 +94,33 @@ mermaid.initialize({
 </script>
 <script>
 (function() {
-  if (window.__thothCodeHighlighterInstalled) return;
-  window.__thothCodeHighlighterInstalled = true;
+  if (window.__rowBotCodeHighlighterInstalled) return;
+  window.__rowBotCodeHighlighterInstalled = true;
   var _highlightTimer = null;
   function highlightCodeBlocks() {
     if (typeof hljs === 'undefined') return;
     document.querySelectorAll('pre code:not([data-highlighted="yes"])').forEach(function(el) {
-      if (el.closest('.thoth-live-stream')) return;
+      if (el.closest('.row-bot-live-stream')) return;
       try { hljs.highlightElement(el); } catch (err) {}
     });
   }
-  window.thothHighlightCodeBlocks = function() {
+  window.rowBotHighlightCodeBlocks = function() {
     clearTimeout(_highlightTimer);
     _highlightTimer = setTimeout(function() {
       requestAnimationFrame(highlightCodeBlocks);
     }, 80);
   };
   new MutationObserver(function() {
-    window.thothHighlightCodeBlocks();
+    window.rowBotHighlightCodeBlocks();
   }).observe(document.documentElement, {childList: true, subtree: true});
-  window.addEventListener('load', window.thothHighlightCodeBlocks);
-  window.thothHighlightCodeBlocks();
+  window.addEventListener('load', window.rowBotHighlightCodeBlocks);
+  window.rowBotHighlightCodeBlocks();
 })();
 </script>
 <script>
 (function() {
   var _mermaidTimer = null;
-  window.thothNormalizeMermaidDiagrams = function(root) {
+  window.rowBotNormalizeMermaidDiagrams = function(root) {
     root = root || document;
     Array.from(root.querySelectorAll('.mermaid-rendered svg')).forEach(function(svg) {
       try {
@@ -139,25 +140,25 @@ mermaid.initialize({
       } catch (err) {}
     });
   };
-  window.thothRenderMermaidDiagrams = function(root) {
+  window.rowBotRenderMermaidDiagrams = function(root) {
     if (typeof mermaid === 'undefined') return;
     root = root || document;
     var nodes = Array.from(root.querySelectorAll('pre.mermaid')).filter(function(node) {
-      return !node.closest('.thoth-live-stream');
+      return !node.closest('.row-bot-live-stream');
     });
     if (!nodes.length) return;
     return Promise.resolve(mermaid.run({nodes: nodes, suppressErrors: true})).then(function() {
-      requestAnimationFrame(function() { window.thothNormalizeMermaidDiagrams(root); });
+      requestAnimationFrame(function() { window.rowBotNormalizeMermaidDiagrams(root); });
     }).catch(function() {});
   };
   new MutationObserver(function() {
     var nodes = Array.from(document.querySelectorAll('pre.mermaid')).filter(function(node) {
-      return !node.closest('.thoth-live-stream');
+      return !node.closest('.row-bot-live-stream');
     });
     if (nodes.length > 0) {
       clearTimeout(_mermaidTimer);
       _mermaidTimer = setTimeout(function() {
-        window.thothRenderMermaidDiagrams(document);
+        window.rowBotRenderMermaidDiagrams(document);
       }, 150);
     }
   }).observe(document.documentElement, {childList: true, subtree: true});
@@ -169,65 +170,65 @@ mermaid.initialize({
     /* Chat messages must never produce a horizontal scroll bar — on
        narrow windows / small panes the content wraps instead. Long
        unbreakable tokens (URLs, CJK, code) break anywhere. */
-    .thoth-msg pre,
-    .thoth-msg-body pre {
+    .row-bot-msg pre,
+    .row-bot-msg-body pre {
         white-space: pre-wrap;
         word-break: break-word;
         overflow-wrap: anywhere;
         overflow-x: hidden;
         max-width: 100%;
     }
-    .thoth-msg code,
-    .thoth-msg-body code {
+    .row-bot-msg code,
+    .row-bot-msg-body code {
         white-space: pre-wrap;
         overflow-wrap: anywhere;
         word-break: break-word;
     }
-    .thoth-msg a { color: #64b5f6; overflow-wrap: anywhere; word-break: break-word; }
-    .thoth-msg a:hover { text-decoration: underline; }
+    .row-bot-msg a { color: #64b5f6; overflow-wrap: anywhere; word-break: break-word; }
+    .row-bot-msg a:hover { text-decoration: underline; }
     /* Tables inside messages: scroll within a container rather than
        stretch the outer chat column. */
-    .thoth-msg-body table {
+    .row-bot-msg-body table {
         display: block;
         max-width: 100%;
         overflow-x: auto;
     }
-    .thoth-msg-body img,
-    .thoth-msg-body video,
-    .thoth-msg-body iframe {
+    .row-bot-msg-body img,
+    .row-bot-msg-body video,
+    .row-bot-msg-body iframe {
         max-width: 100%;
         height: auto;
     }
     /* Designer-pane chat bubbles use a different class but need the
        same horizontal-scroll protection on narrow panes. */
-    .thoth-designer-bubble,
-    .thoth-designer-bubble * {
+    .row-bot-designer-bubble,
+    .row-bot-designer-bubble * {
         min-width: 0;
         max-width: 100%;
     }
-    .thoth-designer-bubble pre,
-    .thoth-designer-bubble code {
+    .row-bot-designer-bubble pre,
+    .row-bot-designer-bubble code {
         white-space: pre-wrap;
         word-break: break-word;
         overflow-wrap: anywhere;
         overflow-x: hidden;
     }
-    .thoth-designer-bubble table {
+    .row-bot-designer-bubble table {
         display: block;
         max-width: 100%;
         overflow-x: auto;
     }
-    .thoth-msg-row {
+    .row-bot-msg-row {
         display: flex;
         gap: 0.75rem;
         padding: 0.75rem 0.5rem;
         width: 100%;
         border-radius: 8px;
     }
-    .thoth-msg-row-user {
+    .row-bot-msg-row-user {
         background: rgba(255, 255, 255, 0.04);
     }
-    .thoth-avatar {
+    .row-bot-avatar {
         width: 36px;
         height: 36px;
         min-width: 36px;
@@ -238,33 +239,33 @@ mermaid.initialize({
         font-size: 1.1rem;
         margin-top: 2px;
     }
-    .thoth-avatar-user { background: #1976d2; color: white; }
-    .thoth-avatar-bot { background: #37474f; color: gold !important; }
-    .thoth-avatar img {
+    .row-bot-avatar-user { background: #1976d2; color: white; }
+    .row-bot-avatar-bot { background: #37474f; color: __ROW_BOT_BRAND_ACCENT__ !important; }
+    .row-bot-avatar img {
         width: 100%; height: 100%;
         object-fit: cover;
         border-radius: 50%;
     }
-    .thoth-msg-header {
+    .row-bot-msg-header {
         display: flex !important;
         align-items: baseline;
         gap: 0.5rem;
     }
-    .thoth-msg-name {
+    .row-bot-msg-name {
         font-weight: 600;
         font-size: 0.9rem;
         color: #e0e0e0;
     }
-    /* Bot name = gold */
-    .thoth-msg-row:not(.thoth-msg-row-user) .thoth-msg-name {
-        color: gold !important;
+    /* Bot name = brand accent */
+    .row-bot-msg-row:not(.row-bot-msg-row-user) .row-bot-msg-name {
+        color: __ROW_BOT_BRAND_ACCENT__ !important;
     }
-    .thoth-msg-stamp {
+    .row-bot-msg-stamp {
         font-size: 0.7rem;
         color: #888;
         margin-left: 0.5rem;
     }
-    .thoth-msg-body {
+    .row-bot-msg-body {
         flex: 1;
         min-width: 0;
         overflow: hidden;
@@ -276,29 +277,29 @@ mermaid.initialize({
         user-select: text;
         cursor: default;
     }
-    .thoth-msg-body .thoth-msg,
-    .thoth-msg-body p,
-    .thoth-msg-body li,
-    .thoth-msg-body td,
-    .thoth-msg-body th,
-    .thoth-msg-body span:not(.thoth-msg-name):not(.thoth-msg-stamp) {
+    .row-bot-msg-body .row-bot-msg,
+    .row-bot-msg-body p,
+    .row-bot-msg-body li,
+    .row-bot-msg-body td,
+    .row-bot-msg-body th,
+    .row-bot-msg-body span:not(.row-bot-msg-name):not(.row-bot-msg-stamp) {
         cursor: text;
     }
-    .thoth-msg-body .nicegui-code pre {
+    .row-bot-msg-body .nicegui-code pre {
         white-space: pre-wrap;
         word-break: break-all;
     }
-    .thoth-typing .dots span {
+    .row-bot-typing .dots span {
         animation: tblink 1.4s infinite both;
     }
-    .thoth-typing .dots span:nth-child(2) { animation-delay: 0.2s; }
-    .thoth-typing .dots span:nth-child(3) { animation-delay: 0.4s; }
+    .row-bot-typing .dots span:nth-child(2) { animation-delay: 0.2s; }
+    .row-bot-typing .dots span:nth-child(3) { animation-delay: 0.4s; }
     @keyframes tblink {
         0%, 80%, 100% { opacity: 0; }
         40% { opacity: 1; }
     }
-    @keyframes thoth-spin { to { transform: rotate(360deg); } }
-    .thoth-spin { animation: thoth-spin 1s linear infinite; }
+    @keyframes row-bot-spin { to { transform: rotate(360deg); } }
+    .row-bot-spin { animation: row-bot-spin 1s linear infinite; }
     .mermaid-rendered {
         width: 100%;
         max-width: 100%;
@@ -342,15 +343,15 @@ document.addEventListener('click', function(e) {
     }
 });
 
-window.__thothManagedWindows = window.__thothManagedWindows || {};
+window.__rowBotManagedWindows = window.__rowBotManagedWindows || {};
 
-window.thothOpenManagedWindow = async function(options) {
+window.rowBotOpenManagedWindow = async function(options) {
     options = options || {};
     var rawUrl = options.url || '';
     if (!rawUrl) return false;
 
     var name = options.name || '_blank';
-    var title = options.title || 'Thoth';
+    var title = options.title || 'Row-Bot';
     var width = Number(options.width || 1600);
     var height = Number(options.height || 900);
     var href = new URL(rawUrl, window.location.origin).href;
@@ -365,7 +366,7 @@ window.thothOpenManagedWindow = async function(options) {
     }
 
     try {
-        var existing = window.__thothManagedWindows[name];
+        var existing = window.__rowBotManagedWindows[name];
         if (existing && !existing.closed) {
             existing.location.href = href;
             if (existing.focus) existing.focus();
@@ -384,7 +385,7 @@ window.thothOpenManagedWindow = async function(options) {
     ].join(',');
     var opened = window.open(href, name, features);
     if (!opened) return false;
-    window.__thothManagedWindows[name] = opened;
+    window.__rowBotManagedWindows[name] = opened;
     try {
         if (opened.focus) opened.focus();
     } catch (err) {
@@ -393,7 +394,7 @@ window.thothOpenManagedWindow = async function(options) {
     return true;
 };
 
-window.thothCloseManagedWindow = async function(name) {
+window.rowBotCloseManagedWindow = async function(name) {
     if (!name) return false;
 
     if (window.pywebview && window.pywebview.api && window.pywebview.api.close_window) {
@@ -406,11 +407,11 @@ window.thothCloseManagedWindow = async function(name) {
     }
 
     try {
-        var existing = window.__thothManagedWindows[name];
+        var existing = window.__rowBotManagedWindows[name];
         if (existing && !existing.closed) {
             existing.close();
         }
-        delete window.__thothManagedWindows[name];
+        delete window.__rowBotManagedWindows[name];
         return true;
     } catch (err) {
         console.warn('thothCloseManagedWindow could not close browser window', err);
@@ -432,9 +433,9 @@ window.thothCloseManagedWindow = async function(name) {
             document.addEventListener('DOMContentLoaded', initThothCtx, {once:true});
             return;
         }
-        if (document.getElementById('thoth-ctx-menu')) return;
+        if (document.getElementById('row-bot-ctx-menu')) return;
         var menu = document.createElement('div');
-        menu.id = 'thoth-ctx-menu';
+        menu.id = 'row-bot-ctx-menu';
         menu.style.cssText = 'display:none; position:fixed; z-index:99999; '
             + 'background:#1e1e2e; border:1px solid #444; border-radius:6px; '
             + 'padding:4px 0; min-width:140px; box-shadow:0 4px 16px rgba(0,0,0,0.5); '
@@ -534,6 +535,7 @@ window.thothCloseManagedWindow = async function(name) {
 })();
 </script>
 """
+HEAD_HTML = HEAD_HTML.replace("__ROW_BOT_BRAND_ACCENT__", APP_BRAND_ACCENT)
 
 
 def inject_head_html() -> None:

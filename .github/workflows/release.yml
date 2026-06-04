@@ -1,21 +1,21 @@
 # =============================================================================
-# release.yml — Build Thoth installers
+# release.yml - Build Row-Bot installers
 #
 # Triggers:
-#   • Manual workflow_dispatch  → build Windows installer, build macOS installer,
+#   - Manual workflow_dispatch builds Windows installer, build macOS installer,
 #                                  and sign the macOS outputs
 #
 # Jobs:
-#   test           → run tests/test_suite.py before any installer build
-#   build-windows  → self-contained unsigned .exe (Inno Setup)
-#   build-macos    → signed .app/.pkg/.dmg (manual notarization later)
-#   build-linux    → self-contained XDG user-install tarball
+#   test           - run tests/test_suite.py before any installer build
+#   build-windows - self-contained unsigned .exe (Inno Setup)
+#   build-macos    - signed .app/.pkg/.dmg (manual notarization later)
+#   build-linux - self-contained XDG user-install tarball
 #
 # Notarization is handled by two separate manual workflows:
-#   notarize-submit.yml  — submit DMG to Apple (after testing)
-#   notarize-check.yml   — check status, staple when accepted
+#   notarize-submit.yml  - submit DMG to Apple (after testing)
+#   notarize-check.yml   - check status, staple when accepted
 #
-# Required secrets (set in repo Settings → Secrets → Actions):
+# Required secrets (set in repo Settings - Secrets - Actions):
 #   APPLE_APPLICATION_P12   Base64 of Developer ID Application .p12
 #   APPLE_INSTALLER_P12     Base64 of Developer ID Installer .p12
 #   APPLE_P12_PASSWORD      Fallback password for .p12 files
@@ -30,7 +30,7 @@
 # policy changes deliberately.
 # =============================================================================
 
-name: Release — Build & Sign Installers
+name: Release - Build & Sign Installers
 
 on:
   workflow_dispatch:
@@ -40,14 +40,14 @@ concurrency:
   cancel-in-progress: true
 
 # Tracks the version this workflow is currently shipping. Kept in sync with
-# `installer/thoth_setup.iss` (#define MyAppVersion) and `version.py`.
+# `installer/row_bot_setup.iss` (#define MyAppVersion) and `version.py`.
 env:
-  THOTH_VERSION: "3.23.1"
+  ROW_BOT_VERSION: "4.0.0"
 
 jobs:
-  # ════════════════════════════════════════════════════════════════════════════
+  # ---------------------------------------------------------------------------
   #  Run test suite before building installers
-  # ════════════════════════════════════════════════════════════════════════════
+  # ---------------------------------------------------------------------------
   test:
     runs-on: macos-latest
     timeout-minutes: 30
@@ -78,14 +78,14 @@ jobs:
         run: python -m pytest tests/test_startup_hardening.py tests/test_app_port.py tests/test_linux_support.py
 
       - name: Run focused provider model selection tests
-        run: python -m pytest tests/test_provider_catalog.py tests/test_provider_selection.py tests/test_thoth_status_media.py tests/test_provider_subscription_auth.py
+        run: python -m pytest tests/test_provider_catalog.py tests/test_provider_selection.py tests/test_row_bot_status_media.py tests/test_provider_subscription_auth.py
 
       - name: Run test suite
         run: python tests/test_suite.py
 
-  # ════════════════════════════════════════════════════════════════════════════
-  #  Build Windows installer (.exe) — self-contained
-  # ════════════════════════════════════════════════════════════════════════════
+  # ---------------------------------------------------------------------------
+  #  Build Windows installer (.exe) - self-contained
+  # ---------------------------------------------------------------------------
   build-windows:
     needs: test
     runs-on: windows-latest
@@ -107,20 +107,20 @@ jobs:
           Write-Host "Building Windows installer..."
           .\installer\build_installer.ps1
 
-      # ── Windows code signing intentionally disabled
+      # Windows code signing intentionally disabled.
       # The official Windows installer is signed locally by the maintainer with
       # Certum/SimplySign, verified with signtool, then uploaded to the release.
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v7
         with:
-          name: ThothSetup-Windows
-          path: dist/ThothSetup_*.exe
+          name: Row-Bot-Windows
+          path: dist/Row-Bot-*-Windows-*.exe
           retention-days: 90
 
-  # ════════════════════════════════════════════════════════════════════════════
-  #  Build Linux tarball — self-contained, browser/no-tray baseline
-  # ════════════════════════════════════════════════════════════════════════════
+  # ---------------------------------------------------------------------------
+  #  Build Linux tarball - self-contained, browser/no-tray baseline
+  # ---------------------------------------------------------------------------
   build-linux:
     needs: test
     runs-on: ubuntu-latest
@@ -144,44 +144,44 @@ jobs:
       - name: Build Linux package
         run: |
           chmod +x installer/build_linux_app.sh
-          ./installer/build_linux_app.sh "$THOTH_VERSION"
+          ./installer/build_linux_app.sh "$ROW_BOT_VERSION"
 
       - name: Smoke Linux package
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/thoth-linux-smoke"
-          tar -xzf dist/Thoth-*-Linux-*.tar.gz -C "$RUNNER_TEMP/thoth-linux-smoke"
-          PACKAGE_ROOT="$(find "$RUNNER_TEMP/thoth-linux-smoke" -maxdepth 1 -type d -name 'Thoth-*-Linux-*' | head -n 1)"
+          mkdir -p "$RUNNER_TEMP/row-bot-linux-smoke"
+          tar -xzf dist/Row-Bot-*-Linux-*.tar.gz -C "$RUNNER_TEMP/row-bot-linux-smoke"
+          PACKAGE_ROOT="$(find "$RUNNER_TEMP/row-bot-linux-smoke" -maxdepth 1 -type d -name 'Row-Bot-*-Linux-*' | head -n 1)"
           if [ -z "$PACKAGE_ROOT" ]; then
             echo "::error::Linux package root not found after extraction"
             exit 1
           fi
-          chmod +x "$PACKAGE_ROOT/bin/thoth"
-          export HOME="$RUNNER_TEMP/thoth-linux-home"
-          export XDG_DATA_HOME="$RUNNER_TEMP/thoth-linux-xdg"
+          chmod +x "$PACKAGE_ROOT/bin/row-bot"
+          export HOME="$RUNNER_TEMP/row-bot-linux-home"
+          export XDG_DATA_HOME="$RUNNER_TEMP/row-bot-linux-xdg"
           mkdir -p "$HOME" "$XDG_DATA_HOME"
           bash "$PACKAGE_ROOT/install.sh"
           python scripts/smoke_app.py \
             --port 8080 \
             --timeout 180 \
-            --cwd "$XDG_DATA_HOME/thoth/current/app" \
-            -- "$HOME/.local/bin/thoth"
+            --cwd "$XDG_DATA_HOME/row-bot/current/app" \
+            -- "$HOME/.local/bin/row-bot"
           python scripts/smoke_app.py \
             --port 8091 \
             --timeout 120 \
-            --cwd "$XDG_DATA_HOME/thoth/current/app" \
-            -- "$HOME/.local/bin/thoth" --server --no-open --port 8091 --no-ollama
+            --cwd "$XDG_DATA_HOME/row-bot/current/app" \
+            -- "$HOME/.local/bin/row-bot" --server --no-open --port 8091 --no-ollama
 
       - name: Upload Linux package
         uses: actions/upload-artifact@v7
         with:
-          name: Thoth-Linux
-          path: dist/Thoth-*-Linux-*.tar.gz
+          name: Row-Bot-Linux
+          path: dist/Row-Bot-*-Linux-*.tar.gz
           retention-days: 90
 
-  # ════════════════════════════════════════════════════════════════════════════
-  #  Build macOS installers (.pkg + .dmg) — signed, manual notarization later
-  # ════════════════════════════════════════════════════════════════════════════
+  # ---------------------------------------------------------------------------
+  #  Build macOS installers (.pkg + .dmg) - signed, manual notarization later
+  # ---------------------------------------------------------------------------
   build-macos:
     needs: test
     runs-on: macos-latest
@@ -194,7 +194,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # ── Import Apple certificates into a temporary keychain ────────────────
+      # Import Apple certificates into a temporary keychain.
       - name: Import Apple certificates
         env:
           APPLICATION_P12: ${{ secrets.APPLE_APPLICATION_P12 }}
@@ -351,11 +351,11 @@ jobs:
                 "$RUNNER_TEMP/DeveloperIDG2CA.import.out" \
                 "$RUNNER_TEMP/DeveloperIDG2CA.import.err"
 
-      # ── Build the self-contained .app and .pkg ─────────────────────────────
+      # Build the self-contained .app and .pkg.
       - name: Build, sign, and package
         run: |
           chmod +x installer/build_mac_app.sh
-          ./installer/build_mac_app.sh "$THOTH_VERSION"
+          ./installer/build_mac_app.sh "$ROW_BOT_VERSION"
 
       - name: Prepare signed DMG and app zip
         run: |
@@ -363,8 +363,8 @@ jobs:
 
           VERSION="$(python3 -c "from version import __version__; print(__version__)")"
           ARCH="$(uname -m)"
-          APP_PATH="installer/build/mac/Thoth.app"
-          DMG_PATH="dist/Thoth-${VERSION}-macOS-${ARCH}.dmg"
+          APP_PATH="installer/build/mac/Row-Bot.app"
+          DMG_PATH="dist/Row-Bot-${VERSION}-macOS-${ARCH}.dmg"
 
           if [ ! -d "$APP_PATH" ]; then
             echo "::error::Expected app bundle not found at $APP_PATH"
@@ -375,10 +375,10 @@ jobs:
           DMG_STAGING="$RUNNER_TEMP/dmg-root"
           rm -rf "$DMG_STAGING"
           mkdir -p "$DMG_STAGING"
-          cp -R "$APP_PATH" "$DMG_STAGING/Thoth.app"
+          cp -R "$APP_PATH" "$DMG_STAGING/Row-Bot.app"
           ln -s /Applications "$DMG_STAGING/Applications"
 
-          hdiutil create -volname "Thoth" -srcfolder "$DMG_STAGING" \
+          hdiutil create -volname "Row-Bot" -srcfolder "$DMG_STAGING" \
             -format UDZO -ov "$DMG_PATH"
 
           echo "Signing DMG with: $CODESIGN_IDENTITY"
@@ -394,13 +394,13 @@ jobs:
       - name: Upload signed macOS DMG
         uses: actions/upload-artifact@v7
         with:
-          name: Thoth-macOS
-          path: dist/Thoth-*-macOS-*.dmg
+          name: Row-Bot-macOS
+          path: dist/Row-Bot-*-macOS-*.dmg
           retention-days: 90
 
       - name: Upload signed macOS PKG
         uses: actions/upload-artifact@v7
         with:
-          name: Thoth-macOS-pkg
-          path: dist/Thoth-*-macOS-*.pkg
+          name: Row-Bot-macOS-pkg
+          path: dist/Row-Bot-*-macOS-*.pkg
           retention-days: 90

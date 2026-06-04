@@ -425,7 +425,7 @@ def test_custom_endpoint_refresh_persists_model_cache_entries(tmp_path, monkeypa
             return None
 
         def json(self):
-            return {"data": [{"id": "thoth-dummy-chat", "context_length": 8192}]}
+            return {"data": [{"id": "row-bot-dummy-chat", "context_length": 8192}]}
 
     import httpx
     monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: _Response())
@@ -433,9 +433,9 @@ def test_custom_endpoint_refresh_persists_model_cache_entries(tmp_path, monkeypa
     infos = refresh_custom_endpoint_models("dummy")
     entries = custom_model_cache_entries()
 
-    assert [info.model_id for info in infos] == ["thoth-dummy-chat"]
-    assert entries["thoth-dummy-chat"]["provider"] == custom_provider_id("dummy")
-    assert entries["thoth-dummy-chat"]["capabilities_snapshot"]["tasks"] == ["chat"]
+    assert [info.model_id for info in infos] == ["row-bot-dummy-chat"]
+    assert entries["row-bot-dummy-chat"]["provider"] == custom_provider_id("dummy")
+    assert entries["row-bot-dummy-chat"]["capabilities_snapshot"]["tasks"] == ["chat"]
 
 
 def test_custom_endpoint_refresh_prunes_removed_model_quick_choices(tmp_path, monkeypatch):
@@ -764,7 +764,7 @@ def test_custom_endpoint_probe_persists_models_and_probe_result(tmp_path, monkey
             return None
 
         def json(self):
-            return {"data": [{"id": "thoth-dummy-chat", "max_model_len": 16384}]}
+            return {"data": [{"id": "row-bot-dummy-chat", "max_model_len": 16384}]}
 
     class _PostResponse:
         def __init__(self, payload=None):
@@ -1370,7 +1370,7 @@ def test_custom_endpoint_probe_classifies_chat_only_when_tools_fail(tmp_path, mo
             return None
 
         def json(self):
-            return {"data": [{"id": "thoth-dummy-chat", "max_model_len": 32768}]}
+            return {"data": [{"id": "row-bot-dummy-chat", "max_model_len": 32768}]}
 
     class _PostResponse:
         def __init__(self, payload=None):
@@ -1516,7 +1516,7 @@ def test_custom_endpoint_probe_records_streaming_failure(tmp_path, monkeypatch):
             return None
 
         def json(self):
-            return {"data": [{"id": "thoth-dummy-chat"}]}
+            return {"data": [{"id": "row-bot-dummy-chat"}]}
 
     class _PostResponse:
         def __init__(self, payload=None):
@@ -1578,7 +1578,7 @@ def test_custom_endpoint_probe_does_not_treat_done_only_sse_as_streaming(tmp_pat
             return None
 
         def json(self):
-            return {"data": [{"id": "thoth-dummy-chat"}]}
+            return {"data": [{"id": "row-bot-dummy-chat"}]}
 
     class _PostResponse:
         def __init__(self, payload=None):
@@ -1638,7 +1638,7 @@ def test_custom_endpoint_probe_records_malformed_streamed_tool_call(tmp_path, mo
             return None
 
         def json(self):
-            return {"data": [{"id": "thoth-dummy-chat", "max_model_len": 32768}]}
+            return {"data": [{"id": "row-bot-dummy-chat", "max_model_len": 32768}]}
 
     class _PostResponse:
         def __init__(self, payload=None):
@@ -1719,11 +1719,11 @@ def test_no_auth_custom_endpoint_refresh_skips_secret_lookup(tmp_path, monkeypat
             return None
 
         def json(self):
-            return {"data": [{"id": "thoth-dummy-chat"}]}
+            return {"data": [{"id": "row-bot-dummy-chat"}]}
 
     monkeypatch.setattr(custom, "custom_endpoint_secret", lambda provider_id: (_ for _ in ()).throw(AssertionError("secret lookup should be skipped")))
     monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: _GetResponse())
 
     infos = refresh_custom_endpoint_models("dummy")
 
-    assert [info.model_id for info in infos] == ["thoth-dummy-chat"]
+    assert [info.model_id for info in infos] == ["row-bot-dummy-chat"]

@@ -14,6 +14,7 @@ import sys
 import time
 from typing import Any, Callable, Optional
 
+from brand import APP_NATIVE_ENV
 from nicegui import events, run, ui
 
 from ui.state import AppState, P, _active_generations
@@ -42,12 +43,12 @@ def ensure_composer_control_css() -> None:
         return
     ui.add_css(
         """
-        .thoth-composer-toolbar {
+        .row-bot-composer-toolbar {
           min-height: 40px;
           align-items: center;
           flex-wrap: nowrap;
         }
-        .thoth-composer-control-group {
+        .row-bot-composer-control-group {
           height: 34px;
           min-height: 34px;
           padding: 2px 6px;
@@ -58,7 +59,7 @@ def ensure_composer_control_css() -> None:
           align-items: center;
           gap: 4px;
         }
-        .thoth-composer-voice-group {
+        .row-bot-composer-voice-group {
           height: 34px;
           min-height: 34px;
           padding: 2px 4px;
@@ -69,7 +70,7 @@ def ensure_composer_control_css() -> None:
           align-items: center;
           gap: 2px;
         }
-        .thoth-composer-action-group {
+        .row-bot-composer-action-group {
           height: 38px;
           min-height: 38px;
           padding: 2px 4px;
@@ -80,72 +81,72 @@ def ensure_composer_control_css() -> None:
           align-items: center;
           gap: 4px;
         }
-        .thoth-composer-icon-button {
+        .row-bot-composer-icon-button {
           width: 30px;
           height: 30px;
           min-width: 30px;
           min-height: 30px;
           align-self: center;
         }
-        .thoth-composer-icon-button .q-btn__content {
+        .row-bot-composer-icon-button .q-btn__content {
           min-height: 30px;
           line-height: 30px;
         }
-        .thoth-composer-select {
+        .row-bot-composer-select {
           height: 30px;
           min-height: 30px;
           align-self: center;
         }
-        .thoth-composer-select .q-field__control {
+        .row-bot-composer-select .q-field__control {
           height: 30px !important;
           min-height: 30px !important;
           padding: 0 2px !important;
           align-items: center !important;
         }
-        .thoth-composer-select .q-field__control-container,
-        .thoth-composer-select .q-field__native,
-        .thoth-composer-select .q-field__input {
+        .row-bot-composer-select .q-field__control-container,
+        .row-bot-composer-select .q-field__native,
+        .row-bot-composer-select .q-field__input {
           height: 30px !important;
           min-height: 30px !important;
           line-height: 30px !important;
           padding: 0 !important;
           align-items: center !important;
         }
-        .thoth-composer-select .q-field__native span {
+        .row-bot-composer-select .q-field__native span {
           line-height: 30px !important;
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
         }
-        .thoth-composer-select .q-field__append,
-        .thoth-composer-select .q-field__marginal {
+        .row-bot-composer-select .q-field__append,
+        .row-bot-composer-select .q-field__marginal {
           height: 30px !important;
           min-height: 30px !important;
           padding: 0 !important;
           align-items: center !important;
         }
-        .thoth-composer-select .q-icon {
+        .row-bot-composer-select .q-icon {
           font-size: 18px;
           line-height: 30px;
         }
-        .thoth-composer-separator {
+        .row-bot-composer-separator {
           height: 20px;
           opacity: 0.35;
           align-self: center;
         }
-        .thoth-composer-left-gap {
+        .row-bot-composer-left-gap {
           width: 8px;
           min-width: 8px;
           height: 1px;
         }
-        .thoth-composer-action-divider {
+        .row-bot-composer-action-divider {
           width: 1px;
           height: 22px;
           margin: 0 3px;
           background: rgba(255,255,255,0.16);
         }
-        .thoth-composer-send-button,
-        .thoth-composer-stop-button {
+        .row-bot-composer-send-button,
+        .row-bot-composer-stop-button {
           width: 34px;
           height: 34px;
           min-width: 34px;
@@ -153,8 +154,8 @@ def ensure_composer_control_css() -> None:
           align-self: center;
           box-shadow: 0 6px 18px rgba(0,0,0,0.25);
         }
-        .thoth-composer-send-button .q-btn__content,
-        .thoth-composer-stop-button .q-btn__content {
+        .row-bot-composer-send-button .q-btn__content,
+        .row-bot-composer-stop-button .q-btn__content {
           min-height: 34px;
           line-height: 34px;
         }
@@ -357,9 +358,9 @@ def build_file_upload(
     # Drag-and-drop (singleton listener - reads dynamic upload ID)
     ui.run_javascript(f"""
         (() => {{
-            window._thothUploadId = {hidden_upload.id};
-            if (window._thothDragInstalled) return;
-            window._thothDragInstalled = true;
+            window._rowBotUploadId = {hidden_upload.id};
+            if (window._rowBotDragInstalled) return;
+            window._rowBotDragInstalled = true;
             const body = document.body;
             let overlay = null;
             let dragTimer = null;
@@ -391,7 +392,7 @@ def build_file_upload(
                 e.preventDefault();
                 const files = e.dataTransfer?.files;
                 if (!files || files.length === 0) return;
-                const vue = getElement(window._thothUploadId);
+                const vue = getElement(window._rowBotUploadId);
                 if (vue && vue.$refs.qRef) vue.$refs.qRef.addFiles(files);
             }}, true);
         }})();
@@ -400,9 +401,9 @@ def build_file_upload(
     # Clipboard image paste (singleton listener - reads dynamic upload ID)
     ui.run_javascript(f"""
         (() => {{
-            window._thothUploadId = {hidden_upload.id};
-            if (window._thothPasteInstalled) return;
-            window._thothPasteInstalled = true;
+            window._rowBotUploadId = {hidden_upload.id};
+            if (window._rowBotPasteInstalled) return;
+            window._rowBotPasteInstalled = true;
             document.addEventListener("paste", (e) => {{
                 const items = e.clipboardData?.items;
                 if (!items) return;
@@ -420,7 +421,7 @@ def build_file_upload(
                 }}
                 if (imageFiles.length === 0) return;
                 e.preventDefault();
-                const vue = getElement(window._thothUploadId);
+                const vue = getElement(window._rowBotUploadId);
                 if (vue && vue.$refs.qRef) vue.$refs.qRef.addFiles(imageFiles);
             }});
         }})();
@@ -466,7 +467,7 @@ def build_chat_input_bar(
 
     # Attach handler
     async def _on_attach():
-        if (sys.platform == "darwin" and os.environ.get("THOTH_NATIVE") == "1"
+        if (sys.platform == "darwin" and os.environ.get(APP_NATIVE_ENV) == "1"
                 and browse_file is not None):
             path = await browse_file(
                 title="Attach file",
@@ -603,12 +604,12 @@ def build_chat_input_bar(
                 p.stop_btn.props('icon=hourglass_top')
 
         # Bottom bar: attach, model/approval, voice, spacer, send, stop
-        with ui.row().classes("w-full thoth-composer-toolbar q-px-sm q-pb-sm q-pt-none gap-1"):
+        with ui.row().classes("w-full row-bot-composer-toolbar q-px-sm q-pb-sm q-pt-none gap-1"):
             ui.button(icon="attach_file", on_click=_on_attach).props(
                 "flat round dense size=sm"
-            ).classes("thoth-composer-icon-button").tooltip("Attach files")
+            ).classes("row-bot-composer-icon-button").tooltip("Attach files")
 
-            ui.element("div").classes("thoth-composer-left-gap")
+            ui.element("div").classes("row-bot-composer-left-gap")
 
             build_composer_policy_cluster(
                 state,
@@ -631,7 +632,7 @@ def build_chat_input_bar(
             except Exception:
                 p.realtime_client = None
             p.realtime_event_sink.on(
-                "thoth-realtime-event",
+                "row-bot-realtime-event",
                 _on_realtime_event,
                 js_handler="(e) => emit(e.detail)",
             )
@@ -728,28 +729,28 @@ def build_chat_input_bar(
 
             ui.space()
 
-            with ui.row().classes("items-center thoth-composer-action-group"):
-                with ui.row().classes("items-center thoth-composer-voice-group"):
+            with ui.row().classes("items-center row-bot-composer-action-group"):
+                with ui.row().classes("items-center row-bot-composer-voice-group"):
                     p.voice_switch = ui.button(icon="record_voice_over", on_click=_toggle_voice).props(
                         "flat round dense size=sm"
-                    ).classes("thoth-composer-icon-button").tooltip("Talk")
+                    ).classes("row-bot-composer-icon-button").tooltip("Talk")
                     p.voice_switch.value = False
                     _set_talk_button_active(p, state.voice_enabled and state.voice_input_mode == "talk")
                     p.dictate_btn = ui.button(icon="keyboard_voice", on_click=_toggle_dictate).props(
                         "flat round dense size=sm"
-                    ).classes("thoth-composer-icon-button").tooltip("Dictate into the composer")
+                    ).classes("row-bot-composer-icon-button").tooltip("Dictate into the composer")
                     p.dictate_btn.value = False
                     _set_dictate_button_active(p, state.voice_enabled and state.voice_input_mode == "dictate")
 
-                ui.element("div").classes("thoth-composer-action-divider")
+                ui.element("div").classes("row-bot-composer-action-divider")
 
                 ui.button(icon="send", on_click=_on_send).props(
                     "color=primary round dense size=sm"
-                ).classes("thoth-composer-send-button").tooltip("Send")
+                ).classes("row-bot-composer-send-button").tooltip("Send")
 
                 p.stop_btn = ui.button(icon="stop", on_click=_on_stop).props(
                     "round dense size=sm"
-                ).classes("thoth-composer-stop-button").tooltip("Stop generation")
+                ).classes("row-bot-composer-stop-button").tooltip("Stop generation")
             _has_active = state.thread_id in _active_generations
             if not _has_active:
                 p.stop_btn.disable()
@@ -807,7 +808,7 @@ def build_composer_policy_cluster(
 
     ensure_composer_control_css()
 
-    with ui.row().classes("items-center thoth-composer-control-group"):
+    with ui.row().classes("items-center row-bot-composer-control-group"):
         if show_model_picker:
             ui.icon("hub", size="18px").classes("text-grey-5")
             _build_inline_model_picker(
@@ -817,7 +818,7 @@ def build_composer_policy_cluster(
                 generation_getter=generation_getter,
                 shell_generation=shell_generation,
             )
-            ui.separator().props("vertical").classes("thoth-composer-separator")
+            ui.separator().props("vertical").classes("row-bot-composer-separator")
         ui.icon("shield", size="18px").classes("text-grey-5")
         _build_inline_approval_picker(state)
 
@@ -959,7 +960,7 @@ def _build_inline_model_picker(
         options=_picker_opts,
         value=_picker_val,
         on_change=_on_model_pick,
-    ).props("dense borderless options-dense hide-bottom-space").classes("text-xs thoth-composer-select").style(
+    ).props("dense borderless options-dense hide-bottom-space").classes("text-xs row-bot-composer-select").style(
         _compact_select_style(min_width=170, max_width=260)
     ).tooltip("Select model for this thread")
 
@@ -1048,6 +1049,6 @@ def _build_inline_approval_picker(state: AppState) -> None:
         options=options,
         value=current,
         on_change=_on_pick,
-    ).props("dense borderless options-dense hide-bottom-space").classes("text-xs thoth-composer-select").style(
+    ).props("dense borderless options-dense hide-bottom-space").classes("text-xs row-bot-composer-select").style(
         _compact_select_style(min_width=78, max_width=104)
     ).tooltip("Approval mode for this thread")

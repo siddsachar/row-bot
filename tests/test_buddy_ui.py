@@ -51,7 +51,7 @@ def test_buddy_events_are_emitted_from_runtime_sources():
 
 def test_buddy_desktop_and_packaging_hooks_exist():
     launcher_src = _read("launcher.py")
-    inno_src = _read("installer/thoth_setup.iss")
+    inno_src = _read("installer/row_bot_setup.iss")
     mac_src = _read("installer/build_mac_app.sh")
     linux_src = _read("installer/build_linux_app.sh")
 
@@ -86,7 +86,7 @@ def test_buddy_desktop_and_packaging_hooks_exist():
     assert "if not _BUDDY_WINDOW_READY:" in launcher_src
     assert "_BUDDY_MANUALLY_HIDDEN" in launcher_src
     assert "_BUDDY_DESKTOP_ENABLED = False" in launcher_src
-    assert "thoth_window.log" in launcher_src
+    assert "row_bot_window.log" in launcher_src
     assert "[buddy.window]" in launcher_src
     assert "set_buddy_desktop_enabled" in launcher_src
     assert "_install_main_window_buddy_events(main_window)" in launcher_src
@@ -99,6 +99,8 @@ def test_buddy_desktop_and_packaging_hooks_exist():
     assert "cache_bust=False" in launcher_src
     assert "buddy_refresh" in launcher_src
     assert "_WINDOW_SCRIPT = r'''\nimport sys\nimport time" in launcher_src
+    assert '_APP_ICON_PATH = Path(__file__).resolve().parent / "row-bot.ico"' in launcher_src
+    assert "icon=_ICON_PATH if _ICON_PATH and os.path.isfile(_ICON_PATH) else None" in launcher_src
     assert "url = _buddy_overlay_url(buddy_port)" in launcher_src
     assert "refresh_url = _buddy_overlay_url(buddy_port, cache_bust=True)" in launcher_src
     assert "existing.load_url(refresh_url)" in launcher_src
@@ -195,7 +197,7 @@ def test_buddy_settings_keeps_rive_import_out_of_normal_ux():
     assert "Save Buddy preferences" not in settings_src
     assert "Companion personality" in buddy_ui_src
     assert "Style notes (optional)" in buddy_ui_src
-    assert "Thoth handles sizing and motion automatically" in buddy_ui_src
+    assert "APP_DISPLAY_NAME} handles sizing and motion automatically" in buddy_ui_src
     assert "_compose_hatch_prompt" in buddy_ui_src
     assert "_clean_hatch_concept" in buddy_ui_src
     assert "hatch_generation_prompt" in buddy_ui_src
@@ -213,21 +215,21 @@ def test_buddy_settings_does_not_render_loose_pack_labels():
     buddy_ui_src = _read("ui/buddy.py")
 
     assert 'for pack in packs:\n            ui.label(pack.name)' not in buddy_ui_src
-    assert 'with ui.element("div").classes("thoth-buddy-pack-grid")' in buddy_ui_src
+    assert 'with ui.element("div").classes("row-bot-buddy-pack-grid")' in buddy_ui_src
 
 
 def test_buddy_settings_uses_visual_pack_picker():
     buddy_ui_src = _read("ui/buddy.py")
 
-    assert "thoth-buddy-pack-grid" in buddy_ui_src
-    assert "thoth-buddy-pack-card" in buddy_ui_src
-    assert "thoth-buddy-pack-card-selected" in buddy_ui_src
-    assert "thoth-buddy-pack-preview" in buddy_ui_src
+    assert "row-bot-buddy-pack-grid" in buddy_ui_src
+    assert "row-bot-buddy-pack-card" in buddy_ui_src
+    assert "row-bot-buddy-pack-card-selected" in buddy_ui_src
+    assert "row-bot-buddy-pack-preview" in buddy_ui_src
     assert "static_url_for_path(pack.preview_path)" in buddy_ui_src
     assert "selected_pack_id" in buddy_ui_src
     assert "pack_selection_touched" in buddy_ui_src
-    assert "thoth-buddy-pack-title" in buddy_ui_src
-    assert "thoth-buddy-pack-meta" in buddy_ui_src
+    assert "row-bot-buddy-pack-title" in buddy_ui_src
+    assert "row-bot-buddy-pack-meta" in buddy_ui_src
     assert "_clear_hatch_media_overrides" in buddy_ui_src
     assert '"active_hatch_preview"' in buddy_ui_src
     assert '"active_hatch_motion_pack"' in buddy_ui_src
@@ -238,7 +240,7 @@ def test_buddy_settings_uses_visual_pack_picker():
     assert "client.run_javascript(code)" in buddy_ui_src
     assert "element.replaceWith(next)" in buddy_ui_src
     assert 'latest_cfg["pack_id"] = pack_id' in buddy_ui_src
-    assert "0.20),\n.thoth-buddy-pack-grid" not in buddy_ui_src
+    assert "0.20),\n.row-bot-buddy-pack-grid" not in buddy_ui_src
     assert "pack_select = ui.select" not in buddy_ui_src
 
 
@@ -317,7 +319,7 @@ def test_home_status_bar_shows_buddy_hatch_progress():
     status_src = _read("ui/status_bar.py")
 
     assert "get_hatch_generation_status" in status_src
-    assert "thoth-buddy-hatch-progress" in status_src
+    assert "row-bot-buddy-hatch-progress" in status_src
     assert "Buddy Hatch generation status" in status_src
     assert "completed_clips" in status_src
     assert "safe_timer(2.0, _poll_buddy_hatch_status)" in status_src
@@ -345,7 +347,7 @@ def test_buddy_settings_strips_redundant_pack_prefixes():
 
     assert "def _display_pack_name" in buddy_ui_src
     assert 'value.lower().startswith("buddy ")' in buddy_ui_src
-    assert "ui.label(pack_label).classes(\"thoth-buddy-pack-title\")" in buddy_ui_src
+    assert "ui.label(pack_label).classes(\"row-bot-buddy-pack-title\")" in buddy_ui_src
     assert "Selected: {pack_label}" in buddy_ui_src
     assert "{pack_label} selected" in buddy_ui_src
     assert 'ui.label("Buddy look")' not in buddy_ui_src
@@ -356,22 +358,22 @@ def test_buddy_surface_sizing_and_docked_drag_are_targeted():
     buddy_ui_src = _read("ui/buddy.py")
     runtime_src = _read("static/buddy/runtime/buddy.js")
 
-    assert '.thoth-buddy-wrap[data-surface="sidebar"] .thoth-buddy-stage' in buddy_ui_src
+    assert '.row-bot-buddy-wrap[data-surface="sidebar"] .row-bot-buddy-stage' in buddy_ui_src
     assert "width: 198px" in buddy_ui_src
-    assert "thoth-buddy-sidebar-ring" in buddy_ui_src
+    assert "row-bot-buddy-sidebar-ring" in buddy_ui_src
     assert "data-buddy-display-name" not in buddy_ui_src
     assert "data-display-name" not in buddy_ui_src
     assert "sidebar_avatar_label = ui.label" not in buddy_ui_src
     assert "root.dataset.displayName" not in runtime_src
     assert "buddy-label" not in runtime_src
-    assert ".thoth-buddy-in-app.thoth-buddy-undocked .thoth-buddy-stage::after" in buddy_ui_src
+    assert ".row-bot-buddy-in-app.row-bot-buddy-undocked .row-bot-buddy-stage::after" in buddy_ui_src
     assert "display: none" in buddy_ui_src
     assert "buddyDragInstalled" in buddy_ui_src
-    assert "ThothBuddyDock" in buddy_ui_src
-    assert "thoth-buddy-dock-empty" in buddy_ui_src
-    assert "thoth-buddy-dock-hover" in buddy_ui_src
-    assert "thoth-buddy-docked" in buddy_ui_src
-    assert "thoth-buddy-undocked" in buddy_ui_src
+    assert "RowBotBuddyDock" in buddy_ui_src
+    assert "row-bot-buddy-dock-empty" in buddy_ui_src
+    assert "row-bot-buddy-dock-hover" in buddy_ui_src
+    assert "row-bot-buddy-docked" in buddy_ui_src
+    assert "row-bot-buddy-undocked" in buddy_ui_src
     assert "document.body.appendChild(target)" in buddy_ui_src
     assert "targetDock.appendChild(target)" in buddy_ui_src
     assert "setSurface('floating')" in buddy_ui_src
@@ -385,7 +387,7 @@ def test_buddy_surface_sizing_and_docked_drag_are_targeted():
     assert "build_in_app_buddy()" in buddy_ui_src
     assert "_thoth_buddy_floating_shell" not in buddy_ui_src
     assert "data-buddy-floating-shell" not in buddy_ui_src
-    assert "ui.element(\"div\").classes(\"thoth-buddy-floating\")" not in buddy_ui_src
+    assert "ui.element(\"div\").classes(\"row-bot-buddy-floating\")" not in buddy_ui_src
     assert "ui.timer(0.6, lambda: _push_snapshot(client))" in buddy_ui_src
     assert "ui.timer(0.1, lambda: _install_floating_drag" not in buddy_ui_src
 
@@ -393,12 +395,12 @@ def test_buddy_surface_sizing_and_docked_drag_are_targeted():
 def test_buddy_sidebar_click_replaces_toolbar_buttons():
     buddy_ui_src = _read("ui/buddy.py")
 
-    assert "thoth-buddy-sidebar-action" in buddy_ui_src
+    assert "row-bot-buddy-sidebar-action" in buddy_ui_src
     assert "data-buddy-sidebar-shell" in buddy_ui_src
     assert "data-buddy-in-app-shell" in buddy_ui_src
     assert "open_settings(\"Buddy\")" in buddy_ui_src
     assert "_emit_buddy_hi" in buddy_ui_src
-    assert "thoth-buddy-toolbar" not in buddy_ui_src
+    assert "row-bot-buddy-toolbar" not in buddy_ui_src
     assert "icon=\"favorite\"" not in buddy_ui_src
 
 
@@ -407,9 +409,9 @@ def test_buddy_status_bubbles_and_hot_apply_are_wired():
     runtime_src = _read("static/buddy/runtime/buddy.js")
 
     assert "data-bubble-verbosity" in buddy_ui_src
-    assert '.thoth-buddy-wrap[data-surface="sidebar"] .thoth-buddy-status' in buddy_ui_src
-    assert ".thoth-buddy-in-app.thoth-buddy-undocked .thoth-buddy-status" in buddy_ui_src
-    assert ".thoth-buddy-overlay-page .thoth-buddy-status" in buddy_ui_src
+    assert '.row-bot-buddy-wrap[data-surface="sidebar"] .row-bot-buddy-status' in buddy_ui_src
+    assert ".row-bot-buddy-in-app.row-bot-buddy-undocked .row-bot-buddy-status" in buddy_ui_src
+    assert ".row-bot-buddy-overlay-page .row-bot-buddy-status" in buddy_ui_src
     assert "width: min(68vw, 176px)" in buddy_ui_src
     assert "max-height: 58px" in buddy_ui_src
     assert "generatedStatus(root, snapshot)" in runtime_src
@@ -433,22 +435,22 @@ def test_buddy_status_bubbles_and_hot_apply_are_wired():
     assert "minimize_buddy_window" not in buddy_ui_src
     assert "close_buddy_window" in buddy_ui_src
     assert "document.querySelectorAll('[data-buddy-in-app-shell]')" in buddy_ui_src
-    assert "__THOTH_BUDDY_DESKTOP_FOCUS_SYNC" in buddy_ui_src
+    assert "__ROW_BOT_BUDDY_DESKTOP_FOCUS_SYNC" in buddy_ui_src
     assert "api.hide_buddy_window(false)" in buddy_ui_src
     assert "api.show_buddy_window(false" in buddy_ui_src
-    assert "thoth-buddy-overlay-controls" not in buddy_ui_src
+    assert "row-bot-buddy-overlay-controls" not in buddy_ui_src
     assert "_hide_desktop_overlay" not in buddy_ui_src
     assert "_show_desktop_overlay" not in buddy_ui_src
-    assert "thoth-buddy-overlay-html" in buddy_ui_src
-    assert "thoth-buddy-overlay-body" in buddy_ui_src
+    assert "row-bot-buddy-overlay-html" in buddy_ui_src
+    assert "row-bot-buddy-overlay-body" in buddy_ui_src
     assert "window.location.pathname === '/buddy-overlay'" in buddy_ui_src
-    assert "document.documentElement.classList.add('thoth-buddy-overlay-html')" in buddy_ui_src
+    assert "document.documentElement.classList.add('row-bot-buddy-overlay-html')" in buddy_ui_src
     assert "revealOverlay" in buddy_ui_src
     assert "api.mark_buddy_window_ready" in buddy_ui_src
     assert "elapsed >= 700" in buddy_ui_src
     assert "requestAnimationFrame(() => requestAnimationFrame(revealOverlay))" in buddy_ui_src
-    assert "html.thoth-buddy-overlay-html body" in buddy_ui_src
-    assert "html.thoth-buddy-overlay-html .q-layout" in buddy_ui_src
+    assert "html.row-bot-buddy-overlay-html body" in buddy_ui_src
+    assert "html.row-bot-buddy-overlay-html .q-layout" in buddy_ui_src
     assert ".nicegui-content" in buddy_ui_src
 
 
@@ -479,7 +481,7 @@ def test_buddy_approval_motion_is_softened_and_state_changes_crossfade():
     assert "return 0.72" in runtime_src
     assert "isApproval ? Math.sin(phase * 2.1) * 0.7" in runtime_src
     assert "isApproval ? 'rgba(228, 194, 94, 0.28)'" in runtime_src
-    assert "buddy-polish-v4" in buddy_ui_src
+    assert "row-bot-buddy-v6" in buddy_ui_src
     assert 'data-animation="tap_glass"' in buddy_ui_src
     assert "animation-duration: 4.2s" in buddy_ui_src
     assert "animation === 'tap_glass' || animation === 'pause'" not in runtime_src

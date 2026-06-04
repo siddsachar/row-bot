@@ -1,4 +1,4 @@
-"""Thoth status / introspection tool — lets the agent query its own configuration.
+"""Row-Bot status / introspection tool — lets the agent query its own configuration.
 
 Provides read operations (always allowed) for settings, channel status,
 memory stats, model info, provider status, and API key validity. Write operations
@@ -18,15 +18,14 @@ from datetime import datetime
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+from data_paths import get_row_bot_data_dir
 from tools.base import BaseTool
 from tools import registry
 from tools.approval_gate import gate_action
 
 logger = logging.getLogger(__name__)
 
-_DATA_DIR = pathlib.Path(
-    os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")
-)
+_DATA_DIR = get_row_bot_data_dir()
 _SKILL_VERSIONS_DIR = _DATA_DIR / "skill_versions"
 
 
@@ -46,7 +45,7 @@ class _StatusQueryInput(BaseModel):
     category: str = Field(
         description=(
             "What to query. One of: 'overview' (full status summary), "
-            "'version' (Thoth version number), "
+            "'version' (Row-Bot version number), "
             "'model' (current model and provider info), "
             "'channels' (messaging channel status), "
             "'memory' (knowledge graph stats), "
@@ -201,7 +200,7 @@ def _resolve_model_update_value(value: str, *, surface: str) -> tuple[str | None
         if surface == "vision":
             from providers.ollama import is_ollama_vision_capable
             if not is_ollama_vision_capable(model_id):
-                return None, f"Local model '{raw}' is installed, but Thoth does not have Vision capability metadata for it. Choose a Vision model from Settings → Models."
+                return None, f"Local model '{raw}' is installed, but Row-Bot does not have Vision capability metadata for it. Choose a Vision model from Settings → Models."
         return model_id, None
 
     known_provider_models = set(list_cloud_models(provider_id))
@@ -308,7 +307,7 @@ def _resolve_manual_skill_name(value: str) -> tuple[str | None, str | None, list
 def _query_overview() -> str:
     """Full status summary across all categories."""
     from version import __version__
-    parts = [f"**Thoth v{__version__}**"]
+    parts = [f"**Row-Bot v{__version__}**"]
     for cat in ("model", "providers", "vision", "image_gen", "video_gen", "voice", "api_keys", "memory",
                 "channels", "skills", "tools", "mcp", "identity", "tasks", "insights", "config", "designer", "updates"):
         try:
@@ -548,7 +547,7 @@ def _query_identity() -> str:
     try:
         from identity import get_identity_config, is_self_improvement_enabled
         cfg = get_identity_config()
-        name = cfg.get("name", "Thoth")
+        name = cfg.get("name", "Row-Bot")
         personality = cfg.get("personality", "")
         self_improve = is_self_improvement_enabled()
         lines = [
@@ -599,11 +598,11 @@ def _query_logs() -> str:
     try:
         from logging_config import read_recent_logs
         entries = read_recent_logs(n=50)
-        # Filter to WARNING+ and exclude thoth_status calls to avoid recursion
+        # Filter to WARNING+ and exclude row_bot_status calls to avoid recursion
         filtered = [
             e for e in entries
             if e.get("level", "") in ("WARNING", "ERROR", "CRITICAL")
-            and "thoth_status" not in e.get("msg", "")
+            and "row_bot_status" not in e.get("msg", "")
         ][:15]
         if not filtered:
             return "**Recent Logs**\nNo warnings or errors in the recent log."
@@ -626,7 +625,7 @@ def _query_errors() -> str:
         errors = [
             e for e in entries
             if e.get("level", "") in ("ERROR", "CRITICAL")
-            and "thoth_status" not in e.get("msg", "")
+            and "row_bot_status" not in e.get("msg", "")
         ][:10]
         if not errors:
             return "**Recent Errors**\nNo errors in the recent log."
@@ -789,7 +788,7 @@ def _query_voice() -> str:
         lines = ["**Voice & Speech**"]
         lines.append("- User-facing modes: Talk, Dictate")
         lines.append("- Dictate policy: STT-only; never sends to the LLM until the user presses Send")
-        lines.append("- Realtime role: voice transport/backchannel for normal Thoth work")
+        lines.append("- Realtime role: voice transport/backchannel for normal Row-Bot work")
         # TTS
         try:
             tts_path = _DATA_DIR / "tts_settings.json"
@@ -850,9 +849,9 @@ def _query_voice() -> str:
 
             active = list(_active_generations.items())
             if not active:
-                lines.append("- Active Thoth run: none")
+                lines.append("- Active Row-Bot run: none")
             else:
-                lines.append(f"- Active Thoth runs: {len(active)}")
+                lines.append(f"- Active Row-Bot runs: {len(active)}")
                 for thread_id, gen in active[:3]:
                     pending_tools = getattr(gen, "pending_tools", {}) or {}
                     tool_names = [
@@ -869,7 +868,7 @@ def _query_voice() -> str:
                         f"follow-up/steer={'yes'}; queued_controls={len(queued)}"
                     )
         except Exception:
-            lines.append("- Active Thoth run: unavailable")
+            lines.append("- Active Row-Bot run: unavailable")
         try:
             from logging_config import read_recent_logs
 
@@ -934,7 +933,7 @@ def _query_config() -> str:
             wv = json.loads(wv_path.read_text())
             lines.append(f"- Wiki vault: {'enabled' if wv.get('enabled', False) else 'disabled'}")
             if wv.get("enabled"):
-                lines.append(f"  Path: {wv.get('vault_path', '~/.thoth/vault')}")
+                lines.append(f"  Path: {wv.get('vault_path', '~/.row-bot/vault')}")
         else:
             lines.append("- Wiki vault: disabled (default)")
     except Exception:
@@ -944,7 +943,7 @@ def _query_config() -> str:
 
 def _query_version() -> str:
     from version import __version__
-    return f"**Thoth Version**: v{__version__}"
+    return f"**Row-Bot Version**: v{__version__}"
 
 
 def _query_designer() -> str:
@@ -1018,8 +1017,8 @@ def _query_updates() -> str:
     return "\n".join(lines)
 
 
-def _thoth_status(category: str) -> str:
-    """Query Thoth's current status and configuration."""
+def _row_bot_status(category: str) -> str:
+    """Query Row-Bot's current status and configuration."""
     category = category.strip().lower()
     handler = _QUERY_HANDLERS.get(category)
     if handler is None:
@@ -1028,7 +1027,7 @@ def _thoth_status(category: str) -> str:
     try:
         return handler()
     except Exception as exc:
-        logger.error("thoth_status query error for '%s': %s", category, exc, exc_info=True)
+        logger.error("row_bot_status query error for '%s': %s", category, exc, exc_info=True)
         return f"Error querying {category}: {exc}"
 
 
@@ -1037,11 +1036,11 @@ def _thoth_status(category: str) -> str:
 # ═════════════════════════════════════════════════════════════════════════════
 
 def _update_setting(setting: str, value: str) -> str:
-    """Update a Thoth setting (with interrupt-based confirmation)."""
+    """Update a Row-Bot setting (with interrupt-based confirmation)."""
     def interrupt(payload: dict) -> bool:
         return _approval_gate_bool(
             payload,
-            blocked_message="BLOCKED: Changing Thoth settings is disabled in Block approval mode.",
+            blocked_message="BLOCKED: Changing Row-Bot settings is disabled in Block approval mode.",
         )
 
     setting = setting.strip().lower()
@@ -1049,7 +1048,7 @@ def _update_setting(setting: str, value: str) -> str:
 
     if setting == "model":
         approval = interrupt({
-            "tool": "thoth_update_setting",
+            "tool": "row_bot_update_setting",
             "label": "Change active model",
             "description": f"Switch the active model to: {value}",
             "args": {"setting": "model", "value": value},
@@ -1072,7 +1071,7 @@ def _update_setting(setting: str, value: str) -> str:
 
     elif setting == "vision_model":
         approval = interrupt({
-            "tool": "thoth_update_setting",
+            "tool": "row_bot_update_setting",
             "label": "Change Vision model",
             "description": f"Switch the Vision model to: {value}",
             "args": {"setting": "vision_model", "value": value},
@@ -1096,7 +1095,7 @@ def _update_setting(setting: str, value: str) -> str:
 
     elif setting == "name":
         approval = interrupt({
-            "tool": "thoth_update_setting",
+            "tool": "row_bot_update_setting",
             "label": "Change assistant name",
             "description": f"Change the assistant name to: {value}",
             "args": {"setting": "name", "value": value},
@@ -1116,7 +1115,7 @@ def _update_setting(setting: str, value: str) -> str:
 
     elif setting == "personality":
         approval = interrupt({
-            "tool": "thoth_update_setting",
+            "tool": "row_bot_update_setting",
             "label": "Change personality",
             "description": f"Set personality to: {value}",
             "args": {"setting": "personality", "value": value},
@@ -1144,7 +1143,7 @@ def _update_setting(setting: str, value: str) -> str:
         except ValueError:
             return f"Invalid context size '{value}' — must be an integer (e.g. 65536)."
         approval = interrupt({
-            "tool": "thoth_update_setting",
+            "tool": "row_bot_update_setting",
             "label": "Change local context size",
             "description": f"Set local model context window to {size:,} tokens",
             "args": {"setting": "context_size", "value": value},
@@ -1164,7 +1163,7 @@ def _update_setting(setting: str, value: str) -> str:
         except ValueError:
             return f"Invalid context size '{value}' — must be an integer (e.g. 131072)."
         approval = interrupt({
-            "tool": "thoth_update_setting",
+            "tool": "row_bot_update_setting",
             "label": "Change provider context cap",
             "description": f"Set provider context cap to {size:,} tokens",
             "args": {"setting": "cloud_context_size", "value": value},
@@ -1184,7 +1183,7 @@ def _update_setting(setting: str, value: str) -> str:
         if not enabled and not disabled:
             return f"Invalid value '{value}'. Use 'on' or 'off'."
         approval = interrupt({
-            "tool": "thoth_update_setting",
+            "tool": "row_bot_update_setting",
             "label": f"{'Enable' if enabled else 'Disable'} dream cycle",
             "description": f"Set dream cycle to {'enabled' if enabled else 'disabled'}",
             "args": {"setting": "dream_cycle", "value": value},
@@ -1206,7 +1205,7 @@ def _update_setting(setting: str, value: str) -> str:
         except Exception:
             return f"Invalid dream window '{value}'. Use 'START-END' (e.g. '1-5', hours 0–23)."
         approval = interrupt({
-            "tool": "thoth_update_setting",
+            "tool": "row_bot_update_setting",
             "label": "Change dream cycle window",
             "description": f"Set dream cycle window to {start}:00–{end}:00",
             "args": {"setting": "dream_window", "value": value},
@@ -1238,7 +1237,7 @@ def _update_setting(setting: str, value: str) -> str:
             suggestion_text = f" Try one of: {', '.join(suggestions)}." if suggestions else ""
             return f"Unknown Skill Library item '{name_part}'.{suggestion_text}"
         approval = interrupt({
-            "tool": "thoth_update_setting",
+            "tool": "row_bot_update_setting",
             "label": f"Turn {'on' if on else 'off'} skill '{resolved_label}'",
             "description": f"Set Skill Library item '{resolved_label}' to {'Available' if on else 'Off'}",
             "args": {"setting": "skill_toggle", "value": f"{resolved_name}:{'on' if on else 'off'}"},
@@ -1279,7 +1278,7 @@ def _update_setting(setting: str, value: str) -> str:
             return f"Tool '{resolved_label}' is already {'enabled' if on else 'disabled'}."
         canonical_value = f"{resolved_name}:{'on' if on else 'off'}"
         approval = interrupt({
-            "tool": "thoth_update_setting",
+            "tool": "row_bot_update_setting",
             "label": f"{'Enable' if on else 'Disable'} tool '{resolved_label}'",
             "description": f"Set tool '{resolved_label}' to {'enabled' if on else 'disabled'}",
             "args": {"setting": "tool_toggle", "value": canonical_value},
@@ -1308,7 +1307,7 @@ def _update_setting(setting: str, value: str) -> str:
     elif setting == "image_gen_model":
         model_value = _normalize_provider_model_value(setting, value)
         approval = interrupt({
-            "tool": "thoth_update_setting",
+            "tool": "row_bot_update_setting",
             "label": "Change image generation model",
             "description": f"Set image gen model to: {model_value}",
             "args": {"setting": "image_gen_model", "value": model_value},
@@ -1327,7 +1326,7 @@ def _update_setting(setting: str, value: str) -> str:
     elif setting == "video_gen_model":
         model_value = _normalize_provider_model_value(setting, value)
         approval = interrupt({
-            "tool": "thoth_update_setting",
+            "tool": "row_bot_update_setting",
             "label": "Change video generation model",
             "description": f"Set video gen model to: {model_value}",
             "args": {"setting": "video_gen_model", "value": model_value},
@@ -1345,7 +1344,7 @@ def _update_setting(setting: str, value: str) -> str:
 
     elif setting == "run_dream_cycle":
         approval = interrupt({
-            "tool": "thoth_update_setting",
+            "tool": "row_bot_update_setting",
             "label": "Run dream cycle now",
             "description": "Manually trigger the dream cycle immediately (bypasses time window check)",
             "args": {"setting": "run_dream_cycle", "value": "now"},
@@ -1371,7 +1370,7 @@ def _update_setting(setting: str, value: str) -> str:
         if not enabled and not disabled:
             return f"Invalid value '{value}'. Use 'on' or 'off'."
         approval = interrupt({
-            "tool": "thoth_update_setting",
+            "tool": "row_bot_update_setting",
             "label": f"{'Enable' if enabled else 'Disable'} self-improvement",
             "description": f"Set self-improvement to {'enabled' if enabled else 'disabled'}",
             "args": {"setting": "self_improvement", "value": value},
@@ -1437,7 +1436,7 @@ def _create_skill(
 
     # Require user confirmation
     approval = interrupt({
-        "tool": "thoth_create_skill",
+        "tool": "row_bot_create_skill",
         "label": "Create new skill",
         "description": f"Create skill '{display_name}' ({name}): {description}",
         "args": {"name": name, "display_name": display_name},
@@ -1540,7 +1539,7 @@ def _patch_skill(name: str, updated_instructions: str, reason: str) -> str:
 
     # Require user confirmation
     approval = interrupt({
-        "tool": "thoth_patch_skill",
+        "tool": "row_bot_patch_skill",
         "label": f"Patch skill: {skill.display_name}",
         "description": (
             f"Update instructions for '{skill.display_name}'.\n"
@@ -1606,20 +1605,20 @@ def _patch_skill(name: str, updated_instructions: str, reason: str) -> str:
 # TOOL CLASS
 # ═════════════════════════════════════════════════════════════════════════════
 
-class ThothStatusTool(BaseTool):
+class RowBotStatusTool(BaseTool):
 
     @property
     def name(self) -> str:
-        return "thoth_status"
+        return "row_bot_status"
 
     @property
     def display_name(self) -> str:
-        return "🪞 Thoth Status"
+        return "🪞 Row-Bot Status"
 
     @property
     def description(self) -> str:
         return (
-            "Query or change Thoth's own configuration: current model, "
+            "Query or change Row-Bot's own configuration: current model, "
             "active channels, memory stats, skills, tools, API keys, "
             "identity settings, and scheduled tasks."
         )
@@ -1638,10 +1637,10 @@ class ThothStatusTool(BaseTool):
     def as_langchain_tools(self) -> list:
         tools = [
             StructuredTool.from_function(
-                func=_thoth_status,
-                name="thoth_status",
+                func=_row_bot_status,
+                name="row_bot_status",
                 description=(
-                    "Query Thoth's current status and configuration. "
+                    "Query Row-Bot's current status and configuration. "
                     "Categories: overview, version, model, channels, memory, skills, "
                     "tools, mcp, providers, insights, api_keys, identity, tasks, vision, "
                     "image_gen, video_gen, voice, config, designer, updates, logs, errors."
@@ -1650,9 +1649,9 @@ class ThothStatusTool(BaseTool):
             ),
             StructuredTool.from_function(
                 func=_update_setting,
-                name="thoth_update_setting",
+                name="row_bot_update_setting",
                 description=(
-                    "Change a Thoth setting. Requires user confirmation. "
+                    "Change a Row-Bot setting. Requires user confirmation. "
                     "Settings: model, vision_model, name, personality, context_size, "
                     "cloud_context_size, dream_cycle (on/off), "
                     "dream_window (e.g. '1-5'), "
@@ -1676,7 +1675,7 @@ class ThothStatusTool(BaseTool):
         if self_improve:
             tools.append(StructuredTool.from_function(
                 func=_create_skill,
-                name="thoth_create_skill",
+                name="row_bot_create_skill",
                 description=(
                     "Create a new user skill (reusable instruction pack). "
                     "Requires user confirmation. Additive only — cannot "
@@ -1686,7 +1685,7 @@ class ThothStatusTool(BaseTool):
             ))
             tools.append(StructuredTool.from_function(
                 func=_patch_skill,
-                name="thoth_patch_skill",
+                name="row_bot_patch_skill",
                 description=(
                     "Patch an existing skill with improved instructions. "
                     "Requires user confirmation. Backs up the original. "
@@ -1699,7 +1698,7 @@ class ThothStatusTool(BaseTool):
         return tools
 
     def execute(self, query: str) -> str:
-        return _thoth_status(query)
+        return _row_bot_status(query)
 
 
-registry.register(ThothStatusTool())
+registry.register(RowBotStatusTool())

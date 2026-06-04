@@ -67,12 +67,12 @@ def test_custom_endpoint_setup_payload_accepts_remote_auth_required_without_key(
 def test_custom_endpoint_model_options_use_provider_model_refs() -> None:
     info = ModelInfo(
         provider_id="custom_openai_localai",
-        model_id="thoth-dummy-chat",
+        model_id="row-bot-dummy-chat",
         display_name="Thoth Dummy Chat",
         context_window=4096,
         transport=TransportMode.OPENAI_CHAT,
     )
 
     assert custom_endpoint_model_options([info]) == {
-        "model:custom_openai_localai:thoth-dummy-chat": "↔ Thoth Dummy Chat"
+        "model:custom_openai_localai:row-bot-dummy-chat": "↔ Thoth Dummy Chat"
     }

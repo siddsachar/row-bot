@@ -11,12 +11,13 @@ import tempfile
 import uuid
 from datetime import datetime
 
+from data_paths import get_row_bot_data_dir
 from developer.state import DeveloperWorkspace
 from approval_policy import legacy_developer_mode_to_approval_mode
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR = pathlib.Path(os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth"))
+DATA_DIR = get_row_bot_data_dir()
 DEVELOPER_DIR = DATA_DIR / "developer"
 WORKSPACES_PATH = DEVELOPER_DIR / "workspaces.json"
 _REPLACE_RETRY_WINERRORS = {5, 32}

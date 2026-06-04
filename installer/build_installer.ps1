@@ -3,10 +3,10 @@
 # Downloads embedded Python + get-pip.py, bundles tkinter, pre-installs all
 # pip packages, then compiles a self-contained Inno Setup installer.
 #
-# The resulting .exe contains everything needed — no internet downloads at
+# The resulting .exe contains everything needed â€” no internet downloads at
 # install time.  Ollama and Playwright Chromium are handled at runtime.
 #
-# TTS: Kokoro TTS is a pip package — no binary to bundle.  The model
+# TTS: Kokoro TTS is a pip package â€” no binary to bundle.  The model
 #      downloads automatically on first use (~170 MB).
 #
 # Usage:  .\installer\build_installer.ps1
@@ -21,23 +21,23 @@ $ErrorActionPreference = "Stop"
 $BuildDir = Join-Path $PSScriptRoot "build"
 $ProjectRoot = Split-Path $PSScriptRoot
 $VersionFile = Join-Path $ProjectRoot "version.py"
-$ThothVersion = if (Test-Path $VersionFile) {
+$RowBotVersion = if (Test-Path $VersionFile) {
     $versionLine = Select-String -Path $VersionFile -Pattern '__version__\s*=\s*"([^"]+)"' | Select-Object -First 1
     if ($versionLine -and $versionLine.Matches.Count -gt 0) { $versionLine.Matches[0].Groups[1].Value } else { "unknown" }
 } else { "unknown" }
 
 Write-Host "============================================" -ForegroundColor Cyan
-Write-Host " Thoth v$ThothVersion Installer Builder"       -ForegroundColor Cyan
+Write-Host " Row-Bot v$RowBotVersion Installer Builder"       -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 
-# ── Create build directory ───────────────────────────────────────────────────
+# â”€â”€ Create build directory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if (!(Test-Path $BuildDir)) {
     New-Item -ItemType Directory -Path $BuildDir -Force | Out-Null
 }
 
 if (!$SkipDownloads) {
-    # ── 1. Download Python Embeddable Package ────────────────────────────────
+    # â”€â”€ 1. Download Python Embeddable Package â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     $PythonZip = "python-$PythonVersion-embed-amd64.zip"
     $PythonUrl = "https://www.python.org/ftp/python/$PythonVersion/$PythonZip"
     $PythonZipPath = Join-Path $BuildDir $PythonZip
@@ -59,7 +59,7 @@ if (!$SkipDownloads) {
     Expand-Archive -Path $PythonZipPath -DestinationPath $PythonDir -Force
     Write-Host "      Extracted to: $PythonDir" -ForegroundColor Green
 
-    # ── 2. Download get-pip.py ───────────────────────────────────────────────
+    # â”€â”€ 2. Download get-pip.py â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     $GetPipPath = Join-Path $BuildDir "get-pip.py"
     if (!(Test-Path $GetPipPath)) {
         Write-Host "[2/2] Downloading get-pip.py..." -ForegroundColor Yellow
@@ -72,7 +72,7 @@ if (!$SkipDownloads) {
     Write-Host "Skipping downloads (using existing build/ contents)." -ForegroundColor DarkGray
 }
 
-# ── Bundle tkinter into embedded Python (not included in embeddable zip) ─────
+# â”€â”€ Bundle tkinter into embedded Python (not included in embeddable zip) â”€â”€â”€â”€â”€
 Write-Host ""
 Write-Host "Bundling tkinter into embedded Python..." -ForegroundColor Yellow
 
@@ -119,7 +119,7 @@ if (!$SysPyRoot -or !(Test-Path "$SysPyRoot\Lib\tkinter")) {
     Write-Host "      tkinter bundling complete." -ForegroundColor Green
 }
 
-# ── Pre-install Python packages (self-contained installer) ──────────────────
+# â”€â”€ Pre-install Python packages (self-contained installer) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Write-Host ""
 Write-Host "Pre-installing Python packages into embedded Python..." -ForegroundColor Yellow
 
@@ -205,17 +205,17 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "      Playwright Chromium installed" -ForegroundColor Green
 }
 
-# ── 3. Create dist directory ────────────────────────────────────────────────
+# â”€â”€ 3. Create dist directory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 $DistDir = Join-Path (Join-Path $PSScriptRoot "..") "dist"
 if (!(Test-Path $DistDir)) {
     New-Item -ItemType Directory -Path $DistDir -Force | Out-Null
 }
 
-# ── 4. Compile with Inno Setup ──────────────────────────────────────────────
+# â”€â”€ 4. Compile with Inno Setup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Write-Host ""
 Write-Host "Compiling installer with Inno Setup..." -ForegroundColor Yellow
 
-$IssFile = Join-Path $PSScriptRoot "thoth_setup.iss"
+$IssFile = Join-Path $PSScriptRoot "row_bot_setup.iss"
 
 # Try to find ISCC.exe
 [string[]]$IsccPaths = @(
@@ -244,7 +244,7 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host ""
     Write-Host "============================================" -ForegroundColor Green
     Write-Host " Installer built successfully!"               -ForegroundColor Green
-    Write-Host " Output: dist\ThothSetup_$ThothVersion.exe"    -ForegroundColor Green
+    Write-Host " Output: dist\Row-Bot-$RowBotVersion-Windows-x64.exe" -ForegroundColor Green
     Write-Host "============================================" -ForegroundColor Green
 } else {
     Write-Host ""

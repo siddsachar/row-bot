@@ -34,8 +34,8 @@ class FakeKeyring:
 class ApiKeyStorageTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.old_data_dir = os.environ.get("THOTH_DATA_DIR")
-        os.environ["THOTH_DATA_DIR"] = self.temp_dir.name
+        self.old_data_dir = os.environ.get("ROW_BOT_DATA_DIR")
+        os.environ["ROW_BOT_DATA_DIR"] = self.temp_dir.name
         import secret_store
         import api_keys
         from plugins import state as plugin_state
@@ -48,9 +48,9 @@ class ApiKeyStorageTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.secret_store._set_backend_for_tests(None)
         if self.old_data_dir is None:
-            os.environ.pop("THOTH_DATA_DIR", None)
+            os.environ.pop("ROW_BOT_DATA_DIR", None)
         else:
-            os.environ["THOTH_DATA_DIR"] = self.old_data_dir
+            os.environ["ROW_BOT_DATA_DIR"] = self.old_data_dir
         for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
             os.environ.pop(key, None)
         self.temp_dir.cleanup()

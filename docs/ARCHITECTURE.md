@@ -1,6 +1,6 @@
-# 𓁟 Thoth — Architecture & Detailed Design
+# Row-Bot — Architecture & Detailed Design
 
-> Full technical reference for every feature, module, and subsystem in Thoth.
+> Full technical reference for every feature, module, and subsystem in Row-Bot.
 > For a concise overview, see the [README](../README.md).
 
 ---
@@ -22,7 +22,7 @@
 - [Designer Studio](#designer-studio)
 - [Developer Studio](#developer-studio)
 - [Custom Tools](#custom-tools)
-- [Thoth Status & Identity](#thoth-status--identity)
+- [Row-Bot Status & Identity](#row-bot-status--identity)
 - [Self-Knowledge & Insights](#self-knowledge--insights)
 - [Messaging Channels](#messaging-channels)
 - [Tunnel Manager](#tunnel-manager)
@@ -49,7 +49,7 @@
 ## ReAct Agent Architecture
 
 - **Autonomous tool use** — the agent decides which tools to call, when, and how many times, based on your question
-- **30+ core tools plus Developer, Custom Tool, and auto-generated channel tools** — web search, email, calendar, file management, shell access, browser automation, vision, image generation, video generation, X (Twitter), a personal knowledge graph, Designer Studio, Developer Studio, Custom Tool Builder, scheduled workflows, habit tracking, Thoth Status self-inspection, external MCP tools, and more
+- **30+ core tools plus Developer, Custom Tool, and auto-generated channel tools** — web search, email, calendar, file management, shell access, browser automation, vision, image generation, video generation, X (Twitter), a personal knowledge graph, Designer Studio, Developer Studio, Custom Tool Builder, scheduled workflows, habit tracking, Row-Bot Status self-inspection, external MCP tools, and more
 - **Streaming responses** — tokens stream in real-time with a typing indicator
 - **Thinking indicators** — shows when the model is reasoning before responding
 - **Smart context management** — automatic conversation summarization compresses older turns when token usage exceeds 80% of the context window, preserving the 5 most recent turns and a running summary; a hard trim at 85% drops oldest messages as a safety net; oversized tool outputs are proportionally shrunk so multi-tool chains fit within context; accurate token counting via tiktoken (cl100k_base)
@@ -57,7 +57,7 @@
 - **Runtime readiness routing** — before building the graph, selected models are evaluated for context headroom, provider capability metadata, tool support, and surface requirements; full agent mode, chat-only mode, and blocked states are explicit outcomes rather than accidental provider failures
 - **Chat-only runtime** — models that are useful for normal conversation but cannot reliably accept tool schemas use a compact tool-free prompt, a shaped transcript without full tool bodies, and the normal streaming/persistence path
 - **Provider transcript normalization** — model-facing histories are checked for duplicate tool-call IDs, orphan tool results, invalid tool calls, empty assistant turns, and unsafe reasoning/tool artifacts before replay to custom or hosted providers
-- **Centralized prompts plus self-knowledge injection** — base prompt templates live in `prompts.py`, while `self_knowledge.py` injects a dynamic identity line, capability manifest, and live runtime state so Thoth can describe itself accurately without stale hard-coded copy
+- **Centralized prompts plus self-knowledge injection** — base prompt templates live in `prompts.py`, while `self_knowledge.py` injects a dynamic identity line, capability manifest, and live runtime state so Row-Bot can describe itself accurately without stale hard-coded copy
 - **Live token counter** — progress bar in the sidebar shows real-time context window usage based on trimmed (model-visible) history
 - **Graceful stop & error recovery** — stop button cleanly halts generation with drain timeout; agent tool loops are caught automatically with mode-aware budgets (normal chat, workflows, and long Developer turns have separate limits) and wind-down prompts; orphaned tool calls are repaired; provider/API errors are surfaced as persistent red toasts and saved to the conversation checkpoint so they survive thread refresh
 - **Workflow cancellation** — running background workflows can be stopped from the chat header, activity panel, or workflow card; cancellation is checked between every LangGraph node for clean shutdown
@@ -72,7 +72,7 @@
 
 ## Long-Term Memory & Knowledge Graph
 
-Thoth doesn't just store isolated facts — it builds a **personal knowledge graph**: a connected web of people, places, preferences, events, and their relationships. Every memory is an entity linked to others through typed relations, so the agent can reason about how things in your life connect.
+Row-Bot doesn't just store isolated facts — it builds a **personal knowledge graph**: a connected web of people, places, preferences, events, and their relationships. Every memory is an entity linked to others through typed relations, so the agent can reason about how things in your life connect.
 
 - **Entity-relation model** — memories are stored as entities with a type, subject, description, aliases, and tags; entities are connected by typed directional relations (e.g. `Dad --[father_of]--> User`, `User --[lives_in]--> London`)
 - **10 entity types** — `person`, `preference`, `fact`, `event`, `place`, `project`, `organisation`, `concept`, `skill`, `media`
@@ -93,7 +93,7 @@ Thoth doesn't just store isolated facts — it builds a **personal knowledge gra
 - **Semantic and lexical recall indexes** — FAISS vectors are backed by the configured embedding provider, while an optional FTS5 entity index supports exact/keyword recall and fallback search
 - **Memory IDs in context** — auto-recalled memories include their IDs so the agent can update or delete specific entries when the user corrects previously saved information
 - **Consolidation utilities** — built-in duplicate consolidation merges near-duplicate memories that may accumulate over time
-- **Local SQLite + NetworkX + FAISS storage** — entities and relations live in `~/.thoth/memory.db`, mirrored in a NetworkX graph for traversal, with FAISS vectors in `~/.thoth/memory_vectors/`
+- **Local SQLite + NetworkX + FAISS storage** — entities and relations live in `~/.row-bot/memory.db`, mirrored in a NetworkX graph for traversal, with FAISS vectors in `~/.row-bot/memory_vectors/`
 - **Knowledge audit UI** — browse, search, visualize, review, restore, supersede, archive, and bulk-delete memories from the Knowledge tab and entity editor, including graph statistics, audit badges, recall traces, and the memory evolution journal
 
 ---
@@ -127,7 +127,7 @@ A 5-phase background daemon refines the knowledge graph during idle hours and en
 - **Three-layer anti-contamination** — sentence-level excerpt filtering, deterministic post-enrichment validation, and strengthened prompting prevent cross-entity fact bleed
 - **Ollama busy check** — queries `/api/ps` before starting; defers if Ollama is actively serving a user request to avoid competing for GPU or CPU
 - **Configurable window** — default 1–5 AM local time; checks every 30 minutes if enabled, idle, in window, and not yet run that day
-- **Dream journal** — all operations logged to `~/.thoth/dream_journal.json` with cycle ID, summary, duration, merges, enrichments, inferences, insights, and errors
+- **Dream journal** — all operations logged to `~/.row-bot/dream_journal.json` with cycle ID, summary, duration, merges, enrichments, inferences, insights, and errors
 - **Post-cycle rebuilds** — FAISS is rebuilt after the cycle, and the wiki vault is regenerated when enabled so downstream views stay in sync
 - **Manual trigger** — a dedicated Dream button in the Knowledge surface can start the cycle immediately
 - **Settings UI** — enable/disable toggle, quiet window controls, and last-run summary in the Preferences tab
@@ -156,25 +156,25 @@ Uploaded documents are processed through a three-phase **map-reduce LLM pipeline
 
 ## Brain Model & Providers
 
-The brain model is Thoth's default LLM — the model used for conversations, memory extraction, dream analysis, and any thread or workflow without a specific override. It is selected during setup or later from Settings, and can come from the supported local runtime, a hosted provider, ChatGPT / Codex, Ollama Cloud, or a custom OpenAI-compatible endpoint.
+The brain model is Row-Bot's default LLM — the model used for conversations, memory extraction, dream analysis, and any thread or workflow without a specific override. It is selected during setup or later from Settings, and can come from the supported local runtime, a hosted provider, ChatGPT / Codex, Ollama Cloud, or a custom OpenAI-compatible endpoint.
 
-Thoth is local-first in its data model, but model routing is provider-neutral. Local models remain a first-class path for offline and private use, while hosted and self-hosted models can be selected per thread, workflow, Developer workspace, or media surface. The setup wizard determines the initial default; on the local path, Thoth uses one of the models already exposed by the local runtime, with 14B-class models recommended for stronger agent/tool behavior.
+Row-Bot is local-first in its data model, but model routing is provider-neutral. Local models remain a first-class path for offline and private use, while hosted and self-hosted models can be selected per thread, workflow, Developer workspace, or media surface. The setup wizard determines the initial default; on the local path, Row-Bot uses one of the models already exposed by the local runtime, with 14B-class models recommended for stronger agent/tool behavior.
 
-Provider models are supported for users without a dedicated GPU, for frontier reasoning on demand, or for trying many providers without downloading large local weights. Thoth supports opt-in provider models through **OpenAI** (direct API), **Anthropic** (Claude), **Google AI** (Gemini), **xAI** (Grok), **MiniMax** (M2 models through the Anthropic-compatible API), **OpenRouter** (many third-party models), **Ollama Cloud** (direct API and local daemon cloud-tagged models), **ChatGPT / Codex** (subscription-backed Codex models), and Custom/Self-hosted OpenAI-compatible endpoints such as oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, or private gateways. Provider connections, health, and credential sources are configured from Settings -> Providers; model catalog browsing, pinning, and defaults live in Settings -> Models.
+Provider models are supported for users without a dedicated GPU, for frontier reasoning on demand, or for trying many providers without downloading large local weights. Row-Bot supports opt-in provider models through **OpenAI** (direct API), **Anthropic** (Claude), **Google AI** (Gemini), **xAI** (Grok), **MiniMax** (M2 models through the Anthropic-compatible API), **OpenRouter** (many third-party models), **Ollama Cloud** (direct API and local daemon cloud-tagged models), **ChatGPT / Codex** (subscription-backed Codex models), and Custom/Self-hosted OpenAI-compatible endpoints such as oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, or private gateways. Provider connections, health, and credential sources are configured from Settings -> Providers; model catalog browsing, pinning, and defaults live in Settings -> Models.
 
 The `providers/` subsystem now owns provider config, auth metadata, model catalog normalization, runtime construction, display-safe status, runtime readiness, and Quick Choices. Model selections are preserved as provider-qualified refs (`model:<provider>:<model>`) at UI and settings boundaries so a local/custom model does not silently fall back to OpenRouter when another provider has the same or unknown bare model id. Existing public functions in `models.py` remain as compatibility facades while provider-backed selection is rolled through the app. Settings -> Models pickers are intentionally Quick Choice surfaces: catalog rows must be pinned before they become everyday Brain, Vision, Image, or Video choices, while the current default can still appear as a fallback value. `providers/model_catalog_cache.py` refreshes hosted-provider and local-runtime catalog rows in the background so Settings can render from cache without blocking on large remote catalogs.
 
 Runtime readiness is evaluated before agent execution. `providers/readiness.py` and `providers/resolution.py` resolve the selected model/provider, inspect cached capability snapshots, probe uncertain local/custom models when needed, compare the effective context window against tool-schema requirements, and return one of three outcomes: full agent mode, chat-only mode, or blocked with user-facing guidance. Forced-agent surfaces such as workflow execution, approval resumes, and Designer text generation request agent mode explicitly; normal chat can fall back to chat-only mode when a model is conversationally useful but not tool-compatible.
 
-ChatGPT / Codex is deliberately modeled as a subscription provider, not as another OpenAI API-key route. Direct Codex runtime requires Thoth's in-app ChatGPT device-flow sign-in so Thoth stores its own runnable OAuth tokens in the local OS credential store. Existing Codex CLI auth files can be referenced only as display-safe metadata: Thoth records that the external login exists, path/fingerprint metadata, and broad auth-file shape, but it does not copy runnable tokens from `~/.codex/auth.json`.
+ChatGPT / Codex is deliberately modeled as a subscription provider, not as another OpenAI API-key route. Direct Codex runtime requires Row-Bot's in-app ChatGPT device-flow sign-in so Row-Bot stores its own runnable OAuth tokens in the local OS credential store. Existing Codex CLI auth files can be referenced only as display-safe metadata: Row-Bot records that the external login exists, path/fingerprint metadata, and broad auth-file shape, but it does not copy runnable tokens from `~/.codex/auth.json`.
 
-Codex runtime uses ChatGPT's subscription/internal Codex backend rather than the public OpenAI API. That means endpoint behavior, catalog shape, auth requirements, rate limits, and model availability may change upstream. When a ChatGPT / Codex model is selected, the current conversation plus model-visible tool context and tool results are sent to ChatGPT / Codex for that turn. Durable Thoth data such as memories, documents, files, and other conversations remain local unless explicitly included in the active conversation or surfaced by a tool result.
+Codex runtime uses ChatGPT's subscription/internal Codex backend rather than the public OpenAI API. That means endpoint behavior, catalog shape, auth requirements, rate limits, and model availability may change upstream. When a ChatGPT / Codex model is selected, the current conversation plus model-visible tool context and tool results are sent to ChatGPT / Codex for that turn. Durable Row-Bot data such as memories, documents, files, and other conversations remain local unless explicitly included in the active conversation or surfaced by a tool result.
 
-- **Dynamic model switching** — change the brain model from Settings or approved `thoth_update_setting` calls; choices are validated against pinned local/provider Quick Choices, installed local models, and provider catalogs before saving
+- **Dynamic model switching** — change the brain model from Settings or approved `row_bot_update_setting` calls; choices are validated against pinned local/provider Quick Choices, installed local models, and provider catalogs before saving
 - **Per-thread & per-workflow model override** — conversations and workflows can each run on a different model, with overrides persisted locally
 - **Quick Choices** — models pinned from the consolidated Models catalog appear in chat, workflow, channel, Designer, status-tool, and Vision pickers when their capability snapshot supports that surface
 - **Cost-efficient context management** — smart context trimming compresses older conversation turns and shrinks oversized tool outputs, reducing token usage and API costs for provider models
-- **Local catalog accuracy** — installed Ollama chat models remain visible even when their family is newer than Thoth's curated tool/vision heuristics, while embedding-like local models are kept out of chat choices and Vision support is only inferred from known metadata/families
+- **Local catalog accuracy** — installed Ollama chat models remain visible even when their family is newer than Row-Bot's curated tool/vision heuristics, while embedding-like local models are kept out of chat choices and Vision support is only inferred from known metadata/families
 - **Ollama Cloud paths** — direct Ollama Cloud API keys and local daemon `:cloud` models are represented separately while sharing catalog normalization and display metadata; direct API errors are normalized into user-facing provider messages
 - **Tool-support validation** — unsupported or uncertain local/custom models are warned about, can be probed with a real tool round-trip, and route to agent, chat-only, or blocked mode based on the result
 - **Custom endpoint compatibility profiles** — OpenAI-compatible endpoints can use oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, or generic profiles to normalize message content, tool history, unsupported parameters, streaming behavior, and request-time context settings
@@ -194,7 +194,7 @@ Embeddings are configured separately from chat models so users can choose the pr
 - **`embedding_providers.py`** — normalizes local and cloud embedding backends behind one interface used by document search, memory recall, and graph/vector rebuilds
 - **Local choices** — local embeddings keep vectorization on-device, with Qwen as the high-quality fallback and additional runtime-downloaded options such as Nomic and Mixedbread/MXBAI-style models
 - **Cloud option** — cloud embeddings can be enabled explicitly in Settings and show privacy copy because document or memory text is sent to the chosen embedding provider
-- **Stale-index detection** — vector stores record embedding provider and dimension metadata so Thoth can detect when a document or memory index was built with a different embedding configuration
+- **Stale-index detection** — vector stores record embedding provider and dimension metadata so Row-Bot can detect when a document or memory index was built with a different embedding configuration
 - **Memory release** — heavy document and extraction jobs release cached embedding resources after use to reduce long-session RSS growth
 - **Settings integration** — embedding provider controls live in the model/settings surfaces without overloading the chat model picker
 
@@ -224,7 +224,7 @@ Embeddings are configured separately from chat models so users can choose the pr
 - **Blocked by default** — high-risk commands like `shutdown`, `reboot`, or `mkfs` are rejected outright
 - **Background safety integration** — safe commands always execute; moderate commands are blocked by default in workflows but can be allowlisted per workflow; dangerous commands remain blocked
 - **Inline terminal panel** — command output appears in a collapsible terminal panel in the chat UI with clear and history controls
-- **History persistence** — shell history is saved per thread in `~/.thoth/shell_history.json`
+- **History persistence** — shell history is saved per thread in `~/.row-bot/shell_history.json`
 
 ---
 
@@ -232,7 +232,7 @@ Embeddings are configured separately from chat models so users can choose the pr
 
 - **Full browser automation** — the agent can navigate websites, click elements, fill forms, scroll pages, and manage tabs in a real, visible Chromium window
 - **Shared visible browser** — runs with `headless=False` so you can see what the agent is doing and intervene when needed
-- **Persistent profile** — cookies, logins, and local storage survive across restarts in `~/.thoth/browser_profile/`
+- **Persistent profile** — cookies, logins, and local storage survive across restarts in `~/.row-bot/browser_profile/`
 - **Accessibility-tree snapshots** — after every action the tool captures the page's accessibility tree with numbered references so the model can click and type by number
 - **Smart snapshot filtering** — deduplicates links, drops hidden elements, and caps interactive elements to keep context under control
 - **Snapshot compression** — older browser snapshots are compressed to short stubs while the latest state remains detailed
@@ -320,7 +320,7 @@ Tasks have been renamed to **Workflows** throughout the application. The workflo
 
 ## Designer Studio
 
-Designer Studio is Thoth's dedicated visual-authoring subsystem. It spans five distinct **project modes**, a sandboxed interactive runtime, an authoring guardrail stack, and a mutation-reviewable tool surface for editing projects turn over turn.
+Designer Studio is Row-Bot's dedicated visual-authoring subsystem. It spans five distinct **project modes**, a sandboxed interactive runtime, an authoring guardrail stack, and a mutation-reviewable tool surface for editing projects turn over turn.
 
 ### Project Modes
 
@@ -334,10 +334,10 @@ Every project is created in one of five modes. Each mode carries its own canvas 
 
 ### Interactive Runtime
 
-Interactive modes (`landing`, `app_mockup`, `storyboard`) do **not** allow free-form `<script>` from the agent. Behavior is expressed declaratively via `data-thoth-action` attributes and interpreted at runtime by a sandboxed bridge.
+Interactive modes (`landing`, `app_mockup`, `storyboard`) do **not** allow free-form `<script>` from the agent. Behavior is expressed declaratively via `data-row-bot-action` attributes and interpreted at runtime by a sandboxed bridge.
 
 - **`designer/runtime/` package** — loads per-project runtime state, resolves route / screen navigation, handles state toggles, controls media playback, and dispatches declarative actions to real DOM operations inside the preview iframe
-- **Declarative action grammar** — `data-thoth-action="navigate:screen-id"`, `data-thoth-action="toggle:state-key"`, `data-thoth-action="play:asset-id"`, etc. — the agent authors intent, the runtime executes it safely
+- **Declarative action grammar** — `data-row-bot-action="navigate:screen-id"`, `data-row-bot-action="toggle:state-key"`, `data-row-bot-action="play:asset-id"`, etc. — the agent authors intent, the runtime executes it safely
 - **Shared preview + publish runtime** — the same runtime powers editor preview, presenter mode, and published share links so interactive projects behave identically in all three surfaces
 
 ### Project Model & Storage
@@ -347,7 +347,7 @@ Interactive modes (`landing`, `app_mockup`, `storyboard`) do **not** allow free-
 - **Canvas presets and resizing** — projects can be resized after creation; mode-appropriate presets are offered up front
 - **Reference storage** — uploaded briefs, screenshots, and source material are stored as reusable references so future designer sessions can reopen them without reuploading
 - **Asset-backed media** — project HTML stores media as `asset://<asset-id>` references rather than brittle placeholder tokens; `designer/render_assets.py` normalizes legacy refs, preserves `data-asset-id`, and hydrates assets for preview, presentation, export, and published output
-- **Persistent asset storage** — designer assets live on disk under `~/.thoth/designer/assets/`; projects and references are stored separately
+- **Persistent asset storage** — designer assets live on disk under `~/.row-bot/designer/assets/`; projects and references are stored separately
 - **Windows-safe writes** — `designer/storage.py` uses temp-file + replace semantics with retry logic to avoid broken saves on Windows file locks
 
 ### Editor & Authoring
@@ -384,12 +384,12 @@ Interactive modes (`landing`, `app_mockup`, `storyboard`) do **not** allow free-
 
 ## Developer Studio
 
-Developer Studio is Thoth's code-workspace subsystem. It is not a full IDE; it is a Codex-style agent workbench for connecting local Git repositories, reviewing code, making scoped edits, running tests, preparing branches/commits/PRs, and keeping the user in control through approval modes and an inspector.
+Developer Studio is Row-Bot's code-workspace subsystem. It is not a full IDE; it is a Codex-style agent workbench for connecting local Git repositories, reviewing code, making scoped edits, running tests, preparing branches/commits/PRs, and keeping the user in control through approval modes and an inspector.
 
 ### Workspace Model
 
 - **`developer/` package** — owns workspace storage, Git helpers, runtime profiles, approval policy, sandbox state, tool context, todos, change ledger, inspector snapshots, GitHub helpers, and UI
-- **Explicit repo linking** — users open an existing local repo or clone into a folder they choose. Thoth stores a workspace link and metadata, not a copy of the repo in app data
+- **Explicit repo linking** — users open an existing local repo or clone into a folder they choose. Row-Bot stores a workspace link and metadata, not a copy of the repo in app data
 - **Code threads** — Developer conversations are tagged as code threads and reopen directly into Developer Studio with the associated workspace context
 - **Workspace context injection** — Developer turns receive compact hidden context with repo path, branch, dirty state, remote URL, top-level files, approval mode, execution mode, shell guidance, and sandbox state
 - **No user-message leakage** — Developer context is injected as model context and is not rendered as part of the visible user message
@@ -431,7 +431,7 @@ Developer Studio is Thoth's code-workspace subsystem. It is not a full IDE; it i
 
 ## Custom Tools
 
-Custom Tools let users convert a GitHub repo, local folder, or current Developer workspace into reusable Thoth tools without editing manifests by hand.
+Custom Tools let users convert a GitHub repo, local folder, or current Developer workspace into reusable Row-Bot tools without editing manifests by hand.
 
 ### Product Surface
 
@@ -457,40 +457,40 @@ Custom Tools let users convert a GitHub repo, local folder, or current Developer
 
 ---
 
-## Thoth Status & Identity
+## Row-Bot Status & Identity
 
-Thoth now has a formal self-inspection and self-management surface: a tool for querying its own state, a controlled settings mutation API, and a Preferences UI for identity and self-improvement.
+Row-Bot now has a formal self-inspection and self-management surface: a tool for querying its own state, a controlled settings mutation API, and a Preferences UI for identity and self-improvement.
 
 ### Status Queries
 
-- **`thoth_status` tool** — read-only introspection across `overview`, `version`, `model`, `channels`, `memory`, `skills`, `tools`, `api_keys`, `identity`, `tasks`, `vision`, `image_gen`, `voice`, `config`, `logs`, `errors`, and `designer`
+- **`row_bot_status` tool** — read-only introspection across `overview`, `version`, `model`, `channels`, `memory`, `skills`, `tools`, `api_keys`, `identity`, `tasks`, `vision`, `image_gen`, `voice`, `config`, `logs`, `errors`, and `designer`
 - **Live runtime visibility** — the tool can report current model/provider, active channels, knowledge graph counts, enabled skills, configured APIs, task state, voice and image settings, and designer project counts
 - **Diagnostics access** — recent warnings, errors, and tracebacks can be summarized without opening log files manually
 - **Home health bar parity** — `ui/status_checks.py` and `ui/status_bar.py` expose compact health checks for Ollama, active model, cloud API, tunnel, OAuth accounts, workflows, knowledge, wiki vault, documents, search, skills, tracker, Buddy, MCP, plugins, network, tools, disk, threads DB, FAISS, Dream Cycle, TTS, and logging
 
 ### Controlled Self-Management
 
-- **`thoth_update_setting`** — approved mutations for Brain and Vision model switching, assistant name, personality, context caps, dream-cycle controls, skill toggles, tool toggles, image-generation model, video-generation model, manual dream-cycle trigger, and self-improvement toggle
+- **`row_bot_update_setting`** — approved mutations for Brain and Vision model switching, assistant name, personality, context caps, dream-cycle controls, skill toggles, tool toggles, image-generation model, video-generation model, manual dream-cycle trigger, and self-improvement toggle
 - **Interrupt-gated writes** — all state-changing operations route through explicit user confirmation before they are applied
-- **Optional self-improvement toolchain** — when self-improvement is enabled, `thoth_create_skill` and `thoth_patch_skill` become available
-- **Skill patch safety** — bundled skills are patched via user-space overrides, not in-place mutation; old versions are backed up under `~/.thoth/skill_versions/`
+- **Optional self-improvement toolchain** — when self-improvement is enabled, `row_bot_create_skill` and `row_bot_patch_skill` become available
+- **Skill patch safety** — bundled skills are patched via user-space overrides, not in-place mutation; old versions are backed up under `~/.row-bot/skill_versions/`
 
 ### Identity & Preferences
 
 - **`identity.py`** — stores assistant name, personality text, and self-improvement flag; sanitizes personality input before save
 - **Preferences tab** — Settings exposes name, personality, preview, and self-improvement controls in one place
 - **Prompt integration** — the same identity settings are consumed by `self_knowledge.py` so the opening line seen by the model matches what the user configured
-- **Parallel UI surface** — the Home health/status bar provides a visual health view for the user, while `thoth_status` exposes the same class of state to the agent
+- **Parallel UI surface** — the Home health/status bar provides a visual health view for the user, while `row_bot_status` exposes the same class of state to the agent
 
 ---
 
 ## Self-Knowledge & Insights
 
-Thoth now carries an explicit self-description into prompts and uses Dream Cycle to turn recent activity into structured insight objects.
+Row-Bot now carries an explicit self-description into prompts and uses Dream Cycle to turn recent activity into structured insight objects.
 
 ### Prompt-Time Self-Knowledge
 
-- **Feature manifest** — `FEATURE_MANIFEST` in `self_knowledge.py` is the canonical inventory of major capabilities used when Thoth explains what it can do
+- **Feature manifest** — `FEATURE_MANIFEST` in `self_knowledge.py` is the canonical inventory of major capabilities used when Row-Bot explains what it can do
 - **Dynamic identity line** — `build_identity_line()` combines the configured assistant name and personality into the opening identity sentence
 - **Dynamic state block** — `build_self_knowledge_block()` appends live state like current model, configured providers, entity count, last dream summary, active channels, designer project count, and enabled skills
 - **Prompt injection** — the self-knowledge block is added alongside tool, memory, and citation guidance so the model can talk about itself accurately without outdated copy in `prompts.py`
@@ -507,7 +507,7 @@ Thoth now carries an explicit self-description into prompts and uses Dream Cycle
 
 ## Messaging Channels
 
-Thoth uses a generic **Channel** abstraction. Any messaging platform can plug in by subclassing the base adapter, declaring capabilities, and registering itself. The system then auto-generates tools, settings UI, monitoring, and approval routing around that channel.
+Row-Bot uses a generic **Channel** abstraction. Any messaging platform can plug in by subclassing the base adapter, declaring capabilities, and registering itself. The system then auto-generates tools, settings UI, monitoring, and approval routing around that channel.
 
 ### Channel Architecture
 
@@ -534,7 +534,7 @@ Thoth uses a generic **Channel** abstraction. Any messaging platform can plug in
 - **Auto-generated channel tools** — when a channel is running, the agent gains send/photo/document tools for that channel automatically
 - **Approval routing** — approvals can be sent through supported channels with inline action controls
 - **Sidebar channel monitor** — the conversation sidebar shows live status dots, icons, display names, and relative last-activity timestamps
-- **Auto-start and config persistence** — channel enablement and settings persist to `~/.thoth/channels_config.json`
+- **Auto-start and config persistence** — channel enablement and settings persist to `~/.row-bot/channels_config.json`
 
 ---
 
@@ -545,7 +545,7 @@ A provider-agnostic tunnel layer exposes local webhook ports to the internet whe
 - **Provider abstraction** — `TunnelProvider` defines the backend contract; `NgrokProvider` is the current implementation
 - **`TunnelManager` singleton** — manages tunnel lifecycle, per-port allocation, cleanup, and status reporting
 - **Automatic use by channels** — channels that need a public callback request a tunnel on start and release it on shutdown
-- **Optional app tunneling** — the main Thoth UI can also be exposed intentionally for remote access
+- **Optional app tunneling** — the main Row-Bot UI can also be exposed intentionally for remote access
 - **Settings UI** — tunnel provider, auth token, and active-tunnel status live in the System settings surface
 - **Health checks** — tunnel status participates in the status monitor and diagnostics flows
 
@@ -553,7 +553,7 @@ A provider-agnostic tunnel layer exposes local webhook ports to the internet whe
 
 ## X (Twitter) Tool
 
-Thoth integrates with X API v2 through a native httpx-based client, grouped into three high-level tool entry points.
+Row-Bot integrates with X API v2 through a native httpx-based client, grouped into three high-level tool entry points.
 
 - **3 grouped LangChain tools** — `x_read`, `x_post`, and `x_engage`
 - **Read operations** — search, read tweet, timeline, mentions, and user info
@@ -562,7 +562,7 @@ Thoth integrates with X API v2 through a native httpx-based client, grouped into
 - **OAuth 2.0 PKCE** — browser-based auth flow with a local callback server and refresh-token support
 - **Rate-limit tracking** — per-endpoint rate information is recorded and surfaced in structured error responses
 - **Tier discovery** — X tier information is persisted and reused for rate-limit expectations
-- **Local token storage** — auth state lives in `~/.thoth/x/`
+- **Local token storage** — auth state lives in `~/.row-bot/x/`
 - **Settings UI** — connect, disconnect, and inspect X auth from Accounts settings
 
 ---
@@ -575,55 +575,55 @@ Tool guides are lightweight `SKILL.md` packages that attach contextual instructi
 - **`tools:` activation field** — guides declare the tools they apply to; when any linked tool is in the active tool belt, the guide is injected automatically
 - **Prompt injection** — `prompts.py` discovers active guides and appends them to the system prompt at runtime
 - **Invisible to the manual skill toggles** — tool guides are auto-managed and do not clutter the user-facing skill list
-- **20 bundled guides** — Browser, Calendar, Chart, Custom Tool Builder, Designer, Developer, Email, Filesystem, Math, MCP, Shell, Telegram, Thoth Status, Tracker, Updater, Video, Vision, Weather, Wiki, and X
+- **20 bundled guides** — Browser, Calendar, Chart, Custom Tool Builder, Designer, Developer, Email, Filesystem, Math, MCP, Shell, Telegram, Row-Bot Status, Tracker, Updater, Video, Vision, Weather, Wiki, and X
 - **Consistency benefits** — guide content can evolve independently of the main prompt, reducing drift and duplicated instructions
 
 ---
 
 ## Image Generation
 
-Thoth can generate and edit images through multiple external providers, render them inline, persist them to disk, and reuse them in designer workflows or channel delivery.
+Row-Bot can generate and edit images through multiple external providers, render them inline, persist them to disk, and reuse them in designer workflows or channel delivery.
 
 - **Provider support** — OpenAI image models, xAI Grok Imagine, Google Imagen 4, and Gemini image-capable models
 - **Generate and edit flows** — prompts can generate a new image or edit the most recent image, an attached image, or an on-disk file
 - **Inline rendering** — generated images are surfaced directly in the chat stream without requiring a separate viewer
-- **Per-thread persistence** — generated images are saved into Thoth's media storage so they survive refreshes and can be referenced later
+- **Per-thread persistence** — generated images are saved into Row-Bot's media storage so they survive refreshes and can be referenced later
 - **Channel delivery** — running messaging channels can pick up generated images and send them as photos
 - **Designer reuse** — Designer Studio can invoke the same provider layer for slide assets and visual content generation
-- **Settings selector** — the active image-generation model is configurable from Settings and queryable through `thoth_status`
+- **Settings selector** — the active image-generation model is configurable from Settings and queryable through `row_bot_status`
 
 ---
 
 ## Video Generation
 
-Thoth can generate short video clips from text prompts or reference images through Google Veo and xAI Grok Imagine Video for chat use and Designer storyboard workflows.
+Row-Bot can generate short video clips from text prompts or reference images through Google Veo and xAI Grok Imagine Video for chat use and Designer storyboard workflows.
 
 - **`video_gen_tool`** — top-level agent tool for text-to-video and image-to-video generation
 - **Provider support** — Google Veo handles text-to-video and image-to-video with provider-side person-generation policy handling; xAI Grok Imagine Video supports text-to-video and image-to-video with provider-specific aspect ratio, duration, and resolution constraints
 - **Inline rendering** — generated clips are surfaced directly in the chat stream with safe media-element hydration
 - **Designer integration** — Designer Studio storyboards and landing hero slots can reference generated videos as `asset://` media; motion clips are rendered in preview, presenter mode, and published share links
-- **Persistent asset storage** — generated clips are saved to Thoth's media storage so they survive thread refreshes and can be reused across designer projects
+- **Persistent asset storage** — generated clips are saved to Row-Bot's media storage so they survive thread refreshes and can be reused across designer projects
 - **Channel delivery** — running messaging channels can pick up generated videos and deliver them where supported
 
 ---
 
 ## MCP Client & External Tools
 
-Thoth includes a guarded Model Context Protocol client that can connect external MCP servers and expose their tools to the ReAct agent without making external servers part of Thoth's trusted core.
+Row-Bot includes a guarded Model Context Protocol client that can connect external MCP servers and expose their tools to the ReAct agent without making external servers part of Row-Bot's trusted core.
 
 ### Runtime Model
 
 - **Dedicated package** — `mcp_client/` owns persistent config, marketplace search, dependency checks, safety classification, runtime sessions, logging, result normalization, and curated starter metadata
-- **Separate config file** — MCP state is stored in `~/.thoth/mcp_servers.json`, separate from native tool toggles, so malformed or broken MCP config falls back to an empty disabled config instead of damaging normal tool settings
+- **Separate config file** — MCP state is stored in `~/.row-bot/mcp_servers.json`, separate from native tool toggles, so malformed or broken MCP config falls back to an empty disabled config instead of damaging normal tool settings
 - **Global enable switch** — `enabled` in MCP config is the top-level kill switch. Turning it off stops active sessions, clears the discovered catalog, removes dynamic MCP tools from the agent, and keeps saved server definitions for later
 - **Per-server runtime** — each enabled server gets its own `McpServerRuntime` session tracked by status (`connecting`, `connected`, `failed`, `dependency_missing`, `stopped`, `global_disabled`), tool counts, timestamps, transport, and last error
 - **Transport support** — stdio, Streamable HTTP, and SSE are supported through the Python MCP SDK. Each server can set command, args, cwd, env, URL, headers, connect timeout, tool timeout, and output limit
-- **Non-blocking startup** — `app.py` discovers enabled servers during startup in a guarded path. Exceptions are logged as warnings and do not stop Thoth from launching
+- **Non-blocking startup** — `app.py` discovers enabled servers during startup in a guarded path. Exceptions are logged as warnings and do not stop Row-Bot from launching
 - **Shutdown cleanup** — app shutdown calls MCP runtime shutdown to close child sessions and stop external stdio processes
 
 ### Dynamic Tool Injection
 
-- **Parent registry tool** — `tools/mcp_tool.py` registers `mcp` / **External MCP Tools** as the native parent tool. It is the stable toggle users see in Settings and Thoth Status
+- **Parent registry tool** — `tools/mcp_tool.py` registers `mcp` / **External MCP Tools** as the native parent tool. It is the stable toggle users see in Settings and Row-Bot Status
 - **Dynamic wrappers** — discovered enabled MCP tools are converted into LangChain `StructuredTool` instances at agent build time, with names generated as `mcp_<server>_<tool>`
 - **Schema conversion** — JSON input schemas are converted into Pydantic argument models where possible, with a permissive fallback for complex or invalid schemas
 - **Resources and prompts** — servers can optionally expose `list_resources`, `read_resource`, `list_prompts`, and `get_prompt` utility tools through per-server advanced toggles
@@ -633,7 +633,7 @@ Thoth includes a guarded Model Context Protocol client that can connect external
 ### Safety & Trust Boundaries
 
 - **External output is untrusted** — the MCP tool guide tells the agent not to follow instructions found inside MCP results unless they are clearly part of the user's request
-- **Native tools stay preferred** — Thoth Memory, Browser, filesystem, document, search, channel, and Designer capabilities remain canonical for Thoth-owned behavior; overlapping MCP servers are treated as external alternatives
+- **Native tools stay preferred** — Row-Bot Memory, Browser, filesystem, document, search, channel, and Designer capabilities remain canonical for Row-Bot-owned behavior; overlapping MCP servers are treated as external alternatives
 - **Destructive classification** — tool names, descriptions, and MCP annotations are inspected for write/send/delete/run/deploy/payment-style behavior. Destructive tools require approval and are not enabled by default after discovery
 - **Approval synchronization** — destructive MCP wrapper names are included in the parent tool's `destructive_tool_names`, so they flow through the existing interrupt approval mechanism
 - **Background workflow rules** — MCP destructive tools follow workflow safety mode: approval-required modes interrupt, while explicit allow-all mode can run enabled destructive MCP tools
@@ -652,9 +652,9 @@ Thoth includes a guarded Model Context Protocol client that can connect external
 ### Runtime Requirements
 
 - **Requirement inference** — stdio launch commands infer runtime requirements for `npx`/Node.js, `uvx`/uv, Docker, and Playwright MCP browser dependencies
-- **Managed user-space installs** — Thoth can install private Node.js LTS, uv, and Playwright Chromium runtimes under `~/.thoth/runtimes/` and inject those paths only into MCP child process environments
-- **Manual complex dependencies** — Docker and other heavyweight system dependencies are surfaced as manual setup requirements with setup links instead of being bundled into Thoth
-- **No bundled MCP runtimes** — Thoth depends on the Python MCP SDK, but external server runtimes are resolved at runtime so the app package does not ship Node, uv, Docker, or browser payloads unnecessarily
+- **Managed user-space installs** — Row-Bot can install private Node.js LTS, uv, and Playwright Chromium runtimes under `~/.row-bot/runtimes/` and inject those paths only into MCP child process environments
+- **Manual complex dependencies** — Docker and other heavyweight system dependencies are surfaced as manual setup requirements with setup links instead of being bundled into Row-Bot
+- **No bundled MCP runtimes** — Row-Bot depends on the Python MCP SDK, but external server runtimes are resolved at runtime so the app package does not ship Node, uv, Docker, or browser payloads unnecessarily
 
 ### Testing & Release Checks
 
@@ -666,7 +666,7 @@ Thoth includes a guarded Model Context Protocol client that can connect external
 
 ## Migration Wizard
 
-Thoth includes a one-time migration wizard for moving selected data from Hermes Agent or OpenClaw into a Thoth data directory without treating legacy state as trusted runtime configuration.
+Row-Bot includes a one-time migration wizard for moving selected data from Hermes Agent or OpenClaw into a Row-Bot data directory without treating legacy state as trusted runtime configuration.
 
 ### Flow & UI
 
@@ -685,7 +685,7 @@ Thoth includes a one-time migration wizard for moving selected data from Hermes 
 
 ### Apply, Backups & Reports
 
-- **Explicit apply** — only selected planned/sensitive items are applied. Archive-only items are copied to the report archive, not activated in the live Thoth target
+- **Explicit apply** — only selected planned/sensitive items are applied. Archive-only items are copied to the report archive, not activated in the live Row-Bot target
 - **Backups first** — existing target files are backed up before overwrite/append/update. Multiple writes to the same target preserve the pre-migration original once per run, and newly created files are not backed up later in the same run
 - **Redacted report** — each run writes redacted `plan.json`, `result.json`, `backup_manifest.json`, and `summary.md` under `migration-reports/<timestamp>/`
 - **Archive redaction** — JSON and key/value archive snapshots are redacted before being copied into reports; binary or unsupported files are represented by a placeholder instead of raw content
@@ -709,8 +709,8 @@ A sandboxed, hot-reloadable extension system lets plugins add new tools and skil
 - **Plugin API** — `PluginAPI` and `PluginTool` are the core abstractions available to plugins
 - **Manifest system** — each plugin declares metadata, tools, skills, settings, and dependencies in `plugin.json`
 - **Security sandbox** — static scans block dangerous constructs like `eval`, `exec`, and shell escape paths; imports from sensitive core modules are restricted
-- **Dependency safety** — plugin dependency installs cannot silently downgrade core packages required by Thoth
-- **State persistence** — enablement and non-secret config are stored under `~/.thoth/plugin_state.json`; plugin API-key secrets use the OS credential store with metadata-only `plugin_secrets.json` state and session-only fallback for new saves when keyring is unavailable
+- **Dependency safety** — plugin dependency installs cannot silently downgrade core packages required by Row-Bot
+- **State persistence** — enablement and non-secret config are stored under `~/.row-bot/plugin_state.json`; plugin API-key secrets use the OS credential store with metadata-only `plugin_secrets.json` state and session-only fallback for new saves when keyring is unavailable
 - **Hot reload** — Settings can reload plugins without restarting the app; agent caches are cleared automatically
 - **Skill auto-discovery** — plugin `skills/` directories are scanned for `SKILL.md` definitions and injected like built-in skills
 
@@ -726,15 +726,15 @@ A sandboxed, hot-reloadable extension system lets plugins add new tools and skil
 
 ## Auto-Updates
 
-`updater.py` polls the GitHub Releases API for the official Thoth repo on a background thread (30-second startup delay, then every 6 hours, with a 24-hour debounce on actual network calls). Checking is on by default; if there is no internet the call fails silently and the next tick retries.
+`updater.py` polls the GitHub Releases API for the official Row-Bot repo on a background thread (30-second startup delay, then every 6 hours, with a 24-hour debounce on actual network calls). Checking is on by default; if there is no internet the call fails silently and the next tick retries.
 
-- **Channel** — `stable` (default) hits `/releases/latest`; `beta` walks the top 10 releases and includes pre-releases. Persisted in `~/.thoth/update_config.json`.
-- **Manifest verification** — every release body must contain a fenced `<!-- thoth-update-manifest -->` block with SHA256 hashes for each platform asset. Without a manifest entry, `download_update` refuses to install. The CI workflow `.github/workflows/update-manifest.yml` calls `scripts/append_sha_manifest.py` to PATCH the release body once artifacts are uploaded. The Linux one-line installer uses the same manifest before running the bundled tarball installer.
-- **OS code signature** — Windows installs invoke `signtool.exe verify /pa`; macOS installs invoke `codesign --verify --deep --strict`. Linux tarball installs do not have a universal OS-level signing verifier, so Thoth relies on GitHub HTTPS plus the required SHA256 release manifest.
-- **Hand-off** — Windows: `ThothSetup_x.y.z.exe /SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS`. The `.iss` uses `CloseApplications=yes` / `RestartApplications=yes` so Inno Setup can swap files while Thoth is running, and repair/upgrade deletes `{app}\python` before recopying the bundled runtime so stray packages installed into embedded Python cannot survive. macOS: `open <dmg>` and exit; the user drags the new app to `/Applications`. Linux: install the verified `Thoth-X.Y.Z-Linux-ARCH.tar.gz` into the user XDG release tree, atomically flip `~/.local/share/thoth/current`, refresh the desktop entry/icon, and restart through `~/.local/bin/thoth`.
+- **Channel** — `stable` (default) hits `/releases/latest`; `beta` walks the top 10 releases and includes pre-releases. Persisted in `~/.row-bot/update_config.json`.
+- **Manifest verification** — every release body must contain a fenced `<!-- row-bot-update-manifest -->` block with SHA256 hashes for each platform asset. Without a manifest entry, `download_update` refuses to install. The CI workflow `.github/workflows/update-manifest.yml` calls `scripts/append_sha_manifest.py` to PATCH the release body once artifacts are uploaded. The Linux one-line installer uses the same manifest before running the bundled tarball installer.
+- **OS code signature** — Windows installs invoke `signtool.exe verify /pa`; macOS installs invoke `codesign --verify --deep --strict`. Linux tarball installs do not have a universal OS-level signing verifier, so Row-Bot relies on GitHub HTTPS plus the required SHA256 release manifest.
+- **Hand-off** — Windows: `Row-Bot-x.y.z-Windows-x64.exe /SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS`. The `.iss` uses `CloseApplications=yes` / `RestartApplications=yes` so Inno Setup can swap files while Row-Bot is running, and repair/upgrade deletes `{app}\python` before recopying the bundled runtime so stray packages installed into embedded Python cannot survive. macOS: `open <dmg>` and exit; the user drags the new app to `/Applications`. Linux: install the verified `Row-Bot-X.Y.Z-Linux-ARCH.tar.gz` into the user XDG release tree, atomically flip `~/.local/share/row-bot/current`, refresh the desktop entry/icon, and restart through `~/.local/bin/row-bot`.
 - **UI** — a green "⬆ vX.Y.Z" status-bar pill appears when a newer release is detected; clicking opens the What's-New dialog (rendered release notes plus Install / Skip / Later buttons). Settings → Preferences → Updates exposes channel selection, "Check for updates", and a list of skipped versions.
-- **Agent surface** — `tools/updater_tool.py` registers `thoth_check_for_updates` (read-only) and `thoth_install_update` (interrupt-gated). The dynamic self-knowledge block surfaces "Update available: …" when applicable, and `thoth_status` adds an `updates` category.
-- **Dev installs** — when a `.git/` directory sits next to the app source (i.e. running from a checkout), the scheduler is disabled and `thoth_install_update` refuses, so working copies are never overwritten. On Linux, packaged installs are recognized by `install_info.json` with `platform: linux` and `install_kind: xdg-user-tarball`.
+- **Agent surface** — `tools/updater_tool.py` registers `row_bot_check_for_updates` (read-only) and `row_bot_install_update` (interrupt-gated). The dynamic self-knowledge block surfaces "Update available: …" when applicable, and `row_bot_status` adds an `updates` category.
+- **Dev installs** — when a `.git/` directory sits next to the app source (i.e. running from a checkout), the scheduler is disabled and `row_bot_install_update` refuses, so working copies are never overwritten. On Linux, packaged installs are recognized by `install_info.json` with `platform: linux` and `install_kind: xdg-user-tarball`.
 
 ---
 
@@ -745,7 +745,7 @@ A sandboxed, hot-reloadable extension system lets plugins add new tools and skil
 - **3 tracker operations** — structured logging, flexible querying, and destructive delete with confirmation
 - **Built-in analysis** — adherence, streaks, numeric summaries, frequency, day-of-week patterns, cycle estimation, and co-occurrence analysis
 - **Trend visualization** — tracker queries can export CSV and chain directly into the chart tool for Plotly output
-- **Fully local** — tracker data lives in `~/.thoth/tracker/tracker.db`
+- **Fully local** — tracker data lives in `~/.row-bot/tracker/tracker.db`
 - **Memory isolation** — tracker entries are intentionally excluded from the personal knowledge graph
 
 ---
@@ -758,8 +758,8 @@ A sandboxed, hot-reloadable extension system lets plugins add new tools and skil
 - **Startup diagnostics** — `startup_diagnostics.py` runs early in `app.py` and probes fragile optional native packages. Missing optional packages are ignored; installed-but-broken packages such as TorchCodec are logged with recovery steps and patched out of optional Transformers availability checks where safe.
 - **First-launch setup wizard** — starts with model/provider choice, then migration and setup-center steps for Local, Providers, Custom/Self-hosted, memory/docs, workflows, Designer, Developer, channels, voice, and related setup without touching config files by hand
 - **Self-contained installers** — Windows and macOS releases bundle dependencies for one-click setup; Linux uses a one-line bootstrapper that verifies and installs the self-contained XDG tarball into user-owned paths
-- **Launcher identity and ports** — the launcher probes `/api/launcher-ping` before reusing port 8080, passes the chosen port through `THOTH_PORT`, and supports explicit `--browser`, `--native`, `--tray`, `--no-tray`, `--server`, `--no-open`, `--port`, and `--host` modes
-- **Launcher recovery hints** — when the managed server exits during startup, `launcher.py` tails `~/.thoth/thoth_app.log` and emits targeted recovery hints for recognized startup signatures, including broken optional TorchCodec DLL loads in the embedded Windows runtime.
+- **Launcher identity and ports** — the launcher probes `/api/launcher-ping` before reusing port 8080, passes the chosen port through `ROW_BOT_PORT`, and supports explicit `--browser`, `--native`, `--tray`, `--no-tray`, `--server`, `--no-open`, `--port`, and `--host` modes
+- **Launcher recovery hints** — when the managed server exits during startup, `launcher.py` tails `~/.row-bot/row_bot_app.log` and emits targeted recovery hints for recognized startup signatures, including broken optional TorchCodec DLL loads in the embedded Windows runtime.
 - **Launcher data recovery commands** — `launcher.py --reset-tasks-db`, `--reset-db`, and `--restore-data` back up SQLite DB families before recreating or restoring known task, memory, and thread databases
 - **Auto-restart flow** — closing the native window does not kill the tray-managed app process; reopen is fast
 - **Release pipeline** — build, sign, notarize, and publish automation lives in CI
@@ -797,7 +797,7 @@ A sandboxed, hot-reloadable extension system lets plugins add new tools and skil
 
 ## Stability & Diagnostics
 
-Thoth includes a stability layer for the kinds of failures that are hard to catch from normal request logs: UI callback crashes, client-side JavaScript errors, event-loop stalls, memory spikes, and startup/shutdown issues.
+Row-Bot includes a stability layer for the kinds of failures that are hard to catch from normal request logs: UI callback crashes, client-side JavaScript errors, event-loop stalls, memory spikes, and startup/shutdown issues.
 
 - **`stability.py`** — centralizes crash reporting, UI callback error reports, client-side error capture, asyncio exception handling, thread/unraisable hooks, memory snapshots, and event-loop lag logging
 - **Safe timers** — `ui/timer_utils.py` wraps deferred UI callbacks and polling timers so disconnected clients or deleted NiceGUI slots do not crash the app silently
@@ -805,7 +805,7 @@ Thoth includes a stability layer for the kinds of failures that are hard to catc
 - **UI performance helpers** — `ui/performance.py` provides render generation tokens, timed UI sections, slow-section logging, and safe UI callback/task wrappers used by Settings, Knowledge, chat, and graph surfaces
 - **Startup sequencing** — startup status covers cached model catalog load, workflow scheduler, MCP, plugins, channel migration/autostart, tunnel startup, and knowledge graph load
 - **Clean shutdown** — app shutdown attempts ordered channel, tunnel, MCP, scheduler, and process cleanup to reduce locked logs and lingering child processes
-- **Task database diagnostics** — Home, Command Center, and Thoth Status can report task-schema state, repair results, and launcher recovery guidance when workflow storage is missing or corrupt
+- **Task database diagnostics** — Home, Command Center, and Row-Bot Status can report task-schema state, repair results, and launcher recovery guidance when workflow storage is missing or corrupt
 - **Frontend error reporting** — browser-side exceptions are reported back into the structured log with enough context to correlate with UI actions
 - **Performance probes** — memory RSS/VMS/thread counts, event-loop lag, token-counter refresh, model settings load, Settings tab render generations, transcript rendering, FAISS rebuild, and catalog refresh timings are logged for support investigations
 
@@ -815,12 +815,12 @@ Thoth includes a stability layer for the kinds of failures that are hard to catc
 
 Skills are reusable instruction packs that shape how the agent thinks and responds. Each skill is a `SKILL.md` file with YAML frontmatter (display name, icon, description, required tools, tags) and freeform instructions injected into the system prompt when enabled.
 
-Thoth ships with **17 manual bundled skills** and **20 tool guides**. Manual skills are toggled from Settings; tool guides auto-activate when their linked tools are available.
+Row-Bot ships with **17 manual bundled skills** and **20 tool guides**. Manual skills are toggled from Settings; tool guides auto-activate when their linked tools are available.
 
 | Skill | Description |
 |-------|-------------|
 | **🧠 Brain Dump** | Capture unstructured thoughts and organize them into structured notes saved to memory |
-| **💻 Claude Code Delegation** | Coordinate Claude Code CLI as an external coding agent through Thoth's approval-gated shell workflow |
+| **💻 Claude Code Delegation** | Coordinate Claude Code CLI as an external coding agent through Row-Bot's approval-gated shell workflow |
 | **☀️ Daily Briefing** | Compile a morning briefing with weather, calendar, and news headlines |
 | **📊 Data Analyst** | Analyze datasets, produce statistical summaries, and create insightful charts |
 | **💻 Developer Coding** | Plan and implement scoped code changes in Developer Studio using repo-aware tools and approval policy |
@@ -837,12 +837,12 @@ Thoth ships with **17 manual bundled skills** and **20 tool guides**. Manual ski
 | **⚙️ Task Automation** | Design effective workflows with steps, conditions, approvals, triggers, and delivery routing |
 | **🌐 Web Navigator** | Strategic patterns for browser automation, research, forms, and data extraction |
 
-- **Claude Code Delegation** — disabled by default, this skill treats Claude Code CLI as an external coding worker while Thoth remains coordinator. It favors bounded `claude -p` print-mode tasks, explicit working-directory checks, `--allowedTools`, turn/budget limits, diff inspection, Thoth-side verification, and user approval before write-capable or destructive delegation.
-- **User skills** — custom skills live in `~/.thoth/skills/<name>/SKILL.md`; user skills with the same name as a bundled skill override it
+- **Claude Code Delegation** — disabled by default, this skill treats Claude Code CLI as an external coding worker while Row-Bot remains coordinator. It favors bounded `claude -p` print-mode tasks, explicit working-directory checks, `--allowedTools`, turn/budget limits, diff inspection, Row-Bot-side verification, and user approval before write-capable or destructive delegation.
+- **User skills** — custom skills live in `~/.row-bot/skills/<name>/SKILL.md`; user skills with the same name as a bundled skill override it
 - **In-app skill editor** — skills can be created and edited directly from Settings
 - **Per-skill enablement** — only enabled manual skills are injected into the system prompt
 - **Per-thread and per-workflow overrides** — skill selection can be narrowed for individual threads and workflows
-- **Tool guides remain automatic** — Browser, Calendar, Chart, Custom Tool Builder, Designer, Developer, Email, Filesystem, Math, MCP, Shell, Telegram, Thoth Status, Tracker, Updater, Video, Vision, Weather, Wiki, and X guides are in the built-in set
+- **Tool guides remain automatic** — Browser, Calendar, Chart, Custom Tool Builder, Designer, Developer, Email, Filesystem, Math, MCP, Shell, Telegram, Row-Bot Status, Tracker, Updater, Video, Vision, Weather, Wiki, and X guides are in the built-in set
 
 ---
 
@@ -871,7 +871,7 @@ Thoth ships with **17 manual bundled skills** and **20 tool guides**. Manual ski
 | **`tts.py`** | Kokoro text-to-speech integration, voice catalog, and streaming playback |
 | **`vision.py`** | Camera capture, screen capture, and workspace image analysis via local or provider vision models |
 | **`data_reader.py`** | Shared structured-data loader for CSV, TSV, Excel, JSON, and JSONL |
-| **`data_paths.py`** | Shared Thoth data-directory and SQLite path resolution for tasks, memory, threads, diagnostics, and recovery commands |
+| **`data_paths.py`** | Shared Row-Bot data-directory and SQLite path resolution for tasks, memory, threads, diagnostics, and recovery commands |
 | **`launcher.py`** | Desktop launcher, system tray, splash screen, app lifecycle, logging bootstrap, local runtime startup decisions, and DB recovery commands |
 | **`stability.py`** | UI callback/error capture, asyncio/thread exception hooks, memory snapshots, event-loop lag logging, and crash diagnostics |
 | **`startup_diagnostics.py`** | Early startup probes for optional native packages that can break app import/startup when partially installed |
@@ -888,23 +888,23 @@ Thoth ships with **17 manual bundled skills** and **20 tool guides**. Manual ski
 | **`notifications.py`** | Unified desktop, sound, and toast notification system |
 | **`channels/`** | Channel ABC, registry, media helpers, auth helpers, approval routing, command handling, tool generation, and bundled channel adapters |
 | **`tunnel.py`** | Tunnel provider abstraction, ngrok integration, and lifecycle manager |
-| **`tools/thoth_status_tool.py`** | Self-introspection and controlled self-management tool, including optional self-improvement skill operations |
+| **`tools/row_bot_status_tool.py`** | Self-introspection and controlled self-management tool, including optional self-improvement skill operations |
 | **`tools/developer_tool.py`** + **`tools/custom_tool_builder_tool.py`** | Developer workspace operations and conversational Custom Tool creation/testing/promotion surface |
 | **`tools/`** + **`designer/tool.py`** | Self-registering core tool modules, registry, base classes, Wikipedia recovery behavior, and LangChain tool conversion |
 | **`plugins/`** | Plugin runtime, marketplace client, manifest validation, security scanner, and settings integration |
 | **`mcp_client/`** | External Model Context Protocol client: config, runtime sessions, marketplace search, requirements, safety classification, diagnostics, and result normalization |
 | **`migration/`** | Hermes/OpenClaw migration models, redaction, source detection, dry-run planning, realistic fixtures, and guarded apply/report generation |
 | **`static/`** | Bundled frontend assets such as Mermaid, graph/visualization helpers, and Buddy runtime/motion assets |
-| **`version.py`** | Single source of truth for the current Thoth version |
+| **`version.py`** | Single source of truth for the current Row-Bot version |
 
 ---
 
 ## Data Storage
 
-All user data is stored under `~/.thoth/` (or `%USERPROFILE%\\.thoth\\` on Windows) unless `THOTH_DATA_DIR` is set.
+All user data is stored under `~/.row-bot/` (or `%USERPROFILE%\\.row-bot\\` on Windows) unless `ROW_BOT_DATA_DIR` is set.
 
 ```text
-~/.thoth/
+~/.row-bot/
 ├── threads.db                     # Conversation history and LangGraph checkpoints
 ├── media/                         # Per-thread media files and sidecar metadata
 ├── tasks.db                       # Workflows, schedules, pipeline definitions, run history, and approval state
@@ -941,7 +941,7 @@ All user data is stored under `~/.thoth/` (or `%USERPROFILE%\\.thoth\\` on Windo
 ├── migration-backups/             # Pre-migration backups of overwritten target files
 ├── runtimes/                      # Optional user-space runtimes installed by MCP requirement helper
 ├── skill_versions/                # Skill patch backups for self-improvement flows
-├── thoth_app.log                  # Structured application log
+├── row_bot_app.log                  # Structured application log
 ├── splash.log                     # Splash-screen diagnostics
 ├── inbox/                         # Files received via messaging channels
 ├── browser_profile/               # Persistent Chromium profile
@@ -967,7 +967,7 @@ All user data is stored under `~/.thoth/` (or `%USERPROFILE%\\.thoth\\` on Windo
 └── kokoro/                        # Kokoro TTS model and voice files
 ```
 
-> Override the data directory by setting the `THOTH_DATA_DIR` environment variable.
+> Override the data directory by setting the `ROW_BOT_DATA_DIR` environment variable.
 
 ---
 
@@ -977,28 +977,28 @@ All user data is stored under `~/.thoth/` (or `%USERPROFILE%\\.thoth\\` on Windo
 
 Most open-source AI assistants are still **developer tools disguised as products** — CLI-first, config-file-driven, and built around Docker, YAML, and environment variables. Getting started often means cloning repos, editing configs, wiring databases, and debugging dependencies before you can ask a single useful question.
 
-**Thoth is different.** It is packaged as a native desktop experience with one-click installers for Windows and macOS, a one-line Linux installer backed by a verified XDG tarball, local-first defaults, and a GUI that exposes models, tools, workflows, channels, Designer Studio, Developer Studio, Custom Tools, and memory without requiring terminal fluency.
+**Row-Bot is different.** It is packaged as a native desktop experience with one-click installers for Windows and macOS, a one-line Linux installer backed by a verified XDG tarball, local-first defaults, and a GUI that exposes models, tools, workflows, channels, Designer Studio, Developer Studio, Custom Tools, and memory without requiring terminal fluency.
 
 ### Why not just use ChatGPT?
 
-| | ChatGPT / Claude / Gemini | Thoth |
+| | ChatGPT / Claude / Gemini | Row-Bot |
 |---|---|---|
 | **Your data** | Stored on provider servers, subject to their privacy policies | Stays on your machine. With opt-in provider/custom models, only the current conversation and model-visible tool context go to the selected endpoint; memories, files, designer projects, and history remain local unless explicitly included |
 | **Conversations** | Provider-owned chat history | Local SQLite-backed threads, exportable anytime |
 | **Cost** | Subscription or provider billing | Free with local models; provider/custom usage is upstream API billing, self-hosted infrastructure, or ChatGPT subscription access only when you opt in |
 | **Memory** | Limited, opaque, provider-controlled | Personal knowledge graph with entities, relations, bounded recall, audit/review states, visualization, wiki export, and background refinement |
-| **Tools** | Limited app integrations and provider-defined plug-ins | 30+ core tools plus Developer-native tools, Custom Tool Builder, promoted Custom Tools, and auto-generated channel tools: shell, browser, filesystem, Gmail, Calendar, memory graph, Designer Studio, Thoth Status, MCP external tools, image generation, video generation, research tools, and more |
+| **Tools** | Limited app integrations and provider-defined plug-ins | 30+ core tools plus Developer-native tools, Custom Tool Builder, promoted Custom Tools, and auto-generated channel tools: shell, browser, filesystem, Gmail, Calendar, memory graph, Designer Studio, Row-Bot Status, MCP external tools, image generation, video generation, research tools, and more |
 | **Customization** | Pick a model and maybe a custom instruction | Swap provider-qualified models per thread, workflow, or Developer workspace, configure name and personality, build workflows, toggle tools and skills, create Custom Tools from repos/folders, and enable self-improvement features |
 | **Voice** | Usually cloud-processed | Local faster-whisper STT plus Kokoro TTS |
 | **Availability** | Internet required | Local models work offline; hosted providers and custom endpoints are optional |
 
-> **Bottom line:** cloud assistants rent you access to someone else's system. Thoth gives you **personal AI sovereignty** — local durable state, provider choice when you want it, and all of your long-lived data under your own control.
+> **Bottom line:** cloud assistants rent you access to someone else's system. Row-Bot gives you **personal AI sovereignty** — local durable state, provider choice when you want it, and all of your long-lived data under your own control.
 
-### How is Thoth different from OpenClaw?
+### How is Row-Bot different from OpenClaw?
 
 [OpenClaw](https://github.com/openclaw/openclaw) is a strong open-source personal assistant aimed at multi-channel delivery and developer-centric workflows. The two projects overlap in ambition but optimize for different users.
 
-| | Thoth | OpenClaw |
+| | Row-Bot | OpenClaw |
 |---|---|---|
 | **Getting started** | One-click installers and GUI-first setup on Windows and macOS, plus one-line Linux install with browser-first launch | CLI-oriented install flow and heavier terminal expectations |
 | **Model routing** | Local-first data with local, hosted, ChatGPT / Codex, Ollama Cloud, and custom OpenAI-compatible model paths in one GUI | More cloud-first in typical setups |
@@ -1007,10 +1007,10 @@ Most open-source AI assistants are still **developer tools disguised as products
 | **Document intelligence** | Structured graph extraction with provenance, dedup, and relation typing | Strong workspace tools but less graph-centric document knowledge modeling |
 | **Designer / Canvas** | Designer Studio for decks, one-pagers, reports, published links, plus inline Mermaid and Plotly rendering | A2UI-style interactive workspace focus |
 | **Developer / Code** | Developer Studio for Git workspaces with code threads, approval modes, file tree, todos, diffs, tests, GitHub/PR prep, and optional Docker shadow sandbox | Developer-heavy CLI and terminal-first workflows |
-| **Tools** | 30+ core tools plus Developer-native tools, Custom Tool Builder, promoted Custom Tools, and auto-generated channel send tools, including Designer Studio, Thoth Status, and MCP external tools | Broad built-in toolset with different emphasis |
+| **Tools** | 30+ core tools plus Developer-native tools, Custom Tool Builder, promoted Custom Tools, and auto-generated channel send tools, including Designer Studio, Row-Bot Status, and MCP external tools | Broad built-in toolset with different emphasis |
 | **Messaging channels** | 5 bundled channels with streaming, media handling, approvals, and a sidebar monitor | Wider channel catalog and gateway focus |
 | **Autonomous workflows** | Step-based workflows with approvals, conditions, triggers, concurrency groups, and safety modes | Strong channel routing and automation, different orchestration model |
 | **Desktop experience** | Native Windows and macOS desktop app with tray, splash, and setup wizard; Linux browser-first package with optional native/tray modes | More developer-first and channel-first in practice |
-| **Privacy posture** | All durable state local; no Thoth servers | Self-hostable and privacy-conscious, but with a different operational model |
+| **Privacy posture** | All durable state local; no Row-Bot servers | Self-hostable and privacy-conscious, but with a different operational model |
 
-> **In short:** OpenClaw is an excellent multi-channel gateway for developer-heavy setups. Thoth is optimized for **personal AI sovereignty** — local-first memory, structured knowledge, integrated design and code workspaces, user-created tools, configurable self-knowledge, and a native desktop experience that does not require living in a terminal.
+> **In short:** OpenClaw is an excellent multi-channel gateway for developer-heavy setups. Row-Bot is optimized for **personal AI sovereignty** — local-first memory, structured knowledge, integrated design and code workspaces, user-created tools, configurable self-knowledge, and a native desktop experience that does not require living in a terminal.

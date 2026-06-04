@@ -1,10 +1,10 @@
 # =============================================================================
-# update-manifest.yml — Append a SHA256 manifest to a GitHub release body
+# update-manifest.yml - Append a SHA256 manifest to a GitHub release body
 #
 # When a release is published (or this workflow is dispatched), this job
 # downloads the release's installer, DMG, and Linux tarball assets, computes their SHA256
-# hashes, and PATCHes the release body with a `<!-- thoth-update-manifest -->`
-# fenced block. Thoth's in-app updater requires this manifest to verify
+# hashes, and PATCHes the release body with a `<!-- row-bot-update-manifest -->`
+# fenced block. Row-Bot's in-app updater requires this manifest to verify
 # downloads.
 #
 # Trigger automatically when a release is published, OR manually with a tag.
@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v3.23.1)"
+        description: "Release tag (e.g. v4.0.0)"
         required: true
         type: string
 
@@ -55,26 +55,26 @@ jobs:
           # release.yml uploads installer + DMG assets asynchronously after the
           # release is published, so the first `release: published` event may
           # fire before any assets exist. Poll up to 30 minutes for at least
-          # one matching asset before bailing out — the `release: edited`
+          # one matching asset before bailing out - the `release: edited`
           # trigger will retry if we still time out.
           tag="${{ steps.tag.outputs.value }}"
           repo="${{ github.repository }}"
-          attempts=60        # 60 × 30s = 30 min
+          attempts=60        # 60 * 30s = 30 min
           for i in $(seq 1 $attempts); do
             rm -rf artifacts/* 2>/dev/null || true
             gh release download "$tag" \
               --repo "$repo" \
               --dir artifacts \
-              --pattern "ThothSetup_*.exe" \
-              --pattern "Thoth-*-macOS-*.dmg" \
-              --pattern "Thoth-*-Linux-*.tar.gz" || true
+              --pattern "Row-Bot-*-Windows-*.exe" \
+              --pattern "Row-Bot-*-macOS-*.dmg" \
+              --pattern "Row-Bot-*-Linux-*.tar.gz" || true
             shopt -s nullglob
-            files=(artifacts/ThothSetup_*.exe artifacts/Thoth-*-macOS-*.dmg artifacts/Thoth-*-Linux-*.tar.gz)
+            files=(artifacts/Row-Bot-*-Windows-*.exe artifacts/Row-Bot-*-macOS-*.dmg artifacts/Row-Bot-*-Linux-*.tar.gz)
             if [ ${#files[@]} -gt 0 ]; then
               echo "Found ${#files[@]} asset(s) on attempt $i"
               break
             fi
-            echo "Attempt $i/$attempts: no installer assets yet, waiting 30s…"
+            echo "Attempt $i/$attempts: no installer assets yet, waiting 30s..."
             sleep 30
           done
           ls -la artifacts/
@@ -85,9 +85,9 @@ jobs:
         run: |
           # Collect every artifact we downloaded
           shopt -s nullglob
-          files=(artifacts/ThothSetup_*.exe artifacts/Thoth-*-macOS-*.dmg artifacts/Thoth-*-Linux-*.tar.gz)
+          files=(artifacts/Row-Bot-*-Windows-*.exe artifacts/Row-Bot-*-macOS-*.dmg artifacts/Row-Bot-*-Linux-*.tar.gz)
           if [ ${#files[@]} -eq 0 ]; then
-            echo "No installer artifacts found for ${{ steps.tag.outputs.value }} — skipping manifest"
+            echo "No installer artifacts found for ${{ steps.tag.outputs.value }} - skipping manifest"
             exit 0
           fi
           python scripts/append_sha_manifest.py \

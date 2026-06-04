@@ -37,7 +37,7 @@ class VoiceSessionCoordinator:
         self._last_activity_at = time.monotonic()
         self.active_realtime_response_id = ""
         self.active_realtime_output_item_id = ""
-        self.active_thoth_generation_id = ""
+        self.active_row_bot_generation_id = ""
         self.queued_realtime_tool_call: dict[str, str] | None = None
         self.playback_active = False
         self.barge_in_reason = ""
@@ -169,7 +169,7 @@ class VoiceSessionCoordinator:
             "realtime_last_error": self.realtime_last_error,
             "active_realtime_response_id": self.active_realtime_response_id,
             "active_realtime_output_item_id": self.active_realtime_output_item_id,
-            "active_thoth_generation_id": self.active_thoth_generation_id,
+            "active_row_bot_generation_id": self.active_row_bot_generation_id,
             "playback_active": self.playback_active,
             "barge_in_reason": self.barge_in_reason,
             "realtime_latency_ms": self.realtime_latency_breakdown(),
@@ -218,18 +218,18 @@ class VoiceSessionCoordinator:
         self.queued_realtime_tool_call = None
         return call
 
-    def set_active_thoth_generation(self, generation_id: str) -> None:
-        self.active_thoth_generation_id = str(generation_id or "")
-        self.mark_realtime_latency("thoth_consult_started")
-        self._emit("realtime_thoth_generation_active", detail=self.active_thoth_generation_id)
+    def set_active_row_bot_generation(self, generation_id: str) -> None:
+        self.active_row_bot_generation_id = str(generation_id or "")
+        self.mark_realtime_latency("row_bot_consult_started")
+        self._emit("realtime_row_bot_generation_active", detail=self.active_row_bot_generation_id)
 
-    def clear_active_thoth_generation(self, *, generation_id: str = "") -> None:
-        if generation_id and generation_id != self.active_thoth_generation_id:
-            self._emit("stale_thoth_generation_clear_ignored", detail=str(generation_id))
+    def clear_active_row_bot_generation(self, *, generation_id: str = "") -> None:
+        if generation_id and generation_id != self.active_row_bot_generation_id:
+            self._emit("stale_row_bot_generation_clear_ignored", detail=str(generation_id))
             return
-        if self.active_thoth_generation_id:
-            self._emit("realtime_thoth_generation_finished", detail=self.active_thoth_generation_id)
-        self.active_thoth_generation_id = ""
+        if self.active_row_bot_generation_id:
+            self._emit("realtime_row_bot_generation_finished", detail=self.active_row_bot_generation_id)
+        self.active_row_bot_generation_id = ""
 
     def record_realtime_output_started(
         self,
@@ -261,7 +261,7 @@ class VoiceSessionCoordinator:
         self.active_realtime_output_item_id = ""
         self.barge_in_reason = ""
         if clear_generation:
-            self.clear_active_thoth_generation()
+            self.clear_active_row_bot_generation()
         self.mark_realtime_latency("response_done")
         self.set_realtime_state("listening", session_id=session_id)
 
@@ -363,12 +363,12 @@ class VoiceSessionCoordinator:
             "speech_stop_to_transcript_final": delta("speech_stopped", "transcript_final"),
             "speech_stop_to_function_call_ready": delta("speech_stopped", "function_call_ready"),
             "speech_stop_to_forced_consult": delta("speech_stopped", "forced_consult_started"),
-            "speech_stop_to_thoth_start": delta("speech_stopped", "thoth_consult_started"),
+            "speech_stop_to_row_bot_start": delta("speech_stopped", "row_bot_consult_started"),
             "speech_stop_to_first_token": delta("speech_stopped", "first_token"),
             "speech_stop_to_first_speakable_chunk": delta("speech_stopped", "first_speakable_chunk"),
-            "speech_stop_to_first_spoken_thoth": delta("speech_stopped", "first_substantive_audio_requested"),
+            "speech_stop_to_first_spoken_row_bot": delta("speech_stopped", "first_substantive_audio_requested"),
             "transcript_final_to_forced_consult": delta("transcript_final", "forced_consult_started"),
-            "consult_to_first_token": delta("thoth_consult_started", "first_token"),
+            "consult_to_first_token": delta("row_bot_consult_started", "first_token"),
             "first_token_to_first_speakable_chunk": delta("first_token", "first_speakable_chunk"),
             "first_speakable_chunk_to_provider_response_create": delta("first_speakable_chunk", "provider_response_create"),
             "provider_response_create_to_first_audio": delta("provider_response_create", "first_assistant_audio"),
@@ -392,7 +392,7 @@ class VoiceSessionCoordinator:
     def _reset_realtime_runtime_state(self, *, keep_latency: bool = False) -> None:
         self.active_realtime_response_id = ""
         self.active_realtime_output_item_id = ""
-        self.active_thoth_generation_id = ""
+        self.active_row_bot_generation_id = ""
         self.queued_realtime_tool_call = None
         self.playback_active = False
         self.barge_in_reason = ""

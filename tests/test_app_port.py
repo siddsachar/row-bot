@@ -8,10 +8,11 @@ import launcher
 
 def test_get_app_port_defaults_and_validates_env():
     assert app_port.get_app_port(environ={}) == 8080
-    assert app_port.get_app_port(environ={"THOTH_PORT": "8123"}) == 8123
-    assert app_port.get_app_port(environ={"THOTH_PORT": "0"}) == 8080
-    assert app_port.get_app_port(environ={"THOTH_PORT": "70000"}) == 8080
-    assert app_port.get_app_port(environ={"THOTH_PORT": "not-a-port"}) == 8080
+    assert app_port.get_app_port(environ={"ROW_BOT_PORT": "8123"}) == 8123
+    assert app_port.get_app_port(environ={"ROW_BOT_PORT": "0"}) == 8080
+    assert app_port.get_app_port(environ={"ROW_BOT_PORT": "70000"}) == 8080
+    assert app_port.get_app_port(environ={"ROW_BOT_PORT": "not-a-port"}) == 8080
+    assert app_port.get_app_port(environ={"THOTH_PORT": "8123"}) == 8080
 
 
 def test_launcher_selects_default_port_when_free(monkeypatch):
@@ -21,11 +22,11 @@ def test_launcher_selects_default_port_when_free(monkeypatch):
         checked_ports.append(port)
         return False
 
-    def fake_thoth_server(port):
-        raise AssertionError(f"should not probe Thoth identity when preferred port is free: {port}")
+    def fake_row_bot_server(port):
+        raise AssertionError(f"should not probe app identity when preferred port is free: {port}")
 
     monkeypatch.setattr(launcher, "_is_port_in_use", fake_port_in_use)
-    monkeypatch.setattr(launcher, "_is_thoth_server", fake_thoth_server)
+    monkeypatch.setattr(launcher, "_is_row_bot_server", fake_row_bot_server)
 
     assert launcher._select_app_port(preferred=8080, max_tries=3) == (8080, False)
     assert checked_ports == [8080]
@@ -33,14 +34,14 @@ def test_launcher_selects_default_port_when_free(monkeypatch):
 
 def test_launcher_reuses_existing_thoth_on_default_port(monkeypatch):
     monkeypatch.setattr(launcher, "_is_port_in_use", lambda port: port == 8080)
-    monkeypatch.setattr(launcher, "_is_thoth_server", lambda port: port == 8080)
+    monkeypatch.setattr(launcher, "_is_row_bot_server", lambda port: port == 8080)
 
     assert launcher._select_app_port(preferred=8080, max_tries=3) == (8080, True)
 
 
 def test_launcher_reuses_existing_thoth_on_dynamic_port(monkeypatch):
     monkeypatch.setattr(launcher, "_is_port_in_use", lambda port: port in {8080, 8081})
-    monkeypatch.setattr(launcher, "_is_thoth_server", lambda port: port == 8081)
+    monkeypatch.setattr(launcher, "_is_row_bot_server", lambda port: port == 8081)
 
     assert launcher._select_app_port(preferred=8080, max_tries=4) == (8081, True)
 
@@ -70,8 +71,8 @@ def test_launcher_skips_ollama_autostart_for_provider_model(monkeypatch, tmp_pat
         json.dumps({"model": "model:codex:gpt-5.5"}),
         encoding="utf-8",
     )
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
-    monkeypatch.delenv("THOTH_AUTO_START_OLLAMA", raising=False)
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("ROW_BOT_AUTO_START_OLLAMA", raising=False)
     monkeypatch.setattr(
         launcher,
         "_start_ollama",
@@ -88,8 +89,8 @@ def test_launcher_starts_ollama_for_saved_local_model(monkeypatch, tmp_path):
         encoding="utf-8",
     )
     calls = []
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
-    monkeypatch.delenv("THOTH_AUTO_START_OLLAMA", raising=False)
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("ROW_BOT_AUTO_START_OLLAMA", raising=False)
     monkeypatch.setattr(launcher, "_start_ollama", lambda: calls.append("start"))
 
     assert launcher._should_auto_start_ollama() is True
@@ -102,8 +103,8 @@ def test_launcher_starts_ollama_for_legacy_bare_local_model(monkeypatch, tmp_pat
         json.dumps({"model": "huihui_ai/deepseek-r1-abliterated:14b"}),
         encoding="utf-8",
     )
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
-    monkeypatch.delenv("THOTH_AUTO_START_OLLAMA", raising=False)
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("ROW_BOT_AUTO_START_OLLAMA", raising=False)
 
     assert launcher._should_auto_start_ollama() is True
 
@@ -117,8 +118,8 @@ def test_launcher_vision_setting_can_request_ollama(monkeypatch, tmp_path):
         json.dumps({"model": "gemma3:4b"}),
         encoding="utf-8",
     )
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
-    monkeypatch.delenv("THOTH_AUTO_START_OLLAMA", raising=False)
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("ROW_BOT_AUTO_START_OLLAMA", raising=False)
 
     assert launcher._should_auto_start_ollama() is True
 
@@ -128,7 +129,7 @@ def test_launcher_no_ollama_forces_skip(monkeypatch, tmp_path):
         json.dumps({"model": "model:ollama:qwen3:14b"}),
         encoding="utf-8",
     )
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(
         launcher,
         "_start_ollama",
@@ -140,19 +141,19 @@ def test_launcher_no_ollama_forces_skip(monkeypatch, tmp_path):
 
 def test_launcher_skips_foreign_ports_and_picks_next_free(monkeypatch):
     monkeypatch.setattr(launcher, "_is_port_in_use", lambda port: port in {8080, 8081})
-    monkeypatch.setattr(launcher, "_is_thoth_server", lambda port: False)
+    monkeypatch.setattr(launcher, "_is_row_bot_server", lambda port: False)
 
     assert launcher._select_app_port(preferred=8080, max_tries=4) == (8082, False)
 
 
 def test_launcher_reuses_existing_thoth_before_next_free(monkeypatch):
     monkeypatch.setattr(launcher, "_is_port_in_use", lambda port: port in {8080, 8081})
-    monkeypatch.setattr(launcher, "_is_thoth_server", lambda port: port == 8081)
+    monkeypatch.setattr(launcher, "_is_row_bot_server", lambda port: port == 8081)
 
     assert launcher._select_app_port(preferred=8080, max_tries=4) == (8081, True)
 
 
-def test_thoth_process_passes_selected_port_to_app(monkeypatch, tmp_path):
+def test_row_bot_process_passes_selected_port_to_app(monkeypatch, tmp_path):
     captured = {}
 
     class _FakePopen:
@@ -168,17 +169,23 @@ def test_thoth_process_passes_selected_port_to_app(monkeypatch, tmp_path):
 
     monkeypatch.setattr(launcher.subprocess, "Popen", _fake_popen)
     monkeypatch.setattr(launcher.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.delenv("THOTH_PORT", raising=False)
+    monkeypatch.delenv("THOTH_HOST", raising=False)
 
     process = launcher._ThothProcess(port=8125, host="127.0.0.1")
     process.start()
 
-    assert captured["env"][app_port.THOTH_PORT_ENV] == "8125"
-    assert captured["env"][app_port.THOTH_HOST_ENV] == "127.0.0.1"
-    assert captured["env"]["THOTH_NATIVE"] == "1"
+    assert captured["env"][app_port.ROW_BOT_PORT_ENV] == "8125"
+    assert captured["env"][app_port.ROW_BOT_HOST_ENV] == "127.0.0.1"
+    assert "THOTH_DATA_DIR" not in captured["env"]
+    assert "THOTH_PORT" not in captured["env"]
+    assert "THOTH_HOST" not in captured["env"]
+    assert captured["env"]["ROW_BOT_NATIVE"] == "1"
+    assert "THOTH_NATIVE" not in captured["env"]
     assert captured["cmd"][-1].endswith("app.py")
 
 
-def test_thoth_process_stop_closes_parent_log_handle(monkeypatch, tmp_path):
+def test_row_bot_process_stop_closes_parent_log_handle(monkeypatch, tmp_path):
     captured = {}
 
     class _FakePopen:
@@ -234,7 +241,7 @@ def test_launcher_shutdown_source_contracts_are_wired():
     assert "_GRACEFUL_SHUTDOWN_REQUEST_TIMEOUT = 3.0" in src
     assert "_GRACEFUL_SHUTDOWN_EXIT_TIMEOUT = 30.0" in src
     assert "_QUIT_WATCHDOG_TIMEOUT = 75.0" in src
-    assert "Thoth graceful shutdown completed in" in src
+    assert "graceful shutdown completed in" in src
     assert "mark_shutdown(reason)" in Path("app.py").read_text(encoding="utf-8")
 
 
@@ -262,7 +269,7 @@ def test_designer_publish_uses_active_app_port(monkeypatch):
         def is_available(self):
             return False
 
-    monkeypatch.setenv(app_port.THOTH_PORT_ENV, "8126")
+    monkeypatch.setenv(app_port.ROW_BOT_PORT_ENV, "8126")
     monkeypatch.setattr(publish, "tunnel_manager", _FakeTunnelManager())
 
     base_url, is_public = publish.resolve_publish_base_url(ensure_public=True)

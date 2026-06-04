@@ -3,19 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Thoth - Architecture</title>
-    <meta name="description" content="Explore Thoth's local-first architecture diagrams for the core agent, context assembly, memory, workflows, channels, Designer Studio, safety, and self-awareness systems.">
-    <link rel="canonical" href="https://get-thoth.com/architecture.html">
+    <title>Row-Bot - Architecture</title>
+    <meta name="description" content="Explore Row-Bot's local-first architecture diagrams for the core agent, context assembly, memory, workflows, channels, Designer Studio, safety, and self-awareness systems.">
+    <link rel="canonical" href="https://row-bot.ai/architecture.html">
     <meta property="og:type" content="website">
-    <meta property="og:url" content="https://get-thoth.com/architecture.html">
-    <meta property="og:title" content="Thoth Architecture">
-    <meta property="og:description" content="Visual architecture diagrams for Thoth's local-first personal AI assistant.">
-    <meta property="og:image" content="https://get-thoth.com/Core_Agent_arch.jpg">
+    <meta property="og:url" content="https://row-bot.ai/architecture.html">
+    <meta property="og:title" content="Row-Bot Architecture">
+    <meta property="og:description" content="Visual architecture diagrams for Row-Bot's local-first personal AI assistant.">
+    <meta property="og:image" content="https://row-bot.ai/Core_Agent_arch.jpg">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Thoth Architecture">
-    <meta name="twitter:description" content="Visual architecture diagrams for Thoth's local-first personal AI assistant.">
-    <meta name="twitter:image" content="https://get-thoth.com/Core_Agent_arch.jpg">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1305F;</text></svg>">
+    <meta name="twitter:title" content="Row-Bot Architecture">
+    <meta name="twitter:description" content="Visual architecture diagrams for Row-Bot's local-first personal AI assistant.">
+    <meta name="twitter:image" content="https://row-bot.ai/Core_Agent_arch.jpg">
+    <link rel="icon" type="image/png" href="row_bot_glyph_256.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -30,8 +30,8 @@
             --text: #e2e6ed;
             --text-dim: #9aa3b4;
             --text-faint: #636d7e;
-            --accent: #c9a227;
-            --accent-hover: #d8b84a;
+            --accent: #4F78A4;
+            --accent-hover: #6C93BC;
             --rose: #d87682;
             --sans: 'Inter', system-ui, sans-serif;
             --serif: 'Instrument Serif', Georgia, serif;
@@ -54,8 +54,8 @@
             inset: 0;
             z-index: -1;
             background-image:
-                linear-gradient(rgba(201,162,39,0.018) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(201,162,39,0.018) 1px, transparent 1px);
+                linear-gradient(rgba(79,120,164,0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(79,120,164,0.02) 1px, transparent 1px);
             background-size: 64px 64px;
         }
 
@@ -80,13 +80,21 @@
         }
 
         .nav-wordmark {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
             font-family: var(--serif);
             font-size: 1.4rem;
             color: var(--accent);
             text-decoration: none;
         }
 
-        .nav-wordmark span { opacity: 0.5; margin-right: 0.35rem; }
+        .nav-glyph {
+            width: 28px;
+            height: 28px;
+            object-fit: contain;
+            flex: 0 0 auto;
+        }
         .nav-links { display: flex; align-items: center; gap: 0.2rem; }
         .nav-links a {
             color: var(--text-dim);
@@ -117,12 +125,11 @@
             position: absolute;
             top: 6rem;
             right: -1rem;
-            font-size: 18rem;
-            color: var(--accent);
-            opacity: 0.08;
+            width: min(18rem, 40vw);
+            height: auto;
+            opacity: 0.09;
             pointer-events: none;
             user-select: none;
-            line-height: 1;
         }
 
         .hero > *:not(.hero-glyph) { position: relative; z-index: 1; }
@@ -316,24 +323,24 @@
 </head>
 <body>
     <nav>
-        <a href="index.html" class="nav-wordmark"><span>&#x1305F;</span> Thoth</a>
+        <a href="index.html" class="nav-wordmark"><img src="row_bot_glyph_256.png" alt="" class="nav-glyph"> Row-Bot</a>
         <div class="nav-links">
             <a href="index.html#features">Features</a>
             <a href="index.html#tools">Tools</a>
             <a href="index.html#privacy">Privacy</a>
             <a href="index.html#comparison">Compare</a>
-            <a href="https://github.com/siddsachar/Thoth" target="_blank">GitHub</a>
+            <a href="https://github.com/siddsachar/row-bot" target="_blank">GitHub</a>
             <a href="index.html#install" class="nav-dl">Install</a>
         </div>
     </nav>
 
     <main>
         <section class="hero">
-            <div class="hero-glyph">&#x1305F;</div>
+            <img class="hero-glyph" src="row_bot_glyph_256.png" alt="">
             <p class="eyebrow">Architecture</p>
-            <h1>How Thoth stays <em>local-first.</em></h1>
+            <h1>How Row-Bot stays <em>local-first.</em></h1>
             <p class="hero-copy">
-                These diagrams map the main systems behind Thoth: the agent orchestrator, context assembly,
+                These diagrams map the main systems behind Row-Bot: the agent orchestrator, context assembly,
                 memory graph, workflows, channels, Designer Studio, safety boundaries, and self-management loops.
                 The same principle runs through each layer: keep durable user data local, make external services opt-in,
                 and give the user clear control over actions.
@@ -375,39 +382,39 @@
             <div class="container">
                 <div class="section-head">
                     <h2>Subsystem Maps</h2>
-                    <p>Open any diagram for a larger view. The gallery starts with the full core-agent map, then moves through the specialized subsystems that make Thoth useful day to day.</p>
+                    <p>Open any diagram for a larger view. The gallery starts with the full core-agent map, then moves through the specialized subsystems that make Row-Bot useful day to day.</p>
                 </div>
                 <div class="diagram-grid">
                     <a class="diagram-card" href="#core-agent">
-                        <img src="Core_Agent_arch.jpg" alt="Thoth core agent architecture diagram">
+                        <img src="Core_Agent_arch.jpg" alt="Row-Bot core agent architecture diagram">
                         <div class="diagram-caption"><span>01</span><h3>Core Agent</h3><p>Interfaces, model routing, context, memory, tool calls, workflows, storage, and control planes.</p></div>
                     </a>
                     <a class="diagram-card" href="#context">
-                        <img src="Context_arch.jpg" alt="Thoth context architecture diagram">
+                        <img src="Context_arch.jpg" alt="Row-Bot context architecture diagram">
                         <div class="diagram-caption"><span>02</span><h3>Context Assembly</h3><p>How current turns, history, skills, memories, documents, and tool results become model-ready context.</p></div>
                     </a>
                     <a class="diagram-card" href="#memory">
-                        <img src="Memory_arch.jpg" alt="Thoth memory system architecture diagram">
+                        <img src="Memory_arch.jpg" alt="Row-Bot memory system architecture diagram">
                         <div class="diagram-caption"><span>03</span><h3>Memory System</h3><p>Capture, extraction, graph storage, semantic retrieval, wiki export, and Dream Cycle refinement.</p></div>
                     </a>
                     <a class="diagram-card" href="#workflows">
-                        <img src="Workflows_arch.jpg" alt="Thoth background workflow architecture diagram">
+                        <img src="Workflows_arch.jpg" alt="Row-Bot background workflow architecture diagram">
                         <div class="diagram-caption"><span>04</span><h3>Background Workflows</h3><p>Natural-language workflow creation, scheduling, execution, approvals, delivery, and recurring loops.</p></div>
                     </a>
                     <a class="diagram-card" href="#channels">
-                        <img src="Channels_arch.jpg" alt="Thoth multi-channel architecture diagram">
+                        <img src="Channels_arch.jpg" alt="Row-Bot multi-channel architecture diagram">
                         <div class="diagram-caption"><span>05</span><h3>Multi-Channel Runtime</h3><p>Messaging entry points, adapters, normalization, identity mapping, attachment handling, and delivery.</p></div>
                     </a>
                     <a class="diagram-card" href="#designer">
-                        <img src="Designer_arch.jpg" alt="Thoth Designer Studio architecture diagram">
+                        <img src="Designer_arch.jpg" alt="Row-Bot Designer Studio architecture diagram">
                         <div class="diagram-caption"><span>06</span><h3>Designer Studio</h3><p>Project modes, page generation, media, targeted edits, preview sandboxing, export, and publish paths.</p></div>
                     </a>
                     <a class="diagram-card" href="#safety">
-                        <img src="Safety_arch.jpg" alt="Thoth safety privacy and control architecture diagram">
+                        <img src="Safety_arch.jpg" alt="Row-Bot safety privacy and control architecture diagram">
                         <div class="diagram-caption"><span>07</span><h3>Safety, Privacy &amp; Control</h3><p>Local-first boundaries, approvals, prompt-injection defense, tool permissions, credentials, and updates.</p></div>
                     </a>
                     <a class="diagram-card" href="#self-aware">
-                        <img src="Self_Aware_arch.jpg" alt="Thoth self-awareness and self-management architecture diagram">
+                        <img src="Self_Aware_arch.jpg" alt="Row-Bot self-awareness and self-management architecture diagram">
                         <div class="diagram-caption"><span>08</span><h3>Self-Awareness</h3><p>Status introspection, diagnostics, capability registry, insights, skill guidance, and controlled self-management.</p></div>
                     </a>
                 </div>
@@ -429,16 +436,16 @@
     </main>
 
     <footer>
-        <p>&#x1305F; Thoth &middot; Architecture &middot; <a href="index.html">Home</a> &middot; <a href="https://github.com/siddsachar/Thoth" target="_blank">GitHub</a></p>
+        <p>Row-Bot &middot; Architecture &middot; <a href="index.html">Home</a> &middot; <a href="https://github.com/siddsachar/row-bot" target="_blank">GitHub</a></p>
     </footer>
 
-    <a class="lightbox" id="core-agent" href="#diagrams"><figure class="lightbox-figure"><img src="Core_Agent_arch.jpg" alt="Thoth core agent architecture diagram"><figcaption><span>Core Agent Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
-    <a class="lightbox" id="context" href="#diagrams"><figure class="lightbox-figure"><img src="Context_arch.jpg" alt="Thoth context architecture diagram"><figcaption><span>Context Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
-    <a class="lightbox" id="memory" href="#diagrams"><figure class="lightbox-figure"><img src="Memory_arch.jpg" alt="Thoth memory system architecture diagram"><figcaption><span>Memory System Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
-    <a class="lightbox" id="workflows" href="#diagrams"><figure class="lightbox-figure"><img src="Workflows_arch.jpg" alt="Thoth background workflow architecture diagram"><figcaption><span>Background Workflow Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
-    <a class="lightbox" id="channels" href="#diagrams"><figure class="lightbox-figure"><img src="Channels_arch.jpg" alt="Thoth multi-channel architecture diagram"><figcaption><span>Multi-Channel Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
-    <a class="lightbox" id="designer" href="#diagrams"><figure class="lightbox-figure"><img src="Designer_arch.jpg" alt="Thoth Designer Studio architecture diagram"><figcaption><span>Designer Studio Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
-    <a class="lightbox" id="safety" href="#diagrams"><figure class="lightbox-figure"><img src="Safety_arch.jpg" alt="Thoth safety privacy and control architecture diagram"><figcaption><span>Safety, Privacy &amp; Control Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
-    <a class="lightbox" id="self-aware" href="#diagrams"><figure class="lightbox-figure"><img src="Self_Aware_arch.jpg" alt="Thoth self-awareness and self-management architecture diagram"><figcaption><span>Self-Awareness Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
+    <a class="lightbox" id="core-agent" href="#diagrams"><figure class="lightbox-figure"><img src="Core_Agent_arch.jpg" alt="Row-Bot core agent architecture diagram"><figcaption><span>Core Agent Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
+    <a class="lightbox" id="context" href="#diagrams"><figure class="lightbox-figure"><img src="Context_arch.jpg" alt="Row-Bot context architecture diagram"><figcaption><span>Context Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
+    <a class="lightbox" id="memory" href="#diagrams"><figure class="lightbox-figure"><img src="Memory_arch.jpg" alt="Row-Bot memory system architecture diagram"><figcaption><span>Memory System Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
+    <a class="lightbox" id="workflows" href="#diagrams"><figure class="lightbox-figure"><img src="Workflows_arch.jpg" alt="Row-Bot background workflow architecture diagram"><figcaption><span>Background Workflow Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
+    <a class="lightbox" id="channels" href="#diagrams"><figure class="lightbox-figure"><img src="Channels_arch.jpg" alt="Row-Bot multi-channel architecture diagram"><figcaption><span>Multi-Channel Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
+    <a class="lightbox" id="designer" href="#diagrams"><figure class="lightbox-figure"><img src="Designer_arch.jpg" alt="Row-Bot Designer Studio architecture diagram"><figcaption><span>Designer Studio Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
+    <a class="lightbox" id="safety" href="#diagrams"><figure class="lightbox-figure"><img src="Safety_arch.jpg" alt="Row-Bot safety privacy and control architecture diagram"><figcaption><span>Safety, Privacy &amp; Control Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
+    <a class="lightbox" id="self-aware" href="#diagrams"><figure class="lightbox-figure"><img src="Self_Aware_arch.jpg" alt="Row-Bot self-awareness and self-management architecture diagram"><figcaption><span>Self-Awareness Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
 </body>
 </html>

@@ -1,6 +1,6 @@
-"""Thoth identity configuration — name, personality, and sanitization.
+"""Row-Bot identity configuration: name, personality, and sanitization.
 
-Stores assistant identity in ``~/.thoth/user_config.json`` under the
+Stores assistant identity in ``~/.row-bot/user_config.json`` under the
 ``"identity"`` key, alongside the existing ``"avatar"`` data.
 """
 
@@ -8,18 +8,17 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import pathlib
 import re
+
+from brand import APP_DISPLAY_NAME
+from data_paths import get_row_bot_data_dir
 
 logger = logging.getLogger(__name__)
 
-_DATA_DIR = pathlib.Path(
-    os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")
-)
+_DATA_DIR = get_row_bot_data_dir()
 _USER_CONFIG_PATH = _DATA_DIR / "user_config.json"
 
-_DEFAULT_NAME = "Thoth"
+_DEFAULT_NAME = APP_DISPLAY_NAME
 _PERSONALITY_MAX_LEN = 200
 
 # Patterns that look like prompt-injection attempts

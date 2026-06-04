@@ -35,13 +35,13 @@ import threading
 from datetime import datetime
 from typing import Any
 
+from data_paths import get_row_bot_data_dir
+
 logger = logging.getLogger(__name__)
 
 # ── Data / config paths ─────────────────────────────────────────────────────
 
-_DATA_DIR = pathlib.Path(
-    os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")
-)
+_DATA_DIR = get_row_bot_data_dir()
 _CONFIG_PATH = _DATA_DIR / "wiki_config.json"
 
 # Minimum description length for an entity to get its own .md file.

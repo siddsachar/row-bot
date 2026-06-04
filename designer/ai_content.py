@@ -547,13 +547,13 @@ def insert_image_into_page(
        ``designer_move_image``.
     """
     # 0. Storyboard / typed-slot placeholder replacement. When a page
-    #    carries a dedicated ``data-thoth-shot-visual`` (or a generic
-    #    ``data-thoth-image-slot``) container, swap its *contents* for
+    #    carries a dedicated ``data-row-bot-shot-visual`` (or a generic
+    #    ``data-row-bot-image-slot``) container, swap its *contents* for
     #    the generated image so the new asset fills the designer slot
     #    — preserving aspect ratio, max-width, and surrounding layout
     #    instead of dropping a centered overlay on top of it.
     slot_re = re.compile(
-        r'(<div\b[^>]*\bdata-thoth-(?:shot-visual|image-slot)\s*=\s*"[^"]*"[^>]*>)'
+        r'(<div\b[^>]*\bdata-row-bot-(?:shot-visual|image-slot)\s*=\s*"[^"]*"[^>]*>)'
         r'(.*?)'
         r'(</div>)',
         re.IGNORECASE | re.DOTALL,

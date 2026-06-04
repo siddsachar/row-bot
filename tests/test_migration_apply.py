@@ -139,7 +139,7 @@ class MigrationApplyTests(unittest.TestCase):
                 root = Path(temp_dir)
                 source = create_realistic_hermes_home(root / ".hermes")
                 target = root / "target"
-                original_api_keys = {"OPENAI_API_KEY": "sk-existing-thoth-fake"}
+                original_api_keys = {"OPENAI_API_KEY": "sk-existing-row-bot-fake"}
                 _write(target / "api_keys.json", json.dumps(original_api_keys, indent=2) + "\n")
                 plan = build_hermes_plan(source, target_root=target, include_secrets=True)
                 result = apply_migration_plan(plan)

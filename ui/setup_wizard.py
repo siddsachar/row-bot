@@ -19,6 +19,7 @@ import sys
 from typing import Any, Callable, TYPE_CHECKING
 from urllib.parse import urlparse
 
+from brand import APP_DISPLAY_NAME
 from nicegui import run, ui
 
 if TYPE_CHECKING:
@@ -197,7 +198,7 @@ async def show_setup_wizard(
             # ── Header ───────────────────────────────────────────────
             with ui.row().classes("w-full items-center justify-between gap-3"):
                 with ui.column().classes("gap-0"):
-                    ui.label("Welcome to Thoth").classes("text-h4 text-weight-medium")
+                    ui.label(f"Welcome to {APP_DISPLAY_NAME}").classes("text-h4 text-weight-medium")
                     ui.label(
                         "Connect one working model first. Everything else can wait."
                     ).classes("text-grey-6 text-sm")
@@ -208,7 +209,7 @@ async def show_setup_wizard(
             # ── Setup Path Toggle ────────────────────────────────────
             ui.label("Connect your first model").classes("text-h6")
             ui.label(
-                "Pick the path you want to use first. Thoth only needs one working model to get started."
+                f"Pick the path you want to use first. {APP_DISPLAY_NAME} only needs one working model to get started."
             ).classes("text-grey-6 text-sm")
 
             setup_path: dict[str, str | None] = {"mode": None}
@@ -881,7 +882,7 @@ async def show_setup_wizard(
             # ── Ready / setup checklist ──────────────────────────────
             ui.label("You're ready").classes("text-h6")
             ui.label(
-                "Open Thoth now, or continue into the Setup Center for documents, workflows, Designer Studio, Developer Studio, channels, accounts, tools, plugins, and voice."
+                f"Open {APP_DISPLAY_NAME} now, or continue into the Setup Center for documents, workflows, Designer Studio, Developer Studio, channels, accounts, tools, plugins, and voice."
             ).classes("text-grey-6 text-sm")
             ui.label("What should Setup Center prioritize?").classes("text-subtitle2 q-mt-sm")
 
@@ -918,7 +919,7 @@ async def show_setup_wizard(
 
             # ── Finish ───────────────────────────────────────────────
             with ui.row().classes("w-full gap-2"):
-                open_btn = ui.button("Open Thoth", icon="home").props(
+                open_btn = ui.button(f"Open {APP_DISPLAY_NAME}", icon="home").props(
                     "color=primary size=lg"
                 ).classes("col")
                 continue_btn = ui.button("Continue setup", icon="checklist").props(

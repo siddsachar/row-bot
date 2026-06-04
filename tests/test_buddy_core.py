@@ -581,6 +581,46 @@ def test_buddy_loader_recovers_overwritten_hatch_motion_pack_manifest(monkeypatc
     assert set(pack.motion_clips) == assets_mod.REQUIRED_MOTION_CLIPS
 
 
+def test_buddy_loader_maps_stale_legacy_absolute_hatch_paths(monkeypatch, tmp_path):
+    import json
+    import buddy.assets as assets_mod
+
+    row_bot_static = tmp_path / ".row-bot" / "buddy"
+    monkeypatch.setattr(assets_mod, "_BUDDY_STATIC_DIR", row_bot_static)
+    monkeypatch.setattr(assets_mod, "_USER_PACKS_DIR", row_bot_static / "packs")
+
+    pack_dir = row_bot_static / "packs" / "hatch-legacy"
+    motion_dir = pack_dir / "motions"
+    motion_dir.mkdir(parents=True)
+    (pack_dir / "preview.png").write_bytes(b"PNG")
+    clips = {}
+    for clip_id in assets_mod.REQUIRED_MOTION_CLIPS:
+        (motion_dir / f"{clip_id}.mp4").write_bytes(b"MP4")
+        clips[clip_id] = {"id": clip_id, "label": clip_id.title(), "path": f"{clip_id}.mp4", "animations": [clip_id], "duration_seconds": 5}
+    (motion_dir / "manifest.json").write_text(json.dumps({"default_clip": "idle", "clips": clips}), encoding="utf-8")
+
+    legacy_pack_dir = tmp_path / ".thoth" / "buddy" / "packs" / "hatch-legacy"
+    (pack_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "id": "hatch-legacy",
+                "status": "motion_pack_generated",
+                "preview_path": str(legacy_pack_dir / "preview.png"),
+                "motion_pack_path": str(legacy_pack_dir / "motions" / "manifest.json"),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    pack = assets_mod.load_buddy_pack("hatch-legacy")
+
+    assert not (tmp_path / ".thoth").exists()
+    assert pack.status == "available"
+    assert pack.preview_path == (pack_dir / "preview.png").resolve()
+    assert pack.motion_pack_path == (motion_dir / "manifest.json").resolve()
+    assert set(pack.motion_clips) == assets_mod.REQUIRED_MOTION_CLIPS
+
+
 def test_buddy_hatch_motion_pack_activation_copies_manifest_and_clips(monkeypatch, tmp_path):
     import json
     import buddy.assets as assets_mod

@@ -13,9 +13,10 @@ import pathlib
 import sys
 from typing import Any
 
+from data_paths import get_row_bot_data_dir
 from mcp_client.logging import log_event, mask_mapping
 
-DATA_DIR = pathlib.Path(os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth"))
+DATA_DIR = get_row_bot_data_dir()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_PATH = DATA_DIR / "mcp_servers.json"
 

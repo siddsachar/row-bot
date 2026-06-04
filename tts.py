@@ -21,14 +21,15 @@ from queue import Queue, Empty
 from typing import Callable
 
 import numpy as np
+from data_paths import get_row_bot_data_dir
 from voice.speech_policy import make_speakable_response
 
 logger = logging.getLogger(__name__)
 
 # ── Paths ────────────────────────────────────────────────────────────────────
-_THOTH_DIR = Path.home() / ".thoth"
-_KOKORO_DIR = _THOTH_DIR / "kokoro"
-_SETTINGS_PATH = _THOTH_DIR / "tts_settings.json"
+_ROW_BOT_DIR = get_row_bot_data_dir()
+_KOKORO_DIR = _ROW_BOT_DIR / "kokoro"
+_SETTINGS_PATH = _ROW_BOT_DIR / "tts_settings.json"
 
 # ── Model download URLs ─────────────────────────────────────────────────────
 _KOKORO_RELEASE_BASE = (
@@ -332,7 +333,7 @@ class TTSService:
                 pass
             self._stream_worker = threading.Thread(
                 target=self._stream_worker_loop, daemon=True,
-                name="thoth-tts-stream",
+                name="row-bot-tts-stream",
             )
             self._stream_worker.start()
 

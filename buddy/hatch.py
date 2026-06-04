@@ -19,9 +19,10 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
+from data_paths import get_row_bot_data_dir
 from .config import get_buddy_config, save_buddy_config
 
-_DATA_DIR = pathlib.Path(os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")) / "buddy_hatches"
+_DATA_DIR = get_row_bot_data_dir() / "buddy_hatches"
 _JOB_LOCK = threading.Lock()
 _CURRENT_JOB: dict[str, Any] = {}
 _RUNNING_JOB_STATES = {"queued", "running"}

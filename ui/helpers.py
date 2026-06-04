@@ -1,4 +1,4 @@
-"""Thoth UI — helper functions (config, file processing, native pickers, exports).
+"""Row-Bot UI helpers (config, file processing, native pickers, exports).
 
 All functions are pure or side-effect-light.  They operate on the
 parameters they receive — no hidden globals except the on-disk config.
@@ -20,6 +20,8 @@ import time
 from datetime import datetime
 from typing import Any
 
+from brand import APP_DISPLAY_NAME, APP_NATIVE_ENV
+from data_paths import get_row_bot_data_dir
 from ui.constants import (
     IMAGE_EXTENSIONS,
     DATA_EXTENSIONS,
@@ -40,9 +42,7 @@ ATTACHMENT_CONTEXT_END = "</thoth_attachment_context>"
 # APP CONFIG PERSISTENCE
 # ═════════════════════════════════════════════════════════════════════════════
 
-_APP_CONFIG_DIR = pathlib.Path(
-    os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")
-)
+_APP_CONFIG_DIR = get_row_bot_data_dir()
 _APP_CONFIG_PATH = _APP_CONFIG_DIR / "app_config.json"
 
 
@@ -544,7 +544,7 @@ def process_attached_files(
 
 
 def langchain_messages_to_ui_messages(messages: list) -> list[dict]:
-    """Convert raw LangChain checkpoint messages into Thoth UI messages."""
+    """Convert raw LangChain checkpoint messages into Row-Bot UI messages."""
     import re as _re
 
     msgs: list[dict] = []
@@ -874,10 +874,10 @@ def persist_detached_thread_media(
 
 def export_as_markdown(thread_name: str, messages: list[dict]) -> str:
     lines = [f"# {thread_name}\n"]
-    lines.append(f"*Exported from Thoth on {datetime.now().strftime('%Y-%m-%d %H:%M')}*\n")
+    lines.append(f"*Exported from {APP_DISPLAY_NAME} on {datetime.now().strftime('%Y-%m-%d %H:%M')}*\n")
     lines.append("---\n")
     for msg in messages:
-        role = "🧑 User" if msg["role"] == "user" else "𓁟 Thoth"
+        role = "User" if msg["role"] == "user" else APP_DISPLAY_NAME
         lines.append(f"### {role}\n")
         lines.append(msg["content"] + "\n")
     return "\n".join(lines)
@@ -885,11 +885,11 @@ def export_as_markdown(thread_name: str, messages: list[dict]) -> str:
 
 def export_as_text(thread_name: str, messages: list[dict]) -> str:
     lines = [thread_name]
-    lines.append(f"Exported from Thoth on {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    lines.append(f"Exported from {APP_DISPLAY_NAME} on {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     lines.append("=" * 60)
     lines.append("")
     for msg in messages:
-        role = "User" if msg["role"] == "user" else "Thoth"
+        role = "User" if msg["role"] == "user" else APP_DISPLAY_NAME
         lines.append(f"[{role}]")
         lines.append(msg["content"])
         lines.append("")
@@ -984,12 +984,12 @@ def _build_conversation_html(thread_name: str, messages: list[dict],
         "<!DOCTYPE html><html><head><meta charset='utf-8'>",
         f"<style>{css}</style></head><body>",
         f'<div class="pdf-header"><h1>{escaped_title}</h1>',
-        f'<span class="stamp">Exported from Thoth on {stamp}</span></div>',
+        f'<span class="stamp">Exported from {APP_DISPLAY_NAME} on {stamp}</span></div>',
     ]
 
     for msg in messages:
         role = msg.get("role", "assistant")
-        role_label = "User" if role == "user" else "Thoth"
+        role_label = "User" if role == "user" else APP_DISPLAY_NAME
         role_cls = "user" if role == "user" else "assistant"
 
         parts.append('<div class="msg">')
@@ -1141,7 +1141,7 @@ def _render_pdf_fpdf2(thread_name: str, messages: list[dict]) -> bytes:
     pdf.cell(0, 12, _safe(thread_name), new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(128, 128, 128)
-    pdf.cell(0, 6, f"Exported from Thoth on {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+    pdf.cell(0, 6, f"Exported from {APP_DISPLAY_NAME} on {datetime.now().strftime('%Y-%m-%d %H:%M')}",
              new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(0, 0, 0)
     pdf.ln(4)
@@ -1150,7 +1150,7 @@ def _render_pdf_fpdf2(thread_name: str, messages: list[dict]) -> bytes:
     pdf.ln(6)
 
     for msg in messages:
-        role = "User" if msg["role"] == "user" else "Thoth"
+        role = "User" if msg["role"] == "user" else APP_DISPLAY_NAME
         pdf.set_font("Helvetica", "B", 11)
         if msg["role"] == "user":
             pdf.set_text_color(50, 100, 200)
@@ -1172,7 +1172,7 @@ def _render_pdf_fpdf2(thread_name: str, messages: list[dict]) -> bytes:
 # ═════════════════════════════════════════════════════════════════════════════
 
 def _is_pywebview_native_window() -> bool:
-    return os.environ.get("THOTH_NATIVE") == "1"
+    return os.environ.get(APP_NATIVE_ENV) == "1"
 
 
 async def _pick_with_pywebview(
@@ -1197,7 +1197,7 @@ async def _pick_with_pywebview(
                     {json.dumps(filetypes or [])}
                 );
             }} catch (err) {{
-                console.warn('Thoth native file dialog failed', err);
+                console.warn('Row-Bot native file dialog failed', err);
                 return null;
             }}
         }})()

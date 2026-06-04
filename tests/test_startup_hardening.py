@@ -39,12 +39,12 @@ def test_preflight_reports_broken_torchcodec(monkeypatch, caplog):
 
 def test_launcher_hints_for_torchcodec_dll_failure():
     hints = launcher._startup_failure_hints(
-        "OSError: Could not load this library: E:\\Thoth\\Thoth\\python\\Lib\\site-packages\\torchcodec\\libtorchcodec_core4.dll",
-        python_executable="E:\\Thoth\\Thoth\\python\\python.exe",
+        "OSError: Could not load this library: E:\\Row-Bot\\Row-Bot\\python\\Lib\\site-packages\\torchcodec\\libtorchcodec_core4.dll",
+        python_executable="E:\\Row-Bot\\Row-Bot\\python\\python.exe",
     )
 
     assert any("broken optional TorchCodec" in hint for hint in hints)
-    assert any('"E:\\Thoth\\Thoth\\python\\python.exe" -m pip uninstall -y torchcodec' in hint for hint in hints)
+    assert any('"E:\\Row-Bot\\Row-Bot\\python\\python.exe" -m pip uninstall -y torchcodec' in hint for hint in hints)
 
 
 def test_launcher_hints_for_linux_opencv_native_failure():
@@ -67,7 +67,7 @@ def test_launcher_hints_for_numpy_x86_v2_failure():
 
 
 def test_launcher_logs_app_tail_on_startup_failure(tmp_path, caplog):
-    log_path = tmp_path / "thoth_app.log"
+    log_path = tmp_path / "row_bot_app.log"
     log_path.write_text("line one\nTraceback\nImportError: libGL.so.1 missing\n", encoding="utf-8")
     server = launcher._ThothProcess(port=8123)
     server._log_file = log_path
@@ -82,10 +82,10 @@ def test_launcher_logs_app_tail_on_startup_failure(tmp_path, caplog):
 
 
 def test_startup_timeout_env(monkeypatch):
-    monkeypatch.setenv("THOTH_STARTUP_TIMEOUT", "180")
+    monkeypatch.setenv("ROW_BOT_STARTUP_TIMEOUT", "180")
     assert launcher._startup_timeout() == 180
 
-    monkeypatch.setenv("THOTH_STARTUP_TIMEOUT", "not-a-number")
+    monkeypatch.setenv("ROW_BOT_STARTUP_TIMEOUT", "not-a-number")
     assert launcher._startup_timeout() == 120
 
 
@@ -183,7 +183,7 @@ def test_vision_degrades_when_cv2_native_import_fails(monkeypatch):
 
 
 def test_windows_installer_replaces_embedded_python_on_install():
-    iss = Path("installer/thoth_setup.iss").read_text(encoding="utf-8")
+    iss = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
 
     assert "[InstallDelete]" in iss
     assert 'Type: filesandordirs; Name: "{app}\\python"' in iss

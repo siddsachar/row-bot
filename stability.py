@@ -24,10 +24,11 @@ from datetime import datetime
 from types import TracebackType
 from typing import Any
 
+from data_paths import get_row_bot_data_dir
 
 logger = logging.getLogger(__name__)
 
-_DATA_DIR = pathlib.Path(os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth"))
+_DATA_DIR = get_row_bot_data_dir()
 _CRASH_DIR = _DATA_DIR / "crashes"
 _SESSION_ID = uuid.uuid4().hex[:12]
 _INSTALLED = False
@@ -120,7 +121,7 @@ def start_performance_monitor(
     _PERF_STOP.clear()
     _PERF_MONITOR_TASK = loop.create_task(
         _performance_monitor_loop(lag_warn_s, interval_s, memory_interval_s),
-        name="thoth-performance-monitor",
+        name="row-bot-performance-monitor",
     )
 
 

@@ -4,7 +4,7 @@ import json
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from data_paths import get_thoth_data_dir
+from data_paths import get_row_bot_data_dir
 from voice.openai_realtime import (
     DEFAULT_REALTIME_VOICE,
     REALTIME_VOICE_OPTIONS,
@@ -12,7 +12,7 @@ from voice.openai_realtime import (
 
 
 def _settings_path():
-    return get_thoth_data_dir() / "voice_runtime_settings.json"
+    return get_row_bot_data_dir() / "voice_runtime_settings.json"
 
 
 @dataclass

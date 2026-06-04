@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from typing import Optional
 import uuid
 
+from brand import APP_BRAND_ACCENT
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # ASPECT RATIOS
@@ -72,7 +74,7 @@ DEFAULT_ASPECT_RATIO = "16:9"
 # Taxonomy of designer project modes. Deck/document preserve the legacy
 # single-file HTML + PDF/PPTX/PNG export path. Landing/app_mockup switch
 # to the interactive site-bundle publish path with the declarative
-# ``data-thoth-*`` runtime bridge. Storyboard is the motion track.
+# ``data-row-bot-*`` runtime bridge. Storyboard is the motion track.
 DESIGNER_MODES: dict[str, dict[str, str]] = {
     "deck":       {"label": "Slide deck",         "page_kind": "slide",  "default_aspect": "16:9"},
     "document":   {"label": "Document",            "page_kind": "slide",  "default_aspect": "A4"},
@@ -121,7 +123,7 @@ class BrandConfig:
     """Brand / theme configuration for a designer project."""
     primary_color: str = "#2563EB"
     secondary_color: str = "#1E40AF"
-    accent_color: str = "#F59E0B"
+    accent_color: str = APP_BRAND_ACCENT
     bg_color: str = "#0F172A"
     text_color: str = "#F8FAFC"
     heading_font: str = "Inter"
@@ -369,7 +371,7 @@ class DesignerInteraction:
 
     Interactions live on the project (not per-page) so cross-screen links
     survive page reorders. The runtime bridge (``runtime_bridge.js`` —
-    Phase 2.2) reads this graph and binds ``data-thoth-*`` attributes
+    Phase 2.2) reads this graph and binds ``data-row-bot-*`` attributes
     accordingly; the agent never writes raw JavaScript.
     """
 
@@ -444,7 +446,7 @@ class DesignerProject:
         # projects loaded before Phase 2.1 schema existed.
         self.mode = normalize_designer_mode(self.mode)
         page_kind = default_page_kind_for_mode(self.mode)
-        # Route IDs must match templates' data-thoth-action="navigate:<slug>"
+        # Route IDs must match templates' data-row-bot-action="navigate:<slug>"
         # targets, so derive from page.title (e.g. "Home" → "home"). Fall
         # back to "page-N" only when the title is unusable. A legacy project
         # whose pages were written with the old "page-N" scheme is left

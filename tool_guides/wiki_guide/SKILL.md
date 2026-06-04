@@ -25,6 +25,6 @@ WIKI VAULT:
 - When the user says "save to my wiki", "add this to my notes", or
   similar: save the information via save_memory (the wiki page will be
   created/updated automatically).  Do NOT use workspace_write_file.
-- Users can edit wiki files externally (e.g. in Obsidian).  Thoth
+- Users can edit wiki files externally (e.g. in Obsidian).  Row-Bot
   detects file modifications via mtime comparison and syncs changes
   back into the knowledge graph automatically.

@@ -48,6 +48,7 @@ from channels.auth_store import get_channel_secret
 from channels import commands as ch_commands
 from channels import auth as ch_auth
 from channels import config as ch_config
+from data_paths import get_row_bot_data_dir
 from threads import _save_thread_meta
 
 log = logging.getLogger("thoth.whatsapp")
@@ -158,7 +159,7 @@ _pending_responses: dict[int, threading.Event] = {}
 _response_data: dict[int, dict] = {}
 
 BRIDGE_DIR = Path(__file__).parent / "whatsapp_bridge"
-DATA_DIR = Path(os.environ.get("THOTH_DATA_DIR", Path.home() / ".thoth"))
+DATA_DIR = get_row_bot_data_dir()
 SESSION_DIR = DATA_DIR / "whatsapp_session"
 NODE_DIR = DATA_DIR / "node"            # Auto-downloaded portable Node.js
 NODE_VERSION = "v22.15.0"               # Pinned LTS version

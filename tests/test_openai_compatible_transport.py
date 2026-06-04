@@ -148,7 +148,7 @@ class _NativeAndReasoningToolStreamResponse:
 
     def iter_lines(self):
         yield b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{}"}}]}}]}'
-        yield b'data: {"choices":[{"delta":{"reasoning_content":"<tool_call><function=thoth_status><parameter=category>tools</parameter></function></tool_call>"}}]}'
+        yield b'data: {"choices":[{"delta":{"reasoning_content":"<tool_call><function=row_bot_status><parameter=category>tools</parameter></function></tool_call>"}}]}'
         yield b"data: [DONE]"
 
 
@@ -169,7 +169,7 @@ class _ReasoningTextToolStreamResponse:
         return False
 
     def iter_lines(self):
-        yield b'data: {"choices":[{"delta":{"reasoning_content":"I should retry.\\n<tool_call>\\n<function=thoth_status>\\n<parameter=category>\\ntools\\n</parameter>\\n</function>\\n</tool_call>"}}]}'
+        yield b'data: {"choices":[{"delta":{"reasoning_content":"I should retry.\\n<tool_call>\\n<function=row_bot_status>\\n<parameter=category>\\ntools\\n</parameter>\\n</function>\\n</tool_call>"}}]}'
         yield b"data: [DONE]"
 
 
@@ -800,7 +800,7 @@ def test_openai_compatible_transport_recovers_reasoning_text_tool_call():
     assert chunks[0].additional_kwargs["reasoning_content"].startswith("I should retry.")
     tool_chunks = [chunk for chunk in chunks if chunk.tool_call_chunks]
     assert tool_chunks[0].tool_call_chunks == [{
-        "name": "thoth_status",
+        "name": "row_bot_status",
         "args": '{"category": "tools"}',
         "id": "text_call_0",
         "index": 0,
@@ -822,7 +822,7 @@ def test_openai_compatible_transport_filters_recovered_unknown_tool_when_schemas
 
     chunks = list(model.stream(
         [HumanMessage(content="what tools?")],
-        tools=[{"type": "function", "function": {"name": "thoth_status", "parameters": {"type": "object"}}}],
+        tools=[{"type": "function", "function": {"name": "row_bot_status", "parameters": {"type": "object"}}}],
     ))
 
     assert [chunk for chunk in chunks if chunk.tool_call_chunks] == []
@@ -865,8 +865,8 @@ def test_openai_compatible_transport_keeps_reasoning_only_after_successful_tool_
 
     result = model.invoke([
         HumanMessage(content="what tools?"),
-        AIMessage(content="", tool_calls=[{"name": "thoth_status", "args": {"category": "tools"}, "id": "call_1"}]),
-        ToolMessage(content="**Tools** (29 enabled, 3 disabled)", name="thoth_status", tool_call_id="call_1"),
+        AIMessage(content="", tool_calls=[{"name": "row_bot_status", "args": {"category": "tools"}, "id": "call_1"}]),
+        ToolMessage(content="**Tools** (29 enabled, 3 disabled)", name="row_bot_status", tool_call_id="call_1"),
     ])
 
     assert result.content == ""
@@ -884,8 +884,8 @@ def test_openai_compatible_transport_stream_keeps_reasoning_only_after_successfu
 
     chunks = list(model.stream([
         HumanMessage(content="what tools?"),
-        AIMessage(content="", tool_calls=[{"name": "thoth_status", "args": {"category": "tools"}, "id": "call_1"}]),
-        ToolMessage(content="**Tools** (29 enabled, 3 disabled)", name="thoth_status", tool_call_id="call_1"),
+        AIMessage(content="", tool_calls=[{"name": "row_bot_status", "args": {"category": "tools"}, "id": "call_1"}]),
+        ToolMessage(content="**Tools** (29 enabled, 3 disabled)", name="row_bot_status", tool_call_id="call_1"),
     ]))
 
     assert chunks[0].additional_kwargs["reasoning_content"] == "Enabled tools: 29. Disabled tools: 3."
@@ -909,15 +909,15 @@ def test_openai_compatible_transport_keeps_reasoning_only_after_validation_repai
         http_client=client,
     )
     repair = format_validation_retry_result(
-        tool_name="thoth_status",
+        tool_name="row_bot_status",
         detail="missing or invalid required argument: category",
         fields=["category"],
     )
 
     result = model.invoke([
         HumanMessage(content="what tools?"),
-        AIMessage(content="", tool_calls=[{"name": "thoth_status", "args": {}, "id": "call_1"}]),
-        ToolMessage(content=repair, name="thoth_status", tool_call_id="call_1"),
+        AIMessage(content="", tool_calls=[{"name": "row_bot_status", "args": {}, "id": "call_1"}]),
+        ToolMessage(content=repair, name="row_bot_status", tool_call_id="call_1"),
     ])
 
     assert result.content == ""
@@ -936,19 +936,19 @@ def test_openai_compatible_transport_still_recovers_text_tool_call_after_validat
         http_client=client,
     )
     repair = format_validation_retry_result(
-        tool_name="thoth_status",
+        tool_name="row_bot_status",
         detail="missing or invalid required argument: category",
         fields=["category"],
     )
 
     chunks = list(model.stream([
         HumanMessage(content="what tools?"),
-        AIMessage(content="", tool_calls=[{"name": "thoth_status", "args": {}, "id": "call_1"}]),
-        ToolMessage(content=repair, name="thoth_status", tool_call_id="call_1"),
+        AIMessage(content="", tool_calls=[{"name": "row_bot_status", "args": {}, "id": "call_1"}]),
+        ToolMessage(content=repair, name="row_bot_status", tool_call_id="call_1"),
     ]))
 
     tool_chunks = [chunk for chunk in chunks if chunk.tool_call_chunks]
-    assert tool_chunks[0].tool_call_chunks[0]["name"] == "thoth_status"
+    assert tool_chunks[0].tool_call_chunks[0]["name"] == "row_bot_status"
     assert tool_chunks[0].tool_call_chunks[0]["args"] == '{"category": "tools"}'
 
 
@@ -959,7 +959,7 @@ def test_openai_compatible_transport_does_not_recover_text_tool_call_when_conten
             "message": {
                 "content": "Here is text.",
                 "reasoning_content": (
-                    "<tool_call><function=thoth_status>"
+                    "<tool_call><function=row_bot_status>"
                     "<parameter=category>tools</parameter>"
                     "</function></tool_call>"
                 ),

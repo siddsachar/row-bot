@@ -1,6 +1,6 @@
 # Branching Strategy
 
-Thoth uses trunk-based development with protected `main`.
+Row-Bot uses trunk-based development with protected `main`.
 
 ## Core rules
 

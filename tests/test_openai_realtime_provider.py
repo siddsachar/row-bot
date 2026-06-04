@@ -6,7 +6,7 @@ from voice.openai_realtime import (
     CLIENT_SECRETS_URL,
     DEFAULT_REALTIME_MODEL,
     OpenAIRealtimeProvider,
-    THOTH_REALTIME_INSTRUCTIONS,
+    ROW_BOT_REALTIME_INSTRUCTIONS,
 )
 from voice.agent_bridge import REALTIME_ALLOWED_TOOLS, REALTIME_WAIT_TOOL
 
@@ -37,7 +37,7 @@ def test_openai_realtime_client_secret_uses_ephemeral_endpoint(monkeypatch):
     monkeypatch.setattr("voice.openai_realtime.requests.post", fake_post)
     provider = OpenAIRealtimeProvider(api_key="sk_test")
 
-    data = provider.create_client_secret(instructions="Route serious work through Thoth.")
+    data = provider.create_client_secret(instructions="Route serious work through Row-Bot.")
 
     assert data["value"] == "ek_test"
     assert calls[0]["url"] == CLIENT_SECRETS_URL
@@ -56,11 +56,11 @@ def test_openai_realtime_client_secret_uses_ephemeral_endpoint(monkeypatch):
     assert calls[0]["json"]["session"]["tool_choice"] == "auto"
     assert "turn_detection" not in calls[0]["json"]["session"]
     assert "input_audio_transcription" not in calls[0]["json"]["session"]
-    assert calls[0]["json"]["session"]["instructions"].startswith("Route serious work through Thoth.")
+    assert calls[0]["json"]["session"]["instructions"].startswith("Route serious work through Row-Bot.")
     assert REALTIME_WAIT_TOOL in calls[0]["json"]["session"]["instructions"]
 
 
-def test_openai_realtime_default_session_config_routes_through_thoth():
+def test_openai_realtime_default_session_config_routes_through_row_bot():
     provider = OpenAIRealtimeProvider(api_key="sk_test", voice="cedar")
     config = provider.session_config()
 
@@ -74,13 +74,13 @@ def test_openai_realtime_default_session_config_routes_through_thoth():
     assert config["audio"]["input"]["turn_detection"]["interrupt_response"] is True
     assert "turn_detection" not in config
     assert "input_audio_transcription" not in config
-    assert "You are Thoth in realtime voice mode" in config["instructions"]
+    assert "You are Row-Bot in realtime voice mode" in config["instructions"]
     assert "front end" not in config["instructions"]
     assert "worker" not in config["instructions"]
-    assert "thoth_agent_consult" in config["instructions"]
+    assert "row_bot_agent_consult" in config["instructions"]
     assert REALTIME_WAIT_TOOL in config["instructions"]
     assert [tool["name"] for tool in config["tools"]] == list(REALTIME_ALLOWED_TOOLS)
-    assert config["instructions"] == THOTH_REALTIME_INSTRUCTIONS
+    assert config["instructions"] == ROW_BOT_REALTIME_INSTRUCTIONS
 
 
 def test_openai_realtime_provider_sanitizes_stale_runtime_values():
@@ -130,14 +130,14 @@ def test_openai_realtime_fake_provider_event_mapping():
 
     transcript = provider.map_server_event({
         "type": "conversation.item.input_audio_transcription.completed",
-        "transcript": "hello thoth",
+        "transcript": "hello row bot",
     })
     audio_done = provider.map_server_event({"type": "response.output_audio.done"})
     error = provider.map_server_event({"type": "error", "error": {"message": "bad session"}})
 
     assert transcript is not None
     assert transcript.type == "transcript_final"
-    assert transcript.text == "hello thoth"
+    assert transcript.text == "hello row bot"
     assert audio_done is not None
     assert audio_done.type == "response.output_audio.done"
     assert error is not None

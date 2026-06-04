@@ -1,4 +1,4 @@
-"""Thoth in-app auto-update — polls GitHub Releases, downloads installers,
+"""Row-Bot in-app auto-update — polls GitHub Releases, downloads installers,
 verifies SHA256 + OS code signatures, and hands off to the OS installer.
 
 Design principles
@@ -22,12 +22,12 @@ Release body manifest
 ~~~~~~~~~~~~~~~~~~~~~
 We look for a fenced block of the form::
 
-    <!-- thoth-update-manifest -->
+    <!-- row-bot-update-manifest -->
     ```manifest
     schema: 1
     files:
-      ThothSetup_3.18.0.exe: sha256=<hex>
-      Thoth-3.18.0-macOS-arm64.dmg: sha256=<hex>
+      Row-Bot-4.0.0-Windows-x64.exe: sha256=<hex>
+      Row-Bot-4.0.0-macOS-arm64.dmg: sha256=<hex>
     ```
 
 If the manifest is missing we still surface the release, but refuse to
@@ -60,6 +60,19 @@ from typing import Any, Callable, Iterable, Optional
 
 from packaging.version import InvalidVersion, Version
 
+from brand import (
+    APP_DISPLAY_NAME,
+    APP_RELEASES_LATEST_URL,
+    APP_RELEASES_URL,
+    APP_SLUG,
+    LEGACY_WINDOWS_INSTALLER_BASENAME,
+    LINUX_COMMAND_NAME,
+    LINUX_DESKTOP_ID,
+    UPDATE_MANIFEST_MARKER,
+    UPDATER_USER_AGENT,
+    WINDOWS_INSTALLER_BASENAME,
+)
+from data_paths import get_row_bot_data_dir
 from version import __version__
 
 logger = logging.getLogger(__name__)
@@ -68,21 +81,17 @@ logger = logging.getLogger(__name__)
 # CONSTANTS
 # ════════════════════════════════════════════════════════════════════════════
 
-_DATA_DIR = pathlib.Path(
-    os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")
-)
+_DATA_DIR = get_row_bot_data_dir()
 _DATA_DIR.mkdir(parents=True, exist_ok=True)
 _CONFIG_PATH = _DATA_DIR / "update_config.json"
 _DOWNLOAD_DIR = _DATA_DIR / "updates"
 
 _GITHUB_API_HOST = "api.github.com"
 _GITHUB_DOWNLOAD_HOST = "github.com"
-_RELEASES_LATEST_URL = (
-    "https://api.github.com/repos/siddsachar/Thoth/releases/latest"
-)
-_RELEASES_URL = "https://api.github.com/repos/siddsachar/Thoth/releases"
+_RELEASES_LATEST_URL = APP_RELEASES_LATEST_URL
+_RELEASES_URL = APP_RELEASES_URL
 
-_USER_AGENT = f"Thoth-Updater/{__version__}"
+_USER_AGENT = UPDATER_USER_AGENT
 _HTTP_TIMEOUT = 15
 _DOWNLOAD_TIMEOUT = 600  # 10 min for a ~300 MB installer
 
@@ -91,15 +100,22 @@ _CHECK_INTERVAL_SEC = 6 * 60 * 60      # 6 hours between scheduler ticks
 _CHECK_DEBOUNCE_SEC = 24 * 60 * 60     # min 24h between actual network calls
 
 # Platform → asset name pattern
-_WIN_ASSET_RE = re.compile(r"^ThothSetup_[\d.]+\.exe$")
-_MAC_ARM_ASSET_RE = re.compile(r"^Thoth-[\d.]+-macOS-arm64\.dmg$")
-_MAC_X86_ASSET_RE = re.compile(r"^Thoth-[\d.]+-macOS-x86_64\.dmg$")
-_LINUX_X64_ASSET_RE = re.compile(r"^Thoth-[\d.]+-Linux-x86_64\.tar\.gz$")
-_LINUX_ARM64_ASSET_RE = re.compile(r"^Thoth-[\d.]+-Linux-aarch64\.tar\.gz$")
+_VERSION_ASSET_PART = r"[0-9A-Za-z][0-9A-Za-z.-]*"
+_DISPLAY_ASSET_NAME = re.escape(APP_DISPLAY_NAME)
+_WIN_ASSET_RE = re.compile(
+    rf"^(?:"
+    rf"{re.escape(WINDOWS_INSTALLER_BASENAME)}-{_VERSION_ASSET_PART}-Windows-(?:x64|x86_64|arm64|aarch64)"
+    rf"|{re.escape(LEGACY_WINDOWS_INSTALLER_BASENAME)}_{_VERSION_ASSET_PART}"
+    rf")\.exe$"
+)
+_MAC_ARM_ASSET_RE = re.compile(rf"^{_DISPLAY_ASSET_NAME}-{_VERSION_ASSET_PART}-macOS-arm64\.dmg$")
+_MAC_X86_ASSET_RE = re.compile(rf"^{_DISPLAY_ASSET_NAME}-{_VERSION_ASSET_PART}-macOS-x86_64\.dmg$")
+_LINUX_X64_ASSET_RE = re.compile(rf"^{_DISPLAY_ASSET_NAME}-{_VERSION_ASSET_PART}-Linux-x86_64\.tar\.gz$")
+_LINUX_ARM64_ASSET_RE = re.compile(rf"^{_DISPLAY_ASSET_NAME}-{_VERSION_ASSET_PART}-Linux-aarch64\.tar\.gz$")
 
 # Manifest fenced-block parser
 _MANIFEST_BLOCK_RE = re.compile(
-    r"<!--\s*thoth-update-manifest\s*-->\s*```manifest\s*(.*?)\s*```",
+    rf"<!--\s*{re.escape(UPDATE_MANIFEST_MARKER)}\s*-->\s*```manifest\s*(.*?)\s*```",
     re.DOTALL | re.IGNORECASE,
 )
 _MANIFEST_FILE_LINE_RE = re.compile(
@@ -287,14 +303,14 @@ def is_dev_install() -> bool:
         if platform.system() == "Windows":
             if getattr(sys, "frozen", False):
                 return False
-            # Running from the installed Thoth folder: expect no .git, expect
+            # Running from the installed Row-Bot folder: expect no .git, expect
             # a sibling 'unins000.exe' or similar. We conservatively treat
             # "no .git and running under the installer python" as prod.
             return not (app_root / "unins000.exe").exists() and \
                    not (app_root.parent / "unins000.exe").exists()
         if platform.system() == "Darwin":
             # Running from a .app bundle → app_root ends in
-            # Thoth.app/Contents/Resources or similar.
+            # Row-Bot.app/Contents/Resources or similar.
             return ".app" not in str(app_root)
         if platform.system() == "Linux":
             return _linux_install_root(app_root) is None
@@ -307,7 +323,7 @@ def _linux_install_root(app_root: pathlib.Path | None = None) -> pathlib.Path | 
     """Return the Linux XDG tarball install root, if this is one."""
     if platform.system() != "Linux":
         return None
-    env_root = os.environ.get("THOTH_INSTALL_ROOT")
+    env_root = os.environ.get("ROW_BOT_INSTALL_ROOT")
     candidates: list[pathlib.Path] = []
     if env_root:
         candidates.append(pathlib.Path(env_root))
@@ -364,16 +380,16 @@ def _safe_extract_tar(archive: pathlib.Path, destination: pathlib.Path) -> pathl
 
 def _install_linux_tarball(installer_path: pathlib.Path) -> pathlib.Path:
     """Install a verified Linux tarball into the user's XDG app directory."""
-    install_home = pathlib.Path(os.environ.get("XDG_DATA_HOME", pathlib.Path.home() / ".local" / "share")) / "thoth"
+    install_home = pathlib.Path(os.environ.get("XDG_DATA_HOME", pathlib.Path.home() / ".local" / "share")) / APP_SLUG
     releases_dir = install_home / "releases"
     bin_dir = pathlib.Path.home() / ".local" / "bin"
     desktop_dir = pathlib.Path(os.environ.get("XDG_DATA_HOME", pathlib.Path.home() / ".local" / "share")) / "applications"
     icon_dir = pathlib.Path(os.environ.get("XDG_DATA_HOME", pathlib.Path.home() / ".local" / "share")) / "icons" / "hicolor" / "256x256" / "apps"
 
-    with tempfile.TemporaryDirectory(prefix="thoth_linux_update_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="row_bot_linux_update_") as tmp:
         extracted = _safe_extract_tar(installer_path, pathlib.Path(tmp))
         marker = extracted / "install_info.json"
-        wrapper = extracted / "bin" / "thoth"
+        wrapper = extracted / "bin" / LINUX_COMMAND_NAME
         app_dir = extracted / "app"
         python_bin = extracted / "python" / "bin" / "python3"
         if not marker.exists() or not wrapper.exists() or not app_dir.exists() or not python_bin.exists():
@@ -383,7 +399,7 @@ def _install_linux_tarball(installer_path: pathlib.Path) -> pathlib.Path:
         except json.JSONDecodeError as exc:
             raise UpdateError("Linux update archive has invalid install_info.json") from exc
         if metadata.get("platform") != "linux" or metadata.get("install_kind") != "xdg-user-tarball":
-            raise UpdateError("Linux update archive is not a Thoth XDG tarball install")
+            raise UpdateError("Linux update archive is not a Row-Bot XDG tarball install")
         version = str(metadata.get("version") or "").strip()
         if not version:
             raise UpdateError("Linux update archive is missing a version")
@@ -409,20 +425,20 @@ def _install_linux_tarball(installer_path: pathlib.Path) -> pathlib.Path:
     os.symlink(pathlib.Path("releases") / version, tmp_link, target_is_directory=True)
     tmp_link.replace(current)
 
-    launcher = bin_dir / "thoth"
+    launcher = bin_dir / LINUX_COMMAND_NAME
     if launcher.exists() or launcher.is_symlink():
         launcher.unlink()
-    os.symlink(current / "bin" / "thoth", launcher)
+    os.symlink(current / "bin" / LINUX_COMMAND_NAME, launcher)
 
-    desktop_src = current / "share" / "applications" / "com.thoth.Thoth.desktop"
+    desktop_src = current / "share" / "applications" / LINUX_DESKTOP_ID
     if desktop_src.exists():
-        desktop_target = desktop_dir / "com.thoth.Thoth.desktop"
+        desktop_target = desktop_dir / LINUX_DESKTOP_ID
         text = desktop_src.read_text(encoding="utf-8")
         text = re.sub(r"^Exec=.*$", f"Exec={launcher}", text, flags=re.MULTILINE)
         desktop_target.write_text(text, encoding="utf-8")
-    icon_src = current / "share" / "icons" / "hicolor" / "256x256" / "apps" / "thoth.png"
+    icon_src = current / "share" / "icons" / "hicolor" / "256x256" / "apps" / f"{APP_SLUG}.png"
     if icon_src.exists():
-        shutil.copy2(icon_src, icon_dir / "thoth.png")
+        shutil.copy2(icon_src, icon_dir / f"{APP_SLUG}.png")
 
     for cmd, arg in (("update-desktop-database", desktop_dir), ("gtk-update-icon-cache", icon_dir.parents[1])):
         tool = shutil.which(cmd)
@@ -549,7 +565,7 @@ def _http_get(url: str, *, accept: str = "application/vnd.github+json") -> Optio
             "X-GitHub-Api-Version": "2022-11-28",
         },
     )
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("THOTH_UPDATER_TOKEN")
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("ROW_BOT_UPDATER_TOKEN")
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     try:
@@ -779,7 +795,7 @@ def verify_os_signature(path: pathlib.Path) -> tuple[bool, str]:
 def install_and_restart(installer_path: pathlib.Path) -> None:
     """Launch the installer and schedule this process to exit.
 
-    Windows: ``ThothSetup_x.y.z.exe /SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS``.
+    Windows: ``Row-Bot-x.y.z-Windows-x64.exe /SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS``.
     macOS: ``open <dmg>`` (Finder handles mount + drag-to-Applications).
     """
     import subprocess
@@ -855,7 +871,7 @@ def start_update_scheduler() -> None:
             if _scheduler_stop.wait(_CHECK_INTERVAL_SEC):
                 return
 
-    t = threading.Thread(target=_loop, name="thoth-updater", daemon=True)
+    t = threading.Thread(target=_loop, name="row-bot-updater", daemon=True)
     t.start()
     _scheduler_thread = t
     logger.info("Updater scheduler started (channel=%s)",
@@ -871,7 +887,7 @@ def stop_update_scheduler() -> None:
 # ════════════════════════════════════════════════════════════════════════════
 
 def summary_for_status() -> dict[str, Any]:
-    """Return a JSON-serializable summary for the thoth_status tool."""
+    """Return a JSON-serializable summary for the row_bot_status tool."""
     st = get_update_state()
     info = st.available
     return {

@@ -18,6 +18,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from data_paths import get_row_bot_data_dir
 from plugins.manifest import PluginManifest, ManifestError, parse_manifest
 from plugins.api import PluginAPI, PluginTool
 from plugins import registry as plugin_registry
@@ -25,7 +26,7 @@ from plugins import state as plugin_state
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR = pathlib.Path(os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth"))
+DATA_DIR = get_row_bot_data_dir()
 PLUGINS_DIR = DATA_DIR / "installed_plugins"
 
 # Timeout for plugin register() calls (seconds)
@@ -161,7 +162,7 @@ def _load_single_plugin(plugin_dir: pathlib.Path) -> LoadResult:
         return LoadResult(plugin_id=plugin_id, success=False,
                           error=f"Unexpected error parsing manifest: {exc}")
 
-    # Step 2: Check Thoth version compatibility
+        # Step 2: Check Row-Bot version compatibility
     compat_err = _check_version_compat(manifest)
     if compat_err:
         return LoadResult(plugin_id=plugin_id, success=False,
@@ -230,24 +231,24 @@ def _load_single_plugin(plugin_dir: pathlib.Path) -> LoadResult:
 
 # ── Version Check ────────────────────────────────────────────────────────────
 def _check_version_compat(manifest: PluginManifest) -> str | None:
-    """Check min_thoth_version. Returns error string or None."""
+    """Check min_row_bot_version. Returns error string or None."""
     try:
         from importlib.metadata import version as pkg_version
-        # Try to get Thoth's version from various sources
-        thoth_version = _get_thoth_version()
-        if thoth_version and manifest.min_thoth_version:
-            if _version_tuple(thoth_version) < _version_tuple(manifest.min_thoth_version):
+        # Try to get Row-Bot's version from various sources
+        row_bot_version = _get_row_bot_version()
+        if row_bot_version and manifest.min_row_bot_version:
+            if _version_tuple(row_bot_version) < _version_tuple(manifest.min_row_bot_version):
                 return (
-                    f"Requires Thoth >= {manifest.min_thoth_version}, "
-                    f"but current version is {thoth_version}"
+                    f"Requires Row-Bot >= {manifest.min_row_bot_version}, "
+                    f"but current version is {row_bot_version}"
                 )
     except Exception:
-        pass  # Skip version check if we can't determine Thoth version
+        pass  # Skip version check if we can't determine Row-Bot version
     return None
 
 
-def _get_thoth_version() -> str | None:
-    """Try to get Thoth's current version."""
+def _get_row_bot_version() -> str | None:
+    """Try to get Row-Bot's current version."""
     # Check if there's a VERSION file or version in app.py
     version_file = pathlib.Path(__file__).parent.parent / "VERSION"
     if version_file.exists():

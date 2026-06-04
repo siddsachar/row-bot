@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
-# build_linux_app.sh - Build self-contained Thoth Linux tarball
+# build_linux_app.sh - Build self-contained Row-Bot Linux tarball
 #
-# Produces dist/Thoth-X.Y.Z-Linux-ARCH.tar.gz using python-build-standalone.
+# Produces dist/Row-Bot-X.Y.Z-Linux-ARCH.tar.gz using python-build-standalone.
 # The artifact installs into XDG user paths via install.sh and launches in
 # browser/no-tray mode by default so Linux desktop system dependencies stay
 # optional.
@@ -39,7 +39,7 @@ esac
 
 PBS_FILENAME="cpython-${PYTHON_VERSION}+${PBS_RELEASE}-${PBS_ARCH}-unknown-linux-gnu-install_only.tar.gz"
 PBS_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_RELEASE}/${PBS_FILENAME}"
-PACKAGE_NAME="Thoth-${VERSION}-Linux-${PACKAGE_ARCH}"
+PACKAGE_NAME="Row-Bot-${VERSION}-Linux-${PACKAGE_ARCH}"
 PACKAGE_ROOT="$BUILD_DIR/$PACKAGE_NAME"
 APP_SRC="$PACKAGE_ROOT/app"
 PYTHON_PREFIX="$PACKAGE_ROOT/python"
@@ -54,7 +54,7 @@ fail() { echo -e "${RED}[FAIL]${NC}  $*"; exit 1; }
 
 echo ""
 echo -e "${BOLD}============================================${NC}"
-echo -e "${BOLD} Build Thoth Linux package (v${VERSION})${NC}"
+echo -e "${BOLD} Build Row-Bot Linux package (v${VERSION})${NC}"
 echo -e "${BOLD}============================================${NC}"
 echo ""
 info "Architecture: $ARCH ($PACKAGE_ARCH)"
@@ -116,7 +116,7 @@ cp "$PROJECT_DIR/requirements.txt" "$APP_SRC/"
 mkdir -p "$APP_SRC/scripts"
 cp "$PROJECT_DIR/scripts/verify_runtime_dependencies.py" "$APP_SRC/scripts/"
 
-for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client skills_hub migration buddy; do
+for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client skills_hub migration buddy voice; do
     if [ -d "$PROJECT_DIR/$pkg" ]; then
         rsync -a \
               --exclude='__pycache__' --exclude='*.pyc' \
@@ -134,20 +134,20 @@ for dir in static sounds; do
     fi
 done
 
-if [ -f "$PROJECT_DIR/thoth.ico" ]; then
-    cp "$PROJECT_DIR/thoth.ico" "$APP_SRC/"
+if [ -f "$PROJECT_DIR/row-bot.ico" ]; then
+    cp "$PROJECT_DIR/row-bot.ico" "$APP_SRC/"
 fi
-if [ -f "$PROJECT_DIR/docs/thoth_glyph_256.png" ]; then
-    cp "$PROJECT_DIR/docs/thoth_glyph_256.png" \
-       "$PACKAGE_ROOT/share/icons/hicolor/256x256/apps/thoth.png"
-elif [ -f "$PROJECT_DIR/docs/thoth_glyph.png" ]; then
-    cp "$PROJECT_DIR/docs/thoth_glyph.png" \
-       "$PACKAGE_ROOT/share/icons/hicolor/256x256/apps/thoth.png"
+if [ -f "$PROJECT_DIR/docs/row_bot_glyph_256.png" ]; then
+    cp "$PROJECT_DIR/docs/row_bot_glyph_256.png" \
+       "$PACKAGE_ROOT/share/icons/hicolor/256x256/apps/row-bot.png"
+elif [ -f "$PROJECT_DIR/docs/row_bot_glyph.png" ]; then
+    cp "$PROJECT_DIR/docs/row_bot_glyph.png" \
+       "$PACKAGE_ROOT/share/icons/hicolor/256x256/apps/row-bot.png"
 fi
 ok "Source code copied"
 
 info "[4/6] Creating launchers and install metadata..."
-cat > "$PACKAGE_ROOT/bin/thoth" <<'LAUNCHER'
+cat > "$PACKAGE_ROOT/bin/row-bot" <<'LAUNCHER'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -163,10 +163,10 @@ done
 ROOT="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
 PYTHON="$ROOT/python/bin/python3"
 APP_DIR="$ROOT/app"
-DATA_DIR="${THOTH_DATA_DIR:-$HOME/.thoth}"
+DATA_DIR="${ROW_BOT_DATA_DIR:-$HOME/.row-bot}"
 
 mkdir -p "$DATA_DIR"
-export THOTH_INSTALL_ROOT="$ROOT"
+export ROW_BOT_INSTALL_ROOT="$ROOT"
 export PYTHONNOUSERSITE=1
 export PYTHONIOENCODING=utf-8
 
@@ -185,15 +185,15 @@ if [ "$#" -eq 0 ]; then
 fi
 exec "$PYTHON" launcher.py "$@"
 LAUNCHER
-chmod +x "$PACKAGE_ROOT/bin/thoth"
+chmod +x "$PACKAGE_ROOT/bin/row-bot"
 
-cat > "$PACKAGE_ROOT/share/applications/com.thoth.Thoth.desktop" <<'DESKTOP'
+cat > "$PACKAGE_ROOT/share/applications/ai.row-bot.RowBot.desktop" <<'DESKTOP'
 [Desktop Entry]
 Type=Application
-Name=Thoth
+Name=Row-Bot
 Comment=Local-first AI assistant
-Exec=thoth
-Icon=thoth
+Exec=row-bot
+Icon=row-bot
 Terminal=false
 Categories=Utility;Office;
 StartupNotify=true
@@ -201,7 +201,7 @@ DESKTOP
 
 cat > "$PACKAGE_ROOT/install_info.json" <<JSON
 {
-  "name": "Thoth",
+  "name": "Row-Bot",
   "version": "$VERSION",
   "platform": "linux",
   "arch": "$PACKAGE_ARCH",
@@ -220,7 +220,7 @@ from pathlib import Path
 print(json.loads((Path(os.environ['SOURCE_DIR']) / 'install_info.json').read_text())['version'])
 PY
 )"
-APP_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/thoth"
+APP_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/row-bot"
 RELEASES_DIR="$APP_HOME/releases"
 TARGET="$RELEASES_DIR/$VERSION"
 STAGING="$RELEASES_DIR/.installing-$VERSION-$$"
@@ -235,30 +235,30 @@ rm -rf "$TARGET"
 mv "$STAGING" "$TARGET"
 
 ln -sfn "releases/$VERSION" "$APP_HOME/current"
-ln -sfn "$APP_HOME/current/bin/thoth" "$BIN_HOME/thoth"
+ln -sfn "$APP_HOME/current/bin/row-bot" "$BIN_HOME/row-bot"
 
-cp "$TARGET/share/applications/com.thoth.Thoth.desktop" "$DESKTOP_HOME/com.thoth.Thoth.desktop"
-sed -i "s|^Exec=.*|Exec=$BIN_HOME/thoth|" "$DESKTOP_HOME/com.thoth.Thoth.desktop"
-cp "$TARGET/share/icons/hicolor/256x256/apps/thoth.png" "$ICON_HOME/thoth.png" 2>/dev/null || true
-chmod +x "$TARGET/bin/thoth"
+cp "$TARGET/share/applications/ai.row-bot.RowBot.desktop" "$DESKTOP_HOME/ai.row-bot.RowBot.desktop"
+sed -i "s|^Exec=.*|Exec=$BIN_HOME/row-bot|" "$DESKTOP_HOME/ai.row-bot.RowBot.desktop"
+cp "$TARGET/share/icons/hicolor/256x256/apps/row-bot.png" "$ICON_HOME/row-bot.png" 2>/dev/null || true
+chmod +x "$TARGET/bin/row-bot"
 chmod +x "$TARGET/install.sh" "$TARGET/uninstall.sh" 2>/dev/null || true
 
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$DESKTOP_HOME" >/dev/null 2>&1 || true
 command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor" >/dev/null 2>&1 || true
 
-if [ "${THOTH_SUPPRESS_INSTALL_PATH_HINT:-0}" != "1" ]; then
-    LAUNCH_CMD="thoth"
+if [ "${ROW_BOT_SUPPRESS_INSTALL_PATH_HINT:-0}" != "1" ]; then
+    LAUNCH_CMD="row-bot"
     case ":${PATH}:" in
         *":${BIN_HOME}:"*) ;;
         *)
-            LAUNCH_CMD="$BIN_HOME/thoth"
-            echo "[WARN] $BIN_HOME is not on PATH. Run $BIN_HOME/thoth now, or add this to your shell profile:"
+            LAUNCH_CMD="$BIN_HOME/row-bot"
+            echo "[WARN] $BIN_HOME is not on PATH. Run $BIN_HOME/row-bot now, or add this to your shell profile:"
             echo '       export PATH="$HOME/.local/bin:$PATH"'
             echo "       Open a new terminal after updating your profile."
             ;;
     esac
 
-    echo "Thoth $VERSION installed. Run: $LAUNCH_CMD"
+    echo "Row-Bot $VERSION installed. Run: $LAUNCH_CMD"
 fi
 INSTALL
 chmod +x "$PACKAGE_ROOT/install.sh"
@@ -267,20 +267,20 @@ cat > "$PACKAGE_ROOT/uninstall.sh" <<'UNINSTALL'
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/thoth"
+APP_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/row-bot"
 BIN_HOME="${HOME}/.local/bin"
 DESKTOP_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 ICON_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/256x256/apps"
 
-rm -f "$BIN_HOME/thoth"
-rm -f "$DESKTOP_HOME/com.thoth.Thoth.desktop"
-rm -f "$ICON_HOME/thoth.png"
+rm -f "$BIN_HOME/row-bot"
+rm -f "$DESKTOP_HOME/ai.row-bot.RowBot.desktop"
+rm -f "$ICON_HOME/row-bot.png"
 rm -rf "$APP_HOME"
 
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$DESKTOP_HOME" >/dev/null 2>&1 || true
 command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor" >/dev/null 2>&1 || true
 
-echo "Thoth application files removed. User data in ~/.thoth was left untouched."
+echo "Row-Bot application files removed. User data in ~/.row-bot was left untouched."
 UNINSTALL
 chmod +x "$PACKAGE_ROOT/uninstall.sh"
 ok "Launchers created"
@@ -310,7 +310,7 @@ done
 ok "Package cleaned"
 
 info "Verifying assembled Linux runtime dependencies..."
-THOTH_INSTALL_ROOT="$PACKAGE_ROOT" PYTHONNOUSERSITE=1 \
+ROW_BOT_INSTALL_ROOT="$PACKAGE_ROOT" PYTHONNOUSERSITE=1 \
     "$PYTHON_PREFIX/bin/python3" "$APP_SRC/scripts/verify_runtime_dependencies.py"
 ok "Assembled Linux runtime dependencies verified"
 

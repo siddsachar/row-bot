@@ -36,7 +36,7 @@ def build_initial_design_request(project: DesignerProject) -> str:
         lines.append(
             f"Project type: {mode_info['label']} (mode='{mode}'). "
             "Follow the interactive-runtime rules — navigation and state "
-            "toggles must use data-thoth-action attributes only, never raw "
+            "toggles must use data-row-bot-action attributes only, never raw "
             "JavaScript."
         )
 

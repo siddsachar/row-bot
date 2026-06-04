@@ -8,6 +8,7 @@ import logging
 import mimetypes
 from typing import Callable
 
+from brand import APP_BRAND_ACCENT
 from nicegui import ui
 
 from designer.brand import (
@@ -451,7 +452,7 @@ def show_brand_dialog(
 
                 brand.primary_color = primary.value or "#2563EB"
                 brand.secondary_color = secondary.value or "#1E40AF"
-                brand.accent_color = accent.value or "#F59E0B"
+                brand.accent_color = accent.value or APP_BRAND_ACCENT
                 brand.bg_color = bg.value or "#0F172A"
                 brand.text_color = text_c.value or "#F8FAFC"
                 brand.heading_font = h_font.value or "Inter"

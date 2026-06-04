@@ -6,6 +6,7 @@ when a designer project is active.
 
 from __future__ import annotations
 
+from brand import APP_BRAND_ACCENT
 from designer.components import list_components
 from designer.state import DesignerProject, normalize_designer_mode
 
@@ -13,7 +14,7 @@ from designer.state import DesignerProject, normalize_designer_mode
 # ── Mode-specific rendering rules ───────────────────────────────────────
 # Deck / document modes forbid any JavaScript (sandbox rule unchanged from
 # v1). Landing / app_mockup / storyboard modes run inside a controlled
-# runtime bridge; the agent must use declarative ``data-thoth-*`` attrs
+# runtime bridge; the agent must use declarative ``data-row-bot-*`` attrs
 # instead of writing free-form <script>.
 
 _DECK_JS_RULE = "- All content must render without JavaScript (sandbox restriction)."
@@ -23,17 +24,17 @@ _INTERACTIVE_RUNTIME_RULE = (
     "  onclick/onmouseover/on* inline handlers, or javascript: URLs — they are\n"
     "  stripped automatically and will not run.\n"
     "- Use declarative data attributes for all interactivity:\n"
-    "    * data-thoth-action=\"navigate:<route_id>\" → jump to another screen\n"
-    "    * data-thoth-action=\"toggle_state:<key>\" → flip a UI state\n"
-    "    * data-thoth-action=\"play_media:<asset_id>\" → play a video/audio asset\n"
-    "    * data-thoth-state=\"<key>\"               → mark an element as state-scoped\n"
-    "    * data-thoth-route=\"<route_id>\"          → identify a screen section\n"
-    "    * data-thoth-transition=\"fade|slide_left|slide_up|none\" (optional)\n"
+    "    * data-row-bot-action=\"navigate:<route_id>\" → jump to another screen\n"
+    "    * data-row-bot-action=\"toggle_state:<key>\" → flip a UI state\n"
+    "    * data-row-bot-action=\"play_media:<asset_id>\" → play a video/audio asset\n"
+    "    * data-row-bot-state=\"<key>\"               → mark an element as state-scoped\n"
+    "    * data-row-bot-route=\"<route_id>\"          → identify a screen section\n"
+    "    * data-row-bot-transition=\"fade|slide_left|slide_up|none\" (optional)\n"
     "- Pair every interactive element (button, link, tap target) with a\n"
-    "  data-thoth-action. Don't rely on <a href>; use data-thoth-action.\n"
+    "  data-row-bot-action. Don't rely on <a href>; use data-row-bot-action.\n"
     "- State-scoped overlays: wrap modal/drawer markup in\n"
-    "  <div data-thoth-when=\"cart-open\">...</div>; the runtime will show it\n"
-    "  only while <html data-thoth-state=\"cart-open\"> is set."
+    "  <div data-row-bot-when=\"cart-open\">...</div>; the runtime will show it\n"
+    "  only while <html data-row-bot-state=\"cart-open\"> is set."
 )
 
 _INTERACTIVE_TOOL_LINES = (
@@ -157,7 +158,7 @@ def _mode_guidelines(mode: str) -> str:
     if m == "app_mockup":
         return (
             "- APP MOCKUP MODE: keep route_ids stable. Templates wire navigation\n"
-            "  through data-thoth-action=\"navigate:<slug>\" where <slug> is the\n"
+            "  through data-row-bot-action=\"navigate:<slug>\" where <slug> is the\n"
             "  page's existing route_id (e.g. \"home\", \"detail\"). Preserve those\n"
             "  route_ids when updating pages; introduce new routes via\n"
             "  designer_add_screen so the runtime bridge can resolve navigation.\n"
@@ -177,18 +178,18 @@ def _mode_guidelines(mode: str) -> str:
             "  * Toggle switch row:\n"
             "    <div class=\"toggle-row\"><span>Label</span>"
             "<button class=\"toggle\" aria-pressed=\"true\" "
-            "data-thoth-action=\"toggle_state:<key>\"></button></div>\n"
+            "data-row-bot-action=\"toggle_state:<key>\"></button></div>\n"
             "    The <button> MUST be empty; the pill-slider is drawn by CSS via\n"
             "    `.toggle::after` and `[aria-pressed=\"true\"]`. Never put the\n"
             "    label inside the button.\n"
             "  * List row that navigates:\n"
-            "    <a class=\"row\" href=\"#\" data-thoth-action=\"navigate:<slug>\">"
+            "    <a class=\"row\" href=\"#\" data-row-bot-action=\"navigate:<slug>\">"
             "<div class=\"icon\">...</div><div><div class=\"title\">...</div>"
             "<div class=\"sub\">...</div></div></a>\n"
             "  * Primary / ghost button:\n"
-            "    <a class=\"btn\" href=\"#\" data-thoth-action=\"navigate:<slug>\">"
+            "    <a class=\"btn\" href=\"#\" data-row-bot-action=\"navigate:<slug>\">"
             "Label</a>\n"
-            "    <a class=\"btn btn-ghost\" href=\"#\" data-thoth-action=\"...\">"
+            "    <a class=\"btn btn-ghost\" href=\"#\" data-row-bot-action=\"...\">"
             "Label</a>\n"
         )
     return ""
@@ -311,7 +312,7 @@ def build_designer_prompt(project: DesignerProject) -> str:
     else:
         brand_line = "Brand: not set (suggest professional defaults)"
         css_vars = (
-            "  :root { --primary: #2563EB; --secondary: #1E40AF; --accent: #F59E0B;\n"
+            f"  :root {{ --primary: {APP_BRAND_ACCENT}; --secondary: #2F4B68; --accent: #5D82A8;\n"
             "          --bg: #0F172A; --text: #F8FAFC; --heading-font: Inter; --body-font: Inter; }"
         )
         fonts = "Inter"
@@ -473,8 +474,8 @@ def build_designer_prompt(project: DesignerProject) -> str:
         f"- When the user asks for a standard section pattern like metrics, feature cards, testimonials, pricing, or timeline steps, prefer designer_insert_component before writing a custom fragment from scratch.\n"
         f"- When the user asks for review, audit, polish, fix readability, fix contrast, or tighten spacing, call designer_critique_page first and then designer_apply_repairs only for the categories that matter.\n"
         f"- For attached, pasted, generated, or local images, use designer_insert_image instead of recreating the page HTML manually.\n"
-        f"- IMAGE PLACEMENT: when authoring a page that will later receive an AI image, mark the target container with `data-thoth-image-slot=\"NAME\"` (e.g. <div data-thoth-image-slot=\"hero\" style=\"width:100%;aspect-ratio:16/9;\"></div>). designer_insert_image will automatically fill the first such slot, sized to cover. Alternatively, call designer_insert_image with position=\"replace:.my-class\" or position=\"replace:#my-id\" to target a specific container. Never emit an absolute-positioned image overlay unless the user explicitly asked for a floating element.\n"
-        f"- NO DECORATIVE OVERLAP ON TEXT: never place absolutely-positioned decorative CSS art (blobs, hand-drawn shapes, chef figures, mascots, etc.) on top of a heading or body paragraph. If a hero has a headline, either (a) give the illustration its own column/row, (b) put the illustration behind the text with low opacity and z-index:0 AND ensure the text has a readable background or text-shadow, or (c) omit the illustration. When in doubt, use a real AI image via a data-thoth-image-slot instead of CSS shapes.\n"
+        f"- IMAGE PLACEMENT: when authoring a page that will later receive an AI image, mark the target container with `data-row-bot-image-slot=\"NAME\"` (e.g. <div data-row-bot-image-slot=\"hero\" style=\"width:100%;aspect-ratio:16/9;\"></div>). designer_insert_image will automatically fill the first such slot, sized to cover. Alternatively, call designer_insert_image with position=\"replace:.my-class\" or position=\"replace:#my-id\" to target a specific container. Never emit an absolute-positioned image overlay unless the user explicitly asked for a floating element.\n"
+        f"- NO DECORATIVE OVERLAP ON TEXT: never place absolutely-positioned decorative CSS art (blobs, hand-drawn shapes, chef figures, mascots, etc.) on top of a heading or body paragraph. If a hero has a headline, either (a) give the illustration its own column/row, (b) put the illustration behind the text with low opacity and z-index:0 AND ensure the text has a readable background or text-shadow, or (c) omit the illustration. When in doubt, use a real AI image via a data-row-bot-image-slot instead of CSS shapes.\n"
         f"- BUTTON ROWS STAY HORIZONTAL: when emitting a row of two buttons (Back + primary, Cancel + Confirm, etc.), use display:flex; gap:12px; and give the primary button flex:1 so they sit side-by-side with clear space between them. Never let them stack vertically, touch each other, or both render with the same primary fill. Secondary/ghost buttons must be visually distinct (transparent background OR an outline) from the primary action.\n"
         f"- For moving or replacing an existing image or chart, use designer_move_image or designer_replace_image with the asset IDs from designer_get_project.\n"
         f"- When you must reuse an existing project image in handwritten HTML, use src=\"asset://ASSET_ID\" and keep data-asset-id=\"ASSET_ID\" on the img when possible. Never invent placeholder tokens like __ASSET_...__.\n"

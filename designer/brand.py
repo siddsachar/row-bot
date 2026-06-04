@@ -8,11 +8,12 @@ import re
 from pathlib import Path
 from typing import Optional
 
+from data_paths import get_row_bot_data_dir
 from designer.state import BrandConfig
 
 logger = logging.getLogger(__name__)
 
-_BRAND_DIR = Path.home() / ".thoth" / "designer" / "brands"
+_BRAND_DIR = get_row_bot_data_dir() / "designer" / "brands"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -39,7 +40,7 @@ BRAND_PRESETS: dict[str, BrandConfig] = {
     ),
     "Minimalist Light": BrandConfig(
         primary_color="#1F2937", secondary_color="#374151",
-        accent_color="#3B82F6", bg_color="#FFFFFF", text_color="#111827",
+        accent_color="#4F78A4", bg_color="#FFFFFF", text_color="#111827",
         heading_font="Georgia", body_font="Georgia",
     ),
     "Corporate": BrandConfig(

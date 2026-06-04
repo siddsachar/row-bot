@@ -291,13 +291,13 @@ def build_designer_editor(
                                 "State key — a short name you give this on/off "
                                 "flag (e.g. menu-open, dark, cart-open). Clicking "
                                 "flips it; CSS rules keyed on "
-                                "[data-thoth-state~=\u201ckey\u201d] respond."
+                                "[data-row-bot-state~=\u201ckey\u201d] respond."
                             ).classes("text-xs text-grey-5")
                             placeholder = "state key (e.g. menu-open)"
                             label_text = "State key"
                         else:
                             ui.label(
-                                "Asset id — the data-thoth-id of a <video> or "
+                                "Asset id — the data-row-bot-id of a <video> or "
                                 "<audio> element that should start playing."
                             ).classes("text-xs text-grey-5")
                             placeholder = "asset id"
@@ -1115,13 +1115,13 @@ def _render_chat_bubble(msg: dict) -> None:
     )
     if role == "user":
         with ui.row().classes("w-full justify-end").style("min-width: 0;"):
-            ui.label(content).classes("q-pa-sm thoth-designer-bubble").style(
+            ui.label(content).classes("q-pa-sm row-bot-designer-bubble").style(
                 "background: rgba(37,99,235,0.2); border-radius: 12px 12px 0 12px; "
                 + _bubble_wrap
             )
     else:
         with ui.row().classes("w-full").style("min-width: 0;"):
-            ui.markdown(content).classes("q-pa-sm thoth-designer-bubble").style(
+            ui.markdown(content).classes("q-pa-sm row-bot-designer-bubble").style(
                 "background: rgba(255,255,255,0.05); border-radius: 12px 12px 12px 0; "
                 + _bubble_wrap
             )

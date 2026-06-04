@@ -16,11 +16,11 @@ from pathlib import Path
 import re
 from typing import Any
 
+from data_paths import get_row_bot_data_dir
+
 logger = logging.getLogger(__name__)
 
-_RECALL_TRACE_FILE = Path(
-    os.environ.get("THOTH_DATA_DIR", Path.home() / ".thoth")
-) / "memory_recall_trace.json"
+_RECALL_TRACE_FILE = get_row_bot_data_dir() / "memory_recall_trace.json"
 _RECALL_TRACE_MAX = 100
 
 

@@ -20,11 +20,11 @@ import re
 import tempfile
 import time
 
+from data_paths import get_row_bot_data_dir
+
 log = logging.getLogger("thoth.channels.media")
 
-_DATA_DIR = pathlib.Path(
-    os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")
-)
+_DATA_DIR = get_row_bot_data_dir()
 _INBOX_DIR = _DATA_DIR / "inbox"
 
 

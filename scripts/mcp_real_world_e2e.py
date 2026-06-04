@@ -80,7 +80,7 @@ TARGETS: dict[str, Target] = {
 
 
 def _load_modules(data_dir: Path):
-    os.environ["THOTH_DATA_DIR"] = str(data_dir)
+    os.environ["ROW_BOT_DATA_DIR"] = str(data_dir)
     import mcp_client.config as mcp_config
     import mcp_client.marketplace as marketplace
     import mcp_client.runtime as runtime

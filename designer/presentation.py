@@ -242,7 +242,7 @@ def _build_reveal_html(project: DesignerProject, start_page: int = 0, presenter:
         const params = new URLSearchParams(window.location.search);
         const presentationSessionId = params.get('session') || '';
         const presentationWindowKey = params.get('window') || '';
-        const syncChannelName = presentationSessionId ? `thoth-designer-presentation-${{presentationSessionId}}` : '';
+        const syncChannelName = presentationSessionId ? `row-bot-designer-presentation-${{presentationSessionId}}` : '';
         const syncStorageKey = syncChannelName ? `${{syncChannelName}}:message` : '';
         const syncChannel = syncChannelName && 'BroadcastChannel' in window ? new BroadcastChannel(syncChannelName) : null;
         const syncInstanceId = `${{presenterMode ? 'presenter' : 'slides'}}-${{Math.random().toString(36).slice(2)}}`;
@@ -464,8 +464,8 @@ def _build_presentation_source_url(
 async def _open_managed_window(*, url: str, name: str, title: str, width: int, height: int) -> bool:
     script = f"""
         (async function() {{
-            if (!window.thothOpenManagedWindow) return false;
-            return await window.thothOpenManagedWindow({json.dumps({
+            if (!window.rowBotOpenManagedWindow) return false;
+            return await window.rowBotOpenManagedWindow({json.dumps({
                 'url': url,
                 'name': name,
                 'title': title,
@@ -485,8 +485,8 @@ async def _open_managed_window(*, url: str, name: str, title: str, width: int, h
 async def _close_managed_window(name: str) -> bool:
     script = f"""
         (async function() {{
-            if (!window.thothCloseManagedWindow) return false;
-            return await window.thothCloseManagedWindow({json.dumps(name)});
+            if (!window.rowBotCloseManagedWindow) return false;
+            return await window.rowBotCloseManagedWindow({json.dumps(name)});
         }})()
     """
     try:
@@ -505,8 +505,8 @@ async def show_presentation(
     """Open the presenter surface in Thoth and slides in a separate window."""
     page_idx = start_page if start_page is not None else project.active_page
     session_id = uuid.uuid4().hex
-    slides_window_key = f"thoth-designer-slides-{project.id}-{session_id}"
-    presenter_window_key = f"thoth-designer-presenter-{project.id}-{session_id}"
+    slides_window_key = f"row-bot-designer-slides-{project.id}-{session_id}"
+    presenter_window_key = f"row-bot-designer-presenter-{project.id}-{session_id}"
     presenter_url = _build_presentation_source_url(
         project,
         start_page=page_idx,

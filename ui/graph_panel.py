@@ -16,6 +16,7 @@ def build_graph_panel() -> None:
     import json as _json
     import time
 
+    from brand import APP_DISPLAY_NAME
     from nicegui import ui
 
     import knowledge_graph as kg
@@ -39,7 +40,7 @@ def build_graph_panel() -> None:
         with ui.column().classes("w-full h-full items-center justify-center"):
             ui.icon("hub").classes("text-grey-6").style("font-size: 4rem; opacity: 0.4;")
             ui.label(
-                "Your memory map will appear here as Thoth learns about you."
+                f"Your memory map will appear here as {APP_DISPLAY_NAME} learns about you."
             ).classes("text-grey-6 text-center q-mt-md").style("max-width: 360px;")
         return
 
@@ -139,7 +140,7 @@ def build_graph_panel() -> None:
         # ── Hidden edit trigger (clicked from JS detail card) ────────
         async def _on_edit_click():
             eid = await ui.run_javascript(
-                "window._thothGraph ? window._thothGraph._editEntityId : null"
+                "window._rowBotGraph ? window._rowBotGraph._editEntityId : null"
             )
             if eid:
                 from ui.entity_editor import open_entity_editor
@@ -165,12 +166,12 @@ def build_graph_panel() -> None:
     # ── vis-network JS logic ─────────────────────────────────────────
     _graph_js = (
         '(function() {'
-        '  clearTimeout(window._thothGraphBootTimer || 0);'
-        '  if (window._thothGraph) {'
-        '    try { window._thothGraph.dispose && window._thothGraph.dispose(); } catch(e) {}'
-        '    window._thothGraph = null;'
+        '  clearTimeout(window._rowBotGraphBootTimer || 0);'
+        '  if (window._rowBotGraph) {'
+        '    try { window._rowBotGraph.dispose && window._rowBotGraph.dispose(); } catch(e) {}'
+        '    window._rowBotGraph = null;'
         '  }'
-        '  var G = window._thothGraph = {'
+        '  var G = window._rowBotGraph = {'
         '    allNodes: ' + nodes_json + ','
         '    allEdges: ' + edges_json + ','
         '    centerId: ' + center_id + ','
@@ -256,12 +257,12 @@ def build_graph_panel() -> None:
         '      data.edges.update({ id: p.edge, font: { color: "transparent", strokeColor: "transparent" } });'
         '    });'
         '    G.network.once("stabilizationIterationsDone", function() {'
-        '      if (window._thothGraph !== G || !G.network) return;'
+        '      if (window._rowBotGraph !== G || !G.network) return;'
         '      if (focusId) { G.network.focus(focusId, { scale: 1.0, animation: true }); }'
         '      else { G.network.fit({ animation: true }); }'
         '      if (G.physicsTimer) { clearTimeout(G.physicsTimer); }'
         '      G.physicsTimer = setTimeout(function() {'
-        '        if (window._thothGraph !== G || !G.network) return;'
+        '        if (window._rowBotGraph !== G || !G.network) return;'
         '        try { G.network.setOptions({ physics: false }); } catch(e) {}'
         '        G.physicsTimer = null;'
         '      }, 5000);'
@@ -308,7 +309,7 @@ def build_graph_panel() -> None:
         '        var agoDays = Math.floor((Date.now() - new Date(node._updated_at).getTime()) / 86400000);'
         '        agoText = agoDays === 0 ? "today" : agoDays === 1 ? "1 day ago" : agoDays + " days ago";'
         '      }'
-        '      var editButtonHtml = "<button type=\\"button\\" data-eid=\\"" + nid + "\\" onclick=\\"event.preventDefault(); event.stopPropagation(); var G=window._thothGraph; if (!G) return false; G._editEntityId=this.dataset.eid; var trigger=document.getElementById(\\x27graph-edit-trigger\\x27); if (trigger) trigger.click(); return false;\\" style=\\"margin-left:8px; border:1px solid #90CAF9; background:rgba(144,202,249,0.08); color:#90CAF9; border-radius:4px; padding:2px 8px; font-size:0.75rem; cursor:pointer; white-space:nowrap;\\">\\u270F\\uFE0F Edit</button>";'
+        '      var editButtonHtml = "<button type=\\"button\\" data-eid=\\"" + nid + "\\" onclick=\\"event.preventDefault(); event.stopPropagation(); var G=window._rowBotGraph; if (!G) return false; G._editEntityId=this.dataset.eid; var trigger=document.getElementById(\\x27graph-edit-trigger\\x27); if (trigger) trigger.click(); return false;\\" style=\\"margin-left:8px; border:1px solid #90CAF9; background:rgba(144,202,249,0.08); color:#90CAF9; border-radius:4px; padding:2px 8px; font-size:0.75rem; cursor:pointer; white-space:nowrap;\\">\\u270F\\uFE0F Edit</button>";'
         '      detail.innerHTML ='
         '        "<div style=\\"display:flex; align-items:center; gap:8px;\\">"'
         '        + "<span style=\\"background:" + (typeof node.color === "object" ? node.color.background : node.color) + "; width:10px; height:10px;"'
@@ -542,13 +543,13 @@ def build_graph_panel() -> None:
         # ── Boot ─────────────────────────────────────────────────────────
         '  function boot() {'
         '    if (!document.getElementById("graph-container")) {'
-        '      window._thothGraphBootTimer = setTimeout(boot, 100);'
+        '      window._rowBotGraphBootTimer = setTimeout(boot, 100);'
         '      return;'
         '    }'
         '    G.wireControls();'
         '    G.createNetwork(G.allNodes, G.allEdges, G.centerId);'
         '    G.applyFilters();'   # Apply default filters AFTER network exists
-        '    window.thothGraphRedraw = function() {'
+        '    window.rowBotGraphRedraw = window.thothGraphRedraw = function() {'
         '      if (!document.getElementById("graph-container")) return;'
         '      G.wireControls();'
         '      G.createNetwork(G.currentNodes, G.currentEdges, null);'

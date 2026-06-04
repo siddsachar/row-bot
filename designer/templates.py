@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
+from brand import APP_BRAND_ACCENT
+
 
 @dataclass
 class Template:
@@ -35,8 +37,8 @@ class Template:
 # ─── CSS base that all templates share ────────────────────────────────────
 def _base_style(
     width: int = 1920, height: int = 1080,
-    primary: str = "#2563EB", secondary: str = "#1E40AF",
-    accent: str = "#F59E0B", bg: str = "#0F172A", text: str = "#F8FAFC",
+    primary: str = APP_BRAND_ACCENT, secondary: str = "#2F4B68",
+    accent: str = "#5D82A8", bg: str = "#0F172A", text: str = "#F8FAFC",
     heading_font: str = "Inter", body_font: str = "Inter",
 ) -> str:
     from designer.fonts import get_all_fonts_css, get_fallback_stack
@@ -428,7 +430,7 @@ def _wireframe_kit() -> Template:
         f"<style>\n{font_css}\n"
         "  * { margin:0; padding:0; box-sizing:border-box; }\n"
         "  :root {\n"
-        "    --primary:#6B7280; --accent:#3B82F6;\n"
+        "    --primary:#6B7280; --accent:#4F78A4;\n"
         "    --bg:#FFFFFF; --text:#1F2937;\n"
         f"    --body-font:'Inter', {fallback};\n"
         "  }\n"
@@ -449,7 +451,7 @@ def _wireframe_kit() -> Template:
         '<div style="display:flex;justify-content:space-between;align-items:center;">'
         '  <div style="height:32px;width:240px;background:#E5E7EB;border-radius:6px;"></div>'
         '  <div style="display:flex;gap:12px;align-items:center;">'
-        '    <a class="btn" href="#" data-thoth-action="navigate:detail">Open detail</a>'
+        '    <a class="btn" href="#" data-row-bot-action="navigate:detail">Open detail</a>'
         '    <div style="height:36px;width:36px;background:#E5E7EB;border-radius:50%;"></div>'
         '  </div>'
         '</div>'
@@ -467,10 +469,10 @@ def _wireframe_kit() -> Template:
     )
     detail_body = (
         '<div style="display:flex;align-items:center;gap:12px;">'
-        '  <a href="#" data-thoth-action="navigate:dashboard" data-thoth-transition="slide_right" style="text-decoration:none;color:#6B7280;font-size:0.95rem;">\u2039 Back</a>'
+        '  <a href="#" data-row-bot-action="navigate:dashboard" data-row-bot-transition="slide_right" style="text-decoration:none;color:#6B7280;font-size:0.95rem;">\u2039 Back</a>'
         '  <div style="height:28px;width:280px;background:#E5E7EB;border-radius:6px;"></div>'
         '  <div style="flex:1;"></div>'
-        '  <a class="btn" href="#" data-thoth-action="navigate:dashboard">Save</a>'
+        '  <a class="btn" href="#" data-row-bot-action="navigate:dashboard">Save</a>'
         '</div>'
         '<div style="display:grid;grid-template-columns:2fr 1fr;gap:24px;flex:1;">'
         '  <div style="display:flex;flex-direction:column;gap:16px;">'
@@ -497,12 +499,12 @@ def _wireframe_kit() -> Template:
         dash_cls = ' class="active"' if active == "dashboard" else ''
         det_cls = ' class="active"' if active == "detail" else ''
         return f"""<!DOCTYPE html><html><head>{s}</head><body>
-<div class="shell" data-thoth-route-host="1" data-thoth-route="{route_id}">
+<div class="shell" data-row-bot-route-host="1" data-row-bot-route="{route_id}">
   <aside class="side">
     <div class="logo"></div>
     <div class="sep"></div>
-    <a href="#" data-thoth-action="navigate:dashboard"{dash_cls}>Dashboard</a>
-    <a href="#" data-thoth-action="navigate:detail"{det_cls}>Detail</a>
+    <a href="#" data-row-bot-action="navigate:dashboard"{dash_cls}>Dashboard</a>
+    <a href="#" data-row-bot-action="navigate:detail"{det_cls}>Detail</a>
     <a href="#">Settings</a>
     <div style="flex:1;"></div>
     <a href="#">Sign out</a>
@@ -681,16 +683,16 @@ def _blank_app_mockup() -> Template:
 </div></body></html>"""
     home_body = (
         '<p style="opacity:0.7;margin-bottom:16px;">Welcome screen. Use the button to navigate to the detail view.</p>'
-        '<a class="btn" href="#" data-thoth-action="navigate:detail" data-thoth-transition="slide_left">Open detail</a>'
-        '<a class="btn" href="#" data-thoth-action="navigate:settings" style="background:transparent;border:1px solid rgba(255,255,255,0.2);margin-top:12px;">Settings</a>'
+        '<a class="btn" href="#" data-row-bot-action="navigate:detail" data-row-bot-transition="slide_left">Open detail</a>'
+        '<a class="btn" href="#" data-row-bot-action="navigate:settings" style="background:transparent;border:1px solid rgba(255,255,255,0.2);margin-top:12px;">Settings</a>'
     )
     detail_body = (
         '<p style="opacity:0.7;margin-bottom:16px;">Detail view. Replace this with the actual record content.</p>'
-        '<a class="btn" href="#" data-thoth-action="navigate:home" data-thoth-transition="slide_right" style="background:transparent;border:1px solid rgba(255,255,255,0.2);">Back</a>'
+        '<a class="btn" href="#" data-row-bot-action="navigate:home" data-row-bot-transition="slide_right" style="background:transparent;border:1px solid rgba(255,255,255,0.2);">Back</a>'
     )
     settings_body = (
         '<p style="opacity:0.7;margin-bottom:16px;">Settings list — add toggles, rows, and links here.</p>'
-        '<a class="btn" href="#" data-thoth-action="navigate:home" data-thoth-transition="slide_right" style="background:transparent;border:1px solid rgba(255,255,255,0.2);">Back</a>'
+        '<a class="btn" href="#" data-row-bot-action="navigate:home" data-row-bot-transition="slide_right" style="background:transparent;border:1px solid rgba(255,255,255,0.2);">Back</a>'
     )
     return Template(
         id="blank_app_mockup",
@@ -715,7 +717,7 @@ def _blank_storyboard() -> Template:
 <div style="display:grid;grid-template-columns:1.15fr 1fr;height:100%;">
   <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;padding:60px;gap:20px;border-right:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.02);">
     <div style="font-size:0.85rem;letter-spacing:0.25em;text-transform:uppercase;opacity:0.5;">Shot {num} — {beat}</div>
-    <div data-thoth-shot-visual="1" style="width:100%;max-width:640px;aspect-ratio:16/9;border:2px dashed rgba(255,255,255,0.28);border-radius:14px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.03);">
+    <div data-row-bot-shot-visual="1" style="width:100%;max-width:640px;aspect-ratio:16/9;border:2px dashed rgba(255,255,255,0.28);border-radius:14px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.03);">
       <div style="text-align:center;opacity:0.55;padding:16px;">
         <div style="font-size:2.2rem;line-height:1;margin-bottom:8px;">🎬</div>
         <div style="font-size:0.85rem;letter-spacing:0.14em;text-transform:uppercase;opacity:0.8;">Shot visual</div>
@@ -875,37 +877,37 @@ def _app_mockup_starter() -> Template:
         home_cls = " active" if active == "home" else ""
         set_cls = " active" if active == "settings" else ""
         back_btn = ("" if active == "home" else
-                    '<a href="#" data-thoth-action="navigate:home" data-thoth-transition="slide_right" style="opacity:0.7;text-decoration:none;color:var(--text);">‹ Back</a>')
+                    '<a href="#" data-row-bot-action="navigate:home" data-row-bot-transition="slide_right" style="opacity:0.7;text-decoration:none;color:var(--text);">‹ Back</a>')
         return f"""<!DOCTYPE html><html><head>{s}</head><body>
 <div class="screen">
   <div class="topbar">{back_btn or '<span></span>'}<h2 style="font-size:1.1rem;">{title}</h2><span style="opacity:0.5;">⋯</span></div>
   <div class="screen-body">{body}</div>
   <div class="tabbar">
-    <a href="#" class="tab{home_cls}" data-thoth-action="navigate:home">🏠<br>Home</a>
-    <a href="#" class="tab{set_cls}" data-thoth-action="navigate:settings">⚙<br>Settings</a>
+    <a href="#" class="tab{home_cls}" data-row-bot-action="navigate:home">🏠<br>Home</a>
+    <a href="#" class="tab{set_cls}" data-row-bot-action="navigate:settings">⚙<br>Settings</a>
   </div>
 </div></body></html>"""
     home_body = (
         '<p style="color:var(--muted);margin-bottom:16px;">Recent items</p>'
-        '<a class="row" href="#" data-thoth-action="navigate:detail" data-thoth-transition="slide_left"><div class="icon">📄</div><div><div class="title">First item</div><div class="sub">Tap to view details</div></div></a>'
-        '<a class="row" href="#" data-thoth-action="navigate:detail" data-thoth-transition="slide_left"><div class="icon">📄</div><div><div class="title">Second item</div><div class="sub">Tap to view details</div></div></a>'
-        '<a class="row" href="#" data-thoth-action="navigate:detail" data-thoth-transition="slide_left"><div class="icon">📄</div><div><div class="title">Third item</div><div class="sub">Tap to view details</div></div></a>'
+        '<a class="row" href="#" data-row-bot-action="navigate:detail" data-row-bot-transition="slide_left"><div class="icon">📄</div><div><div class="title">First item</div><div class="sub">Tap to view details</div></div></a>'
+        '<a class="row" href="#" data-row-bot-action="navigate:detail" data-row-bot-transition="slide_left"><div class="icon">📄</div><div><div class="title">Second item</div><div class="sub">Tap to view details</div></div></a>'
+        '<a class="row" href="#" data-row-bot-action="navigate:detail" data-row-bot-transition="slide_left"><div class="icon">📄</div><div><div class="title">Third item</div><div class="sub">Tap to view details</div></div></a>'
     )
     detail_body = (
         '<h1 style="font-size:1.6rem;font-weight:700;margin-bottom:8px;">Item title</h1>'
         '<p style="color:var(--muted);font-size:0.9rem;margin-bottom:20px;">Subheading or metadata line</p>'
         '<p style="line-height:1.6;margin-bottom:24px;">Detail body copy. Replace this with the actual record contents, media, or description.</p>'
-        '<a class="btn" href="#" data-thoth-action="navigate:home" data-thoth-transition="slide_right">Primary action</a>'
+        '<a class="btn" href="#" data-row-bot-action="navigate:home" data-row-bot-transition="slide_right">Primary action</a>'
         '<div style="height:10px;"></div>'
-        '<a class="btn btn-ghost" href="#" data-thoth-action="navigate:home" data-thoth-transition="slide_right">Back to list</a>'
+        '<a class="btn btn-ghost" href="#" data-row-bot-action="navigate:home" data-row-bot-transition="slide_right">Back to list</a>'
     )
     settings_body = (
         '<p style="color:var(--muted);margin-bottom:16px;">Preferences</p>'
-        '<div class="toggle-row"><span>Notifications</span><button class="toggle" aria-pressed="true" data-thoth-action="toggle_state:notifications"></button></div>'
-        '<div class="toggle-row"><span>Dark mode</span><button class="toggle" aria-pressed="true" data-thoth-action="toggle_state:dark"></button></div>'
-        '<div class="toggle-row"><span>Sync over cellular</span><button class="toggle" aria-pressed="false" data-thoth-action="toggle_state:cellular"></button></div>'
+        '<div class="toggle-row"><span>Notifications</span><button class="toggle" aria-pressed="true" data-row-bot-action="toggle_state:notifications"></button></div>'
+        '<div class="toggle-row"><span>Dark mode</span><button class="toggle" aria-pressed="true" data-row-bot-action="toggle_state:dark"></button></div>'
+        '<div class="toggle-row"><span>Sync over cellular</span><button class="toggle" aria-pressed="false" data-row-bot-action="toggle_state:cellular"></button></div>'
         '<div style="height:16px;"></div>'
-        '<a class="btn btn-ghost" href="#" data-thoth-action="navigate:home" data-thoth-transition="slide_right">Done</a>'
+        '<a class="btn btn-ghost" href="#" data-row-bot-action="navigate:home" data-row-bot-transition="slide_right">Done</a>'
     )
     return Template(
         id="app_mockup_starter",
@@ -931,7 +933,7 @@ def _storyboard_4shot() -> Template:
 <div style="display:grid;grid-template-columns:1.2fr 1fr;height:100%;">
   <div style="background:linear-gradient(135deg,rgba(37,99,235,0.15),rgba(15,23,42,0.9));display:flex;flex-direction:column;justify-content:center;align-items:center;padding:64px;gap:20px;border-right:1px solid rgba(255,255,255,0.08);">
     <div style="font-size:0.85rem;letter-spacing:0.25em;text-transform:uppercase;opacity:0.5;">Shot {num:02d} — {beat}</div>
-    <div data-thoth-shot-visual="1" style="width:100%;max-width:520px;aspect-ratio:16/9;border:2px dashed rgba(255,255,255,0.28);border-radius:14px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.03);">
+    <div data-row-bot-shot-visual="1" style="width:100%;max-width:520px;aspect-ratio:16/9;border:2px dashed rgba(255,255,255,0.28);border-radius:14px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.03);">
       <div style="text-align:center;opacity:0.55;padding:16px;">
         <div style="font-size:2.2rem;line-height:1;margin-bottom:8px;">🎬</div>
         <div style="font-size:0.85rem;letter-spacing:0.14em;text-transform:uppercase;opacity:0.8;">Shot visual</div>
@@ -1079,13 +1081,13 @@ def _dashboard_desktop() -> Template:
         dash_cls = ' class="active"' if active == "dashboard" else ""
         set_cls = ' class="active"' if active == "settings" else ""
         return f"""<!DOCTYPE html><html><head>{s}</head><body>
-<div class="shell" data-thoth-route-host="1" data-thoth-route="{route_id}">
+<div class="shell" data-row-bot-route-host="1" data-row-bot-route="{route_id}">
   <aside>
     <div class="brand">◆ Workspace</div>
-    <a href="#" data-thoth-action="navigate:dashboard"{dash_cls}>📊 Dashboard</a>
+    <a href="#" data-row-bot-action="navigate:dashboard"{dash_cls}>📊 Dashboard</a>
     <a href="#">👥 Customers</a>
     <a href="#">💳 Billing</a>
-    <a href="#" data-thoth-action="navigate:settings"{set_cls}>⚙ Settings</a>
+    <a href="#" data-row-bot-action="navigate:settings"{set_cls}>⚙ Settings</a>
     <div style="flex:1;"></div>
     <a href="#">❓ Help</a>
   </aside>

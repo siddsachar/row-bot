@@ -8,12 +8,9 @@ Keeps channel settings separate from API keys and tool configs.
 from __future__ import annotations
 
 import json
-import os
-import pathlib
+from data_paths import get_row_bot_data_dir
 
-_DATA_DIR = pathlib.Path(
-    os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")
-)
+_DATA_DIR = get_row_bot_data_dir()
 _DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 _CONFIG_PATH = _DATA_DIR / "channels_config.json"
