@@ -142,7 +142,7 @@ def test_linux_build_script_declares_expected_package_contract():
     assert 'numpy<2.3; python_version < "3.14"' in requirements
     assert "scripts/check_linux_native_baseline.py" in script
     assert "Checking native CPU baselines" in script
-    for package in ("tools", "channels", "bundled_skills", "providers", "mcp_client", "migration"):
+    for package in ("tools", "channels", "bundled_skills", "providers", "mcp_client", "migration", "voice"):
         assert package in script
 
 
@@ -337,8 +337,8 @@ def test_packagers_exclude_tests_directory():
     assert " tests" not in mac_builder
     assert "test_*.py|test_suite.py|test_memory_e2e.py|integration_tests.py" in linux_builder
     assert "test_*.py|test_suite.py|test_memory_e2e.py|integration_tests.py" in mac_builder
-    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client skills_hub migration buddy" in linux_builder
-    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client skills_hub migration buddy" in mac_builder
+    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client skills_hub migration buddy voice" in linux_builder
+    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client skills_hub migration buddy voice" in mac_builder
     assert "for dir in static sounds;" in linux_builder
     assert "for dir in static sounds;" in mac_builder
     assert "--exclude='node_modules'" in linux_builder

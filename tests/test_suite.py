@@ -14022,7 +14022,7 @@ try:
     assert 'Source: "..\\ui\\model_catalog.py"' in _iss68, "ui/model_catalog.py must be included in Windows installer"
     assert 'Source: "..\\ui\\provider_settings.py"' in _iss68, "ui/provider_settings.py must be included in Windows installer"
     assert 'Source: "..\\skills_hub\\*"' in _iss68 and "recursesubdirs" in _iss68, "skills_hub package must be recursively included in Windows installer"
-    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client skills_hub migration buddy" in _mac68, "mac app bundle must copy providers, developer packages, and skills_hub"
+    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client skills_hub migration buddy voice" in _mac68, "mac app bundle must copy providers, developer packages, skills_hub, and voice"
     record("PASS", "68m2: Windows and mac packaging include provider runtime, Developer, Skills Hub, and UI files")
 
     # â”€â”€ 68m2b. Embedding runtime packaging guard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -14038,7 +14038,7 @@ try:
     assert '"httpx"' in _verify68m2b and '"youtube_transcript_api"' in _verify68m2b
     assert "verify_runtime_dependencies.py\"" in _mac68
     assert "verify_runtime_dependencies.py\"" in _linux68m2b
-    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client skills_hub migration buddy" in _linux68m2b
+    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client skills_hub migration buddy voice" in _linux68m2b
     assert "verify_runtime_dependencies.py\" embeddings" not in _mac68
     assert "verify_runtime_dependencies.py\" embeddings" not in _linux68m2b
     assert "Assembled app runtime dependencies verified" in _mac68
