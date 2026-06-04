@@ -249,16 +249,62 @@ def clone_repository(repo_url: str, destination_parent: str) -> DeveloperWorkspa
     return add_or_update_local_workspace(str(target), repo_url=repo_url)
 
 
+def list_workspace_threads(workspace_id: str) -> list[tuple]:
+    """Return Developer code threads linked to a workspace, newest first."""
+    from threads import list_developer_workspace_threads
+
+    return list_developer_workspace_threads(workspace_id)
+
+
+def latest_workspace_thread(workspace_id: str) -> str | None:
+    """Return the most recently updated thread id for a Developer workspace."""
+    rows = list_workspace_threads(workspace_id)
+    return str(rows[0][0]) if rows else None
+
+
+def create_workspace_thread(
+    workspace_id: str,
+    *,
+    name: str | None = None,
+    name_source: str = "auto",
+) -> str:
+    """Create a new empty Developer thread linked to an existing workspace."""
+    workspace = get_workspace(workspace_id)
+    if workspace is None:
+        raise ValueError(f"Developer workspace not found: {workspace_id}")
+    from threads import create_thread
+
+    thread_name = str(name or "").strip()
+    if not thread_name:
+        thread_name = f"Thread {datetime.now().strftime('%b %d, %H:%M')}"
+    thread_id = create_thread(
+        thread_name,
+        thread_type="code",
+        developer_workspace_id=workspace.id,
+        approval_mode=workspace.approval_mode,
+        name_source=name_source,
+    )
+    workspace.touch()
+    save_workspace(workspace)
+    return thread_id
+
+
+def ensure_latest_workspace_thread(workspace_id: str) -> str:
+    """Return the latest workspace thread, falling back to the legacy default."""
+    latest = latest_workspace_thread(workspace_id)
+    if latest:
+        return latest
+    return ensure_workspace_thread(workspace_id)
+
+
 def ensure_workspace_thread(workspace_id: str) -> str:
     workspace = get_workspace(workspace_id)
     if workspace is None:
         raise ValueError(f"Developer workspace not found: {workspace_id}")
     from threads import (
+        create_thread,
         _get_thread_approval_mode_raw,
-        _save_thread_meta,
         _set_thread_approval_mode,
-        _set_thread_developer_workspace,
-        _set_thread_type,
         _thread_exists,
     )
 
@@ -268,10 +314,13 @@ def ensure_workspace_thread(workspace_id: str) -> str:
         return workspace.default_thread_id
     thread_id = uuid.uuid4().hex[:12]
     name = f"Developer: {workspace.name}"
-    _save_thread_meta(thread_id, name)
-    _set_thread_approval_mode(thread_id, workspace.approval_mode)
-    _set_thread_type(thread_id, "code")
-    _set_thread_developer_workspace(thread_id, workspace.id)
+    create_thread(
+        name,
+        thread_id=thread_id,
+        thread_type="code",
+        developer_workspace_id=workspace.id,
+        approval_mode=workspace.approval_mode,
+    )
     workspace.default_thread_id = thread_id
     workspace.touch()
     save_workspace(workspace)

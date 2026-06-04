@@ -29,4 +29,4 @@ def test_thread_approval_mode_persists_and_normalizes_legacy_values(tmp_path, mo
     assert threads._get_thread_approval_mode("t1") == "allow_all"
     detailed = threads._list_threads(include_details=True)
     row = next(item for item in detailed if item[0] == "t1")
-    assert row[-1] == "allow_all"
+    assert row[8] == "allow_all"

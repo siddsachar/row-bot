@@ -1649,7 +1649,7 @@ async def send_message(
 ) -> None:
     """Send a message and stream the agent response."""
     from agent import stream_agent, repair_orphaned_tool_calls, recursion_limit_for_mode
-    from threads import _save_thread_meta
+    from threads import create_thread, rename_thread, should_auto_rename_thread, touch_thread
     from tools import registry as tool_registry
     from ui.helpers import (
         materialize_chat_attachments,
@@ -1695,17 +1695,15 @@ async def send_message(
     # Ensure a thread exists
     if state.thread_id is None:
         from approval_policy import DEFAULT_APPROVAL_MODE, normalize_approval_mode
-        from threads import _set_thread_approval_mode
         tid = uuid.uuid4().hex[:12]
         name = text[:50]
-        _save_thread_meta(tid, name)
-        state.thread_id = tid
-        state.thread_name = name
         state.thread_approval_mode = normalize_approval_mode(
             getattr(state, "thread_approval_mode", "") or DEFAULT_APPROVAL_MODE,
             DEFAULT_APPROVAL_MODE,
         )
-        _set_thread_approval_mode(tid, state.thread_approval_mode)
+        create_thread(name, thread_id=tid, approval_mode=state.thread_approval_mode)
+        state.thread_id = tid
+        state.thread_name = name
         state.messages = []
         state.show_onboarding = False
         # ``immediate=True`` so ``p.chat_container`` is ready for the
@@ -1739,7 +1737,7 @@ async def send_message(
             state.cache_active_messages()
             cb.add_chat_message(user_msg)
             cb.add_chat_message(assistant_msg)
-            _save_thread_meta(state.thread_id, state.thread_name)
+            touch_thread(state.thread_id)
             try:
                 cb.rebuild_main()
             except TypeError:
@@ -1790,7 +1788,7 @@ async def send_message(
         persist_thread_media_state(state.thread_id, state.messages)
         state.cache_active_messages()
         cb.add_chat_message(assistant_msg)
-        _save_thread_meta(state.thread_id, state.thread_name)
+        touch_thread(state.thread_id)
         return
 
     if getattr(state, "active_developer_workspace_id", None) and not _files_snapshot:
@@ -1811,17 +1809,17 @@ async def send_message(
             persist_thread_media_state(state.thread_id, state.messages)
             state.cache_active_messages()
             cb.add_chat_message(assistant_msg)
-            if state.thread_name and (
-                state.thread_name.startswith("Thread ")
-                or state.thread_name.startswith("\U0001f4bb Thread ")
-            ):
-                state.thread_name = f"\U0001f4bb {display_content[:50]}"
-                _save_thread_meta(state.thread_id, state.thread_name)
+            if should_auto_rename_thread(state.thread_id, state.thread_name):
+                state.thread_name = rename_thread(
+                    state.thread_id,
+                    f"\U0001f4bb {display_content[:50]}",
+                    source="auto",
+                )
                 cb.rebuild_thread_list()
                 if p.chat_header_label:
-                    p.chat_header_label.set_text(f"\U0001f4ac {state.thread_name}")
+                    p.chat_header_label.set_text(str(state.thread_name))
             else:
-                _save_thread_meta(state.thread_id, state.thread_name)
+                touch_thread(state.thread_id)
             return
 
     # Process attached files (slow - vision analysis etc.)
@@ -1884,17 +1882,17 @@ async def send_message(
                 file_names, len(file_context), len(agent_input))
 
     # Auto-name thread
-    if state.thread_name and (
-        state.thread_name.startswith("Thread ")
-        or state.thread_name.startswith("\U0001f4bb Thread ")
-    ):
-        state.thread_name = f"\U0001f4bb {display_content[:50]}"
-        _save_thread_meta(state.thread_id, state.thread_name)
+    if should_auto_rename_thread(state.thread_id, state.thread_name):
+        state.thread_name = rename_thread(
+            state.thread_id,
+            f"\U0001f4bb {display_content[:50]}",
+            source="auto",
+        )
         cb.rebuild_thread_list()
         if p.chat_header_label:
-            p.chat_header_label.set_text(f"\U0001f4ac {state.thread_name}")
+            p.chat_header_label.set_text(str(state.thread_name))
     else:
-        _save_thread_meta(state.thread_id, state.thread_name)
+        touch_thread(state.thread_id)
 
     # ── Build config ─────────────────────────────────────────────────
     # Sync attachment cache to chart tool so it can read attached data files

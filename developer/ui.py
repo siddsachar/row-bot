@@ -13,9 +13,11 @@ from approval_policy import approval_label
 from developer.storage import (
     add_or_update_local_workspace,
     clone_repository,
+    create_workspace_thread,
     detect_git_summary,
-    ensure_workspace_thread,
+    ensure_latest_workspace_thread,
     get_workspace,
+    list_workspace_threads,
     list_clone_parent_folders,
     list_workspaces,
     remove_workspace,
@@ -53,8 +55,9 @@ from developer.inspector_snapshot import (
 from developer.sandbox import decide_action
 from developer.state import DeveloperWorkspace
 from ui.chat_components import build_chat_input_bar, build_chat_messages, build_file_upload
-from ui.helpers import browse_folder
+from ui.helpers import browse_folder, load_thread_messages
 from ui.state import AppState, P
+from ui.thread_actions import show_rename_thread_dialog
 from ui.timer_utils import safe_timer, safe_ui_task
 
 
@@ -109,14 +112,15 @@ def build_developer_tab(
 
     async def _open_workspace(workspace: DeveloperWorkspace) -> None:
         from memory_extraction import set_active_thread
-        from threads import _get_thread_approval_mode, _get_thread_model_override
+        from threads import _get_thread_approval_mode, _get_thread_model_override, get_thread_name
 
         prev = state.thread_id
-        thread_id = await run.io_bound(ensure_workspace_thread, workspace.id)
+        thread_id = await run.io_bound(ensure_latest_workspace_thread, workspace.id)
+        thread_name = await run.io_bound(get_thread_name, thread_id)
         state.active_designer_project = None
         state.active_developer_workspace_id = workspace.id
         state.thread_id = thread_id
-        state.thread_name = f"Developer: {workspace.name}"
+        state.thread_name = thread_name or f"Developer: {workspace.name}"
         state.thread_model_override = await run.io_bound(_get_thread_model_override, thread_id)
         state.thread_approval_mode = await run.io_bound(_get_thread_approval_mode, thread_id)
         state.messages = await run.io_bound(load_thread_messages, thread_id)
@@ -1219,6 +1223,8 @@ def build_developer_workspace(
     browse_file: Callable | None,
     open_settings: Callable | None,
     on_back: Callable,
+    rebuild_main: Callable[..., None] | None = None,
+    rebuild_thread_list: Callable[[], None] | None = None,
     show_interrupt: Callable | None = None,
 ) -> None:
     """Render the active Developer workspace shell."""
@@ -1298,15 +1304,89 @@ def build_developer_workspace(
         if refresh is not None:
             refresh()
 
+    async def _switch_developer_thread(thread_id: str | None) -> None:
+        from memory_extraction import set_active_thread
+        from threads import _get_thread_approval_mode, _get_thread_model_override, get_thread_name
+        from ui.voice_lifecycle import stop_voice_for_thread_change
+
+        next_thread_id = str(thread_id or "").strip()
+        if not next_thread_id or next_thread_id == state.thread_id:
+            return
+        stop_voice_for_thread_change(state, p, reason="developer_thread_switch")
+        prev = state.thread_id
+        state.active_designer_project = None
+        state.active_developer_workspace_id = workspace.id
+        state.thread_id = next_thread_id
+        state.thread_name = await run.io_bound(get_thread_name, next_thread_id) or "Untitled"
+        state.thread_model_override = await run.io_bound(_get_thread_model_override, next_thread_id)
+        state.thread_approval_mode = await run.io_bound(_get_thread_approval_mode, next_thread_id)
+        state.messages = await run.io_bound(load_thread_messages, next_thread_id)
+        state.message_cache[next_thread_id] = list(state.messages)
+        state.message_cache_dirty.discard(next_thread_id)
+        p.pending_files.clear()
+        set_active_thread(next_thread_id, previous_id=prev)
+        request_snapshot_refresh(workspace.id, next_thread_id, reason="thread_switch", debounce=0.05)
+        if rebuild_thread_list is not None:
+            rebuild_thread_list()
+        if rebuild_main is not None:
+            rebuild_main(immediate=True, reason="developer_thread_switch")
+
+    async def _create_new_developer_thread() -> None:
+        try:
+            thread_id = await run.io_bound(create_workspace_thread, workspace.id)
+        except Exception as exc:
+            ui.notify(str(exc), type="negative", close_button=True)
+            return
+        await _switch_developer_thread(thread_id)
+        ui.notify("New Developer thread", type="positive")
+
+    def _show_current_thread_rename() -> None:
+        if not state.thread_id:
+            return
+        show_rename_thread_dialog(
+            thread_id=state.thread_id,
+            current_name=str(state.thread_name or ""),
+            state=state,
+            rebuild_thread_list=rebuild_thread_list or (lambda: None),
+            rebuild_main=rebuild_main,
+        )
+
     with ui.row().classes("w-full h-full no-wrap gap-2").style("overflow: hidden;"):
         with ui.column().classes("h-full gap-2").style("min-width: 0; flex: 1; overflow: hidden;"):
-            with ui.row().classes("w-full items-center justify-between no-wrap"):
-                with ui.column().classes("gap-0").style("min-width: 0;"):
+            with ui.row().classes("w-full items-start gap-2").style("flex-wrap: wrap;"):
+                with ui.column().classes("gap-0").style("min-width: 220px; flex: 1 1 280px;"):
                     with ui.row().classes("items-center gap-2 no-wrap"):
                         ui.button(icon="arrow_back", on_click=on_back).props("flat dense round").tooltip("Back to Developer")
                         ui.label(workspace.name).classes("text-h5 ellipsis")
+                    with ui.row().classes("items-center gap-1 no-wrap").style("min-width: 0;"):
+                        ui.label(str(state.thread_name or "Untitled")).classes("text-xs text-grey-5 ellipsis").style("min-width: 0;")
+                        ui.button(icon="edit", on_click=_show_current_thread_rename).props("flat dense round size=xs").tooltip("Rename")
                     ui.label(workspace.path).classes("text-xs text-grey-6 ellipsis")
-                with ui.row().classes("items-center gap-2 no-wrap"):
+                with ui.row().classes("items-center justify-end gap-2").style(
+                    "flex: 1 1 520px; min-width: min(100%, 300px); flex-wrap: wrap;"
+                ):
+                    thread_rows = list_workspace_threads(workspace.id)
+                    thread_options = {row[0]: row[1] or "Untitled" for row in thread_rows}
+                    if state.thread_id and state.thread_id not in thread_options:
+                        thread_options[state.thread_id] = str(state.thread_name or "Untitled")
+                    ui.select(
+                        thread_options,
+                        value=state.thread_id,
+                        label="Thread",
+                        on_change=lambda e: safe_ui_task(
+                            lambda: _switch_developer_thread(e.value),
+                            context="developer thread switch",
+                        ),
+                    ).props("dense outlined").classes("text-xs").style(
+                        "flex: 1 1 220px; min-width: min(100%, 180px); max-width: 330px;"
+                    )
+                    ui.button(
+                        icon="add",
+                        on_click=lambda: safe_ui_task(
+                            _create_new_developer_thread,
+                            context="developer new thread",
+                        ),
+                    ).props("flat dense round").tooltip("New thread")
                     _build_developer_skill_selector(state.thread_id)
                     ui.select(
                         {
@@ -1318,7 +1398,9 @@ def build_developer_workspace(
                             lambda: _set_execution_mode(e.value),
                             context="developer execution mode change",
                         ),
-                    ).props("dense outlined").classes("text-xs").style("min-width: 150px;")
+                    ).props("dense outlined").classes("text-xs").style(
+                        "flex: 0 1 180px; min-width: min(100%, 150px);"
+                    )
                     ui.badge("Developer Preview", color="grey-8").props("outline")
 
             workspace_header["badges"] = ui.row().classes("w-full flex-wrap gap-2")

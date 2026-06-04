@@ -273,6 +273,7 @@ Source: "..\ui\status_bar.py";         DestDir: "{app}\app\ui"; Flags: ignorever
 Source: "..\ui\status_checks.py";      DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\streaming.py";          DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\task_dialog.py";        DestDir: "{app}\app\ui"; Flags: ignoreversion
+Source: "..\ui\thread_actions.py";     DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\command_center.py";     DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\entity_editor.py";      DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\terminal_widget.py";    DestDir: "{app}\app\ui"; Flags: ignoreversion

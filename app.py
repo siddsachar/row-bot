@@ -191,7 +191,7 @@ from ui.transcript import (
 )
 
 # ── Backend imports ──────────────────────────────────────────────────────────
-from threads import _save_thread_meta
+from threads import rename_thread, should_auto_rename_thread
 from models import (
     get_current_model, is_cloud_model, is_cloud_available,
     is_model_local, refresh_cloud_models,
@@ -1014,6 +1014,8 @@ async def index():
                         open_settings=_open_settings,
                         show_interrupt=cb.show_interrupt,
                         on_back=_exit_developer,
+                        rebuild_main=lambda **kw: _rebuild_main(**kw),
+                        rebuild_thread_list=rebuild_thread_list,
                     )
                 elif state.thread_id is None:
                     build_home(
@@ -1419,9 +1421,8 @@ async def index():
         elif text:
             if state.tts_service and state.tts_service.enabled:
                 state.tts_service.stop()
-            if state.thread_name and state.thread_name.startswith("Thread "):
-                state.thread_name = text[:50]
-                _save_thread_meta(state.thread_id, state.thread_name)
+            if state.thread_id and should_auto_rename_thread(state.thread_id, state.thread_name):
+                state.thread_name = rename_thread(state.thread_id, text[:50], source="auto")
                 rebuild_thread_list()
             asyncio.create_task(_voice_bridge.submit_user_transcript(text))
 
