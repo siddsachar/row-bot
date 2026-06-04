@@ -34,7 +34,7 @@ INSTALLING (row_bot_install_update):
 - On approval: downloads the asset to ~/.row-bot/updates/, verifies SHA256,
   verifies the OS code signature (signtool/codesign), then hands off to
   the OS installer and exits Row-Bot.
-- Windows: launches `RowBotSetup_x.y.z.exe /SILENT /CLOSEAPPLICATIONS
+- Windows: launches `Row-Bot-x.y.z-Windows-x64.exe /SILENT /CLOSEAPPLICATIONS
   /RESTARTAPPLICATIONS`. The new version starts automatically after install.
 - macOS: opens the DMG in Finder; the user drags Row-Bot.app into
   /Applications.

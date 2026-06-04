@@ -114,8 +114,8 @@ jobs:
       - name: Upload Windows installer
         uses: actions/upload-artifact@v7
         with:
-          name: RowBotSetup-Windows
-          path: dist/RowBotSetup_*.exe
+          name: Row-Bot-Windows
+          path: dist/Row-Bot-*-Windows-*.exe
           retention-days: 90
 
   # ---------------------------------------------------------------------------

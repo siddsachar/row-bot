@@ -19291,12 +19291,12 @@ try:
     body = (
         "# Notes\n\n<!-- row-bot-update-manifest -->\n"
         "```manifest\nschema: 1\nfiles:\n"
-        "  RowBotSetup_3.18.0.exe: sha256=" + "a" * 64 + "\n"
+        "  Row-Bot-3.18.0-Windows-x64.exe: sha256=" + "a" * 64 + "\n"
         "  Row-Bot-3.18.0-macOS-arm64.dmg: sha256=" + "b" * 64 + "\n"
         "```\n"
     )
     parsed = _u73c.parse_manifest(body)
-    assert parsed["RowBotSetup_3.18.0.exe"] == "a" * 64
+    assert parsed["Row-Bot-3.18.0-Windows-x64.exe"] == "a" * 64
     assert parsed["Row-Bot-3.18.0-macOS-arm64.dmg"] == "b" * 64
     assert _u73c.parse_manifest("") == {}
     assert _u73c.parse_manifest("plain release notes, no manifest") == {}
@@ -19313,7 +19313,7 @@ try:
     body = (
         "Notes\n\n<!-- row-bot-update-manifest -->\n"
         "```manifest\nschema: 1\nfiles:\n"
-        "  RowBotSetup_3.18.0.exe: sha256=" + "1" * 64 + "\n"
+        "  Row-Bot-3.18.0-Windows-x64.exe: sha256=" + "1" * 64 + "\n"
         "  Row-Bot-3.18.0-macOS-arm64.dmg: sha256=" + "2" * 64 + "\n"
         "```\n"
     )
@@ -19323,8 +19323,8 @@ try:
         "html_url": "https://github.com/x/y/releases/tag/v3.18.0",
         "body": body,
         "assets": [
-            {"name": "RowBotSetup_3.18.0.exe", "size": 1,
-             "browser_download_url": "https://github.com/x/y/d/RowBotSetup_3.18.0.exe"},
+            {"name": "Row-Bot-3.18.0-Windows-x64.exe", "size": 1,
+             "browser_download_url": "https://github.com/x/y/d/Row-Bot-3.18.0-Windows-x64.exe"},
             {"name": "Row-Bot-3.18.0-macOS-arm64.dmg", "size": 1,
              "browser_download_url": "https://github.com/x/y/d/Row-Bot-3.18.0-macOS-arm64.dmg"},
         ],

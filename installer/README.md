@@ -132,7 +132,7 @@ The installer bundles the embedded Python runtime, pre-installed Python packages
 This will:
 1. Download Python 3.13 embeddable package (~15 MB)
 2. Download `get-pip.py` (~2.5 MB)
-3. Compile everything into `dist\RowBotSetup_4.0.0.exe`
+3. Compile everything into `dist\Row-Bot-4.0.0-Windows-x64.exe`
 
 ### Options
 
@@ -276,7 +276,7 @@ On repair/upgrade, Inno Setup deletes `{app}\python` before extraction. User dat
 
 ## End-User Experience
 
-1. Run `RowBotSetup_4.0.0.exe`
+1. Run `Row-Bot-4.0.0-Windows-x64.exe`
 2. Follow the wizard â€” the app payload is already bundled; optional model/runtime assets download only when a feature needs them
 3. Launch Row-Bot from Start Menu or Desktop shortcut
 4. The system tray icon appears; the app opens on the first available local port, normally `http://localhost:8080`

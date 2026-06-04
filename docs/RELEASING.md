@@ -78,7 +78,7 @@ Row-Bot uses semantic versioning:
 
    ```powershell
    $signtool = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe"
-   $exe = "dist\RowBotSetup_X.Y.Z.exe"
+   $exe = "dist\Row-Bot-X.Y.Z-Windows-x64.exe"
    & $signtool sign /sha1 2341B4B36A21DF948E538A88BB194FAE4D1CAE51 /fd SHA256 /tr http://time.certum.pl /td SHA256 /d "Row-Bot" /du "https://row-bot.ai" $exe
    & $signtool verify /pa /v $exe
    ```

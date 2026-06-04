@@ -26,7 +26,7 @@ We look for a fenced block of the form::
     ```manifest
     schema: 1
     files:
-      RowBotSetup_4.0.0.exe: sha256=<hex>
+      Row-Bot-4.0.0-Windows-x64.exe: sha256=<hex>
       Row-Bot-4.0.0-macOS-arm64.dmg: sha256=<hex>
     ```
 
@@ -65,6 +65,7 @@ from brand import (
     APP_RELEASES_LATEST_URL,
     APP_RELEASES_URL,
     APP_SLUG,
+    LEGACY_WINDOWS_INSTALLER_BASENAME,
     LINUX_COMMAND_NAME,
     LINUX_DESKTOP_ID,
     UPDATE_MANIFEST_MARKER,
@@ -101,7 +102,12 @@ _CHECK_DEBOUNCE_SEC = 24 * 60 * 60     # min 24h between actual network calls
 # Platform → asset name pattern
 _VERSION_ASSET_PART = r"[0-9A-Za-z][0-9A-Za-z.-]*"
 _DISPLAY_ASSET_NAME = re.escape(APP_DISPLAY_NAME)
-_WIN_ASSET_RE = re.compile(rf"^{re.escape(WINDOWS_INSTALLER_BASENAME)}_{_VERSION_ASSET_PART}\.exe$")
+_WIN_ASSET_RE = re.compile(
+    rf"^(?:"
+    rf"{re.escape(WINDOWS_INSTALLER_BASENAME)}-{_VERSION_ASSET_PART}-Windows-(?:x64|x86_64|arm64|aarch64)"
+    rf"|{re.escape(LEGACY_WINDOWS_INSTALLER_BASENAME)}_{_VERSION_ASSET_PART}"
+    rf")\.exe$"
+)
 _MAC_ARM_ASSET_RE = re.compile(rf"^{_DISPLAY_ASSET_NAME}-{_VERSION_ASSET_PART}-macOS-arm64\.dmg$")
 _MAC_X86_ASSET_RE = re.compile(rf"^{_DISPLAY_ASSET_NAME}-{_VERSION_ASSET_PART}-macOS-x86_64\.dmg$")
 _LINUX_X64_ASSET_RE = re.compile(rf"^{_DISPLAY_ASSET_NAME}-{_VERSION_ASSET_PART}-Linux-x86_64\.tar\.gz$")
@@ -789,7 +795,7 @@ def verify_os_signature(path: pathlib.Path) -> tuple[bool, str]:
 def install_and_restart(installer_path: pathlib.Path) -> None:
     """Launch the installer and schedule this process to exit.
 
-    Windows: ``RowBotSetup_x.y.z.exe /SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS``.
+    Windows: ``Row-Bot-x.y.z-Windows-x64.exe /SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS``.
     macOS: ``open <dmg>`` (Finder handles mount + drag-to-Applications).
     """
     import subprocess

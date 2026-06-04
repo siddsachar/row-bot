@@ -21,6 +21,8 @@ def test_brand_constants_define_row_bot_identity():
     assert brand.APP_DATA_DIR_ENV == "ROW_BOT_DATA_DIR"
     assert brand.APP_PORT_ENV == "ROW_BOT_PORT"
     assert brand.MACOS_APP_BUNDLE_NAME == "Row-Bot.app"
+    assert brand.WINDOWS_INSTALLER_BASENAME == "Row-Bot"
+    assert brand.LEGACY_WINDOWS_INSTALLER_BASENAME == "RowBotSetup"
     assert brand.MACOS_BUNDLE_ID == "ai.row-bot.assistant"
     assert brand.LINUX_DESKTOP_ID == "ai.row-bot.RowBot.desktop"
     assert brand.UPDATE_MANIFEST_MARKER == "row-bot-update-manifest"

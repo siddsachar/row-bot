@@ -244,7 +244,7 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host ""
     Write-Host "============================================" -ForegroundColor Green
     Write-Host " Installer built successfully!"               -ForegroundColor Green
-    Write-Host " Output: dist\RowBotSetup_$RowBotVersion.exe"    -ForegroundColor Green
+    Write-Host " Output: dist\Row-Bot-$RowBotVersion-Windows-x64.exe" -ForegroundColor Green
     Write-Host "============================================" -ForegroundColor Green
 } else {
     Write-Host ""

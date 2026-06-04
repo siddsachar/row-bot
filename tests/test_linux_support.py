@@ -48,6 +48,62 @@ def test_linux_asset_selection(monkeypatch):
     assert info.sha256 == "a" * 64
 
 
+def test_windows_asset_selection_accepts_hyphenated_installer(monkeypatch):
+    monkeypatch.setattr(updater.platform, "system", lambda: "Windows")
+    body = (
+        "Notes\n\n<!-- row-bot-update-manifest -->\n"
+        "```manifest\nschema: 1\nfiles:\n"
+        "  Row-Bot-3.21.0-Windows-x64.exe: sha256=" + "c" * 64 + "\n"
+        "```\n"
+    )
+    release = {
+        "tag_name": "v3.21.0",
+        "prerelease": False,
+        "published_at": "2026-05-04T12:00:00Z",
+        "html_url": "https://github.com/siddsachar/row-bot/releases/tag/v3.21.0",
+        "body": body,
+        "assets": [{
+            "name": "Row-Bot-3.21.0-Windows-x64.exe",
+            "size": 123,
+            "browser_download_url": "https://github.com/siddsachar/row-bot/releases/download/v3.21.0/Row-Bot-3.21.0-Windows-x64.exe",
+        }],
+    }
+
+    info = updater._parse_release(release, "stable")
+
+    assert info is not None
+    assert info.asset_name == "Row-Bot-3.21.0-Windows-x64.exe"
+    assert info.sha256 == "c" * 64
+
+
+def test_windows_asset_selection_accepts_legacy_setup_name(monkeypatch):
+    monkeypatch.setattr(updater.platform, "system", lambda: "Windows")
+    body = (
+        "Notes\n\n<!-- row-bot-update-manifest -->\n"
+        "```manifest\nschema: 1\nfiles:\n"
+        "  RowBotSetup_3.21.0.exe: sha256=" + "d" * 64 + "\n"
+        "```\n"
+    )
+    release = {
+        "tag_name": "v3.21.0",
+        "prerelease": False,
+        "published_at": "2026-05-04T12:00:00Z",
+        "html_url": "https://github.com/siddsachar/row-bot/releases/tag/v3.21.0",
+        "body": body,
+        "assets": [{
+            "name": "RowBotSetup_3.21.0.exe",
+            "size": 123,
+            "browser_download_url": "https://github.com/siddsachar/row-bot/releases/download/v3.21.0/RowBotSetup_3.21.0.exe",
+        }],
+    }
+
+    info = updater._parse_release(release, "stable")
+
+    assert info is not None
+    assert info.asset_name == "RowBotSetup_3.21.0.exe"
+    assert info.sha256 == "d" * 64
+
+
 def test_linux_install_marker_is_not_dev_install(monkeypatch, tmp_path):
     app_root = tmp_path / "current" / "app"
     app_root.mkdir(parents=True)
@@ -310,6 +366,9 @@ def test_release_workflows_reference_linux_artifact():
     assert "libportaudio2" in ci
     assert "installer/install-linux.sh" in release
     assert "installer/install-linux.sh" in ci
+    assert "Row-Bot-Windows" in release
+    assert "Row-Bot-*-Windows-*.exe" in release
+    assert "RowBotSetup-Windows" not in release
     assert "Row-Bot-*-Linux-*.tar.gz" in release
     assert "libxcb-cursor0" in release
     assert "libportaudio2" in release
@@ -321,6 +380,8 @@ def test_release_workflows_reference_linux_artifact():
     assert '"$HOME/.local/bin/row-bot"\n' in linux_smoke
     assert "\"$HOME/.local/bin/row-bot\" --server --no-open --port 8091 --no-ollama" in linux_smoke
     assert "Row-Bot-*-Linux-*.tar.gz" in manifest
+    assert "Row-Bot-*-Windows-*.exe" in manifest
+    assert "RowBotSetup_*.exe" in manifest
     assert "curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash" in installer_docs
     assert "published GitHub Release assets" in installer_docs
     assert f"bash installer/build_linux_app.sh {__version__}" in installer_docs
@@ -333,6 +394,7 @@ def test_packagers_exclude_tests_directory():
     mac_builder = Path("installer/build_mac_app.sh").read_text(encoding="utf-8")
 
     assert "tests" not in windows_installer
+    assert "OutputBaseFilename=Row-Bot-{#MyAppVersion}-Windows-x64" in windows_installer
     assert " tests" not in linux_builder
     assert " tests" not in mac_builder
     assert "test_*.py|test_suite.py|test_memory_e2e.py|integration_tests.py" in linux_builder
