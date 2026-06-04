@@ -5554,11 +5554,14 @@ try:
     _skills_mod36.load_skills()
     _all = _skills_mod36.get_all_skills()
     assert len(_all) >= 5, f"expected ≥5 skills after load, got {len(_all)}"
-    # Bundled skills should be disabled by default
+    # Bundled manual skills should be enabled by default; tool guides remain tool-bound.
     for _sk36 in _all:
-        if _sk36.source == "bundled":
+        if _sk36.source == "bundled" and not _skills_mod36.is_tool_guide(_sk36):
+            assert _skills_mod36.is_enabled(_sk36.name), \
+                f"bundled manual skill '{_sk36.name}' should be enabled by default"
+        if _skills_mod36.is_tool_guide(_sk36):
             assert not _skills_mod36.is_enabled(_sk36.name), \
-                f"bundled skill '{_sk36.name}' should be disabled by default"
+                f"tool guide '{_sk36.name}' should stay governed by tool activation"
     # Enable one
     _skills_mod36.set_enabled("daily_briefing", True)
     assert _skills_mod36.is_enabled("daily_briefing"), "should be enabled after set"
@@ -19913,7 +19916,7 @@ try:
     record("PASS", "76d: Home includes Developer tab")
 
     _sidebar_src76 = _source_path("ui/sidebar.py").read_text(encoding="utf-8")
-    assert '"code", "Code"' in _sidebar_src76, "Sidebar should expose Code filter"
+    assert '"key": "code"' in _sidebar_src76 and '"label": "Code"' in _sidebar_src76, "Sidebar should expose Code filter"
     assert "active_developer_workspace_id" in _sidebar_src76, "Sidebar should restore Developer workspace state"
     assert '_thr_icon = "code"' in _sidebar_src76, "Sidebar should use code icon for code threads"
     record("PASS", "76e: Sidebar classifies and restores code threads")

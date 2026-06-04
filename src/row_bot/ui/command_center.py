@@ -825,7 +825,10 @@ def build_command_center(
             # §6  INSIGHTS  (separate inner panel)
             # ════════════════════════════════════════════════════
             with ui.column().classes("w-full gap-2 row-bot-inner-panel"):
-                _insights_container = ui.column().classes("w-full gap-0")
+                with ui.expansion("Insights", icon="lightbulb", value=False).classes(
+                    "w-full row-bot-command-center-insights-expansion"
+                ):
+                    _insights_container = ui.column().classes("w-full gap-0 q-pt-xs")
 
                 def _rebuild_insights() -> None:
                     _insights_container.clear()

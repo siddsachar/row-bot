@@ -3,7 +3,7 @@ name: claude_code_delegation
 display_name: Claude Code Delegation
 icon: "💻"
 description: Delegate coding, review, and refactor tasks to Claude Code CLI through Thoth's approval-gated shell workflow.
-enabled_by_default: false
+enabled_by_default: true
 version: "1.0"
 tags:
   - coding

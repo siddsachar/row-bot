@@ -3,7 +3,7 @@ name: web_navigator
 display_name: Web Navigator
 icon: "🌐"
 description: Strategic patterns for effective browser automation — research, forms, and data extraction.
-enabled_by_default: false
+enabled_by_default: true
 version: "1.0"
 tags:
   - browser

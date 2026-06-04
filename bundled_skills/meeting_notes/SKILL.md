@@ -3,7 +3,7 @@ name: meeting_notes
 display_name: Meeting Notes
 icon: "📋"
 description: Structure raw meeting notes into actionable minutes with follow-ups.
-enabled_by_default: false
+enabled_by_default: true
 version: "1.2"
 tags:
   - productivity

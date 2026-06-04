@@ -54,6 +54,8 @@ if TYPE_CHECKING:
 # ── Setup logging ────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
+_LAUNCH_STARTED = time.perf_counter()
+_LAUNCH_FILE_LOGGING = False
 
 # ── Constants ────────────────────────────────────────────────────────────────
 _PORT = DEFAULT_APP_PORT
@@ -107,6 +109,35 @@ def _is_ollama_running() -> bool:
 
 def _thoth_data_dir() -> Path:
     return get_row_bot_data_dir()
+
+
+def _ensure_launcher_file_logging() -> None:
+    global _LAUNCH_FILE_LOGGING
+    if _LAUNCH_FILE_LOGGING:
+        return
+    try:
+        log_dir = _thoth_data_dir()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(log_dir / "launcher.log", encoding="utf-8")
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+        _LAUNCH_FILE_LOGGING = True
+    except Exception:
+        logger.debug("Could not enable launcher file logging", exc_info=True)
+
+
+def _launch_event(event: str, **fields) -> None:
+    _ensure_launcher_file_logging()
+    elapsed_ms = (time.perf_counter() - _LAUNCH_STARTED) * 1000.0
+    trace = os.environ.get("ROW_BOT_LAUNCH_TRACE") == "1"
+    compact = {
+        key: value
+        for key, value in fields.items()
+        if trace or key in {"port", "pid", "mode", "duration_ms", "exit_code", "status"}
+    }
+    suffix = " ".join(f"{key}={value}" for key, value in compact.items())
+    logger.info("launcher.%s elapsed_ms=%.1f%s%s", event, elapsed_ms, " " if suffix else "", suffix)
 
 
 def _read_json_file(path: Path) -> dict:
@@ -729,6 +760,13 @@ time.sleep(0.6)
 def _show_splash(port: int = _PORT, timeout: float = 60.0) -> subprocess.Popen | None:
     """Launch a splash screen subprocess.  Tries tkinter first; falls back
     to a simple console window if tkinter is unavailable."""
+    _launch_event(
+        "splash_start",
+        port=port,
+        tcl=os.environ.get("TCL_LIBRARY", ""),
+        tk=os.environ.get("TK_LIBRARY", ""),
+        python=sys.executable,
+    )
     log_dir = _thoth_data_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
     splash_log = log_dir / "splash.log"
@@ -751,8 +789,18 @@ def _show_splash(port: int = _PORT, timeout: float = 60.0) -> subprocess.Popen |
         )
         time.sleep(0.5)
         if proc.poll() is None:
+            _launch_event("splash_tk_running", port=port, pid=proc.pid)
             return proc  # tkinter splash is running
+        exit_code = proc.poll()
         log_fh.close()
+        try:
+            tail = "\n".join(splash_log.read_text(encoding="utf-8", errors="replace").splitlines()[-8:])
+        except Exception:
+            tail = ""
+        _launch_event("splash_tk_exited", port=port, exit_code=exit_code, status=tail[:500])
+        if sys.platform == "win32" and os.environ.get("ROW_BOT_SPLASH_CONSOLE_FALLBACK") != "1":
+            logger.info("Tk splash exited; skipping Windows console splash fallback")
+            return None
         # Tkinter often unavailable on macOS — silently fall back
         logger.debug("Tkinter splash exited, using console fallback")
 
@@ -1693,6 +1741,7 @@ class ThothTray:
 
         if not self._owns_server and not _is_row_bot_server(self._port):
             # External server died — just open browser and hope
+            _launch_event("server_ready_timeout", port=self._port, duration_ms=round((time.perf_counter() - wait_started) * 1000.0, 1))
             webbrowser.open(_url_for_port(self._port))
             return
 
@@ -1713,6 +1762,7 @@ class ThothTray:
             self._server.start(self._port)
             if _wait_for_server(self._port):
                 _open_in_browser(self._port)
+                _launch_event("browser_opened", port=self._port, mode=mode)
             else:
                 logger.warning("Server did not restart — cannot open browser")
         else:
@@ -1819,31 +1869,46 @@ class ThothTray:
 
     def run(self) -> None:
         """Start the tray icon, the NiceGUI server, and a native window."""
+        _launch_event("tray_run_start", port=self._preferred_port, mode=self._preferred_mode or "auto")
+        ollama_started = time.perf_counter()
         # Best-effort local runtime convenience. Provider-only and custom
         # endpoint setups should not pay an Ollama startup penalty.
         _maybe_start_ollama(no_ollama=self._no_ollama)
+        _launch_event("ollama_gate_done", duration_ms=round((time.perf_counter() - ollama_started) * 1000.0, 1))
 
         self._port, already_running = _select_app_port(self._preferred_port)
         self._server.port = self._port
 
         if already_running:
             logger.info("%s already running on port %s", APP_DISPLAY_NAME, self._port)
+            _launch_event("server_already_running", port=self._port)
         else:
+            server_started = time.perf_counter()
             self._server.start(self._port, self._host)
+            _launch_event(
+                "server_spawned",
+                port=self._port,
+                pid=self._server._proc.pid if self._server._proc else 0,
+                duration_ms=round((time.perf_counter() - server_started) * 1000.0, 1),
+            )
             self._owns_server = True
             # Register cleanup in case launcher crashes
             atexit.register(self._server.stop)
 
             # Show splash screen while the server starts up
             if not self._no_splash and _has_display_server():
+                splash_started = time.perf_counter()
                 _show_splash(self._port)
+                _launch_event("splash_requested", port=self._port, duration_ms=round((time.perf_counter() - splash_started) * 1000.0, 1))
 
         # Start the status-polling thread
         poller = threading.Thread(target=self._poll_loop, daemon=True, name="tray-poll")
         poller.start()
 
         # Wait for server to be ready, then open UI in the preferred mode
+        wait_started = time.perf_counter()
         if _wait_for_server(self._port):
+            _launch_event("server_ready", port=self._port, duration_ms=round((time.perf_counter() - wait_started) * 1000.0, 1))
             mode = self._preferred_mode or _load_window_mode()
             if mode == "ask":
                 mode = _ask_window_mode() if _has_display_server() else "browser"
@@ -1851,6 +1916,12 @@ class ThothTray:
                 _open_in_browser(self._port)
             else:
                 self._window_proc = _open_window(self._port, self._ensure_window_control_port())
+                _launch_event(
+                    "native_window_requested",
+                    port=self._port,
+                    pid=self._window_proc.pid if self._window_proc else 0,
+                    mode=mode,
+                )
         else:
             logger.warning("Server did not start in time — opening browser as fallback")
             webbrowser.open(_url_for_port(self._port))
@@ -1877,7 +1948,10 @@ def _block_until_interrupted(server: _ThothProcess | None, owns_server: bool) ->
 
 def _run_direct(args: argparse.Namespace) -> None:
     """Run Row-Bot without a tray icon, for Linux/browser/server modes."""
+    _launch_event("direct_run_start", port=args.port, mode="direct")
+    ollama_started = time.perf_counter()
     _maybe_start_ollama(no_ollama=args.no_ollama)
+    _launch_event("ollama_gate_done", duration_ms=round((time.perf_counter() - ollama_started) * 1000.0, 1))
 
     preferred = parse_app_port(args.port, default=_PORT)
     port, already_running = _select_app_port(preferred)
@@ -1886,24 +1960,39 @@ def _run_direct(args: argparse.Namespace) -> None:
 
     if already_running:
         logger.info("%s already running on port %s", APP_DISPLAY_NAME, port)
+        _launch_event("server_already_running", port=port)
     else:
+        server_started = time.perf_counter()
         server.start(port, args.host)
+        _launch_event(
+            "server_spawned",
+            port=port,
+            pid=server._proc.pid if server._proc else 0,
+            duration_ms=round((time.perf_counter() - server_started) * 1000.0, 1),
+        )
         owns_server = True
         atexit.register(server.stop)
         if not args.no_splash and _has_display_server() and not args.server:
+            splash_started = time.perf_counter()
             _show_splash(port)
+            _launch_event("splash_requested", port=port, duration_ms=round((time.perf_counter() - splash_started) * 1000.0, 1))
 
     wait_process = server if owns_server else None
+    wait_started = time.perf_counter()
     if not _wait_for_server(port, server=wait_process):
+        _launch_event("server_ready_timeout", port=port, duration_ms=round((time.perf_counter() - wait_started) * 1000.0, 1))
         reason = "app process exited before readiness" if owns_server and not server.is_alive else "readiness probe timed out"
         _log_startup_failure_context(server, port, reason)
         raise RuntimeError(f"{APP_DISPLAY_NAME} server did not become ready on port {port}")
+    _launch_event("server_ready", port=port, duration_ms=round((time.perf_counter() - wait_started) * 1000.0, 1))
 
     if not args.no_open:
         if args.native and _has_display_server():
             _open_window(port)
+            _launch_event("native_window_requested", port=port, mode="native")
         elif _has_display_server() or not args.server:
             _open_in_browser(port)
+            _launch_event("browser_opened", port=port, mode="browser")
         else:
             logger.info("%s is running at %s", APP_DISPLAY_NAME, _url_for_port(port))
     else:
@@ -2069,6 +2158,15 @@ def quit_for_update() -> None:
 
 def main(argv: list[str] | None = None) -> None:
     global _ACTIVE_TRAY
+    _ensure_launcher_file_logging()
+    _launch_event(
+        "process_start",
+        pid=os.getpid(),
+        python=sys.executable,
+        prefix=sys.prefix,
+        cwd=os.getcwd(),
+        frozen=getattr(sys, "frozen", False),
+    )
     args = _build_arg_parser().parse_args(argv)
     _ensure_rebrand_migration()
     if args.reset_tasks_db:

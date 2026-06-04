@@ -3,7 +3,7 @@ name: task_automation
 display_name: Task Automation
 icon: "⚙️"
 description: Design effective automated workflows using scheduled tasks, prompt chaining, and delivery channels.
-enabled_by_default: false
+enabled_by_default: true
 version: "3.0"
 tags:
   - automation

@@ -6,6 +6,7 @@ import subprocess
 import sys
 import textwrap
 import builtins
+from types import SimpleNamespace
 
 import row_bot.launcher as launcher
 import row_bot.startup_diagnostics as startup_diagnostics
@@ -191,3 +192,75 @@ def test_windows_installer_replaces_embedded_python_on_install():
     assert 'Type: filesandordirs; Name: "{app}\\python"' in iss
     assert 'Source: "..\\src\\row_bot\\*"' in iss
     assert Path("src/row_bot/startup_diagnostics.py").is_file()
+
+
+def test_windows_update_install_starts_handoff_before_quit(tmp_path, monkeypatch):
+    import row_bot.updater as updater
+
+    installer = tmp_path / "Row-Bot-test.exe"
+    installer.write_bytes(b"installer")
+    calls = []
+
+    monkeypatch.setattr(updater.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(updater, "verify_os_signature", lambda _path: (True, "ok"))
+    monkeypatch.setattr(updater, "_launch_windows_update_handoff", lambda _path: calls.append("handoff"))
+    monkeypatch.setitem(
+        sys.modules,
+        "row_bot.launcher",
+        SimpleNamespace(quit_for_update=lambda: calls.append("quit")),
+    )
+
+    updater.install_and_restart(installer)
+
+    assert calls == ["handoff", "quit"]
+
+
+def test_windows_update_handoff_helper_command_is_detached(tmp_path, monkeypatch):
+    import row_bot.updater as updater
+
+    installer = tmp_path / "Row-Bot-test.exe"
+    installer.write_bytes(b"installer")
+    calls = []
+
+    class FakePopen:
+        def __init__(self, cmd, **kwargs):
+            calls.append((cmd, kwargs))
+
+    monkeypatch.setenv("ROW_BOT_PORT", "8123")
+    monkeypatch.setattr(updater.subprocess, "Popen", FakePopen)
+
+    updater._launch_windows_update_handoff(installer)
+
+    cmd, kwargs = calls[0]
+    assert cmd[:3] == [sys.executable, "-m", "row_bot.update_handoff"]
+    assert "--installer" in cmd
+    assert "--app-pid" in cmd
+    assert "--launcher-pid" in cmd
+    assert "--port" in cmd and "8123" in cmd
+    assert kwargs["stdin"] is subprocess.DEVNULL
+    assert kwargs["stdout"] is subprocess.DEVNULL
+    assert kwargs["stderr"] is subprocess.DEVNULL
+
+
+def test_update_handoff_helper_is_targeted_and_logged():
+    source = Path("src/row_bot/update_handoff.py").read_text(encoding="utf-8")
+
+    assert "update-handoff.log" in source
+    assert '["taskkill", "/PID", str(pid), "/T", "/F"]' in source
+    assert "/SILENT" in source
+    assert "/CLOSEAPPLICATIONS" in source
+    assert "/RESTARTAPPLICATIONS" in source
+    assert "row_bot" not in source.lower().split("taskkill", 1)[1].split("]", 1)[0]
+
+
+def test_launcher_splash_and_batch_startup_are_hardened():
+    launcher_src = Path("src/row_bot/launcher.py").read_text(encoding="utf-8")
+    batch_src = Path("installer/launch_row_bot.bat").read_text(encoding="utf-8")
+
+    assert "launcher.log" in launcher_src
+    assert "ROW_BOT_LAUNCH_TRACE" in launcher_src
+    assert "splash_tk_exited" in launcher_src
+    assert "ROW_BOT_SPLASH_CONSOLE_FALLBACK" in launcher_src
+    assert "skipping Windows console splash fallback" in launcher_src
+    assert "ROW_BOT_BATCH_START_OLLAMA" in batch_src
+    assert 'goto :launch_app' in batch_src

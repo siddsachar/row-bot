@@ -56,8 +56,8 @@ def test_runtime_brand_assets_are_file_backed_and_visible():
     assert "APP_BRAND_ACCENT" in app_src
 
     assert '<img src="/static/row_bot_glyph_256.png"' in sidebar_src
-    assert "width:92px; height:auto" in sidebar_src
-    assert "flex-direction:column; gap:4px" in sidebar_src
+    assert "width:72px; height:auto" in sidebar_src
+    assert "flex-direction:column; gap:3px" in sidebar_src
     assert "Personal AI Sovereignty</span></div></div>" in sidebar_src
     assert 'ui.label("Personal AI Sovereignty")' not in sidebar_src
     assert "APP_BRAND_ACCENT" in sidebar_src

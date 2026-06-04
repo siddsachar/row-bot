@@ -1439,6 +1439,14 @@ def build_developer_workspace(
             async def _send(text: str, *, voice_mode: bool = False) -> None:
                 await send_message(text, voice_mode=voice_mode)
 
+            from row_bot.ui.chat_composer_extras import create_developer_composer_extras
+
+            _composer_extras = create_developer_composer_extras(
+                state,
+                p,
+                new_thread=_create_new_developer_thread,
+            )
+
             build_chat_input_bar(
                 p,
                 state,
@@ -1447,6 +1455,7 @@ def build_developer_workspace(
                 browse_file=browse_file,
                 open_settings=open_settings,
                 show_model_picker=True,
+                composer_extras=_composer_extras,
             )
 
         inspector_refresh["refresh"] = _build_developer_inspector(

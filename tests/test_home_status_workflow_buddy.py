@@ -113,6 +113,14 @@ def test_command_center_has_persisted_collapsed_rail_contract():
     assert "data-workflow-console-drawer" in src
 
 
+def test_command_center_insights_default_collapsed_expansion():
+    src = open("src/row_bot/ui/command_center.py", "r", encoding="utf-8").read()
+
+    assert 'ui.expansion("Insights", icon="lightbulb", value=False)' in src
+    assert "row-bot-command-center-insights-expansion" in src
+    assert '_insights_container = ui.column().classes("w-full gap-0 q-pt-xs")' in src
+
+
 def test_buddy_state_machine_preserves_workflow_after_approval(monkeypatch):
     import row_bot.buddy.brain as brain_mod
     from row_bot.buddy.brain import BuddyBrain

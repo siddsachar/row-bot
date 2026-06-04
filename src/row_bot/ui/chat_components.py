@@ -444,6 +444,7 @@ def build_chat_input_bar(
     open_settings: Callable | None = None,
     show_model_picker: bool = True,
     on_model_switch: Callable | None = None,
+    composer_extras: Any | None = None,
 ) -> None:
     """Build the chat input card with textarea, buttons, and optional model picker.
 
@@ -504,6 +505,12 @@ def build_chat_input_bar(
         # File chips inside the card (top)
         p.file_chips_row = ui.row().classes("w-full flex-wrap gap-1 q-px-md q-pt-sm")
 
+        if composer_extras is not None:
+            try:
+                composer_extras.render_before_input()
+            except Exception:
+                logger.debug("Shared composer extras failed to render", exc_info=True)
+
         # Context counter - absolute overlay, top-right
         with ui.row().classes("items-center gap-1").style(
             "position: absolute; top: 8px; right: 12px; z-index: 1; "
@@ -540,6 +547,11 @@ def build_chat_input_bar(
                     return
                 p.chat_input.value = value
                 p.chat_input.update()
+                if composer_extras is not None:
+                    try:
+                        composer_extras.queue_skill_chip_refresh(value)
+                    except Exception:
+                        logger.debug("Could not sync composer extras text", exc_info=True)
 
             p.active_voice_binding = ActiveVoiceSurfaceBinding(
                 surface=surface,
@@ -559,10 +571,21 @@ def build_chat_input_bar(
 
         _register_active_voice_binding()
 
+        if composer_extras is not None:
+            try:
+                composer_extras.attach_input(p.chat_input)
+            except Exception:
+                logger.debug("Shared composer extras failed to attach input handlers", exc_info=True)
+
         async def _on_send():
             text = p.chat_input.value
             if text and text.strip():
                 p.chat_input.value = ""
+                if composer_extras is not None:
+                    try:
+                        composer_extras.clear_draft_on_send()
+                    except Exception:
+                        logger.debug("Shared composer extras failed to clear draft on send", exc_info=True)
                 if p.chat_scroll:
                     _re = p.chat_scroll.id
                     ui.run_javascript(
@@ -571,6 +594,11 @@ def build_chat_input_bar(
                 await send_fn(text)
             elif p.pending_files:
                 p.chat_input.value = ""
+                if composer_extras is not None:
+                    try:
+                        composer_extras.clear_draft_on_send()
+                    except Exception:
+                        logger.debug("Shared composer extras failed to clear attachment draft", exc_info=True)
                 await send_fn("")
 
         # Enter to send; modified Enter keeps native textarea behavior.
@@ -578,6 +606,7 @@ def build_chat_input_bar(
             "keydown.enter",
             _on_send,
             js_handler="""(e) => {
+                if (window._rowBotSlashPaletteOpen) return;
                 if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
                 e.preventDefault();
                 emit();

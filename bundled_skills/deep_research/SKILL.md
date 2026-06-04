@@ -3,7 +3,7 @@ name: deep_research
 display_name: Deep Research
 icon: "🔬"
 description: Perform multi-source research on a topic and produce a structured report.
-enabled_by_default: false
+enabled_by_default: true
 version: "1.1"
 tags:
   - research
