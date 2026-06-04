@@ -1,16 +1,16 @@
----
+﻿---
 name: updater_guide
 display_name: Auto-Update Guide
 icon: "⬆"
-description: Guidance for checking for and installing Thoth updates.
+description: Guidance for checking for and installing Row-Bot updates.
 tools:
-  - thoth_updater
+  - row_bot_updater
 tags: []
 ---
-THOTH AUTO-UPDATE:
-- Thoth checks GitHub Releases automatically in the background. There is
+ROW-BOT AUTO-UPDATE:
+- Row-Bot checks GitHub Releases automatically in the background. There is
   no opt-in toggle: when Internet is available, the assistant polls
-  https://github.com/siddsachar/Thoth for new releases and silently
+  the configured Row-Bot release repository for new releases and silently
   ignores network failures.
 - Updates are NEVER installed automatically. The user must always
   approve installation.
@@ -23,29 +23,29 @@ WHEN TO MENTION UPDATES:
 - If an update is in `skipped_versions`, do not re-offer it unless the
   user explicitly asks.
 
-CHECKING (thoth_check_for_updates):
+CHECKING (row_bot_check_for_updates):
 - Read-only. Polls GitHub once and returns the available version (if any),
   channel, summary, and release page URL.
 - Honors the user's channel: 'stable' (default) or 'beta'.
 - Failures (offline, rate-limited) are reported but not treated as errors.
 
-INSTALLING (thoth_install_update):
+INSTALLING (row_bot_install_update):
 - Always asks the user for confirmation via an interrupt.
-- On approval: downloads the asset to ~/.thoth/updates/, verifies SHA256,
+- On approval: downloads the asset to ~/.row-bot/updates/, verifies SHA256,
   verifies the OS code signature (signtool/codesign), then hands off to
-  the OS installer and exits Thoth.
-- Windows: launches `ThothSetup_x.y.z.exe /SILENT /CLOSEAPPLICATIONS
+  the OS installer and exits Row-Bot.
+- Windows: launches `RowBotSetup_x.y.z.exe /SILENT /CLOSEAPPLICATIONS
   /RESTARTAPPLICATIONS`. The new version starts automatically after install.
-- macOS: opens the DMG in Finder; the user drags Thoth.app into
+- macOS: opens the DMG in Finder; the user drags Row-Bot.app into
   /Applications.
 - Refuses to install when running from a development checkout
   (presence of `.git/` next to the app).
 
 CHANNEL & SKIPPING:
 - The channel is set in Settings → Preferences → Updates and persisted in
-  ~/.thoth/update_config.json. Do not change it without asking.
+  ~/.row-bot/update_config.json. Do not change it without asking.
 - Users can skip a specific version from the "What's New" dialog. Skipped
-  versions are surfaced via thoth_status category='updates'.
+  versions are surfaced via row_bot_status category='updates'.
 
 ERROR HANDLING:
 - SHA256 mismatch or signature failure: do NOT retry blindly — surface the

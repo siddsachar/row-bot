@@ -44,7 +44,7 @@ class PluginManifest:
     id: str
     name: str
     version: str
-    min_thoth_version: str
+    min_row_bot_version: str
     author: PluginAuthor
     description: str
     long_description: str = ""
@@ -109,9 +109,9 @@ def _validate(raw: dict, plugin_dir: Path) -> PluginManifest:
     if not isinstance(version, str) or not _SEMVER_RE.match(version):
         errors.append(f"'version' must be semver (x.y.z). Got: {version!r}")
 
-    min_thoth = raw.get("min_thoth_version", "")
-    if not isinstance(min_thoth, str) or not _SEMVER_RE.match(min_thoth):
-        errors.append(f"'min_thoth_version' must be semver. Got: {min_thoth!r}")
+    min_row_bot = raw.get("min_row_bot_version", raw.get("min_thoth_version", ""))
+    if not isinstance(min_row_bot, str) or not _SEMVER_RE.match(min_row_bot):
+        errors.append(f"'min_row_bot_version' must be semver. Got: {min_row_bot!r}")
 
     description = raw.get("description", "")
     if not isinstance(description, str) or not description.strip():
@@ -159,7 +159,7 @@ def _validate(raw: dict, plugin_dir: Path) -> PluginManifest:
         id=plugin_id,
         name=name,
         version=version,
-        min_thoth_version=min_thoth,
+        min_row_bot_version=min_row_bot,
         author=author,
         description=description,
         long_description=str(raw.get("long_description", "")),

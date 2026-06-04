@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from brand import APP_DISPLAY_NAME
 from nicegui import run, ui
 
 from ui.timer_utils import defer_ui
@@ -282,7 +283,7 @@ def build_provider_summary_cards() -> None:
         from providers.codex import disconnect_codex_metadata
 
         disconnect_codex_metadata()
-        ui.notify("Disconnected Thoth Codex metadata", type="info")
+        ui.notify(f"Disconnected {APP_DISPLAY_NAME} Codex metadata", type="info")
         defer_ui(_load)
 
     def _render_row(card: dict) -> None:
@@ -318,7 +319,7 @@ def build_provider_summary_cards() -> None:
                 if codex_actions.get("can_reference"):
                     ui.button(icon="link", on_click=_reference_codex_login).props("flat dense round size=sm").tooltip("Reference existing Codex CLI login")
                 if codex_actions.get("can_disconnect"):
-                    ui.button(icon="link_off", on_click=_disconnect_codex).props("flat dense round size=sm color=negative").tooltip("Disconnect Thoth Codex metadata")
+                    ui.button(icon="link_off", on_click=_disconnect_codex).props("flat dense round size=sm color=negative").tooltip(f"Disconnect {APP_DISPLAY_NAME} Codex metadata")
                 ui.button(icon="refresh", on_click=lambda: defer_ui(_load)).props("flat dense round size=sm").tooltip("Refresh status")
 
     def _render(cards: list[dict]) -> None:
@@ -483,7 +484,7 @@ def build_custom_endpoints_section(on_change=None) -> None:
                                     value=str(manual.get("context_window") or ""),
                                     placeholder="Auto",
                                 ).classes("w-full").props("dense outlined")
-                                ui.label("Used as Thoth's provider ceiling for trimming and readiness. The app-wide context setting still caps actual usage.").classes("text-grey-6 text-xs")
+                                ui.label(f"Used as {APP_DISPLAY_NAME}'s provider ceiling for trimming and readiness. The app-wide context setting still caps actual usage.").classes("text-grey-6 text-xs")
 
                             async def _save_edit(endpoint=endpoint):
                                 name = str(name_input.value or "").strip()

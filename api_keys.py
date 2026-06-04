@@ -6,11 +6,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 import secret_store
+from data_paths import get_row_bot_data_dir
 
 logger = logging.getLogger(__name__)
 
-# Store data in %APPDATA%/Thoth (writable even when app is in Program Files)
-DATA_DIR = pathlib.Path(os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth"))
+# Store data in the active Row-Bot data directory.
+DATA_DIR = get_row_bot_data_dir()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 KEYS_PATH = DATA_DIR / "api_keys.json"
@@ -154,7 +155,7 @@ def set_key(env_var: str, value: str):
 
 
 def set_key_for_data_dir(data_dir: pathlib.Path | str, env_var: str, value: str) -> None:
-    """Save a key for an explicit Thoth data directory.
+    """Save a key for an explicit Row-Bot data directory.
 
     Used by migration when importing into a target profile that may differ from
     the currently running app profile. This never falls back to plaintext.
@@ -171,7 +172,7 @@ def set_key_for_data_dir(data_dir: pathlib.Path | str, env_var: str, value: str)
 
 
 def get_key_for_data_dir(data_dir: pathlib.Path | str, env_var: str) -> str:
-    """Return a key stored for an explicit Thoth data directory."""
+    """Return a key stored for an explicit Row-Bot data directory."""
     service = secret_store.service_name_for(pathlib.Path(data_dir))
     try:
         return secret_store.get_secret(str(env_var), service=service) or ""

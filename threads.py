@@ -9,12 +9,12 @@ import time
 import gc
 from datetime import datetime, timedelta
 
+from data_paths import get_row_bot_data_dir
 from approval_policy import DEFAULT_APPROVAL_MODE, normalize_approval_mode
 
 logger = logging.getLogger(__name__)
 
-# Store data in %APPDATA%/Thoth (writable even when app is in Program Files)
-DATA_DIR = pathlib.Path(os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth"))
+DATA_DIR = get_row_bot_data_dir()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 _THREAD_UI_DIR = DATA_DIR / "thread_ui"

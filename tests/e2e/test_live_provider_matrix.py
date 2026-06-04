@@ -96,33 +96,33 @@ def _poison_thread(thread_id: str) -> None:
             HumanMessage(content="Hi. what tools do you have? use the thoth status tool to check"),
             AIMessage(
                 content="",
-                tool_calls=[{"name": "thoth_status", "args": {}, "id": "call_1", "type": "tool_call"}],
+                tool_calls=[{"name": "row_bot_status", "args": {}, "id": "call_1", "type": "tool_call"}],
                 invalid_tool_calls=[{"name": "", "args": '"category":"tools"}', "id": "openai_call_0", "error": None}],
                 additional_kwargs={"reasoning_content": "I should use the tool."},
             ),
-            ToolMessage(content="repair", name="thoth_status", tool_call_id="call_1"),
+            ToolMessage(content="repair", name="row_bot_status", tool_call_id="call_1"),
             AIMessage(
                 content="",
-                tool_calls=[{"name": "thoth_status", "args": {"category": "overview"}, "id": "text_call_0", "type": "tool_call"}],
+                tool_calls=[{"name": "row_bot_status", "args": {"category": "overview"}, "id": "text_call_0", "type": "tool_call"}],
                 additional_kwargs={
                     "reasoning_content": (
-                        "<tool_call><function=thoth_status><parameter=category>"
+                        "<tool_call><function=row_bot_status><parameter=category>"
                         "overview</parameter></function></tool_call>"
                     )
                 },
             ),
-            ToolMessage(content="overview", name="thoth_status", tool_call_id="text_call_0"),
+            ToolMessage(content="overview", name="row_bot_status", tool_call_id="text_call_0"),
             AIMessage(
                 content="",
-                tool_calls=[{"name": "thoth_status", "args": {"category": "tools"}, "id": "text_call_0", "type": "tool_call"}],
+                tool_calls=[{"name": "row_bot_status", "args": {"category": "tools"}, "id": "text_call_0", "type": "tool_call"}],
                 additional_kwargs={
                     "reasoning_content": (
-                        "<tool_call><function=thoth_status><parameter=category>"
+                        "<tool_call><function=row_bot_status><parameter=category>"
                         "tools</parameter></function></tool_call>"
                     )
                 },
             ),
-            ToolMessage(content="tools", name="thoth_status", tool_call_id="text_call_0"),
+            ToolMessage(content="tools", name="row_bot_status", tool_call_id="text_call_0"),
             AIMessage(content="I found the tools.", additional_kwargs={"reasoning_content": "Now answer."}),
         ],
     )
@@ -248,8 +248,8 @@ def test_live_configured_provider_matrix():
                 agent,
                 model_ref=model_ref_value,
                 provider_id=provider_id,
-                prompt="Use thoth_status with category tools, then answer with only the enabled and disabled tool counts.",
-                tools=["thoth_status"],
+                prompt="Use row_bot_status with category tools, then answer with only the enabled and disabled tool counts.",
+                tools=["row_bot_status"],
                 label="tool_call",
             ),
             _run_poisoned_case(agent, model_ref=model_ref_value, provider_id=provider_id),

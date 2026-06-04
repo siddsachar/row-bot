@@ -1,6 +1,6 @@
-@echo off
+﻿@echo off
 :: ============================================================================
-:: Thoth v3.23.1 – Post-install dependency setup
+:: Row-Bot v4.0.0 â€“ Post-install dependency setup
 :: Called by Inno Setup after file extraction.
 ::
 :: This script:
@@ -10,7 +10,7 @@
 ::   4. (Optional) Downloads and installs Ollama
 ::   5. Installs Python packages from requirements.txt
 :: ============================================================================
-title Thoth - Setting up dependencies...
+title Row-Bot - Setting up dependencies...
 set "INSTALL_DIR=%~1"
 set "PYTHON_DIR=%INSTALL_DIR%\python"
 set "PYTHON=%PYTHON_DIR%\python.exe"
@@ -21,7 +21,7 @@ set "LOG=%INSTALL_DIR%\install_log.txt"
 set "PYTHONNOUSERSITE=1"
 
 echo ==========================================
-echo  Thoth v3.23.1 - Installing dependencies
+echo  Row-Bot v4.0.0 - Installing dependencies
 echo  This may take 5-25 minutes depending
 echo  on your system and internet connection.
 echo  Please do not close this window.
@@ -29,12 +29,12 @@ echo ==========================================
 echo.
 
 echo ========================================= >> "%LOG%" 2>&1
-echo  Thoth v3.23.1 - Install log              >> "%LOG%" 2>&1
+echo  Row-Bot v4.0.0 - Install log              >> "%LOG%" 2>&1
 echo  Install dir: %INSTALL_DIR%               >> "%LOG%" 2>&1
 echo  Date: %DATE% %TIME%                      >> "%LOG%" 2>&1
 echo ========================================= >> "%LOG%" 2>&1
 
-:: ── 1. Patch embedded Python for pip support ────────────────────────────────
+:: â”€â”€ 1. Patch embedded Python for pip support â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 echo [1/5] Patching Python configuration...
 echo Patching ._pth files... >> "%LOG%" 2>&1
 for %%f in ("%PYTHON_DIR%\python*._pth") do (
@@ -66,7 +66,7 @@ for %%f in ("%PYTHON_DIR%\python*._pth") do (
     )
 )
 
-:: ── 2. Install pip ──────────────────────────────────────────────────────────
+:: â”€â”€ 2. Install pip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 echo [2/5] Installing pip...
 echo Installing pip... >> "%LOG%" 2>&1
 "%PYTHON%" "%INSTALL_DIR%\get-pip.py" --no-warn-script-location >> "%LOG%" 2>&1
@@ -80,7 +80,7 @@ if %ERRORLEVEL% NEQ 0 (
 :: Add Scripts dir to PATH so pip-installed commands are found
 set "PATH=%PYTHON_DIR%\Scripts;%PYTHON_DIR%;%PATH%"
 
-:: ── 3. Install build tools ──────────────────────────────────────────────────
+:: â”€â”€ 3. Install build tools â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 echo [3/5] Installing build tools...
 echo Installing setuptools and wheel... >> "%LOG%" 2>&1
 "%PYTHON%" -m pip install --no-warn-script-location setuptools wheel >> "%LOG%" 2>&1
@@ -89,8 +89,8 @@ if %ERRORLEVEL% NEQ 0 (
     echo WARNING: Build tools failed, continuing anyway...
 )
 
-:: ── 4. Optionally download and install Ollama ──────────────────────────────
-:: Ollama is only needed for local language models.  Thoth can run entirely
+:: â”€â”€ 4. Optionally download and install Ollama â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+:: Ollama is only needed for local language models.  Row-Bot can run entirely
 :: with cloud models (OpenAI / OpenRouter) so Ollama is optional.
 echo.
 echo [4/5] Ollama (local AI models)
@@ -142,7 +142,7 @@ del "%OLLAMA_EXE%" >NUL 2>&1
 
 :skip_ollama
 
-:: ── 5. Install Python packages ──────────────────────────────────────────────
+:: â”€â”€ 5. Install Python packages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 echo [5/5] Installing Python packages (this may take several minutes)...
 echo Installing Python packages from requirements.txt... >> "%LOG%" 2>&1
 "%PYTHON%" -m pip install --no-warn-script-location -r "%APP_DIR%\requirements.txt" >> "%LOG%" 2>&1
@@ -153,7 +153,7 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 
-:: ── 6. Install Playwright Chromium browser ──────────────────────────────────
+:: â”€â”€ 6. Install Playwright Chromium browser â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 echo Verifying required runtime packages... >> "%LOG%" 2>&1
 "%PYTHON%" "%APP_DIR%\scripts\verify_runtime_dependencies.py" >> "%LOG%" 2>&1
 if %ERRORLEVEL% NEQ 0 (

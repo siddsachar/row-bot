@@ -1,4 +1,4 @@
-"""Thoth self-knowledge — identity, capabilities, and dynamic state.
+"""Row-Bot self-knowledge: identity, capabilities, and dynamic state.
 
 Provides the self-aware context block that is injected into the agent's
 system prompt so it can accurately answer questions about itself, its
@@ -11,6 +11,7 @@ import logging
 from typing import Optional
 
 from identity import get_identity_config, get_assistant_name, _DEFAULT_NAME  # get_assistant_name re-exported for convenience
+from brand import DEFAULT_DATA_DIR_NAME, DEFAULT_WORKSPACE_DIR_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +24,12 @@ _ABOUT_THOTH_INTRO = (
     "You are a personal AI agent that runs locally on the user's machine.\n"
     "You combine a large language model with integrated tools, a persistent\n"
     "knowledge graph, and a task automation engine. All data is stored locally\n"
-    "in ~/.thoth/. You are open-source.\n\n"
+    f"in ~/{DEFAULT_DATA_DIR_NAME}/. You are open-source.\n\n"
 )
 
 _ABOUT_THOTH_OUTRO = (
     "When the user asks about your features, capabilities, or how to configure\n"
-    "something, draw on the above knowledge. You can also use the thoth_status\n"
+    "something, draw on the above knowledge. You can also use the row_bot_status\n"
     "tool (when available) to look up live configuration details.\n"
 )
 
@@ -46,14 +47,14 @@ SKILL_CREATION_GUIDANCE = (
     "- Ask the user before creating: 'Would you like me to save this as a\n"
     "  skill so I can do it better next time?'\n"
     "- Skills are additive — never overwrite an existing skill with the same name.\n"
-    "- Use thoth_create_skill with a clear name, description, and step-by-step\n"
+    "- Use row_bot_create_skill with a clear name, description, and step-by-step\n"
     "  instructions distilled from what worked.\n\n"
     "PATCHING SKILLS:\n"
     "- If you notice a skill's instructions are incomplete or could be improved\n"
     "  based on experience, you can propose a patch.\n"
     "- Maximum 1 patch proposal per conversation — be selective.\n"
     "- Always explain what you want to change and why.\n"
-    "- Use thoth_patch_skill — it requires user confirmation and backs up\n"
+    "- Use row_bot_patch_skill — it requires user confirmation and backs up\n"
     "  the original automatically.\n"
     "- Bundled skills are patched via user-space override (originals preserved).\n"
     "- Tool guides CANNOT be patched — report discrepancies as memories instead.\n"
@@ -69,7 +70,7 @@ SKILL_CREATION_GUIDANCE = (
     "- Do NOT save trivial issues — only patterns worth remembering.\n"
     "\n"
     "SKILL INSTRUCTIONS FORMAT:\n"
-    "When writing instructions for thoth_create_skill or thoth_patch_skill,\n"
+    "When writing instructions for row_bot_create_skill or row_bot_patch_skill,\n"
     "follow this structure:\n"
     "- Opening paragraph: describe what the skill does and when it activates.\n"
     "- Use ## headers for major sections.\n"
@@ -159,7 +160,7 @@ FEATURE_MANIFEST: list[dict[str, str]] = [
     {
         "feature": "File Operations",
         "keywords": "files, workspace, read, write, create, export, pdf, csv, excel",
-        "description": "Read, write, and organize files in the sandboxed workspace (~/Documents/Thoth).",
+        "description": f"Read, write, and organize files in the sandboxed workspace (~/Documents/{DEFAULT_WORKSPACE_DIR_NAME}).",
         "configure": "Settings → System to configure workspace path.",
     },
     {
@@ -298,7 +299,7 @@ def build_identity_line() -> str:
 
 
 def get_dynamic_state() -> str:
-    """Build a short summary of Thoth's current runtime state.
+    """Build a short summary of Row-Bot's current runtime state.
 
     Uses lazy imports to avoid circular dependencies and only queries
     state that is cheap to compute.
@@ -392,7 +393,7 @@ def get_dynamic_state() -> str:
     except Exception:
         pass
 
-    # Pending Thoth update (auto-update)
+    # Pending Row-Bot update (auto-update)
     try:
         import updater
         info = updater.get_update_state().available
@@ -400,7 +401,7 @@ def get_dynamic_state() -> str:
             parts.append(
                 f"- Update available: v{info.version} ({info.channel} channel) — "
                 f"the user can install via Settings → Preferences → Updates "
-                f"or by asking you to run thoth_install_update."
+                f"or by asking you to run row_bot_install_update."
             )
     except Exception:
         pass

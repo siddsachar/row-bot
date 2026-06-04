@@ -9,11 +9,12 @@ import pathlib
 import threading
 from typing import Any
 
+from data_paths import get_row_bot_data_dir
 from .state import BuddyMode
 
 logger = logging.getLogger(__name__)
 
-_DATA_DIR = pathlib.Path(os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth"))
+_DATA_DIR = get_row_bot_data_dir()
 _BUDDY_CONFIG_PATH = _DATA_DIR / "buddy_config.json"
 
 _DEFAULT_CONFIG: dict[str, Any] = {

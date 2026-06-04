@@ -37,6 +37,7 @@ from telegram.ext import (
 )
 
 import agent as agent_mod
+from brand import APP_DISPLAY_NAME
 from channels import commands as ch_commands
 from channels.base import Channel, ChannelCapabilities, ConfigField
 from channels.auth_store import get_channel_secret
@@ -521,12 +522,12 @@ async def _cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not _is_authorised(update):
         await update.message.reply_text(
             f"⛔ Unauthorised. Your user ID is {update.effective_user.id}. "
-            "Add this ID in Thoth → Settings → Channels to authorise."
+            f"Add this ID in {APP_DISPLAY_NAME} → Settings → Channels to authorise."
         )
         return
     await _send_html(
         update.message,
-        "𓁟 <b>Thoth</b> is connected!\n\n"
+        f"<b>{APP_DISPLAY_NAME}</b> is connected!\n\n"
         "Send me any message and I'll respond using your configured agent.\n\n"
         "Commands:\n"
         "/newthread — Start a fresh conversation\n"

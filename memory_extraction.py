@@ -19,12 +19,12 @@ import threading
 import time
 from datetime import datetime
 
+from data_paths import get_row_bot_data_dir
+
 logger = logging.getLogger(__name__)
 
 # ── Persistence ──────────────────────────────────────────────────────────────
-_DATA_DIR = pathlib.Path(
-    os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")
-)
+_DATA_DIR = get_row_bot_data_dir()
 _DATA_DIR.mkdir(parents=True, exist_ok=True)
 _STATE_FILE = _DATA_DIR / "memory_extraction_state.json"
 _JOURNAL_FILE = _DATA_DIR / "extraction_journal.json"
@@ -835,7 +835,7 @@ def start_periodic_extraction() -> None:
             except Exception as exc:
                 logger.warning("Periodic extraction failed: %s", exc)
 
-    _timer_thread = threading.Thread(target=_loop, daemon=True, name="thoth-mem-extract")
+    _timer_thread = threading.Thread(target=_loop, daemon=True, name="row-bot-mem-extract")
     _timer_thread.start()
     logger.info("Periodic memory extraction scheduled every %d hours", _INTERVAL_S // 3600)
 
@@ -858,7 +858,7 @@ def schedule_idle_extraction(delay_s: float = _IDLE_DELAY_S) -> None:
         except Exception as exc:
             logger.warning("Startup idle extraction failed: %s", exc)
 
-    _idle_once_thread = threading.Thread(target=_run, daemon=True, name="thoth-mem-idle-once")
+    _idle_once_thread = threading.Thread(target=_run, daemon=True, name="row-bot-mem-idle-once")
     _idle_once_thread.start()
     logger.info("Startup memory extraction deferred until idle")
 

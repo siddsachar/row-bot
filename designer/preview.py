@@ -114,7 +114,7 @@ def _build_logo_overlay(project: DesignerProject | None, brand: BrandConfig) -> 
     if not image_html:
         return ""
     return (
-        f'<div data-thoth-brand-logo="auto" aria-hidden="true" '
+        f'<div data-row-bot-brand-logo="auto" aria-hidden="true" '
         f'style="position:absolute;{_logo_corner_style(brand)}'
         f'z-index:2147483000;pointer-events:none;">'
         f'{image_html}'
@@ -363,9 +363,9 @@ def render_multi_route_html(
             if not inner:
                 inner = rendered
         sections.append(
-            f'<section data-thoth-route-host="1" '
-            f'data-thoth-route="{rid}" '
-            f'data-thoth-route-index="{idx}" '
+            f'<section data-row-bot-route-host="1" '
+            f'data-row-bot-route="{rid}" '
+            f'data-row-bot-route-index="{idx}" '
             f'aria-label="{_escape_attr(page.title)}">'
             f'{inner}'
             f'</section>'
@@ -738,9 +738,9 @@ def _setup_message_listener(
     # Register JS listener that forwards postMessage events to the bridge element
     js = f"""
     (function() {{
-        window.__thothDesignerBridgeId = {bridge.id};
-        if (window.__thothDesignerListener) return;
-        window.__thothDesignerListener = true;
+        window.__rowBotDesignerBridgeId = {bridge.id};
+        if (window.__rowBotDesignerListener) return;
+        window.__rowBotDesignerListener = true;
 
         window.addEventListener('message', function(e) {{
             var data = e.data;
@@ -748,7 +748,7 @@ def _setup_message_listener(
             if (data.type === 'element-click' || data.type === 'text-edit' ||
                 data.type === 'edit-start' || data.type === 'edit-cancel' ||
                 data.type === 'designer-undo-shortcut' || data.type === 'designer-redo-shortcut') {{
-                var bridge = getElement(window.__thothDesignerBridgeId);
+                var bridge = getElement(window.__rowBotDesignerBridgeId);
                 if (!bridge) return;
                 var bridgeEvent = new Event('bridge_msg', {{ bubbles: true }});
                 bridgeEvent.msgType = data.type;

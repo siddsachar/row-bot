@@ -3,7 +3,7 @@
 Reads ``runtime_bridge.js`` / ``runtime_bridge.css`` from disk and
 injects them into an assembled multi-route HTML document for preview or
 publish.  The injected ``<script>`` is tagged with
-``data-thoth-runtime="1"`` so ``sanitize_agent_html`` leaves it alone.
+``data-row-bot-runtime="1"`` so ``sanitize_agent_html`` leaves it alone.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import json
 import pathlib
 from functools import lru_cache
 
-RUNTIME_MARKER_ATTR = "data-thoth-runtime"
+RUNTIME_MARKER_ATTR = "data-row-bot-runtime"
 
 _RUNTIME_DIR = pathlib.Path(__file__).resolve().parent
 _JS_PATH = _RUNTIME_DIR / "runtime_bridge.js"
@@ -50,20 +50,20 @@ def inject_runtime(
     """Inject the runtime CSS + JS (+ route metadata) into a full HTML doc.
 
     The HTML is expected to already contain one or more
-    ``<section data-thoth-route="…">`` blocks inside <body>.
+    ``<section data-row-bot-route="…">`` blocks inside <body>.
     """
     js_text, css_text = read_runtime_assets()
     style_block = (
-        '<style data-thoth-runtime="1">\n' + css_text + "\n</style>"
+        '<style data-row-bot-runtime="1">\n' + css_text + "\n</style>"
     )
     routes_block = (
-        '<script type="application/json" id="__thoth_routes__" '
-        'data-thoth-runtime="1">'
+        '<script type="application/json" id="__row_bot_routes__" '
+        'data-row-bot-runtime="1">'
         + (routes_payload or "{}")
         + "</script>"
     )
     script_block = (
-        '<script data-thoth-runtime="1">\n' + js_text + "\n</script>"
+        '<script data-row-bot-runtime="1">\n' + js_text + "\n</script>"
     )
 
     # Style goes in <head>; route payload + script go just before </body>.

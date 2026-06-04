@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 import urllib.error
 import urllib.request
 
+from data_paths import get_row_bot_data_dir
+
 try:
     import ollama as _ollama_mod
 except ImportError:
@@ -201,7 +203,7 @@ def _coerce_context_size(
     return parsed if parsed > 0 else fallback
 
 
-_DATA_DIR = pathlib.Path(os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth"))
+_DATA_DIR = get_row_bot_data_dir()
 _SETTINGS_PATH = _DATA_DIR / "model_settings.json"
 _CLOUD_CACHE_PATH = _DATA_DIR / "cloud_models_cache.json"
 _CONTEXT_CATALOG_PATH = _DATA_DIR / "context_catalog_cache.json"

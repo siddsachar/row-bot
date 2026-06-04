@@ -1,4 +1,4 @@
-"""Thoth UI — export conversation dialog.
+"""Row-Bot UI export conversation dialog.
 
 Self-contained dialog builder.  Receives ``state`` and ``p`` explicitly.
 """
@@ -10,6 +10,7 @@ import os
 import pathlib
 import re
 
+from brand import APP_NATIVE_ENV
 from nicegui import ui
 
 from ui.state import AppState, P
@@ -31,7 +32,7 @@ def _save_export(data: bytes, filename: str) -> None:
     In browser mode we use the normal ``ui.download()`` API.
     """
     filename = _safe_filename(filename)
-    if os.environ.get("THOTH_NATIVE") == "1":
+    if os.environ.get(APP_NATIVE_ENV) == "1":
         dl_dir = pathlib.Path.home() / "Downloads"
         dl_dir.mkdir(parents=True, exist_ok=True)
         dest = dl_dir / filename

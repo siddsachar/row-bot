@@ -241,13 +241,13 @@ def _fill_checkpoint_stats(result: RunResult) -> None:
         result.notes.append(f"checkpoint_read_error={exc}")
 
 
-def run_thoth_agent(prompt: str, model: str, ctx: int, iteration: int, *, cleanup: bool) -> RunResult:
+def run_row_bot_agent(prompt: str, model: str, ctx: int, iteration: int, *, cleanup: bool) -> RunResult:
     from agent import clear_agent_cache, stream_agent
     from threads import _delete_thread, _save_thread_meta
     from tools import registry as tool_registry
 
     del ctx
-    result = RunResult("thoth_agent_stream", iteration, prompt, model)
+    result = RunResult("row_bot_agent_stream", iteration, prompt, model)
     thread_id = f"diag{uuid.uuid4().hex[:8]}"
     result.thread_id = thread_id
     _save_thread_meta(thread_id, f"Reasoning diagnostic {thread_id}")
@@ -315,8 +315,8 @@ def main() -> int:
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument(
         "--cases",
-        default="direct,lc_plain,lc_one_tool,lc_enabled_tools,thoth_agent",
-        help="Comma-separated cases: direct,lc_plain,lc_one_tool,lc_enabled_tools,thoth_agent",
+        default="direct,lc_plain,lc_one_tool,lc_enabled_tools,row_bot_agent",
+        help="Comma-separated cases: direct,lc_plain,lc_one_tool,lc_enabled_tools,row_bot_agent",
     )
     parser.add_argument("--keep-threads", action="store_true")
     args = parser.parse_args()
@@ -330,8 +330,8 @@ def main() -> int:
     results: list[RunResult] = []
     for iteration in range(1, max(1, args.repeat) + 1):
         for case in selected_cases:
-            if case == "thoth_agent":
-                result = run_thoth_agent(
+            if case == "row_bot_agent":
+                result = run_row_bot_agent(
                     args.prompt,
                     args.model,
                     args.ctx,

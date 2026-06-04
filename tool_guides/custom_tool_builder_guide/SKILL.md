@@ -24,7 +24,7 @@ Default flow:
 7. Use `action="enable"` for Developer availability and `action="promote"` only when the user explicitly wants it available in normal chat/workflows.
 
 Rules:
-- Do not ask the user to hand-write `thoth-custom-tool.json` or internal config files.
+- Do not ask the user to hand-write `row-bot-custom-tool.json` or internal config files.
 - Use `custom_tool_builder` for lifecycle state: clone/import source, draft, refine, create, enable, promote, delete.
 - Shell can help with extra read-only inspection or explicit user-approved command testing when the builder needs more evidence.
 - Do not use shell to manually register, enable, promote, delete, or edit Custom Tool metadata.

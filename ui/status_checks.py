@@ -1,4 +1,4 @@
-"""Thoth UI — system health checks for the status bar.
+"""Row-Bot UI system health checks for the status bar.
 
 Each check returns a ``CheckResult`` with a uniform interface.
 All checks are read-only and non-destructive.
@@ -8,18 +8,16 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import pathlib
 import sqlite3
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from data_paths import get_row_bot_data_dir
+
 logger = logging.getLogger(__name__)
 
-_DATA_DIR = pathlib.Path(
-    os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")
-)
+_DATA_DIR = get_row_bot_data_dir()
 
 
 # ═════════════════════════════════════════════════════════════════════════════

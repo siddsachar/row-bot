@@ -7,7 +7,7 @@ from voice.speech_policy import clean_for_speech, split_sentences
 
 @dataclass
 class RealtimeSpeechChunker:
-    """Turn streamed Thoth text into bounded chunks suitable for Realtime speech."""
+    """Turn streamed Row-Bot text into bounded chunks suitable for Realtime speech."""
 
     buffer: str = ""
     max_chunks: int = 4
@@ -63,7 +63,7 @@ class RealtimeSpeechChunker:
 
 @dataclass
 class RealtimeSpeechQueue:
-    """Coverage-aware Realtime speech queue for streamed Thoth answers."""
+    """Coverage-aware Realtime speech queue for streamed Row-Bot answers."""
 
     max_spoken_chunks: int = 4
     max_flush_chars: int = 320

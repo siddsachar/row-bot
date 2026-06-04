@@ -18,6 +18,8 @@ import time
 from datetime import datetime
 from typing import Any, Callable
 
+from brand import APP_DISPLAY_NAME, DEFAULT_DATA_DIR_NAME
+from data_paths import get_row_bot_data_dir
 from nicegui import events, run, ui
 
 from stability import log_performance_snapshot
@@ -442,7 +444,7 @@ def open_settings(
 
         with _settings_section(
             "Window Mode",
-            "Choose how Thoth opens on launch. Takes effect next time the app starts.",
+            f"Choose how {APP_DISPLAY_NAME} opens on launch. Takes effect next time the app starts.",
             icon="web_asset",
         ):
             _wm_cfg = load_app_config()
@@ -462,7 +464,7 @@ def open_settings(
                     on_change=_on_window_mode_change,
                 ).classes("w-64").props("dense outlined").tooltip("Takes effect on next launch")
                 ui.label(
-                    "Native Window gives Thoth its own app window. System Browser uses your default browser."
+                    f"Native Window gives {APP_DISPLAY_NAME} its own app window. System Browser uses your default browser."
                 ).classes("text-grey-6 text-xs")
 
     def _build_dream_cycle_section() -> None:
@@ -651,7 +653,7 @@ def open_settings(
                 value=main_app_val,
             )
             main_app_switch.tooltip(
-                "Tunnel the main Thoth port so external services can trigger "
+                f"Tunnel the main {APP_DISPLAY_NAME} port so external services can trigger "
                 "task webhooks via /api/webhook/{task_id}. This also exposes "
                 "the web UI via the tunnel URL."
             )
@@ -836,7 +838,7 @@ def open_settings(
                 # Queue background knowledge extraction
                 try:
                     from document_extraction import queue_extraction
-                    staging_dir = pathlib.Path.home() / ".thoth" / "doc_staging"
+                    staging_dir = get_row_bot_data_dir() / "doc_staging"
                     staging_dir.mkdir(parents=True, exist_ok=True)
                     staging_path = staging_dir / name
                     import shutil
@@ -1239,7 +1241,7 @@ def open_settings(
                     "Controls how many tokens the local model can process; higher values use more VRAM."
                 )
                 ctx_select.visible = not _is_cloud_ctx
-                brain_refresh_btn = ui.button(icon="refresh", on_click=lambda: _reopen("Models")).props("flat dense round size=sm color=primary").tooltip("Refresh after managing Ollama models outside Thoth")
+                brain_refresh_btn = ui.button(icon="refresh", on_click=lambda: _reopen("Models")).props("flat dense round size=sm color=primary").tooltip(f"Refresh after managing Ollama models outside {APP_DISPLAY_NAME}")
                 brain_empty = ui.label("No pinned Brain choices yet. Pin Chat models in the catalog below.").classes("text-grey-6 text-xs q-pb-sm")
                 brain_empty.visible = not _has_pinned_picker_choice(chat_options)
             ctx_note = ui.label("").classes("text-xs text-grey-6 q-ml-lg")
@@ -1289,7 +1291,7 @@ def open_settings(
                     refresh_cameras_btn.enable()
 
                 refresh_cameras_btn.on_click(_refresh_cameras)
-                vision_refresh_btn = ui.button(icon="refresh", on_click=lambda: _reopen("Models")).props("flat dense round size=sm color=primary").tooltip("Refresh after managing Ollama models outside Thoth")
+                vision_refresh_btn = ui.button(icon="refresh", on_click=lambda: _reopen("Models")).props("flat dense round size=sm color=primary").tooltip(f"Refresh after managing Ollama models outside {APP_DISPLAY_NAME}")
                 vision_empty = ui.label("No pinned Vision choices yet. Pin Vision models in the catalog below.").classes("text-grey-6 text-xs q-pb-sm")
                 vision_empty.visible = not _has_pinned_picker_choice(vision_options)
                 vision_missing = ui.label(
@@ -1759,7 +1761,7 @@ def open_settings(
                             ),
                         ).props("flat dense color=primary no-caps")
                 if snapshot.is_empty:
-                    ui.label("Model catalog cache is warming up. You can keep using the selectors above while Thoth refreshes in the background.").classes("text-grey-6 text-sm")
+                    ui.label(f"Model catalog cache is warming up. You can keep using the selectors above while {APP_DISPLAY_NAME} refreshes in the background.").classes("text-grey-6 text-sm")
                 build_lazy_model_catalog_section(
                     _load_catalog_rows_from_cache,
                     on_set_default=_set_catalog_default,
@@ -2228,7 +2230,7 @@ def open_settings(
                                 "Available" if _available else "Off",
                                 color="green" if _available else "grey",
                             ).props("outline").tooltip(
-                                "Available skills can be selected in the chat skill picker and suggested by Thoth."
+                                f"Available skills can be selected in the chat skill picker and suggested by {APP_DISPLAY_NAME}."
                             )
                             _tel = skill_telemetry.get(sk.name, {})
                             _uses = int(_tel.get("usage_count", 0) or 0)
@@ -2705,7 +2707,7 @@ def open_settings(
         # ── Logging ──────────────────────────────────────────────────
         with _settings_section(
             "📝 Logging",
-            "Structured logs are saved daily to ~/.thoth/logs/ with 7-day retention.",
+            f"Structured logs are saved daily to ~/{DEFAULT_DATA_DIR_NAME}/logs/ with 7-day retention.",
         ):
             from logging_config import get_file_log_level, set_file_log_level, get_log_dir
 
@@ -2788,7 +2790,7 @@ def open_settings(
                         ui.markdown(
                             "1. Open [Google Cloud Console](https://console.cloud.google.com)\n"
                             "2. Click the project dropdown (top bar) → **New Project**\n"
-                            "3. Name it anything (e.g. *Thoth*) → **Create**\n"
+                            f"3. Name it anything (e.g. *{APP_DISPLAY_NAME}*) → **Create**\n"
                             "4. Make sure the new project is selected in the dropdown",
                         )
                         with ui.stepper_navigation():
@@ -2806,7 +2808,7 @@ def open_settings(
                         ui.markdown(
                             "1. Go to **APIs & Services → OAuth consent screen**\n"
                             '2. Select **External** → **Create**\n'
-                            "3. Fill in App name (e.g. *Thoth*), your email → **Save and Continue**\n"
+                            f"3. Fill in App name (e.g. *{APP_DISPLAY_NAME}*), your email → **Save and Continue**\n"
                             "4. On **Scopes** page → just click **Save and Continue**\n"
                             "5. On **Test users** → **Add Users** → add your Gmail address → **Save**",
                         )
@@ -3090,7 +3092,7 @@ def open_settings(
             with ui.expansion("Setup Guide", icon="help_outline").classes("w-full"):
                 ui.markdown(
                     "Preferred: install GitHub CLI, then run `gh auth login -h github.com` in a terminal. "
-                    "Thoth can reuse that authentication for read-only GitHub API calls.\n\n"
+                    f"{APP_DISPLAY_NAME} can reuse that authentication for read-only GitHub API calls.\n\n"
                     "If GitHub CLI already exists but the token is stale, run `gh auth refresh -h github.com` "
                     "or use the reconnect buttons below.\n\n"
                     "Token fallback: create a fine-grained personal access token. Public skill browsing only needs "
@@ -3255,7 +3257,7 @@ def open_settings(
                     with ui.step("Create a Project & App"):
                         ui.markdown(
                             "1. In the Developer Portal, click **+ Create Project**\n"
-                            "2. Name it (e.g. *Thoth*) → select a use case → **Next**\n"
+                            f"2. Name it (e.g. *{APP_DISPLAY_NAME}*) → select a use case → **Next**\n"
                             "3. An App will be created automatically\n"
                             "4. Go to your App's **Settings** tab",
                         )
@@ -3741,7 +3743,7 @@ def open_settings(
                             f"{len(edited)} file{'s' if len(edited) != 1 else ''} edited in vault"
                         ).classes("font-bold text-amber-10")
                     ui.label(
-                        "These files were modified outside Thoth. "
+                        f"These files were modified outside {APP_DISPLAY_NAME}. "
                         "Sync to import changes into the knowledge graph."
                     ).classes("text-xs text-grey-7")
 
@@ -4520,7 +4522,7 @@ def open_settings(
 
         with _settings_section(
             "Talk",
-            "Continuous voice conversation with normal Thoth. Talk may call the LLM, tools, browser automation, and approvals through the existing agent path.",
+            f"Continuous voice conversation with normal {APP_DISPLAY_NAME}. Talk may call the LLM, tools, browser automation, and approvals through the existing agent path.",
             icon="record_voice_over",
         ):
             ui.label("Local Talk keeps microphone transcription on this machine. OpenAI Realtime sends live microphone audio to OpenAI while Talk is active.").classes("text-grey-6 text-xs")
@@ -4540,11 +4542,11 @@ def open_settings(
                     on_change=lambda e: _set_voice_runtime(talk_model=e.value),
                 ).classes("w-full").props("dense outlined")
             if talk_provider_value == "local":
-                ui.label("Local Talk uses local speech-to-text, then sends the finished text through the normal Thoth chat path.").classes("text-grey-6 text-xs")
+                ui.label(f"Local Talk uses local speech-to-text, then sends the finished text through the normal {APP_DISPLAY_NAME} chat path.").classes("text-grey-6 text-xs")
                 caption_label = "Local captions"
                 caption_copy = "Shows local transcript text while Talk is listening."
             else:
-                ui.label("Realtime Talk is a live voice-agent session. Substantive work still routes through Thoth's consult/control bridge.").classes("text-grey-6 text-xs")
+                ui.label(f"Realtime Talk is a live voice-agent session. Substantive work still routes through {APP_DISPLAY_NAME}'s consult/control bridge.").classes("text-grey-6 text-xs")
                 caption_label = "Realtime captions"
                 caption_copy = "Shows live transcript text while the Realtime session is active."
             ui.switch(
@@ -4559,7 +4561,7 @@ def open_settings(
                     value=runtime_settings.realtime_fallback_to_local,
                     on_change=lambda e: _set_voice_runtime(realtime_fallback_to_local=bool(e.value)),
                 )
-                ui.label("If Realtime cannot connect, Talk falls back to local microphone transcription plus the normal Thoth response flow.").classes("text-grey-6 text-xs")
+                ui.label(f"If Realtime cannot connect, Talk falls back to local microphone transcription plus the normal {APP_DISPLAY_NAME} response flow.").classes("text-grey-6 text-xs")
 
         if talk_provider_value == "openai_realtime":
             with _settings_section(
@@ -4611,7 +4613,7 @@ def open_settings(
 
         with _settings_section(
             "Normal Read-Aloud",
-            "Hear non-Realtime Thoth responses aloud using local Kokoro voices.",
+            f"Hear non-Realtime {APP_DISPLAY_NAME} responses aloud using local Kokoro voices.",
             icon="volume_up",
         ):
             ui.label("Normal Read-Aloud is local text chat playback. Realtime Talk uses the separate Realtime Talk Voice settings above.").classes("text-grey-6 text-xs")
@@ -4672,7 +4674,7 @@ def open_settings(
                           on_change=lambda e: setattr(tts, "auto_speak", e.value))
 
                 def _test():
-                    tts.speak_now("Hello! I'm Thoth, your knowledgeable personal agent.")
+                    tts.speak_now(f"Hello! I'm {APP_DISPLAY_NAME}, your knowledgeable personal agent.")
 
                 ui.button("Test voice", icon="volume_up", on_click=_test).props("flat no-caps")
 
@@ -4792,7 +4794,7 @@ def open_settings(
                 summary_label = ", ".join(f"{key.replace('_', ' ')}: {value}ms" for key, value in latency_summary.items())
                 ui.label(f"Turn timing: {summary_label}").classes("text-grey-6 text-xs")
             ui.label(
-                f"Active ids: response={snapshot.get('active_realtime_response_id') or 'none'}, generation={snapshot.get('active_thoth_generation_id') or 'none'}"
+                f"Active ids: response={snapshot.get('active_realtime_response_id') or 'none'}, generation={snapshot.get('active_row_bot_generation_id') or 'none'}"
             ).classes("text-grey-6 text-xs")
             ui.label("Talk may call LLMs and tools. Realtime sessions can have ongoing provider cost while active.").classes("text-grey-6 text-xs")
             ui.button("Open Providers", icon="vpn_key", on_click=lambda: _reopen("Providers")).props("flat dense no-caps")
@@ -4806,7 +4808,7 @@ def open_settings(
         # ── Messaging Channels ───────────────────────────────────
         _settings_header(
             "Channels",
-            "Connect Thoth to external messaging platforms. Tunnel credentials live in System.",
+            f"Connect {APP_DISPLAY_NAME} to external messaging platforms. Tunnel credentials live in System.",
             "forum",
         )
 
@@ -5262,7 +5264,7 @@ def open_settings(
         # ── Migration utility ───────────────────────────────────
         ui.label("Migration").classes("text-subtitle2")
         ui.label(
-            "Import selected data from Hermes Agent or OpenClaw when setting up Thoth."
+            f"Import selected data from Hermes Agent or OpenClaw when setting up {APP_DISPLAY_NAME}."
         ).classes("text-grey-6 text-xs")
         ui.button(
             "Open Migration Wizard",

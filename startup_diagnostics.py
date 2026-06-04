@@ -1,6 +1,6 @@
 """Startup diagnostics for optional native dependencies.
 
-Thoth ships a self-contained Python runtime, but user-approved shell commands
+Row-Bot ships a self-contained Python runtime, but user-approved shell commands
 can still install extra packages into that runtime. A broken optional native
 package can then crash startup before the UI has a chance to explain the fix.
 """
@@ -14,6 +14,8 @@ import sys
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+
+from brand import APP_DISPLAY_NAME
 
 
 logger = logging.getLogger(__name__)
@@ -126,12 +128,12 @@ def _recovery_hint(package: str) -> str:
     if package == "torchcodec":
         site_packages = Path(sys.executable).resolve().parent / "Lib" / "site-packages"
         return (
-            "Thoth does not require TorchCodec for built-in TTS. Close Thoth and run "
+            f"{APP_DISPLAY_NAME} does not require TorchCodec for built-in TTS. Close {APP_DISPLAY_NAME} and run "
             f'"{sys.executable}" -m pip uninstall -y torchcodec. '
             "If pip cannot remove it, delete the torchcodec package and "
             f"torchcodec-*.dist-info from {site_packages}."
         )
-    return f'Close Thoth and remove the optional package with "{sys.executable}" -m pip uninstall -y {package}.'
+    return f'Close {APP_DISPLAY_NAME} and remove the optional package with "{sys.executable}" -m pip uninstall -y {package}.'
 
 
 def _disable_transformers_torchcodec(log: logging.Logger) -> None:

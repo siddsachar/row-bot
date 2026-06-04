@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from brand import APP_BRAND_ACCENT, APP_BRAND_ACCENT_RGB
+
 
 DIALOG_CARD_BASE_STYLE = (
     "background:"
-    "radial-gradient(circle at top left, rgba(59,130,246,0.16), transparent 30%),"
-    "radial-gradient(circle at top right, rgba(245,158,11,0.14), transparent 34%),"
+    f"radial-gradient(circle at top left, rgba({APP_BRAND_ACCENT_RGB},0.16), transparent 30%),"
+    f"radial-gradient(circle at top right, rgba({APP_BRAND_ACCENT_RGB},0.14), transparent 34%),"
     "linear-gradient(180deg, rgba(15,23,42,0.985), rgba(2,6,23,0.98));"
     "border: 1px solid rgba(148,163,184,0.16);"
     "border-radius: 28px;"
@@ -64,7 +66,7 @@ def surface_style(*, padding: str = "16px", strong: bool = False) -> str:
 
 
 def style_primary_button(button, *, compact: bool = False, round: bool = False):
-    """Apply the primary warm CTA treatment with dark text for contrast."""
+    """Apply the primary brand CTA treatment."""
 
     button.props("unelevated no-caps")
     size_style = (
@@ -77,11 +79,11 @@ def style_primary_button(button, *, compact: bool = False, round: bool = False):
         )
     )
     button.style(
-        "background: linear-gradient(180deg, #fcd34d, #f59e0b);"
-        "color: #111827;"
+        f"background: linear-gradient(180deg, #5D82A8, {APP_BRAND_ACCENT});"
+        "color: #ffffff;"
         "font-weight: 700;"
         "letter-spacing: 0.01em;"
-        "box-shadow: 0 14px 28px rgba(245,158,11,0.22);"
+        f"box-shadow: 0 14px 28px rgba({APP_BRAND_ACCENT_RGB},0.24);"
         + size_style
     )
     return button
@@ -136,12 +138,12 @@ def style_choice_button(button, *, active: bool):
     button.props("no-caps")
     if active:
         button.style(
-            "background: linear-gradient(180deg, #fde68a, #fbbf24);"
-            "color: #111827;"
+            f"background: linear-gradient(180deg, #5D82A8, {APP_BRAND_ACCENT});"
+            "color: #ffffff;"
             "border-radius: 999px;"
             "min-height: 36px; padding: 0 14px;"
             "font-weight: 700;"
-            "box-shadow: 0 10px 24px rgba(245,158,11,0.18);"
+            f"box-shadow: 0 10px 24px rgba({APP_BRAND_ACCENT_RGB},0.24);"
         )
     else:
         button.style(

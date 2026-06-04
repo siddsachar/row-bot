@@ -1389,13 +1389,13 @@ def _add_screen(title: str, route_id: str = "", html: str = "",
 
 
 def _patch_action_attribute(html: str, selector: str, action_value: str) -> tuple[str, bool]:
-    """Set data-thoth-action on the first element matching the selector."""
+    """Set data-row-bot-action on the first element matching the selector."""
     from bs4 import BeautifulSoup
     from designer.html_ops import ensure_element_identifier
     soup = BeautifulSoup(html, "html.parser")
     target = None
     try:
-        # Allow either a real CSS selector or a data-thoth-element-id token.
+        # Allow either a real CSS selector or a data-row-bot-element-id token.
         sel = (selector or "").strip()
         if not sel:
             return html, False
@@ -1408,13 +1408,13 @@ def _patch_action_attribute(html: str, selector: str, action_value: str) -> tupl
                 target = None
         if target is None:
             # Try element-id attr.
-            target = soup.find(attrs={"data-thoth-element-id": sel})
+            target = soup.find(attrs={"data-row-bot-element-id": sel})
     except Exception:
         target = None
     if target is None:
         return html, False
     ensure_element_identifier(target)
-    target["data-thoth-action"] = action_value
+    target["data-row-bot-action"] = action_value
     return str(soup), True
 
 
@@ -1868,7 +1868,7 @@ class DesignerTool(BaseTool):
                     description=(
                         "Wire a click on one element to navigate to another screen. "
                         "Input: source_route (existing route_id), selector (CSS selector or "
-                        "data-thoth-element-id), target_route (existing route_id), "
+                        "data-row-bot-element-id), target_route (existing route_id), "
                         "optional event ('click'), optional transition ('fade'/'slide_left'/'slide_up'/'none')."
                     ),
                 ),

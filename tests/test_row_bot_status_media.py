@@ -10,13 +10,14 @@ def _is_local_model(*installed):
 
 
 @pytest.fixture(autouse=True)
-def _isolated_thoth_data(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+def _isolated_row_bot_data(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("THOTH_DATA_DIR", raising=False)
 
 
-def test_thoth_status_normalizes_dynamic_image_model_label(monkeypatch):
+def test_row_bot_status_normalizes_dynamic_image_model_label(monkeypatch):
     import tools.image_gen_tool as image_gen_tool
-    from tools.thoth_status_tool import _normalize_provider_model_value
+    from tools.row_bot_status_tool import _normalize_provider_model_value
 
     monkeypatch.setattr(image_gen_tool, "get_available_image_models", lambda: {
         "openai/gpt-image-2": "⬡  GPT Image 2  (OpenAI)",
@@ -28,9 +29,9 @@ def test_thoth_status_normalizes_dynamic_image_model_label(monkeypatch):
     assert _normalize_provider_model_value("image_gen_model", "Nano Banana Pro") == "google/gemini-3-pro-image-preview"
 
 
-def test_thoth_status_normalizes_dynamic_video_model_label(monkeypatch):
+def test_row_bot_status_normalizes_dynamic_video_model_label(monkeypatch):
     import tools.video_gen_tool as video_gen_tool
-    from tools.thoth_status_tool import _normalize_provider_model_value
+    from tools.row_bot_status_tool import _normalize_provider_model_value
 
     monkeypatch.setattr(video_gen_tool, "get_available_video_models", lambda: {
         "google/veo-3.1-generate-preview": "💎  Veo 3.1  (Google)",
@@ -41,9 +42,9 @@ def test_thoth_status_normalizes_dynamic_video_model_label(monkeypatch):
     assert _normalize_provider_model_value("video_gen_model", "grok-imagine-video") == "xai/grok-imagine-video"
 
 
-def test_thoth_status_leaves_ambiguous_media_bare_id_unchanged(monkeypatch):
+def test_row_bot_status_leaves_ambiguous_media_bare_id_unchanged(monkeypatch):
     import tools.image_gen_tool as image_gen_tool
-    from tools.thoth_status_tool import _normalize_provider_model_value
+    from tools.row_bot_status_tool import _normalize_provider_model_value
 
     monkeypatch.setattr(image_gen_tool, "get_available_image_models", lambda: {
         "openai/shared-image": "⬡  Shared Image  (OpenAI)",
@@ -53,8 +54,8 @@ def test_thoth_status_leaves_ambiguous_media_bare_id_unchanged(monkeypatch):
     assert _normalize_provider_model_value("image_gen_model", "shared-image") == "shared-image"
 
 
-def test_thoth_status_voice_reports_runtime_and_realtime(monkeypatch):
-    from tools.thoth_status_tool import _query_voice
+def test_row_bot_status_voice_reports_runtime_and_realtime(monkeypatch):
+    from tools.row_bot_status_tool import _query_voice
 
     monkeypatch.setattr("voice.openai_realtime.get_key", lambda name: "")
 
@@ -68,21 +69,21 @@ def test_thoth_status_voice_reports_runtime_and_realtime(monkeypatch):
     assert "OpenAI Realtime:" in output
     assert "User-facing modes: Talk, Dictate" in output
     assert "Dictate policy: STT-only" in output
-    assert "Realtime brain strategy: thoth-consult" in output
+    assert "Realtime brain strategy: row-bot-consult" in output
     assert "Realtime direct normal-tool access: blocked" in output
-    assert "thoth_agent_consult" in output
-    assert "thoth_agent_control" in output
+    assert "row_bot_agent_consult" in output
+    assert "row_bot_agent_control" in output
     assert "Realtime quiet idle tool: wait_for_user" in output
-    assert "Active Thoth run:" in output
+    assert "Active Row-Bot run:" in output
     assert "sk_" not in output
     assert "ek_" not in output
 
 
-def test_thoth_status_voice_reports_active_run_controls(monkeypatch):
+def test_row_bot_status_voice_reports_active_run_controls(monkeypatch):
     import threading
     from types import SimpleNamespace
 
-    from tools.thoth_status_tool import _query_voice
+    from tools.row_bot_status_tool import _query_voice
     from ui.state import _active_generations
 
     monkeypatch.setattr("voice.openai_realtime.get_key", lambda name: "")
@@ -99,19 +100,19 @@ def test_thoth_status_voice_reports_active_run_controls(monkeypatch):
     finally:
         _active_generations.clear()
 
-    assert "Active Thoth runs: 1" in output
+    assert "Active Row-Bot runs: 1" in output
     assert "browser_open" in output
     assert "cancel=yes" in output
     assert "follow-up/steer=yes" in output
     assert "queued_controls=1" in output
 
 
-def test_thoth_status_media_update_seeds_quick_choices(monkeypatch):
+def test_row_bot_status_media_update_seeds_quick_choices(monkeypatch):
     import langgraph.types
     import providers.selection as provider_selection
     import tools.image_gen_tool as image_gen_tool
     import tools.registry as tool_registry
-    from tools.thoth_status_tool import _update_setting
+    from tools.row_bot_status_tool import _update_setting
 
     calls = []
     monkeypatch.setattr(langgraph.types, "interrupt", lambda payload: True)
@@ -128,11 +129,11 @@ def test_thoth_status_media_update_seeds_quick_choices(monkeypatch):
     assert ("seed", "media", "quick_choices") in calls
 
 
-def test_thoth_status_rejects_unknown_provider_chat_model(tmp_path, monkeypatch):
+def test_row_bot_status_rejects_unknown_provider_chat_model(tmp_path, monkeypatch):
     import api_keys
     import models
     import providers.config as provider_config
-    from tools.thoth_status_tool import _resolve_model_update_value
+    from tools.row_bot_status_tool import _resolve_model_update_value
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
@@ -146,11 +147,11 @@ def test_thoth_status_rejects_unknown_provider_chat_model(tmp_path, monkeypatch)
     assert "not in the current catalog" in str(error)
 
 
-def test_thoth_status_allows_installed_unknown_local_chat_model(tmp_path, monkeypatch):
+def test_row_bot_status_allows_installed_unknown_local_chat_model(tmp_path, monkeypatch):
     import api_keys
     import models
     import providers.config as provider_config
-    from tools.thoth_status_tool import _resolve_model_update_value
+    from tools.row_bot_status_tool import _resolve_model_update_value
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
@@ -164,11 +165,11 @@ def test_thoth_status_allows_installed_unknown_local_chat_model(tmp_path, monkey
     assert model_value == "gemma4:e4b"
 
 
-def test_thoth_status_rejects_local_model_without_vision_metadata(tmp_path, monkeypatch):
+def test_row_bot_status_rejects_local_model_without_vision_metadata(tmp_path, monkeypatch):
     import api_keys
     import models
     import providers.config as provider_config
-    from tools.thoth_status_tool import _resolve_model_update_value
+    from tools.row_bot_status_tool import _resolve_model_update_value
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
@@ -182,13 +183,13 @@ def test_thoth_status_rejects_local_model_without_vision_metadata(tmp_path, monk
     assert "does not have Vision capability metadata" in str(error)
 
 
-def test_thoth_status_vision_model_update_persists_valid_model(tmp_path, monkeypatch):
+def test_row_bot_status_vision_model_update_persists_valid_model(tmp_path, monkeypatch):
     import api_keys
     import langgraph.types
     import models
     import providers.config as provider_config
     import tools.vision_tool as vision_tool
-    from tools.thoth_status_tool import _update_setting
+    from tools.row_bot_status_tool import _update_setting
 
     calls = []
     vision_service = SimpleNamespace(model="moondream:latest")
@@ -208,14 +209,14 @@ def test_thoth_status_vision_model_update_persists_valid_model(tmp_path, monkeyp
     assert calls == ["clear"]
 
 
-def test_thoth_status_allows_codex_vision_quick_choice(tmp_path, monkeypatch):
+def test_row_bot_status_allows_codex_vision_quick_choice(tmp_path, monkeypatch):
     import api_keys
     import models
     import providers.config as provider_config
     import providers.runtime as provider_runtime
     from providers.codex import fallback_codex_model_infos
     from providers.selection import add_quick_choice_for_model
-    from tools.thoth_status_tool import _resolve_model_update_value
+    from tools.row_bot_status_tool import _resolve_model_update_value
 
     model_info = next(info for info in fallback_codex_model_infos() if info.model_id == "gpt-5.5")
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
@@ -236,11 +237,11 @@ def test_thoth_status_allows_codex_vision_quick_choice(tmp_path, monkeypatch):
     assert model_value == "gpt-5.5"
 
 
-def test_thoth_status_vision_reports_custom_provider_probe(tmp_path, monkeypatch):
+def test_row_bot_status_vision_reports_custom_provider_probe(tmp_path, monkeypatch):
     import providers.config as provider_config
     import vision
     from providers.custom import custom_provider_id, save_custom_endpoint
-    from tools.thoth_status_tool import _query_vision
+    from tools.row_bot_status_tool import _query_vision
 
     provider_id = custom_provider_id("lm-studio")
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
@@ -270,11 +271,11 @@ def test_thoth_status_vision_reports_custom_provider_probe(tmp_path, monkeypatch
     assert "Ollama" not in output
 
 
-def test_thoth_status_vision_reports_custom_provider_failure_without_ollama_wording(tmp_path, monkeypatch):
+def test_row_bot_status_vision_reports_custom_provider_failure_without_ollama_wording(tmp_path, monkeypatch):
     import providers.config as provider_config
     import vision
     from providers.custom import custom_provider_id, save_custom_endpoint
-    from tools.thoth_status_tool import _query_vision
+    from tools.row_bot_status_tool import _query_vision
 
     provider_id = custom_provider_id("lab")
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
@@ -303,11 +304,11 @@ def test_thoth_status_vision_reports_custom_provider_failure_without_ollama_word
     assert "not exposed by Ollama" not in output
 
 
-def test_thoth_status_vision_treats_stale_empty_probe_as_unverified(tmp_path, monkeypatch):
+def test_row_bot_status_vision_treats_stale_empty_probe_as_unverified(tmp_path, monkeypatch):
     import providers.config as provider_config
     import vision
     from providers.custom import custom_provider_id, save_custom_endpoint
-    from tools.thoth_status_tool import _query_vision
+    from tools.row_bot_status_tool import _query_vision
 
     provider_id = custom_provider_id("lm-studio")
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
@@ -336,11 +337,11 @@ def test_thoth_status_vision_treats_stale_empty_probe_as_unverified(tmp_path, mo
     assert "vision failed" not in output
 
 
-def test_thoth_status_vision_reports_manual_disabled_custom_endpoint(tmp_path, monkeypatch):
+def test_row_bot_status_vision_reports_manual_disabled_custom_endpoint(tmp_path, monkeypatch):
     import providers.config as provider_config
     import vision
     from providers.custom import custom_provider_id, save_custom_endpoint
-    from tools.thoth_status_tool import _query_vision
+    from tools.row_bot_status_tool import _query_vision
 
     provider_id = custom_provider_id("lm-studio")
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
@@ -380,18 +381,18 @@ def test_thoth_status_vision_reports_manual_disabled_custom_endpoint(tmp_path, m
     assert "- Vision compatibility: manual vision capability disabled" in output
 
 
-def test_thoth_status_update_setting_description_mentions_vision_model():
-    from tools.thoth_status_tool import ThothStatusTool
+def test_row_bot_status_update_setting_description_mentions_vision_model():
+    from tools.row_bot_status_tool import RowBotStatusTool
 
-    tools = {tool.name: tool for tool in ThothStatusTool().as_langchain_tools()}
+    tools = {tool.name: tool for tool in RowBotStatusTool().as_langchain_tools()}
 
-    assert "vision_model" in tools["thoth_update_setting"].description
+    assert "vision_model" in tools["row_bot_update_setting"].description
 
 
-def test_thoth_status_guide_mentions_custom_vision_override_states():
+def test_row_bot_status_guide_mentions_custom_vision_override_states():
     import pathlib
 
-    guide = pathlib.Path("tool_guides/thoth_status_guide/SKILL.md").read_text(encoding="utf-8").lower()
+    guide = pathlib.Path("tool_guides/row_bot_status_guide/SKILL.md").read_text(encoding="utf-8").lower()
 
     assert "vision_model" in guide
     assert "custom-endpoint" in guide or "custom endpoint" in guide
@@ -399,16 +400,16 @@ def test_thoth_status_guide_mentions_custom_vision_override_states():
     assert "skipped" in guide
 
 
-def test_thoth_status_guide_mentions_voice_realtime_contract():
+def test_row_bot_status_guide_mentions_voice_realtime_contract():
     import pathlib
 
-    guide = pathlib.Path("tool_guides/thoth_status_guide/SKILL.md").read_text(encoding="utf-8").lower()
+    guide = pathlib.Path("tool_guides/row_bot_status_guide/SKILL.md").read_text(encoding="utf-8").lower()
 
     assert "talk and dictate" in guide
     assert "stt-only" in guide
     assert "realtime talk is a voice transport/backchannel" in guide
-    assert "thoth_agent_consult" in guide
-    assert "thoth_agent_control" in guide
+    assert "row_bot_agent_consult" in guide
+    assert "row_bot_agent_control" in guide
     assert "wait_for_user" in guide
     assert "follow-up/steer" in guide
     assert "client_event_failed" in guide
@@ -443,3 +444,4 @@ def test_provider_status_summarizes_custom_probe_without_reprobe(tmp_path, monke
     assert "round-trip ok" in output
     assert "stream tools ok" in output
     assert "vision not run (manual vision capability disabled)" in output
+

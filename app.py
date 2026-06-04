@@ -1,10 +1,9 @@
-"""Thoth — Modular NiceGUI Frontend
-==================================
+"""Row-Bot modular NiceGUI frontend.
 
 Refactored UI using the ``ui/`` package.
 
-Run:   python app.py          →   http://localhost:8080
-    THOTH_PORT=8081 python app.py → http://localhost:8081
+Run:   python app.py              →   http://localhost:8080
+    ROW_BOT_PORT=8081 python app.py → http://localhost:8081
 """
 
 from __future__ import annotations
@@ -15,6 +14,7 @@ import logging
 import os
 import sys
 import time
+from pathlib import Path
 
 _DISCORD_BENIGN_VOICE_LOGGERS = (
     "discord.client",
@@ -40,10 +40,34 @@ for _discord_noisy in _DISCORD_BENIGN_VOICE_LOGGERS:
     logging.getLogger(_discord_noisy).setLevel(logging.ERROR)
 
 os.environ.setdefault("OPENCV_LOG_LEVEL", "ERROR")
-from version import __version__ as _thoth_version
-os.environ.setdefault("USER_AGENT", f"Thoth/{_thoth_version}")
+from brand import APP_BRAND_ACCENT, APP_DISPLAY_NAME, APP_HOST_ENV, APP_PING_ID, APP_USER_AGENT
+from data_paths import get_row_bot_data_dir
+from version import __version__ as _app_version
+os.environ.setdefault("USER_AGENT", APP_USER_AGENT)
 
 logger = logging.getLogger(__name__)
+
+# Ensure app directory is on sys.path before migration/startup imports.
+_app_dir = os.path.dirname(os.path.abspath(__file__))
+if _app_dir not in sys.path:
+    sys.path.insert(0, _app_dir)
+
+try:
+    from migration.row_bot_legacy_rebrand import ensure_legacy_rebrand_migration
+
+    _migration_result = ensure_legacy_rebrand_migration()
+    if _migration_result.get("status") in {"completed", "already_completed"}:
+        _migration_status = str(_migration_result.get("status") or "").replace("_", " ")
+        _migration_report = _migration_result.get("report_path", "")
+        if _migration_report:
+            logger.info("%s data migration %s; report=%s", APP_DISPLAY_NAME, _migration_status, _migration_report)
+        else:
+            logger.info("%s data migration %s", APP_DISPLAY_NAME, _migration_status)
+    for _warning in _migration_result.get("warnings", [])[:5]:
+        logger.warning("%s migration warning: %s", APP_DISPLAY_NAME, _warning)
+except Exception:
+    logger.exception("%s data migration failed", APP_DISPLAY_NAME)
+    raise
 
 
 def _safe_console_print(message: object) -> None:
@@ -72,19 +96,14 @@ try:
 except Exception:
     logger.debug("Startup diagnostics failed", exc_info=True)
 
-# Ensure app directory is on sys.path
-_app_dir = os.path.dirname(os.path.abspath(__file__))
-if _app_dir not in sys.path:
-    sys.path.insert(0, _app_dir)
-
 from nicegui import ui, app, run
 from fastapi import HTTPException
-from app_port import THOTH_HOST_ENV, get_app_port
+from app_port import get_app_port
 from ui.performance import log_ui_perf
 from ui.timer_utils import deactivate_on_disconnect, defer_ui, safe_timer, safe_ui_task
 
 _APP_PORT = get_app_port()
-_APP_HOST = os.environ.get(THOTH_HOST_ENV) or None
+_APP_HOST = os.environ.get(APP_HOST_ENV) or None
 
 
 @app.post("/api/voice/realtime/client-secret")
@@ -95,7 +114,7 @@ async def _voice_realtime_client_secret() -> dict:
     the ephemeral credential returned by OpenAI.
     """
     try:
-        from voice.openai_realtime import OpenAIRealtimeProvider, THOTH_REALTIME_INSTRUCTIONS
+        from voice.openai_realtime import OpenAIRealtimeProvider, ROW_BOT_REALTIME_INSTRUCTIONS
         from voice.runtime import load_voice_runtime_settings
 
         voice_settings = load_voice_runtime_settings()
@@ -103,7 +122,7 @@ async def _voice_realtime_client_secret() -> dict:
             model=voice_settings.talk_model,
             voice=voice_settings.realtime_voice,
         ).create_client_secret(
-            instructions=THOTH_REALTIME_INSTRUCTIONS,
+            instructions=ROW_BOT_REALTIME_INSTRUCTIONS,
         )
     except Exception as exc:
         logger.warning("OpenAI Realtime client secret creation failed", exc_info=True)
@@ -311,7 +330,7 @@ def _periodic_oauth_check():
 async def on_startup():
     install_asyncio_exception_handler()
     start_performance_monitor()
-    # Attach persistent file logging (daily JSONL to ~/.thoth/logs/)
+    # Attach persistent file logging (daily JSONL to the Row-Bot data dir).
     from logging_config import setup_file_logging
     setup_file_logging()
 
@@ -336,12 +355,12 @@ async def on_startup():
 
     import ui.state as _st
 
-    logger.info("Thoth startup initiated")
+    logger.info("%s startup initiated", APP_DISPLAY_NAME)
     try:
         from data_paths import describe_data_paths
-        logger.info("Thoth data paths: %s", describe_data_paths())
+        logger.info("%s data paths: %s", APP_DISPLAY_NAME, describe_data_paths())
     except Exception:
-        logger.debug("Could not describe Thoth data paths", exc_info=True)
+        logger.debug("Could not describe %s data paths", APP_DISPLAY_NAME, exc_info=True)
 
     def _set(msg: str):
         _st.startup_status = msg
@@ -563,7 +582,7 @@ async def on_startup():
 
     _set("✅ Ready")
     _st.startup_ready = True
-    logger.info("Thoth startup complete")
+    logger.info("%s startup complete", APP_DISPLAY_NAME)
 
 
 # ── Webhook API Route ────────────────────────────────────────────────────────
@@ -574,7 +593,7 @@ from starlette.responses import JSONResponse
 
 async def _launcher_ping_handler(request: Request) -> JSONResponse:  # noqa: ARG001
     """Identify this process to the desktop launcher."""
-    return JSONResponse({"app": "thoth", "version": _thoth_version, "port": _APP_PORT})
+    return JSONResponse({"app": APP_PING_ID, "version": _app_version, "port": _APP_PORT})
 
 
 async def _startup_state_handler(request: Request) -> JSONResponse:  # noqa: ARG001
@@ -715,13 +734,13 @@ async def index():
     # ── Global panel card style ──────────────────────────────────────────
     ui.add_head_html("""
     <style>
-    .thoth-panel-card {
+    .row-bot-panel-card {
         border: 1px solid rgba(255,255,255,0.07) !important;
         box-shadow: 4px 0 16px rgba(0,0,0,0.45),
                     -4px 0 16px rgba(0,0,0,0.45),
                     0 4px 12px rgba(0,0,0,0.35) !important;
     }
-    .thoth-inner-panel {
+    .row-bot-inner-panel {
         background: linear-gradient(
             180deg,
             rgba(255,255,255,0.05) 0%,
@@ -743,9 +762,9 @@ async def index():
     # ── Startup splash (poll until backend is ready) ─────────────────────
     if not _st.startup_ready:
         with ui.column().classes("absolute-center items-center gap-4"):
-            ui.label("𓁟").style("font-size: 4rem; color: gold;")
-            ui.label("Thoth").style(
-                "font-size: 1.6rem; font-weight: 700; letter-spacing: 0.1em; color: gold;"
+            ui.image("/static/row_bot_glyph_256.png").style("width: 144px; height: 144px; object-fit: contain;")
+            ui.label(APP_DISPLAY_NAME).style(
+                f"font-size: 1.6rem; font-weight: 700; letter-spacing: 0.1em; color: {APP_BRAND_ACCENT};"
             )
             status_label = ui.label(_st.startup_status).classes("text-grey-5 text-sm")
             ui.spinner("dots", size="1.5rem", color="grey-6")
@@ -759,8 +778,8 @@ async def index():
 
         ui.run_javascript("""
         (() => {
-          if (window.__thothStartupPollInstalled) return;
-          window.__thothStartupPollInstalled = true;
+          if (window.__rowBotStartupPollInstalled) return;
+          window.__rowBotStartupPollInstalled = true;
           const poll = async () => {
             try {
               const response = await fetch('/api/startup-state', {cache: 'no-store'});
@@ -903,7 +922,7 @@ async def index():
     from ui.terminal_widget import build_terminal_panel
     from tools import registry as _tool_registry
 
-    _outer = ui.column().classes("w-full max-w-7xl mx-auto px-4 no-wrap thoth-panel-card").style(
+    _outer = ui.column().classes("w-full max-w-7xl mx-auto px-4 no-wrap row-bot-panel-card").style(
         "height: calc(100vh - 16px); overflow: hidden; padding-bottom: 12px;"
         " border-radius: 12px; margin-top: 8px;"
     )
@@ -1548,6 +1567,12 @@ async def index():
                 )
 
         defer_ui(_open_setup_center_after_first_run, delay=0.15)
+    try:
+        from ui.post_migration import maybe_show_post_migration_report
+
+        maybe_show_post_migration_report(open_settings=_open_settings)
+    except Exception:
+        logger.exception("Failed to render post-migration report")
     _update_token_counter()
 
 
@@ -1583,7 +1608,7 @@ if __name__ in {"__main__", "__mp_main__"}:
     app.add_static_files("/_media", str(_MEDIA_DIR))
 
     # Serve user-downloaded font cache
-    _font_cache = os.path.join(os.path.expanduser("~"), ".thoth", "font_cache")
+    _font_cache = str(get_row_bot_data_dir() / "font_cache")
     if os.path.isdir(_font_cache):
         app.add_static_files("/_fonts/cache", _font_cache)
 
@@ -1591,10 +1616,10 @@ if __name__ in {"__main__", "__mp_main__"}:
     _show = "--show" in sys.argv and not _native
 
     _run_kwargs = {
-        "title": "Thoth",
+        "title": APP_DISPLAY_NAME,
         "port": _APP_PORT,
         "dark": True,
-        "favicon": "𓁟",
+        "favicon": Path(_static_dir) / "favicon.ico",
         "reload": False,
         "show": _show,
         "native": _native,

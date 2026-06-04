@@ -1,12 +1,12 @@
-#!/usr/bin/env bash
-# Install the latest Thoth Linux XDG tarball from GitHub Releases.
+﻿#!/usr/bin/env bash
+# Install the latest Row-Bot Linux XDG tarball from GitHub Releases.
 
 set -euo pipefail
 
-REPO="${THOTH_REPO:-siddsachar/Thoth}"
+REPO="${ROW_BOT_REPO:-siddsachar/row-bot}"
 API_BASE="https://api.github.com/repos/${REPO}"
-REQUESTED_VERSION="${1:-${THOTH_VERSION:-latest}}"
-USER_AGENT="Thoth-Linux-Installer"
+REQUESTED_VERSION="${1:-${ROW_BOT_VERSION:-latest}}"
+USER_AGENT="Row-Bot-Linux-Installer"
 
 info() { printf '[INFO] %s\n' "$*"; }
 ok() { printf '[ OK ] %s\n' "$*"; }
@@ -28,7 +28,7 @@ case "$(uname -m)" in
     *) fail "Unsupported Linux architecture: $(uname -m)" ;;
 esac
 
-WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/thoth-linux-install.XXXXXX")"
+WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/row-bot-linux-install.XXXXXX")"
 cleanup() { rm -rf "$WORK_DIR"; }
 trap cleanup EXIT
 
@@ -46,11 +46,11 @@ curl_args=(
     -H "Accept: application/vnd.github+json"
     -H "User-Agent: ${USER_AGENT}"
 )
-if [ -n "${GITHUB_TOKEN:-${THOTH_INSTALL_TOKEN:-}}" ]; then
-    curl_args+=( -H "Authorization: Bearer ${GITHUB_TOKEN:-${THOTH_INSTALL_TOKEN:-}}" )
+if [ -n "${GITHUB_TOKEN:-${ROW_BOT_INSTALL_TOKEN:-}}" ]; then
+    curl_args+=( -H "Authorization: Bearer ${GITHUB_TOKEN:-${ROW_BOT_INSTALL_TOKEN:-}}" )
 fi
 
-info "Resolving Thoth ${REQUESTED_VERSION} Linux package for ${PACKAGE_ARCH}..."
+info "Resolving Row-Bot ${REQUESTED_VERSION} Linux package for ${PACKAGE_ARCH}..."
 curl "${curl_args[@]}" "$RELEASE_URL" -o "$RELEASE_JSON"
 
 META_FILE="$WORK_DIR/release-meta.txt"
@@ -67,7 +67,7 @@ tag = str(release.get("tag_name") or "").lstrip("v")
 if not tag:
     raise SystemExit("Release has no tag_name")
 
-asset_pattern = re.compile(rf"^Thoth-{re.escape(tag)}-Linux-{re.escape(arch)}\.tar\.gz$")
+asset_pattern = re.compile(rf"^Row-Bot-{re.escape(tag)}-Linux-{re.escape(arch)}\.tar\.gz$")
 asset = None
 for candidate in release.get("assets") or []:
     name = str(candidate.get("name") or "")
@@ -75,7 +75,7 @@ for candidate in release.get("assets") or []:
         asset = candidate
         break
 if asset is None:
-    fallback = re.compile(rf"^Thoth-[^-]+-Linux-{re.escape(arch)}\.tar\.gz$")
+    fallback = re.compile(rf"^Row-Bot-[^-]+-Linux-{re.escape(arch)}\.tar\.gz$")
     for candidate in release.get("assets") or []:
         name = str(candidate.get("name") or "")
         if fallback.match(name):
@@ -91,7 +91,7 @@ if not asset_url.startswith("https://"):
 
 body = str(release.get("body") or "")
 block = re.search(
-    r"<!--\s*thoth-update-manifest\s*-->\s*```manifest\s*(.*?)\s*```",
+    r"<!--\s*row-bot-update-manifest\s*-->\s*```manifest\s*(.*?)\s*```",
     body,
     re.DOTALL | re.IGNORECASE,
 )
@@ -131,23 +131,23 @@ ok "SHA256 verified"
 EXTRACT_DIR="$WORK_DIR/extract"
 mkdir -p "$EXTRACT_DIR"
 tar -xzf "$TARBALL" -C "$EXTRACT_DIR"
-PACKAGE_ROOT="$(find "$EXTRACT_DIR" -maxdepth 1 -type d -name "Thoth-*-Linux-${PACKAGE_ARCH}" | head -n 1)"
+PACKAGE_ROOT="$(find "$EXTRACT_DIR" -maxdepth 1 -type d -name "Row-Bot-*-Linux-${PACKAGE_ARCH}" | head -n 1)"
 if [ -z "$PACKAGE_ROOT" ] || [ ! -f "$PACKAGE_ROOT/install.sh" ]; then
     fail "Downloaded package is missing install.sh"
 fi
 
-info "Installing Thoth ${VERSION}..."
-THOTH_SUPPRESS_INSTALL_PATH_HINT=1 bash "$PACKAGE_ROOT/install.sh"
+info "Installing Row-Bot ${VERSION}..."
+ROW_BOT_SUPPRESS_INSTALL_PATH_HINT=1 bash "$PACKAGE_ROOT/install.sh"
 
-LAUNCH_CMD="thoth"
+LAUNCH_CMD="row-bot"
 case ":${PATH}:" in
     *":${HOME}/.local/bin:"*) ;;
     *)
-        LAUNCH_CMD="${HOME}/.local/bin/thoth"
-        warn "${HOME}/.local/bin is not on PATH. Run ${HOME}/.local/bin/thoth now, or add this to your shell profile:"
+        LAUNCH_CMD="${HOME}/.local/bin/row-bot"
+        warn "${HOME}/.local/bin is not on PATH. Run ${HOME}/.local/bin/row-bot now, or add this to your shell profile:"
         printf '       export PATH="$HOME/.local/bin:$PATH"\n'
         info "Open a new terminal after updating your profile."
         ;;
 esac
 
-ok "Thoth ${VERSION} installed. Run: ${LAUNCH_CMD}"
+ok "Row-Bot ${VERSION} installed. Run: ${LAUNCH_CMD}"

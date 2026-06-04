@@ -1,18 +1,19 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import logging
 from collections.abc import Callable
 from typing import Any
 
+from brand import APP_DISPLAY_NAME
 from voice.actions import classify_active_run_control, submit_voice_text
 
 logger = logging.getLogger(__name__)
 
 
-VOICE_BRAIN_STRATEGY = "thoth-consult"
+VOICE_BRAIN_STRATEGY = "row-bot-consult"
 REALTIME_DIRECT_TOOL_POLICY = "blocked"
-REALTIME_ALLOWED_BRIDGE_TOOLS = ("thoth_agent_consult", "thoth_agent_control")
+REALTIME_ALLOWED_BRIDGE_TOOLS = ("row_bot_agent_consult", "row_bot_agent_control")
 REALTIME_WAIT_TOOL = "wait_for_user"
 REALTIME_ALLOWED_TOOLS = (*REALTIME_ALLOWED_BRIDGE_TOOLS, REALTIME_WAIT_TOOL)
 
@@ -22,11 +23,11 @@ def realtime_bridge_tool_declarations() -> list[dict[str, Any]]:
     return [
         {
             "type": "function",
-            "name": "thoth_agent_consult",
+            "name": "row_bot_agent_consult",
             "description": (
-                "Delegate substantive user requests to the normal Thoth agent. "
+                f"Delegate substantive user requests to the normal {APP_DISPLAY_NAME} agent. "
                 "Use this for facts, memory, files, browser/computer control, "
-                "tools, approvals, and any work that should be done by Thoth."
+                f"tools, approvals, and any work that should be done by {APP_DISPLAY_NAME}."
             ),
             "parameters": {
                 "type": "object",
@@ -46,10 +47,10 @@ def realtime_bridge_tool_declarations() -> list[dict[str, Any]]:
         },
         {
             "type": "function",
-            "name": "thoth_agent_control",
+            "name": "row_bot_agent_control",
             "description": (
-                "Control or query the currently active Thoth run. Use for status, "
-                "cancel, steering, or follow-up while Thoth is already working."
+                f"Control or query the currently active {APP_DISPLAY_NAME} run. Use for status, "
+                f"cancel, steering, or follow-up while {APP_DISPLAY_NAME} is already working."
             ),
             "parameters": {
                 "type": "object",
@@ -73,7 +74,7 @@ def realtime_bridge_tool_declarations() -> list[dict[str, Any]]:
             "description": (
                 "Use this when the latest audio should not receive a spoken "
                 "response, such as silence, background noise, assistant echo, "
-                "side conversation, or speech not addressed to Thoth. This "
+                f"side conversation, or speech not addressed to {APP_DISPLAY_NAME}. This "
                 "quietly ends the turn and keeps listening."
             ),
             "parameters": {
@@ -100,7 +101,7 @@ _NON_ACTIONABLE_UTTERANCES = {
 
 
 class VoiceAgentBridge:
-    """Narrow bridge from voice transports into the normal Thoth agent path."""
+    """Narrow bridge from voice transports into the normal Row-Bot agent path."""
 
     def __init__(
         self,
@@ -180,7 +181,7 @@ class VoiceAgentBridge:
             }
 
         parsed = self._parse_arguments(arguments)
-        if clean_name == "thoth_agent_control":
+        if clean_name == "row_bot_agent_control":
             result = self._handle_control_tool(parsed)
             return {"handled": True, "deferred": False, "output": self._json_output(**result)}
 
@@ -382,15 +383,15 @@ class VoiceAgentBridge:
     def _status_speakable(self) -> str:
         status = self.active_run_status()
         if not status.get("active"):
-            return "Thoth is idle."
+            return f"{APP_DISPLAY_NAME} is idle."
         if status.get("approval_needed"):
-            return "Thoth is waiting for your approval in the app."
+            return f"{APP_DISPLAY_NAME} is waiting for your approval in the app."
         tools = status.get("tools") or []
         if tools:
-            return f"Thoth is using {tools[0]}."
+            return f"{APP_DISPLAY_NAME} is using {tools[0]}."
         if status.get("queued_controls"):
-            return "Thoth is working and has your follow-up queued."
-        return "Thoth is working on your request."
+            return f"{APP_DISPLAY_NAME} is working and has your follow-up queued."
+        return f"{APP_DISPLAY_NAME} is working on your request."
 
     @staticmethod
     def _resolve_meta(value: Callable[[], str] | str | None) -> str:

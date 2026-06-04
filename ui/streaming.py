@@ -811,7 +811,7 @@ async def consume_generation(
     _set_realtime_generation_state("thinking", detail="generation_started")
     _voice_diag("generation_consumer_started")
     if gen.voice_mode and state.voice_coordinator.transport == "realtime":
-        state.voice_coordinator.set_active_thoth_generation(generation_scope_id)
+        state.voice_coordinator.set_active_row_bot_generation(generation_scope_id)
 
     try:
       while True:
@@ -942,8 +942,8 @@ async def consume_generation(
             _voice_diag("generation_event:tool_call", tool=str(payload))
             if gen.voice_mode and state.voice_coordinator.transport == "realtime":
                 realtime_tool_events_since_cue += 1
-                state.voice_coordinator.mark_realtime_latency("thoth_tool_started")
-            _set_realtime_generation_state("thoth_tool_running", detail=str(payload))
+                state.voice_coordinator.mark_realtime_latency("row_bot_tool_started")
+            _set_realtime_generation_state("row_bot_tool_running", detail=str(payload))
             spoke_tool_cue = voice_output.speak_cue(tool_start_cue(str(payload)), generation_elapsed=_generation_elapsed())
             if spoke_tool_cue:
                 realtime_tool_events_since_cue = 0
@@ -981,7 +981,7 @@ async def consume_generation(
             _voice_diag("generation_event:tool_done")
             if gen.voice_mode and state.voice_coordinator.transport == "realtime":
                 realtime_tool_done_since_cue += 1
-                state.voice_coordinator.mark_realtime_latency("thoth_tool_done")
+                state.voice_coordinator.mark_realtime_latency("row_bot_tool_done")
             await _handle_tool_done(gen, state, p, payload, cb)
 
         elif event_type == "summarizing":
@@ -993,7 +993,7 @@ async def consume_generation(
                         gen.thinking_label = None
                     with gen.wrapper:
                         gen.thinking_label = ui.html(
-                            '<span class="thoth-typing" style="font-size:0.9rem; opacity:0.6;">'
+                            '<span class="row-bot-typing" style="font-size:0.9rem; opacity:0.6;">'
                             '\U0001f4dd Summarizing conversation history<span class="dots">'
                             '<span>.</span><span>.</span><span>.</span></span></span>',
                             sanitize=False,
@@ -1021,7 +1021,7 @@ async def consume_generation(
                         with gen.wrapper:
                             gen.thinking_md = ui.markdown(
                                 "", extras=["code-friendly", "fenced-code-blocks"]
-                            ).classes("thoth-msg w-full").style(
+                            ).classes("row-bot-msg w-full").style(
                                 "opacity: 0.55; font-size: 0.88rem; font-style: italic;"
                             )
                     if gen.thinking_md and not gen.thinking_collapsed:
@@ -1201,12 +1201,12 @@ async def consume_generation(
 
             try:
                 ui.run_javascript(
-                    "if (window.thothHighlightCodeBlocks) { window.thothHighlightCodeBlocks(); } "
-                    "else { setTimeout(function() { document.querySelectorAll('pre code').forEach(function(el) { if (!el.closest('.thoth-live-stream')) hljs.highlightElement(el); }); }, 80); }"
+                    "if (window.rowBotHighlightCodeBlocks) { window.rowBotHighlightCodeBlocks(); } "
+                    "else { setTimeout(function() { document.querySelectorAll('pre code').forEach(function(el) { if (!el.closest('.row-bot-live-stream')) hljs.highlightElement(el); }); }, 80); }"
                 )
                 ui.run_javascript(
                     "setTimeout(function() {"
-                    "  var nodes = Array.from(document.querySelectorAll('pre.mermaid')).filter(function(node) { return !node.closest('.thoth-live-stream'); });"
+                    "  var nodes = Array.from(document.querySelectorAll('pre.mermaid')).filter(function(node) { return !node.closest('.row-bot-live-stream'); });"
                     "  mermaid.run({nodes: nodes, suppressErrors: true});"
                     "}, 150);"
                 )
@@ -2302,22 +2302,22 @@ def _build_assistant_placeholder(gen: GenerationState, p: P) -> None:
     _ph_avatar = get_bot_avatar_html()
     _ph_name = get_assistant_name()
     with p.chat_container:
-        with ui.element("div").classes("thoth-msg-row"):
+        with ui.element("div").classes("row-bot-msg-row"):
             ui.html(
-                f'<div class="thoth-avatar thoth-avatar-bot">{_ph_avatar}</div>',
+                f'<div class="row-bot-avatar row-bot-avatar-bot">{_ph_avatar}</div>',
                 sanitize=False,
             )
-            with ui.column().classes("thoth-msg-body gap-1") as _wrapper:
+            with ui.column().classes("row-bot-msg-body gap-1") as _wrapper:
                 ui.html(
-                    '<div class="thoth-msg-header">'
-                    f'<span class="thoth-msg-name">{_ph_name}</span>'
-                    f'<span class="thoth-msg-stamp">{datetime.now().strftime("%H:%M")}</span>'
+                    '<div class="row-bot-msg-header">'
+                    f'<span class="row-bot-msg-name">{_ph_name}</span>'
+                    f'<span class="row-bot-msg-stamp">{datetime.now().strftime("%H:%M")}</span>'
                     '</div>',
                     sanitize=False,
                 )
                 gen.tool_col = ui.column().classes("w-full gap-1")
                 gen.thinking_label = ui.html(
-                    '<span class="thoth-typing" style="font-size:0.9rem; opacity:0.6;">'
+                    '<span class="row-bot-typing" style="font-size:0.9rem; opacity:0.6;">'
                     f'{_ph_name} is thinking<span class="dots">'
                     '<span>.</span><span>.</span><span>.</span></span></span>',
                     sanitize=False,
@@ -2325,6 +2325,6 @@ def _build_assistant_placeholder(gen: GenerationState, p: P) -> None:
                 gen.assistant_md = ui.markdown(
                     "",
                     extras=['code-friendly', 'fenced-code-blocks', 'tables'],
-                ).classes("thoth-msg thoth-live-stream w-full")
+                ).classes("row-bot-msg row-bot-live-stream w-full")
                 gen.assistant_md.set_visibility(False)
                 gen.wrapper = _wrapper

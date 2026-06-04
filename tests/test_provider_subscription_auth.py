@@ -550,7 +550,7 @@ def test_codex_disconnect_removes_thoth_metadata_and_owned_tokens(tmp_path, monk
         auth_path = tmp_path / "auth.json"
         auth_path.write_text(json.dumps({"access_token": "external-secret"}), encoding="utf-8")
         save_external_reference(auth_path)
-        set_provider_secret("codex", "access_token", "thoth-owned-token", auth_method=AuthMethod.OAUTH_DEVICE)
+        set_provider_secret("codex", "access_token", "row-bot-owned-token", auth_method=AuthMethod.OAUTH_DEVICE)
 
         disconnect_codex_metadata()
 

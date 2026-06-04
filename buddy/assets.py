@@ -10,11 +10,13 @@ import shutil
 from dataclasses import dataclass, field
 from typing import Any
 
+from data_paths import get_row_bot_data_dir
+
 logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
 _BUILTIN_PACKS_DIR = _PROJECT_ROOT / "static" / "buddy" / "builtins"
-_DATA_DIR = pathlib.Path(os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth"))
+_DATA_DIR = get_row_bot_data_dir()
 _BUDDY_STATIC_DIR = _DATA_DIR / "buddy"
 _USER_PACKS_DIR = _BUDDY_STATIC_DIR / "packs"
 REQUIRED_STATE_MACHINE = "ThothBuddy"
@@ -110,6 +112,36 @@ def _pack_dir_for(pack_id: str) -> pathlib.Path:
     return _BUILTIN_PACKS_DIR / pack_id
 
 
+def _resolve_pack_asset_path(value: str, *, base_dir: pathlib.Path, pack_dir: pathlib.Path, pack_id: str) -> pathlib.Path:
+    candidate = pathlib.Path(value or "").expanduser()
+    if not candidate.is_absolute():
+        return (base_dir / candidate).resolve()
+
+    resolved = candidate.resolve(strict=False)
+    if resolved.exists():
+        return resolved
+
+    parts = list(resolved.parts)
+    lowered = [part.lower() for part in parts]
+    safe_pack_id = str(pack_id or "")
+    for index, part in enumerate(lowered[:-1]):
+        if part != "packs":
+            continue
+        if index + 1 >= len(parts) or parts[index + 1] != safe_pack_id:
+            continue
+        mapped = pack_dir.joinpath(*parts[index + 2 :]).resolve()
+        if mapped.exists():
+            return mapped
+
+    if "buddy" in lowered:
+        buddy_index = lowered.index("buddy")
+        mapped = _BUDDY_STATIC_DIR.joinpath(*parts[buddy_index + 1 :]).resolve()
+        if mapped.exists():
+            return mapped
+
+    return resolved
+
+
 def load_buddy_pack(pack_id: str = "glyph") -> BuddyPack:
     pack_dir = _pack_dir_for(pack_id)
     manifest_path = pack_dir / "manifest.json"
@@ -129,19 +161,32 @@ def load_buddy_pack(pack_id: str = "glyph") -> BuddyPack:
     if not inputs:
         inputs = {name: name for name in REQUIRED_INPUTS}
     motion_manifest_value = str(manifest.get("motion_pack") or manifest.get("motion_pack_path") or ("motions/manifest.json" if runtime == "generated_motion_pack" and (pack_dir / "motions" / "manifest.json").exists() else "manifest.json"))
-    motion_manifest_candidate = pathlib.Path(motion_manifest_value).expanduser()
-    motion_manifest_path = (motion_manifest_candidate if motion_manifest_candidate.is_absolute() else pack_dir / motion_manifest_candidate).resolve()
+    motion_manifest_path = _resolve_pack_asset_path(
+        motion_manifest_value,
+        base_dir=pack_dir,
+        pack_dir=pack_dir,
+        pack_id=pack_id,
+    )
     motion_manifest = _load_manifest(motion_manifest_path) if motion_manifest_path != manifest_path.resolve() else manifest
     clips = motion_manifest.get("clips") if isinstance(motion_manifest.get("clips"), dict) else {}
     motion_clips: dict[str, pathlib.Path] = {}
     for clip_id, entry in clips.items():
         if not isinstance(entry, dict):
             continue
-        clip_path = (motion_manifest_path.parent / str(entry.get("path") or f"{clip_id}.mp4")).resolve()
+        clip_path = _resolve_pack_asset_path(
+            str(entry.get("path") or f"{clip_id}.mp4"),
+            base_dir=motion_manifest_path.parent,
+            pack_dir=pack_dir,
+            pack_id=pack_id,
+        )
         motion_clips[str(clip_id)] = clip_path
     preview_value = str(manifest.get("preview") or manifest.get("preview_path") or "preview.png")
-    preview_candidate = pathlib.Path(preview_value).expanduser()
-    preview_path = (preview_candidate if preview_candidate.is_absolute() else pack_dir / preview_candidate).resolve()
+    preview_path = _resolve_pack_asset_path(
+        preview_value,
+        base_dir=pack_dir,
+        pack_dir=pack_dir,
+        pack_id=pack_id,
+    )
     animation_map = motion_manifest.get("animation_map") if isinstance(motion_manifest.get("animation_map"), dict) else {}
     pack = BuddyPack(
         id=str(manifest.get("id") or pack_id),

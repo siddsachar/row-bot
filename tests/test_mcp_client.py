@@ -25,8 +25,8 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 class McpClientFoundationTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
-        self._old_data_dir = os.environ.get("THOTH_DATA_DIR")
-        os.environ["THOTH_DATA_DIR"] = self._tmp.name
+        self._old_data_dir = os.environ.get("ROW_BOT_DATA_DIR")
+        os.environ["ROW_BOT_DATA_DIR"] = self._tmp.name
 
     def tearDown(self) -> None:
         try:
@@ -40,9 +40,9 @@ class McpClientFoundationTests(unittest.TestCase):
         except Exception:
             pass
         if self._old_data_dir is None:
-            os.environ.pop("THOTH_DATA_DIR", None)
+            os.environ.pop("ROW_BOT_DATA_DIR", None)
         else:
-            os.environ["THOTH_DATA_DIR"] = self._old_data_dir
+            os.environ["ROW_BOT_DATA_DIR"] = self._old_data_dir
         self._tmp.cleanup()
 
     def _reload_config(self):
@@ -668,13 +668,13 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertTrue(agent._is_browser_tool_name("mcp_playwright_mcp_browser_take_screenshot"))
         self.assertEqual(agent._browser_action_name("mcp_playwright_mcp_browser_take_screenshot"), "take_screenshot")
 
-    def test_thoth_status_mcp_tool_toggle_controls_global_client(self) -> None:
+    def test_row_bot_status_mcp_tool_toggle_controls_global_client(self) -> None:
         cfg = self._reload_config()
         import mcp_client.runtime as runtime
         runtime = importlib.reload(runtime)
         import tools.mcp_tool  # noqa: F401 - registers the MCP parent tool
         from tools import registry as tool_registry
-        from tools.thoth_status_tool import _update_setting
+        from tools.row_bot_status_tool import _update_setting
 
         with patch.object(runtime, "discover_enabled_servers") as discover_mock:
             cfg.set_global_enabled(True)

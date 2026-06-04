@@ -237,7 +237,7 @@ _RENDERED_DOM_EXPORT_SCRIPT = r"""
         // elements are skipped so we only screenshot the outermost.
         if (tag === 'img' || (tag === 'svg' && !element.parentElement?.closest('svg'))) {
             const screenshotId = `pptx-node-${screenshotCounter++}`;
-            element.setAttribute('data-thoth-pptx-export-id', screenshotId);
+            element.setAttribute('data-row-bot-pptx-export-id', screenshotId);
             const extras = {};
             if (tag === 'img') {
                 extras.src = element.src || '';

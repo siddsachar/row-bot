@@ -69,7 +69,7 @@ def main() -> int:
 
     data_dir = pathlib.Path(args.data_dir).resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
-    os.environ["THOTH_DATA_DIR"] = str(data_dir)
+    os.environ["ROW_BOT_DATA_DIR"] = str(data_dir)
 
     from skills_hub.installer import install_bundle, uninstall_skill
     from skills_hub.provenance import get_record

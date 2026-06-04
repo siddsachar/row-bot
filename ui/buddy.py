@@ -7,6 +7,7 @@ import json
 import pathlib
 import uuid
 
+from brand import APP_DISPLAY_NAME
 from nicegui import run, ui
 
 from buddy.assets import delete_generated_buddy_pack, list_buddy_packs, load_buddy_pack, static_url_for_path
@@ -28,31 +29,31 @@ _BUDDY_HEAD = """
 <script>
 (() => {
     if (window.location && window.location.pathname === '/buddy-overlay') {
-        document.documentElement.classList.add('thoth-buddy-overlay-html');
+        document.documentElement.classList.add('row-bot-buddy-overlay-html');
         document.documentElement.style.background = 'transparent';
         document.documentElement.style.backgroundColor = 'transparent';
     }
 })();
 </script>
-<script src="/static/buddy/runtime/buddy.js?v=buddy-polish-v4"></script>
+<script src="/static/buddy/runtime/buddy.js?v=row-bot-buddy-v6"></script>
 <style>
-html.thoth-buddy-overlay-html,
-html.thoth-buddy-overlay-html body,
-html.thoth-buddy-overlay-html #app,
-html.thoth-buddy-overlay-html .nicegui-layout,
-html.thoth-buddy-overlay-html .q-layout,
-html.thoth-buddy-overlay-html .q-page-container,
-html.thoth-buddy-overlay-html .q-page,
-html.thoth-buddy-overlay-html .nicegui-content {
+html.row-bot-buddy-overlay-html,
+html.row-bot-buddy-overlay-html body,
+html.row-bot-buddy-overlay-html #app,
+html.row-bot-buddy-overlay-html .nicegui-layout,
+html.row-bot-buddy-overlay-html .q-layout,
+html.row-bot-buddy-overlay-html .q-page-container,
+html.row-bot-buddy-overlay-html .q-page,
+html.row-bot-buddy-overlay-html .nicegui-content {
     background: transparent !important;
     background-color: transparent !important;
 }
-html.thoth-buddy-overlay-html,
-html.thoth-buddy-overlay-html body {
+html.row-bot-buddy-overlay-html,
+html.row-bot-buddy-overlay-html body {
     margin: 0 !important;
     overflow: hidden !important;
 }
-.thoth-buddy-wrap {
+.row-bot-buddy-wrap {
   --buddy-energy: 60;
   --buddy-focus: 20;
   --buddy-alert: 0;
@@ -62,7 +63,7 @@ html.thoth-buddy-overlay-html body {
   align-items: center;
   gap: 6px;
 }
-.thoth-buddy-stage {
+.row-bot-buddy-stage {
   position: relative;
     width: 132px;
     height: 132px;
@@ -71,12 +72,12 @@ html.thoth-buddy-overlay-html body {
     background: transparent;
     border: 1px solid transparent;
 }
-.thoth-buddy-stage canvas {
+.row-bot-buddy-stage canvas {
   width: 100%;
   height: 100%;
   display: block;
 }
-.thoth-buddy-stage::after {
+.row-bot-buddy-stage::after {
   content: '';
   position: absolute;
   inset: 8px;
@@ -86,10 +87,10 @@ html.thoth-buddy-overlay-html body {
     transition: border-color 280ms ease, box-shadow 280ms ease, opacity 280ms ease;
   pointer-events: none;
 }
-.thoth-buddy-wrap[data-surface="sidebar"] {
+.row-bot-buddy-wrap[data-surface="sidebar"] {
     gap: 8px;
 }
-.thoth-buddy-sidebar-action {
+.row-bot-buddy-sidebar-action {
     position: relative;
     width: 214px;
     height: 214px;
@@ -99,7 +100,7 @@ html.thoth-buddy-overlay-html body {
     cursor: default;
     outline: none;
 }
-.thoth-buddy-sidebar-action::before {
+.row-bot-buddy-sidebar-action::before {
     content: '';
     position: absolute;
     inset: 8px;
@@ -111,19 +112,19 @@ html.thoth-buddy-overlay-html body {
     transition: opacity 180ms ease, transform 180ms ease, border-color 180ms ease;
     pointer-events: none;
 }
-.thoth-buddy-sidebar-action.thoth-buddy-dock-empty::before {
+.row-bot-buddy-sidebar-action.row-bot-buddy-dock-empty::before {
     opacity: 1;
     transform: scale(1);
-    animation: thoth-buddy-sidebar-ring 3.2s ease-in-out infinite;
+    animation: row-bot-buddy-sidebar-ring 3.2s ease-in-out infinite;
 }
-.thoth-buddy-sidebar-action.thoth-buddy-dock-hover::before {
+.row-bot-buddy-sidebar-action.row-bot-buddy-dock-hover::before {
     border-color: rgba(228, 194, 94, 0.58);
     box-shadow: inset 0 0 24px rgba(228, 194, 94, 0.08), 0 0 20px rgba(228, 194, 94, 0.22);
 }
-.thoth-buddy-sidebar-action:focus-visible .thoth-buddy-stage {
+.row-bot-buddy-sidebar-action:focus-visible .row-bot-buddy-stage {
     box-shadow: 0 0 0 2px rgba(228, 194, 94, 0.54), 0 10px 28px rgba(0, 0, 0, 0.24);
 }
-.thoth-buddy-in-app {
+.row-bot-buddy-in-app {
     position: relative;
     z-index: 2;
     width: 198px;
@@ -131,10 +132,10 @@ html.thoth-buddy-overlay-html body {
     touch-action: none;
     user-select: none;
 }
-.thoth-buddy-in-app.thoth-buddy-dragging {
+.row-bot-buddy-in-app.row-bot-buddy-dragging {
     cursor: grabbing;
 }
-.thoth-buddy-in-app.thoth-buddy-undocked {
+.row-bot-buddy-in-app.row-bot-buddy-undocked {
     position: fixed;
     right: 18px;
     bottom: 18px;
@@ -142,46 +143,46 @@ html.thoth-buddy-overlay-html body {
     z-index: 10000;
     pointer-events: auto;
 }
-.thoth-buddy-wrap[data-surface="sidebar"] .thoth-buddy-stage {
+.row-bot-buddy-wrap[data-surface="sidebar"] .row-bot-buddy-stage {
     width: 198px;
     height: 198px;
     border-radius: 999px;
     border: 1px solid rgba(77, 184, 171, 0.34);
     box-shadow: 0 0 0 1px rgba(228, 194, 94, 0.10), 0 10px 28px rgba(0, 0, 0, 0.24);
 }
-.thoth-buddy-wrap[data-surface="sidebar"] .thoth-buddy-stage::after {
+.row-bot-buddy-wrap[data-surface="sidebar"] .row-bot-buddy-stage::after {
     inset: 5px;
     border: 1px solid rgba(77, 184, 171, calc(0.20 + var(--buddy-focus) / 260));
     box-shadow:
         0 0 calc(8px + var(--buddy-focus) * 0.12px) rgba(77, 184, 171, 0.24),
         0 0 calc(var(--buddy-alert) * 0.22px) rgba(247, 118, 87, 0.62);
-    animation: thoth-buddy-sidebar-ring 2.8s ease-in-out infinite;
+    animation: row-bot-buddy-sidebar-ring 2.8s ease-in-out infinite;
 }
-.thoth-buddy-wrap[data-surface="sidebar"][data-animation^="celebrate"] .thoth-buddy-stage::after,
-.thoth-buddy-wrap[data-surface="sidebar"][data-mood="proud"] .thoth-buddy-stage::after {
+.row-bot-buddy-wrap[data-surface="sidebar"][data-animation^="celebrate"] .row-bot-buddy-stage::after,
+.row-bot-buddy-wrap[data-surface="sidebar"][data-mood="proud"] .row-bot-buddy-stage::after {
     border-color: rgba(228, 194, 94, 0.58);
     box-shadow: 0 0 22px rgba(228, 194, 94, 0.35);
 }
-.thoth-buddy-wrap[data-surface="sidebar"][data-mood="concerned"] .thoth-buddy-stage::after,
-.thoth-buddy-wrap[data-surface="sidebar"][data-animation="worry"] .thoth-buddy-stage::after {
+.row-bot-buddy-wrap[data-surface="sidebar"][data-mood="concerned"] .row-bot-buddy-stage::after,
+.row-bot-buddy-wrap[data-surface="sidebar"][data-animation="worry"] .row-bot-buddy-stage::after {
     border-color: rgba(247, 118, 87, 0.56);
     box-shadow: 0 0 22px rgba(247, 118, 87, 0.36);
 }
-.thoth-buddy-wrap[data-surface="sidebar"][data-animation="tap_glass"] .thoth-buddy-stage::after,
-.thoth-buddy-wrap[data-surface="sidebar"][data-animation="pause"] .thoth-buddy-stage::after {
+.row-bot-buddy-wrap[data-surface="sidebar"][data-animation="tap_glass"] .row-bot-buddy-stage::after,
+.row-bot-buddy-wrap[data-surface="sidebar"][data-animation="pause"] .row-bot-buddy-stage::after {
     border-color: rgba(228, 194, 94, 0.46);
     box-shadow:
         0 0 14px rgba(228, 194, 94, 0.20),
         0 0 18px rgba(77, 184, 171, 0.14);
     animation-duration: 4.2s;
 }
-.thoth-buddy-pack-grid {
+.row-bot-buddy-pack-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
     gap: 10px;
     width: 100%;
 }
-.thoth-buddy-pack-card.q-btn {
+.row-bot-buddy-pack-card.q-btn {
     width: 100%;
     height: 174px;
     min-height: 174px;
@@ -194,7 +195,7 @@ html.thoth-buddy-overlay-html body {
     text-align: left;
     transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
-.thoth-buddy-pack-card .q-btn__content {
+.row-bot-buddy-pack-card .q-btn__content {
     width: 100%;
     height: 100%;
     display: flex;
@@ -204,17 +205,17 @@ html.thoth-buddy-overlay-html body {
     gap: 7px;
     flex-wrap: nowrap;
 }
-.thoth-buddy-pack-card:hover {
+.row-bot-buddy-pack-card:hover {
     border-color: rgba(79, 163, 255, 0.58);
     background: linear-gradient(180deg, rgba(24, 36, 54, 0.94), rgba(12, 18, 28, 0.76));
     transform: translateY(-1px);
 }
-.thoth-buddy-pack-card-selected.q-btn {
+.row-bot-buddy-pack-card-selected.q-btn {
     border-color: rgba(79, 163, 255, 0.92);
     box-shadow: 0 0 0 1px rgba(79, 163, 255, 0.34), 0 10px 24px rgba(0, 0, 0, 0.22);
     background: linear-gradient(180deg, rgba(24, 52, 81, 0.96), rgba(11, 27, 42, 0.82));
 }
-.thoth-buddy-pack-preview {
+.row-bot-buddy-pack-preview {
     width: 100%;
     height: 104px;
     flex: 0 0 104px;
@@ -223,17 +224,17 @@ html.thoth-buddy-overlay-html body {
     background: #070a0e;
     border: 1px solid rgba(148, 163, 184, 0.16);
 }
-.thoth-buddy-pack-preview .q-img__image {
+.row-bot-buddy-pack-preview .q-img__image {
     object-fit: contain !important;
 }
-.thoth-buddy-pack-preview-empty {
+.row-bot-buddy-pack-preview-empty {
     display: flex;
     align-items: center;
     justify-content: center;
     border: 1px dashed rgba(148, 163, 184, 0.28);
     color: rgba(148, 163, 184, 0.76);
 }
-.thoth-buddy-pack-title {
+.row-bot-buddy-pack-title {
     width: 100%;
     min-width: 0;
     color: #dce7f7;
@@ -244,7 +245,7 @@ html.thoth-buddy-overlay-html body {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.thoth-buddy-pack-meta {
+.row-bot-buddy-pack-meta {
     width: 100%;
     min-width: 0;
     color: #9fb0c3;
@@ -254,14 +255,14 @@ html.thoth-buddy-overlay-html body {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.thoth-buddy-pack-card-selected .thoth-buddy-pack-title {
+.row-bot-buddy-pack-card-selected .row-bot-buddy-pack-title {
     color: #8fc7ff;
 }
-@keyframes thoth-buddy-sidebar-ring {
+@keyframes row-bot-buddy-sidebar-ring {
     0%, 100% { opacity: 0.72; transform: scale(0.985); }
     50% { opacity: 1; transform: scale(1.015); }
 }
-.thoth-buddy-fallback {
+.row-bot-buddy-fallback {
   position: absolute;
   inset: 0;
   display: grid;
@@ -271,8 +272,8 @@ html.thoth-buddy-overlay-html body {
   opacity: 0;
   transition: opacity 0.18s ease;
 }
-.thoth-buddy-wrap.buddy-unavailable .thoth-buddy-fallback { opacity: 1; }
-.thoth-buddy-status {
+.row-bot-buddy-wrap.buddy-unavailable .row-bot-buddy-fallback { opacity: 1; }
+.row-bot-buddy-status {
     display: none;
   max-width: 168px;
   color: #8f9baa;
@@ -280,33 +281,33 @@ html.thoth-buddy-overlay-html body {
   line-height: 1.2;
   text-align: center;
 }
-.thoth-buddy-wrap[data-surface="sidebar"] .thoth-buddy-status {
+.row-bot-buddy-wrap[data-surface="sidebar"] .row-bot-buddy-status {
         display: block;
         max-width: 198px;
         min-height: 13px;
         color: #a7b3c2;
 }
-.thoth-buddy-in-app.thoth-buddy-undocked .thoth-buddy-stage {
+.row-bot-buddy-in-app.row-bot-buddy-undocked .row-bot-buddy-stage {
     width: 154px;
     height: 154px;
     filter: drop-shadow(0 16px 24px rgba(0, 0, 0, 0.34));
     border: 0;
 }
-.thoth-buddy-in-app.thoth-buddy-undocked .thoth-buddy-stage::after {
+.row-bot-buddy-in-app.row-bot-buddy-undocked .row-bot-buddy-stage::after {
     display: none;
 }
-.thoth-buddy-in-app.thoth-buddy-undocked .thoth-buddy-wrap,
-.thoth-buddy-overlay-page .thoth-buddy-wrap {
+.row-bot-buddy-in-app.row-bot-buddy-undocked .row-bot-buddy-wrap,
+.row-bot-buddy-overlay-page .row-bot-buddy-wrap {
     position: relative;
 }
-.thoth-buddy-overlay-page .thoth-buddy-wrap {
+.row-bot-buddy-overlay-page .row-bot-buddy-wrap {
     width: 100%;
     height: 100%;
     justify-content: center;
     gap: 4px;
 }
-.thoth-buddy-in-app.thoth-buddy-undocked .thoth-buddy-status,
-.thoth-buddy-overlay-page .thoth-buddy-status {
+.row-bot-buddy-in-app.row-bot-buddy-undocked .row-bot-buddy-status,
+.row-bot-buddy-overlay-page .row-bot-buddy-status {
     display: block;
     max-width: 172px;
     min-height: 18px;
@@ -319,11 +320,11 @@ html.thoth-buddy-overlay-html body {
     box-shadow: 0 10px 22px rgba(0, 0, 0, 0.24);
     backdrop-filter: blur(8px);
 }
-.thoth-buddy-wrap[data-bubble-verbosity="quiet"][data-surface="floating"] .thoth-buddy-status,
-.thoth-buddy-wrap[data-bubble-verbosity="quiet"][data-surface="desktop"] .thoth-buddy-status:empty {
+.row-bot-buddy-wrap[data-bubble-verbosity="quiet"][data-surface="floating"] .row-bot-buddy-status,
+.row-bot-buddy-wrap[data-bubble-verbosity="quiet"][data-surface="desktop"] .row-bot-buddy-status:empty {
     display: none;
 }
-.thoth-buddy-overlay-page {
+.row-bot-buddy-overlay-page {
     position: fixed;
     inset: 0;
   width: 100vw;
@@ -333,25 +334,25 @@ html.thoth-buddy-overlay-html body {
   place-items: center;
     background: transparent;
 }
-html.thoth-buddy-overlay-html,
-body.thoth-buddy-overlay-body,
-body.thoth-buddy-overlay-body .nicegui-layout,
-body.thoth-buddy-overlay-body .q-layout,
-body.thoth-buddy-overlay-body .q-page-container,
-body.thoth-buddy-overlay-body .q-page,
-body.thoth-buddy-overlay-body .nicegui-content {
+html.row-bot-buddy-overlay-html,
+body.row-bot-buddy-overlay-body,
+body.row-bot-buddy-overlay-body .nicegui-layout,
+body.row-bot-buddy-overlay-body .q-layout,
+body.row-bot-buddy-overlay-body .q-page-container,
+body.row-bot-buddy-overlay-body .q-page,
+body.row-bot-buddy-overlay-body .nicegui-content {
     background: transparent !important;
     background-color: transparent !important;
 }
-body.thoth-buddy-overlay-body {
+body.row-bot-buddy-overlay-body {
     margin: 0 !important;
     overflow: hidden !important;
 }
-.thoth-buddy-overlay-page .thoth-buddy-stage {
+.row-bot-buddy-overlay-page .row-bot-buddy-stage {
     width: min(68vw, 176px);
     height: min(68vw, 176px);
 }
-.thoth-buddy-overlay-page .thoth-buddy-status {
+.row-bot-buddy-overlay-page .row-bot-buddy-status {
         max-width: min(88vw, 218px);
         min-height: 24px;
         max-height: 58px;
@@ -408,14 +409,14 @@ def _compose_hatch_prompt(concept: str, personality: str, notes: str) -> str:
 def _clean_hatch_concept(value: str) -> str:
     text = (value or "").strip()
     if not text:
-        return "A cute tiny mystical coding familiar for Thoth"
+        return f"A cute tiny mystical coding familiar for {APP_DISPLAY_NAME}"
     for marker in ("Personality style:", "User style notes:"):
         if text.startswith(marker):
-            return "A cute tiny mystical coding familiar for Thoth"
+            return f"A cute tiny mystical coding familiar for {APP_DISPLAY_NAME}"
         marker_index = text.find(f"\n{marker}")
         if marker_index >= 0:
             text = text[:marker_index].strip()
-    return text or "A cute tiny mystical coding familiar for Thoth"
+    return text or f"A cute tiny mystical coding familiar for {APP_DISPLAY_NAME}"
 
 
 def inject_buddy_head() -> None:
@@ -501,12 +502,12 @@ def _surface_html(surface: str) -> str:
     element_id = f"buddy-{surface}-{uuid.uuid4().hex[:10]}"
     unavailable = "Loading motion pack" if motion_pack_json != "{}" else ("Loading motion" if motion_url else ("Loading companion" if preview_url else "Generate a companion look to activate animation"))
     return f"""
-    <div id="{element_id}" class="thoth-buddy-wrap" data-thoth-buddy data-surface="{html.escape(surface)}" data-personality="{html.escape(personality)}" data-bubble-verbosity="{html.escape(bubble_verbosity)}" data-preview="{html.escape(preview_url)}" data-motion="{html.escape(motion_url)}" data-motion-pack="{html.escape(motion_pack_json, quote=True)}" data-generated-fit="{html.escape(render_fit)}">
-      <div class="thoth-buddy-stage">
+    <div id="{element_id}" class="row-bot-buddy-wrap" data-row-bot-buddy data-surface="{html.escape(surface)}" data-personality="{html.escape(personality)}" data-bubble-verbosity="{html.escape(bubble_verbosity)}" data-preview="{html.escape(preview_url)}" data-motion="{html.escape(motion_url)}" data-motion-pack="{html.escape(motion_pack_json, quote=True)}" data-generated-fit="{html.escape(render_fit)}">
+      <div class="row-bot-buddy-stage">
         <canvas id="{element_id}-canvas" width="220" height="220" aria-label="Companion animation"></canvas>
-        <div class="thoth-buddy-fallback" aria-hidden="true">*</div>
+        <div class="row-bot-buddy-fallback" aria-hidden="true">*</div>
       </div>
-      <div class="thoth-buddy-status buddy-status">{html.escape(unavailable)}</div>
+      <div class="row-bot-buddy-status buddy-status">{html.escape(unavailable)}</div>
     </div>
     """
 
@@ -534,7 +535,7 @@ def _refresh_existing_buddy_surfaces() -> None:
     code = f"""
         (() => {{
             const replacements = {json.dumps(surface_html)};
-            document.querySelectorAll('[data-thoth-buddy]').forEach((element) => {{
+            document.querySelectorAll('[data-row-bot-buddy]').forEach((element) => {{
                 const surface = element.dataset.surface;
                 const html = replacements[surface];
                 if (!html) return;
@@ -543,7 +544,7 @@ def _refresh_existing_buddy_surfaces() -> None:
                 const next = wrapper.firstElementChild;
                 if (next) element.replaceWith(next);
             }});
-            setTimeout(() => window.ThothBuddy && window.ThothBuddy.initAll(), 80);
+            setTimeout(() => window.RowBotBuddy && window.RowBotBuddy.initAll(), 80);
         }})();
         """
     delivered = False
@@ -576,8 +577,8 @@ def _push_snapshot(client=None) -> None:
         return
     snapshot = get_buddy_snapshot()
     code = (
-        f"if (!window.__THOTH_BUDDY_HOLD_SNAPSHOT && window.ThothBuddy) "
-        f"window.ThothBuddy.setState({json.dumps(snapshot)});"
+        f"if (!window.__ROW_BOT_BUDDY_HOLD_SNAPSHOT && window.RowBotBuddy) "
+        f"window.RowBotBuddy.setState({json.dumps(snapshot)});"
     )
     try:
         if client is not None:
@@ -621,7 +622,7 @@ def build_buddy_surface(surface: str = "sidebar"):
     inject_buddy_head()
     _ensure_buddy_client_runtime()
     root = ui.html(_surface_html(surface), sanitize=False)
-    ui.run_javascript("setTimeout(() => window.ThothBuddy && window.ThothBuddy.initAll(), 100);")
+    ui.run_javascript("setTimeout(() => window.RowBotBuddy && window.RowBotBuddy.initAll(), 100);")
     return root
 
 
@@ -652,8 +653,8 @@ def _apply_buddy_surface_settings(cfg: dict) -> None:
             document.querySelectorAll('[data-buddy-in-app-shell]').forEach((element) => {{
                 element.style.display = inAppVisible ? '' : 'none';
             }});
-            if (!inAppVisible && window.ThothBuddyDock) window.ThothBuddyDock.resetAll();
-            document.querySelectorAll('[data-thoth-buddy]').forEach((element) => {{
+            if (!inAppVisible && window.RowBotBuddyDock) window.RowBotBuddyDock.resetAll();
+            document.querySelectorAll('[data-row-bot-buddy]').forEach((element) => {{
                 element.dataset.bubbleVerbosity = bubbleVerbosity;
                 element.dataset.personality = personality;
             }});
@@ -685,22 +686,22 @@ def _install_desktop_overlay_focus_sync(cfg: dict) -> None:
         f"""
         (() => {{
             const api = window.pywebview && window.pywebview.api ? window.pywebview.api : null;
-            window.__THOTH_BUDDY_DESKTOP_ENABLED = {json.dumps(enabled)};
+            window.__ROW_BOT_BUDDY_DESKTOP_ENABLED = {json.dumps(enabled)};
             if (!api) return;
             if (api.set_buddy_desktop_enabled) {{
                 Promise.resolve(api.set_buddy_desktop_enabled({json.dumps(enabled)})).catch(() => {{}});
             }}
             const port = Number(window.location.port || 8080);
             const hideForFocus = () => {{
-                if (!window.__THOTH_BUDDY_DESKTOP_ENABLED || !api.hide_buddy_window) return;
+                if (!window.__ROW_BOT_BUDDY_DESKTOP_ENABLED || !api.hide_buddy_window) return;
                 Promise.resolve(api.hide_buddy_window(false)).catch(() => {{}});
             }};
             const showForBlur = () => {{
-                if (!window.__THOTH_BUDDY_DESKTOP_ENABLED || !api.show_buddy_window) return;
+                if (!window.__ROW_BOT_BUDDY_DESKTOP_ENABLED || !api.show_buddy_window) return;
                 Promise.resolve(api.show_buddy_window(false, port, 260, 260)).catch(() => {{}});
             }};
-            if (!window.__THOTH_BUDDY_DESKTOP_FOCUS_SYNC) {{
-                window.__THOTH_BUDDY_DESKTOP_FOCUS_SYNC = true;
+            if (!window.__ROW_BOT_BUDDY_DESKTOP_FOCUS_SYNC) {{
+                window.__ROW_BOT_BUDDY_DESKTOP_FOCUS_SYNC = true;
                 window.addEventListener('focus', hideForFocus);
                 window.addEventListener('blur', showForBlur);
                 document.addEventListener('visibilitychange', () => {{
@@ -708,7 +709,7 @@ def _install_desktop_overlay_focus_sync(cfg: dict) -> None:
                     else showForBlur();
                 }});
             }}
-            if (window.__THOTH_BUDDY_DESKTOP_ENABLED && document.hasFocus()) hideForFocus();
+            if (window.__ROW_BOT_BUDDY_DESKTOP_ENABLED && document.hasFocus()) hideForFocus();
         }})();
         """
     )
@@ -726,12 +727,12 @@ def build_sidebar_buddy(state, p, open_settings=None) -> None:
             open_settings("Buddy")
 
     with ui.column().classes("w-full items-center gap-1 q-mb-sm"):
-        with ui.element("div").classes("thoth-buddy-sidebar-action") as shell:
+        with ui.element("div").classes("row-bot-buddy-sidebar-action") as shell:
             shell._props["id"] = dock_id
             shell._props["data-buddy-sidebar-shell"] = "1"
             if not visible:
                 shell.style("display: none;")
-            with ui.element("div").classes("thoth-buddy-in-app thoth-buddy-docked") as buddy_shell:
+            with ui.element("div").classes("row-bot-buddy-in-app row-bot-buddy-docked") as buddy_shell:
                 buddy_shell._props["id"] = in_app_id
                 buddy_shell._props["data-buddy-in-app-shell"] = "1"
                 buddy_shell._props["role"] = "button"
@@ -749,9 +750,9 @@ def build_in_app_buddy(*, recreate: bool = False) -> None:
         (() => {
             document.querySelectorAll('[data-buddy-in-app-shell]').forEach((element) => {
                 const dock = element.dataset.buddyDockId || (element.closest('[data-buddy-sidebar-shell]') || {}).id || '';
-                if (dock && window.ThothBuddyDock) window.ThothBuddyDock.install(element.id, dock);
+                if (dock && window.RowBotBuddyDock) window.RowBotBuddyDock.install(element.id, dock);
             });
-            window.ThothBuddy && window.ThothBuddy.initAll();
+            window.RowBotBuddy && window.RowBotBuddy.initAll();
         })();
         """
     )
@@ -765,11 +766,11 @@ def _install_in_app_buddy_drag_js(element_id: str, dock_id: str) -> str:
     return f"""
         const element = document.getElementById({json.dumps(element_id)});
         const dock = document.getElementById({json.dumps(dock_id)});
-        if (!window.ThothBuddyDock) {{
-            window.ThothBuddyDock = {{
+        if (!window.RowBotBuddyDock) {{
+            window.RowBotBuddyDock = {{
                 resetAll() {{
                     document.querySelectorAll('[data-buddy-in-app-shell]').forEach((node) => {{
-                        if (node.__thothBuddyDockHome) node.__thothBuddyDockHome();
+                        if (node.__rowBotBuddyDockHome) node.__rowBotBuddyDockHome();
                     }});
                 }},
                 install(elementId, dockId) {{
@@ -778,19 +779,19 @@ def _install_in_app_buddy_drag_js(element_id: str, dock_id: str) -> str:
                     if (!target || !targetDock || target.dataset.buddyDragInstalled === '1') return;
                     target.dataset.buddyDockId = dockId;
                     target.dataset.buddyDragInstalled = '1';
-                    const root = () => target.querySelector('[data-thoth-buddy]');
+                    const root = () => target.querySelector('[data-row-bot-buddy]');
                     const setSurface = (surface) => {{
                         const buddyRoot = root();
                         if (buddyRoot) buddyRoot.dataset.surface = surface;
                     }};
                     const dockHome = () => {{
-                        target.classList.add('thoth-buddy-docked');
-                        target.classList.remove('thoth-buddy-undocked', 'thoth-buddy-dragging');
+                        target.classList.add('row-bot-buddy-docked');
+                        target.classList.remove('row-bot-buddy-undocked', 'row-bot-buddy-dragging');
                         target.style.left = '';
                         target.style.top = '';
                         target.style.right = '';
                         target.style.bottom = '';
-                        targetDock.classList.remove('thoth-buddy-dock-empty', 'thoth-buddy-dock-hover');
+                        targetDock.classList.remove('row-bot-buddy-dock-empty', 'row-bot-buddy-dock-hover');
                         if (target.parentElement !== targetDock) targetDock.appendChild(target);
                         setSurface('sidebar');
                     }};
@@ -799,13 +800,13 @@ def _install_in_app_buddy_drag_js(element_id: str, dock_id: str) -> str:
                         target.style.top = rect.top + 'px';
                         target.style.right = 'auto';
                         target.style.bottom = 'auto';
-                        target.classList.add('thoth-buddy-undocked');
-                        target.classList.remove('thoth-buddy-docked');
-                        targetDock.classList.add('thoth-buddy-dock-empty');
+                        target.classList.add('row-bot-buddy-undocked');
+                        target.classList.remove('row-bot-buddy-docked');
+                        targetDock.classList.add('row-bot-buddy-dock-empty');
                         if (target.parentElement !== document.body) document.body.appendChild(target);
                         setSurface('floating');
                     }};
-                    target.__thothBuddyDockHome = dockHome;
+                    target.__rowBotBuddyDockHome = dockHome;
                     let drag = null;
                     let moved = false;
                     const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -820,15 +821,15 @@ def _install_in_app_buddy_drag_js(element_id: str, dock_id: str) -> str:
                         return distance < Math.max(92, dockRect.width * 0.58);
                     }};
                     const updateDockHover = () => {{
-                        if (!target.classList.contains('thoth-buddy-undocked')) return;
-                        targetDock.classList.toggle('thoth-buddy-dock-hover', isNearDock());
+                        if (!target.classList.contains('row-bot-buddy-undocked')) return;
+                        targetDock.classList.toggle('row-bot-buddy-dock-hover', isNearDock());
                     }};
                     target.addEventListener('pointerdown', (event) => {{
                         if (event.button !== 0) return;
                         const rect = target.getBoundingClientRect();
                         drag = {{ pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top }};
                         moved = false;
-                        target.classList.add('thoth-buddy-dragging');
+                        target.classList.add('row-bot-buddy-dragging');
                         try {{ target.setPointerCapture(event.pointerId); }} catch (error) {{}}
                         event.preventDefault();
                     }});
@@ -837,7 +838,7 @@ def _install_in_app_buddy_drag_js(element_id: str, dock_id: str) -> str:
                         const rect = target.getBoundingClientRect();
                         if (Math.abs(event.clientX - drag.startX) > 4 || Math.abs(event.clientY - drag.startY) > 4) {{
                             moved = true;
-                            if (!target.classList.contains('thoth-buddy-undocked')) undock(rect);
+                            if (!target.classList.contains('row-bot-buddy-undocked')) undock(rect);
                         }}
                         if (!moved) return;
                         const width = target.offsetWidth;
@@ -852,9 +853,9 @@ def _install_in_app_buddy_drag_js(element_id: str, dock_id: str) -> str:
                         if (!drag || drag.pointerId !== event.pointerId) return;
                         const wasClick = !moved;
                         drag = null;
-                        target.classList.remove('thoth-buddy-dragging');
-                        if (!wasClick && target.classList.contains('thoth-buddy-undocked') && isNearDock()) dockHome();
-                        else targetDock.classList.remove('thoth-buddy-dock-hover');
+                        target.classList.remove('row-bot-buddy-dragging');
+                        if (!wasClick && target.classList.contains('row-bot-buddy-undocked') && isNearDock()) dockHome();
+                        else targetDock.classList.remove('row-bot-buddy-dock-hover');
                         if (wasClick) target.dispatchEvent(new CustomEvent('buddy-click', {{ bubbles: true }}));
                     }};
                     target.addEventListener('pointerup', finish);
@@ -868,7 +869,7 @@ def _install_in_app_buddy_drag_js(element_id: str, dock_id: str) -> str:
             }};
         }}
         if (!element || element.dataset.buddyDragInstalled === '1') return;
-        if (dock) window.ThothBuddyDock.install({json.dumps(element_id)}, {json.dumps(dock_id)});
+        if (dock) window.RowBotBuddyDock.install({json.dumps(element_id)}, {json.dumps(dock_id)});
     """
 
 
@@ -878,18 +879,18 @@ def build_buddy_overlay_page() -> None:
         """
         (() => {
             document.documentElement.style.overflow = 'hidden';
-            document.documentElement.classList.add('thoth-buddy-overlay-html');
+            document.documentElement.classList.add('row-bot-buddy-overlay-html');
             document.documentElement.style.background = 'transparent';
             document.body.style.overflow = 'hidden';
             document.body.style.margin = '0';
             document.body.style.background = 'transparent';
-            document.body.classList.add('thoth-buddy-overlay-body');
+            document.body.classList.add('row-bot-buddy-overlay-body');
             const startedAt = performance.now();
             let attempts = 0;
             const revealOverlay = () => {
                 const api = window.pywebview && window.pywebview.api ? window.pywebview.api : null;
                 const elapsed = performance.now() - startedAt;
-                const root = document.querySelector('.thoth-buddy-overlay-page [data-thoth-buddy]');
+                const root = document.querySelector('.row-bot-buddy-overlay-page [data-row-bot-buddy]');
                 const rootReady = root && (root.classList.contains('buddy-ready') || root.classList.contains('buddy-generated'));
                 if (api && root && (rootReady || elapsed >= 700)) {
                     if (api.mark_buddy_window_ready) {
@@ -908,7 +909,7 @@ def build_buddy_overlay_page() -> None:
         timeout=1,
     )
     emit_buddy_event(BuddyEventType.APP_READY, source="buddy.overlay", payload={"label": "Overlay ready"})
-    with ui.element("div").classes("thoth-buddy-overlay-page"):
+    with ui.element("div").classes("row-bot-buddy-overlay-page"):
         build_buddy_surface("desktop")
 
 
@@ -1080,9 +1081,9 @@ def build_buddy_settings_tab(_reopen=None) -> None:
             pack_selection_touched["value"] = True
             for current_id, card in pack_cards.items():
                 if current_id == pack_id:
-                    card.classes(add="thoth-buddy-pack-card-selected")
+                    card.classes(add="row-bot-buddy-pack-card-selected")
                 else:
-                    card.classes(remove="thoth-buddy-pack-card-selected")
+                    card.classes(remove="row-bot-buddy-pack-card-selected")
             selected_status = "Motion pack ready" if pack.status == "available" else (pack.message or "Pack needs attention")
             selected_pack_summary.set_text(f"Selected: {pack_label}. {selected_status}.")
             selected_motion_count = len(pack.motion_clips or {})
@@ -1141,34 +1142,34 @@ def build_buddy_settings_tab(_reopen=None) -> None:
             with ui.row().classes("items-center gap-1 no-wrap"):
                 ui.button(icon="delete", on_click=_delete_selected_generated_pack).props("flat dense round size=sm color=negative").tooltip("Delete generated look")
                 ui.button(icon="refresh", on_click=lambda: _reopen("Buddy") if _reopen else None).props("flat dense round size=sm").tooltip("Refresh packs")
-        with ui.element("div").classes("thoth-buddy-pack-grid"):
+        with ui.element("div").classes("row-bot-buddy-pack-grid"):
             for pack in packs:
                 is_selected = pack.id == selected_pack_id["value"]
                 preview_url = _pack_preview_url(pack)
                 status_text = "Ready" if pack.status == "available" else (pack.message or "Needs attention")
                 pack_label = _display_pack_name(pack.name)
                 with ui.button(on_click=lambda pack_id=pack.id: _select_pack(pack_id)).props("flat no-caps padding=none").classes(
-                    "thoth-buddy-pack-card" + (" thoth-buddy-pack-card-selected" if is_selected else "")
+                    "row-bot-buddy-pack-card" + (" row-bot-buddy-pack-card-selected" if is_selected else "")
                 ) as pack_card:
                     pack_cards[pack.id] = pack_card
                     if preview_url:
-                        ui.image(preview_url).classes("thoth-buddy-pack-preview")
+                        ui.image(preview_url).classes("row-bot-buddy-pack-preview")
                     else:
-                        with ui.element("div").classes("thoth-buddy-pack-preview thoth-buddy-pack-preview-empty"):
+                        with ui.element("div").classes("row-bot-buddy-pack-preview row-bot-buddy-pack-preview-empty"):
                             ui.icon("auto_awesome", size="md")
                     with ui.column().classes("gap-0 w-full"):
-                        ui.label(pack_label).classes("thoth-buddy-pack-title")
-                        ui.label(f"{len(pack.motion_clips or {})} clips · {status_text}").classes("thoth-buddy-pack-meta")
+                        ui.label(pack_label).classes("row-bot-buddy-pack-title")
+                        ui.label(f"{len(pack.motion_clips or {})} clips · {status_text}").classes("row-bot-buddy-pack-meta")
         if not packs:
             ui.label("No packs found. Generate one or refresh after installing assets.").classes("text-grey-6 text-xs")
 
-    generation_actions, generation_body = _section("Generate Look", "auto_fix_high", "Describe the Buddy. Thoth handles sizing and motion automatically.")
+    generation_actions, generation_body = _section("Generate Look", "auto_fix_high", f"Describe the Buddy. {APP_DISPLAY_NAME} handles sizing and motion automatically.")
     with generation_actions:
         ui.badge("background", color="purple").props("outline dense")
     with generation_body:
         prompt = ui.textarea(
             label="Concept",
-            value=_clean_hatch_concept(str(cfg.get("hatch_prompt") or cfg.get("hatch_generation_prompt") or "A cute tiny mystical coding familiar for Thoth")),
+            value=_clean_hatch_concept(str(cfg.get("hatch_prompt") or cfg.get("hatch_generation_prompt") or f"A cute tiny mystical coding familiar for {APP_DISPLAY_NAME}")),
         ).classes("w-full").props("outlined autogrow")
         buddy_description = ui.textarea(
             label="Style notes (optional)",

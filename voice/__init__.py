@@ -29,11 +29,12 @@ import logging
 import threading
 import time
 from collections import deque
-from pathlib import Path
 from queue import Empty, SimpleQueue
 from typing import Literal
 
 import numpy as np
+
+from data_paths import get_row_bot_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ _DEFAULT_WHISPER_SIZE = "small"
 _UNMUTE_GRACE_S = 0.6
 
 # Data directory
-_DATA_DIR = Path.home() / ".thoth"
+_DATA_DIR = get_row_bot_data_dir()
 _VOICE_SETTINGS_FILE = _DATA_DIR / "voice_settings.json"
 
 
@@ -313,7 +314,7 @@ class VoiceService:
             self._mute_event.clear()
             self._unmute_event.clear()
             self._thread = threading.Thread(
-                target=self._run, daemon=True, name="thoth-voice",
+                target=self._run, daemon=True, name="row-bot-voice",
             )
             self._thread.start()
 

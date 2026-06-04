@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/thoth_glyph_256.png" alt="Thoth" width="180">
+  <img src="docs/row_bot_glyph_256.png" alt="Row-Bot" width="180">
 </p>
 
-<h1 align="center">Thoth</h1>
+<h1 align="center">Row-Bot</h1>
 
 <p align="center">
    <a href="https://github.com/siddsachar/Thoth/releases"><img src="https://img.shields.io/github/v/release/siddsachar/Thoth?style=flat&label=release&color=c9a227" alt="Release"></a>

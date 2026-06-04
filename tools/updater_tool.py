@@ -1,8 +1,8 @@
-"""Updater tool — agent-facing wrappers around updater.py.
+﻿"""Updater tool — agent-facing wrappers around updater.py.
 
 Provides:
-- ``thoth_check_for_updates`` — read-only poll
-- ``thoth_install_update``   — performs download + install (approval-gated)
+- ``row_bot_check_for_updates`` — read-only poll
+- ``row_bot_install_update``   — performs download + install (approval-gated)
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ def _check_for_updates() -> str:
         lines.append(info.notes_summary)
     lines.append("")
     lines.append(f"Release page: {info.html_url}")
-    lines.append("Use thoth_install_update to install (follows this thread's approval mode).")
+    lines.append("Use row_bot_install_update to install (follows this thread's approval mode).")
     return "\n".join(lines)
 
 
@@ -82,11 +82,11 @@ def _install_update(version: str = "") -> str:
 
     blocked = gate_action(
         {
-            "tool": "thoth_install_update",
-            "label": f"Install Thoth v{info.version}",
+            "tool": "row_bot_install_update",
+            "label": f"Install Row-Bot v{info.version}",
             "description": (
-                f"Download and install Thoth v{info.version} from "
-                f"{info.html_url}. Thoth will close and the OS installer "
+                f"Download and install Row-Bot v{info.version} from "
+                f"{info.html_url}. Row-Bot will close and the OS installer "
                 f"will run. Asset: {info.asset_name} "
                 f"({info.asset_size / 1_000_000:.1f} MB)."
             ),
@@ -115,8 +115,8 @@ def _install_update(version: str = "") -> str:
         return f"Install hand-off failed: {exc}"
 
     return (
-        f"Installer launched for v{info.version}. Thoth will exit shortly; "
-        f"on Windows the installer runs silently and relaunches Thoth, on "
+        f"Installer launched for v{info.version}. Row-Bot will exit shortly; "
+        f"on Windows the installer runs silently and relaunches Row-Bot, on "
         f"macOS the DMG opens in Finder for you to drag the new app to "
         f"/Applications."
     )
@@ -128,7 +128,7 @@ class UpdaterTool(BaseTool):
 
     @property
     def name(self) -> str:
-        return "thoth_updater"
+        return "row_bot_updater"
 
     @property
     def display_name(self) -> str:
@@ -137,7 +137,7 @@ class UpdaterTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Check for and install Thoth updates from GitHub Releases. "
+            "Check for and install Row-Bot updates from GitHub Releases. "
             "Install actions follow the current thread approval mode."
         )
 
@@ -147,7 +147,7 @@ class UpdaterTool(BaseTool):
 
     @property
     def destructive_tool_names(self) -> set[str]:
-        # thoth_install_update calls interrupt() internally with its own
+        # row_bot_install_update calls interrupt() internally with its own
         # detailed approval payload — don't double-gate it.
         return set()
 
@@ -155,9 +155,9 @@ class UpdaterTool(BaseTool):
         return [
             StructuredTool.from_function(
                 func=_check_for_updates,
-                name="thoth_check_for_updates",
+                name="row_bot_check_for_updates",
                 description=(
-                    "Check GitHub for a newer release of Thoth on the user's "
+                    "Check GitHub for a newer release of Row-Bot on the user's "
                     "channel (stable or beta). Returns the available version, "
                     "release summary, and a link to the release page. "
                     "Read-only — does not download or install anything."
@@ -166,10 +166,10 @@ class UpdaterTool(BaseTool):
             ),
             StructuredTool.from_function(
                 func=_install_update,
-                name="thoth_install_update",
+                name="row_bot_install_update",
                 description=(
-                    "Download and install a Thoth update. Follows the current "
-                    "thread approval mode. When allowed, Thoth will close and "
+                    "Download and install a Row-Bot update. Follows the current "
+                    "thread approval mode. When allowed, Row-Bot will close and "
                     "hand off to the OS installer."
                 ),
                 args_schema=_InstallInput,

@@ -705,14 +705,14 @@
   }
 
   function initAll() {
-    document.querySelectorAll('[data-thoth-buddy]').forEach(initRoot);
+    document.querySelectorAll('[data-row-bot-buddy]').forEach(initRoot);
   }
 
-  window.ThothBuddy = {
+  window.RowBotBuddy = {
     initAll,
     debugState: function () {
       const result = [];
-      document.querySelectorAll('[data-thoth-buddy]').forEach(function (root) {
+      document.querySelectorAll('[data-row-bot-buddy]').forEach(function (root) {
         const canvas = qs(root, 'canvas');
         const state = canvas ? generated.get(canvas.id) : null;
         const videoStates = {};
@@ -743,7 +743,7 @@
       return result;
     },
     setState: function (snapshot) {
-      document.querySelectorAll('[data-thoth-buddy]').forEach(function (root) {
+      document.querySelectorAll('[data-row-bot-buddy]').forEach(function (root) {
         applySnapshot(root, snapshot);
       });
     },

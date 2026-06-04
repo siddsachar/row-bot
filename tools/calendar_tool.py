@@ -11,15 +11,14 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 from typing import Optional
 
+from data_paths import get_row_bot_data_dir
 from tools.base import BaseTool
 from tools import registry
 
 logger = logging.getLogger(__name__)
 
-# Credential / token files live in the Thoth data directory
-_DATA_DIR = pathlib.Path(
-    os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")
-)
+# Credential / token files live in the Row-Bot data directory.
+_DATA_DIR = get_row_bot_data_dir()
 _CALENDAR_DIR = _DATA_DIR / "calendar"
 _CALENDAR_DIR.mkdir(parents=True, exist_ok=True)
 

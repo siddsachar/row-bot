@@ -1,12 +1,12 @@
 """Append a SHA256 manifest to a GitHub release body.
 
 Used in the release workflow after the Windows + macOS artifacts have
-been uploaded. The manifest is the source of truth used by Thoth's
+been uploaded. The manifest is the source of truth used by Row-Bot's
 in-app updater to verify downloads.
 
 Inputs (env vars / CLI):
     --tag           release tag, e.g. v3.19.0
-    --repo          owner/repo, e.g. siddsachar/Thoth
+    --repo          owner/repo, e.g. siddsachar/row-bot
     --token         GitHub token with `contents: write` (default: $GITHUB_TOKEN)
     --files         space- or comma-separated paths to artifacts to hash
                     (default: globbed from $RUNNER_TEMP / cwd)
@@ -14,7 +14,7 @@ Inputs (env vars / CLI):
 Behaviour:
     1. Compute SHA256 for each artifact.
     2. Fetch the existing release body via the GitHub API.
-    3. Replace any existing `<!-- thoth-update-manifest -->` block with a
+    3. Replace any existing `<!-- row-bot-update-manifest -->` block with a
        freshly-rebuilt manifest, OR append one if none is present.
     4. PATCH the release.
 
@@ -33,7 +33,7 @@ import urllib.error
 import urllib.request
 
 _MANIFEST_RE = re.compile(
-    r"<!--\s*thoth-update-manifest\s*-->\s*```manifest.*?```",
+    r"<!--\s*row-bot-update-manifest\s*-->\s*```manifest.*?```",
     re.DOTALL | re.IGNORECASE,
 )
 
@@ -47,7 +47,7 @@ def sha256_of(path: pathlib.Path) -> str:
 
 
 def build_manifest_block(file_hashes: dict[str, str]) -> str:
-    lines = ["<!-- thoth-update-manifest -->", "```manifest", "schema: 1", "files:"]
+    lines = ["<!-- row-bot-update-manifest -->", "```manifest", "schema: 1", "files:"]
     for name in sorted(file_hashes):
         lines.append(f"  {name}: sha256={file_hashes[name]}")
     lines.append("```")
@@ -73,7 +73,7 @@ def _api(url: str, token: str, method: str = "GET", payload: dict | None = None)
         headers={
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
-            "User-Agent": "thoth-release-manifest",
+            "User-Agent": "row-bot-release-manifest",
             "X-GitHub-Api-Version": "2022-11-28",
             **({"Content-Type": "application/json"} if data else {}),
         },

@@ -13,7 +13,8 @@ def _case_dir() -> Path:
 
 
 def _reload_onboarding(monkeypatch, data_dir: Path):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
+    monkeypatch.delenv("THOTH_DATA_DIR", raising=False)
     import ui.helpers as helpers
     import ui.onboarding_state as onboarding_state
 
@@ -86,7 +87,8 @@ def test_onboarding_state_recovers_from_unknown_saved_values(monkeypatch):
 
 def test_default_workflow_templates_are_disabled_manual_and_mixed_complexity(monkeypatch):
     data_dir = _case_dir()
-    monkeypatch.setenv("THOTH_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
+    monkeypatch.delenv("THOTH_DATA_DIR", raising=False)
     import tasks
 
     tasks = importlib.reload(tasks)
@@ -136,7 +138,8 @@ def test_default_workflow_templates_are_disabled_manual_and_mixed_complexity(mon
 
 def test_existing_users_are_not_reseeded_automatically(monkeypatch):
     data_dir = _case_dir()
-    monkeypatch.setenv("THOTH_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
+    monkeypatch.delenv("THOTH_DATA_DIR", raising=False)
     import tasks
 
     tasks = importlib.reload(tasks)
@@ -179,7 +182,8 @@ def test_setup_center_orders_steps_by_profile_intent():
 
 def test_setup_center_only_offers_missing_workflow_starters(monkeypatch):
     data_dir = _case_dir()
-    monkeypatch.setenv("THOTH_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
+    monkeypatch.delenv("THOTH_DATA_DIR", raising=False)
     import tasks
     import ui.onboarding_center as center
 
@@ -198,7 +202,7 @@ def test_onboarding_source_contracts_are_wired():
     center_src = Path("ui/onboarding_center.py").read_text(encoding="utf-8")
     sidebar_src = Path("ui/sidebar.py").read_text(encoding="utf-8")
     home_src = Path("ui/home.py").read_text(encoding="utf-8")
-    installer_src = Path("installer/thoth_setup.iss").read_text(encoding="utf-8")
+    installer_src = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
 
     for marker in (
         "OPENAI_API_KEY",
@@ -212,7 +216,7 @@ def test_onboarding_source_contracts_are_wired():
         "Local (Ollama)",
         "Designer Studio",
         "Starter workflows are added disabled",
-        "Open Thoth",
+        "Open {APP_DISPLAY_NAME}",
         "Continue setup",
         "Migrate from OpenClaw or Hermes Agent?",
     ):
@@ -243,7 +247,7 @@ def test_onboarding_source_contracts_are_wired():
     assert "Recommended from your choices" in center_src
     assert "Recommended" in center_src
     assert 'preferred_home_tab = "Designer"' in center_src
-    assert "Finish setting up Thoth" in home_src
+    assert "Finish setting up {APP_DISPLAY_NAME}" in home_src
     assert "add_default_workflow_templates" in center_src
     assert "_missing_starter_workflow_count" in center_src
     assert "Add starters" not in center_src

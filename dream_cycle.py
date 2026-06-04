@@ -28,13 +28,13 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from data_paths import get_row_bot_data_dir
+
 logger = logging.getLogger(__name__)
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-_DATA_DIR = pathlib.Path(
-    os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")
-)
+_DATA_DIR = get_row_bot_data_dir()
 _DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 _CONFIG_FILE = _DATA_DIR / "dream_config.json"
@@ -1589,7 +1589,7 @@ def start_dream_loop() -> None:
             except Exception as exc:
                 logger.warning("Dream cycle failed: %s", exc)
 
-    _dream_thread = threading.Thread(target=_loop, daemon=True, name="thoth-dream-cycle")
+    _dream_thread = threading.Thread(target=_loop, daemon=True, name="row-bot-dream-cycle")
     _dream_thread.start()
     logger.info(
         "Dream cycle daemon started — window %d:00–%d:00, checks every %d min",

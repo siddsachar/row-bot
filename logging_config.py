@@ -1,8 +1,8 @@
-"""Thoth — Persistent structured logging to daily JSONL files.
+"""Row-Bot persistent structured logging to daily JSONL files.
 
 Provides dual-layer logging: the existing console logger (stderr, plain text)
 is preserved, and a second ``TimedRotatingFileHandler`` writes structured JSON
-lines to ``~/.thoth/logs/thoth.log`` (rotated daily to ``thoth.log.YYYY-MM-DD``).
+lines to ``~/.row-bot/logs/row_bot.log`` (rotated daily).
 
 Usage (called once at import time from ``app.py``)::
 
@@ -10,24 +10,24 @@ Usage (called once at import time from ``app.py``)::
     setup_file_logging()
 
 Log level for file output is configurable at runtime via
-``set_file_log_level()`` and persisted in ``~/.thoth/user_config.json``.
+``set_file_log_level()`` and persisted in ``~/.row-bot/user_config.json``.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import os
 import pathlib
 import time
 from datetime import datetime, timedelta
 from logging.handlers import TimedRotatingFileHandler
 
+from brand import STRUCTURED_LOG_FILENAME
+from data_paths import get_row_bot_data_dir
+
 logger = logging.getLogger(__name__)
 
-_DATA_DIR = pathlib.Path(
-    os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")
-)
+_DATA_DIR = get_row_bot_data_dir()
 _LOG_DIR = _DATA_DIR / "logs"
 _CONFIG_PATH = _DATA_DIR / "user_config.json"
 
@@ -81,7 +81,7 @@ def setup_file_logging() -> None:
 
     _LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-    log_path = _LOG_DIR / "thoth.log"
+    log_path = _LOG_DIR / STRUCTURED_LOG_FILENAME
     _file_handler = TimedRotatingFileHandler(
         str(log_path),
         when="midnight",
@@ -155,7 +155,7 @@ def get_log_dir() -> pathlib.Path:
 
 def get_current_log_path() -> pathlib.Path | None:
     """Return the path to today's active log file (if it exists)."""
-    log_path = _LOG_DIR / "thoth.log"
+    log_path = _LOG_DIR / STRUCTURED_LOG_FILENAME
     if log_path.exists():
         return log_path
     return None
@@ -214,7 +214,7 @@ def get_log_stats() -> dict:
         return stats
 
     for f in _LOG_DIR.iterdir():
-        if f.is_file() and f.name.startswith("thoth"):
+        if f.is_file() and f.name.startswith(STRUCTURED_LOG_FILENAME):
             stats["total_files"] += 1
             stats["total_size_kb"] += f.stat().st_size / 1024
 
@@ -236,7 +236,7 @@ def _cleanup_old_logs() -> None:
         return
     cutoff = datetime.now() - timedelta(days=_RETENTION_DAYS)
     for f in _LOG_DIR.iterdir():
-        if not f.is_file() or not f.name.startswith("thoth"):
+        if not f.is_file() or not f.name.startswith(STRUCTURED_LOG_FILENAME):
             continue
         try:
             mtime = datetime.fromtimestamp(f.stat().st_mtime)

@@ -148,14 +148,14 @@ def test_transcript_rendering_is_bounded_and_generation_safe() -> None:
     assert "Save diagram as PNG (up to 4K)" in render_src
     assert ".mermaid-rendered svg" in head_src
     assert "htmlLabels: false" in head_src
-    assert "thothNormalizeMermaidDiagrams" in head_src
+    assert "rowBotNormalizeMermaidDiagrams" in head_src
     assert "min-width: 900px" in head_src
-    assert "thothHighlightCodeBlocks" in head_src
+    assert "rowBotHighlightCodeBlocks" in head_src
     assert "MutationObserver" in head_src
     assert 'pre code:not([data-highlighted="yes"])' in head_src
-    assert "thoth-live-stream" in head_src
-    assert "thoth-live-stream" in _read("ui/streaming.py")
-    assert "window.thothHighlightCodeBlocks" in render_src
+    assert "row-bot-live-stream" in head_src
+    assert "row-bot-live-stream" in _read("ui/streaming.py")
+    assert "window.rowBotHighlightCodeBlocks" in render_src
 
 
 def test_detached_finalize_marks_live_render_state_without_repaint() -> None:
@@ -208,7 +208,7 @@ def test_blank_thread_shell_defers_heavy_chat_work() -> None:
     assert "_skills_mod.load_skills()" not in chat_src
     assert "get_enabled_manual_skills_snapshot" in chat_src
     assert "chat_upload_js_installed" in chat_src
-    assert "window._thothUploadHooksInstalled" in chat_src
+    assert "window._rowBotUploadHooksInstalled" in chat_src
 
     assert "chat.model_picker.options" in picker_src
     assert "Loading pinned models..." in picker_src

@@ -1,4 +1,4 @@
-"""Thoth UI — status bar with avatar, health pills, and diagnosis button.
+"""Row-Bot UI: status bar with avatar, health pills, and diagnosis button.
 
 Replaces the old logo section on the home screen.
 """
@@ -8,11 +8,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
-import pathlib
 import time
 from typing import Callable
 
+from brand import APP_BRAND_ACCENT, APP_BRAND_ACCENT_RGB, APP_DISPLAY_NAME
+from data_paths import get_row_bot_data_dir
 from nicegui import run, ui
 from ui.timer_utils import safe_timer
 
@@ -21,26 +21,24 @@ from ui.performance import log_ui_perf
 
 logger = logging.getLogger(__name__)
 
-_DATA_DIR = pathlib.Path(
-    os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")
-)
+_DATA_DIR = get_row_bot_data_dir()
 _USER_CONFIG_PATH = _DATA_DIR / "user_config.json"
 
 # ═════════════════════════════════════════════════════════════════════════════
 # AVATAR CONFIG
 # ═════════════════════════════════════════════════════════════════════════════
 
-_DEFAULT_EMOJI = "𓁟"
-_DEFAULT_COLOR = "#FFD700"
+_DEFAULT_EMOJI = "🤖"
+_DEFAULT_COLOR = APP_BRAND_ACCENT
 
 _AVATAR_EMOJIS = [
-    "𓁟", "🤖", "🧠", "🦊", "🐱", "🦉", "🐙", "🎭", "👾", "🌀",
+    "🤖", "🧠", "🦊", "🐱", "🦉", "🐙", "🎭", "👾", "🌀",
     "💎", "🔮", "🪐", "⚡", "🌊", "🐉", "🦋", "🍀", "🎯", "🏔️",
     "🌸", "🦁", "🐺", "🐝", "🦅", "🎵", "🔥", "❄️", "☀️", "🌙",
 ]
 
 _RING_COLORS = [
-    "#FFD700", "#4caf50", "#2196f3", "#e91e63", "#9c27b0",
+    APP_BRAND_ACCENT, "#4caf50", "#2196f3", "#e91e63", "#9c27b0",
     "#ff5722", "#00bcd4", "#ff9800", "#8bc34a", "#607d8b",
     "#f44336", "#3f51b5", "#009688", "#cddc39", "#795548",
 ]
@@ -89,7 +87,7 @@ def _load_avatar_config() -> dict:
 # ── Public helpers for chat avatar ───────────────────────────────────────
 
 def get_bot_avatar_emoji() -> str:
-    """Return the configured avatar emoji (or default 𓁟)."""
+    """Return the configured avatar emoji."""
     return _load_avatar_config().get("emoji", _DEFAULT_EMOJI)
 
 
@@ -195,11 +193,11 @@ async def _coalesced_force_refresh() -> list[CheckResult]:
 # CSS for the status panel (avatar removed — now in sidebar)
 _AVATAR_CSS = """
 <style>
-@keyframes thoth-wave-scroll {
+@keyframes row-bot-wave-scroll {
     0%   { transform: translateX(0) translateY(-50%); }
     100% { transform: translateX(-50%) translateY(-50%); }
 }
-.thoth-status-panel {
+.row-bot-status-panel {
     background: rgba(30, 30, 30, 0.7);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
@@ -210,8 +208,8 @@ _AVATAR_CSS = """
     position: relative;
     overflow: hidden;
 }
-.thoth-status-panel > * { position: relative; z-index: 1; }
-.thoth-status-panel::before {
+.row-bot-status-panel > * { position: relative; z-index: 1; }
+.row-bot-status-panel::before {
     content: "";
     position: absolute;
     top: 50%; left: 0;
@@ -222,7 +220,7 @@ _AVATAR_CSS = """
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 100' preserveAspectRatio='none'%3E%3Cpath d='M0,50 L40,50 L50,50 L55,48 L60,55 L65,10 L70,90 L75,30 L80,50 L100,50 L140,50 L150,50 L155,48 L160,55 L165,10 L170,90 L175,30 L180,50 L200,50 L240,50 L250,50 L255,48 L260,55 L265,10 L270,90 L275,30 L280,50 L300,50 L340,50 L350,50 L355,48 L360,55 L365,10 L370,90 L375,30 L380,50 L400,50 L440,50 L450,50 L455,48 L460,55 L465,10 L470,90 L475,30 L480,50 L500,50 L540,50 L550,50 L555,48 L560,55 L565,10 L570,90 L575,30 L580,50 L600,50' fill='none' stroke='%234caf50' stroke-width='1' stroke-linejoin='round'/%3E%3C/svg%3E");
     background-repeat: repeat-x;
     background-size: 50% 100%;
-    animation: thoth-wave-scroll 14s linear infinite;
+    animation: row-bot-wave-scroll 14s linear infinite;
 }
 .status-pills-row {
     display: flex; flex-wrap: wrap; gap: 5px; align-items: center;
@@ -306,7 +304,7 @@ _AVATAR_CSS = """
     background: #EF5350;
     box-shadow: 0 0 8px rgba(239, 83, 80, 0.65);
 }
-.thoth-buddy-hatch-progress {
+.row-bot-buddy-hatch-progress {
     display: inline-flex;
     align-items: center;
     gap: 8px;
@@ -318,26 +316,26 @@ _AVATAR_CSS = """
     background: rgba(171, 71, 188, 0.10);
     animation: pulse-border 2s infinite;
 }
-.thoth-buddy-hatch-progress.done {
+.row-bot-buddy-hatch-progress.done {
     border-color: #66bb6a;
     color: #a5d6a7;
     background: rgba(102, 187, 106, 0.10);
     animation: none;
 }
-.thoth-buddy-hatch-progress.warn {
+.row-bot-buddy-hatch-progress.warn {
     border-color: #FFA726;
     color: #FFCC80;
     background: rgba(255, 167, 38, 0.10);
     animation: none;
 }
-.thoth-buddy-hatch-progress.error {
+.row-bot-buddy-hatch-progress.error {
     border-color: #ef5350;
     color: #ef9a9a;
     background: rgba(239, 83, 80, 0.10);
     animation: none;
 }
 .status-pill.inactive { opacity: 0.4; font-size: 0.75rem; }
-.thoth-gear-btn {
+.row-bot-gear-btn {
     width: 44px; height: 44px;
     border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
@@ -350,33 +348,33 @@ _AVATAR_CSS = """
     flex-shrink: 0;
     box-shadow: 0 0 6px rgba(160, 200, 220, 0.20);
 }
-.thoth-gear-btn:hover {
+.row-bot-gear-btn:hover {
     background: rgba(160, 200, 220, 0.18);
     transform: scale(1.08);
     box-shadow: 0 0 12px rgba(160, 200, 220, 0.35);
 }
-.thoth-diag-btn {
+.row-bot-diag-btn {
     width: 44px; height: 44px;
     border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
     cursor: pointer;
-    border: 1px solid rgba(255, 215, 0, 0.25);
-    background: rgba(255, 215, 0, 0.08);
-    color: #FFD700;
+    border: 1px solid rgba(__ROW_BOT_BRAND_ACCENT_RGB__, 0.32);
+    background: rgba(__ROW_BOT_BRAND_ACCENT_RGB__, 0.10);
+    color: __ROW_BOT_BRAND_ACCENT__;
     font-size: 1.3rem;
     transition: background 0.2s, transform 0.2s;
     flex-shrink: 0;
 }
-.thoth-diag-btn:hover {
-    background: rgba(255, 215, 0, 0.18);
+.row-bot-diag-btn:hover {
+    background: rgba(__ROW_BOT_BRAND_ACCENT_RGB__, 0.20);
     transform: scale(1.08);
 }
-@keyframes thoth-diag-spin {
+@keyframes row-bot-diag-spin {
     0%   { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
-.thoth-diag-spinning .material-icons {
-    animation: thoth-diag-spin 0.8s linear infinite;
+.row-bot-diag-spinning .material-icons {
+    animation: row-bot-diag-spin 0.8s linear infinite;
 }
 @keyframes pulse-border {
     0%   { border-color: #FFA726; }
@@ -385,6 +383,11 @@ _AVATAR_CSS = """
 }
 </style>
 """
+
+_AVATAR_CSS = _AVATAR_CSS.replace("__ROW_BOT_BRAND_ACCENT__", APP_BRAND_ACCENT).replace(
+    "__ROW_BOT_BRAND_ACCENT_RGB__",
+    APP_BRAND_ACCENT_RGB,
+)
 
 
 
@@ -399,14 +402,14 @@ def build_status_bar(
     results = _get_render_cached_results()
     result_map = {r.name: r for r in results}
 
-    with ui.element("div").classes("thoth-status-panel w-full"):
+    with ui.element("div").classes("row-bot-status-panel w-full"):
       with ui.row().classes("w-full items-center no-wrap gap-3").style(
           "min-height: 50px;"
       ):
 
         # ── LEFT: Settings gear icon ─────────────────────────────
         _gear_el = ui.html(
-            '<div class="thoth-gear-btn" title="Settings">'
+            '<div class="row-bot-gear-btn" title="Settings">'
             '<span class="material-icons" style="font-size:1.3rem;">settings</span>'
             '</div>',
             sanitize=False,
@@ -482,10 +485,10 @@ def build_status_bar(
         async def _run_diagnosis():
             """Force-refresh and show full diagnosis dialog."""
             # Show spinner while checks run
-            diag_btn_el.classes(add='thoth-diag-spinning')
+            diag_btn_el.classes(add='row-bot-diag-spinning')
             await asyncio.sleep(0.05)  # let UI update
             diag_results = _force_refresh()
-            diag_btn_el.classes(remove='thoth-diag-spinning')
+            diag_btn_el.classes(remove='row-bot-diag-spinning')
             elapsed = max(
                 r.checked_at for r in diag_results
             ) - min(r.checked_at for r in diag_results) if diag_results else 0
@@ -520,7 +523,7 @@ def build_status_bar(
                     ui.label(f"Checked {len(diag_results)} services").classes("text-xs text-grey-6")
 
                     def _copy_report():
-                        lines = ["Thoth System Diagnosis", "=" * 40]
+                        lines = [f"{APP_DISPLAY_NAME} System Diagnosis", "=" * 40]
                         for r in diag_results:
                             icon = {"ok": "✅", "warn": "⚠️", "error": "❌", "inactive": "⬜"}.get(r.status, "?")
                             lines.append(f"{icon} {r.name}: {r.status_label} — {r.detail}")
@@ -542,7 +545,7 @@ def build_status_bar(
             _render_pills(pills_container, new_map)
 
         diag_btn_el = ui.html(
-            '<div class="thoth-diag-btn" title="Run system diagnosis">'
+            '<div class="row-bot-diag-btn" title="Run system diagnosis">'
             '<span class="material-icons" style="font-size:1.3rem;">health_and_safety</span>'
             '</div>',
             sanitize=False,
@@ -617,7 +620,7 @@ def build_status_bar(
           css_state = {"completed": " done", "partial": " warn", "failed": " error"}.get(state, "")
           clip_text = f" · {bar} {completed}/{total}" if total and state in {"queued", "running"} else ""
           buddy_hatch_pill.set_content(
-              f'<span class="thoth-buddy-hatch-progress{css_state}" title="Buddy Hatch generation status">'
+              f'<span class="row-bot-buddy-hatch-progress{css_state}" title="Buddy Hatch generation status">'
               f'<span class="material-icons" style="font-size:14px;">auto_fix_high</span>'
               f'{message}{clip_text}'
               f'</span>'

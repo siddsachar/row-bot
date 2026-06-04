@@ -20,6 +20,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from channels.base import Channel
+from data_paths import get_row_bot_data_dir
 
 log = logging.getLogger("thoth.channels.tool_factory")
 
@@ -45,9 +46,7 @@ def _resolve_file_path(file_path: str) -> str:
         pass
 
     try:
-        _data_dir = Path(
-            os.environ.get("THOTH_DATA_DIR", Path.home() / ".thoth")
-        )
+        _data_dir = get_row_bot_data_dir()
         candidate = _data_dir / "tracker" / "exports" / p
         if candidate.is_file():
             return str(candidate.resolve())

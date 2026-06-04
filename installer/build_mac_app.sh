@@ -1,6 +1,6 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 # =============================================================================
-# build_mac_app.sh — Build self-contained Thoth.app + .pkg installer
+# build_mac_app.sh â€” Build self-contained Row-Bot.app + .pkg installer
 #
 # Downloads python-build-standalone, installs all pip dependencies into it,
 # assembles a proper macOS .app bundle, and optionally signs + creates .pkg.
@@ -35,7 +35,7 @@ PBS_RELEASE="${PBS_RELEASE:-20260303}"
 BUILD_DIR="$SCRIPT_DIR/build/mac"
 DIST_DIR="$PROJECT_DIR/dist"
 
-# Signing identities — set by CI or leave empty for unsigned local builds
+# Signing identities â€” set by CI or leave empty for unsigned local builds
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-}"       # Developer ID Application
 PKG_SIGN_IDENTITY="${PKG_SIGN_IDENTITY:-}"       # Developer ID Installer
 ENTITLEMENTS="$SCRIPT_DIR/entitlements.plist"
@@ -65,14 +65,14 @@ PBS_FILENAME="cpython-${PYTHON_VERSION}+${PBS_RELEASE}-${PBS_ARCH}-apple-darwin-
 PBS_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_RELEASE}/${PBS_FILENAME}"
 
 # App bundle layout
-APP_BUNDLE="$BUILD_DIR/Thoth.app"
+APP_BUNDLE="$BUILD_DIR/Row-Bot.app"
 CONTENTS="$APP_BUNDLE/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
 APP_SRC="$RESOURCES/app"
 PYTHON_PREFIX="$RESOURCES/python"
 
-# ── Colours ──────────────────────────────────────────────────────────────────
+# â”€â”€ Colours â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 info()  { echo -e "${CYAN}[INFO]${NC}  $*"; }
@@ -82,20 +82,20 @@ fail()  { echo -e "${RED}[FAIL]${NC}  $*"; exit 1; }
 
 echo ""
 echo -e "${BOLD}============================================${NC}"
-echo -e "${BOLD} 𓂀  Build Thoth.app  (v${VERSION})${NC}"
+echo -e "${BOLD} ð“‚€  Build Row-Bot.app  (v${VERSION})${NC}"
 echo -e "${BOLD}    Self-Contained macOS Installer${NC}"
 echo -e "${BOLD}============================================${NC}"
 echo ""
 info "Architecture: $ARCH ($PBS_ARCH)"
 info "Python:       $PYTHON_VERSION (PBS $PBS_RELEASE)"
 
-# ── Clean previous build ────────────────────────────────────────────────────
+# â”€â”€ Clean previous build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 rm -rf "$APP_BUNDLE"
 mkdir -p "$BUILD_DIR" "$DIST_DIR"
 
-# ═════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 #  1. Download python-build-standalone
-# ═════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 PBS_TAR="$BUILD_DIR/$PBS_FILENAME"
 if [ ! -f "$PBS_TAR" ]; then
     info "[1/6] Downloading Python $PYTHON_VERSION standalone ($PBS_ARCH)..."
@@ -112,9 +112,9 @@ tar -xzf "$PBS_TAR" -C "$PYTHON_PREFIX" --strip-components=1
 "$PYTHON_PREFIX/bin/python3" --version
 ok "Python extracted"
 
-# ═════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 #  2. Install pip packages
-# ═════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 info "[2/6] Installing Python packages from requirements.txt..."
 "$PYTHON_PREFIX/bin/python3" -m pip install --upgrade pip setuptools wheel --quiet 2>&1 | tail -1 || true
 "$PYTHON_PREFIX/bin/python3" -m pip install -r "$PROJECT_DIR/requirements.txt" --quiet 2>&1 | tail -5
@@ -127,15 +127,15 @@ if [ "$BUNDLE_PLAYWRIGHT" = "1" ]; then
     info "Installing Playwright Chromium browser into app bundle..."
     export PLAYWRIGHT_BROWSERS_PATH="$PYTHON_PREFIX/playwright-browsers"
     "$PYTHON_PREFIX/bin/python3" -m playwright install chromium 2>&1 | tail -3 || \
-        warn "Playwright Chromium install failed — browser tool will auto-install on first use"
+        warn "Playwright Chromium install failed â€” browser tool will auto-install on first use"
     ok "Playwright Chromium installed"
 else
     info "Skipping bundled Playwright Chromium for signed/notarized build"
 fi
 
-# ═════════════════════════════════════════════════════════════════════════════
-#  3. Copy Thoth source code
-# ═════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#  3. Copy Row-Bot source code
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 info "[3/6] Copying source code..."
 
 mkdir -p "$MACOS_DIR" "$RESOURCES" "$APP_SRC"
@@ -175,12 +175,12 @@ for dir in static sounds; do
     fi
 done
 
-# Icons — generate .icns from PNG if not already present
-if [ ! -f "$PROJECT_DIR/thoth.icns" ] && [ -f "$PROJECT_DIR/docs/thoth_glyph.png" ]; then
-    info "Generating thoth.icns from thoth_glyph.png..."
-    ICONSET_DIR="$BUILD_DIR/thoth.iconset"
+# Icons â€” generate .icns from PNG if not already present
+if [ ! -f "$PROJECT_DIR/row-bot.icns" ] && [ -f "$PROJECT_DIR/docs/row_bot_glyph.png" ]; then
+    info "Generating row-bot.icns from row_bot_glyph.png..."
+    ICONSET_DIR="$BUILD_DIR/row-bot.iconset"
     mkdir -p "$ICONSET_DIR"
-    SRC_PNG="$PROJECT_DIR/docs/thoth_glyph.png"
+    SRC_PNG="$PROJECT_DIR/docs/row_bot_glyph.png"
     for sz in 16 32 64 128 256 512; do
         sips -z $sz $sz "$SRC_PNG" --out "$ICONSET_DIR/icon_${sz}x${sz}.png" >/dev/null 2>&1
     done
@@ -188,33 +188,33 @@ if [ ! -f "$PROJECT_DIR/thoth.icns" ] && [ -f "$PROJECT_DIR/docs/thoth_glyph.png
         half=$((sz / 2))
         sips -z $sz $sz "$SRC_PNG" --out "$ICONSET_DIR/icon_${half}x${half}@2x.png" >/dev/null 2>&1
     done
-    iconutil -c icns "$ICONSET_DIR" -o "$PROJECT_DIR/thoth.icns"
-    ok "Generated thoth.icns"
+    iconutil -c icns "$ICONSET_DIR" -o "$PROJECT_DIR/row-bot.icns"
+    ok "Generated row-bot.icns"
 fi
-[ -f "$PROJECT_DIR/thoth.icns" ] && cp "$PROJECT_DIR/thoth.icns" "$RESOURCES/thoth.icns"
-[ -f "$PROJECT_DIR/thoth.ico" ]  && cp "$PROJECT_DIR/thoth.ico" "$APP_SRC/"
+[ -f "$PROJECT_DIR/row-bot.icns" ] && cp "$PROJECT_DIR/row-bot.icns" "$RESOURCES/row-bot.icns"
+[ -f "$PROJECT_DIR/row-bot.ico" ]  && cp "$PROJECT_DIR/row-bot.ico" "$APP_SRC/"
 
 ok "Source code copied"
 
-# ═════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 #  4. Create launcher and Info.plist
-# ═════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 info "[4/6] Creating launcher and Info.plist..."
 
-cat > "$MACOS_DIR/thoth" << 'LAUNCHER'
+cat > "$MACOS_DIR/row-bot" << 'LAUNCHER'
 #!/usr/bin/env bash
-# Thoth.app launcher — uses the bundled Python, no system deps required
+# Row-Bot.app launcher â€” uses the bundled Python, no system deps required
 
 BUNDLE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RESOURCES="$BUNDLE_DIR/Resources"
 PYTHON="$RESOURCES/python/bin/python3"
 APP_DIR="$RESOURCES/app"
-DATA_DIR="$HOME/.thoth"
+DATA_DIR="$HOME/.row-bot"
 
 # Ensure data directory exists
 mkdir -p "$DATA_DIR"
 
-export THOTH_INSTALL_ROOT="$RESOURCES"
+export ROW_BOT_INSTALL_ROOT="$RESOURCES"
 export PYTHONNOUSERSITE=1
 export PYTHONIOENCODING=utf-8
 
@@ -228,7 +228,7 @@ else
     export PLAYWRIGHT_BROWSERS_PATH="$USER_BROWSERS"
 fi
 
-# Try to start Ollama if installed (optional — cloud models work without it)
+# Try to start Ollama if installed (optional â€” cloud models work without it)
 OLLAMA_PORT=11434
 ollama_running() { (echo >/dev/tcp/127.0.0.1/$OLLAMA_PORT) 2>/dev/null; }
 if ! ollama_running; then
@@ -251,9 +251,9 @@ cd "$APP_DIR"
 exec "$PYTHON" launcher.py
 LAUNCHER
 
-chmod +x "$MACOS_DIR/thoth"
+chmod +x "$MACOS_DIR/row-bot"
 
-# Info.plist — VERSION is substituted from the outer script
+# Info.plist â€” VERSION is substituted from the outer script
 cat > "$CONTENTS/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -261,19 +261,19 @@ cat > "$CONTENTS/Info.plist" << PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Thoth</string>
+    <string>Row-Bot</string>
     <key>CFBundleDisplayName</key>
-    <string>Thoth</string>
+    <string>Row-Bot</string>
     <key>CFBundleIdentifier</key>
-    <string>com.thoth.assistant</string>
+    <string>ai.row-bot.assistant</string>
     <key>CFBundleVersion</key>
     <string>${VERSION}</string>
     <key>CFBundleShortVersionString</key>
     <string>${VERSION}</string>
     <key>CFBundleExecutable</key>
-    <string>thoth</string>
+    <string>row-bot</string>
     <key>CFBundleIconFile</key>
-    <string>thoth</string>
+    <string>row-bot</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>
@@ -283,18 +283,18 @@ cat > "$CONTENTS/Info.plist" << PLIST
     <key>LSUIElement</key>
     <false/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Thoth uses the microphone for voice-to-text input.</string>
+    <string>Row-Bot uses the microphone for voice-to-text input.</string>
     <key>NSCameraUsageDescription</key>
-    <string>Thoth uses the camera for the vision tool.</string>
+    <string>Row-Bot uses the camera for the vision tool.</string>
 </dict>
 </plist>
 PLIST
 
 ok "Launcher and Info.plist created"
 
-# ═════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 #  5. Strip unnecessary files to reduce bundle size
-# ═════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 info "[5/6] Cleaning up build artifacts..."
 
 find "$APP_BUNDLE" -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
@@ -328,13 +328,13 @@ BUNDLE_SIZE=$(du -sh "$APP_BUNDLE" | cut -f1)
 ok "Bundle size: $BUNDLE_SIZE"
 
 info "Verifying assembled app runtime dependencies..."
-THOTH_INSTALL_ROOT="$RESOURCES" PYTHONNOUSERSITE=1 \
+ROW_BOT_INSTALL_ROOT="$RESOURCES" PYTHONNOUSERSITE=1 \
     "$PYTHON_PREFIX/bin/python3" "$APP_SRC/scripts/verify_runtime_dependencies.py"
 ok "Assembled app runtime dependencies verified"
 
-# ═════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 #  6. Code-sign and package
-# ═════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 info "[6/6] Packaging..."
 
 if [ -n "$CODESIGN_IDENTITY" ]; then
@@ -369,20 +369,20 @@ if [ -n "$CODESIGN_IDENTITY" ]; then
     codesign --verify --deep --strict "$APP_BUNDLE"
     ok ".app signed and verified"
 else
-    warn "CODESIGN_IDENTITY not set — skipping code signing"
+    warn "CODESIGN_IDENTITY not set â€” skipping code signing"
 fi
 
-# ── Build .pkg installer ────────────────────────────────────────────────────
-COMPONENT_PKG="$BUILD_DIR/Thoth-component.pkg"
-FINAL_PKG="$DIST_DIR/Thoth-${VERSION}-macOS-${ARCH}.pkg"
+# â”€â”€ Build .pkg installer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+COMPONENT_PKG="$BUILD_DIR/Row-Bot-component.pkg"
+FINAL_PKG="$DIST_DIR/Row-Bot-${VERSION}-macOS-${ARCH}.pkg"
 PKG_ROOT="$BUILD_DIR/pkg-root"
 
 rm -rf "$PKG_ROOT"
 mkdir -p "$PKG_ROOT/Applications"
-cp -R "$APP_BUNDLE" "$PKG_ROOT/Applications/Thoth.app"
+cp -R "$APP_BUNDLE" "$PKG_ROOT/Applications/Row-Bot.app"
 
 pkgbuild --root "$PKG_ROOT" \
-         --identifier "com.thoth.assistant.pkg" \
+         --identifier "ai.row-bot.assistant.pkg" \
          --version "$VERSION" \
          --install-location "/" \
          "$COMPONENT_PKG"

@@ -1,10 +1,10 @@
 # Release Process
 
-This is the end-to-end release checklist for Thoth.
+This is the end-to-end release checklist for Row-Bot.
 
 ## Versioning
 
-Thoth uses semantic versioning:
+Row-Bot uses semantic versioning:
 
 - Patch: `3.17.1` for bug fixes
 - Minor: `3.21.0` for new backwards-compatible features
@@ -35,14 +35,14 @@ Thoth uses semantic versioning:
    python scripts/cut_release.py X.Y.Z
    ```
 
-   This updates `version.py`, `installer/thoth_setup.iss`,
+   This updates `version.py`, `installer/row_bot_setup.iss`,
    `.github/workflows/release.yml`, the macOS app `Info.plist`, and the bug
    report version placeholder. The Linux package script derives its version
-   from `version.py` or the workflow `THOTH_VERSION` argument.
+   from `version.py` or the workflow `ROW_BOT_VERSION` argument.
 
 5. Update `RELEASE_NOTES.md` with human-readable notes.
 6. Confirm new shipped runtime files are covered by platform packaging:
-   Windows `installer/thoth_setup.iss`, macOS `installer/build_mac_app.sh`,
+   Windows `installer/row_bot_setup.iss`, macOS `installer/build_mac_app.sh`,
    Linux `installer/build_linux_app.sh`, the Linux bootstrapper
    `installer/install-linux.sh`, and the installer payload notes in
    `installer/README.md`.
@@ -78,20 +78,20 @@ Thoth uses semantic versioning:
 
    ```powershell
    $signtool = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe"
-   $exe = "dist\ThothSetup_X.Y.Z.exe"
-   & $signtool sign /sha1 2341B4B36A21DF948E538A88BB194FAE4D1CAE51 /fd SHA256 /tr http://time.certum.pl /td SHA256 /d "Thoth" /du "https://github.com/siddsachar/Thoth" $exe
+   $exe = "dist\RowBotSetup_X.Y.Z.exe"
+   & $signtool sign /sha1 2341B4B36A21DF948E538A88BB194FAE4D1CAE51 /fd SHA256 /tr http://time.certum.pl /td SHA256 /d "Row-Bot" /du "https://row-bot.ai" $exe
    & $signtool verify /pa /v $exe
    ```
 
 5. Upload the signed exe to the draft GitHub Release.
 6. Run notarization workflows for macOS when needed and upload the stapled DMG.
-7. Download the Linux `Thoth-X.Y.Z-Linux-x86_64.tar.gz` artifact, extract it on
-   a clean Linux VM, run `./install.sh`, and confirm `~/.local/bin/thoth` opens
-   the browser UI and `~/.local/bin/thoth --server --no-open --port 8092`
+7. Download the Linux `Row-Bot-X.Y.Z-Linux-x86_64.tar.gz` artifact, extract it on
+   a clean Linux VM, run `./install.sh`, and confirm `~/.local/bin/row-bot` opens
+   the browser UI and `~/.local/bin/row-bot --server --no-open --port 8092`
    answers `/api/launcher-ping`.
 8. Smoke-test the final Windows, macOS, and Linux artifacts. For Windows, include
    repair/upgrade over an existing install and confirm the bundled `python\`
-   directory is replaced while `%USERPROFILE%\.thoth` is preserved. If a broken
+   directory is replaced while Row-Bot user data is preserved. If a broken
    optional package such as TorchCodec was present in the old embedded runtime,
    confirm it is removed or the startup log contains a clear recovery hint.
    Also run the packaged launcher recovery commands against a disposable data
@@ -107,19 +107,19 @@ Thoth uses semantic versioning:
 
 Linux is shipped as a one-line installer backed by a self-contained XDG
 user-install tarball, not as a root package. The supported baseline launches
-Thoth in the system browser and avoids requiring pywebview, GTK/Qt,
+Row-Bot in the system browser and avoids requiring pywebview, GTK/Qt,
 AppIndicator, or tray backends. Native window and tray mode can still be tested
-manually with `thoth --native` or `thoth --tray` on desktops with the required
+manually with `row-bot --native` or `row-bot --tray` on desktops with the required
 libraries.
 
 The user-facing install command is:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/siddsachar/Thoth/main/installer/install-linux.sh | bash
+curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash
 ```
 
 The bootstrapper resolves the latest GitHub Release, downloads the matching
-`Thoth-X.Y.Z-Linux-ARCH.tar.gz`, verifies its SHA256 from the release manifest,
+`Row-Bot-X.Y.Z-Linux-ARCH.tar.gz`, verifies its SHA256 from the release manifest,
 and then runs the tarball's bundled `install.sh`.
 
 For unreleased Linux hotfix validation from a checkout, use the build script,
@@ -127,38 +127,38 @@ not the one-line bootstrapper. The bootstrapper always resolves published
 GitHub Release assets. From the repository root:
 
 ```bash
-bash installer/build_linux_app.sh 3.23.0
-tar -xzf dist/Thoth-3.23.0-Linux-*.tar.gz
-cd Thoth-3.23.0-Linux-*
+bash installer/build_linux_app.sh X.Y.Z
+tar -xzf dist/Row-Bot-X.Y.Z-Linux-*.tar.gz
+cd Row-Bot-X.Y.Z-Linux-*
 ./install.sh
-~/.local/bin/thoth
+~/.local/bin/row-bot
 ```
 
 The root-level `build_linux_app.sh` wrapper delegates to
 `installer/build_linux_app.sh` so support snippets run from the checkout root do
 not fail with a missing-script error.
 
-If packaged Linux startup fails after printing `Thoth server started`, collect:
+If packaged Linux startup fails after printing `Row-Bot server started`, collect:
 
 ```bash
-tail -200 ~/.thoth/thoth_app.log
-tail -200 ~/.thoth/thoth_app.log.prev
+tail -200 ~/.row-bot/row_bot_app.log
+tail -200 ~/.row-bot/row_bot_app.log.prev
 uname -a
 cat /etc/os-release
-~/.local/bin/thoth --server --no-open --port 8092 --no-ollama
+~/.local/bin/row-bot --server --no-open --port 8092 --no-ollama
 ```
 
 The launcher prints the selected port, child-process exit code when available,
-and the tail of `~/.thoth/thoth_app.log` on readiness failure. For slow machines
+and the tail of `~/.row-bot/row_bot_app.log` on readiness failure. For slow machines
 or first-run package initialization, increase the wait with
-`THOTH_STARTUP_TIMEOUT=180 ~/.local/bin/thoth`.
+`ROW_BOT_STARTUP_TIMEOUT=180 ~/.local/bin/row-bot`.
 
-The tarball installs under `~/.local/share/thoth/releases/<version>`, updates
-`~/.local/share/thoth/current`, creates `~/.local/bin/thoth`, and installs a
+The tarball installs under `~/.local/share/row-bot/releases/<version>`, updates
+`~/.local/share/row-bot/current`, creates `~/.local/bin/row-bot`, and installs a
 freedesktop `.desktop` file plus icon into user XDG locations. In-app updates
 download the next Linux tarball, verify SHA256 through the release manifest,
 install the new release under the same user-owned tree, flip the `current`
-symlink, and restart through `~/.local/bin/thoth`.
+symlink, and restart through `~/.local/bin/row-bot`.
 
 Manual Linux smoke matrix before publishing:
 
@@ -170,9 +170,9 @@ Manual Linux smoke matrix before publishing:
 Minimum smoke checks:
 
 - Fresh tarball install and desktop launcher
-- Default installed command: `~/.local/bin/thoth`
+- Default installed command: `~/.local/bin/row-bot`
 - One-line installer after the GitHub Release is published
-- `~/.local/bin/thoth --server --no-open --port 8092` plus `/api/launcher-ping`
+- `~/.local/bin/row-bot --server --no-open --port 8092` plus `/api/launcher-ping`
 - First-run setup with Providers and Custom/Self-hosted paths
 - Ollama local model when `ollama` is installed and in `PATH`
 - Browser tool after Playwright browser/dependency install

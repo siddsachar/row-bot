@@ -1,4 +1,4 @@
-"""Thoth Launcher — system-tray process that manages the NiceGUI server.
+"""Row-Bot launcher: system-tray process that manages the NiceGUI server.
 
 Responsibilities:
     • Splash screen while the server starts (tkinter — no extra deps)
@@ -28,13 +28,23 @@ import webbrowser
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from app_port import DEFAULT_APP_PORT, THOTH_HOST_ENV, THOTH_PORT_ENV, parse_app_port
+from app_port import DEFAULT_APP_PORT, ROW_BOT_HOST_ENV, ROW_BOT_PORT_ENV, parse_app_port
+from brand import (
+    APP_AUTO_START_OLLAMA_ENV,
+    APP_BRAND_ACCENT,
+    APP_DISPLAY_NAME,
+    APP_NATIVE_ENV,
+    APP_PING_ID,
+    APP_STARTUP_TIMEOUT_ENV,
+    DEFAULT_DATA_DIR_NAME,
+    LAUNCHER_APP_LOG_FILENAME,
+)
 from data_paths import (
     describe_data_paths,
     get_memory_db_path,
     get_tasks_db_path,
     get_threads_db_path,
-    get_thoth_data_dir,
+    get_row_bot_data_dir,
 )
 
 if TYPE_CHECKING:
@@ -48,13 +58,40 @@ logger = logging.getLogger(__name__)
 _PORT = DEFAULT_APP_PORT
 _OLLAMA_PORT = 11434          # Ollama default API port
 _STARTUP_GRACE = 15           # seconds to wait for NiceGUI before opening browser
-_STARTUP_TIMEOUT_ENV = "THOTH_STARTUP_TIMEOUT"
+_STARTUP_TIMEOUT_ENV = APP_STARTUP_TIMEOUT_ENV
 _ICON_SIZE = 64               # px for generated tray icons
+_APP_ICON_PATH = Path(__file__).resolve().parent / "row-bot.ico"
+_APP_GLYPH_PATH = Path(__file__).resolve().parent / "static" / "row_bot_glyph_256.png"
 _ACTIVE_TRAY: "ThothTray | None" = None
-_OLLAMA_AUTOSTART_ENV = "THOTH_AUTO_START_OLLAMA"
+_OLLAMA_AUTOSTART_ENV = APP_AUTO_START_OLLAMA_ENV
 _GRACEFUL_SHUTDOWN_REQUEST_TIMEOUT = 3.0
 _GRACEFUL_SHUTDOWN_EXIT_TIMEOUT = 30.0
 _QUIT_WATCHDOG_TIMEOUT = 75.0
+_LEGACY_ENV_VARS_TO_DROP = {
+    "THOTH_AUTO_START_OLLAMA",
+    "THOTH_DATA_DIR",
+    "THOTH_HOST",
+    "THOTH_NATIVE",
+    "THOTH_PORT",
+    "THOTH_STARTUP_TIMEOUT",
+    "THOTH_WEBVIEW_STORAGE_PATH",
+}
+
+
+def _ensure_rebrand_migration() -> dict:
+    from migration.row_bot_legacy_rebrand import ensure_legacy_rebrand_migration
+
+    result = ensure_legacy_rebrand_migration()
+    if result.get("status") in {"completed", "already_completed"}:
+        status = str(result.get("status") or "").replace("_", " ")
+        report_path = result.get("report_path", "")
+        if report_path:
+            logger.info("%s data migration %s; report=%s", APP_DISPLAY_NAME, status, report_path)
+        else:
+            logger.info("%s data migration %s", APP_DISPLAY_NAME, status)
+    for warning in result.get("warnings", [])[:5]:
+        logger.warning("%s migration warning: %s", APP_DISPLAY_NAME, warning)
+    return result
 
 
 # ── Ollama auto-start ────────────────────────────────────────────────────────
@@ -68,7 +105,7 @@ def _is_ollama_running() -> bool:
 
 
 def _thoth_data_dir() -> Path:
-    return get_thoth_data_dir()
+    return get_row_bot_data_dir()
 
 
 def _read_json_file(path: Path) -> dict:
@@ -261,8 +298,8 @@ def _has_display_server() -> bool:
     return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
-def _is_thoth_server(port: int, timeout: float = 0.25) -> bool:
-    """Return True if *port* is serving this Thoth app."""
+def _is_row_bot_server(port: int, timeout: float = 0.25) -> bool:
+    """Return True if *port* is serving this app."""
     url = f"http://127.0.0.1:{port}/api/launcher-ping"
     try:
         with urllib.request.urlopen(url, timeout=timeout) as response:
@@ -271,13 +308,13 @@ def _is_thoth_server(port: int, timeout: float = 0.25) -> bool:
             data = response.read(512).decode("utf-8", errors="replace")
     except (OSError, urllib.error.URLError, TimeoutError):
         return False
-    return '"app":"thoth"' in data.replace(" ", "").lower()
+    return f'"app":"{APP_PING_ID}"' in data.replace(" ", "").lower()
 
 
 def _find_existing_thoth_port(start: int = _PORT, max_tries: int = 50) -> int | None:
-    """Return an already-running Thoth port in the session range, if any."""
+    """Return an already-running Row-Bot port in the session range, if any."""
     for port in range(start, start + max_tries):
-        if _is_port_in_use(port) and _is_thoth_server(port):
+        if _is_port_in_use(port) and _is_row_bot_server(port):
             return port
     return None
 
@@ -287,7 +324,7 @@ def _find_free_port(start: int = _PORT, max_tries: int = 50) -> int:
     for port in range(start, start + max_tries):
         if not _is_port_in_use(port):
             return port
-    raise RuntimeError(f"No free Thoth app port found in {start}-{start + max_tries - 1}")
+    raise RuntimeError(f"No free {APP_DISPLAY_NAME} app port found in {start}-{start + max_tries - 1}")
 
 
 def _startup_failure_hints(log_text: str, python_executable: str | None = None) -> list[str]:
@@ -302,22 +339,23 @@ def _startup_failure_hints(log_text: str, python_executable: str | None = None) 
     ):
         site_packages = Path(python).resolve().parent / "Lib" / "site-packages"
         hints.extend([
-            "Detected a broken optional TorchCodec install in Thoth's embedded Python.",
-            "Thoth does not require TorchCodec for built-in TTS.",
-            f'Recovery: close Thoth and run "{python}" -m pip uninstall -y torchcodec',
+            f"Detected a broken optional TorchCodec install in {APP_DISPLAY_NAME}'s embedded Python.",
+            f"{APP_DISPLAY_NAME} does not require TorchCodec for built-in TTS.",
+            f'Recovery: close {APP_DISPLAY_NAME} and run "{python}" -m pip uninstall -y torchcodec',
             f"If pip cannot remove it, delete torchcodec and torchcodec-*.dist-info from {site_packages}.",
         ])
     if "cv2" in text or "opencv" in text or "libgl.so" in text or "libglib" in text or "libgthread" in text or "xcb" in text:
         hints.extend([
             "Detected a likely OpenCV/Linux native dependency failure during startup.",
-            "Camera and screenshot capture are optional; Thoth should still start without them after the Linux startup hardening fix.",
+            f"Camera and screenshot capture are optional; {APP_DISPLAY_NAME} should still start without them after the Linux startup hardening fix.",
             "Recovery on Debian/Ubuntu: sudo apt-get install -y libgl1 libegl1 libglib2.0-0 libxcb-cursor0",
-            "Then restart Thoth and check ~/.thoth/thoth_app.log if startup still fails.",
+            f"Then restart {APP_DISPLAY_NAME} and check ~/{DEFAULT_DATA_DIR_NAME}/"
+            f"{LAUNCHER_APP_LOG_FILENAME} if startup still fails.",
         ])
     if "faiss" in text and ("importerror" in text or "oserror" in text or "could not" in text):
         hints.extend([
             "Detected a FAISS native import failure during startup.",
-            "Recovery: reinstall Thoth's packaged runtime or install the Linux libraries named in the traceback.",
+            f"Recovery: reinstall {APP_DISPLAY_NAME}'s packaged runtime or install the Linux libraries named in the traceback.",
         ])
     if (
         "numpy.dtype size changed" in text
@@ -328,7 +366,7 @@ def _startup_failure_hints(log_text: str, python_executable: str | None = None) 
         hints.extend([
             "Detected a NumPy/native wheel startup failure.",
             "On older x86_64 CPUs this can happen if the packaged NumPy wheel requires x86-64-v2 instructions.",
-            "Recovery: install a Thoth Linux build that pins NumPy below the x86-64-v2 wheel line, or rebuild the Linux tarball from this checkout.",
+            f"Recovery: install a {APP_DISPLAY_NAME} Linux build that pins NumPy below the x86-64-v2 wheel line, or rebuild the Linux tarball from this checkout.",
         ])
     return hints
 
@@ -367,9 +405,9 @@ def _log_app_log_tail(log_path: Path | None, *, max_lines: int = 80) -> None:
 
 def _log_startup_failure_context(server: "_ThothProcess", port: int, reason: str) -> None:
     exit_code = server.returncode
-    logger.error("Thoth server failed to become ready on port %s: %s", port, reason)
+    logger.error("%s server failed to become ready on port %s: %s", APP_DISPLAY_NAME, port, reason)
     if exit_code is not None:
-        logger.error("Thoth app process exited with code %s", exit_code)
+        logger.error("%s app process exited with code %s", APP_DISPLAY_NAME, exit_code)
     logger.error("Python executable: %s", sys.executable)
     logger.error("App log: %s", server._log_file)
     _log_app_log_tail(server._log_file)
@@ -395,17 +433,17 @@ def _log_startup_failure_hints(log_path: Path | None, python_executable: str | N
 
 
 def _select_app_port(preferred: int = _PORT, max_tries: int = 50) -> tuple[int, bool]:
-    """Choose the app port and whether it belongs to an existing Thoth."""
+    """Choose the app port and whether it belongs to an existing Row-Bot."""
     if not _is_port_in_use(preferred):
         return preferred, False
-    if _is_thoth_server(preferred):
+    if _is_row_bot_server(preferred):
         return preferred, True
     for port in range(preferred + 1, preferred + max_tries):
         if not _is_port_in_use(port):
             return port, False
-        if _is_thoth_server(port):
+        if _is_row_bot_server(port):
             return port, True
-    raise RuntimeError(f"No free Thoth app port found in {preferred}-{preferred + max_tries - 1}")
+    raise RuntimeError(f"No free {APP_DISPLAY_NAME} app port found in {preferred}-{preferred + max_tries - 1}")
 
 
 # ── NiceGUI subprocess management ───────────────────────────────────────────
@@ -439,11 +477,10 @@ class _ThothProcess:
 
         cmd = [python, str(app_py)]
 
-        # Log file for diagnosing startup crashes —
-        # lives in  ~/.thoth/thoth_app.log
+        # Log file for diagnosing startup crashes.
         log_dir = _thoth_data_dir()
         log_dir.mkdir(parents=True, exist_ok=True)
-        self._log_file = log_dir / "thoth_app.log"
+        self._log_file = log_dir / LAUNCHER_APP_LOG_FILENAME
 
         # Rotate previous log so crash evidence survives a restart
         if self._log_file.exists():
@@ -459,17 +496,21 @@ class _ThothProcess:
 
         # Isolate from any system-wide Python site-packages
         # Force UTF-8 I/O so emoji in print() never crash on cp1252 consoles
-        # THOTH_NATIVE=1 tells the app it's behind a pywebview window
+        # ROW_BOT_NATIVE=1 tells the app it's behind a pywebview window.
         # (used by _save_export to write to ~/Downloads on macOS WebKit)
         env = {
-            **os.environ,
+            key: value
+            for key, value in os.environ.items()
+            if key not in _LEGACY_ENV_VARS_TO_DROP
+        }
+        env.update({
             "PYTHONNOUSERSITE": "1",
             "PYTHONIOENCODING": "utf-8",
-            "THOTH_NATIVE": "1",
-            THOTH_PORT_ENV: str(self.port),
-        }
+            APP_NATIVE_ENV: "1",
+            ROW_BOT_PORT_ENV: str(self.port),
+        })
         if self.host:
-            env[THOTH_HOST_ENV] = self.host
+            env[ROW_BOT_HOST_ENV] = self.host
 
         try:
             self._proc = subprocess.Popen(
@@ -484,7 +525,8 @@ class _ThothProcess:
         except Exception:
             self._close_log_handle()
             raise
-        logger.info("Thoth server started (PID %s, log=%s)",
+        logger.info("%s server started (PID %s, log=%s)",
+                     APP_DISPLAY_NAME,
                      self._proc.pid, self._log_file)
 
     def _close_log_handle(self) -> None:
@@ -493,7 +535,7 @@ class _ThothProcess:
         try:
             self._log_handle.close()
         except Exception:
-            logger.debug("Could not close Thoth app log handle", exc_info=True)
+            logger.debug("Could not close %s app log handle", APP_DISPLAY_NAME, exc_info=True)
         finally:
             self._log_handle = None
 
@@ -561,25 +603,27 @@ class _ThothProcess:
                         stopped_gracefully = True
                     except subprocess.TimeoutExpired:
                         logger.warning(
-                            "Thoth graceful shutdown exceeded %.0fs; forcing stop",
+                            "%s graceful shutdown exceeded %.0fs; forcing stop",
+                            APP_DISPLAY_NAME,
                             _GRACEFUL_SHUTDOWN_EXIT_TIMEOUT,
                         )
                     else:
                         logger.info(
-                            "Thoth graceful shutdown completed in %.1fs",
+                            "%s graceful shutdown completed in %.1fs",
+                            APP_DISPLAY_NAME,
                             time.monotonic() - shutdown_started,
                         )
                 else:
-                    logger.warning("Thoth graceful shutdown request failed; forcing stop")
+                    logger.warning("%s graceful shutdown request failed; forcing stop", APP_DISPLAY_NAME)
                 self._terminate_process(
                     proc,
-                    label="Thoth server",
+                    label=f"{APP_DISPLAY_NAME} server",
                     timeout=5,
                     kill_tree=True,
                 )
         finally:
             self._close_log_handle()
-        logger.info("Thoth stopped%s", " gracefully" if stopped_gracefully else "")
+        logger.info("%s stopped%s", APP_DISPLAY_NAME, " gracefully" if stopped_gracefully else "")
         self._proc = None
 
     @property
@@ -619,19 +663,36 @@ if os.name == 'nt':
 import tkinter as tk
 
 PORT, TIMEOUT = int(sys.argv[1]), float(sys.argv[2])
+GLYPH_PATH = sys.argv[3] if len(sys.argv) > 3 else ""
+ICON_PATH = sys.argv[4] if len(sys.argv) > 4 else ""
+BRAND_BLUE = sys.argv[5] if len(sys.argv) > 5 else "#4F78A4"
 def port_ready():
     try:
         s = socket.socket(); s.settimeout(0.3)
         s.connect(("127.0.0.1", PORT)); s.close(); return True
     except OSError: return False
 
-BG, GOLD = "#1e1e1e", "#FFD700"
+BG = "#1e1e1e"
 root = tk.Tk(); root.overrideredirect(True); root.attributes("-topmost", True)
 root.configure(bg=BG)
+try:
+    if ICON_PATH and os.path.isfile(ICON_PATH):
+        root.iconbitmap(ICON_PATH)
+except Exception:
+    pass
 sx, sy = root.winfo_screenwidth(), root.winfo_screenheight()
 root.geometry(f"500x300+{(sx-500)//2}+{(sy-300)//2}")
-tk.Label(root, text="\U0001305F", font=("Segoe UI Emoji", 64), fg=GOLD, bg=BG).pack(pady=(40,0))
-tk.Label(root, text="Thoth", font=("Segoe UI", 28, "bold"), fg=GOLD, bg=BG).pack(pady=(0,10))
+try:
+    logo = tk.PhotoImage(file=GLYPH_PATH)
+    max_side = max(int(logo.width()), int(logo.height()), 1)
+    factor = max(1, round(max_side / 128))
+    if factor > 1:
+        logo = logo.subsample(factor, factor)
+    root._row_bot_logo = logo
+    tk.Label(root, image=logo, bg=BG).pack(pady=(34,0))
+except Exception:
+    tk.Label(root, text="RB", font=("Segoe UI", 36, "bold"), fg=BRAND_BLUE, bg=BG).pack(pady=(52,0))
+tk.Label(root, text="Row-Bot", font=("Segoe UI", 28, "bold"), fg=BRAND_BLUE, bg=BG).pack(pady=(0,10))
 lbl = tk.Label(root, text="Loading.", font=("Segoe UI", 12), fg="#aaaaaa", bg=BG); lbl.pack()
 _start, _d = time.monotonic(), [0]
 def _check():
@@ -646,13 +707,13 @@ _SPLASH_CONSOLE = r'''
 import sys, socket, time, os
 PORT, TIMEOUT = int(sys.argv[1]), float(sys.argv[2])
 if os.name == 'nt':
-    os.system('title Thoth')
+    os.system('title Row-Bot')
 def port_ready():
     try:
         s = socket.socket(); s.settimeout(0.3)
         s.connect(("127.0.0.1", PORT)); s.close(); return True
     except OSError: return False
-print("\n  Thoth — Starting...\n")
+print("\n  Row-Bot — Starting...\n")
 _start, _d = time.monotonic(), 0
 while time.monotonic() - _start < TIMEOUT:
     if port_ready(): break
@@ -675,7 +736,16 @@ def _show_splash(port: int = _PORT, timeout: float = 60.0) -> subprocess.Popen |
         # --- Attempt 1: tkinter GUI splash ---
         log_fh = open(splash_log, "w", encoding="utf-8")  # noqa: SIM115
         proc = subprocess.Popen(
-            [sys.executable, "-c", _SPLASH_TK, str(port), str(timeout)],
+            [
+                sys.executable,
+                "-c",
+                _SPLASH_TK,
+                str(port),
+                str(timeout),
+                str(_APP_GLYPH_PATH),
+                str(_APP_ICON_PATH),
+                APP_BRAND_ACCENT,
+            ],
             stdout=log_fh, stderr=log_fh,
         )
         time.sleep(0.5)
@@ -729,6 +799,39 @@ _BUDDY_MANUALLY_HIDDEN = False
 _BUDDY_WINDOW_READY = False
 _BUDDY_DESKTOP_ENABLED = False
 
+def _install_windows_app_icon():
+    if sys.platform != "win32" or not (_ICON_PATH and os.path.isfile(_ICON_PATH)):
+        return False
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ai.row-bot.desktop")
+    except Exception:
+        pass
+    try:
+        import webview.platforms.winforms as winforms
+        from System.Drawing import Icon
+
+        original_init = winforms.BrowserView.BrowserForm.__init__
+        if getattr(original_init, "__row_bot_icon_patch__", False):
+            return True
+
+        def _row_bot_browser_form_init(self, window, cache_dir):
+            original_init(self, window, cache_dir)
+            try:
+                self.Icon = Icon(_ICON_PATH)
+            except Exception:
+                pass
+
+        _row_bot_browser_form_init.__row_bot_icon_patch__ = True
+        winforms.BrowserView.BrowserForm.__init__ = _row_bot_browser_form_init
+        return True
+    except Exception as exc:
+        try:
+            print(f"Window icon patch failed: {exc}", file=sys.stderr, flush=True)
+        except Exception:
+            pass
+        return False
+
 def _port_from_url(url):
     try:
         parsed = urlparse(url)
@@ -745,10 +848,10 @@ def _buddy_overlay_url(port, cache_bust=False):
 def _buddy_window_log(message):
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} [buddy.window] {message}"
     try:
-        data_dir = os.environ.get("THOTH_DATA_DIR") or os.path.join(os.path.expanduser("~"), ".thoth")
+        data_dir = os.environ.get("ROW_BOT_DATA_DIR") or os.path.join(os.path.expanduser("~"), ".row-bot")
         log_dir = os.path.join(data_dir, "logs")
         os.makedirs(log_dir, exist_ok=True)
-        with open(os.path.join(log_dir, "thoth_window.log"), "a", encoding="utf-8") as fh:
+        with open(os.path.join(log_dir, "row_bot_window.log"), "a", encoding="utf-8") as fh:
             fh.write(line + "\n")
     except Exception:
         pass
@@ -856,7 +959,7 @@ class _JsApi:
                     _NAMED_WINDOWS.pop(key, None)
 
         window = webview.create_window(
-            title or "Thoth",
+            title or "Row-Bot",
             url,
             width=width,
             height=height,
@@ -1182,12 +1285,14 @@ def _start_control_server(control_port):
 url, title = sys.argv[1], sys.argv[2]
 _APP_PORT = _port_from_url(url)
 w, h = int(sys.argv[3]), int(sys.argv[4])
-_CONTROL_PORT = int(sys.argv[5]) if len(sys.argv) > 5 else 0
+_ICON_PATH = sys.argv[5] if len(sys.argv) > 5 else ""
+_CONTROL_PORT = int(sys.argv[6]) if len(sys.argv) > 6 else 0
+_install_windows_app_icon()
 _start_control_server(_CONTROL_PORT)
 main_window = webview.create_window(title, url, width=w, height=h, js_api=_JS_API)
 _install_main_window_buddy_events(main_window)
-_DATA_DIR = os.environ.get("THOTH_DATA_DIR") or os.path.join(os.path.expanduser("~"), ".thoth")
-_WEBVIEW_STORAGE_PATH = os.environ.get("THOTH_WEBVIEW_STORAGE_PATH") or os.path.join(
+_DATA_DIR = os.environ.get("ROW_BOT_DATA_DIR") or os.path.join(os.path.expanduser("~"), ".row-bot")
+_WEBVIEW_STORAGE_PATH = os.environ.get("ROW_BOT_WEBVIEW_STORAGE_PATH") or os.path.join(
     _DATA_DIR,
     "browser_profile",
     "pywebview",
@@ -1196,7 +1301,12 @@ try:
     os.makedirs(_WEBVIEW_STORAGE_PATH, exist_ok=True)
 except Exception:
     pass
-webview.start(func=_on_loaded, private_mode=False, storage_path=_WEBVIEW_STORAGE_PATH)
+webview.start(
+    func=_on_loaded,
+    private_mode=False,
+    storage_path=_WEBVIEW_STORAGE_PATH,
+    icon=_ICON_PATH if _ICON_PATH and os.path.isfile(_ICON_PATH) else None,
+)
 '''
 
 
@@ -1238,7 +1348,10 @@ if os.name == 'nt':
             except OSError: pass
 import tkinter as tk
 
-BG, GOLD, GREY = "#1e1e1e", "#FFD700", "#aaaaaa"
+GLYPH_PATH = sys.argv[1] if len(sys.argv) > 1 else ""
+ICON_PATH = sys.argv[2] if len(sys.argv) > 2 else ""
+BRAND_BLUE = sys.argv[3] if len(sys.argv) > 3 else "#4F78A4"
+BG, GREY = "#1e1e1e", "#aaaaaa"
 choice = ["native"]
 
 def pick(mode):
@@ -1246,15 +1359,29 @@ def pick(mode):
     root.destroy()
 
 root = tk.Tk()
-root.title("Thoth")
+root.title("Row-Bot")
 root.configure(bg=BG)
 root.resizable(False, False)
+try:
+    if ICON_PATH and os.path.isfile(ICON_PATH):
+        root.iconbitmap(ICON_PATH)
+except Exception:
+    pass
 sx, sy = root.winfo_screenwidth(), root.winfo_screenheight()
 root.geometry(f"420x280+{(sx-420)//2}+{(sy-280)//2}")
 root.attributes("-topmost", True)
 
-tk.Label(root, text="\U0001305F", font=("Segoe UI Emoji", 48), fg=GOLD, bg=BG).pack(pady=(24,0))
-tk.Label(root, text="How would you like to open Thoth?",
+try:
+    logo = tk.PhotoImage(file=GLYPH_PATH)
+    max_side = max(int(logo.width()), int(logo.height()), 1)
+    factor = max(1, round(max_side / 88))
+    if factor > 1:
+        logo = logo.subsample(factor, factor)
+    root._row_bot_logo = logo
+    tk.Label(root, image=logo, bg=BG).pack(pady=(20,0))
+except Exception:
+    tk.Label(root, text="RB", font=("Segoe UI", 30, "bold"), fg=BRAND_BLUE, bg=BG).pack(pady=(24,0))
+tk.Label(root, text="How would you like to open Row-Bot?",
          font=("Segoe UI", 14), fg="#ffffff", bg=BG).pack(pady=(10,16))
 
 btn_frame = tk.Frame(root, bg=BG)
@@ -1281,12 +1408,12 @@ print(choice[0])
 _CHOOSER_CONSOLE = r'''
 import sys, os
 if os.name == 'nt':
-    os.system('title Thoth')
+    os.system('title Row-Bot')
 print()
-print("  \U0001305F Thoth")
+print("  Row-Bot")
 print("  " + "-" * 36)
 print()
-print("  How would you like to open Thoth?")
+print("  How would you like to open Row-Bot?")
 print()
 print("  1) Native Window")
 print("  2) System Browser")
@@ -1316,7 +1443,14 @@ def _ask_window_mode() -> str:
     # --- Attempt 1: tkinter GUI chooser ---
     try:
         proc = subprocess.run(
-            [sys.executable, "-c", _CHOOSER_TK],
+            [
+                sys.executable,
+                "-c",
+                _CHOOSER_TK,
+                str(_APP_GLYPH_PATH),
+                str(_APP_ICON_PATH),
+                APP_BRAND_ACCENT,
+            ],
             capture_output=True, text=True, timeout=120,
         )
         if proc.returncode == 0 and proc.stdout.strip():
@@ -1349,9 +1483,9 @@ def _ask_window_mode() -> str:
 
 
 def _open_in_browser(port: int = _PORT) -> None:
-    """Open the Thoth UI in the default system browser."""
+    """Open the Row-Bot UI in the default system browser."""
     webbrowser.open(_url_for_port(port))
-    logger.info("Opened Thoth in system browser on port %s", port)
+    logger.info("Opened %s in system browser on port %s", APP_DISPLAY_NAME, port)
 
 
 def _open_window(port: int = _PORT, control_port: int | None = None) -> subprocess.Popen | None:
@@ -1366,7 +1500,16 @@ def _open_window(port: int = _PORT, control_port: int | None = None) -> subproce
         webbrowser.open(_url_for_port(port))
         return None
     try:
-        args = [sys.executable, "-c", _WINDOW_SCRIPT, _url_for_port(port), "Thoth", "1280", "900"]
+        args = [
+            sys.executable,
+            "-c",
+            _WINDOW_SCRIPT,
+            _url_for_port(port),
+            APP_DISPLAY_NAME,
+            "1280",
+            "900",
+            str(_APP_ICON_PATH),
+        ]
         if control_port:
             args.append(str(int(control_port)))
         proc = subprocess.Popen(
@@ -1392,7 +1535,7 @@ def _wait_for_server(port: int = _PORT, timeout: float | None = None, server: _T
     while time.monotonic() < deadline:
         if server is not None and not server.is_alive:
             return False
-        if _is_thoth_server(port):
+        if _is_row_bot_server(port):
             return True
         time.sleep(0.3)
     return False
@@ -1422,7 +1565,7 @@ class ThothTray:
         self._quitting = False
 
         menu = pystray.Menu(
-            pystray.MenuItem("Open Thoth", self._on_open, default=True),
+            pystray.MenuItem(f"Open {APP_DISPLAY_NAME}", self._on_open, default=True),
             pystray.MenuItem("Open in Browser", self._on_open_browser),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Show Buddy", self._on_show_buddy),
@@ -1431,9 +1574,9 @@ class ThothTray:
             pystray.MenuItem("Quit", self._on_quit),
         )
         self._icon = pystray.Icon(
-            name="Thoth",
+            name=APP_DISPLAY_NAME,
             icon=_get_icon("stopped"),
-            title="Thoth — stopped",
+            title=f"{APP_DISPLAY_NAME} — stopped",
             menu=menu,
         )
 
@@ -1471,7 +1614,7 @@ class ThothTray:
             self._server.start(self._port)
             if not _wait_for_server(self._port):
                 return False
-        elif not _is_thoth_server(self._port):
+        elif not _is_row_bot_server(self._port):
             return False
         self._window_proc = _open_window(self._port, self._ensure_window_control_port())
         if not self._is_window_alive():
@@ -1503,7 +1646,7 @@ class ThothTray:
             elif sys.platform == "win32":
                 try:
                     import ctypes
-                    hwnd = ctypes.windll.user32.FindWindowW(None, "Thoth")
+                    hwnd = ctypes.windll.user32.FindWindowW(None, APP_DISPLAY_NAME)
                     if hwnd:
                         SW_RESTORE = 9
                         ctypes.windll.user32.ShowWindow(hwnd, SW_RESTORE)
@@ -1515,7 +1658,7 @@ class ThothTray:
                 # Linux / other — try wmctrl
                 try:
                     subprocess.run(
-                        ["wmctrl", "-a", "Thoth"],
+                        ["wmctrl", "-a", APP_DISPLAY_NAME],
                         timeout=3, capture_output=True,
                     )
                     _brought = True
@@ -1530,7 +1673,7 @@ class ThothTray:
             # Platform trick failed — kill and spawn fresh window.
             _ThothProcess._terminate_process(
                 self._window_proc,
-                label="Thoth window",
+                label=f"{APP_DISPLAY_NAME} window",
                 timeout=3,
                 kill_tree=True,
             )
@@ -1547,17 +1690,17 @@ class ThothTray:
             self._server.start(self._port)
             _wait_for_server(self._port)
 
-        if not self._owns_server and not _is_thoth_server(self._port):
+        if not self._owns_server and not _is_row_bot_server(self._port):
             # External server died — just open browser and hope
             webbrowser.open(_url_for_port(self._port))
             return
 
-        logger.info("Opening Thoth window")
+        logger.info("Opening %s window", APP_DISPLAY_NAME)
         self._window_proc = _open_window(self._port, self._ensure_window_control_port())
 
     def _on_open_browser(self, icon=None, item=None) -> None:   # noqa: ARG002
-        """Open the Thoth UI in the default system browser."""
-        if _is_thoth_server(self._port):
+        """Open the Row-Bot UI in the default system browser."""
+        if _is_row_bot_server(self._port):
             _open_in_browser(self._port)
         elif self._owns_server:
             logger.info("Server not running — restarting before opening browser")
@@ -1606,7 +1749,7 @@ class ThothTray:
                 if self._is_window_alive():
                     _ThothProcess._terminate_process(
                         self._window_proc,
-                        label="Thoth window",
+                        label=f"{APP_DISPLAY_NAME} window",
                         timeout=3,
                         kill_tree=True,
                     )
@@ -1637,14 +1780,14 @@ class ThothTray:
         while not self._stop_event.is_set():
             if self._owns_server and self._server.is_alive:
                 self._icon.icon = _get_icon("running")
-                self._icon.title = "Thoth — running"
+                self._icon.title = f"{APP_DISPLAY_NAME} — running"
                 _crash_logged = False
-            elif not self._owns_server and _is_thoth_server(self._port):
+            elif not self._owns_server and _is_row_bot_server(self._port):
                 self._icon.icon = _get_icon("running")
-                self._icon.title = "Thoth — running"
+                self._icon.title = f"{APP_DISPLAY_NAME} — running"
             else:
                 self._icon.icon = _get_icon("stopped")
-                self._icon.title = "Thoth — stopped"
+                self._icon.title = f"{APP_DISPLAY_NAME} — stopped"
                 # Log once when the server process dies unexpectedly
                 if self._owns_server and not _crash_logged:
                     _crash_logged = True
@@ -1652,8 +1795,8 @@ class ThothTray:
                           if self._server._proc else "?")
                     log_path = self._server._log_file or "?"
                     logger.error(
-                        "Thoth server exited (code %s). "
-                        "Check %s for details.", rc, log_path)
+                        "%s server exited (code %s). "
+                        "Check %s for details.", APP_DISPLAY_NAME, rc, log_path)
                     if self._server._log_file and self._server._log_file.exists():
                         try:
                             log_text = self._server._log_file.read_text(
@@ -1683,7 +1826,7 @@ class ThothTray:
         self._server.port = self._port
 
         if already_running:
-            logger.info("Thoth already running on port %s", self._port)
+            logger.info("%s already running on port %s", APP_DISPLAY_NAME, self._port)
         else:
             self._server.start(self._port, self._host)
             self._owns_server = True
@@ -1712,7 +1855,7 @@ class ThothTray:
             webbrowser.open(_url_for_port(self._port))
 
         # Blocking — runs the tray icon's event loop on the main thread
-        logger.info("Thoth tray running  (Ctrl+C or Quit menu to exit)")
+        logger.info("%s tray running  (Ctrl+C or Quit menu to exit)", APP_DISPLAY_NAME)
         self._icon.run()
 
 
@@ -1722,7 +1865,7 @@ def _block_until_interrupted(server: _ThothProcess | None, owns_server: bool) ->
     try:
         while True:
             if owns_server and server is not None and not server.is_alive:
-                raise RuntimeError("Thoth server exited unexpectedly")
+                raise RuntimeError(f"{APP_DISPLAY_NAME} server exited unexpectedly")
             time.sleep(1)
     except KeyboardInterrupt:
         logger.info("Interrupted — shutting down")
@@ -1732,7 +1875,7 @@ def _block_until_interrupted(server: _ThothProcess | None, owns_server: bool) ->
 
 
 def _run_direct(args: argparse.Namespace) -> None:
-    """Run Thoth without a tray icon, for Linux/browser/server modes."""
+    """Run Row-Bot without a tray icon, for Linux/browser/server modes."""
     _maybe_start_ollama(no_ollama=args.no_ollama)
 
     preferred = parse_app_port(args.port, default=_PORT)
@@ -1741,7 +1884,7 @@ def _run_direct(args: argparse.Namespace) -> None:
     owns_server = False
 
     if already_running:
-        logger.info("Thoth already running on port %s", port)
+        logger.info("%s already running on port %s", APP_DISPLAY_NAME, port)
     else:
         server.start(port, args.host)
         owns_server = True
@@ -1753,7 +1896,7 @@ def _run_direct(args: argparse.Namespace) -> None:
     if not _wait_for_server(port, server=wait_process):
         reason = "app process exited before readiness" if owns_server and not server.is_alive else "readiness probe timed out"
         _log_startup_failure_context(server, port, reason)
-        raise RuntimeError(f"Thoth server did not become ready on port {port}")
+        raise RuntimeError(f"{APP_DISPLAY_NAME} server did not become ready on port {port}")
 
     if not args.no_open:
         if args.native and _has_display_server():
@@ -1761,9 +1904,9 @@ def _run_direct(args: argparse.Namespace) -> None:
         elif _has_display_server() or not args.server:
             _open_in_browser(port)
         else:
-            logger.info("Thoth is running at %s", _url_for_port(port))
+            logger.info("%s is running at %s", APP_DISPLAY_NAME, _url_for_port(port))
     else:
-        logger.info("Thoth is running at %s", _url_for_port(port))
+        logger.info("%s is running at %s", APP_DISPLAY_NAME, _url_for_port(port))
 
     if owns_server:
         _block_until_interrupted(server, owns_server=True)
@@ -1885,10 +2028,10 @@ def _restore_data(selector: str | None = None) -> int:
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Launch Thoth")
+    parser = argparse.ArgumentParser(description=f"Launch {APP_DISPLAY_NAME}")
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--browser", action="store_true", help="Open Thoth in the system browser")
-    mode.add_argument("--native", action="store_true", help="Open Thoth in a pywebview native window")
+    mode.add_argument("--browser", action="store_true", help=f"Open {APP_DISPLAY_NAME} in the system browser")
+    mode.add_argument("--native", action="store_true", help=f"Open {APP_DISPLAY_NAME} in a pywebview native window")
     parser.add_argument("--tray", action="store_true", help="Force the system tray launcher")
     parser.add_argument("--no-tray", action="store_true", help="Run without a system tray icon")
     parser.add_argument("--server", action="store_true", help="Run the server without tray integration")
@@ -1926,6 +2069,7 @@ def quit_for_update() -> None:
 def main(argv: list[str] | None = None) -> None:
     global _ACTIVE_TRAY
     args = _build_arg_parser().parse_args(argv)
+    _ensure_rebrand_migration()
     if args.reset_tasks_db:
         raise SystemExit(_reset_tasks_db())
     if args.reset_db:

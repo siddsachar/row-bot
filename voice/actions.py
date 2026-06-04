@@ -158,7 +158,7 @@ async def submit_voice_text(
 
 
 def classify_active_run_control(text: str) -> ActiveRunControlKind:
-    """Classify user input received while a Thoth run is active."""
+    """Classify user input received while a Row-Bot run is active."""
     normalized = " ".join(str(text or "").strip().lower().split())
     if not normalized:
         return "none"

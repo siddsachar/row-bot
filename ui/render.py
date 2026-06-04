@@ -76,7 +76,7 @@ def render_image_with_save(b64_or_fname: str, extra_style: str = "", thread_id: 
         def _save(b64_data=_b64_copy, extension=ext):
             ts = _dt.now().strftime("%Y%m%d_%H%M%S")
             raw = _b64_mod.b64decode(b64_data)
-            _save_export(raw, f"thoth_image_{ts}.{extension}")
+            _save_export(raw, f"row_bot_image_{ts}.{extension}")
 
         ui.button(
             icon="download", on_click=_save,
@@ -149,7 +149,7 @@ def render_video_with_save(path_or_fname: str, thread_id: str | None = None) -> 
                 raw = _Path(video_path).read_bytes()
                 from datetime import datetime as _dt
                 ts = _dt.now().strftime("%Y%m%d_%H%M%S")
-                _save_export(raw, f"thoth_video_{ts}.mp4")
+                _save_export(raw, f"row_bot_video_{ts}.mp4")
             except Exception:
                 logger.warning("Failed to save video", exc_info=True)
 
@@ -335,7 +335,7 @@ def _render_mermaid_with_save(source: str) -> None:
 
     from ui.export import _save_export
 
-    diagram_id = f"thoth_mermaid_{_uuid.uuid4().hex}"
+    diagram_id = f"row_bot_mermaid_{_uuid.uuid4().hex}"
     safe_id = _json.dumps(diagram_id)
     safe_source = _html.escape(source)
 
@@ -348,8 +348,8 @@ def _render_mermaid_with_save(source: str) -> None:
                     if (!root) return {{ok: false, error: 'Diagram container is not available.'}};
                     let svg = root.querySelector('svg');
                     if (!svg && typeof mermaid !== 'undefined') {{
-                        if (window.thothRenderMermaidDiagrams) {{
-                            await window.thothRenderMermaidDiagrams(root);
+                        if (window.rowBotRenderMermaidDiagrams) {{
+                            await window.rowBotRenderMermaidDiagrams(root);
                         }} else {{
                             await mermaid.run({{
                                 nodes: root.querySelectorAll('pre.mermaid'),
@@ -359,8 +359,8 @@ def _render_mermaid_with_save(source: str) -> None:
                         svg = root.querySelector('svg');
                     }}
                     if (!svg) return {{ok: false, error: 'Diagram is not rendered yet.'}};
-                    if (window.thothNormalizeMermaidDiagrams) {{
-                        window.thothNormalizeMermaidDiagrams(root);
+                    if (window.rowBotNormalizeMermaidDiagrams) {{
+                        window.rowBotNormalizeMermaidDiagrams(root);
                     }}
                     const clone = svg.cloneNode(true);
                     clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
@@ -552,7 +552,7 @@ def _render_mermaid_with_save(source: str) -> None:
                 return
             raw = _b64.b64decode(data_url.split(",", 1)[1])
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            _save_export(raw, f"thoth_mermaid_{ts}.png")
+            _save_export(raw, f"row_bot_mermaid_{ts}.png")
         except Exception as exc:
             logger.debug("Mermaid PNG export failed", exc_info=True)
             ui.notify(f"Could not save diagram: {exc}", type="negative")
@@ -649,7 +649,7 @@ def _render_text_with_embeds_now(text: str) -> None:
     # Render all parts
     for kind, value in parts:
         if kind == "text" and value and value.strip():
-            ui.markdown(autolink_urls(value), extras=['code-friendly', 'fenced-code-blocks', 'tables']).classes("thoth-msg w-full")
+            ui.markdown(autolink_urls(value), extras=['code-friendly', 'fenced-code-blocks', 'tables']).classes("row-bot-msg w-full")
         elif kind == "video":
             ui.html(
                 f'<iframe width="280" height="158" '
@@ -803,8 +803,8 @@ def render_message_content(msg: dict, thread_id: str | None = None) -> None:
     # Trigger highlight.js on new code blocks + render mermaid diagrams
     try:
         ui.run_javascript(
-            "if (window.thothHighlightCodeBlocks) { window.thothHighlightCodeBlocks(); } "
-            "else { setTimeout(function() { document.querySelectorAll('pre code').forEach(function(el) { if (!el.closest('.thoth-live-stream')) hljs.highlightElement(el); }); }, 80); }"
+            "if (window.rowBotHighlightCodeBlocks) { window.rowBotHighlightCodeBlocks(); } "
+            "else { setTimeout(function() { document.querySelectorAll('pre code').forEach(function(el) { if (!el.closest('.row-bot-live-stream')) hljs.highlightElement(el); }); }, 80); }"
         )
         ui.run_javascript(
             "document.querySelectorAll('pre code.language-mermaid').forEach(function(el) {"
@@ -814,7 +814,7 @@ def render_message_content(msg: dict, thread_id: str | None = None) -> None:
             "  div.textContent = el.textContent;"
             "  pre.replaceWith(div);"
             "});"
-            "var nodes = Array.from(document.querySelectorAll('pre.mermaid')).filter(function(node) { return !node.closest('.thoth-live-stream'); });"
+            "var nodes = Array.from(document.querySelectorAll('pre.mermaid')).filter(function(node) { return !node.closest('.row-bot-live-stream'); });"
             "mermaid.run({nodes: nodes, suppressErrors: true});"
         )
     except RuntimeError:
@@ -826,7 +826,7 @@ def add_chat_message(msg: dict, p: P, thread_id: str | None = None) -> None:
     if p.chat_container is None:
         return
     is_user = msg["role"] == "user"
-    avatar_cls = "thoth-avatar thoth-avatar-user" if is_user else "thoth-avatar thoth-avatar-bot"
+    avatar_cls = "row-bot-avatar row-bot-avatar-user" if is_user else "row-bot-avatar row-bot-avatar-bot"
     if is_user:
         avatar_content = "👤"
         name = "You"
@@ -837,14 +837,14 @@ def add_chat_message(msg: dict, p: P, thread_id: str | None = None) -> None:
         name = get_assistant_name()
     stamp = msg.get("timestamp", datetime.now().strftime("%H:%M"))
     with p.chat_container:
-        row_cls = "thoth-msg-row thoth-msg-row-user" if is_user else "thoth-msg-row"
+        row_cls = "row-bot-msg-row row-bot-msg-row-user" if is_user else "row-bot-msg-row"
         with ui.element("div").classes(row_cls):
             ui.html(f'<div class="{avatar_cls}">{avatar_content}</div>', sanitize=False)
-            with ui.column().classes("thoth-msg-body gap-1"):
+            with ui.column().classes("row-bot-msg-body gap-1"):
                 ui.html(
-                    f'<div class="thoth-msg-header">'
-                    f'<span class="thoth-msg-name">{name}</span>'
-                    f'<span class="thoth-msg-stamp">{stamp}</span>'
+                    f'<div class="row-bot-msg-header">'
+                    f'<span class="row-bot-msg-name">{name}</span>'
+                    f'<span class="row-bot-msg-stamp">{stamp}</span>'
                     f'</div>',
                     sanitize=False,
                 )

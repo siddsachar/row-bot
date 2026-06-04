@@ -22,7 +22,7 @@
 - [Designer Studio](#designer-studio)
 - [Developer Studio](#developer-studio)
 - [Custom Tools](#custom-tools)
-- [Thoth Status & Identity](#thoth-status--identity)
+- [Thoth Status & Identity](#row-bot-status--identity)
 - [Self-Knowledge & Insights](#self-knowledge--insights)
 - [Messaging Channels](#messaging-channels)
 - [Tunnel Manager](#tunnel-manager)
@@ -170,7 +170,7 @@ ChatGPT / Codex is deliberately modeled as a subscription provider, not as anoth
 
 Codex runtime uses ChatGPT's subscription/internal Codex backend rather than the public OpenAI API. That means endpoint behavior, catalog shape, auth requirements, rate limits, and model availability may change upstream. When a ChatGPT / Codex model is selected, the current conversation plus model-visible tool context and tool results are sent to ChatGPT / Codex for that turn. Durable Thoth data such as memories, documents, files, and other conversations remain local unless explicitly included in the active conversation or surfaced by a tool result.
 
-- **Dynamic model switching** — change the brain model from Settings or approved `thoth_update_setting` calls; choices are validated against pinned local/provider Quick Choices, installed local models, and provider catalogs before saving
+- **Dynamic model switching** — change the brain model from Settings or approved `row_bot_update_setting` calls; choices are validated against pinned local/provider Quick Choices, installed local models, and provider catalogs before saving
 - **Per-thread & per-workflow model override** — conversations and workflows can each run on a different model, with overrides persisted locally
 - **Quick Choices** — models pinned from the consolidated Models catalog appear in chat, workflow, channel, Designer, status-tool, and Vision pickers when their capability snapshot supports that surface
 - **Cost-efficient context management** — smart context trimming compresses older conversation turns and shrinks oversized tool outputs, reducing token usage and API costs for provider models
@@ -334,10 +334,10 @@ Every project is created in one of five modes. Each mode carries its own canvas 
 
 ### Interactive Runtime
 
-Interactive modes (`landing`, `app_mockup`, `storyboard`) do **not** allow free-form `<script>` from the agent. Behavior is expressed declaratively via `data-thoth-action` attributes and interpreted at runtime by a sandboxed bridge.
+Interactive modes (`landing`, `app_mockup`, `storyboard`) do **not** allow free-form `<script>` from the agent. Behavior is expressed declaratively via `data-row-bot-action` attributes and interpreted at runtime by a sandboxed bridge.
 
 - **`designer/runtime/` package** — loads per-project runtime state, resolves route / screen navigation, handles state toggles, controls media playback, and dispatches declarative actions to real DOM operations inside the preview iframe
-- **Declarative action grammar** — `data-thoth-action="navigate:screen-id"`, `data-thoth-action="toggle:state-key"`, `data-thoth-action="play:asset-id"`, etc. — the agent authors intent, the runtime executes it safely
+- **Declarative action grammar** — `data-row-bot-action="navigate:screen-id"`, `data-row-bot-action="toggle:state-key"`, `data-row-bot-action="play:asset-id"`, etc. — the agent authors intent, the runtime executes it safely
 - **Shared preview + publish runtime** — the same runtime powers editor preview, presenter mode, and published share links so interactive projects behave identically in all three surfaces
 
 ### Project Model & Storage
@@ -463,16 +463,16 @@ Thoth now has a formal self-inspection and self-management surface: a tool for q
 
 ### Status Queries
 
-- **`thoth_status` tool** — read-only introspection across `overview`, `version`, `model`, `channels`, `memory`, `skills`, `tools`, `api_keys`, `identity`, `tasks`, `vision`, `image_gen`, `voice`, `config`, `logs`, `errors`, and `designer`
+- **`row_bot_status` tool** — read-only introspection across `overview`, `version`, `model`, `channels`, `memory`, `skills`, `tools`, `api_keys`, `identity`, `tasks`, `vision`, `image_gen`, `voice`, `config`, `logs`, `errors`, and `designer`
 - **Live runtime visibility** — the tool can report current model/provider, active channels, knowledge graph counts, enabled skills, configured APIs, task state, voice and image settings, and designer project counts
 - **Diagnostics access** — recent warnings, errors, and tracebacks can be summarized without opening log files manually
 - **Home health bar parity** — `ui/status_checks.py` and `ui/status_bar.py` expose compact health checks for Ollama, active model, cloud API, tunnel, OAuth accounts, workflows, knowledge, wiki vault, documents, search, skills, tracker, Buddy, MCP, plugins, network, tools, disk, threads DB, FAISS, Dream Cycle, TTS, and logging
 
 ### Controlled Self-Management
 
-- **`thoth_update_setting`** — approved mutations for Brain and Vision model switching, assistant name, personality, context caps, dream-cycle controls, skill toggles, tool toggles, image-generation model, video-generation model, manual dream-cycle trigger, and self-improvement toggle
+- **`row_bot_update_setting`** — approved mutations for Brain and Vision model switching, assistant name, personality, context caps, dream-cycle controls, skill toggles, tool toggles, image-generation model, video-generation model, manual dream-cycle trigger, and self-improvement toggle
 - **Interrupt-gated writes** — all state-changing operations route through explicit user confirmation before they are applied
-- **Optional self-improvement toolchain** — when self-improvement is enabled, `thoth_create_skill` and `thoth_patch_skill` become available
+- **Optional self-improvement toolchain** — when self-improvement is enabled, `row_bot_create_skill` and `row_bot_patch_skill` become available
 - **Skill patch safety** — bundled skills are patched via user-space overrides, not in-place mutation; old versions are backed up under `~/.thoth/skill_versions/`
 
 ### Identity & Preferences
@@ -480,7 +480,7 @@ Thoth now has a formal self-inspection and self-management surface: a tool for q
 - **`identity.py`** — stores assistant name, personality text, and self-improvement flag; sanitizes personality input before save
 - **Preferences tab** — Settings exposes name, personality, preview, and self-improvement controls in one place
 - **Prompt integration** — the same identity settings are consumed by `self_knowledge.py` so the opening line seen by the model matches what the user configured
-- **Parallel UI surface** — the Home health/status bar provides a visual health view for the user, while `thoth_status` exposes the same class of state to the agent
+- **Parallel UI surface** — the Home health/status bar provides a visual health view for the user, while `row_bot_status` exposes the same class of state to the agent
 
 ---
 
@@ -590,7 +590,7 @@ Thoth can generate and edit images through multiple external providers, render t
 - **Per-thread persistence** — generated images are saved into Thoth's media storage so they survive refreshes and can be referenced later
 - **Channel delivery** — running messaging channels can pick up generated images and send them as photos
 - **Designer reuse** — Designer Studio can invoke the same provider layer for slide assets and visual content generation
-- **Settings selector** — the active image-generation model is configurable from Settings and queryable through `thoth_status`
+- **Settings selector** — the active image-generation model is configurable from Settings and queryable through `row_bot_status`
 
 ---
 
@@ -726,15 +726,15 @@ A sandboxed, hot-reloadable extension system lets plugins add new tools and skil
 
 ## Auto-Updates
 
-`updater.py` polls the GitHub Releases API for the official Thoth repo on a background thread (30-second startup delay, then every 6 hours, with a 24-hour debounce on actual network calls). Checking is on by default; if there is no internet the call fails silently and the next tick retries.
+`updater.py` polls the GitHub Releases API for the official Row-Bot repo on a background thread (30-second startup delay, then every 6 hours, with a 24-hour debounce on actual network calls). Checking is on by default; if there is no internet the call fails silently and the next tick retries.
 
-- **Channel** — `stable` (default) hits `/releases/latest`; `beta` walks the top 10 releases and includes pre-releases. Persisted in `~/.thoth/update_config.json`.
-- **Manifest verification** — every release body must contain a fenced `<!-- thoth-update-manifest -->` block with SHA256 hashes for each platform asset. Without a manifest entry, `download_update` refuses to install. The CI workflow `.github/workflows/update-manifest.yml` calls `scripts/append_sha_manifest.py` to PATCH the release body once artifacts are uploaded. The Linux one-line installer uses the same manifest before running the bundled tarball installer.
-- **OS code signature** — Windows installs invoke `signtool.exe verify /pa`; macOS installs invoke `codesign --verify --deep --strict`. Linux tarball installs do not have a universal OS-level signing verifier, so Thoth relies on GitHub HTTPS plus the required SHA256 release manifest.
-- **Hand-off** — Windows: `ThothSetup_x.y.z.exe /SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS`. The `.iss` uses `CloseApplications=yes` / `RestartApplications=yes` so Inno Setup can swap files while Thoth is running, and repair/upgrade deletes `{app}\python` before recopying the bundled runtime so stray packages installed into embedded Python cannot survive. macOS: `open <dmg>` and exit; the user drags the new app to `/Applications`. Linux: install the verified `Thoth-X.Y.Z-Linux-ARCH.tar.gz` into the user XDG release tree, atomically flip `~/.local/share/thoth/current`, refresh the desktop entry/icon, and restart through `~/.local/bin/thoth`.
+- **Channel** — `stable` (default) hits `/releases/latest`; `beta` walks the top 10 releases and includes pre-releases. Persisted in `~/.row-bot/update_config.json`.
+- **Manifest verification** — every release body must contain a fenced `<!-- row-bot-update-manifest -->` block with SHA256 hashes for each platform asset. Without a manifest entry, `download_update` refuses to install. The CI workflow `.github/workflows/update-manifest.yml` calls `scripts/append_sha_manifest.py` to PATCH the release body once artifacts are uploaded. The Linux one-line installer uses the same manifest before running the bundled tarball installer.
+- **OS code signature** — Windows installs invoke `signtool.exe verify /pa`; macOS installs invoke `codesign --verify --deep --strict`. Linux tarball installs do not have a universal OS-level signing verifier, so Row-Bot relies on GitHub HTTPS plus the required SHA256 release manifest.
+- **Hand-off** — Windows: `RowBotSetup_x.y.z.exe /SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS`. The `.iss` uses `CloseApplications=yes` / `RestartApplications=yes` so Inno Setup can swap files while Row-Bot is running, and repair/upgrade deletes `{app}\python` before recopying the bundled runtime so stray packages installed into embedded Python cannot survive. macOS: `open <dmg>` and exit; the user drags the new app to `/Applications`. Linux: install the verified `Row-Bot-X.Y.Z-Linux-ARCH.tar.gz` into the user XDG release tree, atomically flip `~/.local/share/row-bot/current`, refresh the desktop entry/icon, and restart through `~/.local/bin/row-bot`.
 - **UI** — a green "⬆ vX.Y.Z" status-bar pill appears when a newer release is detected; clicking opens the What's-New dialog (rendered release notes plus Install / Skip / Later buttons). Settings → Preferences → Updates exposes channel selection, "Check for updates", and a list of skipped versions.
-- **Agent surface** — `tools/updater_tool.py` registers `thoth_check_for_updates` (read-only) and `thoth_install_update` (interrupt-gated). The dynamic self-knowledge block surfaces "Update available: …" when applicable, and `thoth_status` adds an `updates` category.
-- **Dev installs** — when a `.git/` directory sits next to the app source (i.e. running from a checkout), the scheduler is disabled and `thoth_install_update` refuses, so working copies are never overwritten. On Linux, packaged installs are recognized by `install_info.json` with `platform: linux` and `install_kind: xdg-user-tarball`.
+- **Agent surface** — `tools/updater_tool.py` registers `row_bot_check_for_updates` (read-only) and `row_bot_install_update` (interrupt-gated). The dynamic self-knowledge block surfaces "Update available: …" when applicable, and `row_bot_status` adds an `updates` category.
+- **Dev installs** — when a `.git/` directory sits next to the app source (i.e. running from a checkout), the scheduler is disabled and `row_bot_install_update` refuses, so working copies are never overwritten. On Linux, packaged installs are recognized by `install_info.json` with `platform: linux` and `install_kind: xdg-user-tarball`.
 
 ---
 
@@ -759,7 +759,7 @@ A sandboxed, hot-reloadable extension system lets plugins add new tools and skil
 - **First-launch setup wizard** — starts with model/provider choice, then migration and setup-center steps for Local, Providers, Custom/Self-hosted, memory/docs, workflows, Designer, Developer, channels, voice, and related setup without touching config files by hand
 - **Self-contained installers** — Windows and macOS releases bundle dependencies for one-click setup; Linux uses a one-line bootstrapper that verifies and installs the self-contained XDG tarball into user-owned paths
 - **Launcher identity and ports** — the launcher probes `/api/launcher-ping` before reusing port 8080, passes the chosen port through `THOTH_PORT`, and supports explicit `--browser`, `--native`, `--tray`, `--no-tray`, `--server`, `--no-open`, `--port`, and `--host` modes
-- **Launcher recovery hints** — when the managed server exits during startup, `launcher.py` tails `~/.thoth/thoth_app.log` and emits targeted recovery hints for recognized startup signatures, including broken optional TorchCodec DLL loads in the embedded Windows runtime.
+- **Launcher recovery hints** — when the managed server exits during startup, `launcher.py` tails `~/.row-bot/row_bot_app.log` and emits targeted recovery hints for recognized startup signatures, including broken optional TorchCodec DLL loads in the embedded Windows runtime.
 - **Launcher data recovery commands** — `launcher.py --reset-tasks-db`, `--reset-db`, and `--restore-data` back up SQLite DB families before recreating or restoring known task, memory, and thread databases
 - **Auto-restart flow** — closing the native window does not kill the tray-managed app process; reopen is fast
 - **Release pipeline** — build, sign, notarize, and publish automation lives in CI
@@ -888,7 +888,7 @@ Thoth ships with **17 manual bundled skills** and **20 tool guides**. Manual ski
 | **`notifications.py`** | Unified desktop, sound, and toast notification system |
 | **`channels/`** | Channel ABC, registry, media helpers, auth helpers, approval routing, command handling, tool generation, and bundled channel adapters |
 | **`tunnel.py`** | Tunnel provider abstraction, ngrok integration, and lifecycle manager |
-| **`tools/thoth_status_tool.py`** | Self-introspection and controlled self-management tool, including optional self-improvement skill operations |
+| **`tools/row_bot_status_tool.py`** | Self-introspection and controlled self-management tool, including optional self-improvement skill operations |
 | **`tools/developer_tool.py`** + **`tools/custom_tool_builder_tool.py`** | Developer workspace operations and conversational Custom Tool creation/testing/promotion surface |
 | **`tools/`** + **`designer/tool.py`** | Self-registering core tool modules, registry, base classes, Wikipedia recovery behavior, and LangChain tool conversion |
 | **`plugins/`** | Plugin runtime, marketplace client, manifest validation, security scanner, and settings integration |
@@ -941,7 +941,7 @@ All user data is stored under `~/.thoth/` (or `%USERPROFILE%\\.thoth\\` on Windo
 ├── migration-backups/             # Pre-migration backups of overwritten target files
 ├── runtimes/                      # Optional user-space runtimes installed by MCP requirement helper
 ├── skill_versions/                # Skill patch backups for self-improvement flows
-├── thoth_app.log                  # Structured application log
+├── row_bot_app.log                  # Structured application log
 ├── splash.log                     # Splash-screen diagnostics
 ├── inbox/                         # Files received via messaging channels
 ├── browser_profile/               # Persistent Chromium profile

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 
@@ -19,7 +19,7 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
   function emit(type, detail) {{
     const el = getSink();
     if (!el) return;
-    el.dispatchEvent(new CustomEvent('thoth-realtime-event', {{
+    el.dispatchEvent(new CustomEvent('row-bot-realtime-event', {{
       detail: Object.assign({{type, session_id: sessionId}}, detail || {{}})
     }}));
   }}
@@ -62,7 +62,7 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
     try {{ existing.audio && existing.audio.remove(); }} catch (_) {{}}
   }}
 
-  const previousRuntime = window.ThothRealtimeVoice;
+  const previousRuntime = window.RowBotRealtimeVoice;
   await cleanup(previousRuntime && previousRuntime.session);
 
   const runtime = {{
@@ -226,7 +226,7 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
       if (sent && !localMeta.silent) {{
         this.createResponse({{
             output_modalities: ['audio'],
-            metadata: responseMetadata(meta, {{thoth_origin: 'function_call_output', call_id: cleanCallId}})
+            metadata: responseMetadata(meta, {{row_bot_origin: 'function_call_output', call_id: cleanCallId}})
         }}, 'function_call_response', 'normal');
       }}
       return sent;
@@ -238,11 +238,11 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
       const answerOrigin = origin === 'final' || origin === 'stream_chunk' || origin.includes('result');
       const priority = (answerOrigin || origin === 'tool_start' || origin === 'tool_progress' || origin === 'long_running') ? 'normal' : 'low';
       const instructions = answerOrigin
-        ? 'Speak this Thoth response naturally and faithfully. Do not add framing, summarize, or ask follow-up questions: ' + clean
-        : 'Speak exactly this brief Thoth status. Do not add details or ask follow-up questions: ' + clean;
+        ? 'Speak this Row-Bot response naturally and faithfully. Do not add framing, summarize, or ask follow-up questions: ' + clean
+        : 'Speak exactly this brief Row-Bot status. Do not add details or ask follow-up questions: ' + clean;
       return this.createResponse({{
           output_modalities: ['audio'],
-          metadata: responseMetadata(meta, {{thoth_origin: 'run_event'}}),
+          metadata: responseMetadata(meta, {{row_bot_origin: 'run_event'}}),
           instructions
       }}, 'run_event', priority);
     }},
@@ -284,7 +284,7 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
       if (!callId || this.handledCallIds.has(callId)) return false;
       this.handledCallIds.add(callId);
       const argumentsText = String(item.arguments || this.functionArgumentDeltas[callId] || this.functionArgumentDeltas[item.id] || '');
-      if (item.name === 'thoth_agent_consult') {{
+      if (item.name === 'row_bot_agent_consult') {{
         this.consultStartedForItemId = this.pendingTranscriptItemId || 'unknown';
       }}
       emit('function_call_ready', {{
@@ -303,7 +303,7 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
       if (item.type === 'function_call') this.emitFunctionCall(item, sourceType);
     }}
   }};
-  window.ThothRealtimeVoice = runtime;
+  window.RowBotRealtimeVoice = runtime;
 
   try {{
     emit('connecting');
@@ -534,8 +534,8 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
 def stop_realtime_client_js() -> str:
     return """
 (async function() {
-  if (window.ThothRealtimeVoice && window.ThothRealtimeVoice.stop) {
-    await window.ThothRealtimeVoice.stop();
+  if (window.RowBotRealtimeVoice && window.RowBotRealtimeVoice.stop) {
+    await window.RowBotRealtimeVoice.stop();
   }
 })();
 """
@@ -560,8 +560,8 @@ def send_realtime_function_output_js(
     }
     return f"""
 (function() {{
-  if (window.ThothRealtimeVoice && window.ThothRealtimeVoice.sendFunctionOutput) {{
-    window.ThothRealtimeVoice.sendFunctionOutput({json.dumps(call_id)}, {json.dumps(output_text)}, {json.dumps(meta)});
+  if (window.RowBotRealtimeVoice && window.RowBotRealtimeVoice.sendFunctionOutput) {{
+    window.RowBotRealtimeVoice.sendFunctionOutput({json.dumps(call_id)}, {json.dumps(output_text)}, {json.dumps(meta)});
   }}
 }})();
 """
@@ -581,8 +581,8 @@ def send_realtime_run_event_js(
     }
     return f"""
 (function() {{
-  if (window.ThothRealtimeVoice && window.ThothRealtimeVoice.sendRunEvent) {{
-    window.ThothRealtimeVoice.sendRunEvent({json.dumps(text)}, {json.dumps(meta)});
+  if (window.RowBotRealtimeVoice && window.RowBotRealtimeVoice.sendRunEvent) {{
+    window.RowBotRealtimeVoice.sendRunEvent({json.dumps(text)}, {json.dumps(meta)});
   }}
 }})();
 """

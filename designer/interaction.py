@@ -17,6 +17,8 @@ import re
 
 from bs4 import BeautifulSoup, Tag
 
+from brand import APP_BRAND_ACCENT
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,8 +30,8 @@ BRIDGE_JS = r"""
 <script>
 (function() {
     // Avoid double-init if srcdoc is set multiple times
-    if (window.__thothBridge) return;
-    window.__thothBridge = true;
+    if (window.__rowBotBridge) return;
+    window.__rowBotBridge = true;
 
     // ── State ─────────────────────────────────────────────────────
     var selectedEl = null;
@@ -80,16 +82,16 @@ BRIDGE_JS = r"""
 
     function getElementInfo(el) {
         var rect = el.getBoundingClientRect();
-        var assetRoot = el.closest('[data-thoth-id]');
-        var elementRoot = el.closest('[data-thoth-element-id]');
+        var assetRoot = el.closest('[data-row-bot-id]');
+        var elementRoot = el.closest('[data-row-bot-element-id]');
         return {
             tag: el.tagName.toLowerCase(),
             text: (el.textContent || '').substring(0, 200),
             className: el.className || '',
             id: el.id || '',
-            assetId: assetRoot ? assetRoot.getAttribute('data-thoth-id') || '' : '',
-            assetKind: assetRoot ? assetRoot.getAttribute('data-thoth-kind') || '' : '',
-            elementId: elementRoot ? elementRoot.getAttribute('data-thoth-element-id') || '' : '',
+            assetId: assetRoot ? assetRoot.getAttribute('data-row-bot-id') || '' : '',
+            assetKind: assetRoot ? assetRoot.getAttribute('data-row-bot-kind') || '' : '',
+            elementId: elementRoot ? elementRoot.getAttribute('data-row-bot-element-id') || '' : '',
             xpath: getXPath(el),
             rect: {x: rect.x, y: rect.y, w: rect.width, h: rect.height}
         };
@@ -172,7 +174,7 @@ BRIDGE_JS = r"""
         editingEl = el;
         var oldHTML = el.innerHTML;
         el.setAttribute('contenteditable', 'true');
-        el.style.outline = '2px solid #F59E0B';
+        el.style.outline = '2px solid __ROW_BOT_BRAND_ACCENT__';
         el.style.outlineOffset = '2px';
         el.focus();
 
@@ -224,6 +226,7 @@ BRIDGE_JS = r"""
 })();
 </script>
 """
+BRIDGE_JS = BRIDGE_JS.replace("__ROW_BOT_BRAND_ACCENT__", APP_BRAND_ACCENT)
 
 
 def inject_bridge_js(html: str) -> str:
@@ -249,8 +252,8 @@ def get_parent_listener_js(callback_id: str) -> str:
     """
     return f"""
     (function() {{
-        if (window.__thothDesignerListener) return;
-        window.__thothDesignerListener = true;
+        if (window.__rowBotDesignerListener) return;
+        window.__rowBotDesignerListener = true;
 
         window.addEventListener('message', function(e) {{
             var data = e.data;

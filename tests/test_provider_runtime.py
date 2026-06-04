@@ -149,23 +149,23 @@ def test_custom_endpoint_model_syncs_into_model_facade(tmp_path, monkeypatch):
     from providers.custom import custom_provider_id, save_custom_endpoint
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    models._cloud_model_cache.pop("thoth-dummy-chat", None)
+    models._cloud_model_cache.pop("row-bot-dummy-chat", None)
     save_custom_endpoint({
         "id": "dummy",
         "base_url": "http://127.0.0.1:8000/v1",
         "auth_required": False,
         "models": [{
-            "id": "thoth-dummy-chat",
-            "model_id": "thoth-dummy-chat",
-            "label": "thoth-dummy-chat",
+            "id": "row-bot-dummy-chat",
+            "model_id": "row-bot-dummy-chat",
+            "label": "row-bot-dummy-chat",
             "ctx": 8192,
             "provider": custom_provider_id("dummy"),
             "capabilities_snapshot": {"tasks": ["chat"], "input_modalities": ["text"], "output_modalities": ["text"]},
         }],
     })
 
-    assert models.is_cloud_model("thoth-dummy-chat") is True
-    assert models.get_cloud_provider("thoth-dummy-chat") == custom_provider_id("dummy")
+    assert models.is_cloud_model("row-bot-dummy-chat") is True
+    assert models.get_cloud_provider("row-bot-dummy-chat") == custom_provider_id("dummy")
 
 
 def test_model_facade_preserves_provider_refs_for_duplicate_ids(monkeypatch):
@@ -224,14 +224,14 @@ def test_runtime_rejects_custom_endpoint_non_chat_model(tmp_path, monkeypatch):
         "base_url": "http://127.0.0.1:8000/v1",
         "auth_required": False,
         "models": [{
-            "id": "thoth-dummy-embedding",
-            "model_id": "thoth-dummy-embedding",
+            "id": "row-bot-dummy-embedding",
+            "model_id": "row-bot-dummy-embedding",
             "capabilities_snapshot": {"tasks": ["embedding"], "input_modalities": ["text"], "output_modalities": ["text"]},
         }],
     })
 
     try:
-        runtime.create_chat_model("thoth-dummy-embedding", provider_id=custom_provider_id("dummy"))
+        runtime.create_chat_model("row-bot-dummy-embedding", provider_id=custom_provider_id("dummy"))
     except ValueError as exc:
         assert "not compatible with chat" in str(exc)
     else:
@@ -984,7 +984,7 @@ def test_pre_model_trim_preserves_empty_assistant_tool_call_turn(tmp_path, monke
     monkeypatch.setattr(agent, "is_background_workflow", lambda: False)
 
     tool_call = {
-        "name": "thoth_status",
+        "name": "row_bot_status",
         "args": {"category": "tools"},
         "id": "call_1",
         "type": "tool_call",
@@ -994,7 +994,7 @@ def test_pre_model_trim_preserves_empty_assistant_tool_call_turn(tmp_path, monke
             SystemMessage(content="Root system"),
             HumanMessage(content="Use the status tool"),
             AIMessage(content="", tool_calls=[tool_call], additional_kwargs={"reasoning_content": "Use a tool."}),
-            ToolMessage(content="ok", name="thoth_status", tool_call_id="call_1"),
+            ToolMessage(content="ok", name="row_bot_status", tool_call_id="call_1"),
             HumanMessage(content="continue"),
         ]
     })["llm_input_messages"]
@@ -1013,16 +1013,16 @@ def test_provider_transcript_normalizer_strips_invalid_tool_calls(tmp_path, monk
         HumanMessage(content="use the tool"),
         AIMessage(
             content="",
-            tool_calls=[{"name": "thoth_status", "args": {}, "id": "call_1", "type": "tool_call"}],
+            tool_calls=[{"name": "row_bot_status", "args": {}, "id": "call_1", "type": "tool_call"}],
             invalid_tool_calls=[{"name": "", "args": "bad", "id": "bad_1", "error": None}],
         ),
-        ToolMessage(content="ok", name="thoth_status", tool_call_id="call_1"),
+        ToolMessage(content="ok", name="row_bot_status", tool_call_id="call_1"),
     ]
 
     result = agent._normalize_provider_facing_messages(messages, provider_id="openrouter")
 
     ai = next(msg for msg in result if isinstance(msg, AIMessage))
-    assert ai.tool_calls == [{"name": "thoth_status", "args": {}, "id": "call_1", "type": "tool_call"}]
+    assert ai.tool_calls == [{"name": "row_bot_status", "args": {}, "id": "call_1", "type": "tool_call"}]
     assert getattr(ai, "invalid_tool_calls", []) == []
     assert result[2].tool_call_id == "call_1"
 
@@ -1032,14 +1032,14 @@ def test_provider_transcript_normalizer_rewrites_duplicate_tool_ids(tmp_path, mo
     import agent
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-    first_call = {"name": "thoth_status", "args": {"category": "overview"}, "id": "text_call_0", "type": "tool_call"}
-    second_call = {"name": "thoth_status", "args": {"category": "tools"}, "id": "text_call_0", "type": "tool_call"}
+    first_call = {"name": "row_bot_status", "args": {"category": "overview"}, "id": "text_call_0", "type": "tool_call"}
+    second_call = {"name": "row_bot_status", "args": {"category": "tools"}, "id": "text_call_0", "type": "tool_call"}
     messages = [
         HumanMessage(content="check tools"),
         AIMessage(content="", tool_calls=[first_call]),
-        ToolMessage(content="overview", name="thoth_status", tool_call_id="text_call_0"),
+        ToolMessage(content="overview", name="row_bot_status", tool_call_id="text_call_0"),
         AIMessage(content="", tool_calls=[second_call]),
-        ToolMessage(content="tools", name="thoth_status", tool_call_id="text_call_0"),
+        ToolMessage(content="tools", name="row_bot_status", tool_call_id="text_call_0"),
     ]
 
     result = agent._normalize_provider_facing_messages(messages, provider_id="openrouter")
@@ -1076,10 +1076,10 @@ def test_provider_transcript_normalizer_strips_reasoning_for_custom_artifacts(tm
         HumanMessage(content="check tools"),
         AIMessage(
             content="",
-            tool_calls=[{"name": "thoth_status", "args": {"category": "tools"}, "id": "text_call_0", "type": "tool_call"}],
-            additional_kwargs={"reasoning_content": "<tool_call><function=thoth_status></function></tool_call>"},
+            tool_calls=[{"name": "row_bot_status", "args": {"category": "tools"}, "id": "text_call_0", "type": "tool_call"}],
+            additional_kwargs={"reasoning_content": "<tool_call><function=row_bot_status></function></tool_call>"},
         ),
-        ToolMessage(content="tools", name="thoth_status", tool_call_id="text_call_0"),
+        ToolMessage(content="tools", name="row_bot_status", tool_call_id="text_call_0"),
         AIMessage(content="Done", additional_kwargs={"reasoning_content": "I should now answer."}),
     ]
 
@@ -1154,23 +1154,23 @@ def test_provider_transcript_normalizer_serializes_cleanly_for_openrouter(tmp_pa
         HumanMessage(content="check tools"),
         AIMessage(
             content="",
-            tool_calls=[{"name": "thoth_status", "args": {}, "id": "call_1", "type": "tool_call"}],
+            tool_calls=[{"name": "row_bot_status", "args": {}, "id": "call_1", "type": "tool_call"}],
             invalid_tool_calls=[{"name": "", "args": '"category":"tools"}', "id": "openai_call_0", "error": None}],
             additional_kwargs={"reasoning_content": "use a tool"},
         ),
-        ToolMessage(content="repair", name="thoth_status", tool_call_id="call_1"),
+        ToolMessage(content="repair", name="row_bot_status", tool_call_id="call_1"),
         AIMessage(
             content="",
-            tool_calls=[{"name": "thoth_status", "args": {"category": "overview"}, "id": "text_call_0", "type": "tool_call"}],
-            additional_kwargs={"reasoning_content": "<tool_call><function=thoth_status></function></tool_call>"},
+            tool_calls=[{"name": "row_bot_status", "args": {"category": "overview"}, "id": "text_call_0", "type": "tool_call"}],
+            additional_kwargs={"reasoning_content": "<tool_call><function=row_bot_status></function></tool_call>"},
         ),
-        ToolMessage(content="overview", name="thoth_status", tool_call_id="text_call_0"),
+        ToolMessage(content="overview", name="row_bot_status", tool_call_id="text_call_0"),
         AIMessage(
             content="",
-            tool_calls=[{"name": "thoth_status", "args": {"category": "tools"}, "id": "text_call_0", "type": "tool_call"}],
-            additional_kwargs={"reasoning_content": "<tool_call><function=thoth_status></function></tool_call>"},
+            tool_calls=[{"name": "row_bot_status", "args": {"category": "tools"}, "id": "text_call_0", "type": "tool_call"}],
+            additional_kwargs={"reasoning_content": "<tool_call><function=row_bot_status></function></tool_call>"},
         ),
-        ToolMessage(content="tools", name="thoth_status", tool_call_id="text_call_0"),
+        ToolMessage(content="tools", name="row_bot_status", tool_call_id="text_call_0"),
         AIMessage(content="Done", additional_kwargs={"reasoning_content": "answer now"}),
     ]
 
@@ -1237,7 +1237,7 @@ def test_custom_tool_validation_repair_handles_explicit_schema_generically(tmp_p
 
     tool = StructuredTool.from_function(
         func=lambda category: f"status:{category}",
-        name="thoth_status",
+        name="row_bot_status",
         description="Query status.",
         args_schema=_StatusInput,
     )
@@ -1246,7 +1246,7 @@ def test_custom_tool_validation_repair_handles_explicit_schema_generically(tmp_p
 
     repaired = tool.invoke({})
 
-    assert "Invalid tool call for thoth_status" in repaired
+    assert "Invalid tool call for row_bot_status" in repaired
     assert "THOTH_TOOL_VALIDATION_RETRY_REQUIRED" in repaired
     assert "category" in repaired
     assert "duckduckgo" not in repaired

@@ -16,6 +16,7 @@ import logging
 import threading
 from typing import Optional
 
+from brand import APP_DISPLAY_NAME, APP_REPOSITORY_URL
 from nicegui import app as nicegui_app, run, ui
 
 import updater
@@ -42,7 +43,7 @@ def show_update_dialog(info: Optional[UpdateInfo] = None) -> None:
     with dlg, ui.card().style("max-width: 560px; width: 90vw;"):
         with ui.row().classes("items-center w-full"):
             ui.icon("system_update", size="1.5rem").classes("text-primary")
-            ui.label(f"Thoth v{info.version} is available").classes("text-h6")
+            ui.label(f"{APP_DISPLAY_NAME} v{info.version} is available").classes("text-h6")
             ui.space()
             ui.label(f"Channel: {info.channel}").classes("text-xs text-grey-6")
         ui.label(f"You're on v{__version__}.").classes("text-grey-7 text-sm")
@@ -82,7 +83,7 @@ def show_update_progress(info: UpdateInfo) -> None:
     """Run download → verify → hand off to installer with visible progress."""
     dlg = ui.dialog().props("persistent")
     with dlg, ui.card().style("min-width: 420px;"):
-        ui.label(f"Downloading Thoth v{info.version}…").classes("text-h6")
+        ui.label(f"Downloading {APP_DISPLAY_NAME} v{info.version}…").classes("text-h6")
         pct_label = ui.label("0%").classes("text-sm text-grey-6")
         bar = ui.linear_progress(value=0, show_value=False).classes("w-full")
         status = ui.label("").classes("text-xs text-grey-6")
@@ -144,7 +145,7 @@ def show_update_progress(info: UpdateInfo) -> None:
                 dlg.close()
                 ui.notify(f"Install failed: {exc}", type="negative", multi_line=True)
                 return
-            status.text = "Installer launched. Thoth will now exit."
+            status.text = f"Installer launched. {APP_DISPLAY_NAME} will now exit."
         finally:
             ticker.cancel()
 
@@ -163,7 +164,7 @@ def build_update_section() -> None:
 
     ui.label("⬆ Updates").classes("text-subtitle2 q-mt-md")
     ui.label(
-        f"Thoth checks https://github.com/siddsachar/Thoth for new releases in "
+        f"{APP_DISPLAY_NAME} checks {APP_REPOSITORY_URL} for new releases in "
         f"the background. You'll be prompted before anything is installed."
     ).classes("text-grey-6 text-xs")
 

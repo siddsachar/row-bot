@@ -1572,7 +1572,7 @@ def _build_developer_inspector_static(
         drag_handle.on("mouseenter", lambda: drag_handle.style("background: rgba(88,166,255,0.35);"))
         drag_handle.on("mouseleave", lambda: drag_handle.style("background: transparent;"))
 
-        inspector_panel = ui.column().classes("h-full gap-2 thoth-inner-panel").style(
+        inspector_panel = ui.column().classes("h-full gap-2 row-bot-inner-panel").style(
             "width: clamp(560px, 34vw, 680px); min-width: 560px; max-width: 65vw; "
             "overflow-y: auto; padding: 0.75rem;"
         )

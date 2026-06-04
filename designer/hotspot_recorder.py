@@ -3,7 +3,7 @@
 When the user clicks an element inside the preview iframe while the
 project is in an interactive mode (landing / app_mockup / storyboard),
 the designer can open a small popover that lets them attach a
-`data-thoth-action` to the clicked element — navigate to another route,
+`data-row-bot-action` to the clicked element — navigate to another route,
 toggle a state key, or play a media asset — without writing HTML by
 hand.
 
@@ -68,7 +68,7 @@ def _route_options(project: DesignerProject, *, exclude: str = "") -> list[tuple
 
 
 def _resolve_selector(detail: dict[str, Any]) -> str:
-    """Prefer the stable ``data-thoth-element-id`` attribute; fall back to
+    """Prefer the stable ``data-row-bot-element-id`` attribute; fall back to
     an xpath-ish locator.
 
     The interaction bridge posts a detail payload with keys ``elementId``
@@ -79,7 +79,7 @@ def _resolve_selector(detail: dict[str, Any]) -> str:
     element_id = (detail or {}).get("elementId") or ""
     element_id = str(element_id).strip()
     if element_id:
-        return f'[data-thoth-element-id="{element_id}"]'
+        return f'[data-row-bot-element-id="{element_id}"]'
     xpath = str((detail or {}).get("xpath") or "").strip()
     return xpath
 
@@ -98,7 +98,7 @@ def build_hotspot_recorder_spec(
       - element_id (str): the stable element identifier, if any.
       - element_tag (str): the clicked element's tag (for the header).
       - element_text (str): short preview of the element text.
-      - existing_action (str): existing data-thoth-action value, if any.
+      - existing_action (str): existing data-row-bot-action value, if any.
       - action_choices (list[tuple[str,str]]): popover action options.
       - route_choices (list[tuple[str,str]]): navigate target options.
     """
@@ -152,11 +152,11 @@ def _patch_html_action(
     selector: str,
     action_value: str | None,
 ) -> tuple[str, bool]:
-    """Set (or clear) data-thoth-action on the first element matching
+    """Set (or clear) data-row-bot-action on the first element matching
     ``selector``.
 
     ``selector`` may be either a CSS selector or a raw
-    data-thoth-element-id token. When ``action_value`` is ``None`` the
+    data-row-bot-element-id token. When ``action_value`` is ``None`` the
     attribute is removed.
     """
 
@@ -175,16 +175,16 @@ def _patch_html_action(
     except Exception:
         target = None
     if target is None:
-        target = soup.find(attrs={"data-thoth-element-id": sel})
+        target = soup.find(attrs={"data-row-bot-element-id": sel})
     if target is None:
         return html, False
 
     ensure_element_identifier(target)
     if action_value is None:
-        if "data-thoth-action" in target.attrs:
-            del target.attrs["data-thoth-action"]
+        if "data-row-bot-action" in target.attrs:
+            del target.attrs["data-row-bot-action"]
     else:
-        target["data-thoth-action"] = action_value
+        target["data-row-bot-action"] = action_value
     return str(soup), True
 
 

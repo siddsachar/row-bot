@@ -13,7 +13,7 @@ def data_dir(monkeypatch):
     root.mkdir(parents=True, exist_ok=True)
     path = root / f"case-{uuid.uuid4().hex}"
     path.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("THOTH_DATA_DIR", str(path))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(path))
     yield path
 
 
@@ -89,13 +89,13 @@ def test_stability_source_contracts_are_wired():
     dialog_src = Path("ui/task_dialog.py").read_text(encoding="utf-8")
     graph_src = Path("ui/graph_panel.py").read_text(encoding="utf-8")
     discord_src = Path("channels/discord_channel.py").read_text(encoding="utf-8")
-    installer_src = Path("installer/thoth_setup.iss").read_text(encoding="utf-8")
+    installer_src = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
 
     assert "setup_stability_monitoring()" in app_src
     assert 'app.add_route("/api/client-error"' in app_src
     assert 'app.add_route("/api/launcher-shutdown"' in app_src
     assert 'app.add_route("/api/startup-state"' in app_src
-    assert "window.__thothStartupPollInstalled" in app_src
+    assert "window.__rowBotStartupPollInstalled" in app_src
     assert "window.location.reload()" in app_src
     assert "async def _cleanup_runtime" in app_src
     assert "_ch_registry.all_channels()" in app_src
@@ -103,12 +103,12 @@ def test_stability_source_contracts_are_wired():
     assert "os._exit(0)" in app_src
     assert "ui.navigate.reload()" in app_src
     assert 'ui.navigate.to("/")' not in app_src.split("# ── Startup warnings", 1)[0]
-    assert "window.__thothClientErrorReporterInstalled" in head_src
-    assert "thothReportClientEvent" in head_src
+    assert "window.__rowBotClientErrorReporterInstalled" in head_src
+    assert "rowBotReportClientEvent" in head_src
     assert "connection_state" in head_src
     assert "if (!document.body)" in head_src
     assert "DOMContentLoaded" in head_src
-    assert "document.getElementById('thoth-ctx-menu')" in head_src
+    assert "document.getElementById('row-bot-ctx-menu')" in head_src
     assert "def safe_ui_task(" in timer_src
     safe_task_src = timer_src.split("def safe_ui_task", 1)[1].split("def deactivate_on_disconnect", 1)[0]
     assert "client = ui.context.client" in safe_task_src
@@ -127,7 +127,7 @@ def test_stability_source_contracts_are_wired():
     assert "Recovered unsaved draft" in dialog_src
     assert "safe_timer(2.0, _autosave_draft)" in dialog_src
     assert "physicsTimer" in graph_src
-    assert "window._thothGraph !== G" in graph_src
+    assert "window._rowBotGraph !== G" in graph_src
     assert "G.network.setOptions({ physics: false })" in graph_src
     assert "_is_transient_stream_disconnect" in agent_src
     assert "provider stream disconnected" in agent_src

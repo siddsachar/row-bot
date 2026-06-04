@@ -1,18 +1,18 @@
----
-name: thoth_status_guide
-display_name: Thoth Status Guide
+﻿---
+name: row_bot_status_guide
+display_name: Row-Bot Status Guide
 icon: "🪞"
-description: Guidance for querying and managing Thoth's own configuration and logs.
+description: Guidance for querying and managing Row-Bot's own configuration and logs.
 tools:
-  - thoth_status
+  - row_bot_status
 tags: []
 ---
-THOTH STATUS & SELF-MANAGEMENT:
+ROW-BOT STATUS & SELF-MANAGEMENT:
 - You have tools to query your own configuration and diagnose issues.
 
-QUERYING STATUS (thoth_status):
+QUERYING STATUS (row_bot_status):
 - Use category='overview' for a full summary across all areas.
-- Use category='version' to check the Thoth version number.
+- Use category='version' to check the Row-Bot version number.
 - Use category='model' to check the current model, provider, and context window.
 - Use category='channels' to see which messaging channels are running.
 - Use category='memory' for knowledge graph entity/relation counts.
@@ -26,7 +26,7 @@ QUERYING STATUS (thoth_status):
 - Use category='vision' to check the Vision model, provider/runtime model, enabled state, camera config, and provider/custom-endpoint readiness. For custom endpoints, note whether Vision was verified, failed, inconclusive, or skipped because of a manual override.
 - Use category='image_gen' to check the current image generation model.
 - Use category='video_gen' to check the current video generation model.
-- Use category='voice' for the full voice runtime: Talk, Dictate, local vs Realtime Talk, Dictation model, Speech Output model/voice, captions, Realtime readiness, active Thoth run status, active-run controls, and recent Realtime diagnostics.
+- Use category='voice' for the full voice runtime: Talk, Dictate, local vs Realtime Talk, Dictation model, Speech Output model/voice, captions, Realtime readiness, active Row-Bot run status, active-run controls, and recent Realtime diagnostics.
 - Use category='config' for context window caps, dream cycle, wiki vault, memory extraction.
 - Use category='designer' to check designer project count and recent projects.
 - Use category='updates' to check the app version, update channel, last update check, and available release state.
@@ -34,20 +34,20 @@ QUERYING STATUS (thoth_status):
 - Use category='errors' for recent errors with tracebacks — use this to diagnose failures.
 
 VOICE STATUS MODEL:
-- Thoth exposes only two user-facing voice modes: Talk and Dictate.
+- Row-Bot exposes only two user-facing voice modes: Talk and Dictate.
 - Dictate is STT-only. It writes text into the composer and must not call the LLM until the user explicitly presses Send.
 - Talk can use either Local Talk or Realtime Talk. These are runtimes/providers, not extra user-facing modes.
-- Local Talk uses local STT plus the normal Thoth send path, then local Speech Output when enabled.
-- Realtime Talk is a voice transport/backchannel. It gives live microphone/caption/speech behavior, but serious work still goes through the normal Thoth agent, tools, memory, browser/computer-control policy, and approval gates.
+- Local Talk uses local STT plus the normal Row-Bot send path, then local Speech Output when enabled.
+- Realtime Talk is a voice transport/backchannel. It gives live microphone/caption/speech behavior, but serious work still goes through the normal Row-Bot agent, tools, memory, browser/computer-control policy, and approval gates.
 - Realtime must not be treated as a second independent agent. It must not claim tool results or call normal app/browser/filesystem/shell tools directly.
-- The intended Realtime substantive bridge policy is consult/control only: substantive work goes through thoth_agent_consult, and active-run status/cancel/follow-up/steer goes through thoth_agent_control. Realtime may also have a quiet no-op wait_for_user action for silence/background/non-addressed audio; this is not a normal Thoth tool.
-- When category='voice' reports an active Thoth run, use that output to answer status questions such as "what are you doing?", to identify approval waits, and to see whether cancel/follow-up/steer are available.
-- Follow-up and steer requests received while a run is active are queued for a safe boundary and then routed through the normal Thoth send path.
+- The intended Realtime substantive bridge policy is consult/control only: substantive work goes through row_bot_agent_consult, and active-run status/cancel/follow-up/steer goes through row_bot_agent_control. Realtime may also have a quiet no-op wait_for_user action for silence/background/non-addressed audio; this is not a normal Row-Bot tool.
+- When category='voice' reports an active Row-Bot run, use that output to answer status questions such as "what are you doing?", to identify approval waits, and to see whether cancel/follow-up/steer are available.
+- Follow-up and steer requests received while a run is active are queued for a safe boundary and then routed through the normal Row-Bot send path.
 - If Realtime fails, check category='voice' first for recent voice.realtime.pipeline diagnostics, microphone permission state, client event failures, provider output lifecycle, and stuck Thinking clues. Then use category='logs' or category='errors' if more detail is needed.
 - Common failure patterns:
-  - Transcript appears but no thread update: check the Thoth consult bridge and active generation status.
+  - Transcript appears but no thread update: check the Row-Bot consult bridge and active generation status.
   - Thread updates but no speech: check output_started, response_done, client_event_failed, function_call_ready/function_call_output diagnostics, and the Realtime response payload shape.
-  - Stuck Thinking: check active Thoth run status, queued controls, producer errors, and recent realtime diagnostics.
+  - Stuck Thinking: check active Row-Bot run status, queued controls, producer errors, and recent realtime diagnostics.
   - Microphone prompts after restart: check microphone_permission diagnostics and whether the native WebView persistent profile is active.
 
 READING LOGS:
@@ -56,10 +56,10 @@ READING LOGS:
 - The 'logs' category shows WARNING+ entries; 'errors' shows ERROR/CRITICAL with tracebacks.
 - If you diagnose a recurring issue, consider saving the pattern as a self_knowledge memory.
 
-CHANGING SETTINGS (thoth_update_setting):
+CHANGING SETTINGS (row_bot_update_setting):
 - All changes require user confirmation via an approval prompt.
 - Always explain what you're about to change and why before calling the tool.
-- After explaining the change, call thoth_update_setting directly so the approval prompt collects the confirmation.
+- After explaining the change, call row_bot_update_setting directly so the approval prompt collects the confirmation.
 - Do NOT ask for a separate plain-text confirmation instead of calling the tool.
 - Supported settings:
   - model: switch the active LLM (value = local model name, provider model id, model:provider:id ref, or Quick Choice label/ref)
@@ -77,17 +77,17 @@ CHANGING SETTINGS (thoth_update_setting):
   - run_dream_cycle: manually trigger the dream cycle now (value = 'now')
   - self_improvement: enable or disable self-improvement (value = 'on' or 'off')
 - When the user asks to turn on/off a tool or skill, use tool_toggle or skill_toggle.
-  Do NOT pretend to make the change — you MUST call thoth_update_setting.
+  Do NOT pretend to make the change — you MUST call row_bot_update_setting.
 - When changing the active model to a provider model, prefer an existing Quick Choice from the Models catalog. Route selections may be visible in config but are not executable until routing runtime is enabled.
 - When changing the Vision model, prefer an existing Vision Quick Choice from Settings -> Models. If a provider/custom endpoint model is marked incompatible or Vision was manually disabled for that endpoint, do not use it for image/screen analysis until the user changes the endpoint override or selects another Vision-capable model.
 - When changing image/video generation models, values are resolved against the dynamic provider media catalog used by Settings -> Models. Prefer canonical provider/model-id when available, but unique bare IDs and labels such as "GPT Image 2" or "Veo 3.1" are acceptable. After a media default changes, the corresponding Image/Video Quick Choice is updated automatically when the provider key is configured.
-- Credential source labels mean: "Saved in keyring" for Thoth-saved secrets, "Using environment variable" for external env overrides, "Using session key" for non-persistent fallback, and "Using legacy plaintext key" only for pre-migration data.
-- When the user asks to disable MCP, external MCP tools, Model Context Protocol, or the MCP client, call thoth_update_setting with setting='tool_toggle' and value='mcp:off'. Do not only report that the External MCP Tools parent tool is disabled; verify with thoth_status category='mcp' when needed.
+- Credential source labels mean: "Saved in keyring" for Row-Bot-saved secrets, "Using environment variable" for external env overrides, "Using session key" for non-persistent fallback, and "Using legacy plaintext key" only for pre-migration data.
+- When the user asks to disable MCP, external MCP tools, Model Context Protocol, or the MCP client, call row_bot_update_setting with setting='tool_toggle' and value='mcp:off'. Do not only report that the External MCP Tools parent tool is disabled; verify with row_bot_status category='mcp' when needed.
 
 SKILL SELF-IMPROVEMENT (when enabled):
-- thoth_create_skill: create a new reusable skill after a successful complex workflow.
+- row_bot_create_skill: create a new reusable skill after a successful complex workflow.
   Always ask the user first. Skills are additive — cannot overwrite existing ones.
-- thoth_patch_skill: improve an existing skill's instructions. Maximum 1 patch per
+- row_bot_patch_skill: improve an existing skill's instructions. Maximum 1 patch per
   conversation. Requires confirmation. Bundled skills get a user-space override
   (originals preserved). Tool guides cannot be patched — report discrepancies as
   self_knowledge memories instead.

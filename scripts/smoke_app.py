@@ -1,4 +1,4 @@
-"""Reusable Thoth app launch smoke test.
+"""Reusable Row-Bot app launch smoke test.
 
 Starts the app, waits for /api/launcher-ping, optionally checks /, and then
 terminates the process. The script is intentionally stdlib-only so CI and
@@ -73,21 +73,21 @@ def run_app_smoke(
     proc: subprocess.Popen | None = None
     env = {
         **os.environ,
-        "THOTH_PORT": str(port),
+        "ROW_BOT_PORT": str(port),
         "PYTHONIOENCODING": "utf-8",
     }
     if data_dir is None:
-        temp_data = tempfile.TemporaryDirectory(prefix="thoth_smoke_", ignore_cleanup_errors=True)
-        env["THOTH_DATA_DIR"] = temp_data.name
+        temp_data = tempfile.TemporaryDirectory(prefix="row_bot_smoke_", ignore_cleanup_errors=True)
+        env["ROW_BOT_DATA_DIR"] = temp_data.name
     else:
         temp_data = None
-        env["THOTH_DATA_DIR"] = str(data_dir)
+        env["ROW_BOT_DATA_DIR"] = str(data_dir)
 
     try:
         cmd = command or [sys.executable, "app.py"]
         with ExitStack() as stack:
-            stdout_fd, stdout_name = tempfile.mkstemp(prefix="thoth_smoke_stdout_", suffix=".log")
-            stderr_fd, stderr_name = tempfile.mkstemp(prefix="thoth_smoke_stderr_", suffix=".log")
+            stdout_fd, stdout_name = tempfile.mkstemp(prefix="row_bot_smoke_stdout_", suffix=".log")
+            stderr_fd, stderr_name = tempfile.mkstemp(prefix="row_bot_smoke_stderr_", suffix=".log")
             os.close(stdout_fd)
             os.close(stderr_fd)
             stdout_path = Path(stdout_name)
@@ -112,12 +112,12 @@ def run_app_smoke(
                     stderr_file.flush()
                     _add_tail(result, "stdout", stdout_path)
                     _add_tail(result, "stderr", stderr_path)
-                    _add_tail(result, "launcher app log", Path.home() / ".thoth" / "thoth_app.log")
+                    _add_tail(result, "launcher app log", Path(env["ROW_BOT_DATA_DIR"]) / "row_bot_app.log")
                     return result
                 try:
                     with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/launcher-ping", timeout=2) as response:
                         body = response.read(512).decode("utf-8", errors="replace")
-                    if response.status == 200 and '"app":"thoth"' in body.replace(" ", "").lower():
+                    if response.status == 200 and '"app":"row-bot"' in body.replace(" ", "").lower():
                         result.add("PASS", f"/api/launcher-ping responded on port {port}")
                         break
                 except Exception:
@@ -128,7 +128,7 @@ def run_app_smoke(
                 stderr_file.flush()
                 _add_tail(result, "stdout", stdout_path)
                 _add_tail(result, "stderr", stderr_path)
-                _add_tail(result, "launcher app log", Path.home() / ".thoth" / "thoth_app.log")
+                _add_tail(result, "launcher app log", Path(env["ROW_BOT_DATA_DIR"]) / "row_bot_app.log")
                 return result
 
             if check_root:
@@ -156,7 +156,7 @@ def run_app_smoke(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Launch Thoth and verify /api/launcher-ping")
+    parser = argparse.ArgumentParser(description="Launch Row-Bot and verify /api/launcher-ping")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--timeout", type=float, default=90.0)
     parser.add_argument("--cwd", default=".")

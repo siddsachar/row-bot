@@ -1,4 +1,4 @@
-"""Thoth UI - Chat screen (thread conversation view).
+"""Row-Bot UI - Chat screen (thread conversation view).
 
 Extracted from the monolith's ``_build_chat`` inner function.
 """
@@ -17,6 +17,7 @@ import uuid
 from datetime import datetime
 from typing import Callable
 
+from brand import APP_NATIVE_ENV
 from nicegui import events, run, ui
 
 from ui.state import AppState, P, _active_generations
@@ -327,13 +328,13 @@ def build_chat(
             _ra_avatar = _gba_ra()
             _ra_name = _gan_ra()
             with p.chat_container:
-                with ui.element("div").classes("thoth-msg-row"):
-                    ui.html(f'<div class="thoth-avatar thoth-avatar-bot">{_ra_avatar}</div>', sanitize=False)
-                    with ui.column().classes("thoth-msg-body gap-1") as _ra_wrapper:
+                with ui.element("div").classes("row-bot-msg-row"):
+                    ui.html(f'<div class="row-bot-avatar row-bot-avatar-bot">{_ra_avatar}</div>', sanitize=False)
+                    with ui.column().classes("row-bot-msg-body gap-1") as _ra_wrapper:
                         ui.html(
-                            '<div class="thoth-msg-header">'
-                            f'<span class="thoth-msg-name">{_ra_name}</span>'
-                            f'<span class="thoth-msg-stamp">{datetime.now().strftime("%H:%M")}</span>'
+                            '<div class="row-bot-msg-header">'
+                            f'<span class="row-bot-msg-name">{_ra_name}</span>'
+                            f'<span class="row-bot-msg-stamp">{datetime.now().strftime("%H:%M")}</span>'
                             '</div>',
                             sanitize=False,
                         )
@@ -387,7 +388,7 @@ def build_chat(
                         _reattach_gen.assistant_md = ui.markdown(
                             _reattach_gen.accumulated,
                             extras=['code-friendly', 'fenced-code-blocks', 'tables'],
-                        ).classes("thoth-msg w-full")
+                        ).classes("row-bot-msg w-full")
                         _reattach_gen.wrapper = _ra_wrapper
                         _reattach_gen.thinking_label = None
                         _reattach_gen.thinking_md = None
@@ -431,12 +432,12 @@ def build_chat(
             _ob_avatar = _gba_ob()
             _ob_name = _gan_ob()
             with p.chat_container:
-                with ui.element("div").classes("thoth-msg-row"):
-                    ui.html(f'<div class="thoth-avatar thoth-avatar-bot">{_ob_avatar}</div>', sanitize=False)
-                    with ui.column().classes("thoth-msg-body gap-1"):
+                with ui.element("div").classes("row-bot-msg-row"):
+                    ui.html(f'<div class="row-bot-avatar row-bot-avatar-bot">{_ob_avatar}</div>', sanitize=False)
+                    with ui.column().classes("row-bot-msg-body gap-1"):
                         ui.html(
-                            '<div class="thoth-msg-header">'
-                            f'<span class="thoth-msg-name">{_ob_name}</span>'
+                            '<div class="row-bot-msg-header">'
+                            f'<span class="row-bot-msg-name">{_ob_name}</span>'
                             '</div>',
                             sanitize=False,
                         )
@@ -570,14 +571,14 @@ def build_chat(
     _hidden_upload = ui.upload(on_upload=_on_upload, auto_upload=True, multiple=True).classes("hidden")
 
     if p.chat_upload_js_installed:
-        ui.run_javascript(f"window._thothUploadId = {_hidden_upload.id};")
+        ui.run_javascript(f"window._rowBotUploadId = {_hidden_upload.id};")
     else:
         p.chat_upload_js_installed = True
         ui.run_javascript(f'''
             (() => {{
-                window._thothUploadId = {_hidden_upload.id};
-                if (window._thothUploadHooksInstalled) return;
-                window._thothUploadHooksInstalled = true;
+                window._rowBotUploadId = {_hidden_upload.id};
+                if (window._rowBotUploadHooksInstalled) return;
+                window._rowBotUploadHooksInstalled = true;
                 const body = document.body;
                 let overlay = null;
                 let dragTimer = null;
@@ -609,7 +610,7 @@ def build_chat(
                     e.preventDefault();
                     const files = e.dataTransfer?.files;
                     if (!files || files.length === 0) return;
-                    const vue = getElement(window._thothUploadId);
+                    const vue = getElement(window._rowBotUploadId);
                     if (vue && vue.$refs.qRef) vue.$refs.qRef.addFiles(files);
                 }}, true);
                 document.addEventListener("paste", (e) => {{
@@ -629,14 +630,14 @@ def build_chat(
                     }}
                     if (imageFiles.length === 0) return;
                     e.preventDefault();
-                    const vue = getElement(window._thothUploadId);
+                    const vue = getElement(window._rowBotUploadId);
                     if (vue && vue.$refs.qRef) vue.$refs.qRef.addFiles(imageFiles);
                 }});
             }})();
         ''')
     # Chat input card
     async def _on_attach():
-        if sys.platform == "darwin" and os.environ.get("THOTH_NATIVE") == "1":
+        if sys.platform == "darwin" and os.environ.get(APP_NATIVE_ENV) == "1":
             path = await browse_file(
                 title="Attach file",
                 filetypes=[("Supported files", " ".join(f"*.{e}" for e in ALLOWED_UPLOAD_SUFFIXES))],
@@ -976,7 +977,7 @@ def build_chat(
             def _set_slash_palette_flag(opened: bool) -> None:
                 try:
                     _slash_palette_client.run_javascript(
-                        f"window._thothSlashPaletteOpen = {str(bool(opened)).lower()};"
+                        f"window._rowBotSlashPaletteOpen = {str(bool(opened)).lower()};"
                     )
                 except Exception:
                     logger.debug("Could not update slash palette browser flag", exc_info=True)
@@ -1141,15 +1142,15 @@ def build_chat(
                     return
                 if spec.handler_key == "status":
                     _remove_token_and_close()
-                    from tools.thoth_status_tool import _thoth_status
+                    from tools.row_bot_status_tool import _row_bot_status
 
-                    _append_system_result("Status", _thoth_status("overview"))
+                    _append_system_result("Status", _row_bot_status("overview"))
                     return
                 if spec.handler_key == "tools":
                     _remove_token_and_close()
-                    from tools.thoth_status_tool import _thoth_status
+                    from tools.row_bot_status_tool import _row_bot_status
 
-                    _append_system_result("Tools", _thoth_status("tools"))
+                    _append_system_result("Tools", _row_bot_status("tools"))
                     return
                 if spec.handler_key == "help":
                     _remove_token_and_close()
@@ -1167,7 +1168,7 @@ def build_chat(
                 selected_index = int(_slash_palette.get("index", 0) or 0)
                 selected_row_id: int | None = None
                 with _slash_palette_col:
-                    with ui.column().classes("w-full gap-0 thoth-slash-palette-list").style(
+                    with ui.column().classes("w-full gap-0 row-bot-slash-palette-list").style(
                         "max-height: 270px; overflow-y: auto; "
                         "border: 1px solid rgba(255,255,255,0.14); "
                         "border-radius: 8px; background: rgba(18,18,28,0.98); "
@@ -1177,8 +1178,8 @@ def build_chat(
                             selected = idx == selected_index
                             bg = "rgba(66, 165, 245, 0.18)" if selected else "transparent"
                             row = ui.row().classes(
-                                "w-full items-center no-wrap gap-2 cursor-pointer thoth-slash-palette-row"
-                                + (" thoth-slash-palette-row-selected" if selected else "")
+                                "w-full items-center no-wrap gap-2 cursor-pointer row-bot-slash-palette-row"
+                                + (" row-bot-slash-palette-row-selected" if selected else "")
                             ).style(
                                 f"padding: 7px 10px; background: {bg}; "
                                 "border-radius: 6px; min-height: 42px;"
@@ -1322,7 +1323,7 @@ def build_chat(
             "keydown",
             lambda e: _slash_palette_handle_key(e.args.get("key") if isinstance(e.args, dict) else ""),
             js_handler="""(e) => {
-                if (!window._thothSlashPaletteOpen) return;
+                if (!window._rowBotSlashPaletteOpen) return;
                 if (!['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)) return;
                 e.preventDefault();
                 e.stopPropagation();
@@ -1358,7 +1359,7 @@ def build_chat(
             "keydown.enter",
             _on_send,
             js_handler="""(e) => {
-                if (window._thothSlashPaletteOpen) return;
+                if (window._rowBotSlashPaletteOpen) return;
                 if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
                 e.preventDefault();
                 emit();
@@ -1385,12 +1386,12 @@ def build_chat(
                 p.stop_btn.props('icon=hourglass_top')
 
         # Bottom bar inside card: attach, model/approval, voice, spacer, send, stop
-        with ui.row().classes("w-full thoth-composer-toolbar q-px-sm q-pb-sm q-pt-none gap-1"):
+        with ui.row().classes("w-full row-bot-composer-toolbar q-px-sm q-pb-sm q-pt-none gap-1"):
             ui.button(icon="attach_file", on_click=_on_attach).props(
                 "flat round dense size=sm"
-            ).classes("thoth-composer-icon-button").tooltip("Attach files")
+            ).classes("row-bot-composer-icon-button").tooltip("Attach files")
 
-            ui.element("div").classes("thoth-composer-left-gap")
+            ui.element("div").classes("row-bot-composer-left-gap")
 
             from ui.chat_components import (
                 _set_dictate_button_active,
@@ -1421,7 +1422,7 @@ def build_chat(
             except Exception:
                 p.realtime_client = None
             p.realtime_event_sink.on(
-                "thoth-realtime-event",
+                "row-bot-realtime-event",
                 _on_realtime_event,
                 js_handler="(e) => emit(e.detail)",
             )
@@ -1506,28 +1507,28 @@ def build_chat(
 
             ui.space()  # push right-side items to the right
 
-            with ui.row().classes("items-center thoth-composer-action-group"):
-                with ui.row().classes("items-center thoth-composer-voice-group"):
+            with ui.row().classes("items-center row-bot-composer-action-group"):
+                with ui.row().classes("items-center row-bot-composer-voice-group"):
                     p.voice_switch = ui.button(icon="record_voice_over", on_click=_toggle_voice).props(
                         "flat round dense size=sm"
-                    ).classes("thoth-composer-icon-button").tooltip("Talk")
+                    ).classes("row-bot-composer-icon-button").tooltip("Talk")
                     p.voice_switch.value = False
                     _set_talk_button_active(p, state.voice_enabled and state.voice_input_mode == "talk")
                     p.dictate_btn = ui.button(icon="keyboard_voice", on_click=_toggle_dictate).props(
                         "flat round dense size=sm"
-                    ).classes("thoth-composer-icon-button").tooltip("Dictate into the composer")
+                    ).classes("row-bot-composer-icon-button").tooltip("Dictate into the composer")
                     p.dictate_btn.value = False
                     _set_dictate_button_active(p, state.voice_enabled and state.voice_input_mode == "dictate")
 
-                ui.element("div").classes("thoth-composer-action-divider")
+                ui.element("div").classes("row-bot-composer-action-divider")
 
                 ui.button(icon="send", on_click=_on_send).props(
                     "color=primary round dense size=sm"
-                ).classes("thoth-composer-send-button").tooltip("Send")
+                ).classes("row-bot-composer-send-button").tooltip("Send")
 
                 p.stop_btn = ui.button(icon="stop", on_click=_on_stop).props(
                     "round dense size=sm"
-                ).classes("thoth-composer-stop-button").tooltip("Stop generation")
+                ).classes("row-bot-composer-stop-button").tooltip("Stop generation")
             _has_active = state.thread_id in _active_generations
             if not _has_active:
                 p.stop_btn.disable()

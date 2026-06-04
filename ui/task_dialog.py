@@ -14,6 +14,7 @@ import time
 from datetime import datetime
 from typing import Callable
 
+from brand import APP_BRAND_ACCENT, APP_BRAND_ACCENT_RGB
 from nicegui import ui
 
 from stability import log_performance_snapshot
@@ -243,18 +244,19 @@ def show_task_dialog(
     ):
         # ── Header ──
         with ui.row().classes("w-full items-center q-pa-md").style(
-            "background: linear-gradient(135deg, #2d1b00 0%, #1a1a2e 100%);"
-            "border-bottom: 1px solid #3d2e00;"
+            f"background: linear-gradient(135deg, rgba({APP_BRAND_ACCENT_RGB}, 0.32) 0%, #1a1a2e 100%);"
+            f"border-bottom: 1px solid rgba({APP_BRAND_ACCENT_RGB}, 0.38);"
         ):
-            ui.icon("edit_note", size="28px", color="amber")
+            ui.icon("edit_note", size="28px").style(f"color: {APP_BRAND_ACCENT};")
             ui.label(title).style(
-                "font-size: 1.15rem; font-weight: 700; color: #f0c040; margin-left: 8px;"
+                f"font-size: 1.15rem; font-weight: 700; color: {APP_BRAND_ACCENT}; margin-left: 8px;"
             )
 
         # ── Body (scrollable) ──
         if _draft_restored:
             with ui.row().classes("w-full items-center gap-2 q-px-md q-py-sm").style(
-                "background: rgba(59, 130, 246, 0.12); border-bottom: 1px solid rgba(96, 165, 250, 0.22);"
+                f"background: rgba({APP_BRAND_ACCENT_RGB}, 0.14);"
+                f"border-bottom: 1px solid rgba({APP_BRAND_ACCENT_RGB}, 0.26);"
             ):
                 ui.icon("history", size="sm").classes("text-blue-3")
                 updated = (_draft_info or {}).get("updated_at") or "recently"
@@ -342,7 +344,7 @@ def show_task_dialog(
                     ui.element("div").classes("flex-grow")
                     advanced_switch = ui.switch(
                         "Advanced", value=_has_advanced,
-                    ).style("color: #f0c040;").tooltip(
+                    ).style(f"color: {APP_BRAND_ACCENT};").tooltip(
                         "Toggle between simple prompt list and "
                         "advanced step builder with conditions, "
                         "approvals, and subtasks."
@@ -439,7 +441,7 @@ def show_task_dialog(
                         with ui.row().classes("w-full gap-2"):
                             ui.button("＋ Add step", on_click=_add_step).props(
                                 "flat dense no-caps"
-                            ).style("color: #f0c040;")
+                            ).style(f"color: {APP_BRAND_ACCENT};")
 
                         # ── Flow preview (Mermaid) ──
                         _flow_container = ui.column().classes("w-full")
@@ -533,7 +535,7 @@ def show_task_dialog(
                         # client-side JS (persists after blur)
                         try:
                             pos = await ui.run_javascript(
-                                f'window._thothCur{ta.id} ?? -1',
+                                f'window._rowBotCur{ta.id} ?? -1',
                                 timeout=0.5,
                             )
                         except Exception:
@@ -573,7 +575,7 @@ def show_task_dialog(
                             f'() => {{'
                             f'var ae = document.activeElement;'
                             f'if (ae && ae.tagName === "TEXTAREA") {{'
-                            f'window._thothCur{ta.id} = ae.selectionStart;'
+                            f'window._rowBotCur{ta.id} = ae.selectionStart;'
                             f'}}'
                             f'}}'
                         ))
@@ -1506,7 +1508,7 @@ def show_task_dialog(
                                 "🔍 Auto-detect from steps",
                                 on_click=_auto_detect_tools,
                             ).props("flat dense no-caps").style(
-                                "color: #f0c040; font-size: 0.8rem;"
+                                f"color: {APP_BRAND_ACCENT}; font-size: 0.8rem;"
                             ).tooltip(
                                 "Analyze all step prompts and suggest "
                                 "which tools are needed."

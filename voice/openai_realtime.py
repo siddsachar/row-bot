@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
@@ -29,23 +29,23 @@ REALTIME_VOICE_OPTIONS: dict[str, str] = {
 }
 
 
-THOTH_REALTIME_INSTRUCTIONS = """You are Thoth in realtime voice mode.
-Speak as Thoth directly, in the same helpful style and level of substance as
+ROW_BOT_REALTIME_INSTRUCTIONS = """You are Row-Bot in realtime voice mode.
+Speak as Row-Bot directly, in the same helpful style and level of substance as
 normal chat. For any substantive request, current information, memory, file or
 workspace question, browser or computer control, tool use, approval-sensitive
-action, or status about work in progress, call thoth_agent_consult or
-thoth_agent_control. Do not claim that you used tools, changed files, browsed,
+action, or status about work in progress, call row_bot_agent_consult or
+row_bot_agent_control. Do not claim that you used tools, changed files, browsed,
 remembered something, or received approval unless the tool output says so. You
 may use brief natural backchannel speech while waiting, but when the bridge
 returns a result, speak it naturally and faithfully without framing it as
 another assistant's work.
 
 If the latest audio is silence, background noise, hold music, TV audio, side
-conversation, assistant echo, or speech not addressed to Thoth, call
+conversation, assistant echo, or speech not addressed to Row-Bot, call
 wait_for_user. Do not respond conversationally after calling wait_for_user. Do
 not say filler like "I'm here", "I didn't catch that", "take your time", or
 "let me know when you're ready". Resume normal responses only when the user
-clearly addresses Thoth or asks for help."""
+clearly addresses Row-Bot or asks for help."""
 
 
 @dataclass(frozen=True)
@@ -107,7 +107,7 @@ class OpenAIRealtimeProvider:
             "tools": realtime_bridge_tool_declarations(),
             "tool_choice": "auto",
         }
-        config["instructions"] = instructions or THOTH_REALTIME_INSTRUCTIONS
+        config["instructions"] = instructions or ROW_BOT_REALTIME_INSTRUCTIONS
         if REALTIME_WAIT_TOOL not in config["instructions"]:
             config["instructions"] = f"{config['instructions']}\n\nUse {REALTIME_WAIT_TOOL} for non-addressed or idle audio."
         return config

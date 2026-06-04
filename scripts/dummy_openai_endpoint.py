@@ -9,17 +9,17 @@ from typing import Any
 
 MODELS = [
     {
-        "id": "thoth-dummy-chat",
+        "id": "row-bot-dummy-chat",
         "object": "model",
         "created": 0,
-        "owned_by": "thoth-local-test",
+        "owned_by": "row-bot-local-test",
         "context_length": 8192,
     },
     {
-        "id": "thoth-dummy-embedding",
+        "id": "row-bot-dummy-embedding",
         "object": "model",
         "created": 0,
-        "owned_by": "thoth-local-test",
+        "owned_by": "row-bot-local-test",
         "context_length": 4096,
     },
 ]
@@ -71,11 +71,11 @@ class DummyOpenAIHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(payload).encode("utf-8"))
 
     def _send_chat_completion(self, payload: dict[str, Any]) -> None:
-        model = str(payload.get("model") or "thoth-dummy-chat")
+        model = str(payload.get("model") or "row-bot-dummy-chat")
         last_user = _last_user_message(payload.get("messages"))
         content = f"Dummy endpoint received: {last_user or 'hello from Thoth'}"
         self._send_json({
-            "id": "chatcmpl-thoth-dummy",
+            "id": "chatcmpl-row-bot-dummy",
             "object": "chat.completion",
             "created": int(time.time()),
             "model": model,
@@ -88,12 +88,12 @@ class DummyOpenAIHandler(BaseHTTPRequestHandler):
         })
 
     def _send_stream(self, payload: dict[str, Any]) -> None:
-        model = str(payload.get("model") or "thoth-dummy-chat")
+        model = str(payload.get("model") or "row-bot-dummy-chat")
         self._send_headers(content_type="text/event-stream")
         chunks = ["Dummy ", "endpoint ", "stream OK"]
         for text in chunks:
             event = {
-                "id": "chatcmpl-thoth-dummy",
+                "id": "chatcmpl-row-bot-dummy",
                 "object": "chat.completion.chunk",
                 "created": int(time.time()),
                 "model": model,
@@ -108,7 +108,7 @@ class DummyOpenAIHandler(BaseHTTPRequestHandler):
         self._send_json({
             "object": "list",
             "data": [{"object": "embedding", "index": 0, "embedding": [0.0, 0.1, 0.2, 0.3]}],
-            "model": "thoth-dummy-embedding",
+            "model": "row-bot-dummy-embedding",
             "usage": {"prompt_tokens": 1, "total_tokens": 1},
         })
 
@@ -130,7 +130,7 @@ def main() -> None:
     args = parser.parse_args()
     server = ThreadingHTTPServer((args.host, args.port), DummyOpenAIHandler)
     print(f"Dummy OpenAI-compatible endpoint listening at http://{args.host}:{args.port}/v1")
-    print("Models: thoth-dummy-chat, thoth-dummy-embedding")
+    print("Models: row-bot-dummy-chat, row-bot-dummy-embedding")
     server.serve_forever()
 
 

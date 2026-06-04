@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from brand import DEFAULT_WORKSPACE_DIR_NAME
 from tools.base import BaseTool
 from tools import registry
 
@@ -79,7 +80,7 @@ class FileSystemTool(BaseTool):
         import pathlib
         root = self.get_config("workspace_root", "")
         if not root:
-            root = str(pathlib.Path.home() / "Documents" / "Thoth")
+            root = str(pathlib.Path.home() / "Documents" / DEFAULT_WORKSPACE_DIR_NAME)
             self.set_config("workspace_root", root)
         os.makedirs(root, exist_ok=True)
         return root

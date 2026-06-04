@@ -131,7 +131,7 @@ Use `--continue` only when you are sure the most recent Claude Code session in t
 For larger or risky edits, prefer isolating Claude Code's work in a branch or worktree when available:
 
 ```text
-claude -p "Implement the feature in an isolated worktree and summarize the diff." --worktree thoth-delegation-task --allowedTools "Read,Edit,Write,Bash" --max-turns 12 --max-budget-usd 4
+claude -p "Implement the feature in an isolated worktree and summarize the diff." --worktree row-bot-delegation-task --allowedTools "Read,Edit,Write,Bash" --max-turns 12 --max-budget-usd 4
 ```
 
 Afterward, inspect the worktree diff before merging or copying changes back. Do not merge or delete worktrees without user approval.

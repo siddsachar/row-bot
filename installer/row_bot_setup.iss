@@ -1,47 +1,47 @@
-; =============================================================================
-; Thoth v3.23.1 - Inno Setup Script
+﻿; =============================================================================
+; Row-Bot v4.0.0 - Inno Setup Script
 ; Self-contained installer: bundles embedded Python with all pip packages
 ; pre-installed.  No internet downloads at install time.
 ; =============================================================================
 ;
 ; Prerequisites (placed in installer\build\ by build_installer.ps1):
-;   build\python\          – Embedded Python with all packages pre-installed
+;   build\python\          â€“ Embedded Python with all packages pre-installed
 ;
-; Compile with:  iscc installer\thoth_setup.iss
+; Compile with:  iscc installer\row_bot_setup.iss
 
 #ifnexist "build\python\Lib\site-packages\sentence_transformers\__init__.py"
-  #error Embedded Python is missing sentence_transformers. Run installer\build_installer.ps1 before compiling thoth_setup.iss.
+  #error Embedded Python is missing sentence_transformers. Run installer\build_installer.ps1 before compiling row_bot_setup.iss.
 #endif
 
 #ifnexist "build\python\Lib\site-packages\langchain_huggingface\__init__.py"
-  #error Embedded Python is missing langchain_huggingface. Run installer\build_installer.ps1 before compiling thoth_setup.iss.
+  #error Embedded Python is missing langchain_huggingface. Run installer\build_installer.ps1 before compiling row_bot_setup.iss.
 #endif
 
 #ifnexist "build\python\Lib\site-packages\transformers\__init__.py"
-  #error Embedded Python is missing transformers. Run installer\build_installer.ps1 before compiling thoth_setup.iss.
+  #error Embedded Python is missing transformers. Run installer\build_installer.ps1 before compiling row_bot_setup.iss.
 #endif
 
 #ifnexist "build\python\Lib\site-packages\torch\__init__.py"
-  #error Embedded Python is missing torch. Run installer\build_installer.ps1 before compiling thoth_setup.iss.
+  #error Embedded Python is missing torch. Run installer\build_installer.ps1 before compiling row_bot_setup.iss.
 #endif
 
 #ifnexist "build\python\Lib\site-packages\httpx\__init__.py"
-  #error Embedded Python is missing httpx. Run installer\build_installer.ps1 before compiling thoth_setup.iss.
+  #error Embedded Python is missing httpx. Run installer\build_installer.ps1 before compiling row_bot_setup.iss.
 #endif
 
 #ifnexist "build\python\Lib\site-packages\youtube_search\__init__.py"
-  #error Embedded Python is missing youtube_search. Run installer\build_installer.ps1 before compiling thoth_setup.iss.
+  #error Embedded Python is missing youtube_search. Run installer\build_installer.ps1 before compiling row_bot_setup.iss.
 #endif
 
 #ifnexist "build\python\Lib\site-packages\youtube_transcript_api\__init__.py"
-  #error Embedded Python is missing youtube_transcript_api. Run installer\build_installer.ps1 before compiling thoth_setup.iss.
+  #error Embedded Python is missing youtube_transcript_api. Run installer\build_installer.ps1 before compiling row_bot_setup.iss.
 #endif
 
-#define MyAppName      "Thoth"
-#define MyAppVersion   "3.23.1"
-#define MyAppPublisher "Thoth"
-#define MyAppURL       "https://github.com/siddsachar/Thoth"
-#define MyAppExeName   "launch_thoth.vbs"
+#define MyAppName      "Row-Bot"
+#define MyAppVersion   "4.0.0"
+#define MyAppPublisher "Row-Bot"
+#define MyAppURL       "https://row-bot.ai"
+#define MyAppExeName   "launch_row_bot.vbs"
 
 [Setup]
 AppId={{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
@@ -53,11 +53,11 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=..\dist
-OutputBaseFilename=ThothSetup_{#MyAppVersion}
+OutputBaseFilename=RowBotSetup_{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-SetupIconFile=..\thoth.ico
+SetupIconFile=..\row-bot.ico
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=yes
@@ -75,10 +75,11 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Type: filesandordirs; Name: "{app}\python"
 
 [Files]
-; ── App source code ──────────────────────────────────────────────────────────
+; â”€â”€ App source code â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Source: "..\app.py";                  DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\agent.py";                 DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\approval_policy.py";       DestDir: "{app}\app"; Flags: ignoreversion
+Source: "..\brand.py";                 DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\memory.py";                DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\memory_policy.py";         DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\memory_evolution.py";      DestDir: "{app}\app"; Flags: ignoreversion
@@ -107,7 +108,7 @@ Source: "..\launcher.py";              DestDir: "{app}\app"; Flags: ignoreversio
 Source: "..\notifications.py";         DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\prompts.py";               DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\requirements.txt";         DestDir: "{app}\app"; Flags: ignoreversion
-Source: "..\thoth.ico";                DestDir: "{app}\app"; Flags: ignoreversion
+Source: "..\row-bot.ico";                DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\logging_config.py";         DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\terminal_bridge.py";        DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\terminal_pty.py";           DestDir: "{app}\app"; Flags: ignoreversion
@@ -118,16 +119,16 @@ Source: "..\startup_diagnostics.py";   DestDir: "{app}\app"; Flags: ignoreversio
 Source: "..\stability.py";             DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\version.py";               DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\updater.py";               DestDir: "{app}\app"; Flags: ignoreversion
-; ── Static assets (JS libraries) ──────────────────────────────────────────────
+; â”€â”€ Static assets (JS libraries) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Source: "..\static\*";                 DestDir: "{app}\app\static"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; ── Sounds ──────────────────────────────────────────────────────────────────────
+; â”€â”€ Sounds â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Source: "..\sounds\*.wav";              DestDir: "{app}\app\sounds"; Flags: ignoreversion
 
-; ── Buddy package ───────────────────────────────────────────────────────────────
+; â”€â”€ Buddy package â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Source: "..\buddy\*.py";                DestDir: "{app}\app\buddy"; Flags: ignoreversion
 
-; ── Channels package ─────────────────────────────────────────────────────────
+; â”€â”€ Channels package â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Source: "..\channels\__init__.py";      DestDir: "{app}\app\channels"; Flags: ignoreversion
 Source: "..\channels\auth.py";          DestDir: "{app}\app\channels"; Flags: ignoreversion
 Source: "..\channels\auth_store.py";    DestDir: "{app}\app\channels"; Flags: ignoreversion
@@ -151,15 +152,15 @@ Source: "..\channels\whatsapp_bridge\bridge.js";    DestDir: "{app}\app\channels
 Source: "..\channels\whatsapp_bridge\package.json"; DestDir: "{app}\app\channels\whatsapp_bridge"; Flags: ignoreversion
 Source: "..\channels\whatsapp_bridge\package-lock.json"; DestDir: "{app}\app\channels\whatsapp_bridge"; Flags: ignoreversion
 
-; ── Utils package ────────────────────────────────────────────────────────────
+; â”€â”€ Utils package â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Source: "..\utils\__init__.py";        DestDir: "{app}\app\utils"; Flags: ignoreversion
 Source: "..\utils\text.py";            DestDir: "{app}\app\utils"; Flags: ignoreversion
 Source: "..\utils\media.py";           DestDir: "{app}\app\utils"; Flags: ignoreversion
 
-; ── Providers package ───────────────────────────────────────────────────────
+; â”€â”€ Providers package â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Source: "..\providers\*";              DestDir: "{app}\app\providers"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; ── MCP client package ───────────────────────────────────────────────────────
+; â”€â”€ MCP client package â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Source: "..\mcp_client\__init__.py";    DestDir: "{app}\app\mcp_client"; Flags: ignoreversion
 Source: "..\mcp_client\conflicts.py";   DestDir: "{app}\app\mcp_client"; Flags: ignoreversion
 Source: "..\mcp_client\config.py";      DestDir: "{app}\app\mcp_client"; Flags: ignoreversion
@@ -172,7 +173,7 @@ Source: "..\mcp_client\runtime.py";     DestDir: "{app}\app\mcp_client"; Flags: 
 Source: "..\mcp_client\safety.py";      DestDir: "{app}\app\mcp_client"; Flags: ignoreversion
 Source: "..\skills_hub\*";              DestDir: "{app}\app\skills_hub"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; ── Migration wizard package ───────────────────────────────────────────────
+; â”€â”€ Migration wizard package â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Source: "..\migration\__init__.py";     DestDir: "{app}\app\migration"; Flags: ignoreversion
 Source: "..\migration\apply.py";        DestDir: "{app}\app\migration"; Flags: ignoreversion
 Source: "..\migration\core.py";         DestDir: "{app}\app\migration"; Flags: ignoreversion
@@ -180,8 +181,9 @@ Source: "..\migration\detection.py";    DestDir: "{app}\app\migration"; Flags: i
 Source: "..\migration\fixtures.py";     DestDir: "{app}\app\migration"; Flags: ignoreversion
 Source: "..\migration\planner.py";      DestDir: "{app}\app\migration"; Flags: ignoreversion
 Source: "..\migration\redaction.py";    DestDir: "{app}\app\migration"; Flags: ignoreversion
+Source: "..\migration\row_bot_legacy_rebrand.py"; DestDir: "{app}\app\migration"; Flags: ignoreversion
 
-; ── Tools package ────────────────────────────────────────────────────────────
+; â”€â”€ Tools package â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Source: "..\tools\__init__.py";        DestDir: "{app}\app\tools"; Flags: ignoreversion
 Source: "..\tools\approval_gate.py";   DestDir: "{app}\app\tools"; Flags: ignoreversion
 Source: "..\tools\base.py";            DestDir: "{app}\app\tools"; Flags: ignoreversion
@@ -214,11 +216,11 @@ Source: "..\tools\wiki_tool.py";      DestDir: "{app}\app\tools"; Flags: ignorev
 Source: "..\tools\image_gen_tool.py";  DestDir: "{app}\app\tools"; Flags: ignoreversion
 Source: "..\tools\video_gen_tool.py";  DestDir: "{app}\app\tools"; Flags: ignoreversion
 Source: "..\tools\x_tool.py";         DestDir: "{app}\app\tools"; Flags: ignoreversion
-Source: "..\tools\thoth_status_tool.py"; DestDir: "{app}\app\tools"; Flags: ignoreversion
+Source: "..\tools\row_bot_status_tool.py"; DestDir: "{app}\app\tools"; Flags: ignoreversion
 Source: "..\tools\updater_tool.py";    DestDir: "{app}\app\tools"; Flags: ignoreversion
 Source: "..\tools\developer_tool.py";  DestDir: "{app}\app\tools"; Flags: ignoreversion
 
-; ── Plugins package ──────────────────────────────────────────────────────────
+; â”€â”€ Plugins package â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Source: "..\plugins\__init__.py";       DestDir: "{app}\app\plugins"; Flags: ignoreversion
 Source: "..\plugins\api.py";            DestDir: "{app}\app\plugins"; Flags: ignoreversion
 Source: "..\plugins\installer.py";      DestDir: "{app}\app\plugins"; Flags: ignoreversion
@@ -232,17 +234,17 @@ Source: "..\plugins\ui_marketplace.py"; DestDir: "{app}\app\plugins"; Flags: ign
 Source: "..\plugins\ui_plugin_dialog.py"; DestDir: "{app}\app\plugins"; Flags: ignoreversion
 Source: "..\plugins\ui_settings.py";    DestDir: "{app}\app\plugins"; Flags: ignoreversion
 
-; ── Designer package ──────────────────────────────────────────────────────────
+; â”€â”€ Designer package â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Source: "..\designer\*";              DestDir: "{app}\app\designer"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\developer\*";             DestDir: "{app}\app\developer"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; ── Bundled Skills ───────────────────────────────────────────────────────────
+; â”€â”€ Bundled Skills â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Source: "..\bundled_skills\*";         DestDir: "{app}\app\bundled_skills"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\tool_guides\*";           DestDir: "{app}\app\tool_guides"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\skills.py";                 DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\skills_activation.py";      DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\slash_commands.py";         DestDir: "{app}\app"; Flags: ignoreversion
-; ── UI package (modular frontend) ─────────────────────────────────────────────────
+; â”€â”€ UI package (modular frontend) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Source: "..\ui\__init__.py";            DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\buddy.py";               DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\bulk_select.py";         DestDir: "{app}\app\ui"; Flags: ignoreversion
@@ -262,6 +264,7 @@ Source: "..\ui\model_catalog.py";      DestDir: "{app}\app\ui"; Flags: ignorever
 Source: "..\ui\onboarding_center.py";  DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\onboarding_state.py";   DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\performance.py";        DestDir: "{app}\app\ui"; Flags: ignoreversion
+Source: "..\ui\post_migration.py";     DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\provider_settings.py";  DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\render.py";             DestDir: "{app}\app\ui"; Flags: ignoreversion
 Source: "..\ui\settings.py";           DestDir: "{app}\app\ui"; Flags: ignoreversion
@@ -285,20 +288,20 @@ Source: "..\ui\voice_lifecycle.py";    DestDir: "{app}\app\ui"; Flags: ignorever
 Source: "..\ui\voice_realtime_events.py"; DestDir: "{app}\app\ui"; Flags: ignoreversion
 ; Runtime diagnostics script
 Source: "..\scripts\verify_runtime_dependencies.py"; DestDir: "{app}\app\scripts"; Flags: ignoreversion
-; ── Embedded Python (with all packages pre-installed) ────────────────────────
+; â”€â”€ Embedded Python (with all packages pre-installed) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Source: "build\python\*";              DestDir: "{app}\python"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; ── Launcher scripts ─────────────────────────────────────────────────────────
-Source: "launch_thoth.bat";            DestDir: "{app}"; Flags: ignoreversion
-Source: "launch_thoth.vbs";            DestDir: "{app}"; Flags: ignoreversion
+; â”€â”€ Launcher scripts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+Source: "launch_row_bot.bat";            DestDir: "{app}"; Flags: ignoreversion
+Source: "launch_row_bot.vbs";            DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#MyAppName}";                    Filename: "wscript.exe"; Parameters: """{app}\{#MyAppExeName}"""; IconFilename: "{app}\app\thoth.ico"; Comment: "Launch Thoth"
+Name: "{group}\{#MyAppName}";                    Filename: "wscript.exe"; Parameters: """{app}\{#MyAppExeName}"""; IconFilename: "{app}\app\row-bot.ico"; Comment: "Launch Row-Bot"
 Name: "{group}\Uninstall {#MyAppName}";           Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}";               Filename: "wscript.exe"; Parameters: """{app}\{#MyAppExeName}"""; IconFilename: "{app}\app\thoth.ico"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}";               Filename: "wscript.exe"; Parameters: """{app}\{#MyAppExeName}"""; IconFilename: "{app}\app\row-bot.ico"; Tasks: desktopicon
 
 [Run]
-; ── Launch app after install (optional) ──────────────────────────────────────
+; â”€â”€ Launch app after install (optional) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Filename: "wscript.exe"; Parameters: """{app}\{#MyAppExeName}"""; Description: "Launch {#MyAppName}"; \
     Flags: nowait postinstall skipifsilent
 

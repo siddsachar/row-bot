@@ -238,8 +238,8 @@ def test_developer_tool_exposes_write_and_command_tools(tmp_path, monkeypatch):
 
 def test_status_reports_developer_as_contextual_when_active(tmp_path, monkeypatch):
     storage, tool_context, _edits, _ledger, _sandbox_runtime, _developer_tool = _fresh_modules(tmp_path, monkeypatch)
-    sys.modules.pop("tools.thoth_status_tool", None)
-    import tools.thoth_status_tool as thoth_status_tool
+    sys.modules.pop("tools.row_bot_status_tool", None)
+    import tools.row_bot_status_tool as row_bot_status_tool
 
     repo = tmp_path / "repo"
     _init_repo(repo)
@@ -247,7 +247,7 @@ def test_status_reports_developer_as_contextual_when_active(tmp_path, monkeypatc
     thread_id = storage.ensure_workspace_thread(workspace.id)
     tokens = tool_context.set_context(workspace_id=workspace.id, thread_id=thread_id)
     try:
-        output = thoth_status_tool._query_tools()
+        output = row_bot_status_tool._query_tools()
         assert "Developer" in output
         assert "contextual" in output
     finally:

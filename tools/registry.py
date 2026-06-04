@@ -17,16 +17,18 @@ import pathlib
 import tempfile
 from typing import TYPE_CHECKING
 
+from data_paths import get_row_bot_data_dir
+
 if TYPE_CHECKING:
     from tools.base import BaseTool
 
 logger = logging.getLogger(__name__)
 
-# Persist enabled / disabled state alongside other Thoth data.  The path is
+# Persist enabled / disabled state alongside other Row-Bot data.  The path is
 # resolved dynamically because tests and channel runtimes may isolate
-# THOTH_DATA_DIR after module import.
+# ROW_BOT_DATA_DIR after module import.
 def _data_dir() -> pathlib.Path:
-    data_dir = pathlib.Path(os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth"))
+    data_dir = get_row_bot_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir
 
@@ -123,7 +125,7 @@ def _apply_saved_config(tool: "BaseTool", saved: dict) -> None:
 
 
 def _ensure_config_scope() -> None:
-    """Reload tool settings if THOTH_DATA_DIR changed after module import."""
+    """Reload tool settings if ROW_BOT_DATA_DIR changed after module import."""
     global DATA_DIR, _CONFIG_PATH, _active_config_path
     current = _config_path()
     if current == _active_config_path:

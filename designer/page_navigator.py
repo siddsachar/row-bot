@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Callable
 
+from brand import APP_BRAND_ACCENT
 from nicegui import ui
 
 from designer.canvas_resize import resize_project_canvas
@@ -197,7 +198,7 @@ def build_page_navigator(
 
             for i, page in enumerate(project.pages):
                 is_active = i == project.active_page
-                border = "2px solid #F59E0B" if is_active else "2px solid rgba(255,255,255,0.1)"
+                border = f"2px solid {APP_BRAND_ACCENT}" if is_active else "2px solid rgba(255,255,255,0.1)"
 
                 def _select(idx=i):
                     project.active_page = idx
@@ -222,7 +223,7 @@ def build_page_navigator(
                             "text-xs text-weight-medium"
                         ).style(
                             "position:absolute;bottom:2px;left:6px;right:6px;"
-                            "z-index:2;color:#F59E0B;"
+                            f"z-index:2;color:{APP_BRAND_ACCENT};"
                             "text-shadow:0 0 3px rgba(0,0,0,0.85);"
                             "white-space:nowrap;overflow:hidden;"
                             "text-overflow:ellipsis;"

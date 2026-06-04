@@ -31,7 +31,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 os.chdir(PROJECT_ROOT)
 _TEST_DATA_DIR = PROJECT_ROOT / ".tmp" / "test_suite_thoth"
 _TEST_DATA_DIR.mkdir(parents=True, exist_ok=True)
-os.environ["THOTH_DATA_DIR"] = str(_TEST_DATA_DIR)
+os.environ["ROW_BOT_DATA_DIR"] = str(_TEST_DATA_DIR)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -1758,7 +1758,7 @@ try:
 
     # 19j. Profile directory path is under ~/.thoth/
     assert "browser_profile" in str(_PROFILE_DIR)
-    _data_dir_env = os.environ.get("THOTH_DATA_DIR")
+    _data_dir_env = os.environ.get("ROW_BOT_DATA_DIR")
     if _data_dir_env:
         assert str(Path(_data_dir_env).resolve()) in str(Path(_PROFILE_DIR).resolve())
     else:
@@ -1772,7 +1772,7 @@ try:
     # 19l. Snapshot JS builder returns a valid non-empty string
     _js = _build_snapshot_js(100)
     assert isinstance(_js, str) and len(_js) > 100
-    assert "data-thoth-ref" in _js
+    assert "data-row-bot-ref" in _js
     assert "interactiveSelectors" in _js
     assert "MAX_ELEMENTS = 100" in _js
     record("PASS", "browser: snapshot JS valid")
@@ -3312,7 +3312,7 @@ try:
         record("FAIL", "vis: run_javascript(_graph_js) not found in UI")
 
     # --- 27w. JS teardown: stale boot timer cleared -----------------------
-    if "clearTimeout(window._thothGraphBootTimer" in _app_src:
+    if "clearTimeout(window._rowBotGraphBootTimer" in _app_src:
         record("PASS", "vis: JS teardown clears stale boot timer")
     else:
         record("FAIL", "vis: JS teardown missing clearTimeout for boot timer")
@@ -3323,11 +3323,11 @@ try:
     else:
         record("FAIL", "vis: JS teardown missing network.destroy()")
 
-    # --- 27y. JS namespaced state on window._thothGraph -------------------
-    if "window._thothGraph" in _app_src:
-        record("PASS", "vis: JS state namespaced on window._thothGraph")
+    # --- 27y. JS namespaced state on window._rowBotGraph -------------------
+    if "window._rowBotGraph" in _app_src:
+        record("PASS", "vis: JS state namespaced on window._rowBotGraph")
     else:
-        record("FAIL", "vis: JS state not namespaced on window._thothGraph")
+        record("FAIL", "vis: JS state not namespaced on window._rowBotGraph")
 
     # --- 27z. thothGraphRedraw calls wireControls for full reinit ---------
     if "thothGraphRedraw" in _app_src and "wireControls" in _app_src:
@@ -3592,12 +3592,12 @@ try:
     else:
         record("FAIL", "telegram tool: telegram_guide SKILL.md missing")
 
-    # 29q. channels/telegram.py in installer/thoth_setup.iss
-    _iss_src29 = Path("installer/thoth_setup.iss").read_text(encoding="utf-8")
+    # 29q. channels/telegram.py in installer/row_bot_setup.iss
+    _iss_src29 = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
     if "telegram.py" in _iss_src29:
-        record("PASS", "telegram channel: included in installer thoth_setup.iss")
+        record("PASS", "telegram channel: included in installer row_bot_setup.iss")
     else:
-        record("FAIL", "telegram channel: missing from installer thoth_setup.iss")
+        record("FAIL", "telegram channel: missing from installer row_bot_setup.iss")
 
     # 29r. channels/__init__.py or channels/telegram.py exists
     assert Path("channels/telegram.py").is_file(), "channels/telegram.py should exist"
@@ -4452,9 +4452,9 @@ try:
         _fs33d.set_config("workspace_root", "")  # Clear to trigger auto-default
         _root33 = _fs33d._get_workspace_root()
         assert _root33, "_get_workspace_root returned empty string"
-        assert "Documents" in _root33 and "Thoth" in _root33, \
-            f"default path should contain Documents/Thoth, got: {_root33}"
-        record("PASS", "defaults: _get_workspace_root auto-sets ~/Documents/Thoth")
+        assert "Documents" in _root33 and "Row-Bot" in _root33, \
+            f"default path should contain Documents/Row-Bot, got: {_root33}"
+        record("PASS", "defaults: _get_workspace_root auto-sets ~/Documents/Row-Bot")
     finally:
         # Restore original workspace_root
         _fs33d.set_config("workspace_root", _old_ws33)
@@ -6715,8 +6715,8 @@ try:
         _sb41._DATA_DIR = _orig_dir
 
     # ── 41g. Avatar defaults ─────────────────────────────────────────
-    assert _DEFAULT_EMOJI == "𓁟"
-    assert _DEFAULT_COLOR == "#FFD700"
+    assert _DEFAULT_EMOJI == "🤖"
+    assert _DEFAULT_COLOR == "#4F78A4"
     assert len(_AVATAR_EMOJIS) >= 20, f"Too few emojis: {len(_AVATAR_EMOJIS)}"
     assert len(_RING_COLORS) >= 10, f"Too few colors: {len(_RING_COLORS)}"
     record("PASS", "status_bar: avatar defaults and catalogs")
@@ -7742,7 +7742,7 @@ try:
     record("PASS", "dream_cycle: safety checks present (min_entities, User protection, batch cap)")
 
     # ── 48n. Daemon thread name ──────────────────────────────────────
-    assert 'name="thoth-dream-cycle"' in _dc_src48, "Daemon thread must be named thoth-dream-cycle"
+    assert 'name="row-bot-dream-cycle"' in _dc_src48, "Daemon thread must be named row-bot-dream-cycle"
     record("PASS", "dream_cycle: daemon thread correctly named")
 
     # ── 48o. Dream infer rejects vague types (banned list) ───────────
@@ -8026,7 +8026,7 @@ try:
             "id": "test-plugin",
             "name": "Test Plugin",
             "version": "1.0.0",
-            "min_thoth_version": "3.11.0",
+            "min_row_bot_version": "3.11.0",
             "author": {"name": "Test Author", "github": "tester"},
             "description": "A test plugin for unit testing.",
             "provides": {
@@ -8142,7 +8142,7 @@ try:
         # Try to register same name from different plugin
         _m2_49 = _manifest49.PluginManifest(
             id="other-plugin", name="Other", version="1.0.0",
-            min_thoth_version="3.11.0",
+            min_row_bot_version="3.11.0",
             author=_manifest49.PluginAuthor(name="X"),
             description="another",
         )
@@ -8195,7 +8195,7 @@ try:
             "id": "full-test",
             "name": "Full Test",
             "version": "1.0.0",
-            "min_thoth_version": "1.0.0",
+            "min_row_bot_version": "1.0.0",
             "author": {"name": "Tester"},
             "description": "End-to-end test plugin",
             "provides": {"tools": [{"name": "ft_tool", "display_name": "FT", "description": "test"}]},
@@ -8233,7 +8233,7 @@ try:
             "id": "broken-plugin",
             "name": "Broken",
             "version": "1.0.0",
-            "min_thoth_version": "1.0.0",
+            "min_row_bot_version": "1.0.0",
             "author": {"name": "X"},
             "description": "This plugin crashes",
             "provides": {"tools": []},
@@ -8387,7 +8387,7 @@ try:
         id="test-ui-plugin",
         name="Test UI Plugin",
         version="1.0.0",
-        min_thoth_version="3.11.0",
+        min_row_bot_version="3.11.0",
         author=_manifest50.PluginAuthor(name="Tester"),
         description="Test plugin for UI tests",
         settings={
@@ -8471,7 +8471,7 @@ try:
     _raw51 = {
         "schema_version": 1,
         "generated": "2025-07-15T10:00:00Z",
-        "source": "https://github.com/test/thoth-plugins",
+        "source": "https://github.com/test/row-bot-plugins",
         "plugins": [
             {
                 "id": "test-plugin-a",
@@ -8481,7 +8481,7 @@ try:
                 "icon": "🧪",
                 "author": {"name": "Tester", "github": "tester"},
                 "tags": ["testing", "demo"],
-                "min_thoth_version": "3.11.0",
+                "min_row_bot_version": "3.11.0",
                 "provides": {"tools": 2, "skills": 1},
                 "verified": True,
             },
@@ -8539,7 +8539,7 @@ try:
     assert _e.icon == "🧪"
     assert _e.author_name == "Tester"
     assert _e.author_github == "tester"
-    assert _e.min_thoth_version == "3.11.0"
+    assert _e.min_row_bot_version == "3.11.0"
     record("PASS", "marketplace: MarketplaceEntry has all expected fields")
 
     # ── 51i. Installer — install from local source ───────────────────
@@ -8555,7 +8555,7 @@ try:
             "id": "mock-install-test",
             "name": "Mock Install Test",
             "version": "1.0.0",
-            "min_thoth_version": "3.11.0",
+            "min_row_bot_version": "3.11.0",
             "author": {"name": "Tester"},
             "description": "Test install",
         }), encoding="utf-8")
@@ -8591,7 +8591,7 @@ try:
             "id": "mock-install-test",
             "name": "Mock Install Test",
             "version": "2.0.0",
-            "min_thoth_version": "3.11.0",
+            "min_row_bot_version": "3.11.0",
             "author": {"name": "Tester"},
             "description": "Updated test",
         }), encoding="utf-8")
@@ -8628,7 +8628,7 @@ try:
             "id": "bad-security",
             "name": "Bad Plugin",
             "version": "1.0.0",
-            "min_thoth_version": "3.11.0",
+            "min_row_bot_version": "3.11.0",
             "author": {"name": "Hacker"},
             "description": "Malicious plugin",
         }), encoding="utf-8")
@@ -8650,7 +8650,7 @@ try:
             id="mock-install-test",
             name="Mock Install Test",
             version="1.0.0",
-            min_thoth_version="3.11.0",
+            min_row_bot_version="3.11.0",
             author=_manifest51.PluginAuthor(name="Tester"),
             description="Test",
         )]
@@ -9387,7 +9387,7 @@ try:
     record("PASS", "video_gen: tool is registered in the registry")
 
     # ── 52½m. Status tool knows about video_gen ──────────────────────
-    from tools.thoth_status_tool import _QUERY_HANDLERS as _qh52v
+    from tools.row_bot_status_tool import _QUERY_HANDLERS as _qh52v
     assert "video_gen" in _qh52v, "video_gen not in status query handlers"
     record("PASS", "video_gen: status tool has video_gen query handler")
 
@@ -9515,7 +9515,7 @@ try:
     _state53._reset()
     _m53 = _manifest53.PluginManifest(
         id="destr-plugin", name="Destr", version="1.0.0",
-        min_thoth_version="1.0.0",
+        min_row_bot_version="1.0.0",
         author=_manifest53.PluginAuthor(name="X"),
         description="test",
     )
@@ -13937,7 +13937,7 @@ try:
     _expected_guides68 = {
         "browser_guide", "calendar_guide", "chart_guide", "email_guide",
         "filesystem_guide", "math_guide", "shell_guide", "telegram_guide",
-        "thoth_status_guide", "tracker_guide", "vision_guide",
+        "row_bot_status_guide", "tracker_guide", "vision_guide",
         "weather_guide", "wiki_guide", "x_guide",
     }
     _actual_guides68 = {
@@ -13976,12 +13976,12 @@ try:
     record("PASS", "68k: channels.base has Channel, ChannelCapabilities, activity tracking")
 
     # ── 68l. Installer version consistency ──────────────────────────
-    _iss68 = _P68("installer/thoth_setup.iss").read_text(encoding="utf-8")
+    _iss68 = _P68("installer/row_bot_setup.iss").read_text(encoding="utf-8")
     assert f'#define MyAppVersion   "{_ver68}"' in _iss68
-    record("PASS", f"68l: thoth_setup.iss version is {_ver68}")
+    record("PASS", f"68l: row_bot_setup.iss version is {_ver68}")
 
     _ps168 = _P68("installer/build_installer.ps1").read_text(encoding="utf-8")
-    assert _ver68 in _ps168 or ("version.py" in _ps168 and "ThothVersion" in _ps168)
+    assert _ver68 in _ps168 or ("version.py" in _ps168 and "RowBotVersion" in _ps168)
     record("PASS", f"68l: build_installer.ps1 resolves version {_ver68}")
 
     _yml68 = _P68(".github/workflows/release.yml").read_text(encoding="utf-8")
@@ -14000,7 +14000,7 @@ try:
     assert _ver68 in _bat68 and "3.7.0" not in _bat68
     record("PASS", f"68l: install_deps.bat version is {_ver68} (no stale 3.7)")
 
-    _plist68 = _P68("installer/Thoth.app/Contents/Info.plist").read_text(encoding="utf-8")
+    _plist68 = _P68("installer/Row-Bot.app/Contents/Info.plist").read_text(encoding="utf-8")
     assert _plist68.count(_ver68) == 2  # CFBundleVersion + CFBundleShortVersionString
     record("PASS", f"68l: Info.plist both version fields are {_ver68}")
 
@@ -14014,8 +14014,8 @@ try:
         "package-lock.json",
     ]
     for _f68 in _new_iss_files68:
-        assert _f68 in _iss68, f"{_f68} not found in thoth_setup.iss"
-    record("PASS", f"68m: all {len(_new_iss_files68)} new files in thoth_setup.iss")
+        assert _f68 in _iss68, f"{_f68} not found in row_bot_setup.iss"
+    record("PASS", f"68m: all {len(_new_iss_files68)} new files in row_bot_setup.iss")
 
     # ── 68m2. Provider runtime packaging smoke ─────────────────────
     assert 'Source: "..\\providers\\*"' in _iss68 and "recursesubdirs" in _iss68, "providers package must be recursively included in Windows installer"
@@ -14043,7 +14043,7 @@ try:
     assert "verify_runtime_dependencies.py\" embeddings" not in _linux68m2b
     assert "Assembled app runtime dependencies verified" in _mac68
     assert "Assembled Linux runtime dependencies verified" in _linux68m2b
-    assert "THOTH_INSTALL_ROOT=\"$RESOURCES\"" in _mac68
+    assert "ROW_BOT_INSTALL_ROOT=\"$RESOURCES\"" in _mac68
     _unsafe_tests_cleanup68m2b = "find \"$PYTHON_PREFIX/lib\" -type d -name 'tests'"
     assert _unsafe_tests_cleanup68m2b not in _mac68
     assert _unsafe_tests_cleanup68m2b not in _linux68m2b
@@ -14067,7 +14067,7 @@ try:
     import tempfile as _tempfile68m3
     with _tempfile68m3.TemporaryDirectory(prefix="thoth_clean_first_run_") as _td68m3:
         _env68m3 = dict(_os68m3.environ)
-        _env68m3["THOTH_DATA_DIR"] = _td68m3
+        _env68m3["ROW_BOT_DATA_DIR"] = _td68m3
         _probe68m3 = (
             "from ui.helpers import is_first_run, is_setup_complete, load_app_config; "
             "from providers.config import load_provider_config; "
@@ -14110,7 +14110,7 @@ try:
     assert "Status and insight awareness" in _release_docs68m4["release_notes"], "release notes must cover Thoth Status insights alignment"
     assert "provider/model/media configuration" in _release_docs68m4["architecture"], "architecture must cover provider-aware dream insights snapshot"
     assert "../docs/RELEASING.md" in _release_docs68m4["installer_readme"], "installer README must link to the canonical release process"
-    assert "installer/thoth_setup.iss" in _release_docs68m4["releasing"], "release process must mention Windows packaging checks"
+    assert "installer/row_bot_setup.iss" in _release_docs68m4["releasing"], "release process must mention Windows packaging checks"
     assert "installer/build_mac_app.sh" in _release_docs68m4["releasing"], "release process must mention macOS packaging checks"
     assert "clean data directory" in _release_docs68m4["releasing"], "release process must mention clean first-run smoke"
     record("PASS", "68m4: Codex release docs cover sign-in, CLI boundary, backend risk, privacy, and release checklist")
@@ -14125,25 +14125,25 @@ try:
     # ── 68o. Channel sub-modules in ISS match filesystem ────────────
     _ch_files68 = [f.name for f in _P68("channels").glob("*.py") if f.name != "__pycache__"]
     for _cf68 in _ch_files68:
-        assert _cf68 in _iss68, f"channels/{_cf68} not in thoth_setup.iss"
-    record("PASS", f"68o: all {len(_ch_files68)} channel .py files in thoth_setup.iss")
+        assert _cf68 in _iss68, f"channels/{_cf68} not in row_bot_setup.iss"
+    record("PASS", f"68o: all {len(_ch_files68)} channel .py files in row_bot_setup.iss")
 
     # ── 68p. Tool sub-modules in ISS match filesystem ───────────────
     _tool_files68 = [f.name for f in _P68("tools").glob("*.py") if f.name != "__pycache__"]
     for _tf68 in _tool_files68:
-        assert _tf68 in _iss68, f"tools/{_tf68} not in thoth_setup.iss"
-    record("PASS", f"68p: all {len(_tool_files68)} tool .py files in thoth_setup.iss")
+        assert _tf68 in _iss68, f"tools/{_tf68} not in row_bot_setup.iss"
+    record("PASS", f"68p: all {len(_tool_files68)} tool .py files in row_bot_setup.iss")
 
     # ── 68q. Top-level .py files in ISS ─────────────────────────────
     _skip_top68 = {"debug_tools.py"}
     _top_files68 = [f.name for f in _P68(".").glob("*.py") if f.name not in _skip_top68]
     _missing_top68 = [f for f in _top_files68 if f not in _iss68]
     assert not _missing_top68, f"Top-level .py files missing from ISS: {_missing_top68}"
-    record("PASS", f"68q: all {len(_top_files68)} top-level .py files in thoth_setup.iss")
+    record("PASS", f"68q: all {len(_top_files68)} top-level .py files in row_bot_setup.iss")
 
     # ── 68r. No stale 3.14.0 references in installer files ─────────
     _installer_files68 = [
-        "installer/thoth_setup.iss",
+        "installer/row_bot_setup.iss",
         "installer/build_installer.ps1",
         "installer/build_mac_release.sh",
         "installer/build_mac_app.sh",
@@ -14207,7 +14207,7 @@ except Exception as e:
 
 # ── 69b. Every tool file listed in installer ──────────────────────────────
 try:
-    _iss_text69 = (_APP_ROOT69 / "installer" / "thoth_setup.iss").read_text(encoding="utf-8")
+    _iss_text69 = (_APP_ROOT69 / "installer" / "row_bot_setup.iss").read_text(encoding="utf-8")
     _tool_py_files69 = {f.name for f in _tool_dir69.glob("*.py")}
     _missing_iss_tools69 = {f for f in _tool_py_files69 if f not in _iss_text69}
     assert not _missing_iss_tools69, f"Tool .py files missing from ISS: {sorted(_missing_iss_tools69)}"
@@ -14423,10 +14423,10 @@ try:
 except Exception as e:
     record("FAIL", "69n-self-knowledge", f"{type(e).__name__}: {e}")
 
-# ── 69o. ThothStatusTool has expected query categories ────────────────────
+# ── 69o. RowBotStatusTool has expected query categories ────────────────────
 try:
-    from tools.thoth_status_tool import _QUERY_HANDLERS as _qh69o
-    from tools.thoth_status_tool import _query_skills as _query_skills69o
+    from tools.row_bot_status_tool import _QUERY_HANDLERS as _qh69o
+    from tools.row_bot_status_tool import _query_skills as _query_skills69o
     import skills as _skills69o
     _expected_cats69o = {
         "overview", "version", "model", "channels", "memory", "skills",
@@ -14450,7 +14450,7 @@ try:
     _insights_block69o = _qh69o["insights"]()
     assert "**Insights**" in _insights_block69o and "Active:" in _insights_block69o, \
         "Thoth Status insights query should summarize active insights"
-    record("PASS", f"69o: ThothStatusTool has all {len(_expected_cats69o)} query categories")
+    record("PASS", f"69o: RowBotStatusTool has all {len(_expected_cats69o)} query categories")
 except Exception as e:
     record("FAIL", "69o-status-categories", f"{type(e).__name__}: {e}")
 
@@ -14587,10 +14587,10 @@ except Exception as e:
 # ── 69q. Version consistency across all files ─────────────────────────────
 try:
     import re as _re69q
-    _iss_path69q = _APP_ROOT69 / "installer" / "thoth_setup.iss"
+    _iss_path69q = _APP_ROOT69 / "installer" / "row_bot_setup.iss"
     _iss_text69q = _iss_path69q.read_text(encoding="utf-8")
     _ver_match69q = _re69q.search(r'#define\s+MyAppVersion\s+"(\d+\.\d+\.\d+)"', _iss_text69q)
-    assert _ver_match69q, "Cannot find version in thoth_setup.iss"
+    assert _ver_match69q, "Cannot find version in row_bot_setup.iss"
     _ver69q = _ver_match69q.group(1)
     _ver_files69q = [
         "installer/build_installer.ps1",
@@ -14601,7 +14601,7 @@ try:
         if _vpath69q.exists():
             _vtxt69q = _vpath69q.read_text(encoding="utf-8")
             if _vf69q == "installer/build_installer.ps1":
-                assert _ver69q in _vtxt69q or ("version.py" in _vtxt69q and "ThothVersion" in _vtxt69q), \
+                assert _ver69q in _vtxt69q or ("version.py" in _vtxt69q and "RowBotVersion" in _vtxt69q), \
                     f"Version {_ver69q} not found or derived in {_vf69q}"
             else:
                 assert _ver69q in _vtxt69q, f"Version {_ver69q} not found in {_vf69q}"
@@ -15389,7 +15389,7 @@ try:
     )
     assert "<img " in _img_frag
     assert 'data-asset-id="asset-im001"' in _img_frag
-    assert 'data-thoth-kind="image"' in _img_frag
+    assert 'data-row-bot-kind="image"' in _img_frag
 
     # build_media_fragment — video path
     _vid_frag = build_media_fragment(
@@ -15400,7 +15400,7 @@ try:
     )
     assert "<video " in _vid_frag
     assert 'data-asset-id="asset-vid001"' in _vid_frag
-    assert 'data-thoth-kind="video"' in _vid_frag
+    assert 'data-row-bot-kind="video"' in _vid_frag
     assert "autoplay" in _vid_frag
     assert "loop" in _vid_frag
     assert "muted" in _vid_frag
@@ -15449,7 +15449,7 @@ try:
     ))
     _page_with_video = (
         '<html><body><video src="asset://asset-vid001" '
-        'data-asset-id="asset-vid001" data-thoth-kind="video" '
+        'data-asset-id="asset-vid001" data-row-bot-kind="video" '
         'controls muted></video></body></html>'
     )
     _resolved = resolve_project_media_sources(_page_with_video, _p21b)
@@ -15569,7 +15569,7 @@ try:
 
     # Create a temp mp4 on disk to simulate provider output
     _mp4_bytes = b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00fake-mp4-bytes"
-    _tmpdir = _tf21d.mkdtemp(prefix="thoth-21d-")
+    _tmpdir = _tf21d.mkdtemp(prefix="row-bot-21d-")
     _fake_mp4 = _os21d.path.join(_tmpdir, "gen.mp4")
     with open(_fake_mp4, "wb") as _f:
         _f.write(_mp4_bytes)
@@ -15654,7 +15654,7 @@ try:
     import tempfile as _tf21e, os as _os21e
 
     _mp4_bytes_e = b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00fake-mp4"
-    _tmpdir_e = _tf21e.mkdtemp(prefix="thoth-21e-")
+    _tmpdir_e = _tf21e.mkdtemp(prefix="row-bot-21e-")
     _fake_mp4_e = _os21e.path.join(_tmpdir_e, "clip.mp4")
     with open(_fake_mp4_e, "wb") as _f:
         _f.write(_mp4_bytes_e)
@@ -15690,7 +15690,7 @@ try:
         assert "Generated AI video" in result, f"bad result: {result!r}"
         assert "Asset id:" in result, f"missing asset id: {result!r}"
         assert "<video " in _p21e.pages[0].html, f"no <video> tag in html: {_p21e.pages[0].html[:500]!r}"
-        assert 'data-thoth-kind="video"' in _p21e.pages[0].html, f"missing kind attr: {_p21e.pages[0].html[:500]!r}"
+        assert 'data-row-bot-kind="video"' in _p21e.pages[0].html, f"missing kind attr: {_p21e.pages[0].html[:500]!r}"
         # Asset is registered on project
         video_assets = [a for a in _p21e.assets if a.kind == "video"]
         assert len(video_assets) == 1, f"expected 1 video asset, got {len(video_assets)}"
@@ -16082,7 +16082,7 @@ try:
     _pd73a = _DP73a(id="__test73a-deck__", name="D", mode="deck")
     _prompt_deck = _bdp73a(_pd73a)
     assert _DECK_JS_RULE in _prompt_deck, "deck prompt missing no-JS clause"
-    assert "data-thoth-action" not in _prompt_deck, (
+    assert "data-row-bot-action" not in _prompt_deck, (
         "deck prompt unexpectedly advertises interactive attrs"
     )
     assert "designer_add_screen" not in _prompt_deck, (
@@ -16094,7 +16094,7 @@ try:
     # advertises interactive tools.
     _pl73a = _DP73a(id="__test73a-land__", name="L", mode="landing")
     _prompt_land = _bdp73a(_pl73a)
-    assert "data-thoth-action" in _prompt_land
+    assert "data-row-bot-action" in _prompt_land
     assert "navigate:<route_id>" in _prompt_land
     assert "designer_add_screen" in _prompt_land
     assert "designer_link_screens" in _prompt_land
@@ -16108,12 +16108,12 @@ try:
     _pa73a = _DP73a(id="__test73a-app__", name="A", mode="app_mockup")
     _prompt_app = _bdp73a(_pa73a)
     assert "app mockup" in _prompt_app.lower()
-    assert "data-thoth-action" in _prompt_app
+    assert "data-row-bot-action" in _prompt_app
 
     # Storyboard is also interactive per the rule set.
     _ps73a = _DP73a(id="__test73a-sb__", name="S", mode="storyboard")
     _prompt_sb = _bdp73a(_ps73a)
-    assert "data-thoth-action" in _prompt_sb
+    assert "data-row-bot-action" in _prompt_sb
 
     # Rule selector helper
     assert _rules_for_mode("deck") == _DECK_JS_RULE
@@ -16161,13 +16161,13 @@ try:
     assert "ok" in _out and "after" in _out
 
     # on* inline handlers removed, other attrs preserved.
-    _h2 = '<button id="b1" onclick="steal()" class="cta" data-thoth-action="navigate:home">Go</button>'
+    _h2 = '<button id="b1" onclick="steal()" class="cta" data-row-bot-action="navigate:home">Go</button>'
     _out2 = sanitize_agent_html(_h2)
     assert "onclick" not in _out2.lower()
     assert "steal" not in _out2
     assert 'id="b1"' in _out2
     assert 'class="cta"' in _out2
-    assert 'data-thoth-action="navigate:home"' in _out2
+    assert 'data-row-bot-action="navigate:home"' in _out2
 
     # javascript: URLs stripped.
     _h3 = '<a href="javascript:alert(1)">x</a><a href="/pricing">y</a>'
@@ -16176,10 +16176,10 @@ try:
     assert 'href="/pricing"' in _out3
 
     # Reserved runtime script survives.
-    _h4 = '<script data-thoth-runtime="1">window.__thoth=1;</script>'
+    _h4 = '<script data-row-bot-runtime="1">window.__rowBot=1;</script>'
     _out4 = sanitize_agent_html(_h4)
-    assert "data-thoth-runtime" in _out4
-    assert "__thoth" in _out4
+    assert "data-row-bot-runtime" in _out4
+    assert "__rowBot" in _out4
 
     # Empty / trivial input stays stable.
     assert sanitize_agent_html("") == ""
@@ -16206,16 +16206,16 @@ try:
     )
 
     _js73c, _css73c = read_runtime_assets()
-    assert "__thothRuntime" in _js73c, "runtime bridge JS missing init guard"
-    assert "data-thoth-action" in _js73c
-    assert "data-thoth-route" in _js73c
-    assert "data-thoth-route-host" in _js73c, (
+    assert "__rowBotRuntime" in _js73c, "runtime bridge JS missing init guard"
+    assert "data-row-bot-action" in _js73c
+    assert "data-row-bot-route" in _js73c
+    assert "data-row-bot-route-host" in _js73c, (
         "runtime JS must scope route lookup to host sections, not inner elements"
     )
-    assert "[data-thoth-route-host]" in _css73c, (
-        "runtime CSS must scope visibility to [data-thoth-route-host] only"
+    assert "[data-row-bot-route-host]" in _css73c, (
+        "runtime CSS must scope visibility to [data-row-bot-route-host] only"
     )
-    assert RUNTIME_MARKER_ATTR == "data-thoth-runtime"
+    assert RUNTIME_MARKER_ATTR == "data-row-bot-runtime"
 
     _payload73c = build_routes_payload(
         initial="home",
@@ -16232,30 +16232,30 @@ try:
     _doc73c = (
         '<!DOCTYPE html><html><head><title>T</title></head>'
         '<body>'
-        '<section data-thoth-route="home"><h1>Home</h1></section>'
-        '<section data-thoth-route="pricing"><h1>Pricing</h1></section>'
+        '<section data-row-bot-route="home"><h1>Home</h1></section>'
+        '<section data-row-bot-route="pricing"><h1>Pricing</h1></section>'
         '</body></html>'
     )
     _out73c = inject_runtime(_doc73c, routes_payload=_payload73c)
-    assert '<style data-thoth-runtime="1">' in _out73c
-    assert '<script data-thoth-runtime="1">' in _out73c
-    assert '__thoth_routes__' in _out73c
+    assert '<style data-row-bot-runtime="1">' in _out73c
+    assert '<script data-row-bot-runtime="1">' in _out73c
+    assert '__row_bot_routes__' in _out73c
     assert '"initial": "home"' in _out73c
     # Runtime script is appended before </body>, after original sections.
     _body_idx = _out73c.index("</body>")
-    _home_idx = _out73c.index('data-thoth-route="home"')
-    _script_idx = _out73c.index('<script data-thoth-runtime="1">')
+    _home_idx = _out73c.index('data-row-bot-route="home"')
+    _script_idx = _out73c.index('<script data-row-bot-runtime="1">')
     assert _home_idx < _script_idx < _body_idx
     # Style lands inside <head>.
-    _style_idx = _out73c.index('<style data-thoth-runtime="1">')
+    _style_idx = _out73c.index('<style data-row-bot-runtime="1">')
     assert _style_idx < _out73c.index("</head>")
 
     # Sanitizer preserves runtime script (guard from 73b still valid after
     # inject_runtime).
     from designer.html_ops import sanitize_agent_html as _san73c
     _after = _san73c(_out73c)
-    assert '<script data-thoth-runtime="1">' in _after
-    assert '__thoth_routes__' in _after
+    assert '<script data-row-bot-runtime="1">' in _after
+    assert '__row_bot_routes__' in _after
 
     record("PASS", "73c: runtime bridge loader + inject + sanitizer passthrough")
 except Exception as e:
@@ -16281,7 +16281,7 @@ try:
                 html=(
                     "<!DOCTYPE html><html><head><title>Home</title></head>"
                     "<body><h1>Welcome home</h1>"
-                    '<a data-thoth-action="navigate:pricing">See pricing</a>'
+                    '<a data-row-bot-action="navigate:pricing">See pricing</a>'
                     "</body></html>"
                 ),
                 title="Home",
@@ -16321,19 +16321,19 @@ try:
     assert "</body>" not in _inner.lower()
 
     _out = render_multi_route_html(_p73d)
-    assert 'data-thoth-route-host="1" data-thoth-route="home"' in _out
-    assert 'data-thoth-route-host="1" data-thoth-route="pricing"' in _out
+    assert 'data-row-bot-route-host="1" data-row-bot-route="home"' in _out
+    assert 'data-row-bot-route-host="1" data-row-bot-route="pricing"' in _out
     # Synthesized route id
     _third_id = _route_ids[2]
-    assert f'data-thoth-route-host="1" data-thoth-route="{_third_id}"' in _out
+    assert f'data-row-bot-route-host="1" data-row-bot-route="{_third_id}"' in _out
     # Runtime bridge injected.
-    assert '<script data-thoth-runtime="1">' in _out
-    assert '__thoth_routes__' in _out
+    assert '<script data-row-bot-runtime="1">' in _out
+    assert '__row_bot_routes__' in _out
     assert '"initial": "home"' in _out
     # Page content preserved inside the first section but NOT duplicated in
     # its own <body>/<html> wrapper.
     assert _out.count('<body') == 1, f"expected 1 <body>, got {_out.count('<body')}"
-    assert 'data-thoth-action="navigate:pricing"' in _out
+    assert 'data-row-bot-action="navigate:pricing"' in _out
 
     # Rendering with explicit active_route_id updates the payload.
     _out_active = render_multi_route_html(_p73d, active_route_id="pricing")
@@ -16415,7 +16415,7 @@ try:
         transition="slide_left",
     )
     assert "→ navigate to 'pricing'" in _msg3, _msg3
-    assert 'data-thoth-action="navigate:pricing"' in _p73e.pages[0].html
+    assert 'data-row-bot-action="navigate:pricing"' in _p73e.pages[0].html
     assert len(_p73e.interactions) == _prev_interactions + 1
     _last_ix = _p73e.interactions[-1]
     assert _last_ix.action == "navigate"
@@ -16434,7 +16434,7 @@ try:
         target="menu_open",
     )
     assert "toggle_state:menu_open" in _msg4
-    assert 'data-thoth-action="toggle_state:menu_open"' in _p73e.pages[1].html
+    assert 'data-row-bot-action="toggle_state:menu_open"' in _p73e.pages[1].html
 
     # _set_interaction — invalid action rejected.
     _err_ix = _set_ix_73e(
@@ -16518,10 +16518,10 @@ try:
     _bytes_land = _build_bytes_73f(_p73f_land)
     assert isinstance(_bytes_land, (bytes, bytearray))
     _html_land = _bytes_land.decode("utf-8")
-    assert 'data-thoth-route-host="1" data-thoth-route="home"' in _html_land
-    assert 'data-thoth-route-host="1" data-thoth-route="price"' in _html_land
-    assert '<script data-thoth-runtime="1">' in _html_land
-    assert '__thoth_routes__' in _html_land
+    assert 'data-row-bot-route-host="1" data-row-bot-route="home"' in _html_land
+    assert 'data-row-bot-route-host="1" data-row-bot-route="price"' in _html_land
+    assert '<script data-row-bot-runtime="1">' in _html_land
+    assert '__row_bot_routes__' in _html_land
     assert '"initial": "home"' in _html_land
 
     # (2) Deck project → classic export path (no route sections, no
@@ -16538,8 +16538,8 @@ try:
     _bytes_deck = _build_bytes_73f(_p73f_deck)
     assert isinstance(_bytes_deck, (bytes, bytearray))
     _html_deck = _bytes_deck.decode("utf-8")
-    assert 'data-thoth-route=' not in _html_deck
-    assert 'data-thoth-runtime="1"' not in _html_deck
+    assert 'data-row-bot-route=' not in _html_deck
+    assert 'data-row-bot-runtime="1"' not in _html_deck
 
     # (3) publish_project round-trip: writes a file and returns a mode tag.
     _info_land = _publish_73f(_p73f_land, ensure_public=False)
@@ -16550,8 +16550,8 @@ try:
     _disk = _pl73f.Path(_info_land["path"])
     assert _disk.exists(), f"published file missing: {_disk}"
     _disk_html = _disk.read_text("utf-8")
-    assert 'data-thoth-route-host="1" data-thoth-route="home"' in _disk_html
-    assert '<script data-thoth-runtime="1">' in _disk_html
+    assert 'data-row-bot-route-host="1" data-row-bot-route="home"' in _disk_html
+    assert '<script data-row-bot-runtime="1">' in _disk_html
     _disk.unlink(missing_ok=True)
 
     _info_deck = _publish_73f(_p73f_deck, ensure_public=False)
@@ -16638,7 +16638,7 @@ try:
     # Initial design request surfaces interactive mode when non-deck.
     _req_land = _build_req_73g(_proj_land)
     assert "Project type:" in _req_land
-    assert "data-thoth-action" in _req_land
+    assert "data-row-bot-action" in _req_land
     assert "landing" in _req_land.lower()
     _req_deck = _build_req_73g(_proj_deck)
     assert "Project type:" not in _req_deck, _req_deck
@@ -16777,7 +16777,7 @@ try:
     # Interactive project with two screens.
     _html_src = (
         '<!DOCTYPE html><html><body>'
-        '<button data-thoth-element-id="btn-abc">Go</button>'
+        '<button data-row-bot-element-id="btn-abc">Go</button>'
         '<p>hello</p>'
         '</body></html>'
     )
@@ -16801,7 +16801,7 @@ try:
     })
     assert spec["available"] is True, spec
     assert spec["source_route"] == "home"
-    assert spec["selector"] == '[data-thoth-element-id="btn-abc"]'
+    assert spec["selector"] == '[data-row-bot-element-id="btn-abc"]'
     assert spec["element_id"] == "btn-abc"
     # Route choices exclude current route.
     _route_ids = [rid for rid, _ in spec["route_choices"]]
@@ -16817,12 +16817,12 @@ try:
     ok, msg = _record_73j(
         _p73j,
         source_route="home",
-        selector='[data-thoth-element-id="btn-abc"]',
+        selector='[data-row-bot-element-id="btn-abc"]',
         action="navigate",
         target="details",
     )
     assert ok, msg
-    assert 'data-thoth-action="navigate:details"' in _p73j.pages[0].html
+    assert 'data-row-bot-action="navigate:details"' in _p73j.pages[0].html
     assert len(_p73j.interactions) == 1
     assert _p73j.interactions[0].action == "navigate"
     assert _p73j.interactions[0].target == "details"
@@ -16830,7 +16830,7 @@ try:
     # Navigate to unknown route is rejected.
     ok2, msg2 = _record_73j(
         _p73j, source_route="home",
-        selector='[data-thoth-element-id="btn-abc"]',
+        selector='[data-row-bot-element-id="btn-abc"]',
         action="navigate", target="nowhere",
     )
     assert ok2 is False and "not a known route" in msg2
@@ -16838,25 +16838,25 @@ try:
     # Toggle state accepts free-form target.
     ok3, _ = _record_73j(
         _p73j, source_route="home",
-        selector='[data-thoth-element-id="btn-abc"]',
+        selector='[data-row-bot-element-id="btn-abc"]',
         action="toggle_state", target="menu-open",
     )
     assert ok3
-    assert 'data-thoth-action="toggle_state:menu-open"' in _p73j.pages[0].html
+    assert 'data-row-bot-action="toggle_state:menu-open"' in _p73j.pages[0].html
 
     # Clear removes the attribute.
     ok4, _ = _record_73j(
         _p73j, source_route="home",
-        selector='[data-thoth-element-id="btn-abc"]',
+        selector='[data-row-bot-element-id="btn-abc"]',
         action="clear",
     )
     assert ok4
-    assert "data-thoth-action" not in _p73j.pages[0].html
+    assert "data-row-bot-action" not in _p73j.pages[0].html
 
     # Unknown selector → error.
     ok5, msg5 = _record_73j(
         _p73j, source_route="home",
-        selector='[data-thoth-element-id="does-not-exist"]',
+        selector='[data-row-bot-element-id="does-not-exist"]',
         action="navigate", target="details",
     )
     assert ok5 is False and "matched no element" in msg5
@@ -17061,23 +17061,23 @@ try:
 except Exception as e:
     record("FAIL", "73m-qr-lightbox", f"{type(e).__name__}: {e}")
 
-# ── 73p. Phase 2.2 — Inner data-thoth-route attrs must not hide content ──
-# Regression: the agent often emits <div class="page" data-thoth-route="home">
+# ── 73p. Phase 2.2 — Inner data-row-bot-route attrs must not hide content ──
+# Regression: the agent often emits <div class="page" data-row-bot-route="home">
 # inside the body of each page.  Our runtime CSS used to select
-# [data-thoth-route] broadly, which hid that inner div (only the outer
-# <section> got data-thoth-route-active).  The fix is to scope visibility to
-# a dedicated [data-thoth-route-host] marker attached only to our outer
-# section, so stray inner data-thoth-route attributes no longer collapse the
+# [data-row-bot-route] broadly, which hid that inner div (only the outer
+# <section> got data-row-bot-route-active).  The fix is to scope visibility to
+# a dedicated [data-row-bot-route-host] marker attached only to our outer
+# section, so stray inner data-row-bot-route attributes no longer collapse the
 # page to a blank background.
 try:
     from designer.preview import render_multi_route_html as _rmr73p
     from designer.state import DesignerProject as _DP73p, DesignerPage as _DPage73p
 
     _inner_html73p = (
-        '<!DOCTYPE html><html data-thoth-route="home"><head>'
+        '<!DOCTYPE html><html data-row-bot-route="home"><head>'
         '<style>body{background:#222}.page{padding:40px}</style>'
         '</head><body>'
-        '<div class="page" data-thoth-route="home">'
+        '<div class="page" data-row-bot-route="home">'
         '<h1 data-visible-marker="home-hero">Home Hero</h1>'
         '<p>Marketing copy.</p>'
         '</div>'
@@ -17090,7 +17090,7 @@ try:
             _DPage73p(
                 html=(
                     '<!DOCTYPE html><html><head></head><body>'
-                    '<div class="page" data-thoth-route="features">'
+                    '<div class="page" data-row-bot-route="features">'
                     '<h1>Features</h1></div></body></html>'
                 ),
                 title="Features",
@@ -17101,34 +17101,34 @@ try:
     _out73p = _rmr73p(_p73p)
 
     # Outer host sections present and unique.
-    assert _out73p.count('data-thoth-route-host="1"') == 2, (
-        f"expected 2 host sections, got {_out73p.count('data-thoth-route-host=')}"
+    assert _out73p.count('data-row-bot-route-host="1"') == 2, (
+        f"expected 2 host sections, got {_out73p.count('data-row-bot-route-host=')}"
     )
-    assert '<section data-thoth-route-host="1" data-thoth-route="home"' in _out73p
-    assert '<section data-thoth-route-host="1" data-thoth-route="features"' in _out73p
+    assert '<section data-row-bot-route-host="1" data-row-bot-route="home"' in _out73p
+    assert '<section data-row-bot-route-host="1" data-row-bot-route="features"' in _out73p
 
-    # Inner agent-authored data-thoth-route attribute still present on the
+    # Inner agent-authored data-row-bot-route attribute still present on the
     # div (we do NOT strip it) but is NOT targeted by the runtime CSS.
-    assert 'class="page" data-thoth-route="home"' in _out73p
+    assert 'class="page" data-row-bot-route="home"' in _out73p
     assert 'data-visible-marker="home-hero"' in _out73p
 
-    # Runtime CSS must scope visibility exclusively to data-thoth-route-host.
-    assert '[data-thoth-route-host]' in _out73p
-    # Critical: the old broad selector "[data-thoth-route]" (no suffix) must
+    # Runtime CSS must scope visibility exclusively to data-row-bot-route-host.
+    assert '[data-row-bot-route-host]' in _out73p
+    # Critical: the old broad selector "[data-row-bot-route]" (no suffix) must
     # not appear as a CSS rule — only the -host variant and per-section
     # attribute selectors.
     import re as _re73p
     _bare_route_css = _re73p.findall(
-        r'\[data-thoth-route\](?![\w-])', _out73p
+        r'\[data-row-bot-route\](?![\w-])', _out73p
     )
     assert not _bare_route_css, (
-        f"bare [data-thoth-route] CSS selector leaked into runtime: {_bare_route_css[:3]}"
+        f"bare [data-row-bot-route] CSS selector leaked into runtime: {_bare_route_css[:3]}"
     )
 
-    # Runtime JS must query host sections, not bare data-thoth-route.
-    assert 'querySelectorAll("[data-thoth-route-host]")' in _out73p
+    # Runtime JS must query host sections, not bare data-row-bot-route.
+    assert 'querySelectorAll("[data-row-bot-route-host]")' in _out73p
 
-    record("PASS", "73p: inner data-thoth-route attrs do not hide page content")
+    record("PASS", "73p: inner data-row-bot-route attrs do not hide page content")
 except Exception as e:
     record("FAIL", "73p-inner-route-regression", f"{type(e).__name__}: {e}")
 
@@ -17721,14 +17721,14 @@ try:
         assert _proj.aspect_ratio == _aspect, f"{_tid}: project.aspect {_proj.aspect_ratio!r}"
         assert len(_proj.pages) == _pages
 
-    # App mockup starter wires data-thoth-action navigation (interactive
+    # App mockup starter wires data-row-bot-action navigation (interactive
     # runtime contract).
     _app_tpl = _gt_74g("app_mockup_starter")
     assert _app_tpl is not None
     _combined_html = " ".join(p["html"] for p in _app_tpl.pages)
-    assert "data-thoth-action=\"navigate:detail\"" in _combined_html
-    assert "data-thoth-action=\"navigate:home\"" in _combined_html
-    assert "data-thoth-action=\"navigate:settings\"" in _combined_html
+    assert "data-row-bot-action=\"navigate:detail\"" in _combined_html
+    assert "data-row-bot-action=\"navigate:home\"" in _combined_html
+    assert "data-row-bot-action=\"navigate:settings\"" in _combined_html
 
     # Landing hero has the responsive page scaffold.
     _land_tpl = _gt_74g("landing_hero")
@@ -17935,8 +17935,8 @@ except Exception as e:
 try:
     _html72e = "<html><head></head><body><h1>Hello</h1></body></html>"
     _r72e = inject_bridge_js(_html72e)
-    assert "__thothBridge" in _r72e, "Bridge JS not injected"
-    assert _r72e.index("__thothBridge") < _r72e.lower().index("</body>")
+    assert "__rowBotBridge" in _r72e, "Bridge JS not injected"
+    assert _r72e.index("__rowBotBridge") < _r72e.lower().index("</body>")
     record("PASS", "72e: inject_bridge_js")
 except Exception as e:
     record("FAIL", "72e-bridge-js", f"{type(e).__name__}: {e}")
@@ -17956,8 +17956,8 @@ try:
     assert "on_redo_shortcut=_redo" in _editor72e2
     assert "def build_preview(project: DesignerProject, *,\n                   on_element_click=None, on_text_edit=None,\n                   on_undo_shortcut=None, on_redo_shortcut=None," in _preview72e2
     assert "designer-undo-shortcut" in _preview72e2 and "designer-redo-shortcut" in _preview72e2
-    assert "window.__thothDesignerBridgeId = {bridge.id};" in _preview72e2
-    assert "var bridge = getElement(window.__thothDesignerBridgeId);" in _preview72e2
+    assert "window.__rowBotDesignerBridgeId = {bridge.id};" in _preview72e2
+    assert "var bridge = getElement(window.__rowBotDesignerBridgeId);" in _preview72e2
     assert "var bridgeEvent = new Event('bridge_msg', {{ bubbles: true }});" in _preview72e2
     assert "bridgeEvent.msgType = data.type;" in _preview72e2
     assert "bridgeEvent.detail = data.detail || {{}};" in _preview72e2
@@ -18379,13 +18379,13 @@ try:
         logo_padding=40,
     )
     _auto_render72n1 = inject_brand_variables(_html72n1, _auto_brand72n1, page_index=0)
-    assert 'data-thoth-brand-logo="auto"' in _auto_render72n1
+    assert 'data-row-bot-brand-logo="auto"' in _auto_render72n1
     assert 'data:image/svg+xml;base64,QUJD' in _auto_render72n1
     assert 'bottom:40px;left:40px;' in _auto_render72n1
     assert 'max-height:96px' in _auto_render72n1
 
     _auto_hidden72n1 = inject_brand_variables(_html72n1, _auto_brand72n1, page_index=1)
-    assert 'data-thoth-brand-logo="auto"' not in _auto_hidden72n1
+    assert 'data-row-bot-brand-logo="auto"' not in _auto_hidden72n1
 
     _manual_html72n1 = "<html><head></head><body><!-- BRAND_LOGO --><h1>Deck</h1></body></html>"
     _manual_brand72n1 = BrandConfig(
@@ -18398,11 +18398,11 @@ try:
     assert "<!-- BRAND_LOGO -->" not in _manual_render72n1
     assert 'data:image/png;base64,QUJD' in _manual_render72n1
     assert 'max-height:88px' in _manual_render72n1
-    assert 'data-thoth-brand-logo="auto"' not in _manual_render72n1
+    assert 'data-row-bot-brand-logo="auto"' not in _manual_render72n1
 
     _manual_with_placeholder72n1 = inject_brand_variables(_manual_html72n1, _auto_brand72n1, page_index=0)
     assert _manual_with_placeholder72n1.count('data:image/svg+xml;base64,QUJD') == 1
-    assert 'data-thoth-brand-logo="auto"' not in _manual_with_placeholder72n1
+    assert 'data-row-bot-brand-logo="auto"' not in _manual_with_placeholder72n1
 
     record("PASS", "72n1: inject_brand_variables handles logo overlay and placeholder modes")
 except Exception as e:
@@ -18561,8 +18561,8 @@ try:
     _soup72n5b = _BS72n5b(_resized72n5b, "html.parser")
     _body72n5b = _soup72n5b.body
     assert _body72n5b is not None
-    assert _body72n5b.get("data-thoth-fit-source-width") == "1920"
-    assert _body72n5b.get("data-thoth-fit-source-height") == "1080"
+    assert _body72n5b.get("data-row-bot-fit-source-width") == "1920"
+    assert _body72n5b.get("data-row-bot-fit-source-height") == "1080"
     assert "scale(0.562500)" in (_body72n5b.get("style") or "")
     assert "position: absolute" in (_body72n5b.get("style") or "")
     record("PASS", "72n5b: canvas resize applies a conservative auto-fit transform")
@@ -19289,19 +19289,19 @@ except Exception as e:
 try:
     import updater as _u73c
     body = (
-        "# Notes\n\n<!-- thoth-update-manifest -->\n"
+        "# Notes\n\n<!-- row-bot-update-manifest -->\n"
         "```manifest\nschema: 1\nfiles:\n"
-        "  ThothSetup_3.18.0.exe: sha256=" + "a" * 64 + "\n"
-        "  Thoth-3.18.0-macOS-arm64.dmg: sha256=" + "b" * 64 + "\n"
+        "  RowBotSetup_3.18.0.exe: sha256=" + "a" * 64 + "\n"
+        "  Row-Bot-3.18.0-macOS-arm64.dmg: sha256=" + "b" * 64 + "\n"
         "```\n"
     )
     parsed = _u73c.parse_manifest(body)
-    assert parsed["ThothSetup_3.18.0.exe"] == "a" * 64
-    assert parsed["Thoth-3.18.0-macOS-arm64.dmg"] == "b" * 64
+    assert parsed["RowBotSetup_3.18.0.exe"] == "a" * 64
+    assert parsed["Row-Bot-3.18.0-macOS-arm64.dmg"] == "b" * 64
     assert _u73c.parse_manifest("") == {}
     assert _u73c.parse_manifest("plain release notes, no manifest") == {}
     # malformed line → ignored
-    bad = "<!-- thoth-update-manifest -->\n```manifest\nfiles:\n  bad-line\n```\n"
+    bad = "<!-- row-bot-update-manifest -->\n```manifest\nfiles:\n  bad-line\n```\n"
     assert _u73c.parse_manifest(bad) == {}
     record("PASS", "73c: parse_manifest handles happy + missing + malformed")
 except Exception as e:
@@ -19311,10 +19311,10 @@ except Exception as e:
 try:
     import updater as _u73d, platform as _plat73d
     body = (
-        "Notes\n\n<!-- thoth-update-manifest -->\n"
+        "Notes\n\n<!-- row-bot-update-manifest -->\n"
         "```manifest\nschema: 1\nfiles:\n"
-        "  ThothSetup_3.18.0.exe: sha256=" + "1" * 64 + "\n"
-        "  Thoth-3.18.0-macOS-arm64.dmg: sha256=" + "2" * 64 + "\n"
+        "  RowBotSetup_3.18.0.exe: sha256=" + "1" * 64 + "\n"
+        "  Row-Bot-3.18.0-macOS-arm64.dmg: sha256=" + "2" * 64 + "\n"
         "```\n"
     )
     fake = {
@@ -19323,10 +19323,10 @@ try:
         "html_url": "https://github.com/x/y/releases/tag/v3.18.0",
         "body": body,
         "assets": [
-            {"name": "ThothSetup_3.18.0.exe", "size": 1,
-             "browser_download_url": "https://github.com/x/y/d/ThothSetup_3.18.0.exe"},
-            {"name": "Thoth-3.18.0-macOS-arm64.dmg", "size": 1,
-             "browser_download_url": "https://github.com/x/y/d/Thoth-3.18.0-macOS-arm64.dmg"},
+            {"name": "RowBotSetup_3.18.0.exe", "size": 1,
+             "browser_download_url": "https://github.com/x/y/d/RowBotSetup_3.18.0.exe"},
+            {"name": "Row-Bot-3.18.0-macOS-arm64.dmg", "size": 1,
+             "browser_download_url": "https://github.com/x/y/d/Row-Bot-3.18.0-macOS-arm64.dmg"},
         ],
     }
     info = _u73d._parse_release(fake, "stable")
@@ -19344,8 +19344,8 @@ try:
     # Use isolated data dir
     _tmp_dir = _p73e.Path(_os73e.environ.get("TEMP", "/tmp")) / "thoth_test_updater"
     _tmp_dir.mkdir(parents=True, exist_ok=True)
-    _saved_env = _os73e.environ.get("THOTH_DATA_DIR")
-    _os73e.environ["THOTH_DATA_DIR"] = str(_tmp_dir)
+    _saved_env = _os73e.environ.get("ROW_BOT_DATA_DIR")
+    _os73e.environ["ROW_BOT_DATA_DIR"] = str(_tmp_dir)
     if "updater" in sys.modules:
         del sys.modules["updater"]
     import updater as _u73e
@@ -19364,9 +19364,9 @@ try:
     assert st2.channel == "beta"
     # Restore
     if _saved_env is None:
-        _os73e.environ.pop("THOTH_DATA_DIR", None)
+        _os73e.environ.pop("ROW_BOT_DATA_DIR", None)
     else:
-        _os73e.environ["THOTH_DATA_DIR"] = _saved_env
+        _os73e.environ["ROW_BOT_DATA_DIR"] = _saved_env
     if "updater" in sys.modules:
         del sys.modules["updater"]
     record("PASS", "73e: UpdateState persists channel + skipped_versions")
@@ -19405,23 +19405,23 @@ try:
     else:
         import tools  # noqa: F401
     from tools import registry as _reg73h
-    t = _reg73h.get_tool("thoth_updater")
-    assert t is not None, "thoth_updater not registered"
+    t = _reg73h.get_tool("row_bot_updater")
+    assert t is not None, "row_bot_updater not registered"
     names = [x.name for x in t.as_langchain_tools()]
-    assert "thoth_check_for_updates" in names
-    assert "thoth_install_update" in names
-    record("PASS", "73h: thoth_updater tool registered with both sub-tools")
+    assert "row_bot_check_for_updates" in names
+    assert "row_bot_install_update" in names
+    record("PASS", "73h: row_bot_updater tool registered with both sub-tools")
 except Exception as e:
     record("FAIL", "73h-tool-registration", f"{type(e).__name__}: {e}")
 
-# 73i. thoth_status 'updates' category exists
+# 73i. row_bot_status 'updates' category exists
 try:
-    from tools.thoth_status_tool import _QUERY_HANDLERS as _qh73i
+    from tools.row_bot_status_tool import _QUERY_HANDLERS as _qh73i
     assert "updates" in _qh73i, "_QUERY_HANDLERS missing 'updates'"
     out = _qh73i["updates"]()
     assert "**Updates**" in out
     assert "Current version" in out
-    record("PASS", "73i: thoth_status category 'updates' wired")
+    record("PASS", "73i: row_bot_status category 'updates' wired")
 except Exception as e:
     record("FAIL", "73i-status-updates", f"{type(e).__name__}: {e}")
 
@@ -19452,11 +19452,11 @@ try:
     assert "schema: 1" in block
     assert "a.exe: sha256=" + "x" * 64 in block
     merged = merge_into_body("# Notes", block)
-    assert "<!-- thoth-update-manifest -->" in merged
+    assert "<!-- row-bot-update-manifest -->" in merged
     # Replace not append on second call
     block2 = build_manifest_block({"new.exe": "z" * 64})
     merged2 = merge_into_body(merged, block2)
-    assert merged2.count("<!-- thoth-update-manifest -->") == 1
+    assert merged2.count("<!-- row-bot-update-manifest -->") == 1
     assert "new.exe" in merged2
     assert "x" * 64 not in merged2  # old hash gone
     record("PASS", "73k: append_sha_manifest builds + merges idempotently")
@@ -19465,7 +19465,7 @@ except Exception as e:
 
 # 73l. installer.iss declares CloseApplications=yes + bundles updater.py
 try:
-    iss = Path("installer/thoth_setup.iss").read_text(encoding="utf-8")
+    iss = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
     assert "CloseApplications=yes" in iss, "missing CloseApplications=yes"
     assert "updater.py" in iss, "updater.py not bundled"
     assert "updater_tool.py" in iss, "updater_tool.py not bundled"
@@ -19503,7 +19503,7 @@ except Exception as e:
 try:
     g = Path("tool_guides/updater_guide/SKILL.md").read_text(encoding="utf-8")
     assert "name: updater_guide" in g
-    assert "thoth_updater" in g
+    assert "row_bot_updater" in g
     record("PASS", "73p: updater_guide tool guide present")
 except Exception as e:
     record("FAIL", "73p-tool-guide", f"{type(e).__name__}: {e}")
@@ -19959,7 +19959,7 @@ try:
     assert "Do not reload the active thread here" in _stream_src76, "Active detached finalization should preserve optimistic user messages"
     assert "rebuild_main after detached finalize" not in _stream_src76, "Detached finalization should not rebuild the whole main area"
     assert "refresh_chat_messages" in _stream_src76 and "cb.refresh_chat_messages = _refresh_chat_messages" in _P76("app.py").read_text(encoding="utf-8"), "Developer detached finalization should have a scoped transcript refresh callback"
-    _status_src76 = _P76("tools/thoth_status_tool.py").read_text(encoding="utf-8")
+    _status_src76 = _P76("tools/row_bot_status_tool.py").read_text(encoding="utf-8")
     assert "active for the current Developer workspace" in _status_src76, "Tool status should treat Developer as contextual"
     record("PASS", "76r: Developer guides, skills, progress, and contextual status are wired")
 

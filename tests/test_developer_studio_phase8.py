@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 
 def _fresh_modules(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     for name in [
         "plugins.registry",
         "plugins.state",
@@ -62,7 +62,7 @@ def test_tool_capsules_parse_manifest_commands(tmp_path, monkeypatch):
     capsules = _fresh_modules(tmp_path, monkeypatch)
     install_path = tmp_path / "capsule"
     install_path.mkdir()
-    (install_path / "thoth-capsule.json").write_text(
+    (install_path / "row-bot-capsule.json").write_text(
         """
         {
           "name": "Repo Helper",
@@ -83,6 +83,33 @@ def test_tool_capsules_parse_manifest_commands(tmp_path, monkeypatch):
     assert capsule.name == "Repo Helper"
     assert capsule.version == "2.1.0"
     assert capsule.commands[0]["name"] == "Smoke"
+    assert capsule.commands[0]["command"] == "python --version"
+
+
+def test_tool_capsules_read_legacy_thoth_manifest_commands(tmp_path, monkeypatch):
+    capsules = _fresh_modules(tmp_path, monkeypatch)
+    install_path = tmp_path / "legacy-capsule"
+    install_path.mkdir()
+    (install_path / "thoth-capsule.json").write_text(
+        """
+        {
+          "name": "Legacy Repo Helper",
+          "version": "1.5.0",
+          "commands": [
+            {"name": "Smoke", "command": "python --version", "description": "Check Python"}
+          ]
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    capsule = capsules.register_capsule(
+        "https://github.com/example/legacy-repo-helper",
+        installed_path=str(install_path),
+    )
+
+    assert capsule.name == "Legacy Repo Helper"
+    assert capsule.version == "1.5.0"
     assert capsule.commands[0]["command"] == "python --version"
 
 
@@ -107,7 +134,7 @@ def test_tool_capsule_generator_infers_gitignore_repo_commands(tmp_path, monkeyp
     assert "List gitignore templates" in command_names
     assert "Show Python template" in command_names
     assert "Count gitignore templates" in command_names
-    assert manifest_path.name == "thoth-custom-tool.json"
+    assert manifest_path.name == "row-bot-custom-tool.json"
     assert parsed["commands"][0]["name"] == proposal.commands[0]["name"]
 
 
@@ -122,7 +149,7 @@ def test_tool_capsule_generate_and_register_writes_manifest(tmp_path, monkeypatc
         source_url="https://github.com/example/repo-helper",
     )
 
-    assert (install_path / "thoth-custom-tool.json").exists()
+    assert (install_path / "row-bot-custom-tool.json").exists()
     assert capsule.name == "Repo Helper Custom Tool"
     assert capsule.commands
     assert capsules.list_capsules()[0].id == capsule.id
@@ -244,7 +271,7 @@ def test_custom_tool_public_source_writes_manifest_without_hidden_gate(tmp_path,
         source_url="https://github.com/example/repo-helper",
     )
 
-    assert (install_path / "thoth-custom-tool.json").exists()
+    assert (install_path / "row-bot-custom-tool.json").exists()
     assert capsule.enabled is False
     assert capsules.list_capsules()[0].id == capsule.id
 
@@ -261,7 +288,7 @@ def test_custom_tool_local_source_does_not_need_public_gate(tmp_path, monkeypatc
     )
 
     assert capsule.name == "Local Helper Custom Tool"
-    assert (install_path / "thoth-custom-tool.json").exists()
+    assert (install_path / "row-bot-custom-tool.json").exists()
 
 
 def test_custom_tool_builder_manages_draft_lifecycle(tmp_path, monkeypatch):
@@ -306,7 +333,7 @@ def test_custom_tool_builder_manages_draft_lifecycle(tmp_path, monkeypatch):
 
     assert started["draft"]["name"] == "Local Helper Custom Tool"
     assert tested["result"]["ok"] is True
-    assert (install_path / "thoth-custom-tool.json").exists()
+    assert (install_path / "row-bot-custom-tool.json").exists()
     assert created["tool"]["id"] == "local-helper-custom-tool"
     assert enabled["tool"]["enabled"] is True
     assert capsules.get_custom_tool_draft(draft_id).status == "enabled"
@@ -550,7 +577,7 @@ def test_tool_capsule_promotion_registers_plugin_tool_and_removes_safely(tmp_pat
     capsules = _fresh_modules(tmp_path, monkeypatch)
     install_path = tmp_path / "capsule"
     install_path.mkdir()
-    (install_path / "thoth-capsule.json").write_text(
+    (install_path / "row-bot-capsule.json").write_text(
         """
         {
           "name": "Repo Helper",

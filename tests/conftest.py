@@ -13,6 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TEST_DATA_DIR = PROJECT_ROOT / ".tmp" / "pytest_thoth"
 DEFAULT_TEST_TMP_DIR = PROJECT_ROOT / ".tmp" / "pytest_tmp"
 LIVE_USER_DATA_DIR = Path.home() / ".thoth"
+LIVE_ROW_BOT_DATA_DIR = Path.home() / ".row-bot"
 
 
 def _resolve_for_guard(path: Any) -> Path | None:
@@ -33,7 +34,8 @@ def _is_under(path: Path | None, root: Path) -> bool:
 
 
 def _is_live_user_state_path(path: Any) -> bool:
-    return _is_under(_resolve_for_guard(path), LIVE_USER_DATA_DIR)
+    resolved = _resolve_for_guard(path)
+    return _is_under(resolved, LIVE_USER_DATA_DIR) or _is_under(resolved, LIVE_ROW_BOT_DATA_DIR)
 
 
 def _is_write_mode(mode: Any) -> bool:
@@ -42,27 +44,33 @@ def _is_write_mode(mode: Any) -> bool:
 
 
 def _live_write_allowed() -> bool:
-    return os.environ.get("THOTH_ALLOW_LIVE_USER_STATE_WRITES") == "1"
+    return (
+        os.environ.get("ROW_BOT_ALLOW_LIVE_USER_STATE_WRITES") == "1"
+        or os.environ.get("THOTH_ALLOW_LIVE_USER_STATE_WRITES") == "1"
+    )
 
 
 def _raise_live_write(path: Any, operation: str) -> None:
     if _live_write_allowed():
         return
     raise AssertionError(
-        f"pytest attempted to {operation} live Thoth user state: {path}. "
-        f"Use THOTH_DATA_DIR under {DEFAULT_TEST_DATA_DIR.parent} for tests."
+        f"pytest attempted to {operation} live app user state: {path}. "
+        f"Use ROW_BOT_DATA_DIR under {DEFAULT_TEST_DATA_DIR.parent} for tests."
     )
 
 
 # Establish a non-live data directory before test modules import app code. If a
-# developer shell already points at live ~/.thoth, override it for test safety.
-existing_data_dir = os.environ.get("THOTH_DATA_DIR")
+# developer shell already points at live user state, override it for test safety.
+existing_data_dir = os.environ.get("ROW_BOT_DATA_DIR") or os.environ.get("THOTH_DATA_DIR")
 if not existing_data_dir or _is_live_user_state_path(existing_data_dir):
-    os.environ["THOTH_DATA_DIR"] = str(DEFAULT_TEST_DATA_DIR)
+    existing_data_dir = str(DEFAULT_TEST_DATA_DIR)
+os.environ["ROW_BOT_DATA_DIR"] = existing_data_dir
+os.environ["THOTH_DATA_DIR"] = existing_data_dir
 DEFAULT_TEST_DATA_DIR.mkdir(parents=True, exist_ok=True)
 DEFAULT_TEST_TMP_DIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("TMP", str(DEFAULT_TEST_TMP_DIR))
 os.environ.setdefault("TEMP", str(DEFAULT_TEST_TMP_DIR))
+os.environ.setdefault("ROW_BOT_TEST_MODE", "1")
 os.environ.setdefault("THOTH_TEST_MODE", "1")
 
 

@@ -38,26 +38,26 @@ The user picks mode in the New Design dialog. You can read it with `designer_get
 For these modes, **never write raw `<script>` or `onclick=`**. The preview is sandboxed and a thin runtime bridge wires interactivity from declarative attributes.
 
 ### Declarative attributes the runtime understands
-- `data-thoth-route="<route_id>"` → marks a screen/route section. The runtime shows one route at a time. The outer route container also gets `data-thoth-route-host="1"` automatically when emitted via `designer_add_screen`.
-- `data-thoth-action="navigate:<route_id>"` → click handler that switches to the named route.
-- `data-thoth-action="toggle_state:<key>"` → click handler that flips a state key. The runtime sets `data-thoth-state-<key>="on|off"` on `<html>`; style with `[data-thoth-state-<key>="on"]` selectors.
-- `data-thoth-action="play_media:<asset_id>"` → click handler that plays a video/audio asset.
-- `data-thoth-transition="fade|slide_left|slide_up|none"` (optional, on the navigation source).
+- `data-row-bot-route="<route_id>"` → marks a screen/route section. The runtime shows one route at a time. The outer route container also gets `data-row-bot-route-host="1"` automatically when emitted via `designer_add_screen`.
+- `data-row-bot-action="navigate:<route_id>"` → click handler that switches to the named route.
+- `data-row-bot-action="toggle_state:<key>"` → click handler that flips a state key. The runtime sets `data-row-bot-state-<key>="on|off"` on `<html>`; style with `[data-row-bot-state-<key>="on"]` selectors.
+- `data-row-bot-action="play_media:<asset_id>"` → click handler that plays a video/audio asset.
+- `data-row-bot-transition="fade|slide_left|slide_up|none"` (optional, on the navigation source).
 
 ### Tools for interactive projects
 - `designer_add_screen`: Add a new screen/route. Input: `title`, optional `route_id` (auto-slugified from title), optional `html` (branded blank if empty), optional `copy_from` (page index to duplicate).
-- `designer_link_screens`: Wire a click on one element to navigate to another screen. Input: `source_route`, `selector` (CSS or `data-thoth-element-id`), `target_route`, optional transition.
+- `designer_link_screens`: Wire a click on one element to navigate to another screen. Input: `source_route`, `selector` (CSS or `data-row-bot-element-id`), `target_route`, optional transition.
 - `designer_set_interaction`: Generic — attach `navigate` / `toggle_state` / `play_media` to any selector. Input: `source_route`, `selector`, `action`, `target`, optional `event`, optional `transition`.
 - `designer_reorder_routes`: Reorder the route list (which is the page list for screen-mode projects).
 - `designer_preview_screen`: Render a single route in isolation for review.
 - `designer_set_mode`: Switch the project's mode (and tool surface).
 
 ### Authoring rules per interactive mode
-- **`landing`**: usually ONE page that scrolls vertically. Sections (`<section id="...">`) for hero / features / pricing / FAQ / CTA / footer. Use anchor links (`<a href="#features">`) for in-page jumps; reserve `data-thoth-action="navigate:..."` for cross-route flows in multi-page landings.
-- **`app_mockup`**: ONE route per logical screen (Home, Detail, Settings, etc.). Each page's HTML is the entire device viewport. Use `data-thoth-action="navigate:<route_id>"` on tappable rows, tab bars, and back buttons. Use `data-thoth-transition="slide_left"` when going deeper, `slide_right` when going back. Wrap scrollable content inside an inner `.screen-body{overflow-y:auto}`.
+- **`landing`**: usually ONE page that scrolls vertically. Sections (`<section id="...">`) for hero / features / pricing / FAQ / CTA / footer. Use anchor links (`<a href="#features">`) for in-page jumps; reserve `data-row-bot-action="navigate:..."` for cross-route flows in multi-page landings.
+- **`app_mockup`**: ONE route per logical screen (Home, Detail, Settings, etc.). Each page's HTML is the entire device viewport. Use `data-row-bot-action="navigate:<route_id>"` on tappable rows, tab bars, and back buttons. Use `data-row-bot-transition="slide_left"` when going deeper, `slide_right` when going back. Wrap scrollable content inside an inner `.screen-body{overflow-y:auto}`.
 
 ## Media (images, video)
-- `designer_generate_image`: Generate an AI image from a text prompt and embed it in a page. Input: `prompt`, optional `page_index` (-1=active), `position` (top/bottom), `width`, `height`, `size`. When a page contains a `data-thoth-shot-visual` or `data-thoth-image-slot` placeholder (storyboards, typed deck slots), the generated image automatically replaces the placeholder and fills the slot — no extra positioning call needed for the first generation.
+- `designer_generate_image`: Generate an AI image from a text prompt and embed it in a page. Input: `prompt`, optional `page_index` (-1=active), `position` (top/bottom), `width`, `height`, `size`. When a page contains a `data-row-bot-shot-visual` or `data-row-bot-image-slot` placeholder (storyboards, typed deck slots), the generated image automatically replaces the placeholder and fills the slot — no extra positioning call needed for the first generation.
 - `designer_insert_image`: Insert an attached or local image file. Same slot-replacement behavior as generate.
 - `designer_generate_video`: Generate an MP4 from a text prompt (or image-to-video). Input: `prompt`, optional `page_index`, `position`, `width`, `aspect_ratio`. Embedded as `<video autoplay loop muted playsinline>` with a poster.
 - `designer_insert_video`: Insert an attached / local video file (mp4/webm/mov). Same autoplay/loop/muted defaults.
@@ -89,7 +89,7 @@ For these modes, **never write raw `<script>` or `onclick=`**. The preview is sa
 - Include Google Fonts `<link>` if using custom fonts.
 - Modern CSS only: flexbox, grid, gradients, box-shadow. No external frameworks.
 - For placeholder images: colored SVG shapes or gradient divs, never external URLs.
-- **No `<script>` and no inline `onclick`** — the iframe is sandboxed. Use `data-thoth-action` for interactive modes; deck/document/storyboard pages have no interactivity.
+- **No `<script>` and no inline `onclick`** — the iframe is sandboxed. Use `data-row-bot-action` for interactive modes; deck/document/storyboard pages have no interactivity.
 
 ## Content budgets per mode (anti-clipping)
 
@@ -105,7 +105,7 @@ Landing and app_mockup modes flow differently — landing pages scroll verticall
 
 - **No decorative overlap on text.** Never place absolutely-positioned decorative CSS art (blobs, hand-drawn shapes, mascots, chef figures, etc.) on top of a heading or body paragraph. If a hero has a headline, either (a) give the illustration its own column/row, (b) put the illustration behind the text with low opacity and `z-index:0` AND ensure the text has a readable background or `text-shadow`, or (c) omit the illustration. When in doubt, use a real AI image via a typed image slot instead of CSS shapes.
 - **Button rows stay horizontal.** When emitting two buttons side-by-side (Back + primary, Cancel + Confirm, etc.), use `display:flex; gap:12–24px;` and give the primary button `flex:1`. Never let them stack vertically or touch. Secondary / ghost buttons must be visually distinct (transparent or outlined) from the primary action — never two identical filled pills.
-- **Typed image slots over overlays.** When authoring a page that will later receive an AI image, mark the target container with `data-thoth-image-slot="NAME"` (e.g. `<div data-thoth-image-slot="hero" style="width:100%;aspect-ratio:16/9;"></div>`). `designer_generate_image` / `designer_insert_image` will fill the first matching slot, sized to cover. Alternatively pass `position="replace:.my-class"` or `position="replace:#my-id"` to target a specific container. Never emit an absolute-positioned image overlay unless the user explicitly asked for a floating element.
+- **Typed image slots over overlays.** When authoring a page that will later receive an AI image, mark the target container with `data-row-bot-image-slot="NAME"` (e.g. `<div data-row-bot-image-slot="hero" style="width:100%;aspect-ratio:16/9;"></div>`). `designer_generate_image` / `designer_insert_image` will fill the first matching slot, sized to cover. Alternatively pass `position="replace:.my-class"` or `position="replace:#my-id"` to target a specific container. Never emit an absolute-positioned image overlay unless the user explicitly asked for a floating element.
 
 ## Post-critique repair loop (mandatory after major rewrites)
 
@@ -136,9 +136,9 @@ For broader sweeps, pass multiple categories: `designer_apply_repairs(categories
 - For multi-page landing flows (e.g. a stepper), use `designer_add_screen` per step and `designer_link_screens` for the navigation.
 
 ### App mockups
-- Plan routes first: list every screen the user mentions. Call `designer_set_pages` (or `designer_add_screen` per route) so each page has `data-thoth-route="<id>"` on its outer container.
+- Plan routes first: list every screen the user mentions. Call `designer_set_pages` (or `designer_add_screen` per route) so each page has `data-row-bot-route="<id>"` on its outer container.
 - Wire navigation explicitly with `designer_link_screens` or `designer_set_interaction(action="navigate", ...)`. Don't use `<a href="#detail">`.
-- For toggleable UI (dark mode, notifications, expanded panels), use `data-thoth-action="toggle_state:<key>"` and style with `[data-thoth-state-<key>="on"]` selectors on `<html>`.
+- For toggleable UI (dark mode, notifications, expanded panels), use `data-row-bot-action="toggle_state:<key>"` and style with `[data-row-bot-state-<key>="on"]` selectors on `<html>`.
 - Wrap scrollable content inside an inner `.screen-body` — the outer `body` stays at the device viewport.
 
 ### Mode change
@@ -172,4 +172,4 @@ For broader sweeps, pass multiple categories: `designer_apply_repairs(categories
 - Maintain visual consistency across pages.
 - Keep HTML compact — avoid unnecessary nesting or unused CSS.
 - AI images: descriptive prompts. Specify style (photo, illustration, etc.). There is no stock-image tool — use `designer_generate_image` or `designer_insert_image` (attached/local file) only.
-- For interactive modes, **never** emit `<script>`, inline event handlers, or rely on `<a href>` for navigation between routes — use `data-thoth-action`.
+- For interactive modes, **never** emit `<script>`, inline event handlers, or rely on `<a href>` for navigation between routes — use `data-row-bot-action`.

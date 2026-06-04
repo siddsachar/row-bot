@@ -12,9 +12,9 @@ from designer.storage import save_project
 
 logger = logging.getLogger(__name__)
 
-_FIT_SOURCE_WIDTH_ATTR = "data-thoth-fit-source-width"
-_FIT_SOURCE_HEIGHT_ATTR = "data-thoth-fit-source-height"
-_FIT_SCALE_ATTR = "data-thoth-fit-scale"
+_FIT_SOURCE_WIDTH_ATTR = "data-row-bot-fit-source-width"
+_FIT_SOURCE_HEIGHT_ATTR = "data-row-bot-fit-source-height"
+_FIT_SCALE_ATTR = "data-row-bot-fit-scale"
 
 
 def resolve_canvas_target(*, preset: str | None = None, aspect_ratio: str | None = None) -> tuple[str, str]:

@@ -4,7 +4,7 @@ import importlib
 
 
 def test_voice_runtime_settings_round_trip(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
 
     import voice.runtime
 

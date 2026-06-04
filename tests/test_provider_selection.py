@@ -190,8 +190,8 @@ def test_quick_choice_remove_supports_custom_provider_id(tmp_path, monkeypatch):
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
 
     provider_id = "custom_openai_dummy"
-    add_quick_choice_for_model("thoth-dummy-chat", provider_id=provider_id)
-    remove_quick_choice_for_model("thoth-dummy-chat", provider_id=provider_id)
+    add_quick_choice_for_model("row-bot-dummy-chat", provider_id=provider_id)
+    remove_quick_choice_for_model("row-bot-dummy-chat", provider_id=provider_id)
 
     assert list_quick_choices("") == []
 

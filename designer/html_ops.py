@@ -9,11 +9,11 @@ import uuid
 
 from bs4 import BeautifulSoup, Tag
 
-ASSET_ID_ATTR = "data-thoth-id"
-ASSET_KIND_ATTR = "data-thoth-kind"
-ASSET_LABEL_ATTR = "data-thoth-label"
-ELEMENT_ID_ATTR = "data-thoth-element-id"
-COMPONENT_NAME_ATTR = "data-thoth-component"
+ASSET_ID_ATTR = "data-row-bot-id"
+ASSET_KIND_ATTR = "data-row-bot-kind"
+ASSET_LABEL_ATTR = "data-row-bot-label"
+ELEMENT_ID_ATTR = "data-row-bot-element-id"
+COMPONENT_NAME_ATTR = "data-row-bot-component"
 PUBLIC_ASSET_ID_ATTR = "data-asset-id"
 _HEADING_TAGS = [f"h{i}" for i in range(1, 7)]
 _STRUCTURAL_TAGS = {"section", "header", "footer", "nav", "main", "article", "aside"}
@@ -1089,7 +1089,7 @@ def _escape_attr(value: str) -> str:
 # contract. Called on every agent-authored page before save, regardless of
 # project mode.  The runtime bridge itself is injected by
 # ``designer/runtime/loader.py`` AFTER sanitation and carries the reserved
-# ``data-thoth-runtime`` attribute so we can spot it explicitly.
+# ``data-row-bot-runtime`` attribute so we can spot it explicitly.
 
 _EVENT_HANDLER_RE = re.compile(r"^on[a-z]+$", re.IGNORECASE)
 _JS_URL_RE = re.compile(r"^\s*javascript:", re.IGNORECASE)
@@ -1100,7 +1100,7 @@ def sanitize_agent_html(html: str) -> str:
 
     Safe to run on any HTML string, including strings produced by
     ``build_media_fragment`` / ``wrap_asset_fragment``. Never touches
-    ``<script data-thoth-runtime="1">`` so runtime bridge injection is
+    ``<script data-row-bot-runtime="1">`` so runtime bridge injection is
     idempotent.
     """
     if not html or "<" not in html:
@@ -1109,7 +1109,7 @@ def sanitize_agent_html(html: str) -> str:
 
     # 1) Remove <script> tags unless they carry the reserved runtime marker.
     for script_tag in list(soup.find_all("script")):
-        if script_tag.get("data-thoth-runtime"):
+        if script_tag.get("data-row-bot-runtime"):
             continue
         script_tag.decompose()
 

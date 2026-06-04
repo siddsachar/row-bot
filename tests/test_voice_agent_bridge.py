@@ -98,10 +98,10 @@ def test_voice_agent_bridge_idle_status_and_cancel():
 
 
 def test_voice_agent_bridge_policy_is_consult_control_only():
-    assert VOICE_BRAIN_STRATEGY == "thoth-consult"
+    assert VOICE_BRAIN_STRATEGY == "row-bot-consult"
     assert REALTIME_DIRECT_TOOL_POLICY == "blocked"
-    assert REALTIME_ALLOWED_BRIDGE_TOOLS == ("thoth_agent_consult", "thoth_agent_control")
-    assert REALTIME_ALLOWED_TOOLS == ("thoth_agent_consult", "thoth_agent_control", REALTIME_WAIT_TOOL)
+    assert REALTIME_ALLOWED_BRIDGE_TOOLS == ("row_bot_agent_consult", "row_bot_agent_control")
+    assert REALTIME_ALLOWED_TOOLS == ("row_bot_agent_consult", "row_bot_agent_control", REALTIME_WAIT_TOOL)
     assert [tool["name"] for tool in realtime_bridge_tool_declarations()] == list(REALTIME_ALLOWED_TOOLS)
 
 
@@ -136,7 +136,7 @@ def test_voice_agent_bridge_handles_realtime_consult_tool_call():
     bridge = VoiceAgentBridge(send_message=send_message, active_generation=lambda: None)
 
     result = asyncio.run(bridge.handle_realtime_function_call(
-        name="thoth_agent_consult",
+        name="row_bot_agent_consult",
         call_id="call_1",
         arguments='{"request":"check the files"}',
         queue_consult=queued.append,
@@ -145,7 +145,7 @@ def test_voice_agent_bridge_handles_realtime_consult_tool_call():
     assert result["handled"] is True
     assert result["deferred"] is True
     assert calls == [("check the files", True)]
-    assert queued == [{"call_id": "call_1", "name": "thoth_agent_consult", "request": "check the files"}]
+    assert queued == [{"call_id": "call_1", "name": "row_bot_agent_consult", "request": "check the files"}]
 
 
 def test_voice_agent_bridge_handles_realtime_control_tool_call():
@@ -153,14 +153,14 @@ def test_voice_agent_bridge_handles_realtime_control_tool_call():
     bridge = VoiceAgentBridge(send_message=lambda *args, **kwargs: None, active_generation=lambda: gen)
 
     result = asyncio.run(bridge.handle_realtime_function_call(
-        name="thoth_agent_control",
+        name="row_bot_agent_control",
         call_id="call_2",
         arguments={"action": "status"},
     ))
 
     assert result["handled"] is True
     assert result["deferred"] is False
-    assert "Thoth is" in result["output"]
+    assert "Row-Bot is" in result["output"]
 
 
 def test_voice_agent_bridge_blocks_direct_realtime_tools():
@@ -199,7 +199,7 @@ def test_voice_agent_bridge_drops_empty_realtime_consult_silently():
     bridge = VoiceAgentBridge(send_message=lambda *args, **kwargs: calls.append(args), active_generation=lambda: None)
 
     result = asyncio.run(bridge.handle_realtime_function_call(
-        name="thoth_agent_consult",
+        name="row_bot_agent_consult",
         call_id="call_empty",
         arguments={"request": ""},
     ))
@@ -261,7 +261,7 @@ def test_voice_agent_bridge_adopts_late_realtime_consult_call_id():
     bridge = VoiceAgentBridge(send_message=send_message, active_generation=lambda: gen)
 
     result = asyncio.run(bridge.handle_realtime_function_call(
-        name="thoth_agent_consult",
+        name="row_bot_agent_consult",
         call_id="call_late",
         arguments={"request": "check my calendar tomorrow"},
         queue_consult=queued.append,
@@ -272,5 +272,5 @@ def test_voice_agent_bridge_adopts_late_realtime_consult_call_id():
     assert calls == []
     assert queued == []
     assert gen.realtime_tool_call_id == "call_late"
-    assert gen.realtime_tool_name == "thoth_agent_consult"
+    assert gen.realtime_tool_name == "row_bot_agent_consult"
     assert gen.realtime_forced_consult is False

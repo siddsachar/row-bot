@@ -51,15 +51,14 @@ from typing import Any, Optional
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+from data_paths import get_row_bot_data_dir
 from tools.base import BaseTool
 from tools import registry
 
 logger = logging.getLogger(__name__)
 
 # ── Data directory ───────────────────────────────────────────────────────────
-DATA_DIR = pathlib.Path(
-    os.environ.get("THOTH_DATA_DIR", pathlib.Path.home() / ".thoth")
-)
+DATA_DIR = get_row_bot_data_dir()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 _PROFILE_DIR = DATA_DIR / "browser_profile"
 _HISTORY_PATH = DATA_DIR / "browser_history.json"
@@ -216,7 +215,7 @@ def _build_snapshot_js(max_elements: int) -> str:
         const value = el.value !== undefined ? String(el.value).substring(0, 40) : '';
 
         // Store ref number as a data attribute for later retrieval
-        el.setAttribute('data-thoth-ref', String(refNum));
+        el.setAttribute('data-row-bot-ref', String(refNum));
 
         let desc = `[${refNum}]`;
         if (tag === 'a') desc += ` link "${label}"` + (href ? ` → ${href.substring(0, 100)}` : '');
@@ -286,7 +285,7 @@ def _format_snapshot(snap: dict) -> str:
 def _click_ref(page, ref: int) -> str:
     """Click the element with the given ref number (retries once on stale DOM)."""
     for attempt in range(2):
-        el = page.query_selector(f'[data-thoth-ref="{ref}"]')
+        el = page.query_selector(f'[data-row-bot-ref="{ref}"]')
         if not el:
             if attempt == 0:
                 page.wait_for_timeout(1500)
@@ -312,7 +311,7 @@ def _click_ref(page, ref: int) -> str:
 def _type_ref(page, ref: int, text: str, submit: bool = False) -> str:
     """Type text into the element with the given ref number (retries once on stale DOM)."""
     for attempt in range(2):
-        el = page.query_selector(f'[data-thoth-ref="{ref}"]')
+        el = page.query_selector(f'[data-row-bot-ref="{ref}"]')
         if not el:
             if attempt == 0:
                 page.wait_for_timeout(1500)
@@ -575,7 +574,7 @@ class BrowserSession:
                 self._launch_error = None
                 self._work_q = queue.Queue()  # fresh queue
                 self._pw_thread = threading.Thread(
-                    target=self._pw_loop, daemon=True, name="thoth-pw"
+                    target=self._pw_loop, daemon=True, name="row-bot-pw"
                 )
                 self._pw_thread.start()
                 self._ready.wait(timeout=60)
