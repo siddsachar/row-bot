@@ -1,10 +1,10 @@
-# Contributing to Thoth
+# Contributing to Row-Bot
 
-Thanks for taking an interest in Thoth. This document describes how to set up a
+Thanks for taking an interest in Row-Bot. This document describes how to set up a
 dev environment, the expected workflow for changes, and the bar for getting a
 pull request merged.
 
-Thoth is a personal-AI-sovereignty project. The priorities, in order, are:
+Row-Bot is a personal-AI-sovereignty project. The priorities, in order, are:
 
 1. **Privacy** — local-first defaults, no telemetry, no surprise network calls
 2. **Reliability** — destructive actions confirm, errors degrade gracefully
@@ -28,8 +28,8 @@ Thoth is a personal-AI-sovereignty project. The priorities, in order, are:
 
 ```powershell
 # Windows (PowerShell)
-git clone https://github.com/siddsachar/Thoth.git
-cd Thoth
+git clone https://github.com/siddsachar/row-bot.git
+cd Row-Bot
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
@@ -37,14 +37,14 @@ pip install -r requirements.txt
 
 ```bash
 # macOS / Linux
-git clone https://github.com/siddsachar/Thoth.git
-cd Thoth
+git clone https://github.com/siddsachar/row-bot.git
+cd Row-Bot
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Run Thoth
+### Run Row-Bot
 
 ```bash
 python launcher.py
@@ -64,7 +64,7 @@ non-zero on any failure.
 
 ## 2. Branching & commits
 
-Thoth uses a **trunk-based** model:
+Row-Bot uses a **trunk-based** model:
 
 - `main` is always releasable.
 - Every change goes through a short-lived feature branch and a pull request,
@@ -182,7 +182,7 @@ Tests should:
 
 ## 6. Reporting issues
 
-Use the issue templates at https://github.com/siddsachar/Thoth/issues/new/choose.
+Use the issue templates at https://github.com/siddsachar/row-bot/issues/new/choose.
 
 For security issues, **do not open a public issue.** See [SECURITY.md](SECURITY.md).
 
@@ -197,6 +197,6 @@ By contributing, you agree to uphold it.
 
 ## 8. Licensing
 
-Thoth is released under the [Apache License 2.0](LICENSE). By submitting a
+Row-Bot is released under the [Apache License 2.0](LICENSE). By submitting a
 contribution you agree your work is licensed under the same terms. See the
 [NOTICE](NOTICE) file for attribution requirements.

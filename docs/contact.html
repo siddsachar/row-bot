@@ -3,31 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>&#x1305F; Contact Thoth</title>
-    <meta name="description" content="Contact the Thoth project for feedback, questions, partnerships, and security reports.">
-    <link rel="canonical" href="https://get-thoth.com/contact.html">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1305F;</text></svg>">
+    <title>Contact Row-Bot</title>
+    <meta name="description" content="Contact the Row-Bot project for feedback, questions, partnerships, and security reports.">
+    <link rel="canonical" href="https://row-bot.ai/contact.html">
+    <link rel="icon" type="image/png" href="row_bot_glyph_256.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script>
-        window.THOTH_GA_MEASUREMENT_ID = 'G-0YYKPX5M5E';
-        window.THOTH_GOOGLE_ADS_ID = 'AW-847204616';
-        window.THOTH_GOOGLE_ADS_CONVERSION_ID = 'AW-847204616/Lci7CNmwyOwBEIii_ZMD';
-        const thothGoogleTagId = window.THOTH_GA_MEASUREMENT_ID || window.THOTH_GOOGLE_ADS_ID;
-        if (thothGoogleTagId) {
+        window.ROW_BOT_GA_MEASUREMENT_ID = 'G-0YYKPX5M5E';
+        window.ROW_BOT_GOOGLE_ADS_ID = 'AW-847204616';
+        window.ROW_BOT_GOOGLE_ADS_CONVERSION_ID = 'AW-847204616/Lci7CNmwyOwBEIii_ZMD';
+        const rowBotGoogleTagId = window.ROW_BOT_GA_MEASUREMENT_ID || window.ROW_BOT_GOOGLE_ADS_ID;
+        if (rowBotGoogleTagId) {
             const gaScript = document.createElement('script');
             gaScript.async = true;
-            gaScript.src = 'https://www.googletagmanager.com/gtag/js?id=' + thothGoogleTagId;
+            gaScript.src = 'https://www.googletagmanager.com/gtag/js?id=' + rowBotGoogleTagId;
             document.head.appendChild(gaScript);
             window.dataLayer = window.dataLayer || [];
             window.gtag = function(){ dataLayer.push(arguments); };
             gtag('js', new Date());
-            if (window.THOTH_GA_MEASUREMENT_ID) {
-                gtag('config', window.THOTH_GA_MEASUREMENT_ID);
+            if (window.ROW_BOT_GA_MEASUREMENT_ID) {
+                gtag('config', window.ROW_BOT_GA_MEASUREMENT_ID);
             }
-            if (window.THOTH_GOOGLE_ADS_ID) {
-                gtag('config', window.THOTH_GOOGLE_ADS_ID);
+            if (window.ROW_BOT_GOOGLE_ADS_ID) {
+                gtag('config', window.ROW_BOT_GOOGLE_ADS_ID);
             }
         }
     </script>
@@ -41,8 +41,8 @@
             --text: #e2e6ed;
             --text-dim: #9aa3b4;
             --text-faint: #636d7e;
-            --accent: #c9a227;
-            --accent-hover: #dbb634;
+            --accent: #4F78A4;
+            --accent-hover: #6C93BC;
             --serif: 'Instrument Serif', Georgia, 'Times New Roman', serif;
             --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             --mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
@@ -74,13 +74,21 @@
         }
 
         .nav-wordmark {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
             font-family: var(--serif);
             font-size: 1.4rem;
             color: var(--accent);
             text-decoration: none;
         }
 
-        .nav-wordmark span { opacity: 0.5; margin-right: 0.35rem; }
+        .nav-glyph {
+            width: 28px;
+            height: 28px;
+            object-fit: contain;
+            flex: 0 0 auto;
+        }
         .nav-links { display: flex; align-items: center; gap: 0.2rem; }
         .nav-links a {
             color: var(--text-dim);
@@ -222,7 +230,7 @@
 </head>
 <body>
     <nav>
-        <a href="./" class="nav-wordmark"><span>&#x1305F;</span> Thoth</a>
+        <a href="./" class="nav-wordmark"><img src="row_bot_glyph_256.png" alt="" class="nav-glyph"> Row-Bot</a>
         <div class="nav-links">
             <a href="./#features">Features</a>
             <a href="./#tools">Tools</a>
@@ -232,7 +240,7 @@
 
     <main>
         <p class="eyebrow">Contact</p>
-        <h1>Tell us what you are building with Thoth.</h1>
+        <h1>Tell us what you are building with Row-Bot.</h1>
         <p class="intro">
             Questions, feedback, partnership notes, release issues, and thoughtful bug reports are welcome.
             Security reports should go directly by email.
@@ -241,7 +249,7 @@
         <div class="contact-grid">
             <form action="https://formspree.io/f/mwvagdzv" method="POST" data-contact-form>
                 <div class="form-status" role="status" aria-live="polite" data-contact-status></div>
-                <input type="hidden" name="_subject" value="New Thoth website contact">
+                <input type="hidden" name="_subject" value="New Row-Bot website contact">
                 <input type="text" name="_gotcha" tabindex="-1" autocomplete="off" style="display:none">
 
                 <label for="name">Name</label>
@@ -271,7 +279,7 @@
                 <div class="link-stack">
                     <a class="btn btn--ghost" href="https://github.com/siddsachar/row-bot/discussions" target="_blank" data-track="contact_discussions">GitHub Discussions</a>
                     <a class="btn btn--ghost" href="https://github.com/siddsachar/row-bot/issues/new/choose" target="_blank" data-track="contact_issue">Open an Issue</a>
-                    <a class="btn btn--ghost" href="mailto:siddsachar@gmail.com?subject=Thoth%20security%20report" data-track="contact_security">Security Email</a>
+                    <a class="btn btn--ghost" href="mailto:siddsachar@gmail.com?subject=Row-Bot%20security%20report" data-track="contact_security">Security Email</a>
                 </div>
             </aside>
         </div>
@@ -289,9 +297,9 @@
         }
 
         function trackAdsConversion(params) {
-            if (typeof window.gtag === 'function' && window.THOTH_GOOGLE_ADS_CONVERSION_ID) {
+            if (typeof window.gtag === 'function' && window.ROW_BOT_GOOGLE_ADS_CONVERSION_ID) {
                 window.gtag('event', 'conversion', {
-                    send_to: window.THOTH_GOOGLE_ADS_CONVERSION_ID,
+                    send_to: window.ROW_BOT_GOOGLE_ADS_CONVERSION_ID,
                     ...(params || {})
                 });
             }

@@ -10,7 +10,7 @@ tags:
   - social
   - x
   - twitter
-author: Thoth
+author: Row-Bot
 ---
 
 X (TWITTER) TOOL GUIDANCE:

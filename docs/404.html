@@ -3,26 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>&#x1305F; Thoth - Page not found</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1305F;</text></svg>">
+    <title>Row-Bot - Page not found</title>
+    <link rel="icon" type="image/png" href="row_bot_glyph_256.png">
     <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
     <script>
-        window.THOTH_GA_MEASUREMENT_ID = 'G-0YYKPX5M5E';
-        window.THOTH_GOOGLE_ADS_ID = 'AW-847204616';
-        const thothGoogleTagId = window.THOTH_GA_MEASUREMENT_ID || window.THOTH_GOOGLE_ADS_ID;
-        if (thothGoogleTagId) {
+        window.ROW_BOT_GA_MEASUREMENT_ID = 'G-0YYKPX5M5E';
+        window.ROW_BOT_GOOGLE_ADS_ID = 'AW-847204616';
+        const rowBotGoogleTagId = window.ROW_BOT_GA_MEASUREMENT_ID || window.ROW_BOT_GOOGLE_ADS_ID;
+        if (rowBotGoogleTagId) {
             const gaScript = document.createElement('script');
             gaScript.async = true;
-            gaScript.src = 'https://www.googletagmanager.com/gtag/js?id=' + thothGoogleTagId;
+            gaScript.src = 'https://www.googletagmanager.com/gtag/js?id=' + rowBotGoogleTagId;
             document.head.appendChild(gaScript);
             window.dataLayer = window.dataLayer || [];
             window.gtag = function(){ dataLayer.push(arguments); };
             gtag('js', new Date());
-            if (window.THOTH_GA_MEASUREMENT_ID) {
-                gtag('config', window.THOTH_GA_MEASUREMENT_ID);
+            if (window.ROW_BOT_GA_MEASUREMENT_ID) {
+                gtag('config', window.ROW_BOT_GA_MEASUREMENT_ID);
             }
-            if (window.THOTH_GOOGLE_ADS_ID) {
-                gtag('config', window.THOTH_GOOGLE_ADS_ID);
+            if (window.ROW_BOT_GOOGLE_ADS_ID) {
+                gtag('config', window.ROW_BOT_GOOGLE_ADS_ID);
             }
         }
     </script>
@@ -34,8 +34,8 @@
             --text: #e2e6ed;
             --text-dim: #9aa3b4;
             --text-faint: #636d7e;
-            --accent: #c9a227;
-            --accent-hover: #dbb634;
+            --accent: #4F78A4;
+            --accent-hover: #6C93BC;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -53,10 +53,9 @@
         }
 
         .glyph {
-            font-size: 8rem;
-            opacity: 0.08;
-            color: var(--accent);
-            line-height: 1;
+            width: 8rem;
+            height: auto;
+            opacity: 0.14;
             margin-bottom: 1rem;
             user-select: none;
         }
@@ -101,10 +100,10 @@
     </style>
 </head>
 <body>
-    <div class="glyph">&#x1305F;</div>
+    <img class="glyph" src="row_bot_glyph_256.png" alt="">
     <div class="code">404 - Not Found</div>
     <h1>Nothing here</h1>
-    <p>This page doesn't exist. The ibis has no record of it.</p>
-    <a href="./">Back to Thoth</a>
+    <p>This page doesn't exist. Row-Bot has no route for it.</p>
+    <a href="./">Back to Row-Bot</a>
 </body>
 </html>

@@ -12,7 +12,7 @@ tags:
 
 # Custom Tool Builder Guide
 
-Use `custom_tool_builder` when the user asks to turn a GitHub repo, local folder, or current project into a reusable Thoth Custom Tool.
+Use `custom_tool_builder` when the user asks to turn a GitHub repo, local folder, or current project into a reusable Row-Bot Custom Tool.
 
 Default flow:
 1. Start with `action="start"`.

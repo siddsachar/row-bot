@@ -42,14 +42,14 @@ Shell is allowed in Developer Studio, but use it deliberately:
 - Prefer read/search/native Developer tools for repo inspection.
 - Use shell for test runs, build commands, git commands, package-manager commands, generated artifacts, and repo-specific scripts.
 - For common Git operations, prefer the dedicated Developer Git tools first; use shell for unusual Git flows only.
-- Use `developer_run_command` instead of a generic shell tool when possible so Thoth can scope the command to the workspace and record file side effects.
+- Use `developer_run_command` instead of a generic shell tool when possible so Row-Bot can scope the command to the workspace and record file side effects.
 - Match the workspace shell. On Windows/PowerShell, do not use POSIX heredocs such as `python - <<'PY'`; use PowerShell-safe commands or a Developer file tool.
 - Do not use shell writes as a workaround for ordinary file edits unless patch/write tools are unsuitable.
 - In Docker Sandbox mode, shell commands run in a persistent workspace container backed by a shadow copy. Review the pending sandbox patch before importing it into the real workspace.
 
 ## Custom Tools
 
-Use Custom Tools when the user wants to turn a repo or local folder into a reusable Thoth tool.
+Use Custom Tools when the user wants to turn a repo or local folder into a reusable Row-Bot tool.
 
 - Prefer the guided flow: inspect the source first, show the proposed commands, then create/register only after the user accepts the shape.
 - If the user asks naturally, e.g. "turn this repo into a tool" or "add this GitHub repo as a tool", handle it with the same inspect -> review -> create -> test -> enable/promote flow.
@@ -57,7 +57,7 @@ Use Custom Tools when the user wants to turn a repo or local folder into a reusa
 - Explain draft commands clearly before action `create`. Use action `refine` for natural-language adjustments instead of creating multiple one-off tools.
 - Public repo Custom Tools can be drafted from an explicit repo URL and clone destination; do not add hidden settings or edit internal JSON. Safety comes from command review, test approval/sandboxing, and separate enable/promote steps.
 - Do not ask the user to hand-write internal config files. If a repo needs command metadata, inspect it and generate the first config for review.
-- Removing a Custom Tool should remove Thoth metadata/plugin registration only; do not delete the source folder unless the user explicitly asks.
+- Removing a Custom Tool should remove Row-Bot metadata/plugin registration only; do not delete the source folder unless the user explicitly asks.
 
 ## Edit Hygiene
 

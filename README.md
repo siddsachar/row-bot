@@ -5,17 +5,17 @@
 <h1 align="center">Row-Bot</h1>
 
 <p align="center">
-   <a href="https://github.com/siddsachar/row-bot/releases"><img src="https://img.shields.io/github/v/release/siddsachar/row-bot?style=flat&label=release&color=c9a227" alt="Release"></a>
+   <a href="https://github.com/siddsachar/row-bot/releases"><img src="https://img.shields.io/github/v/release/siddsachar/row-bot?style=flat&label=release&color=4F78A4" alt="Release"></a>
    <a href="https://github.com/siddsachar/row-bot/actions/workflows/ci.yml"><img src="https://github.com/siddsachar/row-bot/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
    <a href="LICENSE"><img src="https://img.shields.io/github/license/siddsachar/row-bot?style=flat" alt="License"></a>
-   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-c9a227?style=flat" alt="Platform">
+   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-4F78A4?style=flat" alt="Platform">
 </p>
 
-Thoth is a local-first desktop AI assistant. It gives you chat, memory, tools, workflows, Developer Studio, Designer Studio, Custom Tools, plugins, messaging channels, and flexible model routing while keeping durable data on your machine.
+Row-Bot is a local-first desktop AI assistant. It gives you chat, memory, tools, workflows, Developer Studio, Designer Studio, Custom Tools, plugins, messaging channels, and flexible model routing while keeping durable data on your machine.
 
-Bring the model path that fits the job: local models through [Ollama](https://ollama.com/), OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, Ollama Cloud, ChatGPT / Codex subscription models, or custom OpenAI-compatible endpoints such as oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, and SGLang. Thoth keeps provider identity, model capabilities, context limits, and chat-only fallbacks explicit so local, hosted, and self-hosted models can coexist without surprise routing.
+Bring the model path that fits the job: local models through [Ollama](https://ollama.com/), OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, Ollama Cloud, ChatGPT / Codex subscription models, or custom OpenAI-compatible endpoints such as oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, and SGLang. Row-Bot keeps provider identity, model capabilities, context limits, and chat-only fallbacks explicit so local, hosted, and self-hosted models can coexist without surprise routing.
 
-The Thoth app has no account system, no Thoth-hosted server, and no telemetry pipeline. Provider keys and subscription tokens are stored in the OS credential store when available.
+The Row-Bot app has no account system, no Row-Bot-hosted server, and no telemetry pipeline. Provider keys and subscription tokens are stored in the OS credential store when available.
 
 Download the latest installer from [GitHub Releases](https://github.com/siddsachar/row-bot/releases). Windows and macOS use one-click installers. Linux has a one-line user installer.
 
@@ -97,7 +97,7 @@ For browser automation, Chromium may need distro packages that the tarball canno
 
 ## Quick Start
 
-On first launch, Thoth opens a setup wizard. Pick one of three paths:
+On first launch, Row-Bot opens a setup wizard. Pick one of three paths:
 
 | Mode | Use it when | Setup |
 |------|-------------|-------|
@@ -118,13 +118,13 @@ Common first prompts:
 - `Turn this GitHub repo into a Custom Tool`
 - `What did I ask about taxes last week?`
 
-For local and self-hosted servers, use a context window large enough for Thoth's agent prompt and tool schemas. A `4096` context can fail before the first chat turn with misleading prompt-template errors. `32768` is a practical starting point for agent mode. Models that are useful for normal conversation but not reliable with tools can still run through chat-only mode.
+For local and self-hosted servers, use a context window large enough for Row-Bot's agent prompt and tool schemas. A `4096` context can fail before the first chat turn with misleading prompt-template errors. `32768` is a practical starting point for agent mode. Models that are useful for normal conversation but not reliable with tools can still run through chat-only mode.
 
 ## Models, Keys, and Integrations
 
 Most tools work without API keys. Add keys only for the providers and integrations you use.
 
-Model catalog browsing, pinning, defaults, and Quick Choices live in Settings → Models. Model choices stay provider-qualified, so the same model ID from a local runtime, OpenRouter, a custom endpoint, or a direct provider remains distinct. Thoth also tracks whether a selected model is ready for full agent/tool use, should run chat-only, or needs a larger context window or different endpoint profile.
+Model catalog browsing, pinning, defaults, and Quick Choices live in Settings → Models. Model choices stay provider-qualified, so the same model ID from a local runtime, OpenRouter, a custom endpoint, or a direct provider remains distinct. Row-Bot also tracks whether a selected model is ready for full agent/tool use, should run chat-only, or needs a larger context window or different endpoint profile.
 
 | Service | Key or setup | Used for |
 |---------|--------------|----------|
@@ -147,28 +147,28 @@ Model catalog browsing, pinning, defaults, and Quick Choices live in Settings �
 | ngrok | `NGROK_AUTHTOKEN` | Tunnels for inbound webhooks. |
 | Gmail and Google Calendar | Google Cloud OAuth `credentials.json` | Email search/read/draft/send and calendar view/create/update/move/delete. |
 
-Configure providers in Settings, Channels, and Accounts. Keys and in-app ChatGPT / Codex tokens are stored in Windows Credential Manager, macOS Keychain, or Linux Secret Service/KWallet when available. `~/.thoth/api_keys.json` and `~/.thoth/providers.json` keep metadata only, such as saved state, provider status, Quick Choices, compatibility profiles, probe results, and masked fingerprints.
+Configure providers in Settings, Channels, and Accounts. Keys and in-app ChatGPT / Codex tokens are stored in Windows Credential Manager, macOS Keychain, or Linux Secret Service/KWallet when available. `~/.row-bot/api_keys.json` and `~/.row-bot/providers.json` keep metadata only, such as saved state, provider status, Quick Choices, compatibility profiles, probe results, and masked fingerprints.
 
 Embedding providers are configured separately from chat models. Local embeddings are available for private document and vector indexing. Optional cloud embeddings show a privacy warning because document text is sent to the selected embedding provider.
 
-External Codex CLI login files are metadata/reference only. Thoth can detect that a CLI login exists, but direct Codex runtime requires the in-app ChatGPT sign-in and does not copy runnable tokens from `~/.codex/auth.json`.
+External Codex CLI login files are metadata/reference only. Row-Bot can detect that a CLI login exists, but direct Codex runtime requires the in-app ChatGPT sign-in and does not copy runnable tokens from `~/.codex/auth.json`.
 
 ## Tools and Safety
 
-Thoth's tools can be enabled or disabled from Settings. Many tools expose multiple operations, Developer Studio adds code-specific tools, Custom Tools can be promoted after review, and running channels add send/photo/document tools automatically.
+Row-Bot's tools can be enabled or disabled from Settings. Many tools expose multiple operations, Developer Studio adds code-specific tools, Custom Tools can be promoted after review, and running channels add send/photo/document tools automatically.
 
 | Group | Included tools |
 |-------|----------------|
 | Search and knowledge | Tavily web search, DuckDuckGo, Wikipedia, arXiv, YouTube transcripts, URL reader, document search, wiki vault, memory graph, and conversation search. |
 | Productivity | Gmail, Google Calendar, filesystem, shell, visible Chromium browser automation, workflows, tracker, channel tools, and X. |
 | Media and design | Designer Studio, image generation/editing through OpenAI, Google, and xAI, video generation through Google Veo and xAI Grok Imagine Video, chart insertion, Mermaid, Plotly, and media persistence. |
-| Developer and extensibility | Developer Studio, Custom Tool Builder, promoted Custom Tools, external MCP tools, plugin tools, Claude Code Delegation, and Thoth Status. |
+| Developer and extensibility | Developer Studio, Custom Tool Builder, promoted Custom Tools, external MCP tools, plugin tools, Claude Code Delegation, and Row-Bot Status. |
 | Analysis | Calculator, Wolfram Alpha, weather, vision for camera/screen/workspace images, system info, and Plotly charts with PNG export. |
 
 Safety controls are built into the tool layer:
 
 - Destructive operations require confirmation, including file delete/move, moderate-risk shell commands, Gmail send, calendar move/delete, memory delete, tracker delete, and task delete.
-- Filesystem access is sandboxed to the configured workspace folder, which defaults to `~/Documents/Thoth`.
+- Filesystem access is sandboxed to the configured workspace folder, which defaults to `~/Documents/Row-Bot`.
 - Shell commands are classified as safe, moderate, or blocked. High-risk commands such as `shutdown`, `reboot`, and `mkfs` are blocked.
 - Background workflows can have per-task command prefix and email-recipient allowlists.
 - Browser tabs are isolated per thread and cleaned up when tasks or threads finish.
@@ -181,7 +181,7 @@ Safety controls are built into the tool layer:
 
 ## Architecture
 
-Thoth is organized around local orchestration, context assembly, memory, workflows, channels, Designer Studio, Developer Studio, plugin/MCP boundaries, and safety controls.
+Row-Bot is organized around local orchestration, context assembly, memory, workflows, channels, Designer Studio, Developer Studio, plugin/MCP boundaries, and safety controls.
 
 Explore the visual architecture gallery: [docs/architecture.html](docs/architecture.html)
 
@@ -189,20 +189,20 @@ Read the full architecture reference: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.m
 
 <table>
    <tr>
-      <td align="center"><a href="docs/Core_Agent_arch.jpg"><img src="docs/Core_Agent_arch.jpg" width="360" alt="Thoth core agent architecture"></a><br><strong>Core Agent</strong></td>
-      <td align="center"><a href="docs/Context_arch.jpg"><img src="docs/Context_arch.jpg" width="360" alt="Thoth context architecture"></a><br><strong>Context Assembly</strong></td>
+      <td align="center"><a href="docs/Core_Agent_arch.jpg"><img src="docs/Core_Agent_arch.jpg" width="360" alt="Row-Bot core agent architecture"></a><br><strong>Core Agent</strong></td>
+      <td align="center"><a href="docs/Context_arch.jpg"><img src="docs/Context_arch.jpg" width="360" alt="Row-Bot context architecture"></a><br><strong>Context Assembly</strong></td>
    </tr>
    <tr>
-      <td align="center"><a href="docs/Memory_arch.jpg"><img src="docs/Memory_arch.jpg" width="360" alt="Thoth memory system architecture"></a><br><strong>Memory System</strong></td>
-      <td align="center"><a href="docs/Workflows_arch.jpg"><img src="docs/Workflows_arch.jpg" width="360" alt="Thoth background workflow architecture"></a><br><strong>Background Workflows</strong></td>
+      <td align="center"><a href="docs/Memory_arch.jpg"><img src="docs/Memory_arch.jpg" width="360" alt="Row-Bot memory system architecture"></a><br><strong>Memory System</strong></td>
+      <td align="center"><a href="docs/Workflows_arch.jpg"><img src="docs/Workflows_arch.jpg" width="360" alt="Row-Bot background workflow architecture"></a><br><strong>Background Workflows</strong></td>
    </tr>
    <tr>
-      <td align="center"><a href="docs/Channels_arch.jpg"><img src="docs/Channels_arch.jpg" width="360" alt="Thoth multi-channel architecture"></a><br><strong>Multi-Channel Runtime</strong></td>
-      <td align="center"><a href="docs/Designer_arch.jpg"><img src="docs/Designer_arch.jpg" width="360" alt="Thoth Designer Studio architecture"></a><br><strong>Designer Studio</strong></td>
+      <td align="center"><a href="docs/Channels_arch.jpg"><img src="docs/Channels_arch.jpg" width="360" alt="Row-Bot multi-channel architecture"></a><br><strong>Multi-Channel Runtime</strong></td>
+      <td align="center"><a href="docs/Designer_arch.jpg"><img src="docs/Designer_arch.jpg" width="360" alt="Row-Bot Designer Studio architecture"></a><br><strong>Designer Studio</strong></td>
    </tr>
    <tr>
-      <td align="center"><a href="docs/Safety_arch.jpg"><img src="docs/Safety_arch.jpg" width="360" alt="Thoth safety privacy and control architecture"></a><br><strong>Safety, Privacy &amp; Control</strong></td>
-      <td align="center"><a href="docs/Self_Aware_arch.jpg"><img src="docs/Self_Aware_arch.jpg" width="360" alt="Thoth self-awareness and self-management architecture"></a><br><strong>Self-Awareness</strong></td>
+      <td align="center"><a href="docs/Safety_arch.jpg"><img src="docs/Safety_arch.jpg" width="360" alt="Row-Bot safety privacy and control architecture"></a><br><strong>Safety, Privacy &amp; Control</strong></td>
+      <td align="center"><a href="docs/Self_Aware_arch.jpg"><img src="docs/Self_Aware_arch.jpg" width="360" alt="Row-Bot self-awareness and self-management architecture"></a><br><strong>Self-Awareness</strong></td>
    </tr>
 </table>
 
@@ -214,11 +214,11 @@ Read the full architecture reference: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.m
 | Provider/custom models only | Windows 10/11 64-bit, macOS 12+, or glibc Linux x86_64; Python 3.11+; 4 GB RAM; about 1 GB disk; internet for provider inference. | No GPU required. Use this path if you do not want local model downloads. |
 | Developer Sandbox | Docker Desktop or a compatible Docker/Podman runtime. | Optional. Developer Studio also works with local execution in the selected repo. |
 
-Your default Brain model is set by the setup wizard. If you choose the local path, Thoth uses one of the models already exposed by your local runtime; 14B-class models are recommended for stronger agent/tool behavior, while smaller 8B-class models are better for 8 GB machines. Hosted and custom endpoint setups can skip local model downloads entirely.
+Your default Brain model is set by the setup wizard. If you choose the local path, Row-Bot uses one of the models already exposed by your local runtime; 14B-class models are recommended for stronger agent/tool behavior, while smaller 8B-class models are better for 8 GB machines. Hosted and custom endpoint setups can skip local model downloads entirely.
 
 ## From Source
 
-Install [Ollama](https://ollama.com/) first if you want Thoth's supported local model runtime. Provider-only and custom-endpoint setups can skip local model downloads.
+Install [Ollama](https://ollama.com/) first if you want Row-Bot's supported local model runtime. Provider-only and custom-endpoint setups can skip local model downloads.
 
 ```bash
 git clone https://github.com/siddsachar/row-bot.git
@@ -243,7 +243,7 @@ pip install -r requirements.txt
 python launcher.py
 ```
 
-On Windows and macOS, `launcher.py` starts the tray icon and opens the app on the first available local port, normally `http://localhost:8080`. On Linux it opens in the browser without a tray by default. If port 8080 is busy, Thoth picks the next free port.
+On Windows and macOS, `launcher.py` starts the tray icon and opens the app on the first available local port, normally `http://localhost:8080`. On Linux it opens in the browser without a tray by default. If port 8080 is busy, Row-Bot picks the next free port.
 
 Headless Linux/server mode:
 
@@ -257,7 +257,7 @@ Direct app launch:
 python app.py
 ```
 
-Direct launches default to `http://localhost:8080`. Set `THOTH_PORT` to choose a different port.
+Direct launches default to `http://localhost:8080`. Set `ROW_BOT_PORT` to choose a different port.
 
 Recovery helpers:
 
@@ -271,13 +271,13 @@ These commands back up local SQLite files before recreating or restoring known t
 
 ## Privacy
 
-Local model runs stay on your machine. Documents, memories, conversations, knowledge graph data, workflows, logs, and user settings are stored locally under `~/.thoth` or the platform-specific app data paths used by the installer.
+Local model runs stay on your machine. Documents, memories, conversations, knowledge graph data, workflows, logs, and user settings are stored locally under `~/.row-bot` or the platform-specific app data paths used by the installer.
 
 Provider and custom models are opt-in. When selected, the current conversation, model-visible tool context, and tool results are sent to that endpoint. Memories, documents, files, graph data, and other conversations stay local unless you explicitly include them in the current conversation or expose them through a tool result. Memory recall happens locally before any selected memory is inserted into the active turn.
 
 Developer Studio only touches repos you link or clone. Local execution runs in that repo. Docker Sandbox runs in a shadow copy and requires explicit import before changing the real repo. Custom Tools are opt-in, testable, removable, and only appear in normal chat after promotion.
 
-Thoth does not require a Thoth account, and there is no Thoth-hosted middleman for provider calls.
+Row-Bot does not require a Row-Bot account, and there is no Row-Bot-hosted middleman for provider calls.
 
 ## Project Docs
 

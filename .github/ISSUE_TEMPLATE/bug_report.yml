@@ -1,5 +1,5 @@
 name: Bug report
-description: Report something broken in Thoth
+description: Report something broken in Row-Bot
 title: "bug: "
 labels: [bug, needs-triage]
 body:
@@ -27,7 +27,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: Thoth version
+      label: Row-Bot version
       placeholder: v4.0.0
   - type: dropdown
     id: os

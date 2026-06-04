@@ -1,6 +1,6 @@
 # Code of Conduct
 
-Thoth is a personal-AI-sovereignty project. The community should be useful,
+Row-Bot is a personal-AI-sovereignty project. The community should be useful,
 direct, curious, and respectful.
 
 ## Expected behavior
