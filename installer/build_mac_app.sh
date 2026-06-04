@@ -140,23 +140,41 @@ info "[3/6] Copying source code..."
 
 mkdir -p "$MACOS_DIR" "$RESOURCES" "$APP_SRC"
 
-# Core Python files at project root (exclude legacy/backup files)
-for f in "$PROJECT_DIR"/*.py; do
-    [ -f "$f" ] || continue
-    base=$(basename "$f")
-    case "$base" in
-        workflows.py|seed_knowledge_graph.py) continue ;; # legacy, skip
-        test_*.py|test_suite.py|test_memory_e2e.py|integration_tests.py) continue ;; # test files, skip
-        _*.py) continue ;; # dev/temp scripts, skip
-    esac
-    cp "$f" "$APP_SRC/"
-done
-cp "$PROJECT_DIR/requirements.txt" "$APP_SRC/"
-mkdir -p "$APP_SRC/scripts"
-cp "$PROJECT_DIR/scripts/verify_runtime_dependencies.py" "$APP_SRC/scripts/"
+MANIFEST_PY="$PROJECT_DIR/scripts/app_payload_manifest.py"
+if [ ! -f "$MANIFEST_PY" ]; then
+    fail "App payload manifest not found: $MANIFEST_PY"
+fi
 
-# Sub-packages (tools, channels, bundled_skills, tool_guides, ui, plugins, designer, developer, utils, providers, mcp_client, skills_hub, migration, buddy, voice)
-for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client skills_hub migration buddy voice; do
+copy_payload_file() {
+    local rel="$1"
+    local src="$PROJECT_DIR/$rel"
+    local dest="$APP_SRC/$rel"
+    if [ ! -f "$src" ]; then
+        fail "Manifest file is missing: $rel"
+    fi
+    mkdir -p "$(dirname "$dest")"
+    cp "$src" "$dest"
+}
+
+while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    copy_payload_file "$rel"
+done < <(python3 "$MANIFEST_PY" --project-root "$PROJECT_DIR" --category root_python_files)
+
+while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    copy_payload_file "$rel"
+done < <(python3 "$MANIFEST_PY" --project-root "$PROJECT_DIR" --category root_files)
+
+while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    copy_payload_file "$rel"
+done < <(python3 "$MANIFEST_PY" --project-root "$PROJECT_DIR" --category runtime_script_files)
+
+# Historical contract now owned by scripts/app_payload_manifest.py:
+# for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client skills_hub migration buddy voice
+while IFS= read -r pkg; do
+    [ -n "$pkg" ] || continue
     if [ -d "$PROJECT_DIR/$pkg" ]; then
         rsync -a \
               --exclude='__pycache__' --exclude='*.pyc' \
@@ -165,22 +183,37 @@ for pkg in tools channels bundled_skills tool_guides ui plugins designer develop
               --exclude='*.test.js' --exclude='*.spec.js' \
               --filter='- *.bak' --filter='- *.bak[0-9]*' \
               "$PROJECT_DIR/$pkg/" "$APP_SRC/$pkg/"
+    else
+        fail "Manifest directory is missing: $pkg"
     fi
-done
+done < <(python3 "$MANIFEST_PY" --project-root "$PROJECT_DIR" --category payload_dirs)
 
-# Static assets and data directories
-for dir in static sounds; do
+# Static assets and data directories.
+# Historical contract now owned by scripts/app_payload_manifest.py:
+# for dir in static sounds;
+while IFS= read -r dir; do
+    [ -n "$dir" ] || continue
     if [ -d "$PROJECT_DIR/$dir" ]; then
         rsync -a --exclude='*.pyc' "$PROJECT_DIR/$dir/" "$APP_SRC/$dir/"
+    else
+        fail "Manifest asset directory is missing: $dir"
     fi
-done
+done < <(python3 "$MANIFEST_PY" --project-root "$PROJECT_DIR" --category asset_dirs)
 
 # Icons â€” generate .icns from PNG if not already present
-if [ ! -f "$PROJECT_DIR/row-bot.icns" ] && [ -f "$PROJECT_DIR/docs/row_bot_glyph.png" ]; then
-    info "Generating row-bot.icns from row_bot_glyph.png..."
+MAC_ICON_SOURCE=""
+while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    if [ -f "$PROJECT_DIR/$rel" ]; then
+        MAC_ICON_SOURCE="$rel"
+        break
+    fi
+done < <(python3 "$MANIFEST_PY" --project-root "$PROJECT_DIR" --category mac_icon_source_candidates)
+if [ ! -f "$PROJECT_DIR/row-bot.icns" ] && [ -n "$MAC_ICON_SOURCE" ]; then
+    info "Generating row-bot.icns from $MAC_ICON_SOURCE..."
     ICONSET_DIR="$BUILD_DIR/row-bot.iconset"
     mkdir -p "$ICONSET_DIR"
-    SRC_PNG="$PROJECT_DIR/docs/row_bot_glyph.png"
+    SRC_PNG="$PROJECT_DIR/$MAC_ICON_SOURCE"
     for sz in 16 32 64 128 256 512; do
         sips -z $sz $sz "$SRC_PNG" --out "$ICONSET_DIR/icon_${sz}x${sz}.png" >/dev/null 2>&1
     done
@@ -192,7 +225,6 @@ if [ ! -f "$PROJECT_DIR/row-bot.icns" ] && [ -f "$PROJECT_DIR/docs/row_bot_glyph
     ok "Generated row-bot.icns"
 fi
 [ -f "$PROJECT_DIR/row-bot.icns" ] && cp "$PROJECT_DIR/row-bot.icns" "$RESOURCES/row-bot.icns"
-[ -f "$PROJECT_DIR/row-bot.ico" ]  && cp "$PROJECT_DIR/row-bot.ico" "$APP_SRC/"
 
 ok "Source code copied"
 

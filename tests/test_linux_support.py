@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -9,6 +10,7 @@ from pathlib import Path
 import launcher
 import pytest
 import updater
+from scripts import app_payload_manifest
 from scripts import check_linux_native_baseline
 
 
@@ -18,6 +20,20 @@ def _linux_launcher_template() -> str:
     launcher_start = script.index("#!/usr/bin/env bash", start)
     launcher_end = script.index("\nLAUNCHER", launcher_start)
     return script[launcher_start:launcher_end]
+
+
+def _win_source_path(relative_path: str) -> str:
+    return "..\\" + relative_path.replace("/", "\\")
+
+
+def _windows_installer_sources() -> set[str]:
+    iss = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
+    return set(re.findall(r'Source:\s+"([^"]+)"', iss))
+
+
+def _windows_source_covers_dir(sources: set[str], directory: str) -> bool:
+    prefix = _win_source_path(directory + "/")
+    return any(source.startswith(prefix) for source in sources)
 
 
 def test_linux_asset_selection(monkeypatch):
@@ -105,6 +121,82 @@ def test_windows_asset_selection_accepts_legacy_setup_name(monkeypatch):
     assert info.sha256 == "d" * 64
 
 
+def test_root_launch_entrypoints_remain_source_compatible():
+    manifest = app_payload_manifest.build_manifest(Path("."))
+    app_src = Path("app.py").read_text(encoding="utf-8")
+    launcher_src = Path("launcher.py").read_text(encoding="utf-8")
+
+    assert "app.py" in manifest["root_python_files"]
+    assert "launcher.py" in manifest["root_python_files"]
+    assert 'if __name__ in {"__main__", "__mp_main__"}:' in app_src
+    assert "ui.run(**_run_kwargs)" in app_src
+    assert 'if __name__ == "__main__":\n    main()' in launcher_src
+
+
+def test_app_payload_manifest_declares_required_runtime_payload():
+    manifest = app_payload_manifest.build_manifest(Path("."))
+    payload_dirs = set(manifest["payload_dirs"])
+    asset_dirs = set(manifest["asset_dirs"])
+
+    assert {
+        "voice",
+        "buddy",
+        "migration",
+        "providers",
+        "mcp_client",
+        "plugins",
+        "skills_hub",
+        "tool_guides",
+        "bundled_skills",
+    } <= payload_dirs
+    assert {"static", "sounds"} <= asset_dirs
+    assert "requirements.txt" in manifest["root_files"]
+    assert "row-bot.ico" in manifest["root_files"]
+    assert "scripts/verify_runtime_dependencies.py" in manifest["runtime_script_files"]
+    assert "docs/row_bot_glyph_256.png" in manifest["linux_icon_candidates"]
+    assert "docs/row_bot_glyph.png" in manifest["mac_icon_source_candidates"]
+    assert "debug_tools.py" not in manifest["root_python_files"]
+
+    for relative_path in app_payload_manifest.app_payload_paths(Path(".")):
+        assert Path(relative_path).exists(), f"manifest path missing: {relative_path}"
+
+
+def test_mac_and_linux_builders_copy_from_app_payload_manifest():
+    linux_builder = Path("installer/build_linux_app.sh").read_text(encoding="utf-8")
+    mac_builder = Path("installer/build_mac_app.sh").read_text(encoding="utf-8")
+
+    for builder in (linux_builder, mac_builder):
+        assert "scripts/app_payload_manifest.py" in builder
+        for category in (
+            "root_python_files",
+            "root_files",
+            "runtime_script_files",
+            "payload_dirs",
+            "asset_dirs",
+        ):
+            assert f"--category {category}" in builder
+
+    assert "--category linux_icon_candidates" in linux_builder
+    assert "--category mac_icon_source_candidates" in mac_builder
+
+
+def test_windows_installer_payload_matches_app_manifest_contract():
+    manifest = app_payload_manifest.build_manifest(Path("."))
+    sources = _windows_installer_sources()
+
+    expected_files = (
+        manifest["root_python_files"]
+        + manifest["root_files"]
+        + manifest["runtime_script_files"]
+    )
+    missing_files = [path for path in expected_files if _win_source_path(path) not in sources]
+    assert not missing_files, f"Windows installer is missing manifest files: {missing_files}"
+
+    expected_dirs = manifest["payload_dirs"] + manifest["asset_dirs"]
+    missing_dirs = [path for path in expected_dirs if not _windows_source_covers_dir(sources, path)]
+    assert not missing_dirs, f"Windows installer is missing manifest directories: {missing_dirs}"
+
+
 def test_linux_install_marker_is_not_dev_install(monkeypatch, tmp_path):
     app_root = tmp_path / "current" / "app"
     app_root.mkdir(parents=True)
@@ -182,6 +274,7 @@ def test_linux_tarball_installs_into_xdg_tree(monkeypatch, tmp_path):
 def test_linux_build_script_declares_expected_package_contract():
     script = Path("installer/build_linux_app.sh").read_text(encoding="utf-8")
     requirements = Path("requirements.txt").read_text(encoding="utf-8")
+    manifest = app_payload_manifest.build_manifest(Path("."))
 
     assert "unknown-linux-gnu-install_only" in script
     assert 'PACKAGE_NAME="Row-Bot-${VERSION}-Linux-${PACKAGE_ARCH}"' in script
@@ -200,7 +293,9 @@ def test_linux_build_script_declares_expected_package_contract():
     assert "scripts/check_linux_native_baseline.py" in script
     assert "Checking native CPU baselines" in script
     for package in ("tools", "channels", "bundled_skills", "providers", "mcp_client", "migration", "voice"):
-        assert package in script
+        assert package in manifest["payload_dirs"]
+    for category in ("root_python_files", "root_files", "runtime_script_files", "payload_dirs", "asset_dirs"):
+        assert f"--category {category}" in script
 
 
 def test_linux_native_baseline_check_blocks_x86_v2_metadata():
@@ -425,17 +520,37 @@ def test_packagers_exclude_tests_directory():
     windows_installer = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
     linux_builder = Path("installer/build_linux_app.sh").read_text(encoding="utf-8")
     mac_builder = Path("installer/build_mac_app.sh").read_text(encoding="utf-8")
+    manifest = app_payload_manifest.build_manifest(Path("."))
 
     assert "tests" not in windows_installer
     assert "OutputBaseFilename=Row-Bot-{#MyAppVersion}-Windows-x64" in windows_installer
     assert " tests" not in linux_builder
     assert " tests" not in mac_builder
-    assert "test_*.py|test_suite.py|test_memory_e2e.py|integration_tests.py" in linux_builder
-    assert "test_*.py|test_suite.py|test_memory_e2e.py|integration_tests.py" in mac_builder
-    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client skills_hub migration buddy voice" in linux_builder
-    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client skills_hub migration buddy voice" in mac_builder
-    assert "for dir in static sounds;" in linux_builder
-    assert "for dir in static sounds;" in mac_builder
+    assert not any(name.startswith("test_") for name in manifest["root_python_files"])
+    assert not any(name.endswith("_test.py") for name in manifest["root_python_files"])
+    assert not any(name.endswith("_harness.py") for name in manifest["root_python_files"])
+    assert {
+        "tools",
+        "channels",
+        "bundled_skills",
+        "tool_guides",
+        "ui",
+        "plugins",
+        "designer",
+        "developer",
+        "utils",
+        "providers",
+        "mcp_client",
+        "skills_hub",
+        "migration",
+        "buddy",
+        "voice",
+    } <= set(manifest["payload_dirs"])
+    assert {"static", "sounds"} <= set(manifest["asset_dirs"])
+    for builder in (linux_builder, mac_builder):
+        assert "scripts/app_payload_manifest.py" in builder
+        assert "--category payload_dirs" in builder
+        assert "--category asset_dirs" in builder
     assert "--exclude='node_modules'" in linux_builder
     assert "--exclude='node_modules'" in mac_builder
     assert "Linux package payload contains test or harness artifacts" in linux_builder
