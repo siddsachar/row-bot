@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # =============================================================================
 # Start Row-Bot.command â€” macOS one-click installer & launcher
 #

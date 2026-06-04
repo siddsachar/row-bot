@@ -1,4 +1,4 @@
-﻿---
+---
 name: row_bot_status_guide
 display_name: Row-Bot Status Guide
 icon: "🪞"

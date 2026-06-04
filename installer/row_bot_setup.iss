@@ -1,4 +1,4 @@
-﻿; =============================================================================
+; =============================================================================
 ; Row-Bot v4.0.0 - Inno Setup Script
 ; Self-contained installer: bundles embedded Python with all pip packages
 ; pre-installed.  No internet downloads at install time.

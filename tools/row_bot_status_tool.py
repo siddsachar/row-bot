@@ -1,4 +1,4 @@
-﻿"""Row-Bot status / introspection tool — lets the agent query its own configuration.
+"""Row-Bot status / introspection tool — lets the agent query its own configuration.
 
 Provides read operations (always allowed) for settings, channel status,
 memory stats, model info, provider status, and API key validity. Write operations

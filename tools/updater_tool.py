@@ -1,4 +1,4 @@
-﻿"""Updater tool — agent-facing wrappers around updater.py.
+"""Updater tool — agent-facing wrappers around updater.py.
 
 Provides:
 - ``row_bot_check_for_updates`` — read-only poll

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # =============================================================================
 # build_linux_app.sh - Build self-contained Row-Bot Linux tarball
 #

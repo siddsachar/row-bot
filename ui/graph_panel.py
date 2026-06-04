@@ -549,7 +549,7 @@ def build_graph_panel() -> None:
         '    G.wireControls();'
         '    G.createNetwork(G.allNodes, G.allEdges, G.centerId);'
         '    G.applyFilters();'   # Apply default filters AFTER network exists
-        '    window.rowBotGraphRedraw = function() {'
+        '    window.rowBotGraphRedraw = window.thothGraphRedraw = function() {'
         '      if (!document.getElementById("graph-container")) return;'
         '      G.wireControls();'
         '      G.createNetwork(G.currentNodes, G.currentEdges, null);'

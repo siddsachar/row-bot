@@ -1,4 +1,4 @@
-﻿# Building Row-Bot Installers
+# Building Row-Bot Installers
 
 This guide explains how to build distributable Row-Bot installers and packages.
 

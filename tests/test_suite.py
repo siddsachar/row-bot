@@ -1060,7 +1060,7 @@ try:
         record("FAIL", "prompt: anti-fabrication rule missing")
 
     # Identity line
-    if "You are Thoth" in AGENT_SYSTEM_PROMPT:
+    if "You are Row-Bot" in AGENT_SYSTEM_PROMPT:
         record("PASS", "prompt: identity line")
     else:
         record("FAIL", "prompt: identity line missing")
@@ -3329,11 +3329,11 @@ try:
     else:
         record("FAIL", "vis: JS state not namespaced on window._rowBotGraph")
 
-    # --- 27z. thothGraphRedraw calls wireControls for full reinit ---------
-    if "thothGraphRedraw" in _app_src and "wireControls" in _app_src:
-        record("PASS", "vis: thothGraphRedraw with wireControls for full reinit")
+    # --- 27z. rowBotGraphRedraw calls wireControls for full reinit --------
+    if "rowBotGraphRedraw" in _app_src and "wireControls" in _app_src:
+        record("PASS", "vis: rowBotGraphRedraw with wireControls for full reinit")
     else:
-        record("FAIL", "vis: thothGraphRedraw or wireControls missing")
+        record("FAIL", "vis: rowBotGraphRedraw or wireControls missing")
 
     # --- 27aa. vis-network loaded in head_html module (global, not per-panel)
     _vis_in_head = "vis-network.min.js" in _app_src and "add_head_html" in _app_src
@@ -3342,11 +3342,11 @@ try:
     else:
         record("FAIL", "vis: vis-network.min.js not found in add_head_html block")
 
-    # --- 27ab. _on_tab_change uses setTimeout before thothGraphRedraw -----
-    if "setTimeout" in _app_src and "thothGraphRedraw" in _app_src:
-        record("PASS", "vis: tab change uses setTimeout before thothGraphRedraw")
+    # --- 27ab. _on_tab_change uses setTimeout before rowBotGraphRedraw ----
+    if "setTimeout" in _app_src and "rowBotGraphRedraw" in _app_src:
+        record("PASS", "vis: tab change uses setTimeout before rowBotGraphRedraw")
     else:
-        record("FAIL", "vis: tab change missing setTimeout for thothGraphRedraw")
+        record("FAIL", "vis: tab change missing setTimeout for rowBotGraphRedraw")
 
 except Exception as e:
     record("FAIL", "visualization tests", f"{type(e).__name__}: {e}")
@@ -7394,15 +7394,15 @@ try:
         "graph_to_vis_json must add 'id' field to edges"
     record("PASS", "doc-extract: graph_to_vis_json edges include id field")
 
-    # ── 46r. thothGraphRedraw calls applyFilters after createNetwork ─
-    _redraw_idx = _gp_text.find("thothGraphRedraw")
-    assert _redraw_idx > 0, "thothGraphRedraw not found"
+    # ── 46r. rowBotGraphRedraw calls applyFilters after createNetwork ─
+    _redraw_idx = _gp_text.find("rowBotGraphRedraw")
+    assert _redraw_idx > 0, "rowBotGraphRedraw not found"
     _redraw_block = _gp_text[_redraw_idx:_redraw_idx + 500]
     _cn_r = _redraw_block.find("G.createNetwork")
     _af_r = _redraw_block.find("G.applyFilters")
-    assert _cn_r > 0 and _af_r > 0, "createNetwork or applyFilters not in thothGraphRedraw"
-    assert _cn_r < _af_r, "thothGraphRedraw must call createNetwork before applyFilters"
-    record("PASS", "doc-extract: thothGraphRedraw has createNetwork then applyFilters")
+    assert _cn_r > 0 and _af_r > 0, "createNetwork or applyFilters not in rowBotGraphRedraw"
+    assert _cn_r < _af_r, "rowBotGraphRedraw must call createNetwork before applyFilters"
+    record("PASS", "doc-extract: rowBotGraphRedraw has createNetwork then applyFilters")
 
     # ── 46s. settings.py imports remove_document ─────────────────────
     _settings_src = (PROJECT_ROOT / "ui" / "settings.py").read_text(encoding="utf-8")
@@ -11837,8 +11837,8 @@ try:
     record("PASS", "51v: JsonFormatter timestamp has millisecond precision")
 
     # 51w: app.py has startup/shutdown logging
-    assert "Thoth startup initiated" in _app_src
-    assert "Thoth startup complete" in _app_src
+    assert "startup initiated" in _app_src and "APP_DISPLAY_NAME" in _app_src
+    assert "startup complete" in _app_src and "APP_DISPLAY_NAME" in _app_src
     record("PASS", "51w: app.py has startup lifecycle logging")
 
 except Exception as e:

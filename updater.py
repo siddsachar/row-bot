@@ -1,4 +1,4 @@
-﻿"""Row-Bot in-app auto-update — polls GitHub Releases, downloads installers,
+"""Row-Bot in-app auto-update — polls GitHub Releases, downloads installers,
 verifies SHA256 + OS code signatures, and hands off to the OS installer.
 
 Design principles

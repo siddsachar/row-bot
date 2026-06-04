@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # =============================================================================
 # build_mac_release.sh â€” Package Row-Bot into a distributable macOS zip
 #

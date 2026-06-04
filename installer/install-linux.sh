@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # Install the latest Row-Bot Linux XDG tarball from GitHub Releases.
 
 set -euo pipefail

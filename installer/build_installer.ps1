@@ -1,4 +1,4 @@
-﻿# =============================================================================
+# =============================================================================
 # build_installer.ps1
 # Downloads embedded Python + get-pip.py, bundles tkinter, pre-installs all
 # pip packages, then compiles a self-contained Inno Setup installer.

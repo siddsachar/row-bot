@@ -1,4 +1,4 @@
-﻿---
+---
 name: updater_guide
 display_name: Auto-Update Guide
 icon: "⬆"

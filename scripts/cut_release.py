@@ -1,4 +1,4 @@
-﻿"""Prepare Row-Bot release version bumps.
+"""Prepare Row-Bot release version bumps.
 
 Usage:
     python scripts/cut_release.py 3.19.0

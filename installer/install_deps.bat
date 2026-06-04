@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 :: ============================================================================
 :: Row-Bot v4.0.0 â€“ Post-install dependency setup
 :: Called by Inno Setup after file extraction.

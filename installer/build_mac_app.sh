@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # =============================================================================
 # build_mac_app.sh â€” Build self-contained Row-Bot.app + .pkg installer
 #
