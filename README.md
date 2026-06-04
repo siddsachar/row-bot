@@ -5,9 +5,9 @@
 <h1 align="center">Row-Bot</h1>
 
 <p align="center">
-   <a href="https://github.com/siddsachar/Thoth/releases"><img src="https://img.shields.io/github/v/release/siddsachar/Thoth?style=flat&label=release&color=c9a227" alt="Release"></a>
-   <a href="https://github.com/siddsachar/Thoth/actions/workflows/ci.yml"><img src="https://github.com/siddsachar/Thoth/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-   <a href="LICENSE"><img src="https://img.shields.io/github/license/siddsachar/Thoth?style=flat" alt="License"></a>
+   <a href="https://github.com/siddsachar/row-bot/releases"><img src="https://img.shields.io/github/v/release/siddsachar/row-bot?style=flat&label=release&color=c9a227" alt="Release"></a>
+   <a href="https://github.com/siddsachar/row-bot/actions/workflows/ci.yml"><img src="https://github.com/siddsachar/row-bot/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+   <a href="LICENSE"><img src="https://img.shields.io/github/license/siddsachar/row-bot?style=flat" alt="License"></a>
    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-c9a227?style=flat" alt="Platform">
 </p>
 
@@ -17,7 +17,7 @@ Bring the model path that fits the job: local models through [Ollama](https://ol
 
 The Thoth app has no account system, no Thoth-hosted server, and no telemetry pipeline. Provider keys and subscription tokens are stored in the OS credential store when available.
 
-Download the latest installer from [GitHub Releases](https://github.com/siddsachar/Thoth/releases). Windows and macOS use one-click installers. Linux has a one-line user installer.
+Download the latest installer from [GitHub Releases](https://github.com/siddsachar/row-bot/releases). Windows and macOS use one-click installers. Linux has a one-line user installer.
 
 <table align="center">
   <tr>
@@ -50,17 +50,17 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full subsystem referenc
 
 ### Windows
 
-1. Download the latest [Windows installer](https://github.com/siddsachar/Thoth/releases/latest).
+1. Download the latest [Windows installer](https://github.com/siddsachar/row-bot/releases/latest).
 2. Run it. The installer bundles the embedded Python runtime, app source, and Python dependencies. Ollama is optional and only needed for local models.
-3. Launch Thoth from the Start Menu or desktop shortcut.
+3. Launch Row-Bot from the Start Menu or desktop shortcut.
 
-User data lives in `%USERPROFILE%\.thoth`. Repairing or upgrading replaces the bundled runtime and preserves your data. Startup logs are written to `%USERPROFILE%\.thoth\thoth_app.log`, including recovery hints for known optional audio package issues such as TorchCodec.
+User data lives in `%USERPROFILE%\.row-bot`. Repairing or upgrading replaces the bundled runtime and preserves your data. Startup logs are written to `%USERPROFILE%\.row-bot\row_bot_app.log`, including recovery hints for known optional audio package issues such as TorchCodec.
 
 ### macOS
 
-1. Download the latest [macOS DMG](https://github.com/siddsachar/Thoth/releases/latest).
-2. Drag `Thoth.app` into Applications.
-3. Launch Thoth from Applications or Launchpad.
+1. Download the latest [macOS DMG](https://github.com/siddsachar/row-bot/releases/latest).
+2. Drag `Row-Bot.app` into Applications.
+3. Launch Row-Bot from Applications or Launchpad.
 
 The first run may ask you to confirm that the app was downloaded from the internet. The packaged app uses its bundled Python runtime and dependencies, and it starts Ollama if Ollama is already installed. Apple Silicon and Intel Macs are supported on macOS 12+.
 
@@ -71,27 +71,27 @@ If you only want provider models or a custom endpoint, you can skip model downlo
 Run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/siddsachar/Thoth/main/installer/install-linux.sh | bash
+curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash
 ```
 
 To install a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/siddsachar/Thoth/main/installer/install-linux.sh | bash -s -- 3.23.1
+curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash -s -- 4.0.0
 ```
 
-The installer downloads the release tarball, verifies its SHA256 from the GitHub release manifest, installs under `~/.local/share/thoth`, creates `~/.local/bin/thoth`, and stores user data in `~/.thoth`. The default Linux build opens in your system browser. Native window and tray support are available when the required GTK, Qt, and AppIndicator libraries are installed.
+The installer downloads the release tarball, verifies its SHA256 from the GitHub release manifest, installs under `~/.local/share/row-bot`, creates `~/.local/bin/row-bot`, and stores user data in `~/.row-bot`. The default Linux build opens in your system browser. Native window and tray support are available when the required GTK, Qt, and AppIndicator libraries are installed.
 
 Manual tarball install:
 
 ```bash
-tar -xzf Thoth-X.Y.Z-Linux-x86_64.tar.gz
-cd Thoth-X.Y.Z-Linux-x86_64
+tar -xzf Row-Bot-X.Y.Z-Linux-x86_64.tar.gz
+cd Row-Bot-X.Y.Z-Linux-x86_64
 ./install.sh
-thoth
+row-bot
 ```
 
-If `~/.local/bin` is not on `PATH`, run `~/.local/bin/thoth` or add it to your shell profile. On Linux, provider secrets use Secret Service or KWallet when available. WSL and headless systems can run without a keyring, but new secrets are session-only until secure storage is configured.
+If `~/.local/bin` is not on `PATH`, run `~/.local/bin/row-bot` or add it to your shell profile. On Linux, provider secrets use Secret Service or KWallet when available. WSL and headless systems can run without a keyring, but new secrets are session-only until secure storage is configured.
 
 For browser automation, Chromium may need distro packages that the tarball cannot install. If Playwright reports missing dependencies, run the command it prints, or use `python -m playwright install --with-deps chromium` from a source checkout.
 
@@ -221,8 +221,8 @@ Your default Brain model is set by the setup wizard. If you choose the local pat
 Install [Ollama](https://ollama.com/) first if you want Thoth's supported local model runtime. Provider-only and custom-endpoint setups can skip local model downloads.
 
 ```bash
-git clone https://github.com/siddsachar/Thoth.git
-cd Thoth
+git clone https://github.com/siddsachar/row-bot.git
+cd row-bot
 python -m venv .venv
 ```
 

@@ -2,6 +2,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tarfile
 from pathlib import Path
 
@@ -301,10 +302,13 @@ def test_linux_launcher_resolves_installed_symlink_chain(tmp_path):
 def test_linux_one_line_installer_declares_verified_release_contract():
     script = Path("installer/install-linux.sh").read_text(encoding="utf-8")
 
+    assert "siddsachar/row-bot" in script
+    assert "siddsachar/Thoth" not in script
     assert "api.github.com/repos/${REPO}" in script
     assert "releases/latest" in script
     assert "releases/tags/v${REQUESTED_VERSION#v}" in script
     assert "Row-Bot-{re.escape(tag)}-Linux-{re.escape(arch)}" in script
+    assert "Row-Bot-[0-9A-Za-z][0-9A-Za-z.-]*-Linux-" in script
     assert "row-bot-update-manifest" in script
     assert "sha256sum -c" in script
     assert "bash \"$PACKAGE_ROOT/install.sh\"" in script
@@ -357,6 +361,7 @@ def test_release_workflows_reference_linux_artifact():
     manifest = Path(".github/workflows/update-manifest.yml").read_text(encoding="utf-8")
     ci = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
     installer_docs = Path("installer/README.md").read_text(encoding="utf-8")
+    readme = Path("README.md").read_text(encoding="utf-8")
 
     assert "build-linux" in release
     assert "installer/build_linux_app.sh" in release
@@ -381,11 +386,39 @@ def test_release_workflows_reference_linux_artifact():
     assert "\"$HOME/.local/bin/row-bot\" --server --no-open --port 8091 --no-ollama" in linux_smoke
     assert "Row-Bot-*-Linux-*.tar.gz" in manifest
     assert "Row-Bot-*-Windows-*.exe" in manifest
-    assert "RowBotSetup_*.exe" in manifest
+    assert "RowBotSetup_*.exe" not in manifest
     assert "curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash" in installer_docs
+    assert "curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash" in readme
+    assert "https://github.com/siddsachar/row-bot/releases/latest" in readme
+    assert "https://github.com/siddsachar/Thoth/releases/latest" not in readme
     assert "published GitHub Release assets" in installer_docs
     assert f"bash installer/build_linux_app.sh {__version__}" in installer_docs
     assert f"bash build_linux_app.sh {__version__}" in installer_docs
+
+
+def test_release_manifest_script_uses_brand_contract():
+    from brand import APP_REPOSITORY, UPDATE_MANIFEST_MARKER, UPDATER_USER_AGENT
+    from scripts import append_sha_manifest
+
+    block = append_sha_manifest.build_manifest_block({"Row-Bot-4.0.0-Windows-x64.exe": "e" * 64})
+
+    assert f"<!-- {UPDATE_MANIFEST_MARKER} -->" in block
+    assert "Row-Bot-4.0.0-Windows-x64.exe: sha256=" + "e" * 64 in block
+    assert append_sha_manifest.APP_REPOSITORY == APP_REPOSITORY
+    assert append_sha_manifest.UPDATER_USER_AGENT == UPDATER_USER_AGENT
+
+    help_result = subprocess.run(
+        [sys.executable, "scripts/append_sha_manifest.py", "--help"],
+        text=True,
+        capture_output=True,
+        check=True,
+        timeout=20,
+    )
+    assert "--repo" in help_result.stdout
+
+
+def test_v4_is_newer_than_latest_v3_for_update_checks():
+    assert updater.compare_versions("3.23.1", "4.0.0") > 0
 
 
 def test_packagers_exclude_tests_directory():

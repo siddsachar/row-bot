@@ -5,8 +5,8 @@ been uploaded. The manifest is the source of truth used by Row-Bot's
 in-app updater to verify downloads.
 
 Inputs (env vars / CLI):
-    --tag           release tag, e.g. v3.19.0
-    --repo          owner/repo, e.g. siddsachar/row-bot
+    --tag           release tag, e.g. v4.0.0
+    --repo          owner/repo, defaults to the Row-Bot repository
     --token         GitHub token with `contents: write` (default: $GITHUB_TOKEN)
     --files         space- or comma-separated paths to artifacts to hash
                     (default: globbed from $RUNNER_TEMP / cwd)
@@ -32,8 +32,14 @@ import sys
 import urllib.error
 import urllib.request
 
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from brand import APP_REPOSITORY, UPDATE_MANIFEST_MARKER, UPDATER_USER_AGENT
+
 _MANIFEST_RE = re.compile(
-    r"<!--\s*row-bot-update-manifest\s*-->\s*```manifest.*?```",
+    rf"<!--\s*{re.escape(UPDATE_MANIFEST_MARKER)}\s*-->\s*```manifest.*?```",
     re.DOTALL | re.IGNORECASE,
 )
 
@@ -47,7 +53,7 @@ def sha256_of(path: pathlib.Path) -> str:
 
 
 def build_manifest_block(file_hashes: dict[str, str]) -> str:
-    lines = ["<!-- row-bot-update-manifest -->", "```manifest", "schema: 1", "files:"]
+    lines = [f"<!-- {UPDATE_MANIFEST_MARKER} -->", "```manifest", "schema: 1", "files:"]
     for name in sorted(file_hashes):
         lines.append(f"  {name}: sha256={file_hashes[name]}")
     lines.append("```")
@@ -73,7 +79,7 @@ def _api(url: str, token: str, method: str = "GET", payload: dict | None = None)
         headers={
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
-            "User-Agent": "row-bot-release-manifest",
+            "User-Agent": UPDATER_USER_AGENT,
             "X-GitHub-Api-Version": "2022-11-28",
             **({"Content-Type": "application/json"} if data else {}),
         },
@@ -85,7 +91,7 @@ def _api(url: str, token: str, method: str = "GET", payload: dict | None = None)
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--tag", required=True)
-    parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY"))
+    parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY") or APP_REPOSITORY)
     parser.add_argument("--token", default=os.environ.get("GITHUB_TOKEN"))
     parser.add_argument("--files", nargs="+", required=True,
                         help="Artifact paths to include in the manifest")

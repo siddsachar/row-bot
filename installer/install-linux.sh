@@ -75,7 +75,7 @@ for candidate in release.get("assets") or []:
         asset = candidate
         break
 if asset is None:
-    fallback = re.compile(rf"^Row-Bot-[^-]+-Linux-{re.escape(arch)}\.tar\.gz$")
+    fallback = re.compile(rf"^Row-Bot-[0-9A-Za-z][0-9A-Za-z.-]*-Linux-{re.escape(arch)}\.tar\.gz$")
     for candidate in release.get("assets") or []:
         name = str(candidate.get("name") or "")
         if fallback.match(name):

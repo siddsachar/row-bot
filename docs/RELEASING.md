@@ -103,6 +103,16 @@ Row-Bot uses semantic versioning:
    the release body.
 11. Test the packaged updater from the previous stable version on each platform.
 
+## v4 Rebrand Upgrade Note
+
+Row-Bot v4 uses Row-Bot release asset names and the Row-Bot SHA256 manifest
+marker. Pre-v4 in-app updaters recognize only the old 3.x artifact and manifest
+contract, so do not upload duplicate legacy-named v4 assets to bridge that gap.
+For the v4 jump, direct existing users to download and run the Row-Bot v4
+installer manually; the startup migration remains copy-first and non-destructive.
+Future Row-Bot releases are discoverable by the Row-Bot updater using the v4
+asset contract.
+
 ## Linux Release Notes
 
 Linux is shipped as a one-line installer backed by a self-contained XDG

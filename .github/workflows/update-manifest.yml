@@ -66,11 +66,10 @@ jobs:
               --repo "$repo" \
               --dir artifacts \
               --pattern "Row-Bot-*-Windows-*.exe" \
-              --pattern "RowBotSetup_*.exe" \
               --pattern "Row-Bot-*-macOS-*.dmg" \
               --pattern "Row-Bot-*-Linux-*.tar.gz" || true
             shopt -s nullglob
-            files=(artifacts/Row-Bot-*-Windows-*.exe artifacts/RowBotSetup_*.exe artifacts/Row-Bot-*-macOS-*.dmg artifacts/Row-Bot-*-Linux-*.tar.gz)
+            files=(artifacts/Row-Bot-*-Windows-*.exe artifacts/Row-Bot-*-macOS-*.dmg artifacts/Row-Bot-*-Linux-*.tar.gz)
             if [ ${#files[@]} -gt 0 ]; then
               echo "Found ${#files[@]} asset(s) on attempt $i"
               break
@@ -86,7 +85,7 @@ jobs:
         run: |
           # Collect every artifact we downloaded
           shopt -s nullglob
-          files=(artifacts/Row-Bot-*-Windows-*.exe artifacts/RowBotSetup_*.exe artifacts/Row-Bot-*-macOS-*.dmg artifacts/Row-Bot-*-Linux-*.tar.gz)
+          files=(artifacts/Row-Bot-*-Windows-*.exe artifacts/Row-Bot-*-macOS-*.dmg artifacts/Row-Bot-*-Linux-*.tar.gz)
           if [ ${#files[@]} -eq 0 ]; then
             echo "No installer artifacts found for ${{ steps.tag.outputs.value }} - skipping manifest"
             exit 0
