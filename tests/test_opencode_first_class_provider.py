@@ -110,7 +110,7 @@ def test_phase0_single_provider_can_require_multiple_transports():
 def test_phase0_existing_configured_provider_listing_excludes_opencode(monkeypatch):
     monkeypatch.setattr(runtime, "is_provider_available", lambda provider_id: provider_id in {"openai", "minimax"})
     monkeypatch.setattr(runtime, "provider_status", lambda provider_id: {"configured": False})
-    monkeypatch.setattr("providers.custom.list_custom_endpoints", lambda: [])
+    monkeypatch.setattr("row_bot.providers.custom.list_custom_endpoints", lambda: [])
 
     assert runtime.list_configured_provider_ids() == ["openai", "minimax"]
 
@@ -132,13 +132,13 @@ def test_phase1_configured_provider_listing_includes_only_keyed_opencode(monkeyp
     available = {"opencode_go"}
     monkeypatch.setattr(runtime, "is_provider_available", lambda provider_id: provider_id in available)
     monkeypatch.setattr(runtime, "provider_status", lambda provider_id: {"configured": False})
-    monkeypatch.setattr("providers.custom.list_custom_endpoints", lambda: [])
+    monkeypatch.setattr("row_bot.providers.custom.list_custom_endpoints", lambda: [])
 
     assert runtime.list_configured_provider_ids() == ["opencode_go"]
 
 
 def test_phase2_provider_qualified_cache_rows_are_distinct_from_bare_provider_rows(monkeypatch):
-    monkeypatch.setattr("providers.model_catalog._provider_status_by_id", lambda: {
+    monkeypatch.setattr("row_bot.providers.model_catalog._provider_status_by_id", lambda: {
         "openrouter": {"configured": True},
         "opencode_go": {"configured": True},
     })
@@ -159,7 +159,7 @@ def test_phase2_provider_qualified_cache_rows_are_distinct_from_bare_provider_ro
 
 
 def test_phase2_opencode_minimax_id_does_not_impersonate_direct_minimax(monkeypatch):
-    monkeypatch.setattr("providers.model_catalog._provider_status_by_id", lambda: {
+    monkeypatch.setattr("row_bot.providers.model_catalog._provider_status_by_id", lambda: {
         "minimax": {"configured": True},
         "opencode_zen": {"configured": True},
     })
@@ -199,7 +199,7 @@ def test_phase2_legacy_cache_conversion_reads_provider_qualified_keys():
 
 def test_phase2_quick_choices_keep_same_opencode_model_id_unambiguous(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr("api_keys.get_cloud_config", lambda: {"starred_models": []})
+    monkeypatch.setattr("row_bot.api_keys.get_cloud_config", lambda: {"starred_models": []})
 
     add_quick_choice_for_model(
         "glm-5.1",
@@ -400,7 +400,7 @@ def test_followup_opencode_live_input_modalities_override_static_vision_metadata
 
 
 def test_phase3_opencode_models_appear_in_catalog_with_canonical_refs(monkeypatch):
-    monkeypatch.setattr("providers.model_catalog._provider_status_by_id", lambda: {
+    monkeypatch.setattr("row_bot.providers.model_catalog._provider_status_by_id", lambda: {
         "opencode_zen": {"configured": True},
         "opencode_go": {"configured": True},
     })
@@ -542,7 +542,7 @@ def test_phase4_missing_opencode_key_uses_opencode_specific_error(monkeypatch):
 
 
 def test_phase5_supported_opencode_chat_model_is_selectable_and_agent_ready(monkeypatch):
-    monkeypatch.setattr("providers.readiness.provider_status", lambda provider_id: {"configured": True})
+    monkeypatch.setattr("row_bot.providers.readiness.provider_status", lambda provider_id: {"configured": True})
 
     result = evaluate_runtime_readiness(
         "model:opencode_go:glm-5.1",
@@ -557,7 +557,7 @@ def test_phase5_supported_opencode_chat_model_is_selectable_and_agent_ready(monk
 
 
 def test_phase5_opencode_responses_model_is_agent_ready(monkeypatch):
-    monkeypatch.setattr("providers.readiness.provider_status", lambda provider_id: {"configured": True})
+    monkeypatch.setattr("row_bot.providers.readiness.provider_status", lambda provider_id: {"configured": True})
 
     result = evaluate_agent_readiness(
         "model:opencode_zen:gpt-5.5",
@@ -569,7 +569,7 @@ def test_phase5_opencode_responses_model_is_agent_ready(monkeypatch):
 
 
 def test_phase5_opencode_gemini_route_is_blocked_with_deferred_reason(monkeypatch):
-    monkeypatch.setattr("providers.readiness.provider_status", lambda provider_id: {"configured": True})
+    monkeypatch.setattr("row_bot.providers.readiness.provider_status", lambda provider_id: {"configured": True})
 
     result = evaluate_runtime_readiness(
         "model:opencode_zen:gemini-2.5-pro",
@@ -583,7 +583,7 @@ def test_phase5_opencode_gemini_route_is_blocked_with_deferred_reason(monkeypatc
 
 def test_phase6_default_and_quick_choice_values_use_opencode_canonical_refs(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr("api_keys.get_cloud_config", lambda: {"starred_models": []})
+    monkeypatch.setattr("row_bot.api_keys.get_cloud_config", lambda: {"starred_models": []})
 
     default_ref = model_choice_value("nemotron-3-super-free", provider_id="opencode_zen")
     add_quick_choice_for_model(
@@ -601,7 +601,7 @@ def test_phase6_default_and_quick_choice_values_use_opencode_canonical_refs(tmp_
 def test_phase6_workflow_model_overrides_store_opencode_refs(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr("api_keys.get_cloud_config", lambda: {"starred_models": []})
+    monkeypatch.setattr("row_bot.api_keys.get_cloud_config", lambda: {"starred_models": []})
     import row_bot.tasks as tasks
 
     tasks = importlib.reload(tasks)
@@ -633,7 +633,7 @@ def test_phase6_channel_model_override_preserves_opencode_ref(tmp_path, monkeypa
 
 def test_phase6_ambiguous_bare_opencode_model_fails_clearly(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setattr("api_keys.get_cloud_config", lambda: {"starred_models": []})
+    monkeypatch.setattr("row_bot.api_keys.get_cloud_config", lambda: {"starred_models": []})
     add_quick_choice_for_model("glm-5.1", provider_id="opencode_go", display_name="OpenCode GLM")
     add_quick_choice_for_model("glm-5.1", provider_id="openrouter", display_name="OpenRouter GLM")
 
@@ -708,7 +708,7 @@ def test_followup_openrouter_nested_input_modalities_enable_vision():
 
 
 def test_ux_settings_exposes_opencode_keyring_controls():
-    source = Path("ui/settings.py").read_text(encoding="utf-8")
+    source = Path("src/row_bot/ui/settings.py").read_text(encoding="utf-8")
 
     assert '"OPENCODE_ZEN_API_KEY": "opencode_zen"' in source
     assert '"OPENCODE_GO_API_KEY": "opencode_go"' in source
@@ -723,7 +723,7 @@ def test_ux_settings_exposes_opencode_keyring_controls():
 
 
 def test_ux_setup_wizard_exposes_and_saves_opencode_keys():
-    source = Path("ui/setup_wizard.py").read_text(encoding="utf-8")
+    source = Path("src/row_bot/ui/setup_wizard.py").read_text(encoding="utf-8")
 
     assert "OpenCode Zen API Key (optional)" in source
     assert "OpenCode Go API Key (optional)" in source
@@ -755,8 +755,8 @@ def test_ux_provider_status_counts_opencode_provider_qualified_cache(monkeypatch
     original = dict(models._cloud_model_cache)
     models._cloud_model_cache.clear()
     try:
-        monkeypatch.setattr("models._sync_custom_model_cache", lambda: None)
-        monkeypatch.setattr("providers.status.provider_status", lambda provider_id: {"configured": provider_id == "opencode_go"})
+        monkeypatch.setattr("row_bot.models._sync_custom_model_cache", lambda: None)
+        monkeypatch.setattr("row_bot.providers.status.provider_status", lambda provider_id: {"configured": provider_id == "opencode_go"})
         models._cloud_model_cache["model:opencode_go:glm-5.1"] = {
             "provider": "opencode_go",
             "label": "GLM 5.1",

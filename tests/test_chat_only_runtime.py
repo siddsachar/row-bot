@@ -642,10 +642,10 @@ def test_forced_agent_surfaces_are_wired_in_callers():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    ui_streaming = (root / "ui" / "streaming.py").read_text(encoding="utf-8")
-    tasks = (root / "tasks.py").read_text(encoding="utf-8")
-    approval = (root / "channels" / "approval.py").read_text(encoding="utf-8")
-    task_dialog = (root / "ui" / "task_dialog.py").read_text(encoding="utf-8")
+    ui_streaming = (root / "src" / "row_bot" / "ui" / "streaming.py").read_text(encoding="utf-8")
+    tasks = (root / "src" / "row_bot" / "tasks.py").read_text(encoding="utf-8")
+    approval = (root / "src" / "row_bot" / "channels" / "approval.py").read_text(encoding="utf-8")
+    task_dialog = (root / "src" / "row_bot" / "ui" / "task_dialog.py").read_text(encoding="utf-8")
 
     assert '"runtime_surface": runtime_surface' in ui_streaming
     assert '"runtime_mode": "agent"' in ui_streaming

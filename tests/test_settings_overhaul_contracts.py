@@ -4,7 +4,7 @@ import ast
 from pathlib import Path
 
 
-SETTINGS = Path("ui/settings.py")
+SETTINGS = Path("src/row_bot/ui/settings.py")
 
 
 def _function_source(name: str) -> str:
@@ -57,8 +57,8 @@ def test_settings_polish_helpers_are_local_and_used():
 
 
 def test_status_and_home_links_follow_new_information_architecture():
-    status_src = Path("ui/status_checks.py").read_text(encoding="utf-8")
-    home_src = Path("ui/home.py").read_text(encoding="utf-8")
+    status_src = Path("src/row_bot/ui/status_checks.py").read_text(encoding="utf-8")
+    home_src = Path("src/row_bot/ui/home.py").read_text(encoding="utf-8")
     tunnel_src = status_src.split("def check_tunnel", 1)[1].split("def check_gmail_oauth", 1)[0]
     dream_src = status_src.split("def check_dream_cycle", 1)[1].split("def check_tts", 1)[0]
 
@@ -72,7 +72,7 @@ def test_status_and_home_links_follow_new_information_architecture():
 
 def test_settings_shell_is_providers_first_and_single_panel():
     settings_src = SETTINGS.read_text(encoding="utf-8")
-    app_src = Path("app.py").read_text(encoding="utf-8")
+    app_src = Path("src/row_bot/app.py").read_text(encoding="utf-8")
     open_src = _function_source("open_settings")
     build_models_src = _function_source("_build_models_tab")
 

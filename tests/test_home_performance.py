@@ -46,7 +46,7 @@ def test_status_bar_force_refresh_populates_cache(monkeypatch) -> None:
 
 
 def test_home_lazily_builds_non_workflow_tabs_and_graph() -> None:
-    src = _read("ui/home.py")
+    src = _read("src/row_bot/ui/home.py")
     assert "_tab_loaders" in src
     assert "_loaded_tabs" in src
     assert "_render_lazy_placeholder" in src
@@ -60,9 +60,9 @@ def test_home_lazily_builds_non_workflow_tabs_and_graph() -> None:
 
 
 def test_home_and_picker_perf_diagnostics_are_present() -> None:
-    home_src = _read("ui/home.py")
-    status_src = _read("ui/status_bar.py")
-    picker_src = _read("ui/chat_components.py")
+    home_src = _read("src/row_bot/ui/home.py")
+    status_src = _read("src/row_bot/ui/status_bar.py")
+    picker_src = _read("src/row_bot/ui/chat_components.py")
 
     assert "home.status_bar.cached" in status_src
     assert "home.status_bar.force_refresh" in status_src

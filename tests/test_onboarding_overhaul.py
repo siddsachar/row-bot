@@ -198,10 +198,10 @@ def test_setup_center_only_offers_missing_workflow_starters(monkeypatch):
 
 
 def test_onboarding_source_contracts_are_wired():
-    setup_src = Path("ui/setup_wizard.py").read_text(encoding="utf-8")
-    center_src = Path("ui/onboarding_center.py").read_text(encoding="utf-8")
-    sidebar_src = Path("ui/sidebar.py").read_text(encoding="utf-8")
-    home_src = Path("ui/home.py").read_text(encoding="utf-8")
+    setup_src = Path("src/row_bot/ui/setup_wizard.py").read_text(encoding="utf-8")
+    center_src = Path("src/row_bot/ui/onboarding_center.py").read_text(encoding="utf-8")
+    sidebar_src = Path("src/row_bot/ui/sidebar.py").read_text(encoding="utf-8")
+    home_src = Path("src/row_bot/ui/home.py").read_text(encoding="utf-8")
     installer_src = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
 
     for marker in (
@@ -238,10 +238,10 @@ def test_onboarding_source_contracts_are_wired():
     assert "Open OpenAI Login" in setup_src
     assert "Open Settings -> Providers" not in setup_src
     assert "save_external_reference" not in setup_src
-    assert "open_setup_center_on_next_load" in Path("app.py").read_text(encoding="utf-8")
-    assert "consume_setup_center_on_next_load" in Path("app.py").read_text(encoding="utf-8")
-    assert "ui.navigate.reload()" in Path("app.py").read_text(encoding="utf-8")
-    assert "open_setup_center_on_next_load" in Path("ui/state.py").read_text(encoding="utf-8")
+    assert "open_setup_center_on_next_load" in Path("src/row_bot/app.py").read_text(encoding="utf-8")
+    assert "consume_setup_center_on_next_load" in Path("src/row_bot/app.py").read_text(encoding="utf-8")
+    assert "ui.navigate.reload()" in Path("src/row_bot/app.py").read_text(encoding="utf-8")
+    assert "open_setup_center_on_next_load" in Path("src/row_bot/ui/state.py").read_text(encoding="utf-8")
     assert "show_setup_center" in sidebar_src
     assert "state=state" in sidebar_src
     assert "Recommended from your choices" in center_src

@@ -302,8 +302,8 @@ def test_runtime_getter_reads_channel_namespace(data_dir, monkeypatch):
 
 
 def test_channel_settings_uses_provider_style_secret_controls():
-    source = open("ui/settings.py", encoding="utf-8").read()
-    app_source = open("app.py", encoding="utf-8").read()
+    source = open("src/row_bot/ui/settings.py", encoding="utf-8").read()
+    app_source = open("src/row_bot/app.py", encoding="utf-8").read()
 
     assert "Paste a new value to replace the saved one" in source
     assert "Saved securely" in source

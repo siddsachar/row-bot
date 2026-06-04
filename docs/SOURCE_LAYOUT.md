@@ -1,0 +1,79 @@
+# Source Layout And Packaging
+
+Row-Bot runtime source lives in `src/row_bot/`. New application modules and
+runtime packages should be added there and imported as `row_bot.*`.
+
+The repository root still keeps a small supported launch surface:
+
+- `app.py` runs `row_bot.app` from a checkout or packaged payload.
+- `launcher.py` imports and calls `row_bot.launcher.main`.
+- Root payload assets such as `static/`, `sounds/`, `bundled_skills/`,
+  `tool_guides/`, `requirements.txt`, and `row-bot.ico` remain at the root for
+  the v4 packaging contract.
+
+Do not add implementation code to the root wrappers. If code needs to be shared
+with tests, installers, or scripts, place it under `src/row_bot/` or in a
+non-runtime helper under `scripts/`.
+
+## Running From Source
+
+From the repository root:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+python launcher.py
+```
+
+Server/headless mode:
+
+```powershell
+python launcher.py --server --no-open --port 8080
+```
+
+Direct NiceGUI launch remains supported through the root wrapper:
+
+```powershell
+python app.py
+```
+
+Tests import package modules through `pytest.ini`, which sets `pythonpath =
+src`. Ad hoc scripts that import `row_bot.*` directly should either run through
+the root launchers, set `PYTHONPATH=src`, or insert the checkout's `src/`
+directory explicitly.
+
+## Packaging Payloads
+
+`scripts/app_payload_manifest.py` is the source of truth for application payload
+coverage. The manifest currently separates the package into:
+
+- `payload_dirs`: recursive runtime package directories, currently
+  `src/row_bot`.
+- `asset_dirs`: root asset directories copied beside the launchers, currently
+  `static`, `sounds`, `bundled_skills`, and `tool_guides`.
+- `root_python_files`: supported root Python launch wrappers discovered from the
+  repository root, excluding debug, test, and harness files.
+- `root_files`: root files required by packaged apps, including
+  `requirements.txt` and `row-bot.ico`.
+- `runtime_script_files`: package-time runtime verification scripts.
+
+Windows packaging uses `installer/row_bot_setup.iss` to recursively include
+`src/row_bot`. macOS and Linux builders call `scripts/app_payload_manifest.py`
+for root files, runtime scripts, payload directories, and asset directories.
+Packaging tests in `tests/test_linux_support.py` and `tests/test_suite.py`
+assert those contracts.
+
+## Local Cleanup Candidates
+
+These paths are generated local state and should stay untracked:
+
+- `installer/build/`
+- `dist/`
+- `.tmp/`, `.tmp_pytest/`, `.testtmp/`, `.pytest_cache/`, and `test-results/`
+- `.streamlit/` from the old Streamlit app
+- `src/row_bot/channels/whatsapp_bridge/node_modules/`
+
+Do not recursively delete ignored/generated directories during implementation
+work unless the owner explicitly confirms it is safe. Report them as cleanup
+candidates instead.

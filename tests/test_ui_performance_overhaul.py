@@ -11,7 +11,7 @@ def _read(path: str) -> str:
 
 
 def test_settings_lifecycle_uses_generation_and_local_errors() -> None:
-    src = _read("ui/settings.py")
+    src = _read("src/row_bot/ui/settings.py")
     assert "LoadGeneration" in src
     assert "settings.open.shell" in src
     assert "settings.tab.load." in src
@@ -21,7 +21,7 @@ def test_settings_lifecycle_uses_generation_and_local_errors() -> None:
 
 
 def test_knowledge_browse_is_bounded_and_lazy() -> None:
-    src = _read("ui/settings.py")
+    src = _read("src/row_bot/ui/settings.py")
     assert "list_memory_summaries" in src
     assert '_browse_page = {"limit": 25}' in src
     assert "Load more" in src
@@ -32,9 +32,9 @@ def test_knowledge_browse_is_bounded_and_lazy() -> None:
 
 
 def test_recall_trace_labels_resolve_subjects_bounded() -> None:
-    settings_src = _read("ui/settings.py")
-    kg_src = _read("knowledge_graph.py")
-    mem_src = _read("memory.py")
+    settings_src = _read("src/row_bot/ui/settings.py")
+    kg_src = _read("src/row_bot/knowledge_graph.py")
+    mem_src = _read("src/row_bot/memory.py")
     assert "def _trace_subjects" in settings_src
     assert "list_memory_subjects" in settings_src
     assert "def _trace_memory_label" in settings_src
@@ -46,7 +46,7 @@ def test_recall_trace_labels_resolve_subjects_bounded() -> None:
 
 
 def test_memory_change_log_uses_friendly_bounded_labels() -> None:
-    settings_src = _read("ui/settings.py")
+    settings_src = _read("src/row_bot/ui/settings.py")
     assert "def _journal_subjects" in settings_src
     assert "list_memory_subjects" in settings_src
     assert "def _journal_action_label" in settings_src
@@ -58,7 +58,7 @@ def test_memory_change_log_uses_friendly_bounded_labels() -> None:
 
 
 def test_entity_editor_defers_heavy_sections() -> None:
-    src = _read("ui/entity_editor.py")
+    src = _read("src/row_bot/ui/entity_editor.py")
     assert "entity_editor.open.start" in src
     assert "entity_editor.render.core" in src
     assert "Open to load audit and provenance" in src
@@ -69,7 +69,7 @@ def test_entity_editor_defers_heavy_sections() -> None:
 
 
 def test_entity_editor_save_runs_off_ui_loop() -> None:
-    src = _read("ui/entity_editor.py")
+    src = _read("src/row_bot/ui/entity_editor.py")
     assert "async def _save" in src
     assert "await run.io_bound(_commit_save)" in src
     assert "entity_editor.save.commit" in src
@@ -78,7 +78,7 @@ def test_entity_editor_save_runs_off_ui_loop() -> None:
 
 
 def test_knowledge_refresh_after_save_is_staged() -> None:
-    src = _read("ui/settings.py")
+    src = _read("src/row_bot/ui/settings.py")
     assert "settings.knowledge.after_save.data" in src
     assert 'context="settings knowledge refresh after entity save"' in src
     assert "await run.io_bound(_load_memory_rows)" in src
@@ -88,17 +88,17 @@ def test_knowledge_refresh_after_save_is_staged() -> None:
 
 
 def test_shared_data_summary_api_exists() -> None:
-    kg_src = _read("knowledge_graph.py")
-    mem_src = _read("memory.py")
+    kg_src = _read("src/row_bot/knowledge_graph.py")
+    mem_src = _read("src/row_bot/memory.py")
     assert "def list_entity_summaries" in kg_src
     assert "substr(description, 1, ?)" in kg_src
     assert "def list_memory_summaries" in mem_src
 
 
 def test_graph_chat_and_streaming_are_instrumented() -> None:
-    graph_src = _read("ui/graph_panel.py")
-    chat_src = _read("ui/chat.py")
-    streaming_src = _read("ui/streaming.py")
+    graph_src = _read("src/row_bot/ui/graph_panel.py")
+    chat_src = _read("src/row_bot/ui/chat.py")
+    streaming_src = _read("src/row_bot/ui/streaming.py")
     assert "kg.graph_to_vis_json(max_nodes=250)" in graph_src
     assert "graph_panel.render" in graph_src
     assert "editButtonHtml" in graph_src
@@ -111,12 +111,12 @@ def test_graph_chat_and_streaming_are_instrumented() -> None:
 
 
 def test_transcript_rendering_is_bounded_and_generation_safe() -> None:
-    chat_src = _read("ui/chat.py")
-    app_src = _read("app.py")
-    state_src = _read("ui/state.py")
-    transcript_src = _read("ui/transcript.py")
-    render_src = _read("ui/render.py")
-    head_src = _read("ui/head_html.py")
+    chat_src = _read("src/row_bot/ui/chat.py")
+    app_src = _read("src/row_bot/app.py")
+    state_src = _read("src/row_bot/ui/state.py")
+    transcript_src = _read("src/row_bot/ui/transcript.py")
+    render_src = _read("src/row_bot/ui/render.py")
+    head_src = _read("src/row_bot/ui/head_html.py")
 
     assert "choose_transcript_window" in chat_src
     assert "Load earlier messages" in chat_src
@@ -154,13 +154,13 @@ def test_transcript_rendering_is_bounded_and_generation_safe() -> None:
     assert "MutationObserver" in head_src
     assert 'pre code:not([data-highlighted="yes"])' in head_src
     assert "row-bot-live-stream" in head_src
-    assert "row-bot-live-stream" in _read("ui/streaming.py")
+    assert "row-bot-live-stream" in _read("src/row_bot/ui/streaming.py")
     assert "window.rowBotHighlightCodeBlocks" in render_src
 
 
 def test_detached_finalize_marks_live_render_state_without_repaint() -> None:
-    app_src = _read("app.py")
-    streaming_src = _read("ui/streaming.py")
+    app_src = _read("src/row_bot/app.py")
+    streaming_src = _read("src/row_bot/ui/streaming.py")
 
     assert "mark_chat_message_rendered" in streaming_src
     assert "cb.mark_chat_message_rendered(a_msg)" in streaming_src
@@ -170,7 +170,7 @@ def test_detached_finalize_marks_live_render_state_without_repaint() -> None:
 
 
 def test_token_counter_is_debounced_and_generation_safe() -> None:
-    app_src = _read("app.py")
+    app_src = _read("src/row_bot/app.py")
 
     assert '"scheduled_key": None' in app_src
     assert '"generation": 0' in app_src
@@ -192,12 +192,12 @@ def test_ui_performance_harness_profiles_real_transcripts() -> None:
 
 
 def test_blank_thread_shell_defers_heavy_chat_work() -> None:
-    chat_src = _read("ui/chat.py")
-    picker_src = _read("ui/chat_components.py")
-    app_src = _read("app.py")
-    sidebar_src = _read("ui/sidebar.py")
-    skills_src = _read("skills.py")
-    state_src = _read("ui/state.py")
+    chat_src = _read("src/row_bot/ui/chat.py")
+    picker_src = _read("src/row_bot/ui/chat_components.py")
+    app_src = _read("src/row_bot/app.py")
+    sidebar_src = _read("src/row_bot/ui/sidebar.py")
+    skills_src = _read("src/row_bot/skills.py")
+    state_src = _read("src/row_bot/ui/state.py")
 
     assert "chat.shell.render" in chat_src
     assert "chat.header.render" in chat_src

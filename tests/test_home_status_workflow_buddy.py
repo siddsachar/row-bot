@@ -44,7 +44,7 @@ def test_workflow_status_reports_running_and_pending(monkeypatch, tmp_path):
 
 
 def test_home_status_has_aggregate_pills_for_current_settings_tabs():
-    src = open("ui/status_checks.py", "r", encoding="utf-8").read()
+    src = open("src/row_bot/ui/status_checks.py", "r", encoding="utf-8").read()
 
     expected = {
         "Search": "check_search_tools",
@@ -60,7 +60,7 @@ def test_home_status_has_aggregate_pills_for_current_settings_tabs():
 
 
 def test_home_status_uses_compact_icon_pills():
-    src = open("ui/status_bar.py", "r", encoding="utf-8").read()
+    src = open("src/row_bot/ui/status_bar.py", "r", encoding="utf-8").read()
 
     assert "_STATUS_ICON_MAP" in src
     assert "status-icon-pill" in src
@@ -78,7 +78,7 @@ def test_home_status_uses_compact_icon_pills():
 
 
 def test_home_status_icon_map_uses_safe_material_icons():
-    src = open("ui/status_bar.py", "r", encoding="utf-8").read()
+    src = open("src/row_bot/ui/status_bar.py", "r", encoding="utf-8").read()
 
     assert '"Disk": "save"' in src
     assert '"Threads DB": "storage"' in src
@@ -101,7 +101,7 @@ def test_home_status_has_single_faiss_check():
 
 
 def test_command_center_has_persisted_collapsed_rail_contract():
-    src = open("ui/command_center.py", "r", encoding="utf-8").read()
+    src = open("src/row_bot/ui/command_center.py", "r", encoding="utf-8").read()
 
     assert "workflow_console_collapsed" in src
     assert "workflow-console-rail" in src

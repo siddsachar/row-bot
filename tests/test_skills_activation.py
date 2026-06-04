@@ -7,8 +7,9 @@ from pathlib import Path
 
 
 def _reload_skill_modules(tmp_path: Path):
+    os.environ["THOTH_DATA_DIR"] = str(tmp_path)
     os.environ["ROW_BOT_DATA_DIR"] = str(tmp_path)
-    for name in ("skills", "skills_activation"):
+    for name in ("row_bot.skills", "row_bot.skills_activation", "row_bot.prompts", "row_bot.agent"):
         if name in sys.modules:
             importlib.reload(sys.modules[name])
         else:
@@ -284,14 +285,14 @@ def test_skill_choice_search_uses_shared_weighted_matcher(tmp_path):
 
 
 def test_chat_skill_picker_uses_shared_ranked_choices():
-    src = Path("ui/chat.py").read_text(encoding="utf-8")
+    src = Path("src/row_bot/ui/chat.py").read_text(encoding="utf-8")
 
     assert "list_skill_choices as _list_chat_skill_choices" in src
     assert "def _matches(skill)" not in src
 
 
 def test_chat_suppresses_draft_suggestions_after_use_or_dismiss():
-    src = Path("ui/chat.py").read_text(encoding="utf-8")
+    src = Path("src/row_bot/ui/chat.py").read_text(encoding="utf-8")
 
     assert "suggestions_suppressed_text" in src
     assert "def _suppress_skill_suggestions_for_current_draft" in src

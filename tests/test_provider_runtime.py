@@ -248,7 +248,7 @@ def test_ollama_provider_runtime_constructs_chat_ollama(monkeypatch):
     fake_module.ChatOllama = _FakeChatOllama
     monkeypatch.setitem(sys.modules, "langchain_ollama", fake_module)
     monkeypatch.setenv("OLLAMA_HOST", "0.0.0.0:11435")
-    monkeypatch.setattr("models.get_context_size", lambda model_ref=None: 65_536)
+    monkeypatch.setattr("row_bot.models.get_context_size", lambda model_ref=None: 65_536)
 
     model = runtime.create_chat_model("qwen3:14b", provider_id="ollama")
 
@@ -270,7 +270,7 @@ def test_ollama_provider_ref_unwraps_at_runtime_edge(monkeypatch):
     fake_module.ChatOllama = _FakeChatOllama
     monkeypatch.setitem(sys.modules, "langchain_ollama", fake_module)
     monkeypatch.setenv("OLLAMA_HOST", "127.0.0.1:11434")
-    monkeypatch.setattr("models.get_context_size", lambda model_ref=None: 32_768)
+    monkeypatch.setattr("row_bot.models.get_context_size", lambda model_ref=None: 32_768)
 
     model = runtime.create_chat_model("model:ollama:qwen3:14b")
 
@@ -304,7 +304,7 @@ def test_clear_llm_cache_drops_cached_provider_credentials(monkeypatch):
 
     models.clear_llm_cache()
     keys = iter(["old-key", "new-key"])
-    monkeypatch.setattr("providers.runtime.get_provider_secret", lambda provider_id: next(keys))
+    monkeypatch.setattr("row_bot.providers.runtime.get_provider_secret", lambda provider_id: next(keys))
 
     first = models._get_cloud_llm("model:ollama_cloud:gpt-oss:20b")
     models.clear_llm_cache()
@@ -1376,7 +1376,7 @@ def test_ollama_runtime_does_not_force_reasoning(monkeypatch):
 
     fake_langchain_ollama.ChatOllama = _FakeChatOllama
     monkeypatch.setitem(sys.modules, "langchain_ollama", fake_langchain_ollama)
-    monkeypatch.setattr("models._ollama_base_url", lambda: "http://127.0.0.1:11434")
+    monkeypatch.setattr("row_bot.models._ollama_base_url", lambda: "http://127.0.0.1:11434")
 
     model = runtime.create_chat_model("vendor/non-tool-chat:14b", provider_id="ollama")
 
@@ -1395,7 +1395,7 @@ def test_ollama_runtime_enables_reasoning_for_thinking_models(monkeypatch):
 
     fake_langchain_ollama.ChatOllama = _FakeChatOllama
     monkeypatch.setitem(sys.modules, "langchain_ollama", fake_langchain_ollama)
-    monkeypatch.setattr("models._ollama_base_url", lambda: "http://127.0.0.1:11434")
+    monkeypatch.setattr("row_bot.models._ollama_base_url", lambda: "http://127.0.0.1:11434")
 
     model = runtime.create_chat_model("qwen3.5:30b", provider_id="ollama")
 

@@ -203,7 +203,7 @@ def test_document_extraction_hub_and_entities_get_document_context(tmp_path, mon
     importlib.reload(memory_extraction)
     file_path = tmp_path / "atlas.txt"
     file_path.write_text("Atlas document body " * 120, encoding="utf-8")
-    monkeypatch.setattr("documents.load_document_text", lambda path: ("Atlas document body " * 120, ""))
+    monkeypatch.setattr("row_bot.documents.load_document_text", lambda path: ("Atlas document body " * 120, ""))
     monkeypatch.setattr(doc, "_copy_to_vault_raw", lambda *args, **kwargs: None)
     monkeypatch.setattr(doc, "_map_summarize_window", lambda *args, **kwargs: "Atlas summary.")
     monkeypatch.setattr(

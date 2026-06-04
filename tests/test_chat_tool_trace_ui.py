@@ -55,10 +55,10 @@ def test_tool_content_truncates_only_for_display():
 
 
 def test_chat_tool_trace_source_contracts():
-    render_src = Path("ui/render.py").read_text(encoding="utf-8")
-    streaming_src = Path("ui/streaming.py").read_text(encoding="utf-8")
-    chat_src = Path("ui/chat.py").read_text(encoding="utf-8")
-    components_src = Path("ui/chat_components.py").read_text(encoding="utf-8")
+    render_src = Path("src/row_bot/ui/render.py").read_text(encoding="utf-8")
+    streaming_src = Path("src/row_bot/ui/streaming.py").read_text(encoding="utf-8")
+    chat_src = Path("src/row_bot/ui/chat.py").read_text(encoding="utf-8")
+    components_src = Path("src/row_bot/ui/chat_components.py").read_text(encoding="utf-8")
     installer_src = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
 
     assert "group_tool_results" in render_src

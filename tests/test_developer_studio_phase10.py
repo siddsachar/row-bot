@@ -346,7 +346,7 @@ def test_developer_inspector_does_not_periodically_rebuild():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    source = (root / "developer" / "ui.py").read_text(encoding="utf-8")
+    source = (root / "src" / "row_bot" / "developer" / "ui.py").read_text(encoding="utf-8")
     inspector_source = source.split("def _build_developer_inspector(", 1)[1].split(
         "def _build_developer_inspector_static(", 1
     )[0]
@@ -370,8 +370,8 @@ def test_developer_inspector_uses_snapshot_and_native_file_tree():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    ui_source = (root / "developer" / "ui.py").read_text(encoding="utf-8")
-    snapshot_source = (root / "developer" / "inspector_snapshot.py").read_text(encoding="utf-8")
+    ui_source = (root / "src" / "row_bot" / "developer" / "ui.py").read_text(encoding="utf-8")
+    snapshot_source = (root / "src" / "row_bot" / "developer" / "inspector_snapshot.py").read_text(encoding="utf-8")
 
     assert "from nicegui import ui" not in snapshot_source
     assert "run.io_bound(_collect_snapshot_sync" in snapshot_source
@@ -418,7 +418,7 @@ def test_streaming_skips_interrupt_dialog_for_detached_client():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    source = (root / "ui" / "streaming.py").read_text(encoding="utf-8")
+    source = (root / "src" / "row_bot" / "ui" / "streaming.py").read_text(encoding="utf-8")
 
     assert "if not gen.detached and not _ui_handle_client_deleted(p.interrupt_dlg):" in source
     assert "state.pending_interrupt = payload" in source
@@ -433,8 +433,8 @@ def test_detached_finalize_uses_scoped_transcript_refresh_not_main_rebuild():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    source = (root / "ui" / "streaming.py").read_text(encoding="utf-8")
-    app_source = (root / "app.py").read_text(encoding="utf-8")
+    source = (root / "src" / "row_bot" / "ui" / "streaming.py").read_text(encoding="utf-8")
+    app_source = (root / "src" / "row_bot" / "app.py").read_text(encoding="utf-8")
 
     assert "Refresh only the transcript container" in source
     assert "Detached finalize refreshed transcript without full main rebuild" in source
@@ -451,7 +451,7 @@ def test_active_detached_finalize_preserves_optimistic_user_messages():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    source = (root / "ui" / "streaming.py").read_text(encoding="utf-8")
+    source = (root / "src" / "row_bot" / "ui" / "streaming.py").read_text(encoding="utf-8")
 
     assert "if state.thread_id == gen.thread_id:" in source
     assert "state.messages.append(a_msg)" in source
@@ -463,7 +463,7 @@ def test_post_render_javascript_failure_does_not_detach_after_final_row_render()
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    source = (root / "ui" / "streaming.py").read_text(encoding="utf-8")
+    source = (root / "src" / "row_bot" / "ui" / "streaming.py").read_text(encoding="utf-8")
     assert "_handle_ui_runtime_error(gen, state, exc, \"post-render javascript\")" not in source
     assert "marking the generation detached" in source
     assert "append the persisted assistant message as a duplicate" in source
@@ -474,7 +474,7 @@ def test_developer_guidance_is_shell_aware_and_generic():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    context_source = (root / "developer" / "agent_context.py").read_text(encoding="utf-8")
+    context_source = (root / "src" / "row_bot" / "developer" / "agent_context.py").read_text(encoding="utf-8")
     guide_source = (root / "tool_guides" / "developer_guide" / "SKILL.md").read_text(encoding="utf-8")
 
     assert "Command shell:" in context_source
@@ -493,8 +493,8 @@ def test_developer_context_is_hidden_system_context():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    streaming_source = (root / "ui" / "streaming.py").read_text(encoding="utf-8")
-    agent_source = (root / "agent.py").read_text(encoding="utf-8")
+    streaming_source = (root / "src" / "row_bot" / "ui" / "streaming.py").read_text(encoding="utf-8")
+    agent_source = (root / "src" / "row_bot" / "agent.py").read_text(encoding="utf-8")
 
     assert "agent_input = f\"{developer_context}" not in streaming_source
     assert '"developer_context": developer_context' in streaming_source

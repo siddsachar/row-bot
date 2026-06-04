@@ -9,7 +9,7 @@ from pathlib import Path
 
 class MigrationWizardUiTests(unittest.TestCase):
     def test_settings_launches_migration_from_preferences(self) -> None:
-        settings_source = Path("ui/settings.py").read_text(encoding="utf-8")
+        settings_source = Path("src/row_bot/ui/settings.py").read_text(encoding="utf-8")
 
         self.assertIn("Open Migration Wizard", settings_source)
         self.assertIn("def _open_migration_wizard_dialog", settings_source)

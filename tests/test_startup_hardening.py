@@ -132,7 +132,7 @@ def test_preflight_handles_real_broken_optional_package_subprocess(tmp_path):
 
 
 def test_app_imports_with_startup_preflight():
-    app_module = importlib.import_module("app")
+    app_module = importlib.import_module("row_bot.app")
 
     assert hasattr(app_module, "_APP_PORT")
 
@@ -140,7 +140,7 @@ def test_app_imports_with_startup_preflight():
 def test_app_import_survives_broken_cv2_module(tmp_path):
     fake_cv2 = tmp_path / "cv2.py"
     fake_cv2.write_text('raise OSError("libGL.so.1: cannot open shared object file")\n', encoding="utf-8")
-    code = "import app; print('app-import-ok')"
+    code = "import row_bot.app; print('app-import-ok')"
     env = dict(os.environ)
     root = Path(__file__).resolve().parents[1]
     env["PYTHONPATH"] = os.pathsep.join(

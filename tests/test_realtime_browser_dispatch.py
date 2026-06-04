@@ -42,9 +42,9 @@ def test_realtime_browser_js_returns_false_for_deleted_client():
 
 
 def test_realtime_speech_wiring_uses_captured_client_helper():
-    streaming_src = (ROOT / "ui" / "streaming.py").read_text(encoding="utf-8")
-    chat_src = (ROOT / "ui" / "chat.py").read_text(encoding="utf-8")
-    components_src = (ROOT / "ui" / "chat_components.py").read_text(encoding="utf-8")
+    streaming_src = (ROOT / "src" / "row_bot" / "ui" / "streaming.py").read_text(encoding="utf-8")
+    chat_src = (ROOT / "src" / "row_bot" / "ui" / "chat.py").read_text(encoding="utf-8")
+    components_src = (ROOT / "src" / "row_bot" / "ui" / "chat_components.py").read_text(encoding="utf-8")
 
     assert "run_realtime_client_js(" in streaming_src
     assert "ui.run_javascript(speak_realtime_js(text))" not in streaming_src
@@ -54,7 +54,7 @@ def test_realtime_speech_wiring_uses_captured_client_helper():
 
 
 def test_native_webview_uses_persistent_storage_for_microphone_grants():
-    launcher_src = (ROOT / "launcher.py").read_text(encoding="utf-8")
+    launcher_src = (ROOT / "src" / "row_bot" / "launcher.py").read_text(encoding="utf-8")
 
     assert "THOTH_WEBVIEW_STORAGE_PATH" in launcher_src
     assert '"browser_profile"' in launcher_src

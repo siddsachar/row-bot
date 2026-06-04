@@ -80,7 +80,7 @@ def test_phase0_bare_custom_looking_model_currently_resolves_to_ollama(tmp_path,
 
 
 def test_phase3_telegram_model_command_stores_canonical_ref():
-    source = pathlib.Path("channels/telegram.py").read_text(encoding="utf-8")
+    source = pathlib.Path("src/row_bot/channels/telegram.py").read_text(encoding="utf-8")
 
     assert "canonicalize_model_selection(model_id, \"channels\")" in source
     assert 'config["configurable"]["model_override"] = canonical.ref' in source
@@ -252,7 +252,7 @@ def test_phase4_explicit_workflow_model_failure_does_not_pop_override(tmp_path, 
     assert "provider_id=custom_openai_lmstudio" in message
     assert "runtime_model=qwen3.6-35b-a3b" in message
 
-    source = pathlib.Path("tasks.py").read_text(encoding="utf-8")
+    source = pathlib.Path("src/row_bot/tasks.py").read_text(encoding="utf-8")
     assert '.pop("model_override")' not in source
     assert ".pop('model_override')" not in source
 
@@ -396,7 +396,7 @@ def test_phase6_shared_model_command_ambiguous_bare_fails_clearly(tmp_path, monk
 
 
 def test_phase7_telegram_message_runtime_uses_channel_auto():
-    source = pathlib.Path("channels/telegram.py").read_text(encoding="utf-8")
+    source = pathlib.Path("src/row_bot/channels/telegram.py").read_text(encoding="utf-8")
 
     assert "def build_channel_runtime_config" in source
     assert 'build_channel_runtime_config(config, "message")' in source
@@ -406,7 +406,7 @@ def test_phase7_telegram_message_runtime_uses_channel_auto():
 
 
 def test_phase7_telegram_approval_resume_uses_approval_agent():
-    source = pathlib.Path("channels/telegram.py").read_text(encoding="utf-8")
+    source = pathlib.Path("src/row_bot/channels/telegram.py").read_text(encoding="utf-8")
     resume_body = source.split("def _resume_agent_sync", 1)[1].split("async def _send_html", 1)[0]
 
     assert 'build_channel_runtime_config(config, "approval")' in resume_body
@@ -418,10 +418,10 @@ def test_phase7_telegram_approval_resume_uses_approval_agent():
 @pytest.mark.parametrize(
     "path",
     [
-        "channels/slack.py",
-        "channels/discord_channel.py",
-        "channels/whatsapp.py",
-        "channels/sms.py",
+        "src/row_bot/channels/slack.py",
+        "src/row_bot/channels/discord_channel.py",
+        "src/row_bot/channels/whatsapp.py",
+        "src/row_bot/channels/sms.py",
     ],
 )
 def test_phase8_other_channel_message_runtime_uses_channel_auto(path):
@@ -437,10 +437,10 @@ def test_phase8_other_channel_message_runtime_uses_channel_auto(path):
 @pytest.mark.parametrize(
     "path",
     [
-        "channels/slack.py",
-        "channels/discord_channel.py",
-        "channels/whatsapp.py",
-        "channels/sms.py",
+        "src/row_bot/channels/slack.py",
+        "src/row_bot/channels/discord_channel.py",
+        "src/row_bot/channels/whatsapp.py",
+        "src/row_bot/channels/sms.py",
     ],
 )
 def test_phase8_other_channel_approval_runtime_stays_agent(path):

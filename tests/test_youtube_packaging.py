@@ -14,7 +14,7 @@ def test_youtube_transcript_runtime_dependency_is_packaged():
 
 
 def test_youtube_tool_uses_transcript_loader():
-    source = Path("tools/youtube_tool.py").read_text(encoding="utf-8")
+    source = Path("src/row_bot/tools/youtube_tool.py").read_text(encoding="utf-8")
 
     assert "YoutubeLoader" in source
     assert "youtube_transcript" in source

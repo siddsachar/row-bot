@@ -33,7 +33,7 @@ def test_minimax_provider_definition_and_model_inference():
 
 
 def test_settings_models_tab_does_not_auto_load_heavy_work():
-    source = (ROOT / "ui" / "settings.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "ui" / "settings.py").read_text(encoding="utf-8")
 
     assert "Load model settings" not in source
     assert "Preparing model settings" not in source
@@ -42,7 +42,7 @@ def test_settings_models_tab_does_not_auto_load_heavy_work():
 
 
 def test_settings_models_uses_cached_catalog_and_defers_camera_probe():
-    source = (ROOT / "ui" / "settings.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "ui" / "settings.py").read_text(encoding="utf-8")
     render_section = source.split("def _render_models_tab_content", 1)[1].split("def _collect_models_tab_data", 1)[0]
     collect_section = source.split("def _collect_models_tab_data", 1)[1].split("def _build_models_tab", 1)[0]
 
@@ -51,13 +51,13 @@ def test_settings_models_uses_cached_catalog_and_defers_camera_probe():
     assert "build_model_catalog_rows" not in collect_section
     assert "fetch_trending_ollama_models" not in collect_section
     assert "pull_model" not in source
-    assert "on_download" not in (ROOT / "ui" / "model_catalog.py").read_text(encoding="utf-8")
+    assert "on_download" not in (ROOT / "src" / "row_bot" / "ui" / "model_catalog.py").read_text(encoding="utf-8")
     assert "cameras = list_cameras()" not in render_section
     assert "await run.io_bound(list_cameras)" in render_section
 
 
 def test_setup_wizard_does_not_manage_ollama_downloads():
-    source = (ROOT / "ui" / "setup_wizard.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "ui" / "setup_wizard.py").read_text(encoding="utf-8")
 
     assert "pull_model" not in source
     assert "list_all_models" not in source
@@ -68,7 +68,7 @@ def test_setup_wizard_does_not_manage_ollama_downloads():
 
 
 def test_ollama_provider_public_catalog_discovery_removed():
-    source = (ROOT / "providers" / "ollama.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "providers" / "ollama.py").read_text(encoding="utf-8")
 
     assert "fetch_ollama_library" not in source
     assert "ollama_provider_catalog_model_ids" not in source
@@ -77,7 +77,7 @@ def test_ollama_provider_public_catalog_discovery_removed():
 
 
 def test_settings_models_initial_render_is_snapshot_only():
-    source = (ROOT / "ui" / "settings.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "ui" / "settings.py").read_text(encoding="utf-8")
     render_section = source.split("def _render_models_tab_content", 1)[1].split("def _collect_models_tab_data", 1)[0]
     initial_build = render_section.split('ui.label("Models")', 1)[0]
 
@@ -93,8 +93,8 @@ def test_settings_models_initial_render_is_snapshot_only():
 
 
 def test_model_catalog_pin_refresh_is_async_safe():
-    catalog_source = (ROOT / "ui" / "model_catalog.py").read_text(encoding="utf-8")
-    settings_source = (ROOT / "ui" / "settings.py").read_text(encoding="utf-8")
+    catalog_source = (ROOT / "src" / "row_bot" / "ui" / "model_catalog.py").read_text(encoding="utf-8")
+    settings_source = (ROOT / "src" / "row_bot" / "ui" / "settings.py").read_text(encoding="utf-8")
 
     assert "async def _run_catalog_callback" in catalog_source
     assert "await _run_catalog_callback(on_change)" in catalog_source

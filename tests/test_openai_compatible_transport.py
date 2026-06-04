@@ -443,7 +443,7 @@ def test_openai_compatible_transport_keeps_native_tool_history_for_custom_profil
 
 
 def test_openai_compatible_transport_applies_runtime_context_param(monkeypatch):
-    monkeypatch.setattr("models.get_context_size", lambda model_name=None: 32_768)
+    monkeypatch.setattr("row_bot.models.get_context_size", lambda model_name=None: 32_768)
     client = _Client()
     model = ChatOpenAICompatible(
         model_name="qwen",

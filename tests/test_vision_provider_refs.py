@@ -18,7 +18,7 @@ def test_local_vision_strips_ollama_provider_ref(monkeypatch):
     svc._model = "model:ollama:gemma3:4b"
 
     monkeypatch.setattr(vision, "_ollama_mod", SimpleNamespace())
-    monkeypatch.setattr("models._ollama_client", lambda: client)
+    monkeypatch.setattr("row_bot.models._ollama_client", lambda: client)
 
     assert svc._analyze_ollama_local("abc123", "what is visible?") == "vision ok"
     assert client.calls[0]["model"] == "gemma3:4b"
@@ -32,7 +32,7 @@ def test_local_vision_keeps_bare_ollama_model(monkeypatch):
     svc._model = "gemma3:4b"
 
     monkeypatch.setattr(vision, "_ollama_mod", SimpleNamespace())
-    monkeypatch.setattr("models._ollama_client", lambda: client)
+    monkeypatch.setattr("row_bot.models._ollama_client", lambda: client)
 
     assert svc._analyze_ollama_local("abc123", "what is visible?") == "vision ok"
     assert client.calls[0]["model"] == "gemma3:4b"
@@ -70,7 +70,7 @@ def test_custom_openai_vision_ref_routes_provider_runtime(tmp_path, monkeypatch)
         captured["model_ref"] = model_ref
         return _FakeLLM()
 
-    monkeypatch.setattr("models.get_llm_for", _get_llm_for)
+    monkeypatch.setattr("row_bot.models.get_llm_for", _get_llm_for)
     monkeypatch.setattr(svc, "_analyze_ollama_local", lambda b64, question: "ollama bad")
 
     assert svc.analyze(b"image-bytes", "describe") == "custom vision ok"
@@ -135,7 +135,7 @@ def test_provider_vision_error_names_selected_provider_not_ollama(monkeypatch):
     def _raise(model_ref):
         raise ValueError("connection refused")
 
-    monkeypatch.setattr("models.get_llm_for", _raise)
+    monkeypatch.setattr("row_bot.models.get_llm_for", _raise)
 
     result = svc.analyze(b"image-bytes", "describe")
 

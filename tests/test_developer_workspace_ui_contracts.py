@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_developer_home_opens_latest_workspace_thread():
-    source = (ROOT / "developer" / "ui.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "developer" / "ui.py").read_text(encoding="utf-8")
     open_block = source.split("async def _open_workspace", 1)[1].split("async def _open_path", 1)[0]
 
     assert "ensure_latest_workspace_thread" in open_block
@@ -16,7 +16,7 @@ def test_developer_home_opens_latest_workspace_thread():
 
 
 def test_developer_workspace_has_thread_switcher_and_new_thread_action():
-    source = (ROOT / "developer" / "ui.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "developer" / "ui.py").read_text(encoding="utf-8")
     workspace_block = source.split("def build_developer_workspace(", 1)[1].split(
         "def _build_developer_inspector(",
         1,
@@ -32,7 +32,7 @@ def test_developer_workspace_has_thread_switcher_and_new_thread_action():
 
 
 def test_developer_workspace_header_wraps_controls_without_overlap():
-    source = (ROOT / "developer" / "ui.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "developer" / "ui.py").read_text(encoding="utf-8")
     workspace_block = source.split("def build_developer_workspace(", 1)[1].split(
         "workspace_header[\"badges\"]",
         1,
@@ -48,7 +48,7 @@ def test_developer_workspace_header_wraps_controls_without_overlap():
 
 
 def test_app_passes_rebuild_hooks_to_developer_workspace():
-    source = (ROOT / "app.py").read_text(encoding="utf-8")
+    source = (ROOT / "src" / "row_bot" / "app.py").read_text(encoding="utf-8")
     call_block = source[source.index("build_developer_workspace("):source.index("elif state.thread_id is None:")]
 
     assert "rebuild_main=lambda **kw: _rebuild_main(**kw)" in call_block

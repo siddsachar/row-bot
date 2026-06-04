@@ -57,7 +57,7 @@ def test_row_bot_status_leaves_ambiguous_media_bare_id_unchanged(monkeypatch):
 def test_row_bot_status_voice_reports_runtime_and_realtime(monkeypatch):
     from row_bot.tools.row_bot_status_tool import _query_voice
 
-    monkeypatch.setattr("voice.openai_realtime.get_key", lambda name: "")
+    monkeypatch.setattr("row_bot.voice.openai_realtime.get_key", lambda name: "")
 
     output = _query_voice()
 
@@ -86,7 +86,7 @@ def test_row_bot_status_voice_reports_active_run_controls(monkeypatch):
     from row_bot.tools.row_bot_status_tool import _query_voice
     from row_bot.ui.state import _active_generations
 
-    monkeypatch.setattr("voice.openai_realtime.get_key", lambda name: "")
+    monkeypatch.setattr("row_bot.voice.openai_realtime.get_key", lambda name: "")
     _active_generations.clear()
     _active_generations["thread123"] = SimpleNamespace(
         status="streaming",

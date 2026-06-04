@@ -12,7 +12,7 @@ from row_bot.voice.agent_bridge import REALTIME_ALLOWED_TOOLS, REALTIME_WAIT_TOO
 
 
 def test_openai_realtime_status_requires_openai_key(monkeypatch):
-    monkeypatch.setattr("voice.openai_realtime.get_key", lambda name: "")
+    monkeypatch.setattr("row_bot.voice.openai_realtime.get_key", lambda name: "")
 
     status = OpenAIRealtimeProvider().status()
 
@@ -34,7 +34,7 @@ def test_openai_realtime_client_secret_uses_ephemeral_endpoint(monkeypatch):
         calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
         return Response()
 
-    monkeypatch.setattr("voice.openai_realtime.requests.post", fake_post)
+    monkeypatch.setattr("row_bot.voice.openai_realtime.requests.post", fake_post)
     provider = OpenAIRealtimeProvider(api_key="sk_test")
 
     data = provider.create_client_secret(instructions="Route serious work through Row-Bot.")
@@ -113,7 +113,7 @@ def test_openai_realtime_client_secret_error_includes_response_body(monkeypatch)
 
     import requests
 
-    monkeypatch.setattr("voice.openai_realtime.requests.post", lambda *args, **kwargs: Response())
+    monkeypatch.setattr("row_bot.voice.openai_realtime.requests.post", lambda *args, **kwargs: Response())
     provider = OpenAIRealtimeProvider(api_key="sk_test")
 
     with pytest.raises(RuntimeError, match="bad field"):

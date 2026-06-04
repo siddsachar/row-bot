@@ -57,9 +57,9 @@ def test_apply_thread_rename_routes_designer_thread_to_project_name(tmp_path, mo
 
 
 def test_rename_affordances_are_wired_into_sidebar_chat_and_developer_header():
-    sidebar_source = (ROOT / "ui" / "sidebar.py").read_text(encoding="utf-8")
-    chat_source = (ROOT / "ui" / "chat.py").read_text(encoding="utf-8")
-    developer_source = (ROOT / "developer" / "ui.py").read_text(encoding="utf-8")
+    sidebar_source = (ROOT / "src" / "row_bot" / "ui" / "sidebar.py").read_text(encoding="utf-8")
+    chat_source = (ROOT / "src" / "row_bot" / "ui" / "chat.py").read_text(encoding="utf-8")
+    developer_source = (ROOT / "src" / "row_bot" / "developer" / "ui.py").read_text(encoding="utf-8")
 
     assert "show_rename_thread_dialog" in sidebar_source
     assert "ui.menu_item(\"Rename\"" in sidebar_source
