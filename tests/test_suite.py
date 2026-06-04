@@ -34,11 +34,41 @@ _TEST_DATA_DIR.mkdir(parents=True, exist_ok=True)
 os.environ["ROW_BOT_DATA_DIR"] = str(_TEST_DATA_DIR)
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+TESTS_ROOT = PROJECT_ROOT / "tests"
+if str(TESTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TESTS_ROOT))
+
+from source_layout_compat import install_source_layout_compat
+
+install_source_layout_compat(PROJECT_ROOT)
 
 PASS = 0
 FAIL = 0
 WARN = 0
 RESULTS: list[tuple[str, str, str]] = []  # (status, test_name, detail)
+
+
+def _source_layout_windows_bundle(iss_text: str) -> bool:
+    return (
+        'Source: "..\\src\\row_bot\\*"' in iss_text
+        and 'DestDir: "{app}\\app\\src\\row_bot"' in iss_text
+        and "recursesubdirs" in iss_text
+    )
+
+
+def _source_layout_builder_manifest(builder_text: str) -> bool:
+    return (
+        "scripts/app_payload_manifest.py" in builder_text
+        and "--category payload_dirs" in builder_text
+        and "--category asset_dirs" in builder_text
+    )
+
+
+def _tool_module_is_covered(module_name: str, covered_modules: set[str]) -> bool:
+    return (
+        f"tools.{module_name}" in covered_modules
+        or f"row_bot.tools.{module_name}" in covered_modules
+    )
 
 
 def record(status: str, name: str, detail: str = ""):
@@ -5539,7 +5569,10 @@ try:
 
     # ── 36n. agent.py has skills injection in pre-model hook ──────────
     _src_agent36 = (PROJECT_ROOT / "agent.py").read_text(encoding="utf-8")
-    assert "from skills import get_skills_prompt" in _src_agent36, \
+    assert (
+        "from skills import get_skills_prompt" in _src_agent36
+        or "from row_bot.skills import get_skills_prompt" in _src_agent36
+    ), \
         "agent.py should import get_skills_prompt"
     assert "get_thread_skills_override" in _src_agent36, \
         "agent.py should read thread skills override"
@@ -7703,7 +7736,10 @@ try:
 
     # ── 48i. app.py starts dream loop ────────────────────────────────
     _app_src48 = (PROJECT_ROOT / "app.py").read_text(encoding="utf-8")
-    assert "from dream_cycle import start_dream_loop" in _app_src48, \
+    assert (
+        "from dream_cycle import start_dream_loop" in _app_src48
+        or "from row_bot.dream_cycle import start_dream_loop" in _app_src48
+    ), \
         "app.py must import start_dream_loop"
     assert "start_dream_loop" in _app_src48.split("start_periodic_extraction")[-1], \
         "start_dream_loop must be called after start_periodic_extraction"
@@ -9879,8 +9915,12 @@ try:
     record("PASS", "channel_infra: email removed from tasks.py")
 
     # ── 55u. tasks.py uses channel registry ──────────────────────────
-    assert "from channels import registry" in _tasks_src55 or \
-           "from channels.registry" in _tasks_src55
+    assert (
+        "from channels import registry" in _tasks_src55
+        or "from channels.registry" in _tasks_src55
+        or "from row_bot.channels import registry" in _tasks_src55
+        or "from row_bot.channels.registry" in _tasks_src55
+    )
     record("PASS", "channel_infra: tasks.py uses channel registry for delivery")
 
     # ── 55v. app.py auto-start uses registry loop ────────────────────
@@ -11803,7 +11843,10 @@ try:
 
     # 51q: app.py imports and calls setup_file_logging
     _app_src = open("app.py", encoding="utf-8").read()
-    assert "from logging_config import setup_file_logging" in _app_src
+    assert (
+        "from logging_config import setup_file_logging" in _app_src
+        or "from row_bot.logging_config import setup_file_logging" in _app_src
+    )
     assert "setup_file_logging()" in _app_src
     record("PASS", "51q: app.py imports and calls setup_file_logging")
 
@@ -13637,7 +13680,7 @@ try:
             return _FakeState66()
 
     _handler66d = logging.handlers.MemoryHandler(capacity=100)
-    _logger66d = logging.getLogger("agent")
+    _logger66d = logging.getLogger("row_bot.agent")
     _logger66d.addHandler(_handler66d)
     _logger66d.setLevel(logging.DEBUG)
     try:
@@ -14005,25 +14048,32 @@ try:
     record("PASS", f"68l: Info.plist both version fields are {_ver68}")
 
     # ── 68m. New files included in installer ISS ────────────────────
-    _new_iss_files68 = [
+    _new_runtime_files68 = [
         "tunnel.py",
-        "x_tool.py",
-        "approval.py",
-        "media_capture.py",
-        "thread_repair.py",
-        "package-lock.json",
+        "tools/x_tool.py",
+        "channels/approval.py",
+        "channels/media_capture.py",
+        "channels/thread_repair.py",
+        "channels/whatsapp_bridge/package-lock.json",
     ]
-    for _f68 in _new_iss_files68:
-        assert _f68 in _iss68, f"{_f68} not found in row_bot_setup.iss"
-    record("PASS", f"68m: all {len(_new_iss_files68)} new files in row_bot_setup.iss")
+    for _f68 in _new_runtime_files68:
+        assert _P68("src/row_bot").joinpath(_f68).is_file(), f"runtime file missing: src/row_bot/{_f68}"
+    assert _source_layout_windows_bundle(_iss68), "Windows installer must recursively include src/row_bot"
+    record("PASS", f"68m: src/row_bot recursive installer include covers {len(_new_runtime_files68)} new files")
 
     # ── 68m2. Provider runtime packaging smoke ─────────────────────
-    assert 'Source: "..\\providers\\*"' in _iss68 and "recursesubdirs" in _iss68, "providers package must be recursively included in Windows installer"
-    assert 'Source: "..\\ui\\model_catalog.py"' in _iss68, "ui/model_catalog.py must be included in Windows installer"
-    assert 'Source: "..\\ui\\provider_settings.py"' in _iss68, "ui/provider_settings.py must be included in Windows installer"
-    assert 'Source: "..\\skills_hub\\*"' in _iss68 and "recursesubdirs" in _iss68, "skills_hub package must be recursively included in Windows installer"
-    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client skills_hub migration buddy voice" in _mac68, "mac app bundle must copy providers, developer packages, skills_hub, and voice"
-    record("PASS", "68m2: Windows and mac packaging include provider runtime, Developer, Skills Hub, and UI files")
+    assert _source_layout_windows_bundle(_iss68), "Windows installer must recursively include src/row_bot"
+    for _f68m2 in (
+        "providers/__init__.py",
+        "ui/model_catalog.py",
+        "ui/provider_settings.py",
+        "skills_hub/__init__.py",
+        "developer/__init__.py",
+        "voice/__init__.py",
+    ):
+        assert _P68("src/row_bot").joinpath(_f68m2).is_file(), f"runtime file missing: src/row_bot/{_f68m2}"
+    assert _source_layout_builder_manifest(_mac68), "mac app bundle must copy manifest payload_dirs and asset_dirs"
+    record("PASS", "68m2: Windows and mac packaging include source-layout provider, Developer, Skills Hub, and UI files")
 
     # â”€â”€ 68m2b. Embedding runtime packaging guard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     _req68m2b = _P68("requirements.txt").read_text(encoding="utf-8")
@@ -14038,7 +14088,7 @@ try:
     assert '"httpx"' in _verify68m2b and '"youtube_transcript_api"' in _verify68m2b
     assert "verify_runtime_dependencies.py\"" in _mac68
     assert "verify_runtime_dependencies.py\"" in _linux68m2b
-    assert "for pkg in tools channels bundled_skills tool_guides ui plugins designer developer utils providers mcp_client skills_hub migration buddy voice" in _linux68m2b
+    assert _source_layout_builder_manifest(_linux68m2b), "linux app bundle must copy manifest payload_dirs and asset_dirs"
     assert "verify_runtime_dependencies.py\" embeddings" not in _mac68
     assert "verify_runtime_dependencies.py\" embeddings" not in _linux68m2b
     assert "Assembled app runtime dependencies verified" in _mac68
@@ -14069,9 +14119,10 @@ try:
         _env68m3 = dict(_os68m3.environ)
         _env68m3["ROW_BOT_DATA_DIR"] = _td68m3
         _probe68m3 = (
-            "from ui.helpers import is_first_run, is_setup_complete, load_app_config; "
-            "from providers.config import load_provider_config; "
-            "import ui.setup_wizard; "
+            "import sys; sys.path.insert(0, 'src'); "
+            "from row_bot.ui.helpers import is_first_run, is_setup_complete, load_app_config; "
+            "from row_bot.providers.config import load_provider_config; "
+            "import row_bot.ui.setup_wizard; "
             "assert load_app_config() == {}; "
             "assert is_first_run() is True; "
             "assert is_setup_complete() is False; "
@@ -14124,15 +14175,13 @@ try:
 
     # ── 68o. Channel sub-modules in ISS match filesystem ────────────
     _ch_files68 = [f.name for f in _P68("channels").glob("*.py") if f.name != "__pycache__"]
-    for _cf68 in _ch_files68:
-        assert _cf68 in _iss68, f"channels/{_cf68} not in row_bot_setup.iss"
-    record("PASS", f"68o: all {len(_ch_files68)} channel .py files in row_bot_setup.iss")
+    assert _source_layout_windows_bundle(_iss68), "Windows installer must recursively include src/row_bot"
+    record("PASS", f"68o: src/row_bot recursive include covers all {len(_ch_files68)} channel .py files")
 
     # ── 68p. Tool sub-modules in ISS match filesystem ───────────────
     _tool_files68 = [f.name for f in _P68("tools").glob("*.py") if f.name != "__pycache__"]
-    for _tf68 in _tool_files68:
-        assert _tf68 in _iss68, f"tools/{_tf68} not in row_bot_setup.iss"
-    record("PASS", f"68p: all {len(_tool_files68)} tool .py files in row_bot_setup.iss")
+    assert _source_layout_windows_bundle(_iss68), "Windows installer must recursively include src/row_bot"
+    record("PASS", f"68p: src/row_bot recursive include covers all {len(_tool_files68)} tool .py files")
 
     # ── 68q. Top-level .py files in ISS ─────────────────────────────
     _skip_top68 = {"debug_tools.py"}
@@ -14209,9 +14258,8 @@ except Exception as e:
 try:
     _iss_text69 = (_APP_ROOT69 / "installer" / "row_bot_setup.iss").read_text(encoding="utf-8")
     _tool_py_files69 = {f.name for f in _tool_dir69.glob("*.py")}
-    _missing_iss_tools69 = {f for f in _tool_py_files69 if f not in _iss_text69}
-    assert not _missing_iss_tools69, f"Tool .py files missing from ISS: {sorted(_missing_iss_tools69)}"
-    record("PASS", f"69b: all {len(_tool_py_files69)} tool .py files in installer")
+    assert _source_layout_windows_bundle(_iss_text69), "Windows installer must recursively include src/row_bot"
+    record("PASS", f"69b: src/row_bot recursive include covers all {len(_tool_py_files69)} tool .py files")
 except Exception as e:
     record("FAIL", "69b-tool-installer", f"{type(e).__name__}: {e}")
 
@@ -14232,9 +14280,8 @@ except Exception as e:
 try:
     _ch_dir69 = _APP_ROOT69 / "channels"
     _ch_py69 = {f.name for f in _ch_dir69.glob("*.py")}
-    _missing_ch69 = {f for f in _ch_py69 if f not in _iss_text69}
-    assert not _missing_ch69, f"Channel .py files missing from ISS: {sorted(_missing_ch69)}"
-    record("PASS", f"69d: all {len(_ch_py69)} channel .py files in installer")
+    assert _source_layout_windows_bundle(_iss_text69), "Windows installer must recursively include src/row_bot"
+    record("PASS", f"69d: src/row_bot recursive include covers all {len(_ch_py69)} channel .py files")
 except Exception as e:
     record("FAIL", "69d-channel-installer", f"{type(e).__name__}: {e}")
 
@@ -14242,9 +14289,8 @@ except Exception as e:
 try:
     _ui_dir69 = _APP_ROOT69 / "ui"
     _ui_py69 = {f.name for f in _ui_dir69.glob("*.py")}
-    _missing_ui69 = {f for f in _ui_py69 if f not in _iss_text69}
-    assert not _missing_ui69, f"UI .py files missing from ISS: {sorted(_missing_ui69)}"
-    record("PASS", f"69e: all {len(_ui_py69)} ui .py files in installer")
+    assert _source_layout_windows_bundle(_iss_text69), "Windows installer must recursively include src/row_bot"
+    record("PASS", f"69e: src/row_bot recursive include covers all {len(_ui_py69)} ui .py files")
 except Exception as e:
     record("FAIL", "69e-ui-installer", f"{type(e).__name__}: {e}")
 
@@ -14253,9 +14299,8 @@ try:
     _hub_dir69 = _APP_ROOT69 / "skills_hub"
     _hub_py69 = {f.name for f in _hub_dir69.glob("*.py")}
     assert _hub_py69, "skills_hub package should contain Python modules"
-    assert 'Source: "..\\skills_hub\\*"' in _iss_text69 and "recursesubdirs" in _iss_text69, \
-        "skills_hub package must be recursively included in installer"
-    record("PASS", f"69e2: skills_hub recursive installer include covers {len(_hub_py69)} modules")
+    assert _source_layout_windows_bundle(_iss_text69), "Windows installer must recursively include src/row_bot"
+    record("PASS", f"69e2: src/row_bot recursive include covers {len(_hub_py69)} skills_hub modules")
 except Exception as e:
     record("FAIL", "69e2-skills-hub-installer", f"{type(e).__name__}: {e}")
 
@@ -14292,7 +14337,7 @@ try:
     _tool_files69h = {f.stem for f in _tool_dir69.glob("*_tool.py")}
     _unregistered69 = [
         tf for tf in sorted(_tool_files69h)
-        if f"tools.{tf}" not in _covered_modules69
+        if not _tool_module_is_covered(tf, _covered_modules69)
     ]
     assert not _unregistered69, f"Tool modules with no registered tools: {_unregistered69}"
     record("PASS", f"69h: all tool modules have registered tools ({len(_registered69)} total)")
@@ -14617,7 +14662,7 @@ try:
     _tool_files69r = {f.stem for f in (_APP_ROOT69 / "tools").glob("*_tool.py")}
     _orphaned69r = [
         tf for tf in sorted(_tool_files69r)
-        if f"tools.{tf}" not in _covered_modules69r
+        if not _tool_module_is_covered(tf, _covered_modules69r)
     ]
     assert not _orphaned69r, f"Tool files with no registered tool: {_orphaned69r}"
     record("PASS", f"69r: no orphaned tool files — all {len(_tool_files69r)} files registered")
@@ -19346,8 +19391,9 @@ try:
     _tmp_dir.mkdir(parents=True, exist_ok=True)
     _saved_env = _os73e.environ.get("ROW_BOT_DATA_DIR")
     _os73e.environ["ROW_BOT_DATA_DIR"] = str(_tmp_dir)
-    if "updater" in sys.modules:
-        del sys.modules["updater"]
+    for _mod73e in ("updater", "row_bot.updater"):
+        if _mod73e in sys.modules:
+            del sys.modules[_mod73e]
     import row_bot.updater as _u73e
     cfg = _tmp_dir / "update_config.json"
     if cfg.exists():
@@ -19367,8 +19413,9 @@ try:
         _os73e.environ.pop("ROW_BOT_DATA_DIR", None)
     else:
         _os73e.environ["ROW_BOT_DATA_DIR"] = _saved_env
-    if "updater" in sys.modules:
-        del sys.modules["updater"]
+    for _mod73e in ("updater", "row_bot.updater"):
+        if _mod73e in sys.modules:
+            del sys.modules[_mod73e]
     record("PASS", "73e: UpdateState persists channel + skipped_versions")
 except Exception as e:
     record("FAIL", "73e-state-persist", f"{type(e).__name__}: {e}")
@@ -19467,9 +19514,9 @@ except Exception as e:
 try:
     iss = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
     assert "CloseApplications=yes" in iss, "missing CloseApplications=yes"
-    assert "updater.py" in iss, "updater.py not bundled"
-    assert "updater_tool.py" in iss, "updater_tool.py not bundled"
-    assert "update_dialog.py" in iss, "update_dialog.py not bundled"
+    assert _source_layout_windows_bundle(iss), "Windows installer must recursively include src/row_bot"
+    for _rel73l in ("updater.py", "tools/updater_tool.py", "ui/update_dialog.py"):
+        assert Path("src/row_bot").joinpath(_rel73l).is_file(), f"runtime file missing: src/row_bot/{_rel73l}"
     record("PASS", "73l: installer.iss bundles updater + close-apps flag")
 except Exception as e:
     record("FAIL", "73l-iss-bundle", f"{type(e).__name__}: {e}")
@@ -19478,7 +19525,11 @@ except Exception as e:
 try:
     sb = Path("ui/status_bar.py").read_text(encoding="utf-8")
     assert "_refresh_update_pill" in sb
-    assert "ui/update_dialog" in sb or "from ui.update_dialog" in sb
+    assert (
+        "ui/update_dialog" in sb
+        or "from ui.update_dialog" in sb
+        or "from row_bot.ui.update_dialog" in sb
+    )
     record("PASS", "73m: status_bar exposes update pill")
 except Exception as e:
     record("FAIL", "73m-status-pill", f"{type(e).__name__}: {e}")
