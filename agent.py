@@ -2521,10 +2521,23 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
             except Exception as exc:
                 logger.debug("Channel tool injection skipped: %s", exc)
 
-            if approval_mode in {"block", "approve"}:
-                # BG gating: block=strip destructive tools; approve=wrap
-                # via interrupt() for pause-and-approve; allow_all=keep all.
-                # run_command self-gates at runtime via classify_command.
+            if is_background:
+                if approval_mode in {"block", "approve"}:
+                    # BG gating: block=strip destructive tools; approve=wrap
+                    # via interrupt() for pause-and-approve; allow_all=keep all.
+                    # run_command self-gates at runtime via classify_command.
+                    if approval_mode == "block":
+                        lc_tools = [t for t in lc_tools
+                                    if t.name not in destructive_names]
+                    elif approval_mode == "approve":
+                        for t in lc_tools:
+                            if t.name in destructive_names:
+                                _wrap_with_interrupt_gate(t)
+                    # else: allow_all — keep everything, no gates
+            else:
+                # Interactive sessions use the same app-wide approval mode:
+                # block=hide destructive tools; approve=wrap with interrupt();
+                # allow_all=keep everything, no gates.
                 if approval_mode == "block":
                     lc_tools = [t for t in lc_tools
                                 if t.name not in destructive_names]
@@ -2532,14 +2545,6 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                     for t in lc_tools:
                         if t.name in destructive_names:
                             _wrap_with_interrupt_gate(t)
-                # else: allow_all — keep everything, no gates
-            elif False:
-                # Interactive sessions: gate destructive tools with interrupt() —
-                # the graph will pause, yield an "interrupt" event, and wait for
-                # user approval before actually executing the tool.
-                for t in lc_tools:
-                    if t.name in destructive_names:
-                        _wrap_with_interrupt_gate(t)
 
             _install_custom_tool_validation_repair(lc_tools, readiness.provider_id)
 

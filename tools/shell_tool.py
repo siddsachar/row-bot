@@ -487,7 +487,15 @@ class ShellTool(BaseTool):
             )
 
         if classification == "needs_approval":
-            # Determine execution context
+            # Determine execution context for background-audit compatibility.
+            # gate_action() below handles block / approve / allow_all.
+            try:
+                from agent import is_background_workflow
+
+                _is_bg = is_background_workflow()
+            except Exception:
+                _is_bg = False
+            logger.debug("Shell command approval required; background=%s", _is_bg)
             blocked = gate_action(
                 {
                     "tool": "run_command",
@@ -503,36 +511,6 @@ class ShellTool(BaseTool):
             )
             if blocked:
                 return blocked
-            _is_bg = True
-            _mode = "allow_all"
-
-            if not _is_bg:
-                # Interactive session — always gate with interrupt
-                approval = interrupt({
-                    "tool": "run_command",
-                    "label": "Run shell command",
-                    "description": f"Run shell command: {command}",
-                    "args": {"command": command},
-                })
-                if not approval:
-                    return "Command cancelled by user."
-            elif _mode == "block":
-                # Background task, block mode — refuse non-safe commands
-                return (
-                    f"🚫 BLOCKED: This command requires approval and cannot "
-                    f"run in Block approval mode: {command}"
-                )
-            elif _mode == "approve":
-                # Background task, approve mode — gate with interrupt
-                approval = interrupt({
-                    "tool": "run_command",
-                    "label": "Run shell command",
-                    "description": f"Run shell command: {command}",
-                    "args": {"command": command},
-                })
-                if not approval:
-                    return "Command denied by user."
-            # else: allow_all or unknown — fall through to execute
 
         # ── Execute ──────────────────────────────────────────────────────
         try:
