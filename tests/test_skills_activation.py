@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import sys
 from pathlib import Path
@@ -55,6 +56,12 @@ def _write_skill(
             lines.extend(f"    - {value}" for value in values)
     lines.extend(["---", "", instructions or f"Instructions for {name}."])
     (skill_dir / "SKILL.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def _disable_bundled_manual_skills(skills) -> None:
+    for skill in skills.get_manual_skills():
+        if getattr(skill, "source", "") == "bundled":
+            skills.set_enabled(skill.name, False)
 
 
 def test_parse_skill_commands(tmp_path):
@@ -255,6 +262,7 @@ def test_shared_instruction_terms_do_not_create_broad_suggestions(tmp_path):
         )
     skills, activation = _reload_skill_modules(tmp_path)
     skills.load_skills()
+    _disable_bundled_manual_skills(skills)
 
     assert activation.suggest_skills("thread-a", "help me review and improve this content") == []
 
@@ -285,19 +293,40 @@ def test_skill_choice_search_uses_shared_weighted_matcher(tmp_path):
 
 
 def test_chat_skill_picker_uses_shared_ranked_choices():
-    src = Path("src/row_bot/ui/chat.py").read_text(encoding="utf-8")
+    src = Path("src/row_bot/ui/chat_composer_extras.py").read_text(encoding="utf-8")
 
-    assert "list_skill_choices as _list_chat_skill_choices" in src
+    assert "list_skill_choices" in src
     assert "def _matches(skill)" not in src
 
 
 def test_chat_suppresses_draft_suggestions_after_use_or_dismiss():
-    src = Path("src/row_bot/ui/chat.py").read_text(encoding="utf-8")
+    src = Path("src/row_bot/ui/chat_composer_extras.py").read_text(encoding="utf-8")
 
     assert "suggestions_suppressed_text" in src
     assert "def _suppress_skill_suggestions_for_current_draft" in src
     assert "_cancel_skill_chip_refresh_task()" in src
     assert "source.startswith(\"ui\")" in src
+
+
+def test_studio_composers_wire_shared_slash_and_skill_extras():
+    components_src = Path("src/row_bot/ui/chat_components.py").read_text(encoding="utf-8")
+    extras_src = Path("src/row_bot/ui/chat_composer_extras.py").read_text(encoding="utf-8")
+    designer_src = Path("src/row_bot/designer/editor.py").read_text(encoding="utf-8")
+    developer_src = Path("src/row_bot/developer/ui.py").read_text(encoding="utf-8")
+    agent_src = Path("src/row_bot/agent.py").read_text(encoding="utf-8")
+
+    assert "composer_extras: Any | None = None" in components_src
+    assert "composer_extras.render_before_input()" in components_src
+    assert "composer_extras.attach_input(p.chat_input)" in components_src
+    assert "window._rowBotSlashPaletteOpen" in components_src
+    assert "class ComposerExtrasController" in extras_src
+    assert "row-bot-slash-palette-list" in extras_src
+    assert "create_designer_composer_extras" in designer_src
+    assert "create_developer_composer_extras" in developer_src
+    assert "set_thread_skills_override" in extras_src
+    assert 'skill_mode="developer"' in extras_src
+    assert 'skill_mode="thread_override"' in extras_src
+    assert "skills_override is not None" in agent_src
 
 
 def test_activation_metadata_drives_suggestions_without_prompt_bloat(tmp_path):
@@ -315,6 +344,7 @@ def test_activation_metadata_drives_suggestions_without_prompt_bloat(tmp_path):
     )
     skills, activation = _reload_skill_modules(tmp_path)
     skills.load_skills()
+    _disable_bundled_manual_skills(skills)
 
     skill = skills.get_skill("meeting_notes")
     assert skill.activation["phrases"] == ["meeting notes"]
@@ -575,6 +605,38 @@ def test_tool_guide_prompt_injection_stays_tool_bound(tmp_path):
     browser_guide = skills.get_skills_prompt([], active_tool_names=["browser"])
     assert "BROWSER AUTOMATION" in browser_guide
     assert "## Skills" not in browser_guide
+
+
+def test_bundled_manual_skills_default_enabled_without_tool_guides(tmp_path):
+    skills, _activation = _reload_skill_modules(tmp_path)
+    skills.load_skills()
+
+    assert skills.is_enabled("meeting_notes") is True
+    assert skills.is_enabled("deep_research") is True
+    tool_guides = {skill.name for skill in skills.get_all_skills() if skills.is_tool_guide(skill)}
+    assert "browser_guide" in tool_guides
+    assert skills.is_enabled("browser_guide") is False
+
+
+def test_bundled_manual_default_migration_is_one_time(tmp_path):
+    skills, _activation = _reload_skill_modules(tmp_path)
+    config_path = tmp_path / "skills_config.json"
+    config_path.write_text(
+        json.dumps({"skills": {"meeting_notes": False}}),
+        encoding="utf-8",
+    )
+
+    skills.load_skills()
+
+    assert skills.is_enabled("meeting_notes") is True
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved[skills.BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY] is True
+
+    skills.set_enabled("meeting_notes", False)
+    skills, _activation = _reload_skill_modules(tmp_path)
+    skills.load_skills()
+
+    assert skills.is_enabled("meeting_notes") is False
 
 
 def test_agent_prompt_is_lean_until_chat_skills_are_active(tmp_path):

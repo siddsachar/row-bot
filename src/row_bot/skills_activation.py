@@ -540,6 +540,9 @@ def apply_channel_skill_command(
             )
         return SkillCommandResult("text", "No active skill is set for this chat.")
 
+    _resolved_name, _resolved_error = resolve_skill_name(command.name)
+    if _resolved_error and _resolved_error.startswith("Skill is off in the Skills library:"):
+        return SkillCommandResult("error", _resolved_error, query=command.name)
     matches = match_skill_choices(command.name, thread_id=thread_id, limit=choice_limit)
     if not matches:
         _name, error = resolve_skill_name(command.name)

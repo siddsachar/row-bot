@@ -1445,9 +1445,18 @@ def _pre_model_trim(state: dict) -> dict:
             manual_skill_names = None
 
             # In designer mode, suppress manual skills — only tool guides
-            # (like designer_guide) are injected automatically.
+            # (like designer_guide) are injected automatically unless the
+            # Designer composer has set an explicit thread override.
             if _dp is not None:
-                manual_skill_names = []
+                manual_skill_names = (
+                    resolve_active_skill_names(
+                        _thread_id or "",
+                        explicit_override=skills_override,
+                        is_background=True,
+                    )
+                    if skills_override is not None
+                    else []
+                )
             elif is_background_workflow():
                 # Background workflows are deterministic: only an explicit
                 # task/thread skills_override may affect manual skills.

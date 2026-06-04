@@ -942,6 +942,12 @@ def build_designer_editor(
 
                     # File upload (hidden widget + drag-drop + paste)
                     _hidden_upload = build_file_upload(p, state)
+                    from row_bot.ui.chat_composer_extras import create_designer_composer_extras
+
+                    _composer_extras = create_designer_composer_extras(
+                        state,
+                        p,
+                    )
 
                     with ui.expansion("References", icon="collections_bookmark").classes(
                         "w-full shrink-0"
@@ -982,6 +988,7 @@ def build_designer_editor(
                         browse_file=browse_file,
                         open_settings=open_settings,
                         show_model_picker=True,
+                        composer_extras=_composer_extras,
                     )
                 else:
                     # Fallback: minimal chat using the current thread messages when available.

@@ -23,6 +23,10 @@ set "TK_LIBRARY=%PYTHON_DIR%\tcl\tk8.6"
 set "PLAYWRIGHT_BROWSERS_PATH=%PYTHON_DIR%\playwright-browsers"
 
 :: â”€â”€ Find Ollama (optional â€” only needed for local models) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+:: Launcher.py handles provider-aware Ollama startup.
+:: Set ROW_BOT_BATCH_START_OLLAMA=1 only to debug the legacy batch prestart.
+if not "%ROW_BOT_BATCH_START_OLLAMA%"=="1" goto :launch_app
+
 set "OLLAMA_APP="
 if exist "%LOCALAPPDATA%\Programs\Ollama\ollama app.exe" (
     set "OLLAMA_APP=%LOCALAPPDATA%\Programs\Ollama\ollama app.exe"

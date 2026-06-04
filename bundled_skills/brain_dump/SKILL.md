@@ -3,7 +3,7 @@ name: brain_dump
 display_name: Brain Dump
 icon: "🧠"
 description: Capture unstructured thoughts and organize them into structured notes saved to memory.
-enabled_by_default: false
+enabled_by_default: true
 version: "1.2"
 tags:
   - productivity

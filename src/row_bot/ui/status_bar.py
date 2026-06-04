@@ -6,6 +6,7 @@ Replaces the old logo section on the home screen.
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import logging
 import time
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 _DATA_DIR = get_row_bot_data_dir()
 _USER_CONFIG_PATH = _DATA_DIR / "user_config.json"
+_BUDDY_AVATAR_URL_CACHE: dict[str, str] = {}
 
 # ═════════════════════════════════════════════════════════════════════════════
 # AVATAR CONFIG
@@ -95,13 +97,40 @@ def get_bot_avatar_html() -> str:
     """Return the inner HTML for the bot's chat avatar.
 
     If the user has a generated image avatar, returns an ``<img>`` tag.
-    Otherwise returns the configured emoji character.
+    If the user explicitly picked a non-default emoji, returns that emoji.
+    Otherwise returns the selected Buddy pack preview.
     """
     cfg = _load_avatar_config()
     if cfg.get("mode") == "image" and cfg.get("image"):
         b64 = cfg["image"]
         return f'<img src="data:image/png;base64,{b64}" alt="avatar" />'
-    return cfg.get("emoji", _DEFAULT_EMOJI)
+    emoji = cfg.get("emoji")
+    if emoji and emoji != _DEFAULT_EMOJI:
+        return str(emoji)
+    buddy_url = _get_buddy_avatar_url()
+    if buddy_url:
+        return f'<img src="{html.escape(buddy_url, quote=True)}" alt="Buddy avatar" />'
+    return '<span class="material-icons" aria-hidden="true">smart_toy</span>'
+
+
+def _get_buddy_avatar_url() -> str:
+    try:
+        from row_bot.buddy.assets import load_buddy_pack, static_url_for_path
+        from row_bot.buddy.config import get_buddy_config
+
+        pack_id = str(get_buddy_config().get("pack_id") or "glyph")
+        cached = _BUDDY_AVATAR_URL_CACHE.get(pack_id)
+        if cached:
+            return cached
+        pack = load_buddy_pack(pack_id)
+        if pack.preview_path and pack.preview_path.exists():
+            url = static_url_for_path(pack.preview_path)
+            if url:
+                _BUDDY_AVATAR_URL_CACHE[pack_id] = url
+                return url
+    except Exception:
+        logger.debug("Could not resolve Buddy avatar preview", exc_info=True)
+    return ""
 
 
 def _save_avatar_config(avatar: dict) -> None:

@@ -812,11 +812,7 @@ def install_and_restart(installer_path: pathlib.Path) -> None:
     sys_name = platform.system()
     try:
         if sys_name == "Windows":
-            subprocess.Popen(
-                [str(installer_path),
-                 "/SILENT", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS"],
-                close_fds=True,
-            )
+            _launch_windows_update_handoff(installer_path)
         elif sys_name == "Darwin":
             subprocess.Popen(["open", str(installer_path)], close_fds=True)
         elif sys_name == "Linux":
@@ -839,6 +835,49 @@ def install_and_restart(installer_path: pathlib.Path) -> None:
         time.sleep(2)
         os._exit(0)
     threading.Thread(target=_exit, daemon=True).start()
+
+
+def _launch_windows_update_handoff(installer_path: pathlib.Path) -> None:
+    """Start the detached Windows helper that waits before launching installer."""
+
+    from row_bot.app_port import ROW_BOT_PORT_ENV, parse_app_port
+
+    port = parse_app_port(os.environ.get(ROW_BOT_PORT_ENV), default=0)
+    app_pid = os.getpid()
+    launcher_pid = os.getppid()
+    cmd = [
+        sys.executable,
+        "-m",
+        "row_bot.update_handoff",
+        "--installer",
+        str(installer_path),
+        "--app-pid",
+        str(app_pid),
+        "--launcher-pid",
+        str(launcher_pid if launcher_pid != app_pid else 0),
+        "--port",
+        str(port),
+        "--timeout",
+        "30",
+    ]
+    flags = 0
+    flags |= getattr(subprocess, "DETACHED_PROCESS", 0)
+    flags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    flags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    logger.info(
+        "Starting Windows update handoff helper: app_pid=%s launcher_pid=%s port=%s",
+        app_pid,
+        launcher_pid,
+        port,
+    )
+    subprocess.Popen(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        creationflags=flags,
+    )
 
 
 # ════════════════════════════════════════════════════════════════════════════

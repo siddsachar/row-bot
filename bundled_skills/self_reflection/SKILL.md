@@ -3,7 +3,7 @@ name: self_reflection
 display_name: Self-Reflection
 icon: "🪞"
 description: Periodically review memory for contradictions, gaps, and stale information.
-enabled_by_default: false
+enabled_by_default: true
 version: "1.1"
 tags:
   - memory

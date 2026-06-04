@@ -3,7 +3,7 @@ name: knowledge_base
 display_name: Knowledge Base
 icon: "📚"
 description: Manage the user's personal knowledge base — knowledge graph, documents, and wiki vault.
-enabled_by_default: false
+enabled_by_default: true
 version: "1.0"
 tags:
   - memory

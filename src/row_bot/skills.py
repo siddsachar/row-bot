@@ -41,6 +41,7 @@ BUNDLED_SKILLS_DIR = bundled_skills_dir()
 TOOL_GUIDES_DIR = tool_guides_dir()
 
 CONFIG_PATH = DATA_DIR / "skills_config.json"
+BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY = "bundled_manual_defaults_v2_applied"
 
 # ── Data Model ───────────────────────────────────────────────────────────────
 
@@ -72,7 +73,7 @@ _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 def _parse_skill_md(filepath: pathlib.Path, source: str = "user") -> Optional[Skill]:
     """Parse a SKILL.md file into a Skill dataclass.  Returns None on error."""
     try:
-        text = filepath.read_text(encoding="utf-8")
+        text = filepath.read_text(encoding="utf-8-sig")
     except OSError:
         logger.warning("Cannot read skill file %s", filepath, exc_info=True)
         return None
@@ -114,6 +115,13 @@ def _parse_skill_md(filepath: pathlib.Path, source: str = "user") -> Optional[Sk
 
     raw_activation = _normalize_activation_metadata(meta.get("activation", {}))
 
+    explicit_enabled_default = "enabled_by_default" in meta
+    enabled_by_default = (
+        bool(meta.get("enabled_by_default"))
+        if explicit_enabled_default
+        else source == "bundled" and not raw_tools
+    )
+
     return Skill(
         name=str(name),
         display_name=str(meta.get("display_name", name.replace("_", " ").title())),
@@ -125,7 +133,7 @@ def _parse_skill_md(filepath: pathlib.Path, source: str = "user") -> Optional[Sk
         tags=raw_tags,
         activation=raw_activation,
         author=str(meta.get("author", "Thoth" if source == "bundled" else "User")),
-        enabled_by_default=bool(meta.get("enabled_by_default", False)),
+        enabled_by_default=enabled_by_default,
         source=source,
         path=filepath.parent,
     )
@@ -188,10 +196,12 @@ def _load_config() -> dict:
     return {}
 
 
-def _save_config():
+def _save_config(metadata: dict | None = None):
     """Persist the current enabled state to disk."""
     data = _load_config()
     data["skills"] = _enabled
+    if metadata:
+        data.update(metadata)
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
@@ -227,24 +237,42 @@ def _discover_skills() -> dict[str, Skill]:
     return found
 
 
+def _is_bundled_manual_skill(skill: Skill) -> bool:
+    """Return true for bundled runtime skills, excluding tool guides and user overrides."""
+
+    if skill.source != "bundled" or is_tool_guide(skill) or not skill.path:
+        return False
+    try:
+        skill.path.resolve().relative_to(BUNDLED_SKILLS_DIR.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def load_skills():
     """Discover all skills, apply persisted enable/disable state, populate cache."""
     global _skills_cache, _enabled
 
     _skills_cache = _discover_skills()
 
-    saved = _load_config().get("skills", {})
+    config = _load_config()
+    saved = config.get("skills", {})
+    migrate_bundled_manual_defaults = not bool(config.get(BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY))
 
     # Merge saved state with discovered skills
     new_enabled: dict[str, bool] = {}
     for name, skill in _skills_cache.items():
-        if name in saved:
+        if is_tool_guide(skill):
+            new_enabled[name] = False
+        elif migrate_bundled_manual_defaults and _is_bundled_manual_skill(skill):
+            new_enabled[name] = True
+        elif name in saved:
             new_enabled[name] = saved[name]
         else:
             new_enabled[name] = skill.enabled_by_default
 
     _enabled = new_enabled
-    _save_config()
+    _save_config({BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY: True})
 
     manual_count = sum(1 for skill in _skills_cache.values() if not skill.tools)
     manual_enabled = sum(

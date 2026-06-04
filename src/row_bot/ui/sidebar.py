@@ -30,6 +30,13 @@ _SIDEBAR_DEV_EXPANDED: set[str] = set()
 _SIDEBAR_DEV_EXPANDED_LOADED: bool = False
 _SIDEBAR_DEV_EXPANDED_HAS_SAVED_STATE: bool = False
 _SIDEBAR_DEV_DEFAULT_APPLIED: bool = False
+THREAD_FILTER_DESCRIPTORS: tuple[dict[str, str], ...] = (
+    {"key": "all", "label": "All", "icon": "forum"},
+    {"key": "chat", "label": "Chats", "icon": "chat_bubble_outline"},
+    {"key": "designer", "label": "Designs", "icon": "brush"},
+    {"key": "code", "label": "Code", "icon": "code"},
+    {"key": "workflow", "label": "Workflows", "icon": "task_alt"},
+)
 _SIDEBAR_AVATAR_CSS = """
 .sb-avatar { position: relative; }
 .sb-idle { color: #64748b; }
@@ -44,6 +51,63 @@ _SIDEBAR_AVATAR_CSS = """
 .sb-ring-spin { animation: sb-ring-spin 1.1s linear infinite; }
 @keyframes sb-ring-spin { to { transform: rotate(360deg); } }
 """
+
+
+def _render_filter_button(
+    *,
+    key: str,
+    label: str,
+    icon: str,
+    count: int,
+    active: bool,
+    on_click: Callable[[], None],
+):
+    """Render a compact sidebar/modal thread filter control."""
+
+    aria = f"{label} conversations, {count}"
+    btn = ui.button(
+        str(count) if count else "",
+        icon=icon,
+        on_click=on_click,
+    ).props(
+        f'dense no-caps no-wrap size=sm rounded aria-label="{aria}" '
+        + ("color=primary" if active else "flat color=grey-5")
+    ).classes("row-bot-thread-filter-icon").style(
+        "width: 46px; min-width: 0; max-width: 46px; height: 30px; "
+        "min-height: 30px; padding: 2px 3px; font-size: 0.68rem; "
+        "line-height: 1; white-space: nowrap; flex: 0 0 46px;"
+    ).tooltip(f"{label}: {count}")
+    if active:
+        btn.classes("row-bot-pill-active")
+    return btn
+
+
+def _render_modal_filter_button(
+    *,
+    key: str,
+    label: str,
+    icon: str,
+    count: int,
+    active: bool,
+    on_click: Callable[[], None],
+):
+    """Render a wider filter control for the All Conversations dialog."""
+
+    aria = f"{label} conversations, {count}"
+    btn = ui.button(
+        f"{label} {count}" if count else label,
+        icon=icon,
+        on_click=on_click,
+    ).props(
+        f'dense no-caps no-wrap size=sm rounded aria-label="{aria}" '
+        + ("color=primary" if active else "flat color=grey-5")
+    ).classes("row-bot-thread-filter-modal").style(
+        "min-height: 30px; padding: 2px 8px; font-size: 0.72rem; "
+        "line-height: 1; white-space: nowrap; flex: 0 0 auto;"
+    ).tooltip(f"{label}: {count}")
+    if active:
+        btn.classes("row-bot-pill-active")
+    return btn
 
 
 def _sidebar_state_path():
@@ -131,13 +195,13 @@ def build_sidebar(
     ).classes("row-bot-panel-card"):
         # Logo - always app branding, independent of identity settings
         ui.html(
-            f'<div style="display:flex; align-items:center; gap:10px; margin:0 0 12px 0;">'
+            f'<div style="display:flex; align-items:center; gap:8px; margin:0 0 8px 0;">'
             f'<img src="/static/row_bot_glyph_256.png" alt="" '
-            f'style="width:92px; height:auto; display:block; flex:0 0 auto;">'
-            f'<div style="display:flex; flex-direction:column; gap:4px; min-width:0;">'
-            f'<span style="font-size:1.35rem; font-weight:600; color:{APP_BRAND_ACCENT};'
+            f'style="width:72px; height:auto; display:block; flex:0 0 auto;">'
+            f'<div style="display:flex; flex-direction:column; gap:3px; min-width:0;">'
+            f'<span style="font-size:1.15rem; font-weight:600; color:{APP_BRAND_ACCENT};'
             f' letter-spacing:0.5px; line-height:1.05;">{APP_DISPLAY_NAME}</span>'
-            f'<span style="font-size:12px; color:#9ca3af; line-height:1.25;">'
+            f'<span style="font-size:11px; color:#9ca3af; line-height:1.2;">'
             f'Personal AI Sovereignty</span></div></div>',
             sanitize=False,
         )
@@ -204,7 +268,10 @@ def build_sidebar(
             # Filter pill row - rebuilt by _rebuild_thread_list so counts stay current
             p.thread_filter_container = ui.row().classes(
                 "w-full gap-1 items-center no-wrap q-mb-xs"
-            ).style("flex-wrap: wrap;")
+            ).style(
+                "display: flex; flex-wrap: nowrap; overflow: hidden; "
+                "column-gap: 4px; row-gap: 0;"
+            )
             p.thread_container = ui.column().classes("w-full gap-0")
 
         # ── Channel monitor panel ────────────────────────────────────
@@ -373,15 +440,11 @@ def build_sidebar(
         # ── Filter pill row ─────────────────────────────────────────
         global _SIDEBAR_FILTER
         if p.thread_filter_container is not None and counts["all"] > 0:
-            pills = [
-                ("all", "All", counts["all"]),
-                ("chat", "Chats", counts["chat"]),
-                ("designer", "Designs", counts["designer"]),
-                ("code", "Code", counts["code"]),
-                ("workflow", "Workflows", counts["workflow"]),
-            ]
             with p.thread_filter_container:
-                for key, label, n in pills:
+                for descriptor in THREAD_FILTER_DESCRIPTORS:
+                    key = descriptor["key"]
+                    label = descriptor["label"]
+                    n = counts[key]
                     # Hide empty buckets other than "All".
                     if key != "all" and n == 0:
                         continue
@@ -392,15 +455,14 @@ def build_sidebar(
                         _SIDEBAR_FILTER = k
                         _rebuild_thread_list()
 
-                    btn = ui.button(
-                        f"{label} {n}" if n else label,
+                    _render_filter_button(
+                        key=key,
+                        label=label,
+                        icon=descriptor["icon"],
+                        count=n,
+                        active=is_on,
                         on_click=_set_filter,
-                    ).props(
-                        "dense no-caps size=sm rounded "
-                        + ("color=primary" if is_on else "flat color=grey-5")
-                    ).style("font-size: 0.72rem; padding: 2px 8px;")
-                    if is_on:
-                        btn.classes("row-bot-pill-active")
+                    )
 
         # Apply filter
         if _SIDEBAR_FILTER != "all":
@@ -794,22 +856,19 @@ def build_sidebar(
 
                         filter_row = ui.row().classes(
                             "w-full gap-1 items-center q-mb-xs"
-                        ).style("flex-wrap: wrap;")
+                        ).style(
+                            "display: flex; flex-wrap: wrap; overflow: visible; "
+                            "column-gap: 4px; row-gap: 4px; min-height: 34px;"
+                        )
 
                         def _render_modal_pills():
                             filter_row.clear()
                             global _MODAL_FILTER
-                            pills = [
-                                ("all", "All", _modal_counts["all"]),
-                                ("chat", "Chats", _modal_counts["chat"]),
-                                ("designer", "Designs",
-                                 _modal_counts["designer"]),
-                                ("code", "Code", _modal_counts["code"]),
-                                ("workflow", "Workflows",
-                                 _modal_counts["workflow"]),
-                            ]
                             with filter_row:
-                                for key, label, n in pills:
+                                for descriptor in THREAD_FILTER_DESCRIPTORS:
+                                    key = descriptor["key"]
+                                    label = descriptor["label"]
+                                    n = _modal_counts[key]
                                     if key != "all" and n == 0:
                                         continue
                                     is_on = _MODAL_FILTER == key
@@ -820,14 +879,13 @@ def build_sidebar(
                                         _render_modal_pills()
                                         _rebuild_dialog_list()
 
-                                    ui.button(
-                                        f"{label} {n}" if n else label,
+                                    _render_modal_filter_button(
+                                        key=key,
+                                        label=label,
+                                        icon=descriptor["icon"],
+                                        count=n,
+                                        active=is_on,
                                         on_click=_set_mf,
-                                    ).props(
-                                        "dense no-caps size=sm rounded "
-                                        + ("color=primary" if is_on else "flat color=grey-5")
-                                    ).style(
-                                        "font-size: 0.72rem; padding: 2px 8px;"
                                     )
 
                         _render_modal_pills()

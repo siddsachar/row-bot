@@ -3,7 +3,7 @@ name: design_creator
 display_name: Design Creator
 icon: "🎨"
 description: Structured workflow for creating professional designs — slide decks, documents, landing pages, app mockups, and motion storyboards.
-enabled_by_default: false
+enabled_by_default: true
 version: "1.0"
 tags:
   - design

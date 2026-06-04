@@ -73,6 +73,38 @@ def test_all_conversations_modal_folder_toggle_does_not_rebuild_sidebar():
     assert "_persist_sidebar_dev_expanded()" in toggle_block
 
 
+def test_sidebar_thread_filters_are_icon_descriptors_not_wrapping_labels():
+    source = (ROOT / "src" / "row_bot" / "ui" / "sidebar.py").read_text(encoding="utf-8")
+
+    assert "THREAD_FILTER_DESCRIPTORS" in source
+    for icon in ("forum", "chat_bubble_outline", "brush", "code", "task_alt"):
+        assert f'"icon": "{icon}"' in source
+    assert "_render_filter_button" in source
+    assert "aria-label" in source
+    assert "row-bot-thread-filter-icon" in source
+    assert "no-caps no-wrap" in source
+    assert "width: 46px" in source
+    assert "height: 30px" in source
+    assert "flex-wrap: nowrap" in source
+    assert 'f"{label} {n}" if n else label' not in source
+    assert 'style("flex-wrap: wrap;")' not in source
+
+
+def test_all_conversations_modal_uses_visible_filter_chips():
+    source = (ROOT / "src" / "row_bot" / "ui" / "sidebar.py").read_text(encoding="utf-8")
+    modal_block = source.split("def _show_all():", 1)[1].split(
+        "list_container = ui.column()",
+        1,
+    )[0]
+
+    assert "_render_modal_filter_button" in source
+    assert "row-bot-thread-filter-modal" in source
+    assert "_render_modal_filter_button(" in modal_block
+    assert "_render_filter_button(" not in modal_block
+    assert 'f"{label} {count}" if count else label' in source
+    assert "overflow: visible" in modal_block
+
+
 def test_sidebar_developer_expanded_state_persists(tmp_path, monkeypatch):
     monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
     sys.modules.pop("ui.sidebar", None)

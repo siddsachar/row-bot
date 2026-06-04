@@ -3,7 +3,7 @@ name: humanizer
 display_name: Humanizer
 icon: "🗣️"
 description: Write in a natural, human tone — no AI-speak, no filler, no corporate fluff.
-enabled_by_default: false
+enabled_by_default: true
 version: "1.0"
 tags:
   - writing

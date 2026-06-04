@@ -333,6 +333,25 @@ def test_home_status_bar_shows_buddy_hatch_progress():
     assert "safe_timer(2.0, _poll_buddy_hatch_status)" in status_src
 
 
+def test_chat_avatar_uses_buddy_preview_only_for_default(monkeypatch):
+    import row_bot.ui.status_bar as status_bar
+
+    monkeypatch.setattr(status_bar, "_get_buddy_avatar_url", lambda: "/static/buddy/builtins/glyph/preview.png")
+
+    monkeypatch.setattr(status_bar, "_load_avatar_config", lambda: {})
+    assert 'src="/static/buddy/builtins/glyph/preview.png"' in status_bar.get_bot_avatar_html()
+
+    monkeypatch.setattr(status_bar, "_load_avatar_config", lambda: {"emoji": "spark"})
+    assert status_bar.get_bot_avatar_html() == "spark"
+
+    monkeypatch.setattr(
+        status_bar,
+        "_load_avatar_config",
+        lambda: {"mode": "image", "image": "abc123"},
+    )
+    assert 'src="data:image/png;base64,abc123"' in status_bar.get_bot_avatar_html()
+
+
 def test_buddy_settings_visibility_controls_are_not_redundant():
     buddy_ui_src = _read("src/row_bot/ui/buddy.py")
 
