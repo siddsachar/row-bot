@@ -134,7 +134,7 @@ For local and self-hosted servers, use a context window large enough for Row-Bot
 
 Most tools work without API keys. Add keys only for the providers and integrations you use.
 
-Model catalog browsing, pinning, defaults, and Quick Choices live in Settings -> Models. Model choices stay provider-qualified, so the same model ID from a local runtime, OpenRouter, a custom endpoint, or a direct provider remains distinct. Row-Bot also tracks whether a selected model is ready for full agent/tool use, should run chat-only, or needs a larger context window or different endpoint profile.
+Model catalog browsing, pinning, defaults, and Quick Choices live in Settings → Models. Model choices stay provider-qualified, so the same model ID from a local runtime, OpenRouter, a custom endpoint, or a direct provider remains distinct. Row-Bot also tracks whether a selected model is ready for full agent/tool use, should run chat-only, or needs a larger context window or different endpoint profile.
 
 | Service | Key or setup | Used for |
 |---------|--------------|----------|
