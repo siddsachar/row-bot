@@ -24,6 +24,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 import webbrowser
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -56,6 +57,8 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 _LAUNCH_STARTED = time.perf_counter()
 _LAUNCH_FILE_LOGGING = False
+_LAUNCH_SESSION_ID = os.environ.get("ROW_BOT_LAUNCH_SESSION_ID") or uuid.uuid4().hex
+_EARLY_SPLASH_PROC: subprocess.Popen | None = None
 
 # ── Constants ────────────────────────────────────────────────────────────────
 _PORT = DEFAULT_APP_PORT
@@ -131,8 +134,9 @@ def _launch_event(event: str, **fields) -> None:
     compact = {
         key: value
         for key, value in fields.items()
-        if trace or key in {"port", "pid", "mode", "duration_ms", "exit_code", "status"}
+        if trace or key in {"port", "pid", "mode", "duration_ms", "exit_code", "status", "session", "log"}
     }
+    compact.setdefault("session", _LAUNCH_SESSION_ID)
     suffix = " ".join(f"{key}={value}" for key, value in compact.items())
     logger.info("launcher.%s elapsed_ms=%.1f%s%s", event, elapsed_ms, " " if suffix else "", suffix)
 
@@ -535,6 +539,7 @@ class _RowBotProcess:
         env.update({
             "PYTHONNOUSERSITE": "1",
             "PYTHONIOENCODING": "utf-8",
+            "ROW_BOT_LAUNCH_SESSION_ID": _LAUNCH_SESSION_ID,
             APP_NATIVE_ENV: "1",
             ROW_BOT_PORT_ENV: str(self.port),
         })
@@ -668,6 +673,105 @@ class _RowBotProcess:
         return self._proc.poll()
 
 
+def _helper_artifact_path(name: str, suffix: str) -> Path:
+    safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in name)
+    return _row_bot_data_dir() / f"launcher-{_LAUNCH_SESSION_ID}-{safe}.{suffix}"
+
+
+def _delete_if_exists(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except Exception:
+        logger.debug("Could not remove stale launcher helper artifact %s", path, exc_info=True)
+
+
+def _launcher_helper_tail(log_path: Path, max_lines: int = 20) -> str:
+    return _read_log_tail(log_path, max_lines=max_lines).replace("\n", " | ")[:1000]
+
+
+def _start_launcher_helper(
+    *,
+    name: str,
+    source: str,
+    args: list[str],
+    ready_marker: Path,
+    log_path: Path,
+    ready_timeout: float,
+    env: dict[str, str] | None = None,
+) -> subprocess.Popen | None:
+    """Start a launcher UI helper and require an explicit ready marker."""
+    _delete_if_exists(ready_marker)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    command = [sys.executable, "-c", source, *args, str(ready_marker)]
+    _launch_event(
+        "helper_spawn",
+        status=name,
+        log=str(log_path),
+        command=f"{Path(sys.executable).name} -c <{name}>",
+    )
+    try:
+        with open(log_path, "w", encoding="utf-8") as log_fh:  # noqa: SIM115
+            proc = subprocess.Popen(
+                command,
+                env=env,
+                stdout=log_fh,
+                stderr=log_fh,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+    except Exception as exc:
+        logger.warning("Could not start %s helper: %s (log=%s)", name, exc, log_path)
+        _launch_event("helper_spawn_failed", status=name, log=str(log_path))
+        return None
+
+    _launch_event("helper_started", status=name, pid=proc.pid, log=str(log_path))
+    deadline = time.monotonic() + ready_timeout
+    while time.monotonic() < deadline:
+        if ready_marker.exists():
+            _launch_event("helper_ready", status=name, pid=proc.pid)
+            return proc
+        exit_code = proc.poll()
+        if exit_code is not None:
+            tail = _launcher_helper_tail(log_path)
+            logger.warning("%s helper exited before ready (code %s, log=%s): %s", name, exit_code, log_path, tail)
+            _launch_event("helper_exited_before_ready", status=name, exit_code=exit_code, log=str(log_path))
+            return None
+        time.sleep(0.05)
+
+    logger.warning("%s helper did not report ready within %.1fs; terminating (log=%s)", name, ready_timeout, log_path)
+    _launch_event("helper_ready_timeout", status=name, pid=proc.pid, duration_ms=round(ready_timeout * 1000.0, 1), log=str(log_path))
+    _RowBotProcess._terminate_process(proc, label=f"{name} helper", timeout=1.0, kill_tree=True)
+    return None
+
+
+def _wait_for_launcher_helper(
+    proc: subprocess.Popen,
+    *,
+    name: str,
+    timeout: float,
+    log_path: Path,
+) -> int | None:
+    try:
+        return proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        logger.warning("%s helper interaction timed out after %.1fs; terminating (log=%s)", name, timeout, log_path)
+        _launch_event("helper_interaction_timeout", status=name, pid=proc.pid, duration_ms=round(timeout * 1000.0, 1), log=str(log_path))
+        _RowBotProcess._terminate_process(proc, label=f"{name} helper", timeout=1.0, kill_tree=True)
+        return None
+
+
+def _stop_launcher_helper(proc: subprocess.Popen | None, *, name: str) -> None:
+    if proc is None or proc.poll() is not None:
+        return
+    _RowBotProcess._terminate_process(proc, label=f"{name} helper", timeout=1.0, kill_tree=True)
+
+
+def _claim_early_splash() -> subprocess.Popen | None:
+    global _EARLY_SPLASH_PROC
+    proc = _EARLY_SPLASH_PROC
+    _EARLY_SPLASH_PROC = None
+    return proc
+
+
 # ── Splash screen (subprocess to avoid Tcl/pystray conflicts) ────────────────
 
 # Tkinter GUI splash — tried first.
@@ -695,6 +799,7 @@ PORT, TIMEOUT = int(sys.argv[1]), float(sys.argv[2])
 GLYPH_PATH = sys.argv[3] if len(sys.argv) > 3 else ""
 ICON_PATH = sys.argv[4] if len(sys.argv) > 4 else ""
 BRAND_BLUE = sys.argv[5] if len(sys.argv) > 5 else "#4F78A4"
+READY_MARKER = sys.argv[6] if len(sys.argv) > 6 else ""
 def port_ready():
     try:
         s = socket.socket(); s.settimeout(0.3)
@@ -723,6 +828,14 @@ except Exception:
     tk.Label(root, text="RB", font=("Segoe UI", 36, "bold"), fg=BRAND_BLUE, bg=BG).pack(pady=(52,0))
 tk.Label(root, text="Row-Bot", font=("Segoe UI", 28, "bold"), fg=BRAND_BLUE, bg=BG).pack(pady=(0,10))
 lbl = tk.Label(root, text="Loading.", font=("Segoe UI", 12), fg="#aaaaaa", bg=BG); lbl.pack()
+try:
+    root.update_idletasks()
+    root.update()
+    if READY_MARKER:
+        with open(READY_MARKER, "w", encoding="utf-8") as fh:
+            fh.write(f"ready pid={os.getpid()} time={time.time()}\n")
+except Exception:
+    pass
 _start, _d = time.monotonic(), [0]
 def _check():
     _d[0] = (_d[0] % 3) + 1; lbl.configure(text="Loading" + "." * _d[0])
@@ -767,34 +880,28 @@ def _show_splash(port: int = _PORT, timeout: float = 60.0) -> subprocess.Popen |
     log_dir = _row_bot_data_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
     splash_log = log_dir / "splash.log"
+    ready_marker = _helper_artifact_path("splash", "ready")
 
     try:
         # --- Attempt 1: tkinter GUI splash ---
-        log_fh = open(splash_log, "w", encoding="utf-8")  # noqa: SIM115
-        proc = subprocess.Popen(
-            [
-                sys.executable,
-                "-c",
-                _SPLASH_TK,
+        proc = _start_launcher_helper(
+            name="splash_tk",
+            source=_SPLASH_TK,
+            args=[
                 str(port),
                 str(timeout),
                 str(_APP_GLYPH_PATH),
                 str(_APP_ICON_PATH),
                 APP_BRAND_ACCENT,
             ],
-            stdout=log_fh, stderr=log_fh,
+            ready_marker=ready_marker,
+            log_path=splash_log,
+            ready_timeout=3.0,
         )
-        time.sleep(0.5)
-        if proc.poll() is None:
+        if proc is not None and proc.poll() is None:
             _launch_event("splash_tk_running", port=port, pid=proc.pid)
             return proc  # tkinter splash is running
-        exit_code = proc.poll()
-        log_fh.close()
-        try:
-            tail = "\n".join(splash_log.read_text(encoding="utf-8", errors="replace").splitlines()[-8:])
-        except Exception:
-            tail = ""
-        _launch_event("splash_tk_exited", port=port, exit_code=exit_code, status=tail[:500])
+        _launch_event("splash_tk_exited", port=port, status=_launcher_helper_tail(splash_log))
         if sys.platform == "win32" and os.environ.get("ROW_BOT_SPLASH_CONSOLE_FALLBACK") != "1":
             logger.info("Tk splash exited; skipping Windows console splash fallback")
             return None
@@ -1397,11 +1504,19 @@ import tkinter as tk
 GLYPH_PATH = sys.argv[1] if len(sys.argv) > 1 else ""
 ICON_PATH = sys.argv[2] if len(sys.argv) > 2 else ""
 BRAND_BLUE = sys.argv[3] if len(sys.argv) > 3 else "#4F78A4"
+RESULT_PATH = sys.argv[4] if len(sys.argv) > 4 else ""
+READY_MARKER = sys.argv[5] if len(sys.argv) > 5 else ""
 BG, GREY = "#1e1e1e", "#aaaaaa"
 choice = ["native"]
 
 def pick(mode):
     choice[0] = mode
+    if RESULT_PATH:
+        try:
+            with open(RESULT_PATH, "w", encoding="utf-8") as fh:
+                fh.write(mode + "\n")
+        except Exception:
+            pass
     root.destroy()
 
 root = tk.Tk()
@@ -1446,6 +1561,14 @@ tk.Label(root, text="To set a default, go to Settings \u2192 System.",
          font=("Segoe UI", 10), fg=GREY, bg=BG).pack(pady=(16,0))
 
 root.protocol("WM_DELETE_WINDOW", lambda: pick("native"))
+try:
+    root.update_idletasks()
+    root.update()
+    if READY_MARKER:
+        with open(READY_MARKER, "w", encoding="utf-8") as fh:
+            fh.write(f"ready pid={os.getpid()}\n")
+except Exception:
+    pass
 root.mainloop()
 print(choice[0])
 '''
@@ -1453,6 +1576,7 @@ print(choice[0])
 # Console fallback chooser — used when tkinter is unavailable.
 _CHOOSER_CONSOLE = r'''
 import sys, os
+RESULT_PATH = sys.argv[1] if len(sys.argv) > 1 else ""
 if os.name == 'nt':
     os.system('title Row-Bot')
 print()
@@ -1476,55 +1600,100 @@ while True:
     if c in ("1", "2"):
         break
     print("  Please enter 1 or 2.")
-print("native" if c == "1" else "browser")
+mode = "native" if c == "1" else "browser"
+if RESULT_PATH:
+    try:
+        with open(RESULT_PATH, "w", encoding="utf-8") as fh:
+            fh.write(mode + "\n")
+    except Exception:
+        pass
+print(mode)
 '''
 
 
 def _ask_window_mode() -> str:
-    """Show a tkinter chooser dialog and return ``'native'`` or ``'browser'``.
+    """Show the first-run window chooser, defaulting quickly if it fails."""
+    log_dir = _row_bot_data_dir()
+    log_dir.mkdir(parents=True, exist_ok=True)
+    chooser_log = log_dir / "window-mode-chooser.log"
+    ready_marker = _helper_artifact_path("window-mode-chooser", "ready")
+    result_path = _helper_artifact_path("window-mode-chooser", "result")
+    _delete_if_exists(result_path)
 
-    Falls back to a console prompt if tkinter is unavailable,
-    and to ``'native'`` if both fail.
-    """
-    # --- Attempt 1: tkinter GUI chooser ---
-    try:
-        proc = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                _CHOOSER_TK,
-                str(_APP_GLYPH_PATH),
-                str(_APP_ICON_PATH),
-                APP_BRAND_ACCENT,
-            ],
-            capture_output=True, text=True, timeout=120,
+    proc = _start_launcher_helper(
+        name="window_mode_chooser_tk",
+        source=_CHOOSER_TK,
+        args=[
+            str(_APP_GLYPH_PATH),
+            str(_APP_ICON_PATH),
+            APP_BRAND_ACCENT,
+            str(result_path),
+        ],
+        ready_marker=ready_marker,
+        log_path=chooser_log,
+        ready_timeout=3.0,
+    )
+    if proc is not None:
+        exit_code = _wait_for_launcher_helper(
+            proc,
+            name="window_mode_chooser_tk",
+            timeout=120.0,
+            log_path=chooser_log,
         )
-        if proc.returncode == 0 and proc.stdout.strip():
-            result = proc.stdout.strip().splitlines()[-1]
+        if exit_code == 0 and result_path.exists():
+            result = result_path.read_text(encoding="utf-8", errors="replace").strip().splitlines()[-1]
             if result in ("native", "browser"):
                 logger.info("User chose window mode: %s (GUI)", result)
                 return result
-    except Exception:
-        pass
-    logger.debug("Tkinter chooser unavailable, using console fallback")
+        logger.warning(
+            "Window mode GUI chooser exited without a valid result (code %s, log=%s): %s",
+            exit_code,
+            chooser_log,
+            _launcher_helper_tail(chooser_log),
+        )
+    else:
+        logger.warning("Window mode GUI chooser unavailable; defaulting to native unless console fallback is explicitly enabled")
 
-    # --- Attempt 2: console chooser ---
+    if sys.platform == "win32" and os.environ.get("ROW_BOT_WINDOW_MODE_CONSOLE_FALLBACK") != "1":
+        logger.info("Skipping Windows console window mode fallback; defaulting to native")
+        return "native"
+
     try:
+        _delete_if_exists(result_path)
         flags = 0
         if sys.platform == "win32":
             flags = subprocess.CREATE_NEW_CONSOLE
-        proc = subprocess.run(
-            [sys.executable, "-c", _CHOOSER_CONSOLE],
-            capture_output=True, text=True, timeout=120,
-            creationflags=flags,
-        )
-        if proc.stdout.strip():
-            result = proc.stdout.strip().splitlines()[-1]
-            if result in ("native", "browser"):
-                logger.info("User chose window mode: %s (console)", result)
-                return result
+            console_proc = subprocess.Popen(
+                [sys.executable, "-c", _CHOOSER_CONSOLE, str(result_path)],
+                creationflags=flags,
+            )
+            _wait_for_launcher_helper(
+                console_proc,
+                name="window_mode_chooser_console",
+                timeout=120.0,
+                log_path=chooser_log,
+            )
+            result = result_path.read_text(encoding="utf-8", errors="replace").strip().splitlines()[-1] if result_path.exists() else ""
+        else:
+            completed = subprocess.run(
+                [sys.executable, "-c", _CHOOSER_CONSOLE, str(result_path)],
+                capture_output=True, text=True, timeout=120,
+                creationflags=flags,
+            )
+            if result_path.exists():
+                result = result_path.read_text(encoding="utf-8", errors="replace").strip().splitlines()[-1]
+            else:
+                result = completed.stdout.strip().splitlines()[-1] if completed.stdout.strip() else ""
+        if result in ("native", "browser"):
+            logger.info("User chose window mode: %s (console)", result)
+            return result
     except Exception as exc:
-        logger.warning("Window mode chooser failed: %s — defaulting to native", exc)
+        logger.warning(
+            "Window mode chooser failed: %s; defaulting to native (log=%s): %s",
+            exc,
+            chooser_log,
+            _launcher_helper_tail(chooser_log),
+        )
     return "native"
 
 
@@ -1867,6 +2036,7 @@ class RowBotTray:
     def run(self) -> None:
         """Start the tray icon, the NiceGUI server, and a native window."""
         _launch_event("tray_run_start", port=self._preferred_port, mode=self._preferred_mode or "auto")
+        splash_proc: subprocess.Popen | None = _claim_early_splash()
         ollama_started = time.perf_counter()
         # Best-effort local runtime convenience. Provider-only and custom
         # endpoint setups should not pay an Ollama startup penalty.
@@ -1893,9 +2063,9 @@ class RowBotTray:
             atexit.register(self._server.stop)
 
             # Show splash screen while the server starts up
-            if not self._no_splash and _has_display_server():
+            if splash_proc is None and not self._no_splash and _has_display_server():
                 splash_started = time.perf_counter()
-                _show_splash(self._port)
+                splash_proc = _show_splash(self._port)
                 _launch_event("splash_requested", port=self._port, duration_ms=round((time.perf_counter() - splash_started) * 1000.0, 1))
 
         # Start the status-polling thread
@@ -1907,6 +2077,7 @@ class RowBotTray:
         if _wait_for_server(self._port):
             _launch_event("server_ready", port=self._port, duration_ms=round((time.perf_counter() - wait_started) * 1000.0, 1))
             mode = self._preferred_mode or _load_window_mode()
+            _stop_launcher_helper(splash_proc, name="splash_tk")
             if mode == "ask":
                 mode = _ask_window_mode() if _has_display_server() else "browser"
             if mode == "browser":
@@ -1954,6 +2125,7 @@ def _run_direct(args: argparse.Namespace) -> None:
     port, already_running = _select_app_port(preferred)
     server = _RowBotProcess(port, host=args.host)
     owns_server = False
+    splash_proc: subprocess.Popen | None = _claim_early_splash()
 
     if already_running:
         logger.info("%s already running on port %s", APP_DISPLAY_NAME, port)
@@ -1969,19 +2141,21 @@ def _run_direct(args: argparse.Namespace) -> None:
         )
         owns_server = True
         atexit.register(server.stop)
-        if not args.no_splash and _has_display_server() and not args.server:
+        if splash_proc is None and not args.no_splash and _has_display_server() and not args.server:
             splash_started = time.perf_counter()
-            _show_splash(port)
+            splash_proc = _show_splash(port)
             _launch_event("splash_requested", port=port, duration_ms=round((time.perf_counter() - splash_started) * 1000.0, 1))
 
     wait_process = server if owns_server else None
     wait_started = time.perf_counter()
     if not _wait_for_server(port, server=wait_process):
+        _stop_launcher_helper(splash_proc, name="splash_tk")
         _launch_event("server_ready_timeout", port=port, duration_ms=round((time.perf_counter() - wait_started) * 1000.0, 1))
         reason = "app process exited before readiness" if owns_server and not server.is_alive else "readiness probe timed out"
         _log_startup_failure_context(server, port, reason)
         raise RuntimeError(f"{APP_DISPLAY_NAME} server did not become ready on port {port}")
     _launch_event("server_ready", port=port, duration_ms=round((time.perf_counter() - wait_started) * 1000.0, 1))
+    _stop_launcher_helper(splash_proc, name="splash_tk")
 
     if not args.no_open:
         if args.native and _has_display_server():
@@ -2154,7 +2328,7 @@ def quit_for_update() -> None:
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main(argv: list[str] | None = None) -> None:
-    global _ACTIVE_TRAY
+    global _ACTIVE_TRAY, _EARLY_SPLASH_PROC
     _ensure_launcher_file_logging()
     _launch_event(
         "process_start",
@@ -2165,6 +2339,27 @@ def main(argv: list[str] | None = None) -> None:
         frozen=getattr(sys, "frozen", False),
     )
     args = _build_arg_parser().parse_args(argv)
+    preferred_mode = "browser" if args.browser else "native" if args.native else None
+    linux_default_direct = sys.platform.startswith("linux") and not args.tray
+    direct = args.server or args.no_tray or linux_default_direct
+    can_show_early_splash = (
+        not args.no_splash
+        and not args.server
+        and not args.no_open
+        and not args.reset_tasks_db
+        and not args.reset_db
+        and args.restore_data is None
+        and _has_display_server()
+    )
+    if can_show_early_splash:
+        splash_started = time.perf_counter()
+        _EARLY_SPLASH_PROC = _show_splash(parse_app_port(args.port, default=_PORT))
+        _launch_event(
+            "early_splash_requested",
+            port=parse_app_port(args.port, default=_PORT),
+            duration_ms=round((time.perf_counter() - splash_started) * 1000.0, 1),
+            mode=preferred_mode or ("direct" if direct else "auto"),
+        )
     _ensure_rebrand_migration()
     if args.reset_tasks_db:
         raise SystemExit(_reset_tasks_db())
@@ -2172,9 +2367,6 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(_reset_all_local_dbs())
     if args.restore_data is not None:
         raise SystemExit(_restore_data(args.restore_data))
-    preferred_mode = "browser" if args.browser else "native" if args.native else None
-    linux_default_direct = sys.platform.startswith("linux") and not args.tray
-    direct = args.server or args.no_tray or linux_default_direct
 
     try:
         if direct:

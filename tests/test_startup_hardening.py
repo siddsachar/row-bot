@@ -194,6 +194,20 @@ def test_windows_installer_replaces_embedded_python_on_install():
     assert Path("src/row_bot/startup_diagnostics.py").is_file()
 
 
+def test_windows_installer_build_verifies_tk_runtime():
+    build_script = Path("installer/build_installer.ps1").read_text(encoding="utf-8")
+    release_workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+
+    assert 'WINDOWS_PYTHON_VERSION: "3.13.2"' in release_workflow
+    assert 'python-version: ${{ env.WINDOWS_PYTHON_VERSION }}' in release_workflow
+    assert '-PythonVersion "${{ env.WINDOWS_PYTHON_VERSION }}"' in release_workflow
+    assert '$SysPyVersion -ne $PythonVersion' in build_script
+    assert 'Resolve-TkSourceFile "_tkinter.pyd"' in build_script
+    assert 'import _tkinter' in build_script
+    assert 'import tkinter' in build_script
+    assert 'Embedded tkinter verified' in build_script
+
+
 def test_windows_update_install_starts_handoff_before_quit(tmp_path, monkeypatch):
     import row_bot.updater as updater
 
@@ -242,6 +256,97 @@ def test_windows_update_handoff_helper_command_is_detached(tmp_path, monkeypatch
     assert kwargs["stderr"] is subprocess.DEVNULL
 
 
+def test_splash_helper_immediate_failure_returns_quickly(tmp_path, monkeypatch, caplog):
+    class FakePopen:
+        pid = 101
+
+        def __init__(self, cmd, **kwargs):  # noqa: ARG002
+            kwargs["stdout"].write("ImportError: DLL load failed while importing _tkinter\n")
+
+        def poll(self):
+            return 1
+
+    monkeypatch.setattr(launcher, "_row_bot_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(launcher.sys, "platform", "win32")
+    monkeypatch.delenv("ROW_BOT_SPLASH_CONSOLE_FALLBACK", raising=False)
+    monkeypatch.setattr(launcher.subprocess, "Popen", FakePopen)
+
+    with caplog.at_level(logging.WARNING):
+        assert launcher._show_splash(port=8123, timeout=1.0) is None
+
+    assert "splash_tk helper exited before ready" in caplog.text
+    assert "DLL load failed" in caplog.text
+
+
+def test_window_mode_picker_windows_defaults_without_console(tmp_path, monkeypatch):
+    monkeypatch.setattr(launcher, "_row_bot_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(launcher.sys, "platform", "win32")
+    monkeypatch.delenv("ROW_BOT_WINDOW_MODE_CONSOLE_FALLBACK", raising=False)
+    monkeypatch.setattr(launcher, "_start_launcher_helper", lambda **kwargs: None)
+    monkeypatch.setattr(
+        launcher.subprocess,
+        "Popen",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("console fallback should not start")),
+    )
+    monkeypatch.setattr(
+        launcher.subprocess,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("console fallback should not run")),
+    )
+
+    assert launcher._ask_window_mode() == "native"
+
+
+def test_window_mode_picker_uses_gui_result(tmp_path, monkeypatch):
+    class FakeProc:
+        pid = 202
+
+        def wait(self, timeout=None):  # noqa: ARG002
+            return 0
+
+        def poll(self):
+            return None
+
+    def fake_start_helper(**kwargs):
+        Path(kwargs["args"][3]).write_text("browser\n", encoding="utf-8")
+        Path(kwargs["ready_marker"]).write_text("ready\n", encoding="utf-8")
+        return FakeProc()
+
+    monkeypatch.setattr(launcher, "_row_bot_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(launcher, "_start_launcher_helper", fake_start_helper)
+
+    assert launcher._ask_window_mode() == "browser"
+
+
+def test_main_requests_early_splash_before_migration(monkeypatch):
+    calls = []
+
+    class FakeSplashProc:
+        def poll(self):
+            return None
+
+    class FakeTray:
+        def __init__(self, **kwargs):
+            calls.append(("tray_init", kwargs))
+
+        def run(self):
+            calls.append(("tray_run", launcher._claim_early_splash() is not None))
+
+    monkeypatch.setattr(launcher.sys, "platform", "win32")
+    monkeypatch.setattr(launcher, "_show_splash", lambda port: calls.append(("splash", port)) or FakeSplashProc())
+    monkeypatch.setattr(launcher, "_ensure_rebrand_migration", lambda: calls.append(("migration", None)))
+    monkeypatch.setattr(launcher, "_has_display_server", lambda: True)
+    monkeypatch.setattr(launcher, "RowBotTray", FakeTray)
+    monkeypatch.setattr(launcher, "_ACTIVE_TRAY", None)
+    monkeypatch.setattr(launcher, "_EARLY_SPLASH_PROC", None)
+
+    launcher.main(["--no-ollama"])
+
+    assert calls[0][0] == "splash"
+    assert calls[1][0] == "migration"
+    assert ("tray_run", True) in calls
+
+
 def test_update_handoff_helper_is_targeted_and_logged():
     source = Path("src/row_bot/update_handoff.py").read_text(encoding="utf-8")
 
@@ -261,6 +366,10 @@ def test_launcher_splash_and_batch_startup_are_hardened():
     assert "ROW_BOT_LAUNCH_TRACE" in launcher_src
     assert "splash_tk_exited" in launcher_src
     assert "ROW_BOT_SPLASH_CONSOLE_FALLBACK" in launcher_src
+    assert "ROW_BOT_WINDOW_MODE_CONSOLE_FALLBACK" in launcher_src
+    assert "Skipping Windows console window mode fallback" in launcher_src
+    assert "helper_ready_timeout" in launcher_src
+    assert "early_splash_requested" in launcher_src
     assert "skipping Windows console splash fallback" in launcher_src
     assert "ROW_BOT_BATCH_START_OLLAMA" in batch_src
     assert 'goto :launch_app' in batch_src
