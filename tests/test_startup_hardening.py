@@ -321,6 +321,10 @@ def test_window_mode_picker_uses_gui_result(tmp_path, monkeypatch):
 def test_main_requests_early_splash_before_migration(monkeypatch):
     calls = []
 
+    class FakeSplashProc:
+        def poll(self):
+            return None
+
     class FakeTray:
         def __init__(self, **kwargs):
             calls.append(("tray_init", kwargs))
@@ -328,7 +332,8 @@ def test_main_requests_early_splash_before_migration(monkeypatch):
         def run(self):
             calls.append(("tray_run", launcher._claim_early_splash() is not None))
 
-    monkeypatch.setattr(launcher, "_show_splash", lambda port: calls.append(("splash", port)) or object())
+    monkeypatch.setattr(launcher.sys, "platform", "win32")
+    monkeypatch.setattr(launcher, "_show_splash", lambda port: calls.append(("splash", port)) or FakeSplashProc())
     monkeypatch.setattr(launcher, "_ensure_rebrand_migration", lambda: calls.append(("migration", None)))
     monkeypatch.setattr(launcher, "_has_display_server", lambda: True)
     monkeypatch.setattr(launcher, "RowBotTray", FakeTray)
