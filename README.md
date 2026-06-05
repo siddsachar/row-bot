@@ -4,6 +4,8 @@
 
 <h1 align="center">Row-Bot</h1>
 
+<p align="center"><sub>(formerly Thoth)</sub></p>
+
 <p align="center">
    <a href="https://github.com/siddsachar/row-bot/releases"><img src="https://img.shields.io/github/v/release/siddsachar/row-bot?style=flat&label=release&color=4F78A4" alt="Release"></a>
    <a href="https://github.com/siddsachar/row-bot/actions/workflows/ci.yml"><img src="https://github.com/siddsachar/row-bot/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -11,7 +13,9 @@
    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-4F78A4?style=flat" alt="Platform">
 </p>
 
-Row-Bot is a local-first desktop AI assistant. It gives you chat, memory, tools, workflows, Developer Studio, Designer Studio, Custom Tools, plugins, messaging channels, and flexible model routing while keeping durable data on your machine.
+Row-Bot is a local-first desktop AI assistant for reasoning through work, orchestrating tools and models, and getting durable tasks done on your machine. The name is literal: **Reason. Orchestrate. Work.**
+
+It gives you chat, memory, tools, workflows, Developer Studio, Designer Studio, Smart Skills, Skills Hub, Custom Tools, plugins, messaging channels, realtime voice, and flexible model routing while keeping durable data local.
 
 Bring the model path that fits the job: local models through [Ollama](https://ollama.com/), OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, Ollama Cloud, ChatGPT / Codex subscription models, or custom OpenAI-compatible endpoints such as oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, and SGLang. Row-Bot keeps provider identity, model capabilities, context limits, and chat-only fallbacks explicit so local, hosted, and self-hosted models can coexist without surprise routing.
 
@@ -34,15 +38,15 @@ Download the latest installer from [GitHub Releases](https://github.com/siddsach
 
 | Area | Details |
 |------|---------|
-| Agent and models | LangGraph ReAct agent, streaming responses, thinking bubbles, smart context trimming, provider-qualified model selection, readiness routing, chat-only fallback for non-tool models, custom endpoint profiles and probes, local and hosted model catalogs, background model cache, and per-thread, per-workflow, and per-Developer model overrides. |
+| Agent and models | LangGraph ReAct agent, streaming responses, thinking bubbles, smart context trimming, provider-qualified model selection, readiness routing, chat-only fallback for non-tool models, custom endpoint profiles and probes, live MiniMax discovery, OpenCode providers, local and hosted model catalogs, background model cache, and per-thread, per-workflow, and per-Developer model overrides. |
 | Memory and knowledge | Personal knowledge graph, 10 entity types, 67 typed relations, bounded semantic/lexical/graph recall, audit and review states, recall traces, graph visualization, Obsidian-compatible wiki export, document extraction with source provenance, Dream Cycle refinement, duplicate merging, stale-confidence decay, relationship inference, self-knowledge, insights, and conversation search. |
 | Tools | 30+ core tool modules for web search, DuckDuckGo, Wikipedia, arXiv, YouTube transcripts, URL reading, documents, wiki vault, Gmail, Google Calendar, filesystem, shell, browser automation, workflows, tracker, channels, X, image generation/editing, video generation, MCP, Developer Studio, Designer Studio, Custom Tool Builder, status, calculator, Wolfram Alpha, weather, vision, memory, system info, and charts. File tools read PDF, CSV, Excel, JSON, JSONL, TSV, and image files, with schema, stats, previews, and PDF export where supported. |
 | Developer Studio | Local Git workspace linking and cloning, code threads, repo inspector, file tree, diffs, todos, tests, branch, commit, push and PR prep, approval modes, and optional Docker Sandbox with a shadow workspace and explicit import back into the real repo. |
 | Designer Studio | Decks, documents, landing pages, app mockups, and storyboards with a sandboxed interactive runtime, templates, brand controls, critique and repair, AI image and video generation, chart insertion, Mermaid and Plotly rendering, shareable HTML, and export to PDF, HTML, PNG, and PPTX. |
 | Workflows | Scheduled runs, webhook triggers, task-completion triggers, step pipelines, conditions, approvals, subtasks, notification-only runs, concurrency groups, delivery defaults, per-workflow model/tool/skill overrides, safety modes, run status, run history, upcoming runs, and a Workflow Console. |
-| Channels and voice | Telegram, WhatsApp, Discord, Slack, and SMS with streaming, reactions, media intake, voice transcription, document extraction, approval routing, health checks, auto-generated send/photo/document tools, and optional tunnel support. Voice uses local faster-whisper STT and Kokoro TTS with 10 voices. |
+| Channels and voice | Telegram, WhatsApp, Discord, Slack, and SMS with streaming, reactions, media intake, voice transcription, document extraction, approval routing, health checks, auto-generated send/photo/document tools, and optional tunnel support. Realtime voice adds provider-backed voice sessions, action handling, speech/cue policy, and local faster-whisper STT plus Kokoro TTS options. |
 | Platform and app | Native desktop app, setup wizard, tray integration on Windows and macOS, desktop notifications, local browser-first Linux launch, optional Linux native window/tray mode, faster transcript and Settings surfaces, Home status bar for models, OAuth, MCP, plugins, documents, workflows, Buddy, logging, disk, task DB recovery, and verified auto-updates. |
-| Extensibility | Sandboxed plugin marketplace, bundled skills and tool guides, external MCP clients over stdio, Streamable HTTP, and SSE, Custom Tools from repos or folders, Claude Code Delegation through an approval-gated CLI worker, migration from selected Hermes/OpenClaw data, setup center, identity settings, and stability diagnostics. |
+| Extensibility | Smart Skills, slash commands, Skills Hub browsing/import/search, sandboxed plugin marketplace, bundled skills and tool guides, external MCP clients over stdio, Streamable HTTP, and SSE, Custom Tools from repos or folders, Claude Code Delegation through an approval-gated CLI worker, migration from selected Hermes/OpenClaw data, setup center, identity settings, and stability diagnostics. |
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full subsystem reference.
 
@@ -95,6 +99,12 @@ If `~/.local/bin` is not on `PATH`, run `~/.local/bin/row-bot` or add it to your
 
 For browser automation, Chromium may need distro packages that the tarball cannot install. If Playwright reports missing dependencies, run the command it prints, or use `python -m playwright install --with-deps chromium` from a source checkout.
 
+### Upgrading from Thoth 3.x
+
+Row-Bot v4 is the renamed successor to Thoth. On first launch, Row-Bot copies supported Thoth 3.x data into the new Row-Bot data locations and leaves the original Thoth data in place. Provider settings, channels, skills, MCP servers, plugins, Buddy assets, Designer workspaces, conversations, memories, tasks, media, and updater state are included in the migration path.
+
+The major-version rebrand also changes app names, installer names, release artifact names, Linux commands, and data directories. Existing Thoth users should install Row-Bot v4 with the new installer rather than expecting the 3.x updater contract to replace itself in place.
+
 ## Quick Start
 
 On first launch, Row-Bot opens a setup wizard. Pick one of three paths:
@@ -133,7 +143,7 @@ Model catalog browsing, pinning, defaults, and Quick Choices live in Settings â†
 | Anthropic | `ANTHROPIC_API_KEY` | Claude models through the direct API. |
 | Google AI | `GOOGLE_API_KEY` | Gemini models, Imagen, and Veo. |
 | xAI | `XAI_API_KEY` | Grok models, Grok Imagine, and Grok Imagine Video. |
-| MiniMax | `MINIMAX_API_KEY` | Current MiniMax models through the Anthropic-compatible API. |
+| MiniMax | `MINIMAX_API_KEY` | Current MiniMax models through the Anthropic-compatible API, discovered from the live provider catalog where available. |
 | OpenRouter | `OPENROUTER_API_KEY` | Access to 100+ provider models. |
 | Ollama Cloud | `OLLAMA_CLOUD_API_KEY` or local daemon sign-in | Direct Ollama Cloud models and cloud-tagged daemon models. |
 | Custom OpenAI-compatible endpoint | Base URL and optional key | Self-hosted or proxy models through profiles for oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, and generic servers. |
@@ -155,7 +165,7 @@ External Codex CLI login files are metadata/reference only. Row-Bot can detect t
 
 ## Tools and Safety
 
-Row-Bot's tools can be enabled or disabled from Settings. Many tools expose multiple operations, Developer Studio adds code-specific tools, Custom Tools can be promoted after review, and running channels add send/photo/document tools automatically.
+Row-Bot's tools can be enabled or disabled from Settings. Many tools expose multiple operations, Developer Studio adds code-specific tools, Skills Hub can add manual skills, Custom Tools can be promoted after review, and running channels add send/photo/document tools automatically.
 
 | Group | Included tools |
 |-------|----------------|
@@ -174,6 +184,7 @@ Safety controls are built into the tool layer:
 - Browser tabs are isolated per thread and cleaned up when tasks or threads finish.
 - Developer Studio has its own approval modes for edits, commands, Git operations, commits, pushes, and PR prep.
 - Docker Sandbox is opt-in and runs commands in a shadow workspace until you explicitly import changes.
+- Smart Skills, slash commands, and Skills Hub imports stay user-controlled; installed skills can be enabled, disabled, reviewed, and removed.
 - Custom Tools are reviewed, smoke-tested, enabled, promoted, disabled, and removed without deleting their source repos.
 - Gmail and Calendar permissions are tiered for read, compose/write, and destructive actions.
 - MCP servers stay disabled until tested. External tools are namespaced, destructive MCP tools require approval, and broken servers degrade to diagnostics instead of blocking startup.
@@ -181,7 +192,7 @@ Safety controls are built into the tool layer:
 
 ## Architecture
 
-Row-Bot is organized around local orchestration, context assembly, memory, workflows, channels, Designer Studio, Developer Studio, plugin/MCP boundaries, and safety controls.
+Row-Bot is organized around reasoning, orchestration, and work: context assembly, memory, workflows, channels, Designer Studio, Developer Studio, plugin/MCP boundaries, and safety controls.
 
 Explore the visual architecture gallery: [docs/architecture.html](docs/architecture.html)
 
@@ -271,11 +282,11 @@ These commands back up local SQLite files before recreating or restoring known t
 
 ## Privacy
 
-Local model runs stay on your machine. Documents, memories, conversations, knowledge graph data, workflows, logs, and user settings are stored locally under `~/.row-bot` or the platform-specific app data paths used by the installer.
+Local model runs stay on your machine. Documents, memories, conversations, knowledge graph data, workflows, logs, and user settings are stored locally under `~/.row-bot` or the platform-specific Row-Bot app data paths used by the installer. Migrated Thoth 3.x data is copied into Row-Bot locations; the original Thoth data is left in place.
 
 Provider and custom models are opt-in. When selected, the current conversation, model-visible tool context, and tool results are sent to that endpoint. Memories, documents, files, graph data, and other conversations stay local unless you explicitly include them in the current conversation or expose them through a tool result. Memory recall happens locally before any selected memory is inserted into the active turn.
 
-Developer Studio only touches repos you link or clone. Local execution runs in that repo. Docker Sandbox runs in a shadow copy and requires explicit import before changing the real repo. Custom Tools are opt-in, testable, removable, and only appear in normal chat after promotion.
+Developer Studio only touches repos you link or clone. Local execution runs in that repo. Docker Sandbox runs in a shadow copy and requires explicit import before changing the real repo. Skills Hub imports and Custom Tools are opt-in, testable or reviewable, removable, and only affect normal chat after you enable or promote them.
 
 Row-Bot does not require a Row-Bot account, and there is no Row-Bot-hosted middleman for provider calls.
 

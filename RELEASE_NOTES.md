@@ -2,68 +2,267 @@
 
 ---
 
-## v4.0.0 - Row-Bot rebrand and migration release
+## v4.0.0 - Row-Bot Rebrand, Skills Hub, Voice, Providers & Installer Reliability
 
-Row-Bot v4.0.0 is the public rebrand release. It moves the app, installers,
-runtime paths, release artifacts, public docs, and updater contract to Row-Bot
-while preserving compatibility with existing 3.x user data.
+This is the public Row-Bot rebrand release. It moves the app from Thoth to
+Row-Bot across product identity, repository metadata, installers, runtime paths,
+release artifacts, documentation, launcher behavior, updater contracts, and
+user-data locations. Existing 3.x data is preserved through a copy-first
+migration path, so users can upgrade without losing rollback access to their old
+Thoth data. Beyond the rebrand, v4.0.0 ships major upgrades to Smart Skills,
+Skills Hub, realtime voice, provider discovery, approval modes, thread
+organization, packaging, startup reliability, and release validation.
 
-### Rebrand Scope
+### Row-Bot Rebrand
 
 - **Product identity** - app copy, bundled skills, tool guides, docs, release
-  workflows, installer scripts, updater metadata, and public repository links now
-  use Row-Bot naming.
-- **Release assets** - v4 artifacts use `Row-Bot-X.Y.Z-Windows-x64.exe`,
+  workflows, installer scripts, updater metadata, icons, and public repository
+  links now use Row-Bot naming.
+- **Repository rename support** - canonical public repository references now
+  target `github.com/siddsachar/row-bot`.
+- **Website contract** - public site configuration now supports `row-bot.ai`
+  and the Row-Bot repository identity.
+- **Brand assets** - adds Row-Bot glyphs, favicon, installer icon, docs imagery,
+  runtime brand helpers, and brand-constant tests.
+- **Release asset names** - v4 artifacts use `Row-Bot-X.Y.Z-Windows-x64.exe`,
   `Row-Bot-X.Y.Z-macOS-{arm64|x86_64}.dmg`, and
   `Row-Bot-X.Y.Z-Linux-ARCH.tar.gz`.
-- **Linux command and install tree** - Linux installs to the Row-Bot XDG tree and
-  exposes `row-bot` as the user command.
-- **Repository and website contract** - canonical public links target
-  `github.com/siddsachar/row-bot` and `https://row-bot.ai` after the owner-run
-  repository rename, DNS, and GitHub Pages switch are completed.
+- **Linux command rename** - Linux installs expose `row-bot` as the user command
+  and use the Row-Bot XDG data tree.
+- **macOS app rename** - macOS packaging now builds `Row-Bot.app` instead of the
+  legacy Thoth app bundle.
+- **Windows launcher rename** - Windows launcher scripts, installer scripts, and
+  shortcut entry points now use Row-Bot names.
+- **Documentation refresh** - README, release docs, architecture docs, installer
+  docs, issue templates, contributing docs, and release workflows now reflect
+  the Row-Bot identity.
 
-### Migration Behavior
+### Migration From Thoth 3.x
 
-- **Copy-first, non-destructive migration** - Row-Bot reads legacy 3.x data,
-  copies it into the new Row-Bot data locations, and leaves the old data in
-  place for rollback or manual recovery.
+- **Copy-first migration** - Row-Bot reads legacy Thoth data, copies it into the
+  new Row-Bot locations, and leaves the old data intact for rollback or manual
+  recovery.
 - **One-shot migration guard** - migration records completion state so normal
   launches do not repeatedly repair already-migrated data.
-- **Compatibility coverage** - provider settings, channels, skills, MCP servers,
+- **Legacy data coverage** - provider settings, channels, skills, MCP servers,
   plugins, Buddy assets, Designer workspaces, conversations, memories, tasks,
-  media, and updater state are covered by migration tests.
-- **Manual recovery path** - if automatic migration is interrupted, keep the old
-  data directory intact, back up both old and new directories, and use the v4
-  migration guide/checklist before retrying.
+  media, updater state, and runtime config are covered by migration logic.
+- **Plugin manifest repair** - legacy plugin manifests are repaired during
+  migration so old minimum-version metadata does not block migrated plugins.
+- **Post-migration notice** - adds UI and tests for showing users that migration
+  completed and where their legacy data remains.
+- **Compatibility fixtures** - migration tests cover copied data, guarded
+  reruns, plugin metadata repair, runtime data paths, and Row-Bot brand/runtime
+  assets.
+- **Manual recovery path** - interrupted migrations can be retried after backing
+  up both old and new data directories.
 
+### Source Layout & Runtime Packaging
+
+- **Package source layout** - runtime code now lives under `src/row_bot`, with
+  compatibility cleanup for the old root-level layout.
+- **Version module relocation** - version metadata now lives under the Row-Bot
+  package and release scripts read it from the source-layout path.
+- **Payload manifest** - adds app payload manifest generation and packaging
+  compatibility checks.
+- **Source layout docs** - adds `docs/SOURCE_LAYOUT.md` to document the package
+  layout and compatibility expectations.
+- **Smoke script updates** - app smoke and release helper scripts now understand
+  the source-layout package.
+- **Import compatibility coverage** - tests cover runtime imports, package
+  metadata, installer payloads, and compatibility shims.
+
+### Provider Runtime & Model Discovery
+
+- **OpenCode providers** - adds first-class OpenCode provider support with
+  runtime, selection, auth, catalog, and regression coverage.
+- **MiniMax live discovery** - MiniMax models are discovered from the provider
+  API instead of requiring hard-coded updates for every new model.
+- **MiniMax capability mapping** - discovered MiniMax models are mapped into the
+  model catalog with provider capabilities where available.
+- **MiniMax stale cleanup** - stale MiniMax models can be removed automatically
+  when they are no longer returned by the provider API.
+- **Custom endpoint cleanup** - stale custom endpoint model references are
+  cleaned up so old provider selections do not linger incorrectly.
+- **Custom reasoning fixes** - custom OpenAI-compatible endpoints handle
+  reasoning fields more reliably.
+- **Custom vision fixes** - custom endpoint vision references and capability
+  handling are repaired.
+- **OpenAI-compatible transport coverage** - tests expand coverage around custom
+  endpoint request shaping, provider refs, model catalog behavior, and
+  live-provider discovery.
+- **Provider settings updates** - provider UI and runtime settings now better
+  reflect Row-Bot naming and newer provider catalog behavior.
+
+### Chat, Attachments & Channels
+
+- **Chat attachment bridge** - fixes the filesystem bridge used by chat
+  attachments so local file references survive the intended handoff path.
+- **Custom provider channel routing** - channel workflows now route
+  custom-provider turns through the correct provider/runtime path.
+- **Channel command support** - channel command handling moves into the Row-Bot
+  package layout and gains focused coverage.
+- **Workflow delivery defaults** - workflow/channel routing preserves approval
+  and provider context across resumed turns.
+- **Runtime status updates** - Row-Bot status tools and channel/runtime
+  diagnostics now report Row-Bot naming and effective runtime state more
+  consistently.
+
+### Smart Skills & Skills Hub
+
+- **Smart Skills activation** - adds skill activation logic for suggesting,
+  enabling, disabling, and applying manual skills in chat context.
+- **Slash command support** - adds slash-command infrastructure and tests for
+  skill-aware chat commands.
+- **Command palette skills** - command palette integration can surface skills and
+  skill actions more directly.
+- **Composer skill parity** - Designer and Developer chat composers gain access
+  to shared skill and slash-command behavior.
+- **Skills Hub marketplace** - adds a Skills Hub for browsing, detecting,
+  importing, searching, and installing skills from supported sources.
+- **Marketplace sources** - adds source adapters for GitHub, pasted Markdown, URL
+  inputs, well-known skill indexes, and marketplace-style catalogs.
+- **Import detection** - pasted or linked skill content can be detected and
+  normalized before installation.
+- **Search index** - Skills Hub includes local search/index helpers for browsing
+  available skills.
+- **Bundled skill updates** - bundled skills and tool guides are updated for
+  Row-Bot naming and newer runtime behavior.
+- **Skills tests** - adds broad tests for skills activation, Skills Hub sources,
+  import detection, search, UI contracts, and slash commands.
+
+### Realtime Voice
+
+- **Realtime voice overhaul** - adds a new realtime voice runtime with provider
+  interfaces, coordinator, client contracts, presenter state, and lifecycle
+  helpers.
+- **OpenAI realtime support** - adds OpenAI realtime provider/client pieces and
+  tests.
+- **Voice actions** - adds structured voice action handling so realtime voice can
+  interact with Row-Bot behavior more safely.
+- **Agent bridge** - realtime voice can bridge into agent/runtime behavior
+  through a dedicated layer.
+- **Cue policy** - adds conversational cue policy, speech policy, output
+  coordination, and realtime event handling.
+- **Local voice provider support** - adds local provider scaffolding for voice
+  runtime selection.
+- **Browser dispatch coverage** - tests cover realtime browser dispatch and
+  voice event surfaces.
+- **Voice UI lifecycle** - adds UI helpers for voice lifecycle and realtime event
+  presentation.
+
+### Approval Modes, Threads & Developer UX
+
+- **Unified approval modes** - approval behavior is consolidated so chat,
+  Developer, tools, and workflows can use clearer shared approval semantics.
+- **Approval gate tooling** - adds approval-gate helpers for tool execution.
+- **Thread rename** - conversations can be renamed and thread rename behavior is
+  covered by tests.
+- **Thread actions** - adds shared thread-action helpers and tests.
+- **Developer grouping** - Developer/code threads are grouped and restored more
+  cleanly from the sidebar.
+- **Developer workspace state** - Developer UI, storage, thread context, and
+  workspace contracts are updated for the new package layout and grouping
+  behavior.
+- **Sidebar refinements** - sidebar filtering and Developer grouping behavior are
+  covered by focused tests.
+- **Buddy avatar behavior** - default assistant avatar handling now respects
+  selected Buddy identity more consistently.
+
+### Windows Launch, Update & Startup Reliability
+
+- **Launcher diagnostics** - launcher events now write timing and failure details
+  to `launcher.log`.
+- **Splash hardening** - Tk splash failures are logged, and visible Windows
+  console splash fallback is opt-in instead of appearing unexpectedly.
+- **Window picker hardening** - first-run picker behavior is hardened to avoid
+  blank-console launch paths.
+- **Packaged Windows Tk validation** - installer build logic now validates
+  bundled Tk support in embedded Python.
+- **Native dependency bundling** - Windows Tk smoke checks account for required
+  native DLLs, explicit DLL directories, and bundled `zlib`.
+- **Ollama startup gating** - batch-level Ollama auto-start is gated behind an
+  explicit environment variable.
+- **Update handoff helper** - Windows updates now use a detached handoff helper
+  so Row-Bot can quit before the installer replaces files.
+- **Startup hardening tests** - launcher, splash, update handoff, and startup
+  hardening tests are expanded.
+- **Packaged launch validation** - Windows installer fixes were verified through
+  test-machine install and launch flows.
+
+### Installers, Builds & Release Automation
+
+- **Windows installer rename** - Inno Setup scripts now build Row-Bot branded
+  Windows artifacts.
+- **Windows embedded runtime fixes** - embedded Python packaging now copies and
+  validates required native pieces for Tk and startup smoke checks.
+- **macOS packaging fixes** - macOS build scripts understand Row-Bot app naming,
+  source layout, and package payload paths.
+- **Linux packaging fixes** - Linux build scripts create required package payload
+  parent directories and install into the Row-Bot command/data layout.
+- **Release workflow updates** - GitHub Actions release workflow now reads
+  version metadata from the package layout and builds Row-Bot artifacts.
+- **Notarization workflow updates** - notarization submit/check workflows are
+  updated for Row-Bot artifact names.
+- **Manifest updates** - release manifest helpers and SHA manifest scripts are
+  updated for the new artifact contract.
+- **Installer docs** - installer README and release docs now document Row-Bot
+  artifact names and install behavior.
+- **Public site bridge** - public download links temporarily point at the
+  published `v3.23.1` Thoth artifacts until v4 artifacts are published.
+
+### Tests & Release Validation
+
+- **Full rebrand audit** - tracked references were audited so remaining legacy
+  names are limited to historical release notes, deferred public website
+  handoff, and intentional migration compatibility.
+- **Compile validation** - source, scripts, and tests were compile-checked after
+  rebrand/source-layout work.
+- **Full pytest pass** - full test suite passed for release validation, with only
+  known warnings/skips and one non-fatal Windows notification thread
+  exception after summary.
+- **App smoke pass** - `scripts/smoke_app.py` passed against the Row-Bot package
+  layout.
+- **Focused regression suites** - provider, skills, migration, startup,
+  packaging, voice, channel routing, and source-layout tests were added or
+  expanded.
+- **Live provider validation** - MiniMax live discovery was tested through
+  Row-Bot's actual provider system against the real API.
+- **Installer validation** - Windows, Linux, and macOS installer build issues
+  found during prerelease testing were fixed before final release readiness.
 ### Breaking Changes And Caveats
 
-- Pre-v4 updater clients recognize the old 3.x artifact and manifest contract.
-  Existing users should download and run the Row-Bot v4 installer manually for
-  the major-version jump; do not publish duplicate legacy-named v4 assets.
-- Plugins must declare `min_row_bot_version`; the old minimum-version field is
-  no longer accepted by the v4 manifest validator.
-- Final website files `docs/index.html` and `docs/CNAME` remain gated until the
-  owner confirms GitHub Pages and DNS readiness.
-- The GitHub repository rename, repository metadata, DNS records, Pages custom
-  domain, HTTPS enforcement, marketplace references, tag creation, and release
-  publishing are owner-operated external steps.
+- **Manual major-version upgrade** - existing 3.x users should manually install
+  Row-Bot v4 for the major rebrand jump. Pre-v4 updater clients expect the old
+  Thoth artifact and manifest contract.
+- **New data locations** - Row-Bot uses new Row-Bot data paths. Legacy Thoth data
+  is copied, not moved.
+- **Legacy plugin metadata** - plugins should declare `min_row_bot_version`.
+  Legacy plugin manifests are repaired where possible during migration.
+- **Artifact names changed** - release assets now use Row-Bot names. Do not
+  publish duplicate legacy-named v4 artifacts.
+- **Provider discovery depends on APIs** - live model discovery can only reflect
+  what providers return through their current APIs.
+- **First launch may migrate data** - first v4 launch over a 3.x install can take
+  longer while Row-Bot copies and repairs legacy data.
 
-### Manual Release Checklist
+### Files Changed
 
-- Confirm `main` is green in CI after the final release commit.
-- Verify `origin` points to `https://github.com/siddsachar/row-bot.git` only
-  after the owner confirms the GitHub repository rename.
-- Verify GitHub Pages serves `row-bot.ai` over HTTPS before committing the final
-  `docs/CNAME` switch.
-- Manually test Windows fresh install and Windows upgrade/migration over a 3.x
-  install with realistic user data.
-- Manually test macOS DMG install/notarization flow on Apple Silicon and Intel
-  where artifacts are available.
-- Manually test Linux fresh install, one-line installer, desktop entry, server
-  mode, and update path on the release Linux smoke matrix.
-- Confirm the GitHub release body contains the Row-Bot SHA256 manifest entries
-  for every published artifact before publishing.
+| File | Change |
+|------|--------|
+| `src/row_bot/brand.py`, `src/row_bot/runtime_paths.py`, `src/row_bot/version.py`, `static/`, `docs/row_bot_*`, `row-bot.ico` | Row-Bot brand constants, runtime path helpers, version metadata, icons, glyphs, favicon, and docs imagery |
+| `src/row_bot/migration/row_bot_legacy_rebrand.py`, `src/row_bot/ui/post_migration.py`, `tests/test_row_bot_legacy_rebrand.py`, `tests/test_post_migration_notice.py`, `tests/test_plugin_manifest_rebrand.py` | Copy-first legacy migration, migration notices, plugin manifest repair, and rebrand compatibility coverage |
+| `app.py`, `launcher.py`, `src/row_bot/app.py`, `src/row_bot/launcher.py`, `src/row_bot/__init__.py`, `docs/SOURCE_LAYOUT.md` | Source-layout migration into the `row_bot` package, launcher/app package entry points, and source-layout documentation |
+| `src/row_bot/providers/opencode.py`, `src/row_bot/providers/catalog.py`, `src/row_bot/providers/custom.py`, `src/row_bot/providers/model_catalog.py`, `src/row_bot/providers/selection.py`, `src/row_bot/providers/transports/openai_compatible.py` | OpenCode providers, MiniMax live discovery, stale model cleanup, custom endpoint reasoning/vision fixes, and catalog/provider selection updates |
+| `src/row_bot/skills_activation.py`, `src/row_bot/slash_commands.py`, `src/row_bot/skills_hub/`, `src/row_bot/ui/chat_composer_extras.py`, `src/row_bot/ui/chat_components.py` | Smart Skills activation, slash commands, Skills Hub marketplace/import/search support, and shared composer skill controls |
+| `src/row_bot/voice/`, `src/row_bot/ui/voice_lifecycle.py`, `src/row_bot/ui/voice_realtime_events.py` | Realtime voice runtime, providers, coordinator, agent bridge, action handling, cue/speech policy, and UI event lifecycle |
+| `src/row_bot/approval_policy.py`, `src/row_bot/tools/approval_gate.py`, `src/row_bot/threads.py`, `src/row_bot/ui/thread_actions.py`, `src/row_bot/developer/`, `src/row_bot/ui/sidebar.py` | Unified approval modes, approval gates, thread rename/actions, Developer grouping, workspace state, and sidebar refinements |
+| `src/row_bot/channels/`, `src/row_bot/tools/row_bot_status_tool.py`, `src/row_bot/ui/status_bar.py` | Channel workflow custom-provider routing, channel commands, Row-Bot status reporting, and Buddy avatar fallback behavior |
+| `src/row_bot/update_handoff.py`, `src/row_bot/startup_diagnostics.py`, `installer/launch_row_bot.bat`, `installer/launch_row_bot.vbs`, `installer/build_installer.ps1` | Windows update handoff, startup diagnostics, renamed launch scripts, splash/picker hardening, embedded Tk validation, and native DLL bundling |
+| `installer/row_bot_setup.iss`, `installer/build_linux_app.sh`, `installer/build_mac_app.sh`, `installer/build_mac_release.sh`, `installer/install-linux.sh`, `installer/README.md` | Row-Bot Windows, Linux, and macOS packaging, install command naming, source-layout payload handling, and installer documentation |
+| `.github/workflows/release.yml`, `.github/workflows/notarize-submit.yml`, `.github/workflows/notarize-check.yml`, `.github/workflows/update-manifest.yml`, `scripts/app_payload_manifest.py`, `scripts/append_sha_manifest.py`, `scripts/cut_release.py` | Release workflow, notarization, update manifest, payload manifest, SHA manifest, and release helper updates |
+| `README.md`, `CONTRIBUTING.md`, `docs/RELEASING.md`, `docs/ARCHITECTURE.md`, `docs/CNAME`, `docs/index.html` | Public docs, release docs, architecture docs, Pages domain, and website updates |
+| `tests/`, `pytest.ini`, `scripts/smoke_app.py`, `scripts/skills_hub_live_import_matrix.py` | Expanded regression coverage for rebrand, migration, providers, skills, voice, packaging, startup hardening, source layout, and app smoke validation |
 
 ## v3.23.1 - Custom Endpoint Tool-Calling Hotfix
 
