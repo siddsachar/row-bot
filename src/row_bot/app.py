@@ -803,6 +803,7 @@ async def index():
     # ── Startup warnings ─────────────────────────────────────────────────
     if _st.startup_warnings:
         for msg in _st.startup_warnings:
+            logger.warning("Startup warning shown to user: %s", msg)
             ui.notify(msg, type="warning", timeout=8000, close_button=True)
         _st.startup_warnings.clear()
 

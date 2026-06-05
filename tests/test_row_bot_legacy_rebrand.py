@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from row_bot.migration import row_bot_legacy_rebrand as mig
+from row_bot.plugins.manifest import parse_manifest
 
 
 class FakeKeyring:
@@ -20,6 +21,18 @@ class FakeKeyring:
 def _write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _legacy_plugin_manifest(plugin_id: str = "thoth-hacker-news") -> dict:
+    return {
+        "id": plugin_id,
+        "name": "Hacker News Reader",
+        "version": "1.0.0",
+        "min_thoth_version": "3.12.0",
+        "author": {"name": "Thoth", "github": "siddsachar"},
+        "description": "Browse and search Hacker News from Thoth.",
+        "provides": {"tools": [], "skills": []},
+    }
 
 
 def test_rebrand_migration_copies_source_rewrites_config_and_writes_marker(tmp_path):
@@ -312,6 +325,67 @@ def test_rebrand_migration_repairs_already_completed_buddy_paths_without_legacy_
     assert ".thoth" not in json.dumps(manifest)
     assert ".row-bot" in manifest["preview_path"]
     assert ".row-bot" in manifest["motion_pack_path"]
+    assert list((target / "migration_reports").glob("row-bot-v4-rebrand-repair-*.json"))
+
+
+def test_rebrand_migration_repairs_copied_legacy_plugin_manifests(tmp_path):
+    home = tmp_path / "home"
+    source = home / ".thoth"
+    target = home / ".row-bot"
+    source.mkdir(parents=True)
+    _write_json(
+        source / "installed_plugins" / "thoth-hacker-news" / "plugin.json",
+        _legacy_plugin_manifest(),
+    )
+
+    result = mig.ensure_legacy_rebrand_migration(environ={}, home=home, keyring_backend=FakeKeyring())
+
+    assert result["status"] == "completed"
+    assert "installed_plugins/thoth-hacker-news/plugin.json" in result["files_rewritten"]
+    manifest_path = target / "installed_plugins" / "thoth-hacker-news" / "plugin.json"
+    manifest_json = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest_json["min_row_bot_version"] == "3.12.0"
+    assert "min_thoth_version" not in manifest_json
+    assert manifest_json["id"] == "thoth-hacker-news"
+    assert parse_manifest(manifest_path.parent).min_row_bot_version == "3.12.0"
+
+
+def test_rebrand_migration_repairs_already_completed_plugin_manifests(tmp_path):
+    home = tmp_path / "home"
+    target = home / ".row-bot"
+    target.mkdir(parents=True)
+    _write_json(
+        target / "migrations" / "row-bot-v4-rebrand.json",
+        {"migration_id": mig.MIGRATION_ID, "status": "completed", "source": str(home / ".thoth"), "target": str(target)},
+    )
+    _write_json(
+        target / "installed_plugins" / "thoth-rss-reader" / "plugin.json",
+        _legacy_plugin_manifest("thoth-rss-reader"),
+    )
+    modern = _legacy_plugin_manifest("modern-plugin")
+    modern["min_row_bot_version"] = "3.20.0"
+    _write_json(target / "installed_plugins" / "modern-plugin" / "plugin.json", modern)
+
+    result = mig.ensure_legacy_rebrand_migration(environ={}, home=home, keyring_backend=FakeKeyring())
+
+    assert result["status"] == "already_completed"
+    assert sorted(result["files_rewritten"]) == [
+        "installed_plugins/modern-plugin/plugin.json",
+        "installed_plugins/thoth-rss-reader/plugin.json",
+    ]
+
+    legacy_json = json.loads(
+        (target / "installed_plugins" / "thoth-rss-reader" / "plugin.json").read_text(encoding="utf-8")
+    )
+    assert legacy_json["min_row_bot_version"] == "3.12.0"
+    assert "min_thoth_version" not in legacy_json
+    assert parse_manifest(target / "installed_plugins" / "thoth-rss-reader").min_row_bot_version == "3.12.0"
+
+    modern_json = json.loads(
+        (target / "installed_plugins" / "modern-plugin" / "plugin.json").read_text(encoding="utf-8")
+    )
+    assert modern_json["min_row_bot_version"] == "3.20.0"
+    assert "min_thoth_version" not in modern_json
     assert list((target / "migration_reports").glob("row-bot-v4-rebrand-repair-*.json"))
 
 

@@ -405,6 +405,7 @@ def _rewrite_copied_config(target: Path, report: dict[str, Any], *, home: Path) 
         path = target / name
         if path.exists() and path.is_file():
             _rewrite_json_file(path, report, target=target, home=home)
+    _rewrite_installed_plugin_manifests(target, report)
     for base in (
         target / "designer" / "projects",
         target / "designer" / "history",
@@ -425,6 +426,48 @@ def _rewrite_copied_config(target: Path, report: dict[str, Any], *, home: Path) 
         for path in base.rglob("*.json"):
             if path.is_file():
                 _rewrite_json_file(path, report, target=target, home=home)
+
+
+def _rewrite_installed_plugin_manifests(target: Path, report: dict[str, Any]) -> None:
+    plugins_dir = target / "installed_plugins"
+    if not plugins_dir.exists() or not plugins_dir.is_dir():
+        return
+    try:
+        plugin_dirs = [path for path in plugins_dir.iterdir() if path.is_dir()]
+    except OSError as exc:
+        report["warnings"].append(f"Skipped installed plugin manifest repair: {exc}")
+        return
+
+    for plugin_dir in plugin_dirs:
+        manifest_path = plugin_dir / "plugin.json"
+        if not manifest_path.exists() or not manifest_path.is_file():
+            continue
+        try:
+            raw = manifest_path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+        except (OSError, json.JSONDecodeError) as exc:
+            report["warnings"].append(
+                f"Skipped plugin manifest version repair for {_rel_to_report(manifest_path, target)}: {exc}"
+            )
+            continue
+        if not isinstance(data, dict):
+            continue
+
+        legacy_min_version = data.get("min_thoth_version")
+        changed = False
+        if legacy_min_version is not None and not data.get("min_row_bot_version"):
+            data["min_row_bot_version"] = legacy_min_version
+            changed = True
+        if "min_thoth_version" in data:
+            data.pop("min_thoth_version", None)
+            changed = True
+        if not changed:
+            continue
+
+        encoded = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+        manifest_path.write_text(encoded, encoding="utf-8")
+        _record(report, "files_rewritten", _rel_to_report(manifest_path, target))
+        report["files_rewritten_count"] += 1
 
 
 def _rewrite_json_file(
