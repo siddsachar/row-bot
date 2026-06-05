@@ -3,6 +3,12 @@
 > Full technical reference for every feature, module, and subsystem in Row-Bot.
 > For a concise overview, see the [README](../README.md).
 
+Row-Bot is the renamed successor to Thoth. The product name is also the design
+principle for the system: **Reason. Orchestrate. Work.** The architecture keeps
+those concerns separate: reasoning lives in provider-aware agent/runtime paths,
+orchestration lives in tools, workflows, channels, skills, plugins, and MCP, and
+durable work lives in local data stores owned by the user.
+
 ---
 
 ## Table of Contents
@@ -28,10 +34,12 @@
 - [Tunnel Manager](#tunnel-manager)
 - [X (Twitter) Tool](#x-twitter-tool)
 - [Tool Guides](#tool-guides)
+- [Skills Hub & Skill Activation](#skills-hub--skill-activation)
 - [Image Generation](#image-generation)
 - [Video Generation](#video-generation)
 - [MCP Client & External Tools](#mcp-client--external-tools)
 - [Migration Wizard](#migration-wizard)
+- [Thoth-to-Row-Bot Rebrand Migration](#thoth-to-row-bot-rebrand-migration)
 - [Plugin System & Marketplace](#plugin-system--marketplace)
 - [Auto-Updates](#auto-updates)
 - [Habit & Health Tracker](#habit--health-tracker)
@@ -49,13 +57,14 @@
 ## ReAct Agent Architecture
 
 - **Autonomous tool use** — the agent decides which tools to call, when, and how many times, based on your question
-- **30+ core tools plus Developer, Custom Tool, and auto-generated channel tools** — web search, email, calendar, file management, shell access, browser automation, vision, image generation, video generation, X (Twitter), a personal knowledge graph, Designer Studio, Developer Studio, Custom Tool Builder, scheduled workflows, habit tracking, Row-Bot Status self-inspection, external MCP tools, and more
+- **30+ core tools plus Developer, Custom Tool, Skills Hub, and auto-generated channel tools** — web search, email, calendar, file management, shell access, browser automation, vision, image generation, video generation, X (Twitter), a personal knowledge graph, Designer Studio, Developer Studio, Custom Tool Builder, scheduled workflows, habit tracking, Row-Bot Status self-inspection, external MCP tools, and more
 - **Streaming responses** — tokens stream in real-time with a typing indicator
 - **Thinking indicators** — shows when the model is reasoning before responding
 - **Smart context management** — automatic conversation summarization compresses older turns when token usage exceeds 80% of the context window, preserving the 5 most recent turns and a running summary; a hard trim at 85% drops oldest messages as a safety net; oversized tool outputs are proportionally shrunk so multi-tool chains fit within context; accurate token counting via tiktoken (cl100k_base)
 - **Dynamic tool budgets** — the agent automatically adjusts how many tools are exposed to the model based on available context headroom; when context usage is high, lower-priority tools are temporarily hidden to prevent the system prompt from crowding out conversation history
 - **Runtime readiness routing** — before building the graph, selected models are evaluated for context headroom, provider capability metadata, tool support, and surface requirements; full agent mode, chat-only mode, and blocked states are explicit outcomes rather than accidental provider failures
 - **Chat-only runtime** — models that are useful for normal conversation but cannot reliably accept tool schemas use a compact tool-free prompt, a shaped transcript without full tool bodies, and the normal streaming/persistence path
+- **Skill-aware prompting** — manual Smart Skills, per-thread/per-workflow skill overrides, and tool guides are resolved before prompt assembly so the agent receives only the relevant operating instructions for the current surface
 - **Provider transcript normalization** — model-facing histories are checked for duplicate tool-call IDs, orphan tool results, invalid tool calls, empty assistant turns, and unsafe reasoning/tool artifacts before replay to custom or hosted providers
 - **Centralized prompts plus self-knowledge injection** — base prompt templates live in `prompts.py`, while `self_knowledge.py` injects a dynamic identity line, capability manifest, and live runtime state so Row-Bot can describe itself accurately without stale hard-coded copy
 - **Live token counter** — progress bar in the sidebar shows real-time context window usage based on trimmed (model-visible) history
@@ -160,7 +169,7 @@ The brain model is Row-Bot's default LLM — the model used for conversations, m
 
 Row-Bot is local-first in its data model, but model routing is provider-neutral. Local models remain a first-class path for offline and private use, while hosted and self-hosted models can be selected per thread, workflow, Developer workspace, or media surface. The setup wizard determines the initial default; on the local path, Row-Bot uses one of the models already exposed by the local runtime, with 14B-class models recommended for stronger agent/tool behavior.
 
-Provider models are supported for users without a dedicated GPU, for frontier reasoning on demand, or for trying many providers without downloading large local weights. Row-Bot supports opt-in provider models through **OpenAI** (direct API), **Anthropic** (Claude), **Google AI** (Gemini), **xAI** (Grok), **MiniMax** (M2 models through the Anthropic-compatible API), **OpenRouter** (many third-party models), **Ollama Cloud** (direct API and local daemon cloud-tagged models), **ChatGPT / Codex** (subscription-backed Codex models), and Custom/Self-hosted OpenAI-compatible endpoints such as oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, or private gateways. Provider connections, health, and credential sources are configured from Settings -> Providers; model catalog browsing, pinning, and defaults live in Settings -> Models.
+Provider models are supported for users without a dedicated GPU, for frontier reasoning on demand, or for trying many providers without downloading large local weights. Row-Bot supports opt-in provider models through **OpenAI** (direct API), **Anthropic** (Claude), **Google AI** (Gemini), **xAI** (Grok), **MiniMax** (live catalog through the Anthropic-compatible API), **OpenCode** providers, **OpenRouter** (many third-party models), **Ollama Cloud** (direct API and local daemon cloud-tagged models), **ChatGPT / Codex** (subscription-backed Codex models), and Custom/Self-hosted OpenAI-compatible endpoints such as oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, or private gateways. Provider connections, health, and credential sources are configured from Settings -> Providers; model catalog browsing, pinning, and defaults live in Settings -> Models.
 
 The `providers/` subsystem now owns provider config, auth metadata, model catalog normalization, runtime construction, display-safe status, runtime readiness, and Quick Choices. Model selections are preserved as provider-qualified refs (`model:<provider>:<model>`) at UI and settings boundaries so a local/custom model does not silently fall back to OpenRouter when another provider has the same or unknown bare model id. Existing public functions in `models.py` remain as compatibility facades while provider-backed selection is rolled through the app. Settings -> Models pickers are intentionally Quick Choice surfaces: catalog rows must be pinned before they become everyday Brain, Vision, Image, or Video choices, while the current default can still appear as a fallback value. `providers/model_catalog_cache.py` refreshes hosted-provider and local-runtime catalog rows in the background so Settings can render from cache without blocking on large remote catalogs.
 
@@ -173,6 +182,8 @@ Codex runtime uses ChatGPT's subscription/internal Codex backend rather than the
 - **Dynamic model switching** — change the brain model from Settings or approved `row_bot_update_setting` calls; choices are validated against pinned local/provider Quick Choices, installed local models, and provider catalogs before saving
 - **Per-thread & per-workflow model override** — conversations and workflows can each run on a different model, with overrides persisted locally
 - **Quick Choices** — models pinned from the consolidated Models catalog appear in chat, workflow, channel, Designer, status-tool, and Vision pickers when their capability snapshot supports that surface
+- **Live provider discovery** — provider catalogs can be refreshed from live APIs where supported; MiniMax uses API discovery and stale-model cleanup so new and removed models do not require a Row-Bot code release for every catalog change
+- **OpenCode provider runtime** — OpenCode-compatible providers are represented as first-class provider/runtime entries with auth, catalog, selection, and readiness coverage instead of being treated as generic custom endpoints
 - **Cost-efficient context management** — smart context trimming compresses older conversation turns and shrinks oversized tool outputs, reducing token usage and API costs for provider models
 - **Local catalog accuracy** — installed Ollama chat models remain visible even when their family is newer than Row-Bot's curated tool/vision heuristics, while embedding-like local models are kept out of chat choices and Vision support is only inferred from known metadata/families
 - **Ollama Cloud paths** — direct Ollama Cloud API keys and local daemon `:cloud` models are represented separately while sharing catalog normalization and display metadata; direct API errors are normalized into user-facing provider messages
@@ -202,15 +213,21 @@ Embeddings are configured separately from chat models so users can choose the pr
 
 ## Voice Input & Text-to-Speech
 
+Row-Bot has two voice paths: a local STT/TTS loop for privacy-first dictation and playback, and a realtime voice runtime for lower-latency conversational sessions with provider-backed events and action handling.
+
 - **Toggle-based voice** — simple manual toggle to start and stop listening, no wake word required
-- **4-state pipeline** — stopped → listening → transcribing → muted, with explicit state transitions and mic gating during playback
+- **Classic local pipeline** — stopped -> listening -> transcribing -> muted state transitions keep manual speech input explicit and gate the microphone during playback
 - **Local speech-to-text** — transcription via faster-whisper (tiny/base/small/medium), CPU-only int8 quantization, no cloud APIs required
-- **Voice-aware responses** — voice input is tagged so the agent knows you are speaking and can respond more conversationally
 - **Neural TTS** — high-quality text-to-speech via Kokoro, fully offline
 - **10 voice options** — US and British English, male and female variants
 - **Streaming TTS** — responses are spoken sentence-by-sentence as they stream in
 - **Mic gating** — microphone is automatically muted during TTS playback to prevent echo and feedback loops
-- **Hands-free mode** — voice input plus streaming TTS creates a fully conversational loop
+- **Realtime voice runtime** — `voice/realtime_client.py`, `voice/runtime.py`, provider adapters, and UI event presenters coordinate low-latency sessions separately from the classic text-turn pipeline
+- **Provider abstraction** — realtime voice providers share a base contract for session setup, input/output events, speech status, and shutdown; OpenAI realtime and local-provider scaffolding are represented through the same runtime boundary
+- **Agent bridge** — `voice/agent_bridge.py` maps realtime voice events into Row-Bot agent actions without letting the voice client bypass tool, approval, or runtime readiness policy
+- **Voice actions** — `voice/actions.py` keeps action dispatch explicit so voice sessions can request supported app actions through controlled handlers
+- **Cue and speech policy** — `voice/cue_policy.py`, `voice/cues.py`, `voice/speech_policy.py`, and `voice/output_controller.py` coordinate conversational cues, spoken output timing, interruption, and playback state
+- **UI lifecycle** — `ui/voice_lifecycle.py` and `ui/voice_realtime_events.py` surface session state, provider events, and recovery paths without coupling the chat transcript directly to provider-specific event streams
 
 ---
 
@@ -580,6 +597,22 @@ Tool guides are lightweight `SKILL.md` packages that attach contextual instructi
 
 ---
 
+## Skills Hub & Skill Activation
+
+Skills Hub is the discovery, import, search, and installation layer for manual skills. It sits above the lower-level `skills.py` loader and `skills_activation.py` runtime selection path: Skills Hub gets skills into the local library, while Smart Skills decides which enabled skills should shape a given turn.
+
+- **Manual skill library** — user-installed skills live under `~/.row-bot/skills/<name>/SKILL.md` and use the same YAML-frontmatter package shape as bundled skills
+- **Smart activation** — `skills_activation.py` resolves enabled skills, explicit `/skill` requests, draft suggestions, per-thread overrides, and workflow overrides before prompt assembly
+- **Slash commands** — `slash_commands.py` provides skill-aware chat commands such as using, disabling, or narrowing skills without leaving the conversation
+- **Shared composer controls** — `ui/chat_composer_extras.py` gives main chat, Designer Studio, and Developer Studio a common slash palette, skill picker, skill chips, and draft-suggestion path
+- **Source adapters** — `skills_hub/` can inspect GitHub repositories, pasted Markdown, direct URLs, well-known skill indexes, and marketplace-style catalogs before installation
+- **Import detection** — pasted or linked content is classified before install so a raw `SKILL.md`, a folder-like package, or a catalog entry can route through the right importer
+- **Search index** — local and remote catalog rows are normalized into searchable records with source, tags, description, install state, and provenance metadata
+- **Provenance and safety** — installed skills retain origin/source metadata, user overrides take precedence over bundled skills, and user-controlled enablement determines whether manual skill instructions enter the system prompt
+- **Testing coverage** — `tests/test_skills_activation.py`, `tests/test_slash_commands.py`, `tests/test_skills_hub.py`, `tests/test_skills_hub_sources.py`, `tests/test_skills_hub_search.py`, and UI/source tests cover activation, import detection, source adapters, search, and composer contracts
+
+---
+
 ## Image Generation
 
 Row-Bot can generate and edit images through multiple external providers, render them inline, persist them to disk, and reuse them in designer workflows or channel delivery.
@@ -696,7 +729,22 @@ Row-Bot includes a one-time migration wizard for moving selected data from Herme
 
 - **Focused suites** — `tests/test_migration_core.py`, `tests/test_migration_detection.py`, `tests/test_migration_planner.py`, `tests/test_migration_apply.py`, and `tests/test_migration_wizard_ui.py` cover model invariants, source detection, dry-run planning, wrong-provider rejection, conflict behavior, backups, reports, redaction, daily memory import, and UI helper logic
 - **Realistic fixtures** — `migration/fixtures.py` builds multi-month Hermes and OpenClaw homes with fake secrets, memories, skills, channels, MCP servers, approvals, cron/hooks, plugins, sessions, logs, and archive-only state
-- **Manual E2E path** — disposable targets under `.tmp/migration-fixtures/` are used for click-through validation before release; the fixture root is ignored by git
+- **Manual E2E path** — disposable targets under `.tmp/migration-fixtures/` are used for click-through validation during migration testing; the fixture root is ignored by git
+
+---
+
+## Thoth-to-Row-Bot Rebrand Migration
+
+The v4 rebrand migration is separate from the Hermes/OpenClaw migration wizard. It is an automatic compatibility path for existing Thoth 3.x users who install Row-Bot v4 and launch it against a machine that already has Thoth data.
+
+- **Copy-first policy** — Row-Bot copies supported Thoth data into the new Row-Bot data locations and leaves the original Thoth data intact for rollback, manual inspection, or recovery
+- **Runtime entry point** — `migration/row_bot_legacy_rebrand.py` owns the legacy Thoth scan, copy plan, repair steps, and one-shot completion guard used by normal startup
+- **One-shot guard** — migration records completion state so subsequent Row-Bot launches do not repeatedly copy or repair already-migrated data
+- **Data coverage** — provider settings, channels, skills, MCP servers, plugins, Buddy assets, Designer workspaces, conversations, memories, tasks, media, updater state, and runtime config are covered by compatibility tests
+- **Plugin manifest repair** — legacy plugin manifests can be repaired from old Thoth minimum-version metadata to Row-Bot-compatible metadata during migration
+- **Post-migration notice** — `ui/post_migration.py` exposes completion state and user-facing context after the copy so users understand what moved and what stayed in place
+- **Non-destructive rollback posture** — because legacy data is copied rather than moved, users can keep a 3.x backup or inspect old files without depending on Row-Bot's new data directory
+- **Test coverage** — `tests/test_row_bot_legacy_rebrand.py`, `tests/test_row_bot_runtime_data_paths.py`, `tests/test_row_bot_runtime_brand_assets.py`, `tests/test_plugin_manifest_rebrand.py`, and `tests/test_post_migration_notice.py` cover migration contracts and compatibility behavior
 
 ---
 
@@ -708,6 +756,7 @@ A sandboxed, hot-reloadable extension system lets plugins add new tools and skil
 
 - **Plugin API** — `PluginAPI` and `PluginTool` are the core abstractions available to plugins
 - **Manifest system** — each plugin declares metadata, tools, skills, settings, and dependencies in `plugin.json`
+- **Row-Bot version metadata** — plugin manifests use Row-Bot minimum-version metadata; migrated legacy Thoth plugin manifests are repaired where possible during the v4 rebrand migration
 - **Security sandbox** — static scans block dangerous constructs like `eval`, `exec`, and shell escape paths; imports from sensitive core modules are restricted
 - **Dependency safety** — plugin dependency installs cannot silently downgrade core packages required by Row-Bot
 - **State persistence** — enablement and non-secret config are stored under `~/.row-bot/plugin_state.json`; plugin API-key secrets use the OS credential store with metadata-only `plugin_secrets.json` state and session-only fallback for new saves when keyring is unavailable
@@ -731,7 +780,7 @@ A sandboxed, hot-reloadable extension system lets plugins add new tools and skil
 - **Channel** — `stable` (default) hits `/releases/latest`; `beta` walks the top 10 releases and includes pre-releases. Persisted in `~/.row-bot/update_config.json`.
 - **Manifest verification** — every release body must contain a fenced `<!-- row-bot-update-manifest -->` block with SHA256 hashes for each platform asset. Without a manifest entry, `download_update` refuses to install. The CI workflow `.github/workflows/update-manifest.yml` calls `scripts/append_sha_manifest.py` to PATCH the release body once artifacts are uploaded. The Linux one-line installer uses the same manifest before running the bundled tarball installer.
 - **OS code signature** — Windows installs invoke `signtool.exe verify /pa`; macOS installs invoke `codesign --verify --deep --strict`. Linux tarball installs do not have a universal OS-level signing verifier, so Row-Bot relies on GitHub HTTPS plus the required SHA256 release manifest.
-- **Hand-off** — Windows: `Row-Bot-x.y.z-Windows-x64.exe /SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS`. The `.iss` uses `CloseApplications=yes` / `RestartApplications=yes` so Inno Setup can swap files while Row-Bot is running, and repair/upgrade deletes `{app}\python` before recopying the bundled runtime so stray packages installed into embedded Python cannot survive. macOS: `open <dmg>` and exit; the user drags the new app to `/Applications`. Linux: install the verified `Row-Bot-X.Y.Z-Linux-ARCH.tar.gz` into the user XDG release tree, atomically flip `~/.local/share/row-bot/current`, refresh the desktop entry/icon, and restart through `~/.local/bin/row-bot`.
+- **Hand-off** — Windows: a detached `update_handoff.py` helper asks the running app to quit, waits for known Row-Bot PIDs and the local port to clear, then starts `Row-Bot-x.y.z-Windows-x64.exe /SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS`. The `.iss` uses `CloseApplications=yes` / `RestartApplications=yes` so Inno Setup can swap files safely, and repair/upgrade deletes `{app}\python` before recopying the bundled runtime so stray packages installed into embedded Python cannot survive. macOS: `open <dmg>` and exit; the user drags the new app to `/Applications`. Linux: install the verified `Row-Bot-X.Y.Z-Linux-ARCH.tar.gz` into the user XDG release tree, atomically flip `~/.local/share/row-bot/current`, refresh the desktop entry/icon, and restart through `~/.local/bin/row-bot`.
 - **UI** — a green "⬆ vX.Y.Z" status-bar pill appears when a newer release is detected; clicking opens the What's-New dialog (rendered release notes plus Install / Skip / Later buttons). Settings → Preferences → Updates exposes channel selection, "Check for updates", and a list of skipped versions.
 - **Agent surface** — `tools/updater_tool.py` registers `row_bot_check_for_updates` (read-only) and `row_bot_install_update` (interrupt-gated). The dynamic self-knowledge block surfaces "Update available: …" when applicable, and `row_bot_status` adds an `updates` category.
 - **Dev installs** — when a `.git/` directory sits next to the app source (i.e. running from a checkout), the scheduler is disabled and `row_bot_install_update` refuses, so working copies are never overwritten. On Linux, packaged installs are recognized by `install_info.json` with `platform: linux` and `install_kind: xdg-user-tarball`.
@@ -754,11 +803,13 @@ A sandboxed, hot-reloadable extension system lets plugins add new tools and skil
 
 - **Native window** — runs in a desktop window via pywebview on Windows and macOS; Linux defaults to browser mode and can opt into `--native` when the desktop has the required GTK/Qt backend
 - **System tray** — `launcher.py` exposes open and quit controls plus running-state feedback on Windows and macOS; Linux defaults to no tray and can opt into `--tray` when AppIndicator/desktop support is available
-- **Splash screen** — Tk-based splash with console fallback during startup
+- **Splash screen** — Tk-based loading splash during startup; Tk failures are logged to launcher diagnostics, and the visible console fallback is opt-in for debugging instead of appearing during normal Windows launches
 - **Startup diagnostics** — `startup_diagnostics.py` runs early in `app.py` and probes fragile optional native packages. Missing optional packages are ignored; installed-but-broken packages such as TorchCodec are logged with recovery steps and patched out of optional Transformers availability checks where safe.
 - **First-launch setup wizard** — starts with model/provider choice, then migration and setup-center steps for Local, Providers, Custom/Self-hosted, memory/docs, workflows, Designer, Developer, channels, voice, and related setup without touching config files by hand
 - **Self-contained installers** — Windows and macOS releases bundle dependencies for one-click setup; Linux uses a one-line bootstrapper that verifies and installs the self-contained XDG tarball into user-owned paths
+- **Packaged runtime validation** — Windows packaging validates embedded Python, bundled Tk, required native DLLs, and startup smoke paths so splash/picker failures are caught before artifact publication
 - **Launcher identity and ports** — the launcher probes `/api/launcher-ping` before reusing port 8080, passes the chosen port through `ROW_BOT_PORT`, and supports explicit `--browser`, `--native`, `--tray`, `--no-tray`, `--server`, `--no-open`, `--port`, and `--host` modes
+- **First-run window picker** — launcher-managed native/browser mode selection prefers the Tk picker and fails quickly to a safe default if the helper cannot render, avoiding hidden or blank console prompts on packaged Windows
 - **Launcher recovery hints** — when the managed server exits during startup, `launcher.py` tails `~/.row-bot/row_bot_app.log` and emits targeted recovery hints for recognized startup signatures, including broken optional TorchCodec DLL loads in the embedded Windows runtime.
 - **Launcher data recovery commands** — `launcher.py --reset-tasks-db`, `--reset-db`, and `--restore-data` back up SQLite DB families before recreating or restoring known task, memory, and thread databases
 - **Auto-restart flow** — closing the native window does not kill the tray-managed app process; reopen is fast
@@ -800,10 +851,11 @@ A sandboxed, hot-reloadable extension system lets plugins add new tools and skil
 Row-Bot includes a stability layer for the kinds of failures that are hard to catch from normal request logs: UI callback crashes, client-side JavaScript errors, event-loop stalls, memory spikes, and startup/shutdown issues.
 
 - **`stability.py`** — centralizes crash reporting, UI callback error reports, client-side error capture, asyncio exception handling, thread/unraisable hooks, memory snapshots, and event-loop lag logging
+- **Launcher diagnostics** — `launcher.py` writes structured launch timing, splash/picker helper failures, server readiness, window-open decisions, and shutdown/update handoff events to `launcher.log`
 - **Safe timers** — `ui/timer_utils.py` wraps deferred UI callbacks and polling timers so disconnected clients or deleted NiceGUI slots do not crash the app silently
 - **Settings diagnostics** — model settings collection/render phases log timings and memory snapshots, while cached model catalogs keep large provider refreshes off the critical UI path
 - **UI performance helpers** — `ui/performance.py` provides render generation tokens, timed UI sections, slow-section logging, and safe UI callback/task wrappers used by Settings, Knowledge, chat, and graph surfaces
-- **Startup sequencing** — startup status covers cached model catalog load, workflow scheduler, MCP, plugins, channel migration/autostart, tunnel startup, and knowledge graph load
+- **Startup sequencing** — startup status covers cached model catalog load, workflow scheduler, MCP, plugins, channel migration/autostart, tunnel startup, legacy rebrand migration, and knowledge graph load
 - **Clean shutdown** — app shutdown attempts ordered channel, tunnel, MCP, scheduler, and process cleanup to reduce locked logs and lingering child processes
 - **Task database diagnostics** — Home, Command Center, and Row-Bot Status can report task-schema state, repair results, and launcher recovery guidance when workflow storage is missing or corrupt
 - **Frontend error reporting** — browser-side exceptions are reported back into the structured log with enough context to correlate with UI actions
@@ -840,22 +892,28 @@ Row-Bot ships with **17 manual bundled skills** and **20 tool guides**. Manual s
 - **Claude Code Delegation** — disabled by default, this skill treats Claude Code CLI as an external coding worker while Row-Bot remains coordinator. It favors bounded `claude -p` print-mode tasks, explicit working-directory checks, `--allowedTools`, turn/budget limits, diff inspection, Row-Bot-side verification, and user approval before write-capable or destructive delegation.
 - **User skills** — custom skills live in `~/.row-bot/skills/<name>/SKILL.md`; user skills with the same name as a bundled skill override it
 - **In-app skill editor** — skills can be created and edited directly from Settings
+- **Skills Hub install path** — Skills Hub installs third-party or user-provided skills into the same user skill library, preserving provenance while keeping bundled skills immutable
 - **Per-skill enablement** — only enabled manual skills are injected into the system prompt
-- **Per-thread and per-workflow overrides** — skill selection can be narrowed for individual threads and workflows
+- **Per-thread, per-workflow, and composer overrides** — skill selection can be narrowed for individual threads and workflows, while chat composer controls expose explicit skill chips and slash-command activation
 - **Tool guides remain automatic** — Browser, Calendar, Chart, Custom Tool Builder, Designer, Developer, Email, Filesystem, Math, MCP, Shell, Telegram, Row-Bot Status, Tracker, Updater, Video, Vision, Weather, Wiki, and X guides are in the built-in set
 
 ---
 
 ## Core Modules
 
+Runtime code is packaged under `src/row_bot`. The paths below are package-relative unless a top-level docs, scripts, installer, or static directory is named explicitly.
+
 | File | Purpose |
 |------|---------|
 | **`app.py`** + **`ui/`** | NiceGUI application shell, chat surfaces, lazy home tabs, health/status bar, workflow console, settings dialog, UI performance helpers, and native-webview integration points |
+| **`brand.py`** + **`runtime_paths.py`** | Row-Bot product identity, public naming constants, runtime path detection, and packaged/source checkout path helpers |
 | **`buddy/`** + **`ui/buddy.py`** | Buddy companion event bus, behavior brain, config, asset validation, Hatch generation, in-app docked/undocked presence, and optional desktop overlay helpers |
 | **`designer/`** | Designer Studio subsystem: gallery, editor, tooling, storage, exports, presentation mode, publishing, and asset hydration |
 | **`developer/`** | Developer Studio subsystem: workspace links, Git helpers, approval policy, Docker/local runtime, sandbox state, inspector snapshots, todos, file tree, diffs, GitHub helpers, Custom Tool internals, and UI |
 | **`ui/chat_components.py`** | Shared chat input, upload, and message-area components reused by main chat, Designer Studio, and Developer Studio |
+| **`ui/chat_composer_extras.py`** | Shared slash palette, skill picker, skill chips, and composer-level Smart Skills controls reused across chat surfaces |
 | **`agent.py`** | LangGraph ReAct agent, prompt assembly, runtime readiness routing, chat-only execution, provider transcript normalization, streaming event generation, tool routing, interrupt handling, cache clearing, and background execution integration |
+| **`approval_policy.py`** + **`tools/approval_gate.py`** | Unified approval modes and tool-level approval gate helpers for chat, Developer, workflows, channels, and promoted tools |
 | **`threads.py`** | SQLite-backed thread metadata, LangGraph checkpoint wiring, checkpoint transcript helpers, per-thread media storage, and thread-level overrides |
 | **`memory.py`** | Backward-compatible memory wrapper that maps legacy memory calls onto the knowledge graph implementation |
 | **`memory_policy.py`** + **`memory_evolution.py`** | Bounded auto-recall scoring/filtering/tracing plus memory status, tier, confidence, evidence, review, superseding, archival, and evolution journal helpers |
@@ -867,12 +925,14 @@ Row-Bot ships with **17 manual bundled skills** and **20 tool guides**. Manual s
 | **`providers/`** | Provider auth, normalized model catalogs, background catalog cache, provider-qualified resolution, readiness evaluation, custom endpoint profiles/probes, runtime construction, transports, and display-safe provider status |
 | **`embedding_config.py`** + **`embedding_providers.py`** | Embedding provider selection, local/cloud embedding backends, vector metadata, and stale-index detection |
 | **`documents.py`** | Document ingestion, chunking, embedding, vector-store persistence, and per-document cleanup |
-| **`voice.py`** | Faster-whisper-based speech input pipeline and voice-state management |
+| **`voice.py`** | Classic faster-whisper-based speech input pipeline and voice-state management |
+| **`voice/`** | Realtime voice runtime, provider contracts, OpenAI realtime client, local-provider scaffolding, action dispatch, agent bridge, cue policy, speech policy, and output coordination |
 | **`tts.py`** | Kokoro text-to-speech integration, voice catalog, and streaming playback |
 | **`vision.py`** | Camera capture, screen capture, and workspace image analysis via local or provider vision models |
 | **`data_reader.py`** | Shared structured-data loader for CSV, TSV, Excel, JSON, and JSONL |
 | **`data_paths.py`** | Shared Row-Bot data-directory and SQLite path resolution for tasks, memory, threads, diagnostics, and recovery commands |
-| **`launcher.py`** | Desktop launcher, system tray, splash screen, app lifecycle, logging bootstrap, local runtime startup decisions, and DB recovery commands |
+| **`launcher.py`** | Desktop launcher, system tray, splash screen, first-run window picker, app lifecycle, logging bootstrap, local runtime startup decisions, and DB recovery commands |
+| **`update_handoff.py`** | Detached Windows update handoff helper that waits for Row-Bot processes/ports to exit before starting the installer |
 | **`stability.py`** | UI callback/error capture, asyncio/thread exception hooks, memory snapshots, event-loop lag logging, and crash diagnostics |
 | **`startup_diagnostics.py`** | Early startup probes for optional native packages that can break app import/startup when partially installed |
 | **`api_keys.py`** + **`secret_store.py`** | API key storage and retrieval for tools and API-key providers, backed by OS keyring with metadata-only local files and legacy plaintext migration |
@@ -881,7 +941,9 @@ Row-Bot ships with **17 manual bundled skills** and **20 tool guides**. Manual s
 | **`insights.py`** | Structured insight store with dedup, pruning, pin/dismiss/apply state, and last-analysis tracking |
 | **`prompts.py`** | Centralized prompt templates including summarization, extraction, and dream-insights analysis |
 | **`memory_extraction.py`** | Background conversation scan that extracts entities and relations the live agent did not save |
-| **`skills.py`** | Discovery, loading, activation, override, and prompt-building for manual skills and tool guides |
+| **`skills.py`** | Discovery, loading, enablement state, override, and prompt-building for manual skills and tool guides |
+| **`skills_activation.py`** + **`slash_commands.py`** | Smart Skills activation, explicit skill commands, draft suggestions, disabled-skill handling, and slash-command parsing |
+| **`skills_hub/`** | Skills Hub source adapters, import detection, installers, provenance, scanner, search index, source registry, and UI models |
 | **`bundled_skills/`** | 17 built-in manual skills as `SKILL.md` packages |
 | **`tool_guides/`** | 20 built-in tool-specific auto-activation guides |
 | **`tasks.py`** | Workflow engine, SQLite persistence, schema validation/repair, APScheduler scheduling, pipeline execution, run history, safety mode, and delivery routing |
@@ -893,7 +955,7 @@ Row-Bot ships with **17 manual bundled skills** and **20 tool guides**. Manual s
 | **`tools/`** + **`designer/tool.py`** | Self-registering core tool modules, registry, base classes, Wikipedia recovery behavior, and LangChain tool conversion |
 | **`plugins/`** | Plugin runtime, marketplace client, manifest validation, security scanner, and settings integration |
 | **`mcp_client/`** | External Model Context Protocol client: config, runtime sessions, marketplace search, requirements, safety classification, diagnostics, and result normalization |
-| **`migration/`** | Hermes/OpenClaw migration models, redaction, source detection, dry-run planning, realistic fixtures, and guarded apply/report generation |
+| **`migration/`** | Hermes/OpenClaw migration models plus Thoth-to-Row-Bot legacy rebrand migration, redaction, source detection, dry-run planning, realistic fixtures, guarded apply/report generation, copy-first rebrand repair, and migration tests |
 | **`static/`** | Bundled frontend assets such as Mermaid, graph/visualization helpers, and Buddy runtime/motion assets |
 | **`version.py`** | Single source of truth for the current Row-Bot version, located at `src/row_bot/version.py` |
 
@@ -935,8 +997,11 @@ All user data is stored under `~/.row-bot/` (or `%USERPROFILE%\\.row-bot\\` on W
 │   └── sandboxes/                  # Docker shadow workspaces and per-workspace sandbox state
 ├── shell_history.json             # Per-thread shell history
 ├── skills_config.json             # Manual skill enable/disable state
+├── skills/                        # User-installed skills; .hub/ stores Skills Hub lockfile, audit log, and quarantine
 ├── mcp_servers.json               # External MCP server config, global switch, tool enablement, approvals
 ├── mcp_marketplace_cache.json     # Cached MCP directory search results
+├── migrations/                    # One-shot migration markers, including row-bot-v4-rebrand.json
+├── migration_reports/             # Row-Bot v4 rebrand migration and repair reports
 ├── migration-reports/             # Redacted migration plans, results, summaries, and archive snapshots
 ├── migration-backups/             # Pre-migration backups of overwritten target files
 ├── runtimes/                      # Optional user-space runtimes installed by MCP requirement helper
@@ -977,7 +1042,7 @@ All user data is stored under `~/.row-bot/` (or `%USERPROFILE%\\.row-bot\\` on W
 
 Most open-source AI assistants are still **developer tools disguised as products** — CLI-first, config-file-driven, and built around Docker, YAML, and environment variables. Getting started often means cloning repos, editing configs, wiring databases, and debugging dependencies before you can ask a single useful question.
 
-**Row-Bot is different.** It is packaged as a native desktop experience with one-click installers for Windows and macOS, a one-line Linux installer backed by a verified XDG tarball, local-first defaults, and a GUI that exposes models, tools, workflows, channels, Designer Studio, Developer Studio, Custom Tools, and memory without requiring terminal fluency.
+**Row-Bot is different.** It is packaged as a native desktop experience with one-click installers for Windows and macOS, a one-line Linux installer backed by a verified XDG tarball, local-first defaults, and a GUI that exposes models, tools, workflows, channels, Designer Studio, Developer Studio, Smart Skills, Skills Hub, Custom Tools, and memory without requiring terminal fluency.
 
 ### Why not just use ChatGPT?
 
@@ -987,9 +1052,9 @@ Most open-source AI assistants are still **developer tools disguised as products
 | **Conversations** | Provider-owned chat history | Local SQLite-backed threads, exportable anytime |
 | **Cost** | Subscription or provider billing | Free with local models; provider/custom usage is upstream API billing, self-hosted infrastructure, or ChatGPT subscription access only when you opt in |
 | **Memory** | Limited, opaque, provider-controlled | Personal knowledge graph with entities, relations, bounded recall, audit/review states, visualization, wiki export, and background refinement |
-| **Tools** | Limited app integrations and provider-defined plug-ins | 30+ core tools plus Developer-native tools, Custom Tool Builder, promoted Custom Tools, and auto-generated channel tools: shell, browser, filesystem, Gmail, Calendar, memory graph, Designer Studio, Row-Bot Status, MCP external tools, image generation, video generation, research tools, and more |
-| **Customization** | Pick a model and maybe a custom instruction | Swap provider-qualified models per thread, workflow, or Developer workspace, configure name and personality, build workflows, toggle tools and skills, create Custom Tools from repos/folders, and enable self-improvement features |
-| **Voice** | Usually cloud-processed | Local faster-whisper STT plus Kokoro TTS |
+| **Tools** | Limited app integrations and provider-defined plug-ins | 30+ core tools plus Developer-native tools, Custom Tool Builder, promoted Custom Tools, Smart Skills, Skills Hub imports, and auto-generated channel tools: shell, browser, filesystem, Gmail, Calendar, memory graph, Designer Studio, Row-Bot Status, MCP external tools, image generation, video generation, research tools, and more |
+| **Customization** | Pick a model and maybe a custom instruction | Swap provider-qualified models per thread, workflow, or Developer workspace, configure name and personality, build workflows, toggle tools and skills, install skills from Skills Hub, create Custom Tools from repos/folders, and enable self-improvement features |
+| **Voice** | Usually cloud-processed | Local faster-whisper STT plus Kokoro TTS, with a separate realtime voice runtime for provider-backed conversational sessions |
 | **Availability** | Internet required | Local models work offline; hosted providers and custom endpoints are optional |
 
 > **Bottom line:** cloud assistants rent you access to someone else's system. Row-Bot gives you **personal AI sovereignty** — local durable state, provider choice when you want it, and all of your long-lived data under your own control.
@@ -1001,13 +1066,13 @@ Most open-source AI assistants are still **developer tools disguised as products
 | | Row-Bot | OpenClaw |
 |---|---|---|
 | **Getting started** | One-click installers and GUI-first setup on Windows and macOS, plus one-line Linux install with browser-first launch | CLI-oriented install flow and heavier terminal expectations |
-| **Model routing** | Local-first data with local, hosted, ChatGPT / Codex, Ollama Cloud, and custom OpenAI-compatible model paths in one GUI | More cloud-first in typical setups |
+| **Model routing** | Local-first data with local, hosted, OpenCode, ChatGPT / Codex, Ollama Cloud, live MiniMax discovery, and custom OpenAI-compatible model paths in one GUI | More cloud-first in typical setups |
 | **Memory** | Typed personal knowledge graph with bounded recall, audit/review states, visualization, wiki export, and structured relations | Simpler text-centric memory patterns |
 | **Knowledge refinement** | 5-phase Dream Cycle with merge, enrich, decay, infer, and insight passes | Experimental dreaming-style memory promotion flows |
 | **Document intelligence** | Structured graph extraction with provenance, dedup, and relation typing | Strong workspace tools but less graph-centric document knowledge modeling |
 | **Designer / Canvas** | Designer Studio for decks, one-pagers, reports, published links, plus inline Mermaid and Plotly rendering | A2UI-style interactive workspace focus |
 | **Developer / Code** | Developer Studio for Git workspaces with code threads, approval modes, file tree, todos, diffs, tests, GitHub/PR prep, and optional Docker shadow sandbox | Developer-heavy CLI and terminal-first workflows |
-| **Tools** | 30+ core tools plus Developer-native tools, Custom Tool Builder, promoted Custom Tools, and auto-generated channel send tools, including Designer Studio, Row-Bot Status, and MCP external tools | Broad built-in toolset with different emphasis |
+| **Tools** | 30+ core tools plus Developer-native tools, Smart Skills, Skills Hub, Custom Tool Builder, promoted Custom Tools, and auto-generated channel send tools, including Designer Studio, Row-Bot Status, and MCP external tools | Broad built-in toolset with different emphasis |
 | **Messaging channels** | 5 bundled channels with streaming, media handling, approvals, and a sidebar monitor | Wider channel catalog and gateway focus |
 | **Autonomous workflows** | Step-based workflows with approvals, conditions, triggers, concurrency groups, and safety modes | Strong channel routing and automation, different orchestration model |
 | **Desktop experience** | Native Windows and macOS desktop app with tray, splash, and setup wizard; Linux browser-first package with optional native/tray modes | More developer-first and channel-first in practice |

@@ -3,37 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>&#x1305F; Thoth - Local-First AI Assistant</title>
-    <meta name="description" content="Thoth is a local-first desktop AI assistant for Windows, macOS, and Linux with Developer Studio, Custom Tools, Buddy, memory, Designer Studio, workflows, messaging channels, MCP tools, provider-aware models, and ChatGPT / Codex subscription access. Your durable data stays on your machine.">
+    <title>Row-Bot - Local-First AI Assistant</title>
+    <meta name="description" content="Row-Bot, formerly Thoth, is a local-first desktop AI assistant for Windows, macOS, and Linux with Developer Studio, Skills Hub, Custom Tools, memory, Designer Studio, workflows, realtime voice, messaging channels, MCP tools, provider-aware models, and ChatGPT / Codex subscription access. Your durable data stays on your machine.">
 
     <!-- Canonical -->
-    <link rel="canonical" href="https://get-thoth.com/">
+    <link rel="canonical" href="https://row-bot.ai/">
 
     <!-- Open Graph -->
     <meta property="og:type" content="website">
-    <meta property="og:url" content="https://get-thoth.com/">
-    <meta property="og:title" content="Thoth - Local-First AI Assistant">
-    <meta property="og:description" content="A desktop AI assistant for Windows, macOS, and Linux with Developer Studio, Custom Tools, Buddy, memory, tools, Designer Studio, workflows, channels, MCP tools, provider-aware models, and ChatGPT / Codex subscription access. Your durable data stays on your machine.">
-    <meta property="og:image" content="https://img.youtube.com/vi/ansfEqAr6g0/maxresdefault.jpg">
-    <meta property="og:image:width" content="1280">
-    <meta property="og:image:height" content="720">
+    <meta property="og:url" content="https://row-bot.ai/">
+    <meta property="og:title" content="Row-Bot - Local-First AI Assistant">
+    <meta property="og:description" content="Reason. Orchestrate. Work. Row-Bot is a local-first desktop AI assistant with memory, tools, workflows, Developer Studio, Designer Studio, Skills Hub, realtime voice, and provider-aware model routing.">
+    <meta property="og:image" content="https://row-bot.ai/row_bot_hero.webp">
+    <meta property="og:image:width" content="1536">
+    <meta property="og:image:height" content="1024">
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Thoth - Local-First AI Assistant">
-    <meta name="twitter:description" content="A desktop AI assistant for Windows, macOS, and Linux with Developer Studio, Custom Tools, Buddy, memory, tools, Designer Studio, workflows, channels, MCP tools, provider-aware models, and ChatGPT / Codex subscription access. Your durable data stays on your machine.">
-    <meta name="twitter:image" content="https://img.youtube.com/vi/ansfEqAr6g0/maxresdefault.jpg">
+    <meta name="twitter:title" content="Row-Bot - Local-First AI Assistant">
+    <meta name="twitter:description" content="Reason. Orchestrate. Work. A local-first desktop AI assistant with memory, tools, workflows, Skills Hub, realtime voice, and provider-aware model routing.">
+    <meta name="twitter:image" content="https://row-bot.ai/row_bot_hero.webp">
 
-    <!-- Favicon (inline SVG) -->
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1305F;</text></svg>">
+    <!-- Favicon -->
+    <link rel="icon" href="favicon.ico">
 
     <!-- JSON-LD Structured Data -->
     <script type="application/ld+json">
     {
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
-        "name": "Thoth",
-        "description": "A local-first desktop AI assistant for Windows, macOS, and Linux with Developer Studio, Custom Tools, Buddy, memory, built-in tools, Designer Studio, workflows, messaging channels, MCP tools, secure provider credential storage, provider-aware models, and ChatGPT / Codex subscription access.",
+        "name": "Row-Bot",
+        "alternateName": "Thoth",
+        "description": "A local-first desktop AI assistant for Windows, macOS, and Linux with Developer Studio, Skills Hub, Custom Tools, Buddy, memory, built-in tools, Designer Studio, workflows, realtime voice, messaging channels, MCP tools, secure provider credential storage, provider-aware models, and ChatGPT / Codex subscription access.",
         "applicationCategory": "UtilitiesApplication",
         "operatingSystem": "Windows 10/11, macOS, Linux",
         "offers": {
@@ -42,9 +43,9 @@
             "priceCurrency": "USD"
         },
         "license": "https://www.apache.org/licenses/LICENSE-2.0",
-        "url": "https://get-thoth.com/",
-        "downloadUrl": "https://github.com/siddsachar/row-bot/releases",
-        "softwareVersion": "3.23.1",
+        "url": "https://row-bot.ai/",
+        "downloadUrl": "https://github.com/siddsachar/row-bot/releases/tag/v4.0.0",
+        "softwareVersion": "4.0.0",
         "author": {
             "@type": "Person",
             "name": "siddsachar",
@@ -60,20 +61,23 @@
         window.THOTH_GA_MEASUREMENT_ID = 'G-0YYKPX5M5E';
         window.THOTH_GOOGLE_ADS_ID = 'AW-847204616';
         window.THOTH_GOOGLE_ADS_CONVERSION_ID = 'AW-847204616/Lci7CNmwyOwBEIii_ZMD';
-        const thothGoogleTagId = window.THOTH_GA_MEASUREMENT_ID || window.THOTH_GOOGLE_ADS_ID;
-        if (thothGoogleTagId) {
+        window.ROW_BOT_GA_MEASUREMENT_ID = window.ROW_BOT_GA_MEASUREMENT_ID || window.THOTH_GA_MEASUREMENT_ID;
+        window.ROW_BOT_GOOGLE_ADS_ID = window.ROW_BOT_GOOGLE_ADS_ID || window.THOTH_GOOGLE_ADS_ID;
+        window.ROW_BOT_GOOGLE_ADS_CONVERSION_ID = window.ROW_BOT_GOOGLE_ADS_CONVERSION_ID || window.THOTH_GOOGLE_ADS_CONVERSION_ID;
+        const rowBotGoogleTagId = window.ROW_BOT_GA_MEASUREMENT_ID || window.ROW_BOT_GOOGLE_ADS_ID;
+        if (rowBotGoogleTagId) {
             const gaScript = document.createElement('script');
             gaScript.async = true;
-            gaScript.src = 'https://www.googletagmanager.com/gtag/js?id=' + thothGoogleTagId;
+            gaScript.src = 'https://www.googletagmanager.com/gtag/js?id=' + rowBotGoogleTagId;
             document.head.appendChild(gaScript);
             window.dataLayer = window.dataLayer || [];
             window.gtag = function(){ dataLayer.push(arguments); };
             gtag('js', new Date());
-            if (window.THOTH_GA_MEASUREMENT_ID) {
-                gtag('config', window.THOTH_GA_MEASUREMENT_ID);
+            if (window.ROW_BOT_GA_MEASUREMENT_ID) {
+                gtag('config', window.ROW_BOT_GA_MEASUREMENT_ID);
             }
-            if (window.THOTH_GOOGLE_ADS_ID) {
-                gtag('config', window.THOTH_GOOGLE_ADS_ID);
+            if (window.ROW_BOT_GOOGLE_ADS_ID) {
+                gtag('config', window.ROW_BOT_GOOGLE_ADS_ID);
             }
         }
     </script>
@@ -88,9 +92,9 @@
             --text: #e2e6ed;
             --text-dim: #9aa3b4;
             --text-faint: #636d7e;
-            --accent: #c9a227;
-            --accent-hover: #dbb634;
-            --accent-dim: rgba(201, 162, 39, 0.15);
+            --accent: #4F78A4;
+            --accent-hover: #6C93BC;
+            --accent-dim: rgba(79, 120, 164, 0.16);
             --green: #3fb950;
             --serif: 'Instrument Serif', Georgia, 'Times New Roman', serif;
             --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -147,6 +151,9 @@
         }
 
         .nav-wordmark {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
             font-family: var(--serif);
             font-size: 1.4rem;
             color: var(--accent);
@@ -154,7 +161,20 @@
             letter-spacing: 0.01em;
         }
 
-        .nav-wordmark span { opacity: 0.5; margin-right: 0.35rem; }
+        .nav-logo {
+            width: 28px;
+            height: 28px;
+            object-fit: contain;
+        }
+
+        .nav-former {
+            font-family: var(--sans);
+            font-size: 0.68rem;
+            color: var(--text-faint);
+            letter-spacing: 0;
+            margin-left: 0.1rem;
+        }
+
         .nav-links { display: flex; align-items: center; gap: 0.15rem; }
 
         .nav-links a {
@@ -233,7 +253,7 @@
             transition: background 0.2s;
         }
 
-        .yt-facade:hover .yt-facade-play { background: #c9a227; }
+        .yt-facade:hover .yt-facade-play { background: var(--accent); }
 
         .yt-facade-play::after {
             content: '';
@@ -316,9 +336,17 @@
         }
 
         .hero {
-            padding: 9rem 2rem 5rem;
-            max-width: 860px;
+            position: relative;
+            padding: 9rem 2rem 5.5rem;
+            max-width: 980px;
             margin: 0 auto;
+            overflow: hidden;
+            isolation: isolate;
+        }
+
+        .hero > *:not(.hero-glyph) {
+            position: relative;
+            z-index: 1;
         }
 
         .hero-eyebrow {
@@ -335,7 +363,7 @@
             font-size: 4rem;
             font-weight: 400;
             line-height: 1.08;
-            letter-spacing: -0.02em;
+            letter-spacing: 0;
             margin-bottom: 1.5rem;
             color: var(--text);
         }
@@ -345,7 +373,7 @@
         .hero-body {
             font-size: 1.12rem;
             color: var(--text-dim);
-            max-width: 620px;
+            max-width: 690px;
             line-height: 1.7;
             margin-bottom: 2.25rem;
         }
@@ -402,18 +430,27 @@
 
         .hero-glyph {
             position: absolute;
-            top: 6.5rem;
-            right: -1rem;
-            font-size: 18rem;
-            color: var(--accent);
-            opacity: 0.10;
+            top: 5.25rem;
+            right: -8rem;
+            width: min(70vw, 720px);
+            margin: 0;
+            border: 0;
+            border-radius: 0;
+            overflow: visible;
+            background: transparent;
+            box-shadow: none;
+            opacity: 0.18;
             pointer-events: none;
             user-select: none;
-            line-height: 1;
             z-index: 0;
         }
 
-        .hero > *:not(.hero-glyph) { position: relative; z-index: 1; }
+        .hero-glyph img {
+            display: block;
+            width: 100%;
+            height: auto;
+            filter: drop-shadow(0 32px 90px rgba(79, 120, 164, 0.24));
+        }
 
         .video-block {
             margin: 3rem 0;
@@ -467,7 +504,7 @@
             font-family: var(--serif);
             font-size: 2.6rem;
             font-weight: 400;
-            letter-spacing: -0.015em;
+            letter-spacing: 0;
             line-height: 1.15;
             margin-bottom: 0.6rem;
         }
@@ -489,7 +526,7 @@
 
         .path-block:hover {
             border-color: var(--border-hover);
-            box-shadow: 0 0 24px rgba(201, 162, 39, 0.06);
+            box-shadow: 0 0 24px rgba(79, 120, 164, 0.08);
         }
 
         .path-label {
@@ -526,10 +563,15 @@
         }
 
         .path-list li::before {
-            content: '\2014';
             position: absolute;
-            left: 0;
-            color: var(--text-faint);
+            left: 0.05rem;
+            top: 0.92rem;
+            width: 0.32rem;
+            height: 0.32rem;
+            border-radius: 999px;
+            background: var(--accent);
+            opacity: 0.75;
+            content: '';
         }
 
         .paths-footnote {
@@ -565,7 +607,7 @@
 
         .feature-item:hover {
             border-color: var(--border-hover);
-            box-shadow: 0 0 24px rgba(201, 162, 39, 0.06);
+            box-shadow: 0 0 24px rgba(79, 120, 164, 0.08);
         }
 
         .feature-icon {
@@ -754,7 +796,7 @@
         .tool-chip:hover {
             border-color: var(--border-hover);
             color: var(--text);
-            box-shadow: 0 0 16px rgba(201, 162, 39, 0.05);
+            box-shadow: 0 0 16px rgba(79, 120, 164, 0.07);
         }
 
         .chip-badge {
@@ -952,30 +994,6 @@
             letter-spacing: 0.02em;
         }
 
-        .whats-new { padding: 5rem 0; }
-        .whats-new h2 {
-            font-family: var(--serif);
-            font-size: 2.2rem;
-            font-weight: 400;
-            line-height: 1.2;
-            margin-bottom: 0.75rem;
-        }
-        .whats-new h2 em { color: var(--accent); font-style: italic; }
-        .whats-new-list { list-style: none; display: grid; gap: 0.9rem; margin-top: 1.75rem; }
-        .whats-new-list li {
-            padding: 1rem 1.15rem;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            background: var(--surface);
-            color: var(--text-dim);
-            font-size: 0.9rem;
-            line-height: 1.6;
-        }
-        .whats-new-list strong { color: var(--text); }
-        .whats-new-foot { margin-top: 1.5rem; font-size: 0.9rem; }
-        .whats-new-foot a { color: var(--accent); text-decoration: none; }
-        .whats-new-foot a:hover { color: var(--accent-hover); }
-
         .cta { padding: 6rem 0; text-align: center; }
 
         .cta h2 {
@@ -1033,6 +1051,12 @@
 
         @media (max-width: 768px) {
             .hero h1 { font-size: 2.8rem; }
+            .hero-glyph {
+                top: 5rem;
+                right: -12rem;
+                width: 540px;
+                opacity: 0.1;
+            }
             .section-heading { font-size: 2rem; }
             .paths-grid { grid-template-columns: 1fr; }
             .feature-row { grid-template-columns: 1fr; }
@@ -1044,6 +1068,7 @@
             .comparison td:first-child { white-space: normal; }
             .linux-install-head { flex-direction: column; }
             .copy-command { width: 100%; }
+            .nav-former { display: none; }
 
             .nav-hamburger { display: flex; }
             .nav-links {
@@ -1082,6 +1107,12 @@
 
         @media (max-width: 480px) {
             .hero h1 { font-size: 2.2rem; }
+            .hero-glyph {
+                top: 6rem;
+                right: -15rem;
+                width: 500px;
+                opacity: 0.08;
+            }
             .hero-meta { flex-direction: column; gap: 0.4rem; }
             .architecture-points { grid-template-columns: 1fr; }
             .comparison th, .comparison td { padding: 0.6rem 0.5rem; }
@@ -1094,7 +1125,7 @@
     <div class="scroll-progress"></div>
 
     <nav>
-        <a href="#" class="nav-wordmark"><span>&#x1305F;</span> Thoth</a>
+        <a href="#" class="nav-wordmark"><img src="row_bot_glyph_256.png" alt="" class="nav-logo"> Row-Bot <span class="nav-former">formerly Thoth</span></a>
         <input type="checkbox" class="nav-toggle" id="nav-toggle">
         <label class="nav-hamburger" for="nav-toggle"><span></span><span></span><span></span></label>
         <div class="nav-links">
@@ -1105,40 +1136,36 @@
             <a href="#comparison">Compare</a>
             <a href="contact.html">Contact</a>
             <a href="https://github.com/siddsachar/row-bot" target="_blank">GitHub</a>
-            <a href="https://github.com/siddsachar/row-bot/releases/download/v3.23.1/ThothSetup_3.23.1.exe" class="nav-dl" data-download="windows">Windows</a>
-            <a href="https://github.com/siddsachar/row-bot/releases/download/v3.23.1/Thoth-3.23.1-macOS-arm64.dmg" class="nav-dl" data-download="macos">macOS</a>
+            <a href="https://github.com/siddsachar/row-bot/releases/download/v4.0.0/Row-Bot-4.0.0-Windows-x64.exe" class="nav-dl" data-download="windows">Windows</a>
+            <a href="https://github.com/siddsachar/row-bot/releases/download/v4.0.0/Row-Bot-4.0.0-macOS-arm64.dmg" class="nav-dl" data-download="macos">macOS</a>
             <a href="#linux-install" class="nav-dl" data-download="linux">Linux</a>
         </div>
     </nav>
 
     <section class="hero">
-        <div class="hero-glyph">&#x1305F;</div>
-        <p class="hero-eyebrow">Local-First AI Workbench</p>
-        <h1>Build, automate, and remember.<br>Your data stays <em>here.</em></h1>
+        <p class="hero-eyebrow">Local-First AI Workbench &middot; formerly Thoth</p>
+        <h1>Reason. Orchestrate. Work.<br>Your data stays <em>here.</em></h1>
         <p class="hero-body">
-            Thoth is a desktop AI workbench with Developer Studio for code, Custom Tools for your own repos,
-            an animated Buddy companion, memory, workflows, design creation, messaging, MCP tools, and provider-aware model routing.
-            Run local models, hosted APIs, Ollama Cloud, custom OpenAI-compatible endpoints, or ChatGPT / Codex subscription-backed models with explicit runtime readiness.
+            Row-Bot is a desktop AI workbench with Developer Studio for code, Skills Hub and Custom Tools for your own workflows,
+            an animated Buddy companion, memory, realtime voice, workflows, design creation, messaging, MCP tools, and provider-aware model routing.
+            Run local runtimes, self-hosted OpenAI-compatible endpoints, hosted APIs, Ollama Cloud, OpenCode providers, or ChatGPT / Codex subscription-backed models with explicit runtime readiness.
             Your durable data stays on your machine.
         </p>
         <div class="hero-actions">
-            <a href="https://github.com/siddsachar/row-bot/releases/download/v3.23.1/ThothSetup_3.23.1.exe" class="btn btn--primary" data-download="windows">Download for Windows <span class="btn-hint">.exe</span></a>
-            <a href="https://github.com/siddsachar/row-bot/releases/download/v3.23.1/Thoth-3.23.1-macOS-arm64.dmg" class="btn btn--primary" data-download="macos">Download for macOS <span class="btn-hint">.dmg</span></a>
+            <a href="https://github.com/siddsachar/row-bot/releases/download/v4.0.0/Row-Bot-4.0.0-Windows-x64.exe" class="btn btn--primary" data-download="windows">Download for Windows <span class="btn-hint">.exe</span></a>
+            <a href="https://github.com/siddsachar/row-bot/releases/download/v4.0.0/Row-Bot-4.0.0-macOS-arm64.dmg" class="btn btn--primary" data-download="macos">Download for macOS <span class="btn-hint">.dmg</span></a>
             <a href="#linux-install" class="btn btn--primary" data-download="linux">Install on Linux <span class="btn-hint">curl</span></a>
             <a href="https://github.com/siddsachar/row-bot" class="btn btn--ghost" target="_blank">View on GitHub</a>
         </div>
         <div class="hero-meta">
             <span data-count="30" data-prefix="" data-suffix="+ built-in tools">0 built-in tools</span>
             <span data-count="17" data-prefix="" data-suffix=" bundled skills">0 bundled skills</span>
-            <span data-count="39" data-prefix="" data-suffix=" local models">0 local models</span>
+            <span>Provider-qualified model paths</span>
             <span>Apache 2.0 &middot; Free</span>
         </div>
 
-        <div class="video-block">
-            <div class="yt-facade" data-yt="ansfEqAr6g0" style="background-image:url(https://img.youtube.com/vi/ansfEqAr6g0/maxresdefault.jpg)">
-                <div class="yt-facade-play"></div>
-            </div>
-            <div class="video-caption">See it in action - a quick walkthrough of the core experience</div>
+        <div class="hero-glyph">
+            <img src="row_bot_hero.webp" alt="Row-Bot desktop assistant with local-first tools, memory, workflows, and model routing">
         </div>
     </section>
 
@@ -1147,7 +1174,7 @@
     <section class="manifesto reveal">
         <div class="container--narrow">
             <blockquote>
-                Thoth is built for personal AI sovereignty: <strong>your compute, your data,
+                Row-Bot is built for personal AI sovereignty: <strong>your compute, your data,
                 your model routes, and your automation</strong> under your control.
             </blockquote>
         </div>
@@ -1172,7 +1199,7 @@
                 <div class="feature-item">
                     <span class="feature-icon">&#x25C7;</span>
                     <h3>Custom Tools</h3>
-                    <p>Turn a GitHub repo, local folder, or current workspace into a reusable Thoth tool through a guided Source -&gt; Inspect -&gt; Test -&gt; Enable flow, with command safety checks and optional promotion into normal chat.</p>
+                    <p>Turn a GitHub repo, local folder, or current workspace into a reusable Row-Bot tool through a guided Source -&gt; Inspect -&gt; Test -&gt; Enable flow, with command safety checks and optional promotion into normal chat.</p>
                     <span class="feature-tag">Tool builder</span>
                 </div>
                 <div class="feature-item">
@@ -1217,13 +1244,13 @@
                 <div class="feature-item">
                     <span class="feature-icon">&#x2B21;</span>
                     <h3>Channels, Voice &amp; Media</h3>
-                    <p>Telegram, WhatsApp, Discord, Slack, and SMS share streaming, media intake, reactions, approvals, health checks, local speech-to-text, Kokoro TTS, and Buddy state updates.</p>
+                    <p>Telegram, WhatsApp, Discord, Slack, and SMS share streaming, media intake, reactions, approvals, health checks, local speech-to-text, realtime voice options, Kokoro TTS, and Buddy state updates.</p>
                     <span class="feature-tag">5 channels</span>
                 </div>
                 <div class="feature-item">
                     <span class="feature-icon">&#x2B22;</span>
-                    <h3>Plugins, MCP &amp; Delegation</h3>
-                    <p>Install sandboxed plugins, connect external MCP servers, promote tested Custom Tools, coordinate Claude Code CLI through an approval-gated skill, and migrate selected Hermes/OpenClaw data with backups.</p>
+                    <h3>Skills Hub, MCP &amp; Delegation</h3>
+                    <p>Install Smart Skills from Skills Hub, use slash commands, connect external MCP servers, promote tested Custom Tools, coordinate Claude Code CLI through an approval-gated skill, and migrate selected Hermes/OpenClaw data with backups.</p>
                     <span class="feature-tag">Extensible</span>
                 </div>
             </div>
@@ -1237,9 +1264,9 @@
                 </div>
                 <div class="feature-item">
                     <span class="feature-icon">&#x26BF;</span>
-                    <h3>Provider Runtime &amp; Models</h3>
-                    <p>OpenAI, Anthropic, Google AI, xAI, OpenRouter, MiniMax, custom endpoints, Ollama, Ollama Cloud, configurable embeddings, and ChatGPT / Codex all flow through provider-qualified catalogs, readiness routing, context policies, and chat-only fallbacks.</p>
-                    <span class="feature-tag">Hardened in 3.23</span>
+                    <h3>Provider Runtime &amp; Model Discovery</h3>
+                    <p>OpenAI, Anthropic, Google AI, xAI, OpenRouter, MiniMax live discovery, OpenCode providers, custom endpoints, Ollama, Ollama Cloud, configurable embeddings, and ChatGPT / Codex all flow through provider-qualified catalogs, capability mapping, readiness routing, context policies, and chat only fallbacks.</p>
+                    <span class="feature-tag">Live catalogs</span>
                 </div>
             </div>
         </div>
@@ -1254,8 +1281,8 @@
                     <p class="hero-eyebrow">System maps</p>
                     <h2>Explore the architecture behind <em>local-first control.</em></h2>
                     <p>
-                        The visual architecture gallery shows how Thoth connects its agent orchestrator,
-                        context assembly, memory graph, Developer Studio, Docker Sandbox, Custom Tools,
+                        The visual architecture gallery shows how Row-Bot connects its agent orchestrator,
+                        context assembly, memory graph, Developer Studio, Docker Sandbox, Skills Hub, Custom Tools,
                         background workflows, channels, Designer Studio, safety boundaries, and self-awareness layer without giving up user control.
                     </p>
                     <div class="architecture-points">
@@ -1267,7 +1294,7 @@
                     <a href="architecture.html" class="btn btn--primary">View architecture</a>
                 </div>
                 <a class="architecture-preview" href="architecture.html">
-                    <img src="Core_Agent_arch.jpg" alt="Thoth core agent architecture preview">
+                    <img src="Core_Agent_arch.jpg" alt="Row-Bot core agent architecture preview">
                     <div class="architecture-preview-caption">Core Agent Architecture plus seven subsystem maps</div>
                 </a>
             </div>
@@ -1282,7 +1309,7 @@
                 <div class="highlight-text">
                     <h2>Memory that compounds</h2>
                     <p>
-                        Thoth remembers people, projects, preferences, facts, events, and relationships as a graph,
+                        Row-Bot remembers people, projects, preferences, facts, events, and relationships as a graph,
                         then retrieves relevant nodes and one-hop context before each response.
                     </p>
                     <p>
@@ -1304,29 +1331,30 @@
     <section class="two-paths reveal" id="dual-path">
         <div class="container">
             <div class="two-paths-header">
-                <h2 class="section-heading">Local when you can. Providers when you want.</h2>
-                <p class="section-sub">One assistant, local models, Ollama Cloud, API providers, self-hosted endpoints, MiniMax, and ChatGPT / Codex</p>
+                <h2 class="section-heading">Local, self-hosted, or hosted. One catalog.</h2>
+                <p class="section-sub">Ollama, custom OpenAI-compatible runtimes, hosted APIs, Ollama Cloud, OpenCode, MiniMax, and ChatGPT / Codex stay provider-qualified from setup to runtime</p>
             </div>
 
             <div class="paths-grid">
                 <div class="path-block">
-                    <div class="path-label">Local models &middot; On your machine</div>
+                    <div class="path-label">Local and self-hosted, under your control</div>
                     <h3>Private by default</h3>
-                    <p>Run inference on your hardware with 39 curated models across Qwen, Llama, Gemma, Mistral, DeepSeek, Phi, and more.</p>
+                    <p>Use models exposed by Ollama or OpenAI-compatible runtimes such as LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, and oMLX. Row-Bot discovers catalogs, probes capability metadata, and keeps local or private endpoints distinct from hosted providers.</p>
                     <ul class="path-list">
-                        <li>Works offline after model download</li>
-                        <li>No subscription or provider account</li>
-                        <li>Setup wizard sets the default model from your chosen path</li>
+                        <li>Works offline when the selected runtime and model are local</li>
+                        <li>No Row-Bot account or subscription required</li>
+                        <li>Custom endpoint profiles normalize tools, streaming, context, and reasoning behavior</li>
                     </ul>
                 </div>
                 <div class="path-block">
-                    <div class="path-label">Providers &amp; subscriptions &middot; Opt-in</div>
+                    <div class="path-label">Hosted providers and subscriptions, opt in</div>
                     <h3>Frontier reasoning on demand</h3>
-                    <p>Add OpenAI, Anthropic, Google AI, xAI, OpenRouter, MiniMax, custom OpenAI-compatible endpoints, or ChatGPT / Codex when you need frontier reasoning, hosted media, or no local model download.</p>
+                    <p>Add OpenAI, Anthropic, Google AI, xAI, OpenRouter, MiniMax, OpenCode Zen or Go, Ollama Cloud, or ChatGPT / Codex when you need frontier reasoning, hosted media, realtime voice, or no local model download.</p>
                     <ul class="path-list">
-                        <li>Settings &rarr; Providers handles sign-in, health, and keys</li>
-                        <li>Settings &rarr; Models handles catalogs, defaults, and Quick Choices</li>
-                        <li>Readiness checks route models to agent mode, chat-only mode, or setup guidance</li>
+                        <li>Settings > Providers handles sign-in, health, and credential sources</li>
+                        <li>Settings > Models handles catalogs, defaults, Quick Choices, and capability surfaces</li>
+                        <li>Live discovery and stale cleanup keep provider catalogs current where APIs expose them</li>
+                        <li>Readiness checks route models to agent mode, chat only mode, or setup guidance</li>
                     </ul>
                 </div>
             </div>
@@ -1342,12 +1370,11 @@
                     <h2>30 core tools the agent wields for you</h2>
                     <p>
                         Ask a question in natural language and the agent autonomously decides which tools to chain together.
-                        Search the web, check your email, run a shell command, inspect provider and insight status, build a deck in Designer, and chart the results
-                        - all in a single conversation turn.
+                        Search the web, check your email, run a shell command, inspect provider and insight status, build a deck in Designer, and chart the results in a single conversation turn.
                     </p>
                     <p>
                         Connected channels add send tools automatically, external MCP servers add dynamic tools,
-                        and every risky action stays behind Thoth's approval gates.
+                        and every risky action stays behind Row-Bot's approval gates.
                     </p>
                 </div>
                 <div class="highlight-visual">
@@ -1364,8 +1391,8 @@
     <section class="tools reveal" id="tools">
         <div class="container">
             <div class="tools-header">
-                <h2 class="section-heading">30+ Built-In Tools + Custom Tools</h2>
-                <p class="section-sub">Built-in tools ship with the app; channels, MCP servers, plugins, and tested Custom Tools extend the tool belt when enabled</p>
+                <h2 class="section-heading">30+ Built-In Tools + Skills Hub + Custom Tools</h2>
+                <p class="section-sub">Built-in tools ship with the app; Skills Hub, channels, MCP servers, plugins, and tested Custom Tools extend the tool belt when enabled. File tools read PDFs, spreadsheets, JSON, TSV, images, and more.</p>
             </div>
 
             <div class="tool-group">
@@ -1417,7 +1444,7 @@
                     <div class="tool-chip">Designer <span class="chip-badge">Free</span></div>
                     <div class="tool-chip">Developer Studio <span class="chip-badge">Free</span></div>
                     <div class="tool-chip">Custom Tool Builder <span class="chip-badge">Free</span></div>
-                    <div class="tool-chip">Thoth Status <span class="chip-badge">Free</span></div>
+                    <div class="tool-chip">Row-Bot Status <span class="chip-badge">Free</span></div>
                     <div class="tool-chip">MCP Tools <span class="chip-badge">Free</span></div>
                     <div class="tool-chip">Updater <span class="chip-badge">Free</span></div>
                     <div class="tool-chip">System Info <span class="chip-badge">Free</span></div>
@@ -1434,12 +1461,12 @@
                 <div class="highlight-text">
                     <h2>Code, providers, workflows, channels, and external tools</h2>
                     <p>
-                        Connect repositories, configure provider accounts, pin model Quick Choices, build presentations and interactive pages,
+                        Connect repositories, configure provider accounts, probe custom endpoints, pin model Quick Choices, install skills, build presentations and interactive pages,
                         automate recurring work, route approvals to messaging channels, and connect MCP servers without making startup fragile.
                     </p>
                     <p>
-                        Developer Studio keeps repo work under explicit approval modes, Custom Tools stay testable and removable,
-                        ChatGPT / Codex sign-in is separate from OpenAI API keys, and imports remain scan-first with backups and redacted reports.
+                        Developer Studio keeps repo work under explicit approval modes, Skills Hub imports stay reviewable, Custom Tools stay testable and removable,
+                        ChatGPT / Codex sign-in is separate from OpenAI API keys, and migrations remain copy-first with backups and redacted reports.
                     </p>
                 </div>
                 <div class="highlight-visual">
@@ -1456,61 +1483,61 @@
     <section class="comparison reveal" id="comparison">
         <div class="container">
             <h2 class="section-heading">Why not just use cloud chat?</h2>
-            <p class="section-sub" style="margin-bottom: 2.5rem;">Cloud AI rents you access. Thoth gives you ownership.</p>
+            <p class="section-sub" style="margin-bottom: 2.5rem;">Cloud AI rents you access. Row-Bot gives you ownership.</p>
 
             <table>
                 <thead>
                     <tr>
                         <th></th>
                         <th>Cloud AI</th>
-                        <th>&#x1305F; Thoth</th>
+                        <th>Row-Bot</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
                         <td>Your data</td>
                         <td><s>Stored on provider servers, subject to their policies</s></td>
-                        <td>Stays on your machine - always. Provider models receive only the current conversation plus model-visible tool context</td>
+                        <td>Stays on your machine, always. Provider models receive only the current conversation plus model-visible tool context</td>
                     </tr>
                     <tr>
                         <td>Conversations</td>
-                        <td><s>Provider-owned - can be deleted, leaked, or used for training</s></td>
+                        <td><s>Provider owned, and can be deleted, leaked, or used for training</s></td>
                         <td>Local SQLite, fully yours, exportable anytime</td>
                     </tr>
                     <tr>
                         <td>Cost</td>
                         <td><s>$20+/month subscription</s></td>
-                        <td>Free with local models. Providers use upstream API billing or your ChatGPT subscription</td>
+                        <td>Free with local runtimes. Hosted providers use upstream API billing, self-hosted infrastructure, or your ChatGPT subscription</td>
                     </tr>
                     <tr>
                         <td>Memory</td>
                         <td><s>Limited, opaque, provider-controlled</s></td>
-                        <td>Knowledge graph - 10 entity types, 67 relation types, visual explorer, FAISS semantic search</td>
+                        <td>Knowledge graph with 10 entity types, 67 relation types, visual explorer, FAISS semantic search</td>
                     </tr>
                     <tr>
                         <td>Tools</td>
                         <td><s>Sandboxed plugins, limited integrations</s></td>
-                        <td>30+ built-in tools + channels + plugins + MCP tools + opt-in Custom Tools</td>
+                        <td>30+ built-in tools + Skills Hub + channels + plugins + MCP tools + opt-in Custom Tools</td>
                     </tr>
                     <tr>
                         <td>Customisation</td>
                         <td><s>Pick a model, write a system prompt</s></td>
-                        <td>Swap models per thread, mix local + providers, configure identity, enable skills and guides, build workflows, connect repos, install plugins</td>
+                        <td>Swap models per thread, mix local + providers, configure identity, enable skills and guides, build workflows, connect repos, install plugins and skills</td>
                     </tr>
                     <tr>
                         <td>Voice</td>
                         <td><s>Cloud-processed speech</s></td>
-                        <td>Local Whisper STT + Kokoro TTS - never leaves your mic</td>
+                        <td>Local Whisper STT + Kokoro TTS, plus opt in realtime voice providers</td>
                     </tr>
                     <tr>
                         <td>Messaging</td>
                         <td><s>No messaging integrations</s></td>
-                        <td>5 channels - Telegram, WhatsApp, Discord, Slack, SMS - with streaming and media</td>
+                        <td>5 channels: Telegram, WhatsApp, Discord, Slack, and SMS, with streaming and media</td>
                     </tr>
                     <tr>
                         <td>Availability</td>
                         <td><s>Requires internet, subject to outages</s></td>
-                        <td>Local models work fully offline</td>
+                        <td>Local runtimes and self-hosted endpoints can work offline; hosted providers remain optional</td>
                     </tr>
                 </tbody>
             </table>
@@ -1532,12 +1559,12 @@
                 <div class="install-step">
                     <div class="install-step-num">&#x2194; 02</div>
                     <h3>Choose your provider</h3>
-                    <p>First-launch onboarding starts with model/provider setup: use <strong>Local</strong> models, <strong>Ollama Cloud</strong>, API-key providers, custom endpoints, or ChatGPT / Codex sign-in, then continue setup from the resumable Setup Center.</p>
+                    <p>First-launch onboarding starts with model/provider setup: use <strong>local runtimes</strong>, <strong>Ollama Cloud</strong>, API-key providers, custom OpenAI-compatible endpoints, or ChatGPT / Codex sign-in, then continue setup from the resumable Setup Center.</p>
                 </div>
                 <div class="install-step">
                     <div class="install-step-num">&#x25B6; 03</div>
                     <h3>Start talking</h3>
-                    <p>Ask anything in natural language - the agent handles the rest. Search the web, check email, analyze your screen, connect a repo, create a Custom Tool, or schedule a workflow.</p>
+                    <p>Ask anything in natural language. The agent handles the rest. Search the web, check email, analyze your screen, connect a repo, create a Custom Tool, or schedule a workflow.</p>
                 </div>
             </div>
 
@@ -1545,11 +1572,11 @@
                 <div class="linux-install-head">
                     <div>
                         <span class="linux-install-label">Linux install</span>
-                        <p>Installs the published v3.23.1 XDG user tarball, creates <code>~/.local/bin/thoth</code>, and uses the matching Thoth release manifest. Manual tarballs remain available from <a href="https://github.com/siddsachar/row-bot/releases/tag/v3.23.1" target="_blank">GitHub Releases</a>.</p>
+                        <p>Installs the published v4.0.0 XDG user tarball, creates <code>~/.local/bin/row-bot</code>, and verifies the matching Row-Bot release manifest. Manual tarballs remain available from <a href="https://github.com/siddsachar/row-bot/releases/tag/v4.0.0" target="_blank">GitHub Releases</a>.</p>
                     </div>
                     <button class="copy-command" type="button" data-copy-linux>Copy</button>
                 </div>
-                <code class="linux-command">curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/v3.23.1/installer/install-linux.sh | THOTH_REPO=siddsachar/row-bot bash -s -- 3.23.1</code>
+                <code class="linux-command">curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/v4.0.0/installer/install-linux.sh | bash -s -- 4.0.0</code>
             </div>
         </div>
     </section>
@@ -1560,7 +1587,7 @@
         <div class="container--narrow">
             <h2>Privacy by architecture</h2>
             <p>
-                Thoth's app has no account system, server, or telemetry pipeline. Conversations, memory,
+                Row-Bot has no account system, server, or telemetry pipeline. Conversations, memory,
                 Designer projects, documents, code workspace context, and local model runs stay on your machine. Provider models,
                 cloud embeddings, ChatGPT / Codex, and online tools are opt-in, with secrets stored in the OS credential store when available.
             </p>
@@ -1570,41 +1597,20 @@
                 <span class="privacy-fact">&#x25A0; Local storage</span>
                 <span class="privacy-fact">&#x25EF; Local voice</span>
                 <span class="privacy-fact">&#x2715; No app telemetry</span>
-                <span class="privacy-fact">&#x2192; Opt-in APIs</span>
+                <span class="privacy-fact">&#x2192; Opt in APIs</span>
                 <span class="privacy-fact">&#x25CA; Injection defence</span>
                 <span class="privacy-fact">&#x2696; Apache 2.0</span>
             </div>
         </div>
     </section>
 
-    <div class="section-divider"></div>
-
-    <section class="whats-new reveal">
-        <div class="container--narrow">
-            <h2>What&rsquo;s new in <em>v3.23</em></h2>
-            <ul class="whats-new-list">
-                <li><strong>Provider runtime hardening.</strong> Model choices stay provider-qualified across setup, Settings, defaults, thread overrides, catalogs, and runtime construction, with no accidental fallback to the wrong provider.</li>
-                <li><strong>Custom endpoint readiness.</strong> OpenAI-compatible servers can use compatibility profiles and probes for catalog, streaming, tool-call, context-window, and parameter support before Thoth trusts them for agent work.</li>
-                <li><strong>Chat-only fallback.</strong> Models that are useful for conversation but unreliable with tools can answer through a smaller chat-only path instead of failing in the full agent graph.</li>
-                <li><strong>Memory recall uplift.</strong> Auto-recall now combines bounded semantic search, FTS5 lexical search, graph expansion, review states, provenance, recall traces, and Knowledge audit surfaces.</li>
-                <li><strong>Faster large sessions.</strong> Transcript windows, Settings tabs, Knowledge surfaces, Home panels, model pickers, and detached stream finalization do less blocking work during long conversations.</li>
-                <li><strong>Release and recovery checks.</strong> Task databases can repair or reset with backups, and CI plus installer builds verify required runtime dependencies before release artifacts ship.</li>
-            </ul>
-            <p class="whats-new-foot">
-                <a href="https://github.com/siddsachar/row-bot/blob/main/RELEASE_NOTES.md" target="_blank">Read the full release notes &rarr;</a>
-            </p>
-        </div>
-    </section>
-
-    <div class="section-divider"></div>
-
     <section class="cta reveal">
         <div class="container--narrow">
             <h2>Take back your <em>AI sovereignty</em></h2>
-            <p>Free, open source, and yours to keep. No Thoth account. No Thoth subscription. No data harvesting.</p>
+            <p>Free, open source, and yours to keep. No Row-Bot account. No Row-Bot subscription. No data harvesting.</p>
             <div class="cta-buttons">
-                <a href="https://github.com/siddsachar/row-bot/releases/download/v3.23.1/ThothSetup_3.23.1.exe" class="btn btn--primary" data-download="windows">Download for Windows <span class="btn-hint">.exe</span></a>
-                <a href="https://github.com/siddsachar/row-bot/releases/download/v3.23.1/Thoth-3.23.1-macOS-arm64.dmg" class="btn btn--primary" data-download="macos">Download for macOS <span class="btn-hint">.dmg</span></a>
+                <a href="https://github.com/siddsachar/row-bot/releases/download/v4.0.0/Row-Bot-4.0.0-Windows-x64.exe" class="btn btn--primary" data-download="windows">Download for Windows <span class="btn-hint">.exe</span></a>
+                <a href="https://github.com/siddsachar/row-bot/releases/download/v4.0.0/Row-Bot-4.0.0-macOS-arm64.dmg" class="btn btn--primary" data-download="macos">Download for macOS <span class="btn-hint">.dmg</span></a>
                 <a href="#linux-install" class="btn btn--primary" data-download="linux">Install on Linux <span class="btn-hint">curl</span></a>
                 <a href="https://github.com/siddsachar/row-bot" class="btn btn--ghost" target="_blank">Star on GitHub</a>
             </div>
@@ -1622,7 +1628,7 @@
 
     <footer>
         <p>
-            &#x1305F; Row-Bot &middot; v3.23.1 &middot; Apache 2.0 &middot;
+            Row-Bot &middot; v4.0.0 &middot; Apache 2.0 &middot;
             <a href="https://github.com/siddsachar/row-bot" target="_blank">GitHub</a> &middot;
             <a href="contact.html">Contact</a>
         </p>
@@ -1638,9 +1644,9 @@
         }
 
         function trackAdsConversion(params) {
-            if (typeof window.gtag === 'function' && window.THOTH_GOOGLE_ADS_CONVERSION_ID) {
+            if (typeof window.gtag === 'function' && window.ROW_BOT_GOOGLE_ADS_CONVERSION_ID) {
                 window.gtag('event', 'conversion', {
-                    send_to: window.THOTH_GOOGLE_ADS_CONVERSION_ID,
+                    send_to: window.ROW_BOT_GOOGLE_ADS_CONVERSION_ID,
                     ...(params || {})
                 });
             }
@@ -1680,7 +1686,7 @@
             });
         });
 
-        const linuxInstallCommand = 'curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/v3.23.1/installer/install-linux.sh | THOTH_REPO=siddsachar/row-bot bash -s -- 3.23.1';
+        const linuxInstallCommand = 'curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/v4.0.0/installer/install-linux.sh | bash -s -- 4.0.0';
         document.querySelectorAll('[data-copy-linux]').forEach(button => {
             button.addEventListener('click', async () => {
                 const previous = button.textContent;
