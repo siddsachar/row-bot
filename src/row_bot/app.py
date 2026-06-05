@@ -16,6 +16,9 @@ import sys
 import time
 from pathlib import Path
 
+_APP_BOOT_STARTED = time.perf_counter()
+_LAUNCH_SESSION_ID = os.environ.get("ROW_BOT_LAUNCH_SESSION_ID", "")
+_FIRST_LAUNCHER_PING_LOGGED = False
 _DISCORD_BENIGN_VOICE_LOGGERS = (
     "discord.client",
     "discord.gateway",
@@ -47,6 +50,22 @@ from row_bot.version import __version__ as _app_version
 os.environ.setdefault("USER_AGENT", APP_USER_AGENT)
 
 logger = logging.getLogger(__name__)
+
+
+def _app_boot_event(event: str, **fields) -> None:
+    elapsed_ms = (time.perf_counter() - _APP_BOOT_STARTED) * 1000.0
+    compact = " ".join(f"{key}={value}" for key, value in fields.items() if value is not None)
+    logger.info(
+        "app.boot.%s elapsed_ms=%.1f session=%s%s%s",
+        event,
+        elapsed_ms,
+        _LAUNCH_SESSION_ID,
+        " " if compact else "",
+        compact,
+    )
+
+
+_app_boot_event("module_logger_ready", python=sys.executable, cwd=os.getcwd())
 
 try:
     from row_bot.migration.row_bot_legacy_rebrand import ensure_legacy_rebrand_migration
@@ -324,6 +343,32 @@ def _periodic_oauth_check():
 
 @app.on_startup
 async def on_startup():
+    import row_bot.ui.state as _st
+
+    _st.startup_ready = False
+    _st.startup_status = "Starting Row-Bot..."
+    _app_boot_event("startup_shell_ready", port=_APP_PORT)
+    logger.info(
+        "%s startup shell ready; scheduling background startup (session=%s)",
+        APP_DISPLAY_NAME,
+        os.environ.get("ROW_BOT_LAUNCH_SESSION_ID", ""),
+    )
+    asyncio.create_task(_run_startup_sequence_guarded(), name="row-bot-startup-sequence")
+
+
+async def _run_startup_sequence_guarded():
+    try:
+        await _run_startup_sequence()
+    except Exception as exc:
+        import row_bot.ui.state as _st
+
+        _st.startup_status = f"Startup error: {exc}"
+        _st.startup_warnings.append(str(exc))
+        logger.exception("%s background startup failed", APP_DISPLAY_NAME)
+
+
+async def _run_startup_sequence():
+    _app_boot_event("startup_sequence_start")
     install_asyncio_exception_handler()
     start_performance_monitor()
     # Attach persistent file logging (daily JSONL to the Row-Bot data dir).
@@ -360,6 +405,7 @@ async def on_startup():
 
     def _set(msg: str):
         _st.startup_status = msg
+        _app_boot_event("startup_phase", status=msg)
         _safe_console_print(f"[startup] {msg}")
 
     _set("🔑 Applying API keys…")
@@ -583,6 +629,7 @@ async def on_startup():
 
     _set("✅ Ready")
     _st.startup_ready = True
+    _app_boot_event("startup_sequence_complete")
     logger.info("%s startup complete", APP_DISPLAY_NAME)
 
 
@@ -594,6 +641,10 @@ from starlette.responses import JSONResponse
 
 async def _launcher_ping_handler(request: Request) -> JSONResponse:  # noqa: ARG001
     """Identify this process to the desktop launcher."""
+    global _FIRST_LAUNCHER_PING_LOGGED
+    if not _FIRST_LAUNCHER_PING_LOGGED:
+        _FIRST_LAUNCHER_PING_LOGGED = True
+        _app_boot_event("first_launcher_ping", port=_APP_PORT)
     return JSONResponse({"app": APP_PING_ID, "version": _app_version, "port": _APP_PORT})
 
 

@@ -76,21 +76,73 @@ if (!$SkipDownloads) {
 Write-Host ""
 Write-Host "Bundling tkinter into embedded Python..." -ForegroundColor Yellow
 
-# Locate the system Python that has tkinter
-$SysPyRoot = & python -c "import sys; print(sys.base_prefix)" 2>$null
-if (!$SysPyRoot -or !(Test-Path "$SysPyRoot\Lib\tkinter")) {
-    Write-Host "WARNING: Could not find system Python with tkinter. Splash screen will be unavailable." -ForegroundColor DarkYellow
+# Locate the exact system Python that has tkinter. Native extension modules
+# such as _tkinter.pyd must match the embedded Python patch version.
+$SysPyInfoJson = & python -c "import json, sys; print(json.dumps({'base_prefix': sys.base_prefix, 'version': '.'.join(map(str, sys.version_info[:3])), 'executable': sys.executable}))" 2>$null
+if ($LASTEXITCODE -ne 0 -or !$SysPyInfoJson) {
+    Write-Host "ERROR: Could not inspect system Python for tkinter bundling." -ForegroundColor Red
+    exit 1
+}
+$SysPyInfo = $SysPyInfoJson | ConvertFrom-Json
+$SysPyRoot = [string]$SysPyInfo.base_prefix
+$SysPyVersion = [string]$SysPyInfo.version
+$SysPyExe = [string]$SysPyInfo.executable
+Write-Host "      Embedded Python target: $PythonVersion" -ForegroundColor DarkGray
+Write-Host "      Tk source Python: $SysPyVersion at $SysPyExe" -ForegroundColor DarkGray
+Write-Host "      Tk source root: $SysPyRoot" -ForegroundColor DarkGray
+
+if ($SysPyVersion -ne $PythonVersion) {
+    Write-Host "ERROR: Tk source Python $SysPyVersion does not match embedded Python $PythonVersion." -ForegroundColor Red
+    Write-Host "       Use the exact same patch version for actions/setup-python and -PythonVersion." -ForegroundColor Red
+    exit 1
+}
+
+function Resolve-TkSourceFile {
+    param([string]$FileName)
+    $candidates = @(
+        (Join-Path "$SysPyRoot\DLLs" $FileName),
+        (Join-Path $SysPyRoot $FileName)
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path $candidate) {
+            return $candidate
+        }
+    }
+    return $null
+}
+
+$RequiredTkPaths = @(
+    (Join-Path "$SysPyRoot\Lib" "tkinter"),
+    (Join-Path "$SysPyRoot\tcl" "tcl8.6"),
+    (Join-Path "$SysPyRoot\tcl" "tk8.6"),
+    (Resolve-TkSourceFile "_tkinter.pyd"),
+    (Resolve-TkSourceFile "tcl86t.dll"),
+    (Resolve-TkSourceFile "tk86t.dll")
+)
+$MissingTkPaths = @()
+foreach ($requiredTkPath in $RequiredTkPaths) {
+    if ([string]::IsNullOrWhiteSpace([string]$requiredTkPath) -or !(Test-Path $requiredTkPath)) {
+        $MissingTkPaths += [string]$requiredTkPath
+    }
+}
+if ($MissingTkPaths.Count -gt 0) {
+    Write-Host "ERROR: System Python is missing required tkinter/Tcl/Tk files:" -ForegroundColor Red
+    foreach ($missing in $MissingTkPaths) {
+        Write-Host "       $missing" -ForegroundColor Red
+    }
+    exit 1
 } else {
     $PythonDir = Join-Path $BuildDir "python"
 
     # Copy _tkinter.pyd and Tcl/Tk DLLs
     foreach ($dll in @("_tkinter.pyd", "tcl86t.dll", "tk86t.dll")) {
-        $src = Join-Path "$SysPyRoot\DLLs" $dll
+        $src = Resolve-TkSourceFile $dll
         if (Test-Path $src) {
             Copy-Item $src -Destination $PythonDir -Force
-            Write-Host "      Copied $dll" -ForegroundColor Green
+            Write-Host "      Copied $dll from $src" -ForegroundColor Green
         } else {
-            Write-Host "      WARNING: $dll not found at $src" -ForegroundColor DarkYellow
+            Write-Host "ERROR: $dll not found in $SysPyRoot." -ForegroundColor Red
+            exit 1
         }
     }
 
@@ -144,6 +196,32 @@ Get-ChildItem "$PythonDir\python*._pth" | ForEach-Object {
     $lines | Set-Content $_.FullName
     Write-Host "      Patched $($_.Name)" -ForegroundColor Green
 }
+
+# Verify embedded tkinter before any artifact is produced. A failed import here
+# means the packaged splash and first-run chooser would fail on user machines.
+Write-Host "      Verifying embedded tkinter..." -ForegroundColor Yellow
+$env:TCL_LIBRARY = Join-Path $PythonDir "tcl\tcl8.6"
+$env:TK_LIBRARY = Join-Path $PythonDir "tcl\tk8.6"
+$TkSmokeCode = @"
+import _tkinter
+import tkinter
+interp = tkinter.Tcl()
+print("tcl_patchlevel=" + interp.eval("info patchlevel"))
+try:
+    root = tkinter.Tk()
+    root.withdraw()
+    root.update()
+    root.destroy()
+    print("tk_root=ok")
+except Exception as exc:
+    print("tk_root=skipped:" + repr(exc))
+"@
+& $PythonExe -c $TkSmokeCode
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: Embedded Python could not import tkinter/_tkinter." -ForegroundColor Red
+    exit 1
+}
+Write-Host "      Embedded tkinter verified" -ForegroundColor Green
 
 # Install pip
 Write-Host "      Installing pip..." -ForegroundColor Yellow

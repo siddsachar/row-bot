@@ -43,6 +43,7 @@ concurrency:
 # `installer/row_bot_setup.iss` (#define MyAppVersion) and `src/row_bot/version.py`.
 env:
   ROW_BOT_VERSION: "4.0.0"
+  WINDOWS_PYTHON_VERSION: "3.13.2"
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -97,7 +98,7 @@ jobs:
       # System Python (used by build script to find tkinter for bundling)
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.13"
+          python-version: ${{ env.WINDOWS_PYTHON_VERSION }}
 
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress
@@ -105,7 +106,7 @@ jobs:
       - name: Build self-contained installer
         run: |
           Write-Host "Building Windows installer..."
-          .\installer\build_installer.ps1
+          .\installer\build_installer.ps1 -PythonVersion "${{ env.WINDOWS_PYTHON_VERSION }}"
 
       # Windows code signing intentionally disabled.
       # The official Windows installer is signed locally by the maintainer with
