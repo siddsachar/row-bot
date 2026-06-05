@@ -202,6 +202,7 @@ Get-ChildItem "$PythonDir\python*._pth" | ForEach-Object {
 Write-Host "      Verifying embedded tkinter..." -ForegroundColor Yellow
 $env:TCL_LIBRARY = Join-Path $PythonDir "tcl\tcl8.6"
 $env:TK_LIBRARY = Join-Path $PythonDir "tcl\tk8.6"
+$env:PATH = (Join-Path $PythonDir "Scripts") + ";" + $PythonDir + ";" + $env:PATH
 $TkSmokeCode = @"
 import _tkinter
 import tkinter
