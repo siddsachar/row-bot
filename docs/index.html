@@ -340,7 +340,7 @@
             padding: 9rem 2rem 5.5rem;
             max-width: 980px;
             margin: 0 auto;
-            overflow: hidden;
+            overflow: visible;
             isolation: isolate;
         }
 
@@ -430,16 +430,16 @@
 
         .hero-glyph {
             position: absolute;
-            top: 5.25rem;
-            right: -8rem;
-            width: min(70vw, 720px);
+            top: 6rem;
+            right: -3rem;
+            width: min(66vw, 690px);
             margin: 0;
             border: 0;
             border-radius: 0;
             overflow: visible;
             background: transparent;
             box-shadow: none;
-            opacity: 0.18;
+            opacity: 0.24;
             pointer-events: none;
             user-select: none;
             z-index: 0;
@@ -449,7 +449,7 @@
             display: block;
             width: 100%;
             height: auto;
-            filter: drop-shadow(0 32px 90px rgba(79, 120, 164, 0.24));
+            filter: brightness(1.16) drop-shadow(0 32px 90px rgba(79, 120, 164, 0.28));
         }
 
         .video-block {
@@ -1052,10 +1052,10 @@
         @media (max-width: 768px) {
             .hero h1 { font-size: 2.8rem; }
             .hero-glyph {
-                top: 5rem;
-                right: -12rem;
+                top: 5.75rem;
+                right: -10rem;
                 width: 540px;
-                opacity: 0.1;
+                opacity: 0.13;
             }
             .section-heading { font-size: 2rem; }
             .paths-grid { grid-template-columns: 1fr; }
@@ -1109,9 +1109,9 @@
             .hero h1 { font-size: 2.2rem; }
             .hero-glyph {
                 top: 6rem;
-                right: -15rem;
+                right: -14rem;
                 width: 500px;
-                opacity: 0.08;
+                opacity: 0.1;
             }
             .hero-meta { flex-direction: column; gap: 0.4rem; }
             .architecture-points { grid-template-columns: 1fr; }
@@ -1184,29 +1184,50 @@
 
     <section class="feature-section reveal" id="features">
         <div class="container">
-            <h2 class="section-heading">The strongest pieces first</h2>
+            <h2 class="section-heading">A complete local-first AI workspace</h2>
 
             <div class="feature-row">
-                <div class="feature-item feature-item--wide">
-                    <span class="feature-icon">&#x2726;</span>
-                    <h3>Developer Studio</h3>
-                    <p>Connect local Git repositories, restore code threads from the sidebar, review diffs, run tests, manage todos, prepare PRs, and work through approval-gated coding tools inside a Codex-style workspace. Optional Docker Sandbox mode keeps command execution and edits in a shadow copy until you import them.</p>
-                    <span class="feature-tag">Code workspaces</span>
+                <div class="feature-item">
+                    <span class="feature-icon">&#x25C9;</span>
+                    <h3>Personal Knowledge Graph</h3>
+                    <p>Memories become connected entities and typed relationships, with bounded semantic, lexical, and graph-expanded recall, audit metadata, review states, trace output, document extraction, and Obsidian-compatible wiki export.</p>
+                    <span class="feature-tag">Auditable recall</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-icon">&#x263E;</span>
+                    <h3>Controlled Self-Evolution</h3>
+                    <p>Dream Cycle refines knowledge during idle hours or on demand: merging duplicates, enriching thin memories, decaying stale confidence, inferring relationships, and turning recent system activity into reviewable insights.</p>
+                    <span class="feature-tag">Dream Cycle</span>
                 </div>
             </div>
 
             <div class="feature-row">
                 <div class="feature-item">
+                    <span class="feature-icon">&#x2726;</span>
+                    <h3>Developer Studio</h3>
+                    <p>Connect local Git repositories, restore code threads from the sidebar, review diffs, run tests, manage todos, prepare PRs, and work through approval-gated coding tools inside a Codex-style workspace. Optional Docker Sandbox mode keeps command execution and edits in a shadow copy until you import them.</p>
+                    <span class="feature-tag">Code workspaces</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-icon">&#x26BF;</span>
+                    <h3>Provider Runtime &amp; Model Discovery</h3>
+                    <p>OpenAI, Anthropic, Google AI, xAI, OpenRouter, MiniMax live discovery, OpenCode providers, custom endpoints, Ollama, Ollama Cloud, configurable embeddings, and ChatGPT / Codex all flow through provider-qualified catalogs, capability mapping, readiness routing, context policies, and chat only fallbacks.</p>
+                    <span class="feature-tag">Live catalogs</span>
+                </div>
+            </div>
+
+            <div class="feature-row">
+                <div class="feature-item">
+                    <span class="feature-icon">&#x29D6;</span>
+                    <h3>Workflows &amp; Approvals</h3>
+                    <p>Run scheduled pipelines with conditions, approvals, subtasks, webhooks, model/tool overrides, safety modes, run history, insight cards, workflow-level delivery defaults, task DB recovery diagnostics, and a collapsible console that shows attention states.</p>
+                    <span class="feature-tag">Delivery controls</span>
+                </div>
+                <div class="feature-item">
                     <span class="feature-icon">&#x25C7;</span>
                     <h3>Custom Tools</h3>
                     <p>Turn a GitHub repo, local folder, or current workspace into a reusable Row-Bot tool through a guided Source -&gt; Inspect -&gt; Test -&gt; Enable flow, with command safety checks and optional promotion into normal chat.</p>
                     <span class="feature-tag">Tool builder</span>
-                </div>
-                <div class="feature-item">
-                    <span class="feature-icon">&#x2605;</span>
-                    <h3>Buddy Companion</h3>
-                    <p>Buddy adds a local-first animated presence that docks in the sidebar, moves through the workspace, or opens as a native desktop overlay where supported. Home status, workflow attention states, and heavier app panels now stay lighter during long sessions.</p>
-                    <span class="feature-tag">More reliable</span>
                 </div>
             </div>
 
@@ -1218,40 +1239,25 @@
                     <span class="feature-tag">Five modes</span>
                 </div>
                 <div class="feature-item">
-                    <span class="feature-icon">&#x25C9;</span>
-                    <h3>Personal Knowledge Graph</h3>
-                    <p>Memories become connected entities and typed relationships, with bounded semantic, lexical, and graph-expanded recall, audit metadata, review states, trace output, document extraction, and Obsidian-compatible wiki export.</p>
-                    <span class="feature-tag">Auditable recall</span>
-                </div>
-            </div>
-
-            <div class="feature-row">
-                <div class="feature-item">
                     <span class="feature-icon">&#x25C8;</span>
                     <h3>Real Computer Use</h3>
                     <p>The agent can browse in Chromium, use the shell, manage files, search the web, read documents, send email, manage calendar events, inspect status, and create charts.</p>
                     <span class="feature-tag">30 core tools</span>
                 </div>
-                <div class="feature-item">
-                    <span class="feature-icon">&#x29D6;</span>
-                    <h3>Workflows &amp; Approvals</h3>
-                    <p>Run scheduled pipelines with conditions, approvals, subtasks, webhooks, model/tool overrides, safety modes, run history, insight cards, workflow-level delivery defaults, task DB recovery diagnostics, and a collapsible console that shows attention states.</p>
-                    <span class="feature-tag">Delivery controls</span>
-                </div>
             </div>
 
             <div class="feature-row">
-                <div class="feature-item">
-                    <span class="feature-icon">&#x2B21;</span>
-                    <h3>Channels, Voice &amp; Media</h3>
-                    <p>Telegram, WhatsApp, Discord, Slack, and SMS share streaming, media intake, reactions, approvals, health checks, local speech-to-text, realtime voice options, Kokoro TTS, and Buddy state updates.</p>
-                    <span class="feature-tag">5 channels</span>
-                </div>
                 <div class="feature-item">
                     <span class="feature-icon">&#x2B22;</span>
                     <h3>Skills Hub, MCP &amp; Delegation</h3>
                     <p>Install Smart Skills from Skills Hub, use slash commands, connect external MCP servers, promote tested Custom Tools, coordinate Claude Code CLI through an approval-gated skill, and migrate selected Hermes/OpenClaw data with backups.</p>
                     <span class="feature-tag">Extensible</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-icon">&#x2B21;</span>
+                    <h3>Channels, Voice &amp; Media</h3>
+                    <p>Telegram, WhatsApp, Discord, Slack, and SMS share streaming, media intake, reactions, approvals, health checks, local speech-to-text, realtime voice options, Kokoro TTS, and Buddy state updates.</p>
+                    <span class="feature-tag">5 channels</span>
                 </div>
             </div>
 
@@ -1263,10 +1269,10 @@
                     <span class="feature-tag">Provider media</span>
                 </div>
                 <div class="feature-item">
-                    <span class="feature-icon">&#x26BF;</span>
-                    <h3>Provider Runtime &amp; Model Discovery</h3>
-                    <p>OpenAI, Anthropic, Google AI, xAI, OpenRouter, MiniMax live discovery, OpenCode providers, custom endpoints, Ollama, Ollama Cloud, configurable embeddings, and ChatGPT / Codex all flow through provider-qualified catalogs, capability mapping, readiness routing, context policies, and chat only fallbacks.</p>
-                    <span class="feature-tag">Live catalogs</span>
+                    <span class="feature-icon">&#x2605;</span>
+                    <h3>Buddy Companion</h3>
+                    <p>Buddy adds a local-first animated presence that docks in the sidebar, moves through the workspace, or opens as a native desktop overlay where supported. Home status, workflow attention states, and heavier app panels now stay lighter during long sessions.</p>
+                    <span class="feature-tag">More reliable</span>
                 </div>
             </div>
         </div>
@@ -1367,9 +1373,9 @@
         <div class="container">
             <div class="highlight-inner">
                 <div class="highlight-text">
-                    <h2>30 core tools the agent wields for you</h2>
+                    <h2>30+ built-in tools, plus the ones you add</h2>
                     <p>
-                        Ask a question in natural language and the agent autonomously decides which tools to chain together.
+                        Ask a question in natural language and Row-Bot decides which tools to chain together.
                         Search the web, check your email, run a shell command, inspect provider and insight status, build a deck in Designer, and chart the results in a single conversation turn.
                     </p>
                     <p>
