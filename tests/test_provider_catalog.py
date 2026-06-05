@@ -106,6 +106,7 @@ def test_model_catalog_pin_refresh_is_async_safe():
 
 def test_minimax_model_ids_infer_to_minimax_provider():
     for model_id in (
+        "MiniMax-M3",
         "MiniMax-M2.7",
         "MiniMax-M2.7-highspeed",
         "MiniMax-M2.5",
@@ -123,6 +124,41 @@ def test_minimax_model_capabilities_classified_as_chat():
     assert classified["transport"] == TransportMode.ANTHROPIC_MESSAGES
     assert "text" in classified["input_modalities"]
     assert "text" in classified["output_modalities"]
+    assert classified["tool_calling"] is True
+    assert classified["streaming"] is True
+
+
+def test_minimax_m3_capabilities_classified_as_vision_chat_not_video_generation():
+    from row_bot.providers.capabilities import snapshot_supports_surface
+    from row_bot.providers.models import ModelInfo
+
+    classified = classify_model_capabilities("minimax", "MiniMax-M3")
+    info = ModelInfo(
+        provider_id="minimax",
+        model_id="MiniMax-M3",
+        display_name="MiniMax-M3",
+        context_window=1_000_000,
+        transport=classified["transport"],
+        capabilities=frozenset(classified["capabilities"]),
+        input_modalities=frozenset(classified["input_modalities"]),
+        output_modalities=frozenset(classified["output_modalities"]),
+        tasks=frozenset(classified["tasks"]),
+        tool_calling=classified["tool_calling"],
+        streaming=classified["streaming"],
+        endpoint_compatibility=frozenset(classified["endpoint_compatibility"]),
+    )
+    snapshot = info.capability_snapshot()
+
+    assert classified["transport"] == TransportMode.ANTHROPIC_MESSAGES
+    assert "chat" in classified["tasks"]
+    assert "image" in classified["input_modalities"]
+    assert "video" in classified["input_modalities"]
+    assert "text" in classified["output_modalities"]
+    assert classified["tool_calling"] is True
+    assert classified["streaming"] is True
+    assert snapshot_supports_surface(snapshot, "chat") is True
+    assert snapshot_supports_surface(snapshot, "vision") is True
+    assert snapshot_supports_surface(snapshot, "video") is False
 
 
 def test_legacy_cache_to_model_infos_preserves_context_and_capabilities():

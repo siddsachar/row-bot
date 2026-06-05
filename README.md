@@ -133,7 +133,7 @@ Model catalog browsing, pinning, defaults, and Quick Choices live in Settings â†
 | Anthropic | `ANTHROPIC_API_KEY` | Claude models through the direct API. |
 | Google AI | `GOOGLE_API_KEY` | Gemini models, Imagen, and Veo. |
 | xAI | `XAI_API_KEY` | Grok models, Grok Imagine, and Grok Imagine Video. |
-| MiniMax | `MINIMAX_API_KEY` | MiniMax M2 models through the Anthropic-compatible API. |
+| MiniMax | `MINIMAX_API_KEY` | Current MiniMax models through the Anthropic-compatible API. |
 | OpenRouter | `OPENROUTER_API_KEY` | Access to 100+ provider models. |
 | Ollama Cloud | `OLLAMA_CLOUD_API_KEY` or local daemon sign-in | Direct Ollama Cloud models and cloud-tagged daemon models. |
 | Custom OpenAI-compatible endpoint | Base URL and optional key | Self-hosted or proxy models through profiles for oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, and generic servers. |
