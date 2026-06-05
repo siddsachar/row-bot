@@ -109,7 +109,7 @@ def _validate(raw: dict, plugin_dir: Path) -> PluginManifest:
     if not isinstance(version, str) or not _SEMVER_RE.match(version):
         errors.append(f"'version' must be semver (x.y.z). Got: {version!r}")
 
-    min_row_bot = raw.get("min_row_bot_version", raw.get("min_thoth_version", ""))
+    min_row_bot = raw.get("min_row_bot_version", "")
     if not isinstance(min_row_bot, str) or not _SEMVER_RE.match(min_row_bot):
         errors.append(f"'min_row_bot_version' must be semver. Got: {min_row_bot!r}")
 

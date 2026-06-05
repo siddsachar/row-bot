@@ -435,7 +435,7 @@
     const riveInstance = canvas ? instances.get(canvas.id) : null;
     if (riveInstance && riveInstance.stateMachineInputs) {
       try {
-        const inputs = riveInstance.stateMachineInputs('ThothBuddy') || [];
+        const inputs = riveInstance.stateMachineInputs('RowBotBuddy') || [];
         for (const input of inputs) {
           if (input.name === 'energy') input.value = Number(snapshot.energy || 0);
           if (input.name === 'focus') input.value = Number(snapshot.focus || 0);
@@ -666,7 +666,7 @@
         src: riv,
         canvas: canvas,
         autoplay: true,
-        stateMachines: 'ThothBuddy',
+        stateMachines: 'RowBotBuddy',
         fit: window.rive.Fit ? window.rive.Fit.Contain : undefined,
         onLoad: function () {
           root.classList.add('buddy-ready');

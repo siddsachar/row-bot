@@ -816,7 +816,7 @@ def test_minimax_validation_rejects_auth_failure(monkeypatch):
 
 
 def test_minimax_pre_model_trim_uses_anthropic_message_consolidation(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.agent as agent
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
@@ -853,7 +853,7 @@ def test_minimax_pre_model_trim_uses_anthropic_message_consolidation(tmp_path, m
 
 
 def test_custom_openai_pre_model_trim_compacts_32k_agent_payload(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.agent as agent
     from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -900,7 +900,7 @@ def test_custom_openai_pre_model_trim_compacts_32k_agent_payload(tmp_path, monke
 
 
 def test_custom_openai_pre_model_trim_consolidates_64k_system_envelope(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.agent as agent
     from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -932,7 +932,7 @@ def test_custom_openai_pre_model_trim_consolidates_64k_system_envelope(tmp_path,
 
 
 def test_pre_model_trim_drops_reasoning_only_assistant_turn(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.agent as agent
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
@@ -964,7 +964,7 @@ def test_pre_model_trim_drops_reasoning_only_assistant_turn(tmp_path, monkeypatc
 
 
 def test_pre_model_trim_preserves_empty_assistant_tool_call_turn(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.agent as agent
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
@@ -997,7 +997,7 @@ def test_pre_model_trim_preserves_empty_assistant_tool_call_turn(tmp_path, monke
 
 
 def test_provider_transcript_normalizer_strips_invalid_tool_calls(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.agent as agent
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
@@ -1020,7 +1020,7 @@ def test_provider_transcript_normalizer_strips_invalid_tool_calls(tmp_path, monk
 
 
 def test_provider_transcript_normalizer_rewrites_duplicate_tool_ids(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.agent as agent
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
@@ -1045,7 +1045,7 @@ def test_provider_transcript_normalizer_rewrites_duplicate_tool_ids(tmp_path, mo
 
 
 def test_provider_transcript_normalizer_preserves_healthy_native_reasoning(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.agent as agent
     from langchain_core.messages import AIMessage, HumanMessage
 
@@ -1060,7 +1060,7 @@ def test_provider_transcript_normalizer_preserves_healthy_native_reasoning(tmp_p
 
 
 def test_provider_transcript_normalizer_strips_reasoning_for_custom_artifacts(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.agent as agent
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
@@ -1084,7 +1084,7 @@ def test_provider_transcript_normalizer_strips_reasoning_for_custom_artifacts(tm
 
 
 def test_provider_transcript_normalizer_strips_reasoning_for_unsupported_custom_endpoint(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.agent as agent
     import row_bot.providers.config as provider_config
     from row_bot.providers.custom import save_custom_endpoint
@@ -1109,7 +1109,7 @@ def test_provider_transcript_normalizer_strips_reasoning_for_unsupported_custom_
 
 
 def test_provider_transcript_normalizer_preserves_reasoning_for_supported_custom_endpoint(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.agent as agent
     import row_bot.providers.config as provider_config
     from row_bot.providers.custom import save_custom_endpoint
@@ -1136,7 +1136,7 @@ def test_provider_transcript_normalizer_preserves_reasoning_for_supported_custom
 
 
 def test_provider_transcript_normalizer_serializes_cleanly_for_openrouter(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.agent as agent
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
     chat_models = pytest.importorskip("langchain_openrouter.chat_models")
@@ -1192,7 +1192,7 @@ def test_provider_transcript_normalizer_serializes_cleanly_for_openrouter(tmp_pa
 
 
 def test_custom_tool_validation_repair_handles_missing_query(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.agent as agent
     from langchain_core.tools import StructuredTool
 
@@ -1210,7 +1210,7 @@ def test_custom_tool_validation_repair_handles_missing_query(tmp_path, monkeypat
     repaired = tool.invoke({})
 
     assert "Invalid tool call for duckduckgo" in repaired
-    assert "THOTH_TOOL_VALIDATION_RETRY_REQUIRED" in repaired
+    assert "ROW_BOT_TOOL_VALIDATION_RETRY_REQUIRED" in repaired
     assert "query" in repaired
     assert "valid JSON arguments" in repaired
     assert "properties" not in repaired
@@ -1219,7 +1219,7 @@ def test_custom_tool_validation_repair_handles_missing_query(tmp_path, monkeypat
 
 
 def test_custom_tool_validation_repair_handles_explicit_schema_generically(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.agent as agent
     from langchain_core.tools import StructuredTool
     from pydantic import BaseModel, Field
@@ -1239,14 +1239,14 @@ def test_custom_tool_validation_repair_handles_explicit_schema_generically(tmp_p
     repaired = tool.invoke({})
 
     assert "Invalid tool call for row_bot_status" in repaired
-    assert "THOTH_TOOL_VALIDATION_RETRY_REQUIRED" in repaired
+    assert "ROW_BOT_TOOL_VALIDATION_RETRY_REQUIRED" in repaired
     assert "category" in repaired
     assert "duckduckgo" not in repaired
     assert len(repaired) < 280
 
 
 def test_tool_validation_repair_is_not_installed_for_hosted_provider(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.agent as agent
     from langchain_core.tools import StructuredTool
 
@@ -1267,7 +1267,7 @@ def test_tool_validation_repair_is_not_installed_for_hosted_provider(tmp_path, m
 
 
 def test_agent_graph_installs_custom_tool_validation_repair(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.agent as agent
     from langchain_core.tools import StructuredTool
 
@@ -1306,13 +1306,13 @@ def test_agent_graph_installs_custom_tool_validation_repair(tmp_path, monkeypatc
 
     assert graph.tools == [tool]
     assert "Invalid tool call for duckduckgo" in graph.tools[0].invoke({})
-    assert "THOTH_TOOL_VALIDATION_RETRY_REQUIRED" in graph.tools[0].invoke({})
+    assert "ROW_BOT_TOOL_VALIDATION_RETRY_REQUIRED" in graph.tools[0].invoke({})
 
     agent.clear_agent_cache()
 
 
 def test_openai_pre_model_trim_keeps_standard_skill_injections(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.agent as agent
     from langchain_core.messages import HumanMessage, SystemMessage
 

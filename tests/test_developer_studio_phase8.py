@@ -86,11 +86,11 @@ def test_tool_capsules_parse_manifest_commands(tmp_path, monkeypatch):
     assert capsule.commands[0]["command"] == "python --version"
 
 
-def test_tool_capsules_read_legacy_thoth_manifest_commands(tmp_path, monkeypatch):
+def test_tool_capsules_read_row_bot_manifest_commands(tmp_path, monkeypatch):
     capsules = _fresh_modules(tmp_path, monkeypatch)
     install_path = tmp_path / "legacy-capsule"
     install_path.mkdir()
-    (install_path / "thoth-capsule.json").write_text(
+    (install_path / "row-bot-capsule.json").write_text(
         """
         {
           "name": "Legacy Repo Helper",

@@ -10,9 +10,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_agent_tool_error_uses_active_thread_override(tmp_path, monkeypatch):
-    data_dir = tmp_path / ".thoth"
+    data_dir = tmp_path / ".row-bot"
     data_dir.mkdir()
-    monkeypatch.setenv("THOTH_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
 
     import row_bot.agent as agent
 

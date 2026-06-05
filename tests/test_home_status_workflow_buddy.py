@@ -26,7 +26,7 @@ def test_document_status_uses_processed_file_count(monkeypatch, tmp_path):
 
 
 def test_workflow_status_reports_running_and_pending(monkeypatch, tmp_path):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
     import row_bot.tasks as tasks
     from row_bot.ui.status_checks import check_task_scheduler
 

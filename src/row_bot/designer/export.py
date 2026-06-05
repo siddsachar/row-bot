@@ -17,7 +17,7 @@ from row_bot.designer.state import DesignerProject
 logger = logging.getLogger(__name__)
 
 _WORKSPACE = pathlib.Path(
-    os.environ.get("THOTH_WORKSPACE", pathlib.Path.home() / "Documents" / "Thoth")
+    os.environ.get("ROW_BOT_WORKSPACE", pathlib.Path.home() / "Documents" / "Row-Bot")
 )
 
 

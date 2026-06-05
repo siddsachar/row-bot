@@ -56,7 +56,7 @@ def test_realtime_speech_wiring_uses_captured_client_helper():
 def test_native_webview_uses_persistent_storage_for_microphone_grants():
     launcher_src = (ROOT / "src" / "row_bot" / "launcher.py").read_text(encoding="utf-8")
 
-    assert "THOTH_WEBVIEW_STORAGE_PATH" in launcher_src
+    assert "ROW_BOT_WEBVIEW_STORAGE_PATH" in launcher_src
     assert '"browser_profile"' in launcher_src
     assert '"pywebview"' in launcher_src
     assert "private_mode=False" in launcher_src

@@ -10,12 +10,12 @@ tools:
 tags:
   - developer
   - tools
-author: Thoth
+author: Row-Bot
 ---
 
 # Developer Custom Tools
 
-Use this skill when the user asks to add a GitHub repo, local folder, or current workspace as a reusable Thoth Custom Tool.
+Use this skill when the user asks to add a GitHub repo, local folder, or current workspace as a reusable Row-Bot Custom Tool.
 
 The user can ask in natural language. Treat requests like "make this repo a tool", "add this GitHub repo as a Custom Tool", or "turn this folder into a tool" as Custom Tool creation requests.
 

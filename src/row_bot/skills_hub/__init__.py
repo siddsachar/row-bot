@@ -1,4 +1,4 @@
-"""Public skills marketplace integration for Thoth.
+"""Public skills marketplace integration for Row-Bot.
 
 The hub imports public skill folders into the existing local Skill Library.
 Imported skills stay ordinary user skills and are off unless the user chooses

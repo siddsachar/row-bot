@@ -542,7 +542,7 @@ def test_codex_save_missing_external_reference_is_not_configured(tmp_path, monke
         _set_backend_for_tests(None)
 
 
-def test_codex_disconnect_removes_thoth_metadata_and_owned_tokens(tmp_path, monkeypatch):
+def test_codex_disconnect_removes_row_bot_metadata_and_owned_tokens(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     backend = _MemoryKeyring()
     _set_backend_for_tests(backend)

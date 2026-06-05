@@ -1,4 +1,4 @@
-"""Thoth tools package — import this module to discover all tools.
+"""Row-Bot tools package — import this module to discover all tools.
 
 Each tool module auto-registers itself with the registry on import.
 To add a new tool, create a new ``*_tool.py`` module in this package

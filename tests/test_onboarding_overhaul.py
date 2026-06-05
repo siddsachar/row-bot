@@ -14,7 +14,6 @@ def _case_dir() -> Path:
 
 def _reload_onboarding(monkeypatch, data_dir: Path):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
-    monkeypatch.delenv("THOTH_DATA_DIR", raising=False)
     import row_bot.ui.helpers as helpers
     import row_bot.ui.onboarding_state as onboarding_state
 
@@ -88,7 +87,6 @@ def test_onboarding_state_recovers_from_unknown_saved_values(monkeypatch):
 def test_default_workflow_templates_are_disabled_manual_and_mixed_complexity(monkeypatch):
     data_dir = _case_dir()
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
-    monkeypatch.delenv("THOTH_DATA_DIR", raising=False)
     import row_bot.tasks as tasks
 
     tasks = importlib.reload(tasks)
@@ -139,7 +137,6 @@ def test_default_workflow_templates_are_disabled_manual_and_mixed_complexity(mon
 def test_existing_users_are_not_reseeded_automatically(monkeypatch):
     data_dir = _case_dir()
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
-    monkeypatch.delenv("THOTH_DATA_DIR", raising=False)
     import row_bot.tasks as tasks
 
     tasks = importlib.reload(tasks)
@@ -183,7 +180,6 @@ def test_setup_center_orders_steps_by_profile_intent():
 def test_setup_center_only_offers_missing_workflow_starters(monkeypatch):
     data_dir = _case_dir()
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
-    monkeypatch.delenv("THOTH_DATA_DIR", raising=False)
     import row_bot.tasks as tasks
     import row_bot.ui.onboarding_center as center
 

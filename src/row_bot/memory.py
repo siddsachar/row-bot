@@ -9,8 +9,8 @@ Nothing downstream needs to change — ``memory_extraction.py``,
 ``tools/memory_tool.py``, ``agent.py``, and ``app.py`` all import
 from this module and get the same signatures and return values.
 
-Database lives at ``~/.thoth/memory.db`` (shared with knowledge_graph.py).
-FAISS index lives at ``~/.thoth/memory_vectors/``.
+Database lives at ``~/.row-bot/memory.db`` (shared with knowledge_graph.py).
+FAISS index lives at ``~/.row-bot/memory_vectors/``.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Runtime stability and crash diagnostics for Thoth.
+"""Runtime stability and crash diagnostics for Row-Bot.
 
 This module is intentionally small and dependency-light.  It captures failures
 that often bypass normal request logging: uncaught thread exceptions, asyncio
@@ -65,7 +65,7 @@ def setup_stability_monitoring() -> None:
 
     _write_report(
         "startup",
-        "Thoth stability monitoring started",
+        "Row-Bot stability monitoring started",
         extra={"pid": os.getpid(), "python": sys.version, "platform": platform.platform()},
     )
 
@@ -86,7 +86,7 @@ def install_asyncio_exception_handler(loop: asyncio.AbstractEventLoop | None = N
 
 
 def mark_shutdown(reason: str = "normal") -> None:
-    _write_report("shutdown", "Thoth shutdown marker", extra={"reason": reason})
+    _write_report("shutdown", "Row-Bot shutdown marker", extra={"reason": reason})
 
 
 def record_client_error(payload: dict[str, Any]) -> pathlib.Path | None:

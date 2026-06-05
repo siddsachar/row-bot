@@ -42,7 +42,7 @@
     "capabilities": ["browser", "testing", "screenshots", "automation"],
     "overlaps_native": ["browser"],
     "last_reviewed": "2026-04-27",
-    "notes": ["Thoth already includes native visible browser automation. Use this when MCP-compatible Playwright tools are specifically useful."],
+    "notes": ["Row-Bot already includes native visible browser automation. Use this when MCP-compatible Playwright tools are specifically useful."],
     "install": {"transport": "stdio", "command": "npx", "args": ["-y", "@playwright/mcp"]}
   },
   {
@@ -62,7 +62,7 @@
     "capabilities": ["browser", "debugging", "devtools", "performance"],
     "overlaps_native": ["browser"],
     "last_reviewed": "2026-04-27",
-    "notes": ["Overlaps with Thoth Browser, but provides a different DevTools-focused surface."],
+    "notes": ["Overlaps with Row-Bot Browser, but provides a different DevTools-focused surface."],
     "install": {"transport": "stdio", "command": "npx", "args": ["-y", "chrome-devtools-mcp"]}
   },
   {
@@ -102,7 +102,7 @@
     "capabilities": ["documents", "conversion", "markdown"],
     "overlaps_native": ["documents"],
     "last_reviewed": "2026-04-27",
-    "notes": ["Overlaps with Thoth document tools, but is a widely used conversion surface."],
+    "notes": ["Overlaps with Row-Bot document tools, but is a widely used conversion surface."],
     "install": {"transport": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-markitdown"]}
   },
   {
@@ -185,7 +185,7 @@
     "capabilities": ["knowledge_base", "documents", "workspace"],
     "overlaps_native": ["documents"],
     "last_reviewed": "2026-04-27",
-    "notes": ["External workspace knowledge is separate from Thoth Memory."],
+    "notes": ["External workspace knowledge is separate from Row-Bot Memory."],
     "install": {"transport": "streamable_http", "url": "https://mcp.notion.com/mcp"}
   },
   {
@@ -247,7 +247,7 @@
     "capabilities": ["web_search", "research"],
     "overlaps_native": ["web_search"],
     "last_reviewed": "2026-04-27",
-    "notes": ["Overlaps with Thoth web search. Use when you want Tavily-backed search specifically."],
+    "notes": ["Overlaps with Row-Bot web search. Use when you want Tavily-backed search specifically."],
     "install": {"transport": "streamable_http", "url": "https://mcp.tavily.com/mcp"}
   },
   {
@@ -289,7 +289,7 @@
     "capabilities": ["chat", "workspace", "messaging"],
     "overlaps_native": ["channels"],
     "last_reviewed": "2026-04-27",
-    "notes": ["Overlaps with Thoth channel concepts. Review messaging/send tools carefully."],
+    "notes": ["Overlaps with Row-Bot channel concepts. Review messaging/send tools carefully."],
     "install": {"transport": "streamable_http", "url": "https://mcp.slack.com/mcp"}
   },
   {
@@ -309,7 +309,7 @@
     "capabilities": ["filesystem", "files"],
     "overlaps_native": ["filesystem", "documents"],
     "last_reviewed": "2026-04-27",
-    "notes": ["Thoth already has native filesystem/document tools. Kept as an advanced reference option, not a recommended starter."],
+    "notes": ["Row-Bot already has native filesystem/document tools. Kept as an advanced reference option, not a recommended starter."],
     "install": {"transport": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem"]}
   },
   {
@@ -329,7 +329,7 @@
     "capabilities": ["fetch", "web"],
     "overlaps_native": ["url_reader", "web_search"],
     "last_reviewed": "2026-04-27",
-    "notes": ["Thoth already includes URL/web reading tools. Kept as an advanced reference option."],
+    "notes": ["Row-Bot already includes URL/web reading tools. Kept as an advanced reference option."],
     "install": {"transport": "stdio", "command": "uvx", "args": ["mcp-server-fetch"]}
   },
   {

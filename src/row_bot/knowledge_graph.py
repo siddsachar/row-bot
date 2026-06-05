@@ -6,7 +6,7 @@ Replaces the flat ``memories`` table with a connected graph of **entities**
 
 Architecture
 ~~~~~~~~~~~~
-* **SQLite** is the durable store (WAL mode, same ``~/.thoth/memory.db``).
+* **SQLite** is the durable store (WAL mode, same ``~/.row-bot/memory.db``).
 * **NetworkX** ``MultiDiGraph`` is an in-memory mirror rebuilt on startup from
   SQLite.  All reads hit the graph; all writes go to SQLite first, then
   update NetworkX and the FAISS index atomically.

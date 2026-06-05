@@ -8,7 +8,7 @@ the additional tokens.
 Storage layout
 --------------
 Bundled (read-only):  <app_root>/bundled_skills/<name>/SKILL.md
-User (read-write):    ~/.thoth/skills/<name>/SKILL.md
+User (read-write):    ~/.row-bot/skills/<name>/SKILL.md
 
 User skills with the same ``name`` override bundled skills.
 """
@@ -132,7 +132,7 @@ def _parse_skill_md(filepath: pathlib.Path, source: str = "user") -> Optional[Sk
         version=str(meta.get("version", "1.0")),
         tags=raw_tags,
         activation=raw_activation,
-        author=str(meta.get("author", "Thoth" if source == "bundled" else "User")),
+        author=str(meta.get("author", "Row-Bot" if source == "bundled" else "User")),
         enabled_by_default=enabled_by_default,
         source=source,
         path=filepath.parent,

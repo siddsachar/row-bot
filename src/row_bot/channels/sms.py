@@ -1,5 +1,5 @@
 """
-Thoth – SMS Channel Adapter (Twilio)
+Row-Bot – SMS Channel Adapter (Twilio)
 =======================================
 SMS/MMS channel using Twilio REST API for outbound.  Inbound messages
 arrive via a ``POST /sms`` route mounted on the main NiceGUI/Starlette
@@ -38,7 +38,7 @@ from row_bot.channels import auth as ch_auth
 from row_bot.channels import config as ch_config
 from row_bot.threads import _save_thread_meta
 
-log = logging.getLogger("thoth.sms")
+log = logging.getLogger("row_bot.sms")
 
 # ──────────────────────────────────────────────────────────────────────
 # Module-level state
@@ -375,7 +375,7 @@ async def _handle_inbound_sms(request) -> Any:
     # Auth check
     if not _is_authorised(from_number):
         if ch_auth.verify_pairing_code("sms", from_number, body):
-            _send_reply(from_number, "✅ Paired! You can now text Thoth.")
+            _send_reply(from_number, "✅ Paired! You can now text Row-Bot.")
             return Response("<Response/>", media_type=_XML)
         # Don't respond to unauthorised numbers
         return Response("<Response/>", media_type=_XML)

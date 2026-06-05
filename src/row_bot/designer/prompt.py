@@ -20,7 +20,7 @@ from row_bot.designer.state import DesignerProject, normalize_designer_mode
 _DECK_JS_RULE = "- All content must render without JavaScript (sandbox restriction)."
 
 _INTERACTIVE_RUNTIME_RULE = (
-    "- Interactive modes use Thoth's runtime bridge. NEVER write <script> tags,\n"
+    "- Interactive modes use Row-Bot's runtime bridge. NEVER write <script> tags,\n"
     "  onclick/onmouseover/on* inline handlers, or javascript: URLs — they are\n"
     "  stripped automatically and will not run.\n"
     "- Use declarative data attributes for all interactivity:\n"
@@ -433,7 +433,7 @@ def build_designer_prompt(project: DesignerProject) -> str:
         f"- designer_set_brand: Update brand colors/fonts.\n"
         f"- designer_resize_project: Resize the canvas for presentation, social, or document presets.\n"
         f"- designer_export: Export as PDF/HTML/PNG/PPTX.\n"
-        f"- designer_publish_link: Publish a self-contained HTML deck link through Thoth.\n"
+        f"- designer_publish_link: Publish a self-contained HTML deck link through Row-Bot.\n"
         f"- designer_generate_image: Generate an AI image from a text prompt and embed it.\n"
         f"- designer_insert_image: Insert an attached, pasted, generated, or local image into a page.\n"
         f"- designer_move_image: Move an existing inserted image or chart using its asset ID or label.\n"

@@ -1,5 +1,5 @@
 /**
- * Thoth – WhatsApp Bridge (Baileys)
+ * Row-Bot – WhatsApp Bridge (Baileys)
  * ====================================
  * Node.js subprocess that manages a Baileys WhatsApp client.
  * Communicates with the Python parent process via JSON-RPC over
@@ -42,10 +42,10 @@ const __dirname = path.dirname(__filename);
 // ── Configuration ───────────────────────────────────────────────────
 const SESSION_DIR =
   process.env.WA_SESSION_DIR ||
-  path.join(process.env.HOME || process.env.USERPROFILE || "~", ".thoth", "whatsapp_session");
+  path.join(process.env.HOME || process.env.USERPROFILE || "~", ".row-bot", "whatsapp_session");
 
 // Reply prefix for agent messages (self-chat echo detection)
-const REPLY_PREFIX = "\u{1F9FF} *Thoth*\n\u2500\u2500\u2500\u2500\u2500\u2500\n";
+const REPLY_PREFIX = "\u{1F9FF} *Row-Bot*\n\u2500\u2500\u2500\u2500\u2500\u2500\n";
 
 mkdirSync(SESSION_DIR, { recursive: true });
 
@@ -126,7 +126,7 @@ async function startSocket() {
     auth: state,
     logger,
     printQRInTerminal: false,
-    browser: ["Thoth", "Chrome", "120.0"],
+    browser: ["Row-Bot", "Chrome", "120.0"],
     syncFullHistory: false,
     markOnlineOnConnect: false,
     getMessage: async () => ({ conversation: "" }),

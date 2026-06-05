@@ -109,7 +109,7 @@ def test_github_headers_include_bearer_without_exposing_token(monkeypatch):
     headers = github_account.github_api_headers()
 
     assert headers["Authorization"] == "Bearer env-token"
-    assert headers["User-Agent"].startswith("Thoth-GitHub")
+    assert headers["User-Agent"].startswith("Row-Bot-GitHub")
 
 
 def test_invalid_token_does_not_poison_public_headers(monkeypatch):

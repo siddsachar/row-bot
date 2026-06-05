@@ -207,7 +207,7 @@ def build_plugins_tab(
             ui.label("Custom Tools").classes("text-body1 text-weight-bold")
             ui.badge(f"{len(capsule_manifests)} promoted", color="blue-grey").props("outline")
         ui.label(
-            "Developer-created Custom Tools promoted into Thoth's normal plugin tool surface."
+            "Developer-created Custom Tools promoted into Row-Bot's normal plugin tool surface."
         ).classes("text-grey-6 text-sm q-mb-sm")
 
         capsules_by_plugin = {
@@ -250,7 +250,7 @@ def build_plugins_tab(
         with ui.dialog() as confirm_dlg, ui.card():
             ui.label("Remove Custom Tool from chat tools?").classes("text-body1")
             ui.label(
-                "This removes the plugin-style tool from Thoth. The source folder is not deleted."
+                "This removes the plugin-style tool from Row-Bot. The source folder is not deleted."
             ).classes("text-grey-6 text-sm")
             with ui.row().classes("w-full justify-end gap-2 q-mt-md"):
                 ui.button("Cancel", on_click=confirm_dlg.close).props("flat")

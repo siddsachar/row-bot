@@ -1,6 +1,6 @@
 """Habit / activity tracker tool — log, query, and analyse recurring events.
 
-Stores trackers and entries in ``~/.thoth/tracker/tracker.db`` (SQLite).
+Stores trackers and entries in ``~/.row-bot/tracker/tracker.db`` (SQLite).
 Exposes three sub-tools to the agent:
 
 * **tracker_log** — structured input for logging an entry (auto-creates the

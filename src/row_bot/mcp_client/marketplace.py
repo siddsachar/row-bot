@@ -30,7 +30,7 @@ CATALOG_PATH = Path(__file__).with_name("recommended_servers.json")
 DEFAULT_TIMEOUT = 3
 BROWSER_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36 Thoth-MCP-Client/1.0",
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36 Row-Bot-MCP-Client/1.0",
     "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
 }
@@ -144,7 +144,7 @@ CURATED_STARTER_CATALOG: list[MarketplaceEntry] = _load_curated_catalog()
 
 
 def _fetch_json(url: str, timeout: int = DEFAULT_TIMEOUT) -> Any:
-    request = urllib.request.Request(url, headers={"User-Agent": "Thoth-MCP-Client/1.0"})
+    request = urllib.request.Request(url, headers={"User-Agent": "Row-Bot-MCP-Client/1.0"})
     with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - user-triggered directory fetch
         return json.loads(response.read().decode("utf-8"))
 
@@ -526,6 +526,6 @@ def entry_to_server_config(entry: MarketplaceEntry) -> dict[str, Any]:
             "overlaps_native": list(entry.overlaps_native or []),
             "requirements": list(entry.requirements or []),
             "conflicts": conflicts,
-            "not_verified_by_thoth": True,
+            "not_verified_by_row_bot": True,
         },
     }

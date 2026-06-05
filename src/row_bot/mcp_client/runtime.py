@@ -134,7 +134,7 @@ def _ensure_loop() -> asyncio.AbstractEventLoop:
             asyncio.set_event_loop(_loop)
             _loop.run_forever()
 
-        _thread = threading.Thread(target=_run, name="Thoth-MCP-Runtime", daemon=True)
+        _thread = threading.Thread(target=_run, name="Row-Bot-MCP-Runtime", daemon=True)
         _thread.start()
         return _loop
 

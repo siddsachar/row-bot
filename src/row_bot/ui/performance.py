@@ -11,7 +11,7 @@ from typing import Any, TypeVar
 
 from row_bot.ui.timer_utils import _is_benign_dead_ui_error, safe_ui_task as _timer_safe_ui_task
 
-logger = logging.getLogger("thoth.ui.performance")
+logger = logging.getLogger("row_bot.ui.performance")
 
 T = TypeVar("T")
 

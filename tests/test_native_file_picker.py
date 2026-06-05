@@ -57,7 +57,7 @@ def test_browse_file_falls_back_when_pywebview_unavailable(monkeypatch):
 
 
 def test_browse_folder_prefers_pywebview_native_dialog(monkeypatch):
-    selected = r"C:\Users\tester\ThothData"
+    selected = r"C:\Users\tester\RowBotData"
 
     async def fake_pywebview(title, initial_dir):
         assert title == "Select folder"

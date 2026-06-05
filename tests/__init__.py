@@ -1,1 +1,1 @@
-"""Thoth regression tests."""
+"""Row-Bot regression tests."""

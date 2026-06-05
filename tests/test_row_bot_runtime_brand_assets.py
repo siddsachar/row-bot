@@ -4,6 +4,8 @@ from pathlib import Path
 
 from PIL import Image
 
+from row_bot.migration.row_bot_legacy_rebrand import LEGACY_SERVICE_PREFIX
+
 _RUNTIME_FILES = {"app.py", "launcher.py", "brand.py"}
 _RUNTIME_PREFIXES = (
     "buddy/",
@@ -75,7 +77,7 @@ def test_runtime_brand_assets_are_file_backed_and_visible():
     assert "\U0001305F" not in status_src
     assert 'role = "User" if msg["role"] == "user" else APP_DISPLAY_NAME' in helpers_src
     assert 'f"<b>{APP_DISPLAY_NAME}</b> is connected!' in telegram_src
-    assert "Thoth</b> is connected" not in telegram_src
+    assert f"{LEGACY_SERVICE_PREFIX}</b> is connected" not in telegram_src
 
     assert "__ROW_BOT_BRAND_ACCENT__" in head_src
     assert "Bot name = brand accent" in head_src
@@ -88,7 +90,7 @@ def test_runtime_brand_assets_are_file_backed_and_visible():
 
     assert "row-bot-buddy-v6" in buddy_src
     assert "window.RowBotBuddy" in buddy_src
-    assert "window.ThothBuddy" not in buddy_src
+    assert f"window.{LEGACY_SERVICE_PREFIX}Buddy" not in buddy_src
 
     for src in (app_src, sidebar_src, head_src, command_src):
         assert "color: gold" not in src

@@ -14,7 +14,7 @@ from typing import Any
 import row_bot.api_keys as api_keys
 import row_bot.secret_store as secret_store
 
-log = logging.getLogger("thoth.channels.auth_store")
+log = logging.getLogger("row_bot.channels.auth_store")
 
 
 def _namespace(channel_name: str) -> str:

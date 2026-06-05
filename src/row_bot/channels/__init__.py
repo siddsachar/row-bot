@@ -1,6 +1,6 @@
-# Thoth – Messaging channel adapters
+# Row-Bot – Messaging channel adapters
 # Each sub-module provides a channel integration (Telegram, Email, etc.)
-# that bridges external messaging platforms to the Thoth agent.
+# that bridges external messaging platforms to the Row-Bot agent.
 
 import re as _re
 

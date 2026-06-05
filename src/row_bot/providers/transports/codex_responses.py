@@ -17,7 +17,7 @@ from row_bot.providers import codex as codex_auth
 
 CODEX_RESPONSES_BASE_URL = "https://chatgpt.com/backend-api/codex"
 CODEX_ORIGINATOR = "codex_cli_rs"
-CODEX_USER_AGENT = "codex_cli_rs/0.0.0 (thoth)"
+CODEX_USER_AGENT = "codex_cli_rs/0.0.0 (row-bot)"
 CODEX_INCLUDE = ["reasoning.encrypted_content"]
 
 logger = logging.getLogger(__name__)

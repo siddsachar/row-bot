@@ -1,5 +1,5 @@
 """
-Thoth – Discord Channel Adapter
+Row-Bot – Discord Channel Adapter
 ===================================
 Discord bot using discord.py with Gateway Intents (WebSocket).
 
@@ -38,7 +38,7 @@ from row_bot.channels import commands as ch_commands
 from row_bot.channels import auth as ch_auth
 from row_bot.threads import _save_thread_meta
 
-log = logging.getLogger("thoth.discord")
+log = logging.getLogger("row_bot.discord")
 
 # ──────────────────────────────────────────────────────────────────────
 # Module-level state
@@ -498,7 +498,7 @@ async def start_bot() -> bool:
             if not _is_authorised(user_id):
                 if text and ch_auth.verify_pairing_code("discord", str(user_id), text):
                     await message.channel.send(
-                        "✅ Paired successfully! You can now chat with Thoth."
+                        "✅ Paired successfully! You can now chat with Row-Bot."
                     )
                     return
                 await message.channel.send(

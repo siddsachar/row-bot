@@ -1,5 +1,5 @@
 """
-Thoth – Channel Tool Factory
+Row-Bot – Channel Tool Factory
 ===============================
 Auto-generates LangChain ``StructuredTool`` instances for each registered
 channel based on its ``ChannelCapabilities``.
@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from row_bot.channels.base import Channel
 from row_bot.data_paths import get_row_bot_data_dir
 
-log = logging.getLogger("thoth.channels.tool_factory")
+log = logging.getLogger("row_bot.channels.tool_factory")
 
 
 # ── Path resolution (shared) ─────────────────────────────────────────

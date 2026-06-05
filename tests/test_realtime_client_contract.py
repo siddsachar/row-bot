@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from row_bot.migration.row_bot_legacy_rebrand import LEGACY_SERVICE_PREFIX
 from row_bot.voice.realtime_client import (
     send_realtime_function_output_js,
     send_realtime_run_event_js,
@@ -129,7 +130,7 @@ def test_realtime_run_event_distinguishes_answers_from_status_cues():
     assert "Do not add framing, summarize, or ask follow-up questions" in source
     assert "Speak exactly this brief Row-Bot status" in source
     assert "Do not add details or ask follow-up questions" in source
-    assert "Say this concise Thoth status/result" not in source
+    assert f"Say this concise {LEGACY_SERVICE_PREFIX} status/result" not in source
     assert "origin === 'tool_progress'" in source
     assert "origin === 'long_running'" in source
     assert "answerOrigin || origin === 'tool_start'" in source
@@ -143,7 +144,7 @@ def test_realtime_client_removed_old_hybrid_speech_bridge():
     assert "scheduleSpeechFinished" not in source
     assert "playbackFinishDelayMs" not in source
     assert "assistant_audio_drain_started" not in source
-    assert "Read this Thoth response aloud exactly" not in source
+    assert f"Read this {LEGACY_SERVICE_PREFIX} response aloud exactly" not in source
     assert "speak_realtime_js" not in streaming_src
 
 

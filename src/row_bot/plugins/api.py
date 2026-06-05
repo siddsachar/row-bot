@@ -1,7 +1,7 @@
 """Plugin API and PluginTool base class.
 
 This module defines the interface that plugin authors use — it is the ONLY
-module plugins are allowed to import from Thoth core.  Everything else
+module plugins are allowed to import from Row-Bot core.  Everything else
 (tools/, ui/, agent.py, etc.) is off-limits.
 """
 
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # PluginAPI — the object passed to register()
 # ═════════════════════════════════════════════════════════════════════════════
 class PluginAPI:
-    """Bridge between a plugin and Thoth's plugin infrastructure.
+    """Bridge between a plugin and Row-Bot's plugin infrastructure.
 
     An instance is created per-plugin and passed to the plugin's
     ``register(api)`` function.  The plugin uses it to:
@@ -53,12 +53,12 @@ class PluginAPI:
 
     # ── Tool & Skill Registration ────────────────────────────────────────
     def register_tool(self, tool: "PluginTool") -> None:
-        """Register a tool with Thoth. Called inside register()."""
+        """Register a tool with Row-Bot. Called inside register()."""
         self._registered_tools.append(tool)
         logger.debug("Plugin '%s' registered tool: %s", self._plugin_id, tool.name)
 
     def register_skill(self, skill_info: dict) -> None:
-        """Register a skill dict with Thoth. Usually auto-discovered from skills/."""
+        """Register a skill dict with Row-Bot. Usually auto-discovered from skills/."""
         self._registered_skills.append(skill_info)
         logger.debug("Plugin '%s' registered skill: %s",
                       self._plugin_id, skill_info.get("name", "?"))

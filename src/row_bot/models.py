@@ -777,14 +777,14 @@ def list_all_models() -> list[str]:
 
 
 def get_trending_models() -> list[str]:
-    """Return no public Ollama discovery rows; Thoth manages daemon models only."""
+    """Return no public Ollama discovery rows; Row-Bot manages daemon models only."""
     return []
 
 
 def fetch_trending_ollama_models() -> list[str]:
     """Deprecated compatibility shim.
 
-    Thoth no longer fetches public Ollama model listings or offers downloads.
+    Row-Bot no longer fetches public Ollama model listings or offers downloads.
     Local model management lives in Ollama; this app only reads daemon-exposed
     tags.
     """

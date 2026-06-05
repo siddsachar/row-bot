@@ -70,7 +70,7 @@ def _get_core_requirements() -> dict[str, str]:
 
 
 def check_dependencies(plugin_deps: list[str]) -> DepCheckResult:
-    """Check if plugin dependencies conflict with core Thoth packages.
+    """Check if plugin dependencies conflict with core Row-Bot packages.
 
     Uses pip's dependency resolver in dry-run mode to detect conflicts.
 
@@ -155,7 +155,7 @@ def install_dependencies(plugin_deps: list[str]) -> tuple[bool, str]:
     check = check_dependencies(plugin_deps)
     if not check.ok:
         return False, (
-            "Cannot install — conflicts with core Thoth dependencies:\n"
+            "Cannot install — conflicts with core Row-Bot dependencies:\n"
             + "\n".join(f"  - {c}" for c in check.conflicts)
         )
 

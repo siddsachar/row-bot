@@ -2,7 +2,7 @@
 name: claude_code_delegation
 display_name: Claude Code Delegation
 icon: "💻"
-description: Delegate coding, review, and refactor tasks to Claude Code CLI through Thoth's approval-gated shell workflow.
+description: Delegate coding, review, and refactor tasks to Claude Code CLI through Row-Bot's approval-gated shell workflow.
 enabled_by_default: true
 version: "1.0"
 tags:
@@ -11,22 +11,22 @@ tags:
   - delegation
   - review
   - automation
-author: Thoth
+author: Row-Bot
 ---
 
-When the user asks to **use Claude Code**, **coordinate Claude Code**, **delegate coding work**, **have another coding agent implement/review/refactor something**, or compares Thoth with Hermes-style Claude Code orchestration, use this workflow.
+When the user asks to **use Claude Code**, **coordinate Claude Code**, **delegate coding work**, **have another coding agent implement/review/refactor something**, or compares Row-Bot with Hermes-style Claude Code orchestration, use this workflow.
 
 You are the coordinator. Claude Code is the delegated coding worker. Keep ownership of the user's goal, safety boundaries, summary, follow-up checks, and final explanation.
 
 ## Core Principles
 
-1. **Prefer print mode first** — Use `claude -p` for most tasks. It runs one bounded task, returns output, and exits. This works well with Thoth's `run_command` tool and avoids interactive terminal state.
-2. **Keep Thoth in charge** — Do not hand off the whole conversation. Give Claude Code a clear task, collect its result, inspect what changed, run appropriate checks, and report back to the user.
-3. **Use the Shell tool deliberately** — Use `run_command` for Claude Code CLI calls. Thoth's shell tool persists the working directory per conversation and approval-gates non-safe commands.
+1. **Prefer print mode first** — Use `claude -p` for most tasks. It runs one bounded task, returns output, and exits. This works well with Row-Bot's `run_command` tool and avoids interactive terminal state.
+2. **Keep Row-Bot in charge** — Do not hand off the whole conversation. Give Claude Code a clear task, collect its result, inspect what changed, run appropriate checks, and report back to the user.
+3. **Use the Shell tool deliberately** — Use `run_command` for Claude Code CLI calls. Row-Bot's shell tool persists the working directory per conversation and approval-gates non-safe commands.
 4. **Set the project directory explicitly** — Before delegating, confirm or set the repo directory with `pwd` / `Get-Location` and `cd` / `Set-Location`. Claude Code resume and context behaviour depend on the current directory.
 5. **Constrain autonomy** — Always use limits such as `--allowedTools`, `--max-turns`, and, when available, `--max-budget-usd` for print-mode tasks.
 6. **Avoid permission bypass** — Do not use `--dangerously-skip-permissions` unless the user explicitly asks and understands that Claude Code may edit files and run commands without per-action prompts.
-7. **Do not forward secrets** — Never include API keys, tokens, Thoth memory, private notes, or sensitive user data in a Claude Code prompt unless the user explicitly asks for that specific context to be shared.
+7. **Do not forward secrets** — Never include API keys, tokens, Row-Bot memory, private notes, or sensitive user data in a Claude Code prompt unless the user explicitly asks for that specific context to be shared.
 
 ## Prerequisite Checks
 
@@ -64,7 +64,7 @@ On Windows, native print-mode CLI usage may work if `claude` is installed on PAT
 
 ## Print-Mode Command Patterns
 
-Use these as patterns, adapting quoting for the user's shell. In Thoth, it is often cleaner to set the directory first, then run `claude` as a separate command so the shell session cwd persists.
+Use these as patterns, adapting quoting for the user's shell. In Row-Bot, it is often cleaner to set the directory first, then run `claude` as a separate command so the shell session cwd persists.
 
 ### Status and Setup
 
@@ -99,7 +99,7 @@ git diff --stat
 git diff | claude -p "Review this diff for correctness, regressions, security issues, and missing tests. Do not edit files." --allowedTools "Read" --max-turns 1
 ```
 
-If the diff is large, save a focused patch file for Claude Code to inspect, but avoid including secrets or unrelated local changes. Remember that Claude Code cannot see Thoth's previous tool output unless you pass the relevant context into the Claude Code prompt, stdin, files, or repository state.
+If the diff is large, save a focused patch file for Claude Code to inspect, but avoid including secrets or unrelated local changes. Remember that Claude Code cannot see Row-Bot's previous tool output unless you pass the relevant context into the Claude Code prompt, stdin, files, or repository state.
 
 ## Prompt Construction
 
@@ -168,11 +168,11 @@ Rules for interactive mode:
 - Avoid broad filesystem access with `--add-dir` unless required.
 - Avoid `--permission-mode bypassPermissions` and `--dangerously-skip-permissions` by default.
 - Do not run destructive git commands, force pushes, deploys, production migrations, or secret-handling tasks through Claude Code without explicit user approval.
-- Respect Thoth background workflow safety modes: write-capable Claude Code runs should not happen in unattended background tasks unless the user selected an approval or allow-all mode for that task.
+- Respect Row-Bot background workflow safety modes: write-capable Claude Code runs should not happen in unattended background tasks unless the user selected an approval or allow-all mode for that task.
 
 ## After Delegation
 
-Always follow up with Thoth-native review:
+Always follow up with Row-Bot-native review:
 
 1. Run `git status`.
 2. Inspect changed files or the diff.

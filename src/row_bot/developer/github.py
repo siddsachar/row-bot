@@ -50,7 +50,7 @@ def _run(args: list[str], *, cwd: str | None = None, timeout: int = 20) -> subpr
 
 
 def get_gh_status(timeout: int = 6) -> GhStatus:
-    """Return local GitHub CLI status without requiring Thoth-specific auth."""
+    """Return local GitHub CLI status without requiring Row-Bot-specific auth."""
     gh_path = resolve_github_cli()
     if not gh_path:
         return GhStatus(False, False, message="GitHub CLI is not installed.")
@@ -99,7 +99,7 @@ def suggest_pull_request_text(workspace_path: str, *, max_files: int = 20) -> Pr
     body_lines = [
         "## Summary",
         "",
-        "- Update implementation via Thoth Developer Studio.",
+        "- Update implementation via Row-Bot Developer Studio.",
         "",
         "## Changed files",
         "",

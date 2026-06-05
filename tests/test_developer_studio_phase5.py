@@ -6,7 +6,7 @@ import sys
 
 
 def _fresh_modules(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     sys.modules.pop("developer.runtime", None)
     sys.modules.pop("developer.change_ledger", None)
     import row_bot.developer.runtime as runtime

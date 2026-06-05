@@ -188,7 +188,7 @@ def run_langchain_one_tool(prompt: str, model: str, ctx: int, iteration: int) ->
     from row_bot.models import _ollama_base_url
 
     @tool
-    def thoth_probe(value: str) -> str:
+    def row_bot_probe(value: str) -> str:
         """Return the requested value."""
         return value
 
@@ -197,7 +197,7 @@ def run_langchain_one_tool(prompt: str, model: str, ctx: int, iteration: int) ->
         base_url=_ollama_base_url(),
         num_ctx=ctx,
         reasoning=True,
-    ).bind_tools([thoth_probe])
+    ).bind_tools([row_bot_probe])
     return _collect_langchain_stream(prompt, llm, "langchain_one_tool_stream", model, iteration)
 
 

@@ -1,4 +1,4 @@
-// Thoth Designer — interactive runtime bridge.
+// Row-Bot Designer — interactive runtime bridge.
 // Loaded inside the preview iframe and (at publish time) into the exported
 // site bundle.  The agent writes declarative data-row-bot-* attributes only;
 // this file interprets them.  No user-authored JS runs here — see the
@@ -59,7 +59,7 @@
             s.toggleAttribute("data-row-bot-route-active", isActive);
             s.setAttribute("aria-hidden", isActive ? "false" : "true");
         }
-        post({type: "thoth:navigate", route: routeId, transition: transition});
+        post({type: "row-bot:navigate", route: routeId, transition: transition});
     }
 
     function toggleState(key, opts) {
@@ -92,7 +92,7 @@
             c.toggleAttribute("data-row-bot-active", isOn);
         }
 
-        post({type: "thoth:state", key: key, on: isOn});
+        post({type: "row-bot:state", key: key, on: isOn});
     }
 
     function playMedia(assetId) {
@@ -106,7 +106,7 @@
         if (el && typeof el.play === "function") {
             try { el.play(); } catch (e) { /* autoplay denied */ }
         }
-        post({type: "thoth:media", assetId: assetId});
+        post({type: "row-bot:media", assetId: assetId});
     }
 
     function cssEscape(s) {
@@ -157,7 +157,7 @@
         // Safety net: any <a> link inside the prototype that has no
         // data-row-bot-action must not hijack the iframe. Without this
         // guard a CTA like <a href="/"> navigates the preview iframe
-        // to whatever sits at the editor's origin (e.g. the Thoth app
+        // to whatever sits at the editor's origin (e.g. the Row-Bot app
         // itself — "inception"). External links still open in a new
         // tab. Internal/same-origin links are simply swallowed so the
         // prototype stays put; author should wire them with
@@ -181,7 +181,7 @@
             // Same-origin relative link without a data-row-bot-action —
             // block it so the iframe doesn't load the editor host.
             ev.preventDefault();
-            post({type: "thoth:deadlink", href: href});
+            post({type: "row-bot:deadlink", href: href});
         }
     }, true);
 
@@ -192,7 +192,7 @@
         var form = ev.target;
         if (form && form.tagName === "FORM") {
             ev.preventDefault();
-            post({type: "thoth:formsubmit",
+            post({type: "row-bot:formsubmit",
                   action: form.getAttribute("action") || ""});
         }
     }, true);
@@ -214,7 +214,7 @@
             if (first) initial = first.getAttribute("data-row-bot-route") || "";
         }
         if (initial) setActiveRoute(initial, {transition: "none"});
-        post({type: "thoth:ready", route: getActiveRoute()});
+        post({type: "row-bot:ready", route: getActiveRoute()});
     }
     if (doc.readyState === "loading") {
         doc.addEventListener("DOMContentLoaded", boot);

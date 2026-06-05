@@ -1,7 +1,7 @@
 """
-Thoth – Telegram Channel Adapter
+Row-Bot – Telegram Channel Adapter
 ==================================
-Long-polling Telegram bot that bridges messages to the Thoth agent.
+Long-polling Telegram bot that bridges messages to the Row-Bot agent.
 
 Setup:
     1. Message @BotFather on Telegram → /newbot → copy the **Bot Token**
@@ -44,7 +44,7 @@ from row_bot.channels.auth_store import get_channel_secret
 from row_bot.threads import _save_thread_meta, _list_threads, _thread_exists
 from row_bot.tools import registry as tool_registry
 
-log = logging.getLogger("thoth.telegram")
+log = logging.getLogger("row_bot.telegram")
 
 # ──────────────────────────────────────────────────────────────────────
 # Constants
@@ -603,7 +603,7 @@ async def _cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             lines.append("\nUsage: <code>/model model:provider:model-id</code>")
             lines.append("Reset to default: <code>/model default</code>")
         else:
-            lines.append("No provider Quick Choices. Pin models in Thoth → Settings → Providers.")
+            lines.append("No provider Quick Choices. Pin models in Row-Bot → Settings → Providers.")
         await _send_html(update.message, "\n".join(lines))
         return
 
@@ -678,7 +678,7 @@ async def _cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
     enabled_count = len(tool_registry.get_enabled_tools())
     await update.message.reply_text(
-        f"✅ Thoth Telegram bot is running.\n"
+        f"✅ Row-Bot Telegram bot is running.\n"
         f"🔧 {enabled_count} tools enabled.\n"
         f"👤 Authorised user: {_get_allowed_user_id()}"
     )

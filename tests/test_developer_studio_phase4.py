@@ -6,7 +6,7 @@ import sys
 
 
 def _fresh_modules(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     for name in ["developer.todos", "developer.review", "developer.storage"]:
         sys.modules.pop(name, None)
     import row_bot.developer.todos as todos

@@ -98,7 +98,7 @@ def build_developer_agent_context(workspace_id: str, thread_id: str = "") -> str
         "For structured files, run a cheap parse/validation check when available. For notebooks, JSON parse is the minimum; use nbformat validation if available, but do not execute the whole notebook unless asked or clearly safe.",
         "Execution modes: Local runs commands in the selected repo folder. Docker Sandbox runs commands in an isolated shadow copy; "
         "real repo files change only after developer_import_sandbox_changes imports an approved sandbox patch.",
-        "Do not clone repositories into Thoth app data. If cloning is needed, ask for an explicit destination.",
+        "Do not clone repositories into Row-Bot app data. If cloning is needed, ask for an explicit destination.",
         "Do not install dependencies, delete files, commit, push, or use external network without the configured approval policy.",
     ]
     if status.is_git:

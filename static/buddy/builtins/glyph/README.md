@@ -1,6 +1,6 @@
 # Buddy Glyph Pack
 
-This is the first bundled Buddy motion pack. It ships a prompt-generated preview image and six curated image-to-video state loops that are played locally by Thoth's canvas runtime.
+This is the first bundled Buddy motion pack. It ships a prompt-generated preview image and six curated image-to-video state loops that are played locally by Row-Bot's canvas runtime.
 
 Required clips: `idle`, `thinking`, `working`, `approval`, `success`, and `error`.
 

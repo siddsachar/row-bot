@@ -7,7 +7,7 @@ import logging
 import re
 from typing import Any
 
-logger = logging.getLogger("thoth.mcp")
+logger = logging.getLogger("row_bot.mcp")
 
 _SECRET_KEY_RE = re.compile(r"(key|token|secret|password|authorization|cookie)", re.I)
 

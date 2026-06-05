@@ -64,7 +64,7 @@ _RUNTIME_DEFS: dict[str, RuntimeRequirement] = {
         commands=("node", "npm", "npx"),
         managed=True,
         setup_url="https://nodejs.org/",
-        install_hint="Install Node.js LTS or let Thoth install a private portable Node.js runtime.",
+        install_hint="Install Node.js LTS or let Row-Bot install a private portable Node.js runtime.",
     ),
     "uv": RuntimeRequirement(
         id="uv",
@@ -72,7 +72,7 @@ _RUNTIME_DEFS: dict[str, RuntimeRequirement] = {
         commands=("uv", "uvx"),
         managed=True,
         setup_url="https://docs.astral.sh/uv/getting-started/installation/",
-        install_hint="Install uv/uvx or let Thoth install a private portable uv runtime.",
+        install_hint="Install uv/uvx or let Row-Bot install a private portable uv runtime.",
     ),
     "docker": RuntimeRequirement(
         id="docker",
@@ -80,7 +80,7 @@ _RUNTIME_DEFS: dict[str, RuntimeRequirement] = {
         commands=("docker",),
         managed=False,
         setup_url="https://www.docker.com/products/docker-desktop/",
-        install_hint="Install Docker Desktop, restart Thoth, then test this MCP server again.",
+        install_hint="Install Docker Desktop, restart Row-Bot, then test this MCP server again.",
     ),
     "playwright-chrome": RuntimeRequirement(
         id="playwright-chrome",
@@ -154,7 +154,7 @@ def _requirement_from_mapping(raw: dict[str, Any]) -> RuntimeRequirement | None:
             commands=commands,
             managed=False,
             setup_url=str(raw.get("setup_url") or raw.get("url") or ""),
-            install_hint=str(raw.get("install_hint") or "Install this dependency, restart Thoth if PATH changes, then test again."),
+            install_hint=str(raw.get("install_hint") or "Install this dependency, restart Row-Bot if PATH changes, then test again."),
             source="metadata",
         )
     return None
@@ -334,7 +334,7 @@ def check_requirement(requirement: RuntimeRequirement, env: dict[str, str] | Non
                 available=True,
                 source="managed",
                 paths={"PLAYWRIGHT_BROWSERS_PATH": str(browsers_dir), "PLAYWRIGHT_MCP_EXECUTABLE_PATH": executable_path},
-                message="Playwright browser is available in Thoth's managed browser cache.",
+                message="Playwright browser is available in Row-Bot's managed browser cache.",
             )
         return RuntimeCheck(
             requirement=requirement,
@@ -359,7 +359,7 @@ def check_requirement(requirement: RuntimeRequirement, env: dict[str, str] | Non
     if available:
         source = "managed" if managed_bin and any(str(path).startswith(str(managed_bin)) for path in paths.values()) else "system"
         return RuntimeCheck(requirement=requirement, available=True, source=source, paths=paths, message=f"{requirement.label} is available.")
-    message = requirement.install_hint or f"Install {requirement.label}, restart Thoth if PATH changes, then test again."
+    message = requirement.install_hint or f"Install {requirement.label}, restart Row-Bot if PATH changes, then test again."
     return RuntimeCheck(requirement=requirement, available=False, missing_commands=tuple(missing), message=message)
 
 
@@ -402,15 +402,15 @@ def missing_command_message(command: str, check: RuntimeCheck | None = None) -> 
     if check:
         req = check.requirement
         if req.managed:
-            return f"MCP stdio command '{command}' was not found on PATH. {req.label} is required. Install it in Thoth, install it system-wide and restart Thoth, or edit this MCP server to use an absolute executable path."
+            return f"MCP stdio command '{command}' was not found on PATH. {req.label} is required. Install it in Row-Bot, install it system-wide and restart Row-Bot, or edit this MCP server to use an absolute executable path."
         return f"MCP stdio command '{command}' was not found on PATH. {req.label} is required. {req.install_hint}"
-    return f"MCP stdio command '{command}' was not found on PATH. Install the command, restart Thoth, or edit this MCP server to use an absolute executable path."
+    return f"MCP stdio command '{command}' was not found on PATH. Install the command, restart Row-Bot, or edit this MCP server to use an absolute executable path."
 
 
 def _download(url: str, destination: Path, progress: Callable[[str], None] | None = None) -> None:
     if progress:
         progress(f"Downloading {url}")
-    request = urllib.request.Request(url, headers={"User-Agent": "Thoth-MCP-Runtime-Installer/1.0"})
+    request = urllib.request.Request(url, headers={"User-Agent": "Row-Bot-MCP-Runtime-Installer/1.0"})
     with urllib.request.urlopen(request, timeout=60) as response, open(destination, "wb") as handle:  # noqa: S310 - explicit user-triggered runtime install
         shutil.copyfileobj(response, handle)
 
@@ -450,7 +450,7 @@ def _node_asset_name(version: str) -> tuple[str, str]:
 
 
 def _latest_node_lts_version() -> str:
-    request = urllib.request.Request("https://nodejs.org/dist/index.json", headers={"User-Agent": "Thoth-MCP-Runtime-Installer/1.0"})
+    request = urllib.request.Request("https://nodejs.org/dist/index.json", headers={"User-Agent": "Row-Bot-MCP-Runtime-Installer/1.0"})
     with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310 - explicit user-triggered runtime install
         releases = json.loads(response.read().decode("utf-8"))
     for release in releases:
@@ -461,7 +461,7 @@ def _latest_node_lts_version() -> str:
 
 def _node_checksum(version: str, asset_name: str) -> str | None:
     url = f"https://nodejs.org/dist/{version}/SHASUMS256.txt"
-    request = urllib.request.Request(url, headers={"User-Agent": "Thoth-MCP-Runtime-Installer/1.0"})
+    request = urllib.request.Request(url, headers={"User-Agent": "Row-Bot-MCP-Runtime-Installer/1.0"})
     with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310 - explicit user-triggered runtime install
         lines = response.read().decode("utf-8", errors="replace").splitlines()
     for line in lines:
@@ -498,7 +498,7 @@ def _install_node(progress: Callable[[str], None] | None = None) -> RuntimeInsta
     version = _latest_node_lts_version()
     asset_name, _ = _node_asset_name(version)
     base_url = f"https://nodejs.org/dist/{version}"
-    with tempfile.TemporaryDirectory(prefix="thoth_node_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="row_bot_node_") as tmp:
         archive = Path(tmp) / asset_name
         expected = _node_checksum(version, asset_name)
         _download(f"{base_url}/{asset_name}", archive, progress)
@@ -510,7 +510,7 @@ def _install_node(progress: Callable[[str], None] | None = None) -> RuntimeInsta
     bin_dir = extracted if platform.system().lower() == "windows" else extracted / "bin"
     _write_manifest("node", {"version": version, "bin_dir": str(bin_dir), "root": str(extracted), "source": "nodejs.org"})
     log_event("mcp.runtime_installed", runtime="node", version=version, bin_dir=str(bin_dir))
-    return RuntimeInstallResult(True, "node", f"Installed Node.js {version} for Thoth.", str(bin_dir), version)
+    return RuntimeInstallResult(True, "node", f"Installed Node.js {version} for Row-Bot.", str(bin_dir), version)
 
 
 def _uv_asset_fragment() -> str:
@@ -526,7 +526,7 @@ def _uv_asset_fragment() -> str:
 
 
 def _latest_uv_asset() -> tuple[str, str, str]:
-    request = urllib.request.Request("https://api.github.com/repos/astral-sh/uv/releases/latest", headers={"User-Agent": "Thoth-MCP-Runtime-Installer/1.0"})
+    request = urllib.request.Request("https://api.github.com/repos/astral-sh/uv/releases/latest", headers={"User-Agent": "Row-Bot-MCP-Runtime-Installer/1.0"})
     with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310 - explicit user-triggered runtime install
         release = json.loads(response.read().decode("utf-8"))
     fragment = _uv_asset_fragment()
@@ -542,7 +542,7 @@ def _install_uv(progress: Callable[[str], None] | None = None) -> RuntimeInstall
     version, asset_name, url = _latest_uv_asset()
     if not url:
         raise RuntimeError("uv release asset did not include a download URL")
-    with tempfile.TemporaryDirectory(prefix="thoth_uv_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="row_bot_uv_") as tmp:
         archive = Path(tmp) / asset_name
         _download(url, archive, progress)
         install_root = RUNTIMES_DIR / "uv" / version
@@ -554,7 +554,7 @@ def _install_uv(progress: Callable[[str], None] | None = None) -> RuntimeInstall
         bin_dir = extracted / "bin"
     _write_manifest("uv", {"version": version, "bin_dir": str(bin_dir), "root": str(extracted), "source": "github.com/astral-sh/uv"})
     log_event("mcp.runtime_installed", runtime="uv", version=version, bin_dir=str(bin_dir))
-    return RuntimeInstallResult(True, "uv", f"Installed uv {version} for Thoth.", str(bin_dir), version)
+    return RuntimeInstallResult(True, "uv", f"Installed uv {version} for Row-Bot.", str(bin_dir), version)
 
 
 def _install_playwright_chrome(progress: Callable[[str], None] | None = None) -> RuntimeInstallResult:
@@ -595,7 +595,7 @@ def _install_playwright_chrome(progress: Callable[[str], None] | None = None) ->
         "source": "playwright",
     })
     log_event("mcp.runtime_installed", runtime="playwright-chrome", browsers_dir=str(browsers_dir), executable_path=str(executable_path))
-    return RuntimeInstallResult(True, "playwright-chrome", "Installed Playwright browser for Thoth.", str(browsers_dir), "chromium")
+    return RuntimeInstallResult(True, "playwright-chrome", "Installed Playwright browser for Row-Bot.", str(browsers_dir), "chromium")
 
 
 def install_managed_runtime(runtime_id: str, progress: Callable[[str], None] | None = None) -> RuntimeInstallResult:

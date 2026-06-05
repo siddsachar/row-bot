@@ -1,5 +1,5 @@
 """
-Thoth – WhatsApp Channel Adapter
+Row-Bot – WhatsApp Channel Adapter
 ====================================
 WhatsApp bot using Baileys via a Node.js bridge subprocess.
 Communicates with the Node.js process over stdin/stdout JSON-RPC.
@@ -8,13 +8,13 @@ No browser required — connects via WebSocket directly.
 Setup:
     1. Click **▶️ Start** in Settings → Channels → WhatsApp
        (Node.js is auto-downloaded if not found on first start)
-    2. Scan the QR code displayed in the Thoth UI with your phone
+    2. Scan the QR code displayed in the Row-Bot UI with your phone
        (WhatsApp → Linked Devices → Link a Device)
-    5. Once authenticated, messages will be bridged to Thoth
+    5. Once authenticated, messages will be bridged to Row-Bot
 
 The bridge process manages WhatsApp authentication, QR code
 generation, and message passing.  Session data is persisted in
-``~/.thoth/whatsapp_session/`` so you only need to scan once.
+``~/.row-bot/whatsapp_session/`` so you only need to scan once.
 Self-chat is supported — message yourself to talk to the agent.
 
 Required keys (stored via api_keys):
@@ -52,7 +52,7 @@ from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.runtime_paths import app_root
 from row_bot.threads import _save_thread_meta
 
-log = logging.getLogger("thoth.whatsapp")
+log = logging.getLogger("row_bot.whatsapp")
 
 # ──────────────────────────────────────────────────────────────────────
 # Markdown → WhatsApp formatting converter
@@ -210,7 +210,7 @@ def _download_node(dest_dir: Path) -> Path:
     """Download and extract portable Node.js to *dest_dir*.
 
     Returns the path to the inner node directory, e.g.
-    ``~/.thoth/node/node-v22.15.0-win-x64/``.
+    ``~/.row-bot/node/node-v22.15.0-win-x64/``.
 
     Raises ``RuntimeError`` on failure.
     """
@@ -279,7 +279,7 @@ def _find_node_in_dir(base: Path) -> Path | None:
     in_bin = base / "bin" / name
     if in_bin.is_file():
         return in_bin
-    # Check subdirectories (e.g. ~/.thoth/node/node-v22.15.0-win-x64/)
+    # Check subdirectories (e.g. ~/.row-bot/node/node-v22.15.0-win-x64/)
     for child in base.iterdir():
         if child.is_dir() and child.name.startswith("node-"):
             for loc in (child / name, child / "bin" / name):
@@ -303,8 +303,8 @@ def _ensure_node() -> tuple[str, Path]:
     Search order:
     1. Bundled Node at ``{app_dir}/node/``  (Windows installer)
     2. System ``node`` on PATH
-    3. Cached portable at ``~/.thoth/node/``
-    4. Auto-download to ``~/.thoth/node/``
+    3. Cached portable at ``~/.row-bot/node/``
+    4. Auto-download to ``~/.row-bot/node/``
 
     Returns ``(node_cmd, node_dir)`` where *node_cmd* is the full path
     to the node binary and *node_dir* is its parent directory (for npm).
@@ -335,7 +335,7 @@ def _ensure_node() -> tuple[str, Path]:
         except Exception:
             pass  # Broken install, fall through
 
-    # 3. Cached portable in ~/.thoth/node/
+    # 3. Cached portable in ~/.row-bot/node/
     if NODE_DIR.is_dir():
         found = _find_node_in_dir(NODE_DIR)
         if found:
@@ -677,7 +677,7 @@ def _process_inbound(data: dict) -> None:
         push_name = data.get("pushName", "")
         if body and ch_auth.verify_pairing_code("whatsapp", chat_id, body,
                                                  display_name=push_name):
-            _send_message_sync(chat_id, "✅ Paired! You can now chat with Thoth.")
+            _send_message_sync(chat_id, "✅ Paired! You can now chat with Row-Bot.")
             return
         # Don't respond to unauthorised users
         return
@@ -1152,7 +1152,7 @@ def _send_message_sync(chat_id: str, text: str, *, wait_key: bool = False) -> di
 
 
 def _send_raw_sync(chat_id: str, text: str) -> None:
-    """Send a message without the Thoth prefix (for link previews)."""
+    """Send a message without the Row-Bot prefix (for link previews)."""
     try:
         _send_to_bridge("send_message", {"chatId": chat_id, "text": text, "raw": True})
     except Exception as exc:
@@ -1474,7 +1474,7 @@ class WhatsAppChannel(Channel):
             "   _(Node.js is auto-installed if not found — first start may take ~30s)_\n"
             "2. Scan the **QR code** with your phone:\n"
             "   WhatsApp → Settings → Linked Devices → Link a Device\n"
-            "3. Once authenticated, messages will be bridged to Thoth\n"
+            "3. Once authenticated, messages will be bridged to Row-Bot\n"
             "4. (Optional) Set your phone number below for auto-auth"
         )
 

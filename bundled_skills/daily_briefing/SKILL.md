@@ -8,7 +8,7 @@ version: "1.1"
 tags:
   - productivity
   - morning
-author: Thoth
+author: Row-Bot
 ---
 
 When the user asks for a **daily briefing**, **morning summary**, or **start-of-day update**, follow these steps:

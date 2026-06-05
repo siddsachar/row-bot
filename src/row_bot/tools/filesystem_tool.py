@@ -145,16 +145,16 @@ def _normalise_path(file_path: str, root_dir: str) -> str:
     LLM redundantly included it, and convert absolute paths that fall inside
     the workspace to relative ones.
 
-    Examples (root_dir = ``D:\\ThothWorkspace``):
-    - ``ThothWorkspace/notes.txt``  →  ``notes.txt``
-    - ``D:\\ThothWorkspace\\notes.txt``  →  ``notes.txt``
+    Examples (root_dir = ``D:\\Row-BotWorkspace``):
+    - ``Row-BotWorkspace/notes.txt``  →  ``notes.txt``
+    - ``D:\\Row-BotWorkspace\\notes.txt``  →  ``notes.txt``
     - ``notes.txt``  →  ``notes.txt``  (unchanged)
     """
     import os
     from pathlib import Path
 
     fp = file_path.replace("\\", "/").strip().strip("/")
-    root_name = Path(root_dir).name  # e.g. "ThothWorkspace"
+    root_name = Path(root_dir).name  # e.g. "Row-BotWorkspace"
 
     # Strip leading workspace folder name (case-insensitive)
     if fp.lower().startswith(root_name.lower() + "/"):

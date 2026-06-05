@@ -1,7 +1,7 @@
 """
-Thoth – Channel configuration store
+Row-Bot – Channel configuration store
 =====================================
-Lightweight key-value config persisted to ``~/.thoth/channels_config.json``.
+Lightweight key-value config persisted to ``~/.row-bot/channels_config.json``.
 Keeps channel settings separate from API keys and tool configs.
 """
 

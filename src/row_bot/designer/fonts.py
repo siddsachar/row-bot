@@ -2,7 +2,7 @@
 
 Three-tier resolution:
   1. static/fonts/   — 25 bundled fonts (always available)
-  2. ~/.thoth/font_cache/  — previously downloaded fonts
+  2. ~/.row-bot/font_cache/  — previously downloaded fonts
   3. Google Fonts CDN — fallback when online
   4. Closest bundled fallback font
 

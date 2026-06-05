@@ -2,7 +2,7 @@
   "name": "row-bot-whatsapp-bridge",
   "version": "2.0.0",
   "type": "module",
-  "description": "WhatsApp bridge for Thoth AI assistant (Baileys)",
+  "description": "WhatsApp bridge for Row-Bot AI assistant (Baileys)",
   "main": "bridge.js",
   "private": true,
   "dependencies": {

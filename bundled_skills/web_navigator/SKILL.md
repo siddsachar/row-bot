@@ -28,7 +28,7 @@ activation:
     - human tone
   examples:
     - Browse this site and extract pricing info
-author: Thoth
+author: Row-Bot
 ---
 
 When the user asks you to **browse a website**, **fill out a form**, **extract data from a page**, or perform any multi-step browser interaction, apply these strategic patterns:

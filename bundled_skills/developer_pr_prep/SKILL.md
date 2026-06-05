@@ -10,7 +10,7 @@ tools:
 tags:
   - developer
   - github
-author: Thoth
+author: Row-Bot
 ---
 
 # Developer PR Prep

@@ -34,8 +34,8 @@ from row_bot.vision import VisionService
 
 logger = logging.getLogger(__name__)
 
-ATTACHMENT_CONTEXT_START = "<thoth_attachment_context>"
-ATTACHMENT_CONTEXT_END = "</thoth_attachment_context>"
+ATTACHMENT_CONTEXT_START = "<row_bot_attachment_context>"
+ATTACHMENT_CONTEXT_END = "</row_bot_attachment_context>"
 
 
 # ═════════════════════════════════════════════════════════════════════════════

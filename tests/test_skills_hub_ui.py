@@ -62,7 +62,7 @@ def test_install_actions_pass_correct_enabled_default(tmp_path, monkeypatch):
     import os
     import sys
 
-    os.environ["THOTH_DATA_DIR"] = str(tmp_path)
+    os.environ["ROW_BOT_DATA_DIR"] = str(tmp_path)
     os.environ["ROW_BOT_DATA_DIR"] = str(tmp_path)
     for name in list(sys.modules):
         if name == "row_bot.skills" or name.startswith("row_bot.skills_hub"):

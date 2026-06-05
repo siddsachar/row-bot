@@ -1412,7 +1412,7 @@ def section_12_tool_subttools():
     try:
         from row_bot.tools.filesystem_tool import _normalise_path
         # Should strip workspace folder prefix
-        result = _normalise_path("ThothWorkspace/notes.txt", "D:\\ThothWorkspace")
+        result = _normalise_path("Row-BotWorkspace/notes.txt", "D:\\Row-BotWorkspace")
         if result == "notes.txt":
             record("PASS", "filesystem: _normalise_path strips workspace prefix")
         else:
@@ -1424,9 +1424,9 @@ def section_12_tool_subttools():
     try:
         from row_bot.tools.filesystem_tool import _is_outside_workspace
         # Absolute path outside workspace → True
-        outside = _is_outside_workspace("C:\\Windows\\system32\\cmd.exe", "D:\\ThothWorkspace")
+        outside = _is_outside_workspace("C:\\Windows\\system32\\cmd.exe", "D:\\Row-BotWorkspace")
         # Relative path → False (assumed inside)
-        inside_rel = _is_outside_workspace("notes.txt", "D:\\ThothWorkspace")
+        inside_rel = _is_outside_workspace("notes.txt", "D:\\Row-BotWorkspace")
         if outside and not inside_rel:
             record("PASS", "filesystem: _is_outside_workspace correctly distinguishes paths")
         else:
@@ -2023,7 +2023,7 @@ def section_15_bugfix_verifications():
     # --- 15i. Filesystem auto-creates workspace dir ---
     try:
         import tempfile, shutil, pathlib
-        _tmpdir15 = tempfile.mkdtemp(prefix="thoth_int15i_")
+        _tmpdir15 = tempfile.mkdtemp(prefix="row_bot_int15i_")
         _new_ws15 = str(pathlib.Path(_tmpdir15) / "auto_created")
         _fs15i = FileSystemTool()
         _old_ws15 = _fs15i.get_config("workspace_root", "")
@@ -3110,7 +3110,7 @@ def section_20_channel_infrastructure():
 
         result = dispatch("test", "/status")
         assert result is not None, "/status should return a response"
-        assert "Thoth" in result, f"/status response: {result[:100]}"
+        assert "Row-Bot" in result, f"/status response: {result[:100]}"
 
         # Non-command
         result = dispatch("test", "hello world")
@@ -3271,7 +3271,7 @@ def main():
         _fast_mode = True
 
     print("=" * 70)
-    print("THOTH INTEGRATION TESTS")
+    print("ROW-BOT INTEGRATION TESTS")
     print("=" * 70)
     if _fast_mode:
         print("⚡ Fast mode — skipping LLM-dependent tests")

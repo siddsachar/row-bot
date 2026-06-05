@@ -297,7 +297,7 @@ def _render_metadata(bundle: SkillBundle, entry: SkillHubEntry) -> None:
         "manifest": entry.metadata.get("manifest_badge"),
         "source_url": entry.url or bundle.metadata.get("url"),
         "install_ref": bundle.install_ref,
-        "install_path": f"~/.thoth/skills/{bundle.frontmatter.get('name') or bundle.root_name}",
+        "install_path": f"~/.row-bot/skills/{bundle.frontmatter.get('name') or bundle.root_name}",
     }
     clean = {key: value for key, value in meta.items() if value}
     if clean:

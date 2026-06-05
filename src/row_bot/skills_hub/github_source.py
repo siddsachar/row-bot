@@ -181,7 +181,7 @@ class GitHubSource(SkillSource):
         )
 
     def _headers(self) -> dict[str, str]:
-        return github_account.github_public_api_headers(user_agent="Thoth-Skills-Hub/1.0")
+        return github_account.github_public_api_headers(user_agent="Row-Bot-Skills-Hub/1.0")
 
     def _auth_status_message(self) -> str:
         try:

@@ -1,6 +1,6 @@
-"""Thoth Plugin System — total separation from core.
+"""Row-Bot Plugin System — total separation from core.
 
-Plugins are discovered from ``~/.thoth/installed_plugins/<id>/`` and loaded
+Plugins are discovered from ``~/.row-bot/installed_plugins/<id>/`` and loaded
 at startup.  Each plugin provides tools and/or skills that are injected into
 the agent alongside (but separate from) built-in tools and skills.
 

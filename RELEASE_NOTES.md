@@ -1,6 +1,69 @@
-# 𓁟 Thoth — Release Notes
+# Row-Bot - Release Notes
 
 ---
+
+## v4.0.0 - Row-Bot rebrand and migration release
+
+Row-Bot v4.0.0 is the public rebrand release. It moves the app, installers,
+runtime paths, release artifacts, public docs, and updater contract to Row-Bot
+while preserving compatibility with existing 3.x user data.
+
+### Rebrand Scope
+
+- **Product identity** - app copy, bundled skills, tool guides, docs, release
+  workflows, installer scripts, updater metadata, and public repository links now
+  use Row-Bot naming.
+- **Release assets** - v4 artifacts use `Row-Bot-X.Y.Z-Windows-x64.exe`,
+  `Row-Bot-X.Y.Z-macOS-{arm64|x86_64}.dmg`, and
+  `Row-Bot-X.Y.Z-Linux-ARCH.tar.gz`.
+- **Linux command and install tree** - Linux installs to the Row-Bot XDG tree and
+  exposes `row-bot` as the user command.
+- **Repository and website contract** - canonical public links target
+  `github.com/siddsachar/row-bot` and `https://row-bot.ai` after the owner-run
+  repository rename, DNS, and GitHub Pages switch are completed.
+
+### Migration Behavior
+
+- **Copy-first, non-destructive migration** - Row-Bot reads legacy 3.x data,
+  copies it into the new Row-Bot data locations, and leaves the old data in
+  place for rollback or manual recovery.
+- **One-shot migration guard** - migration records completion state so normal
+  launches do not repeatedly repair already-migrated data.
+- **Compatibility coverage** - provider settings, channels, skills, MCP servers,
+  plugins, Buddy assets, Designer workspaces, conversations, memories, tasks,
+  media, and updater state are covered by migration tests.
+- **Manual recovery path** - if automatic migration is interrupted, keep the old
+  data directory intact, back up both old and new directories, and use the v4
+  migration guide/checklist before retrying.
+
+### Breaking Changes And Caveats
+
+- Pre-v4 updater clients recognize the old 3.x artifact and manifest contract.
+  Existing users should download and run the Row-Bot v4 installer manually for
+  the major-version jump; do not publish duplicate legacy-named v4 assets.
+- Plugins must declare `min_row_bot_version`; the old minimum-version field is
+  no longer accepted by the v4 manifest validator.
+- Final website files `docs/index.html` and `docs/CNAME` remain gated until the
+  owner confirms GitHub Pages and DNS readiness.
+- The GitHub repository rename, repository metadata, DNS records, Pages custom
+  domain, HTTPS enforcement, marketplace references, tag creation, and release
+  publishing are owner-operated external steps.
+
+### Manual Release Checklist
+
+- Confirm `main` is green in CI after the final release commit.
+- Verify `origin` points to `https://github.com/siddsachar/row-bot.git` only
+  after the owner confirms the GitHub repository rename.
+- Verify GitHub Pages serves `row-bot.ai` over HTTPS before committing the final
+  `docs/CNAME` switch.
+- Manually test Windows fresh install and Windows upgrade/migration over a 3.x
+  install with realistic user data.
+- Manually test macOS DMG install/notarization flow on Apple Silicon and Intel
+  where artifacts are available.
+- Manually test Linux fresh install, one-line installer, desktop entry, server
+  mode, and update path on the release Linux smoke matrix.
+- Confirm the GitHub release body contains the Row-Bot SHA256 manifest entries
+  for every published artifact before publishing.
 
 ## v3.23.1 - Custom Endpoint Tool-Calling Hotfix
 

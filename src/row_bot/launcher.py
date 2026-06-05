@@ -65,20 +65,11 @@ _STARTUP_TIMEOUT_ENV = APP_STARTUP_TIMEOUT_ENV
 _ICON_SIZE = 64               # px for generated tray icons
 _APP_ICON_PATH = app_icon_path()
 _APP_GLYPH_PATH = static_dir() / "row_bot_glyph_256.png"
-_ACTIVE_TRAY: "ThothTray | None" = None
+_ACTIVE_TRAY: "RowBotTray | None" = None
 _OLLAMA_AUTOSTART_ENV = APP_AUTO_START_OLLAMA_ENV
 _GRACEFUL_SHUTDOWN_REQUEST_TIMEOUT = 3.0
 _GRACEFUL_SHUTDOWN_EXIT_TIMEOUT = 30.0
 _QUIT_WATCHDOG_TIMEOUT = 75.0
-_LEGACY_ENV_VARS_TO_DROP = {
-    "THOTH_AUTO_START_OLLAMA",
-    "THOTH_DATA_DIR",
-    "THOTH_HOST",
-    "THOTH_NATIVE",
-    "THOTH_PORT",
-    "THOTH_STARTUP_TIMEOUT",
-    "THOTH_WEBVIEW_STORAGE_PATH",
-}
 
 
 def _ensure_rebrand_migration() -> dict:
@@ -97,6 +88,12 @@ def _ensure_rebrand_migration() -> dict:
     return result
 
 
+def _legacy_runtime_env_vars() -> frozenset[str]:
+    from row_bot.migration.row_bot_legacy_rebrand import LEGACY_RUNTIME_ENV_VARS
+
+    return LEGACY_RUNTIME_ENV_VARS
+
+
 # ── Ollama auto-start ────────────────────────────────────────────────────────
 
 def _is_ollama_running() -> bool:
@@ -107,7 +104,7 @@ def _is_ollama_running() -> bool:
         return s.connect_ex(("127.0.0.1", _OLLAMA_PORT)) == 0
 
 
-def _thoth_data_dir() -> Path:
+def _row_bot_data_dir() -> Path:
     return get_row_bot_data_dir()
 
 
@@ -116,7 +113,7 @@ def _ensure_launcher_file_logging() -> None:
     if _LAUNCH_FILE_LOGGING:
         return
     try:
-        log_dir = _thoth_data_dir()
+        log_dir = _row_bot_data_dir()
         log_dir.mkdir(parents=True, exist_ok=True)
         handler = logging.FileHandler(log_dir / "launcher.log", encoding="utf-8")
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
@@ -197,7 +194,7 @@ def _should_auto_start_ollama() -> bool:
     if override is not None:
         return override.strip().lower() in {"1", "true", "yes", "on"}
 
-    data_dir = _thoth_data_dir()
+    data_dir = _row_bot_data_dir()
     model_settings = _read_json_file(data_dir / "model_settings.json")
     if _model_ref_requires_ollama(model_settings.get("model")):
         return True
@@ -343,7 +340,7 @@ def _is_row_bot_server(port: int, timeout: float = 0.25) -> bool:
     return f'"app":"{APP_PING_ID}"' in data.replace(" ", "").lower()
 
 
-def _find_existing_thoth_port(start: int = _PORT, max_tries: int = 50) -> int | None:
+def _find_existing_row_bot_port(start: int = _PORT, max_tries: int = 50) -> int | None:
     """Return an already-running Row-Bot port in the session range, if any."""
     for port in range(start, start + max_tries):
         if _is_port_in_use(port) and _is_row_bot_server(port):
@@ -435,7 +432,7 @@ def _log_app_log_tail(log_path: Path | None, *, max_lines: int = 80) -> None:
     logger.error("--- end app startup log tail ---")
 
 
-def _log_startup_failure_context(server: "_ThothProcess", port: int, reason: str) -> None:
+def _log_startup_failure_context(server: "_RowBotProcess", port: int, reason: str) -> None:
     exit_code = server.returncode
     logger.error("%s server failed to become ready on port %s: %s", APP_DISPLAY_NAME, port, reason)
     if exit_code is not None:
@@ -480,7 +477,7 @@ def _select_app_port(preferred: int = _PORT, max_tries: int = 50) -> tuple[int, 
 
 # ── NiceGUI subprocess management ───────────────────────────────────────────
 
-class _ThothProcess:
+class _RowBotProcess:
     """Wraps the NiceGUI app subprocess."""
 
     def __init__(self, port: int = _PORT, host: str | None = None) -> None:
@@ -510,7 +507,7 @@ class _ThothProcess:
         cmd = [python, str(app_py)]
 
         # Log file for diagnosing startup crashes.
-        log_dir = _thoth_data_dir()
+        log_dir = _row_bot_data_dir()
         log_dir.mkdir(parents=True, exist_ok=True)
         self._log_file = log_dir / LAUNCHER_APP_LOG_FILENAME
 
@@ -533,7 +530,7 @@ class _ThothProcess:
         env = {
             key: value
             for key, value in os.environ.items()
-            if key not in _LEGACY_ENV_VARS_TO_DROP
+            if key not in _legacy_runtime_env_vars()
         }
         env.update({
             "PYTHONNOUSERSITE": "1",
@@ -767,7 +764,7 @@ def _show_splash(port: int = _PORT, timeout: float = 60.0) -> subprocess.Popen |
         tk=os.environ.get("TK_LIBRARY", ""),
         python=sys.executable,
     )
-    log_dir = _thoth_data_dir()
+    log_dir = _row_bot_data_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
     splash_log = log_dir / "splash.log"
 
@@ -1364,7 +1361,7 @@ def _load_window_mode() -> str:
 
     Returns ``'ask'`` (default / first launch), ``'native'``, or ``'browser'``.
     """
-    config_path = _thoth_data_dir() / "app_config.json"
+    config_path = _row_bot_data_dir() / "app_config.json"
     try:
         import json
         cfg = json.loads(config_path.read_text())
@@ -1578,7 +1575,7 @@ def _open_window(port: int = _PORT, control_port: int | None = None) -> subproce
         return None
 
 
-def _wait_for_server(port: int = _PORT, timeout: float | None = None, server: _ThothProcess | None = None) -> bool:
+def _wait_for_server(port: int = _PORT, timeout: float | None = None, server: _RowBotProcess | None = None) -> bool:
     """Block until the NiceGUI server is reachable, or *timeout* expires."""
     deadline = time.monotonic() + (timeout if timeout is not None else _startup_timeout())
     while time.monotonic() < deadline:
@@ -1592,7 +1589,7 @@ def _wait_for_server(port: int = _PORT, timeout: float | None = None, server: _T
 
 # ── Tray application ────────────────────────────────────────────────────────
 
-class ThothTray:
+class RowBotTray:
     """System-tray icon that manages the NiceGUI server and native window."""
 
     def __init__(self, *, preferred_port: int = _PORT, host: str | None = None,
@@ -1606,7 +1603,7 @@ class ThothTray:
         self._preferred_mode = preferred_mode
         self._no_splash = no_splash
         self._no_ollama = no_ollama
-        self._server = _ThothProcess(self._port, host=host)
+        self._server = _RowBotProcess(self._port, host=host)
         self._owns_server = False          # True if *we* started it
         self._window_proc: subprocess.Popen | None = None
         self._window_control_port: int | None = None
@@ -1720,7 +1717,7 @@ class ThothTray:
                 return  # keep existing WebSocket connection alive
 
             # Platform trick failed — kill and spawn fresh window.
-            _ThothProcess._terminate_process(
+            _RowBotProcess._terminate_process(
                 self._window_proc,
                 label=f"{APP_DISPLAY_NAME} window",
                 timeout=3,
@@ -1798,7 +1795,7 @@ class ThothTray:
         def _quit_worker() -> None:
             try:
                 if self._is_window_alive():
-                    _ThothProcess._terminate_process(
+                    _RowBotProcess._terminate_process(
                         self._window_proc,
                         label=f"{APP_DISPLAY_NAME} window",
                         timeout=3,
@@ -1933,7 +1930,7 @@ class ThothTray:
 
 # ── Direct / headless launcher mode ─────────────────────────────────────────
 
-def _block_until_interrupted(server: _ThothProcess | None, owns_server: bool) -> None:
+def _block_until_interrupted(server: _RowBotProcess | None, owns_server: bool) -> None:
     try:
         while True:
             if owns_server and server is not None and not server.is_alive:
@@ -1955,7 +1952,7 @@ def _run_direct(args: argparse.Namespace) -> None:
 
     preferred = parse_app_port(args.port, default=_PORT)
     port, already_running = _select_app_port(preferred)
-    server = _ThothProcess(port, host=args.host)
+    server = _RowBotProcess(port, host=args.host)
     owns_server = False
 
     if already_running:
@@ -2020,7 +2017,7 @@ def _backup_family(path: Path, backup_dir: Path) -> list[tuple[Path, Path]]:
 
 
 def _reset_tasks_db() -> int:
-    data_dir = _thoth_data_dir()
+    data_dir = _row_bot_data_dir()
     tasks_db = get_tasks_db_path()
     backup_dir = data_dir / "recovery" / f"tasks-db-reset-{_timestamp()}"
     moved = _backup_family(tasks_db, backup_dir)
@@ -2043,7 +2040,7 @@ def _reset_tasks_db() -> int:
 
 
 def _reset_all_local_dbs() -> int:
-    data_dir = _thoth_data_dir()
+    data_dir = _row_bot_data_dir()
     backup_dir = data_dir / "recovery" / f"local-db-reset-{_timestamp()}"
     dbs = [get_tasks_db_path(), get_memory_db_path(), get_threads_db_path()]
     moved: list[tuple[Path, Path]] = []
@@ -2068,7 +2065,7 @@ def _reset_all_local_dbs() -> int:
 
 
 def _restore_data(selector: str | None = None) -> int:
-    data_dir = _thoth_data_dir()
+    data_dir = _row_bot_data_dir()
     recovery_root = data_dir / "recovery"
     if not recovery_root.exists():
         print(f"No restorable backup found under {recovery_root}")
@@ -2185,7 +2182,7 @@ def main(argv: list[str] | None = None) -> None:
                 args.browser = True
             _run_direct(args)
             return
-        tray = ThothTray(
+        tray = RowBotTray(
             preferred_port=parse_app_port(args.port, default=_PORT),
             host=args.host,
             preferred_mode=preferred_mode,

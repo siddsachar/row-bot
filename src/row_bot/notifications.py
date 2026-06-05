@@ -113,7 +113,7 @@ def _desktop_notify(title: str, message: str) -> None:
         notification.notify(
             title=title,
             message=message,
-            app_name="Thoth",
+            app_name="Row-Bot",
             timeout=15,
         )
     except Exception:

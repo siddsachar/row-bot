@@ -28,7 +28,7 @@ activation:
     - human tone
   examples:
     - Help me set up a recurring task every Monday
-author: Thoth
+author: Row-Bot
 ---
 
 When the user wants to **set up automations**, **create recurring workflows**, **schedule something**, or **set a reminder**, apply these principles:

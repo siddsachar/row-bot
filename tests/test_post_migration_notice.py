@@ -18,7 +18,7 @@ def test_post_migration_notice_builds_workspace_guidance_and_respects_seen_marke
     report = {
         "migration_id": mig.MIGRATION_ID,
         "status": "completed",
-        "source": str(tmp_path / ".thoth"),
+        "source": str(tmp_path / mig.LEGACY_DATA_DIR_NAME),
         "target": str(data_dir),
         "report_path": str(report_path),
         "files_copied_count": 12,
@@ -30,7 +30,7 @@ def test_post_migration_notice_builds_workspace_guidance_and_respects_seen_marke
         },
         "workspace_migration": {
             "action": "rewritten_to_row_bot_default",
-            "configured_workspace_before": str(tmp_path / "Documents" / "Thoth"),
+            "configured_workspace_before": str(tmp_path / "Documents" / mig.LEGACY_WORKSPACE_DIR_NAME),
             "configured_workspace_after": str(tmp_path / "Documents" / "Row-Bot"),
             "user_guidance": "Files were not moved.",
         },

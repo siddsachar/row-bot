@@ -223,7 +223,7 @@ def test_active_chat_input_uses_shared_voice_control_bridge():
     assert "p.active_voice_binding = None" in lifecycle_src
 
 
-def test_realtime_voice_uses_guarded_progress_cues_during_thoth_stream():
+def test_realtime_voice_uses_guarded_progress_cues_during_row_bot_stream():
     streaming_src = _source("src/row_bot/ui/streaming.py")
     presenter_src = _source("src/row_bot/voice/realtime_presenter.py")
     client_src = _source("src/row_bot/voice/realtime_client.py")

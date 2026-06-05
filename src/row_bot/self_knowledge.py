@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # STATIC: What I Am (~200 tokens)
 # ═════════════════════════════════════════════════════════════════════════════
 
-_ABOUT_THOTH_INTRO = (
+_ABOUT_ROW_BOT_INTRO = (
     "ABOUT YOU (SELF-KNOWLEDGE):\n"
     "You are a personal AI agent that runs locally on the user's machine.\n"
     "You combine a large language model with integrated tools, a persistent\n"
@@ -27,7 +27,7 @@ _ABOUT_THOTH_INTRO = (
     f"in ~/{DEFAULT_DATA_DIR_NAME}/. You are open-source.\n\n"
 )
 
-_ABOUT_THOTH_OUTRO = (
+_ABOUT_ROW_BOT_OUTRO = (
     "When the user asks about your features, capabilities, or how to configure\n"
     "something, draw on the above knowledge. You can also use the row_bot_status\n"
     "tool (when available) to look up live configuration details.\n"
@@ -257,16 +257,16 @@ def _build_capabilities_text_from_manifest() -> str:
     return "\n".join(lines)
 
 
-def _build_about_thoth() -> str:
+def _build_about_row_bot() -> str:
     """Build the static self-knowledge description from the manifest."""
     return "\n".join([
-        _ABOUT_THOTH_INTRO.rstrip(),
+        _ABOUT_ROW_BOT_INTRO.rstrip(),
         _build_capabilities_text_from_manifest(),
-        _ABOUT_THOTH_OUTRO.rstrip(),
+        _ABOUT_ROW_BOT_OUTRO.rstrip(),
     ]) + "\n"
 
 
-ABOUT_THOTH = _build_about_thoth()
+ABOUT_ROW_BOT = _build_about_row_bot()
 
 
 def lookup_features(query: str) -> list[dict[str, str]]:
@@ -418,7 +418,7 @@ def build_self_knowledge_block() -> str:
     Returns a string suitable for inserting as a SystemMessage.
     Omits skill-improvement guidance when self-improvement is disabled.
     """
-    sections = [ABOUT_THOTH]
+    sections = [ABOUT_ROW_BOT]
 
     try:
         from row_bot.identity import is_self_improvement_enabled

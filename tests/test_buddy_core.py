@@ -539,7 +539,7 @@ def test_buddy_hatch_google_pacing_only_applies_to_real_google_generator(monkeyp
     import row_bot.buddy.hatch as hatch_mod
 
     monkeypatch.setattr(hatch_mod, "_configured_video_model", lambda: "google/veo-3.1-generate-preview")
-    monkeypatch.setenv("THOTH_BUDDY_GOOGLE_VIDEO_SPACING_SECONDS", "15")
+    monkeypatch.setenv("ROW_BOT_BUDDY_GOOGLE_VIDEO_SPACING_SECONDS", "15")
 
     assert hatch_mod._motion_request_spacing_seconds() == 15
     assert hatch_mod._motion_request_spacing_seconds(lambda: None) == 0
@@ -599,7 +599,7 @@ def test_buddy_loader_maps_stale_legacy_absolute_hatch_paths(monkeypatch, tmp_pa
         clips[clip_id] = {"id": clip_id, "label": clip_id.title(), "path": f"{clip_id}.mp4", "animations": [clip_id], "duration_seconds": 5}
     (motion_dir / "manifest.json").write_text(json.dumps({"default_clip": "idle", "clips": clips}), encoding="utf-8")
 
-    legacy_pack_dir = tmp_path / ".thoth" / "buddy" / "packs" / "hatch-legacy"
+    legacy_pack_dir = tmp_path / "old-data" / "buddy" / "packs" / "hatch-legacy"
     (pack_dir / "manifest.json").write_text(
         json.dumps(
             {
@@ -614,7 +614,7 @@ def test_buddy_loader_maps_stale_legacy_absolute_hatch_paths(monkeypatch, tmp_pa
 
     pack = assets_mod.load_buddy_pack("hatch-legacy")
 
-    assert not (tmp_path / ".thoth").exists()
+    assert not (tmp_path / "old-data").exists()
     assert pack.status == "available"
     assert pack.preview_path == (pack_dir / "preview.png").resolve()
     assert pack.motion_pack_path == (motion_dir / "manifest.json").resolve()

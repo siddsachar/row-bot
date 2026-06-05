@@ -1,5 +1,5 @@
 """
-Thoth – Channel DM Pairing & Authentication
+Row-Bot – Channel DM Pairing & Authentication
 ==============================================
 Provides DM pairing codes so users on external channels (Slack, Discord,
 WhatsApp, SMS) can authenticate themselves before the agent processes
@@ -24,7 +24,7 @@ from enum import Enum
 
 from row_bot.channels import config as ch_config
 
-log = logging.getLogger("thoth.channels.auth")
+log = logging.getLogger("row_bot.channels.auth")
 
 _CODE_LENGTH = 8
 _CODE_TTL_SECONDS = 3600          # 1 hour

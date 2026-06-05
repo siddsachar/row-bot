@@ -1050,7 +1050,7 @@ def append_checkpoint_messages(thread_id: str, messages: list) -> bool:
 def pick_or_create_thread() -> dict:
     """Interactive menu to resume an existing thread or start a new one."""
     threads = _list_threads()
-    print("\n=== Thoth — Thread Manager ===")
+    print("\n=== Row-Bot — Thread Manager ===")
     print("  [0] Start a new conversation")
     for idx, (tid, name, created, updated, *_pick_rest) in enumerate(threads, start=1):
         print(f"  [{idx}] {name}  (last used: {updated[:16]})")

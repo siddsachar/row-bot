@@ -9,7 +9,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 
 def _fresh_memory_modules(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.knowledge_graph as knowledge_graph
     import row_bot.memory as memory
     import row_bot.memory_policy as memory_policy
@@ -200,7 +200,7 @@ def test_memory_policy_skips_greetings_and_runtime_status(tmp_path, monkeypatch)
 
 
 def test_agent_pre_model_trim_injects_policy_block_and_touches_only_selected(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.agent as agent
     agent = importlib.reload(agent)
 

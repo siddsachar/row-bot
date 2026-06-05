@@ -21,7 +21,7 @@ from typing import Any, Callable
 from nicegui import ui
 
 
-logger = logging.getLogger("thoth.ui.timer")
+logger = logging.getLogger("row_bot.ui.timer")
 
 
 _BENIGN_MARKERS = (

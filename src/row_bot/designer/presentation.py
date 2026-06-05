@@ -502,7 +502,7 @@ async def show_presentation(
     start_page: Optional[int] = None,
     presenter: bool = False,
 ) -> None:
-    """Open the presenter surface in Thoth and slides in a separate window."""
+    """Open the presenter surface in Row-Bot and slides in a separate window."""
     page_idx = start_page if start_page is not None else project.active_page
     session_id = uuid.uuid4().hex
     slides_window_key = f"row-bot-designer-slides-{project.id}-{session_id}"
@@ -521,7 +521,7 @@ async def show_presentation(
         session_id=session_id,
         window_key=slides_window_key,
     )
-    slides_title = f"Thoth Presentation — {project.name}"
+    slides_title = f"Row-Bot Presentation — {project.name}"
     slides_opened = await _open_managed_window(
         url=slides_url,
         name=slides_window_key,

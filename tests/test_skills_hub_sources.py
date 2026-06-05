@@ -650,7 +650,7 @@ def test_github_source_uses_public_safe_headers(monkeypatch):
     headers = GitHubSource()._headers()
 
     assert headers["X-Test"] == "public-safe"
-    assert calls == ["Thoth-Skills-Hub/1.0"]
+    assert calls == ["Row-Bot-Skills-Hub/1.0"]
 
 
 def test_github_source_reports_anonymous_fallback_status(monkeypatch):

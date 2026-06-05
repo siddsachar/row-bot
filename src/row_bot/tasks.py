@@ -17,7 +17,7 @@ Key features beyond v2.2.0 workflows
 * ``persistent_thread_id`` — opt-in to reuse the same conversation thread
   across runs
 
-Storage: SQLite at ``~/.thoth/tasks.db``.
+Storage: SQLite at ``~/.row-bot/tasks.db``.
 Migration: on first import, existing ``workflows.db`` data is migrated
 automatically and the old file is kept as a backup.
 """
@@ -1942,7 +1942,7 @@ def run_task_background(
         label = task.get("notify_label") or task["name"]
         from row_bot.notifications import notify
         notify(
-            title="⏰ Thoth Reminder",
+            title="⏰ Row-Bot Reminder",
             message=label,
             sound="timer",
             icon="⏰",
@@ -4666,7 +4666,7 @@ _DEFAULT_TASKS = [
             },
             {
                 "type": "approval",
-                "message": "Review the research brief before Thoth prepares the final shareable report.",
+                "message": "Review the research brief before Row-Bot prepares the final shareable report.",
                 "timeout_minutes": 120,
             },
             {

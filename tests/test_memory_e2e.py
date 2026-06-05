@@ -12,7 +12,7 @@ Tests the full memory pipeline with real LLM calls against the live database:
 
 All test entities use the ``__MTEST_`` prefix and are cleaned up after each
 section.  The script operates on the live database and uses real LLM calls.
-Thoth should NOT be running while these tests execute.
+Row-Bot should NOT be running while these tests execute.
 
 Usage:
     python test_memory_e2e.py                # run all sections
@@ -2413,7 +2413,7 @@ def section_16():
 
 if __name__ == "__main__":
     print("\n" + "=" * 70)
-    print("  THOTH MEMORY SYSTEM — END-TO-END INTEGRATION TESTS")
+    print("  ROW-BOT MEMORY SYSTEM — END-TO-END INTEGRATION TESTS")
     print("=" * 70)
     if _fast_mode:
         print("  ⚡ FAST MODE — skipping LLM-dependent tests")

@@ -317,7 +317,7 @@ def test_ollama_tool_probe_requires_tool_call_and_round_trip(monkeypatch):
                 "message": {
                     "role": "assistant",
                     "content": "",
-                    "tool_calls": [{"function": {"name": "thoth_probe", "arguments": {"value": "ok"}}}],
+                    "tool_calls": [{"function": {"name": "row_bot_probe", "arguments": {"value": "ok"}}}],
                 }
             })
         return Response(200, {"message": {"role": "assistant", "content": "ok"}})
@@ -331,7 +331,7 @@ def test_ollama_tool_probe_requires_tool_call_and_round_trip(monkeypatch):
     assert result["ok"] is True
     assert result["tool_calling"] is True
     assert result["tool_round_trip"] is True
-    assert calls[0]["tools"][0]["function"]["name"] == "thoth_probe"
+    assert calls[0]["tools"][0]["function"]["name"] == "row_bot_probe"
     assert calls[1]["messages"][1]["tool_calls"]
     assert calls[1]["messages"][2]["role"] == "tool"
 

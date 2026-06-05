@@ -11,7 +11,7 @@ def _case_dir():
 
 
 def _reload_embedding_config(monkeypatch, data_dir):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
     import row_bot.embedding_config as embedding_config
 
     return importlib.reload(embedding_config)

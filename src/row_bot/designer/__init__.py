@@ -1,4 +1,4 @@
-"""Thoth Designer — AI-powered multi-page design tool.
+"""Row-Bot Designer — AI-powered multi-page design tool.
 
 Create slide decks, one-pagers, marketing material, wireframes, and reports
 with live HTML/CSS preview, brand configuration, and export to PDF/PPTX/HTML/PNG.

@@ -115,7 +115,7 @@ def build_notice_payload(report: dict[str, Any]) -> dict[str, Any]:
     next_steps = [
         f"Keep the old data folder as a backup until you verify conversations, providers, channels, OAuth, tools, Buddy, MCP, plugins, and skills.",
         f"Review the legacy workspace before deleting it. Row-Bot does not move user-owned workspace files automatically.",
-        f"If you used the old default workspace, copy or move selected files from Documents/Thoth into Documents/{DEFAULT_WORKSPACE_DIR_NAME}.",
+        f"If you used the old default workspace, copy or move selected files from Documents/Row-Bot into Documents/{DEFAULT_WORKSPACE_DIR_NAME}.",
         "If you use a custom workspace, keep using it; no workspace move is required.",
     ]
     if source:

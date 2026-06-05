@@ -2,7 +2,7 @@
 
 Downloads plugin archives from the monorepo, validates before install,
 checks dependency conflicts against core, and manages the local
-``~/.thoth/installed_plugins/`` directory.
+``~/.row-bot/installed_plugins/`` directory.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ PLUGINS_DIR = DATA_DIR / "installed_plugins"
 # Base URL for downloading plugins from the monorepo
 # Each plugin directory is downloaded as: {BASE_URL}/plugins/{plugin_id}/
 DEFAULT_REPO_URL = os.environ.get(
-    "THOTH_PLUGIN_REPO_URL",
+    "ROW_BOT_PLUGIN_REPO_URL",
     "https://github.com/siddsachar/row-bot-plugins",
 )
 

@@ -32,7 +32,7 @@ activation:
     - human tone
   examples:
     - I need to research competitors and produce a structured report
-author: Thoth
+author: Row-Bot
 ---
 
 When the user asks you to **research a topic in depth**, **write a research report**, or **investigate something thoroughly**, follow these steps:

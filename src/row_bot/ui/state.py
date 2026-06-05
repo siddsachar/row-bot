@@ -1,4 +1,4 @@
-"""Thoth UI â€” shared application state.
+"""Row-Bot UI â€” shared application state.
 
 Contains the singleton ``AppState``, the per-thread ``GenerationState``
 dataclass, the per-client ``P`` page-element holder and the global

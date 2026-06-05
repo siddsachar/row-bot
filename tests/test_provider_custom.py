@@ -785,7 +785,7 @@ def test_custom_endpoint_probe_persists_models_and_probe_result(tmp_path, monkey
 
         def iter_lines(self):
             if self._stream_tool:
-                yield b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_stream_1","type":"function","function":{"name":"thoth_probe_echo"}}]}}]}'
+                yield b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_stream_1","type":"function","function":{"name":"row_bot_probe_echo"}}]}}]}'
                 yield b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"value\\":"}}]}}]}'
                 yield b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"ok\\"}"}}]}}]}'
                 yield b"data: [DONE]"
@@ -804,7 +804,7 @@ def test_custom_endpoint_probe_persists_models_and_probe_result(tmp_path, monkey
                         "tool_calls": [{
                             "id": "call_1",
                             "type": "function",
-                            "function": {"name": "thoth_probe_echo", "arguments": "{\"value\":\"ok\"}"},
+                            "function": {"name": "row_bot_probe_echo", "arguments": "{\"value\":\"ok\"}"},
                         }],
                     },
                 }],
@@ -889,7 +889,7 @@ def test_custom_endpoint_probe_records_vision_success_for_vision_model(tmp_path,
                         "tool_calls": [{
                             "id": "call_1",
                             "type": "function",
-                            "function": {"name": "thoth_probe_echo", "arguments": "{\"value\":\"ok\"}"},
+                            "function": {"name": "row_bot_probe_echo", "arguments": "{\"value\":\"ok\"}"},
                         }],
                     },
                 }],
@@ -987,7 +987,7 @@ def test_custom_endpoint_probe_records_vision_failure_without_blocking_agent_rea
                         "tool_calls": [{
                             "id": "call_1",
                             "type": "function",
-                            "function": {"name": "thoth_probe_echo", "arguments": "{\"value\":\"ok\"}"},
+                            "function": {"name": "row_bot_probe_echo", "arguments": "{\"value\":\"ok\"}"},
                         }],
                     },
                 }],
@@ -1053,7 +1053,7 @@ def test_custom_endpoint_probe_treats_empty_vision_probe_response_as_inconclusiv
                         "tool_calls": [{
                             "id": "call_1",
                             "type": "function",
-                            "function": {"name": "thoth_probe_echo", "arguments": "{\"value\":\"ok\"}"},
+                            "function": {"name": "row_bot_probe_echo", "arguments": "{\"value\":\"ok\"}"},
                         }],
                     },
                 }],
@@ -1121,7 +1121,7 @@ def test_custom_endpoint_probe_accepts_red_in_reasoning_when_content_empty(tmp_p
                         "tool_calls": [{
                             "id": "call_1",
                             "type": "function",
-                            "function": {"name": "thoth_probe_echo", "arguments": "{\"value\":\"ok\"}"},
+                            "function": {"name": "row_bot_probe_echo", "arguments": "{\"value\":\"ok\"}"},
                         }],
                     },
                 }],
@@ -1184,7 +1184,7 @@ def test_custom_endpoint_probe_skips_vision_for_text_only_model(tmp_path, monkey
                         "tool_calls": [{
                             "id": "call_1",
                             "type": "function",
-                            "function": {"name": "thoth_probe_echo", "arguments": "{\"value\":\"ok\"}"},
+                            "function": {"name": "row_bot_probe_echo", "arguments": "{\"value\":\"ok\"}"},
                         }],
                     },
                 }],
@@ -1485,7 +1485,7 @@ def test_custom_endpoint_probe_success_log_includes_round_trip_and_vision(tmp_pa
                         "tool_calls": [{
                             "id": "call_1",
                             "type": "function",
-                            "function": {"name": "thoth_probe_echo", "arguments": "{\"value\":\"ok\"}"},
+                            "function": {"name": "row_bot_probe_echo", "arguments": "{\"value\":\"ok\"}"},
                         }],
                     },
                 }],
@@ -1550,7 +1550,7 @@ def test_custom_endpoint_probe_records_streaming_failure(tmp_path, monkeypatch):
                         "tool_calls": [{
                             "id": "call_1",
                             "type": "function",
-                            "function": {"name": "thoth_probe_echo", "arguments": "{\"value\":\"ok\"}"},
+                            "function": {"name": "row_bot_probe_echo", "arguments": "{\"value\":\"ok\"}"},
                         }],
                     },
                 }],
@@ -1612,7 +1612,7 @@ def test_custom_endpoint_probe_does_not_treat_done_only_sse_as_streaming(tmp_pat
                         "tool_calls": [{
                             "id": "call_1",
                             "type": "function",
-                            "function": {"name": "thoth_probe_echo", "arguments": "{\"value\":\"ok\"}"},
+                            "function": {"name": "row_bot_probe_echo", "arguments": "{\"value\":\"ok\"}"},
                         }],
                     },
                 }],
@@ -1684,7 +1684,7 @@ def test_custom_endpoint_probe_records_malformed_streamed_tool_call(tmp_path, mo
                         "tool_calls": [{
                             "id": "call_1",
                             "type": "function",
-                            "function": {"name": "thoth_probe_echo", "arguments": "{\"value\":\"ok\"}"},
+                            "function": {"name": "row_bot_probe_echo", "arguments": "{\"value\":\"ok\"}"},
                         }],
                     },
                 }],

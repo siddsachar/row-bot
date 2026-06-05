@@ -1,4 +1,4 @@
-"""Optional local UI performance harness for a running Thoth instance.
+"""Optional local UI performance harness for a running Row-Bot instance.
 
 This intentionally stays outside the default test suite. It records coarse
 HTTP reachability timings and process RSS when pointed at an already running
@@ -43,8 +43,8 @@ def _rss_mb() -> float | None:
         return None
 
 
-def _thoth_home() -> Path:
-    return Path(os.environ.get("THOTH_HOME") or (Path.home() / ".thoth"))
+def _row_bot_home() -> Path:
+    return Path(os.environ.get("ROW_BOT_HOME") or (Path.home() / ".row-bot"))
 
 
 def _fetch(name: str, url: str, timeout: float) -> CheckResult:
@@ -68,7 +68,7 @@ def _fetch(name: str, url: str, timeout: float) -> CheckResult:
 
 
 def _resolve_transcript_thread(selector: str) -> tuple[str, str]:
-    db_path = _thoth_home() / "threads.db"
+    db_path = _row_bot_home() / "threads.db"
     if not db_path.exists():
         raise FileNotFoundError(f"threads.db not found at {db_path}")
     if selector and selector != "latest":
@@ -120,7 +120,7 @@ def _profile_transcript(selector: str) -> CheckResult:
 
 
 def _resolve_latest_blank_thread() -> tuple[str, str]:
-    db_path = _thoth_home() / "threads.db"
+    db_path = _row_bot_home() / "threads.db"
     if not db_path.exists():
         raise FileNotFoundError(f"threads.db not found at {db_path}")
     from row_bot.ui.helpers import load_thread_messages
@@ -178,7 +178,7 @@ def main() -> int:
         "--profile-transcript",
         default="",
         metavar="THREAD_ID|latest",
-        help="Profile real transcript loading/windowing from the local Thoth data store.",
+        help="Profile real transcript loading/windowing from the local Row-Bot data store.",
     )
     parser.add_argument(
         "--profile-blank-thread",

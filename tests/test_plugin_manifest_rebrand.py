@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 
-from row_bot.plugins.manifest import parse_manifest
+import pytest
+
+from row_bot.plugins.manifest import ManifestError, parse_manifest
 
 
 def _write_manifest(plugin_dir, payload: dict) -> None:
@@ -33,12 +35,11 @@ def test_manifest_uses_row_bot_version_field(tmp_path):
     assert manifest.min_row_bot_version == "3.21.0"
 
 
-def test_manifest_accepts_legacy_thoth_version_field(tmp_path):
+def test_manifest_rejects_missing_row_bot_version_field(tmp_path):
     plugin_dir = tmp_path / "legacy-plugin"
     payload = _base_manifest(min_row_bot_version="3.20.0")
-    payload["min_thoth_version"] = payload.pop("min_row_bot_version")
+    payload.pop("min_row_bot_version")
     _write_manifest(plugin_dir, payload)
 
-    manifest = parse_manifest(plugin_dir)
-
-    assert manifest.min_row_bot_version == "3.20.0"
+    with pytest.raises(ManifestError, match="min_row_bot_version"):
+        parse_manifest(plugin_dir)

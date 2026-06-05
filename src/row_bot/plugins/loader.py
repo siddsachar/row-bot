@@ -1,6 +1,6 @@
 """Plugin loader — discovery, validation, and lifecycle.
 
-Scans ``~/.thoth/installed_plugins/`` for plugin directories, validates
+Scans ``~/.row-bot/installed_plugins/`` for plugin directories, validates
 their manifests, and loads enabled plugins safely (try/except + timeout).
 """
 
@@ -346,7 +346,7 @@ def _call_register_with_timeout(plugin_dir: pathlib.Path, api: PluginAPI) -> Non
     def _do_register():
         try:
             spec = importlib.util.spec_from_file_location(
-                f"_thoth_plugin_{api.plugin_id}", main_path
+                f"_row_bot_plugin_{api.plugin_id}", main_path
             )
             if spec is None or spec.loader is None:
                 raise ImportError(f"Cannot create module spec for {main_path}")

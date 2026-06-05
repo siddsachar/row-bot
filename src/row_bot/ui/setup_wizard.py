@@ -1,4 +1,4 @@
-"""Thoth UI — first-launch setup wizard.
+"""Row-Bot UI — first-launch setup wizard.
 
 Builds the full-screen ``ui.dialog`` that walks the user through
 model selection and API key configuration on first launch.
@@ -996,13 +996,13 @@ async def show_setup_wizard(
                 setup_dlg.close()
                 await on_finish()
 
-            async def _open_thoth():
+            async def _open_row_bot():
                 await _finish_setup(continue_setup=False)
 
             async def _continue_setup():
                 await _finish_setup(continue_setup=True)
 
-            open_btn.on_click(_open_thoth)
+            open_btn.on_click(_open_row_bot)
             continue_btn.on_click(_continue_setup)
 
     setup_dlg.open()

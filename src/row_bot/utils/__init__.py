@@ -1,1 +1,1 @@
-"""Thoth shared utility helpers."""
+"""Row-Bot shared utility helpers."""

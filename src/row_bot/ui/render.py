@@ -1,4 +1,4 @@
-"""Thoth UI — message rendering helpers.
+"""Row-Bot UI — message rendering helpers.
 
 Pure UI builders — they create NiceGUI elements inside the current parent
 context.  They receive ``state`` and ``p`` explicitly, never via closure.
@@ -476,7 +476,7 @@ def _render_mermaid_with_save(source: str) -> None:
                     const intrinsicWidth = Math.max(
                         1,
                         Math.ceil(
-                            Number(svg.dataset.thothIntrinsicWidth || 0) ||
+                            Number(svg.dataset.rowBotIntrinsicWidth || 0) ||
                             (viewBox && viewBox.width) ||
                             (bbox && bbox.width) ||
                             box.width ||
@@ -486,7 +486,7 @@ def _render_mermaid_with_save(source: str) -> None:
                     const intrinsicHeight = Math.max(
                         1,
                         Math.ceil(
-                            Number(svg.dataset.thothIntrinsicHeight || 0) ||
+                            Number(svg.dataset.rowBotIntrinsicHeight || 0) ||
                             (viewBox && viewBox.height) ||
                             (bbox && bbox.height) ||
                             box.height ||

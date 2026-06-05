@@ -1,4 +1,4 @@
-"""Embedding provider configuration for Thoth knowledge and documents."""
+"""Embedding provider configuration for Row-Bot knowledge and documents."""
 
 from __future__ import annotations
 

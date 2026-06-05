@@ -1,7 +1,7 @@
 """
-Thoth – Slack Channel Adapter
+Row-Bot – Slack Channel Adapter
 ================================
-Socket Mode Slack bot that bridges messages to the Thoth agent.
+Socket Mode Slack bot that bridges messages to the Row-Bot agent.
 
 Setup:
     1. Go to https://api.slack.com/apps → **Create New App** → From Scratch
@@ -42,7 +42,7 @@ from row_bot.channels import commands as ch_commands
 from row_bot.channels import auth as ch_auth
 from row_bot.threads import _save_thread_meta, _list_threads
 
-log = logging.getLogger("thoth.slack")
+log = logging.getLogger("row_bot.slack")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -133,7 +133,7 @@ def _make_thread_id(channel_id: str) -> str:
 
 
 def _get_or_create_thread(channel_id: str) -> str:
-    """Return the Thoth thread ID for a Slack channel/DM, creating if needed."""
+    """Return the Row-Bot thread ID for a Slack channel/DM, creating if needed."""
     thread_id = _make_thread_id(channel_id)
     name = f"💬 Slack – {channel_id}"
     _save_thread_meta(thread_id, name)  # creates or bumps updated_at
@@ -504,7 +504,7 @@ async def _handle_dm(event: dict, say, client) -> None:
     if not _is_authorised(user_id):
         # Check if it's a pairing code
         if ch_auth.verify_pairing_code("slack", user_id, text):
-            await say("✅ Paired successfully! You can now chat with Thoth.",
+            await say("✅ Paired successfully! You can now chat with Row-Bot.",
                        channel=channel_id)
             return
         await say("🔒 Not authorised. Send your pairing code to get started.",

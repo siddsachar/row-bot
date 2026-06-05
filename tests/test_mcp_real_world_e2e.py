@@ -1,6 +1,6 @@
 """Opt-in real-world MCP end-to-end tests.
 
-Set THOTH_MCP_REAL_WORLD_E2E=1 to run these checks. They touch live public MCP
+Set ROW_BOT_MCP_REAL_WORLD_E2E=1 to run these checks. They touch live public MCP
 servers and are intentionally skipped during normal CI and local smoke tests.
 """
 
@@ -13,7 +13,7 @@ import unittest
 from scripts.mcp_real_world_e2e import run
 
 
-@unittest.skipUnless(os.environ.get("THOTH_MCP_REAL_WORLD_E2E") == "1", "set THOTH_MCP_REAL_WORLD_E2E=1 to run live MCP E2E checks")
+@unittest.skipUnless(os.environ.get("ROW_BOT_MCP_REAL_WORLD_E2E") == "1", "set ROW_BOT_MCP_REAL_WORLD_E2E=1 to run live MCP E2E checks")
 class McpRealWorldE2ETests(unittest.TestCase):
     def test_public_no_auth_targets(self) -> None:
         args = argparse.Namespace(

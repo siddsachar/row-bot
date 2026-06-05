@@ -30,7 +30,7 @@ CACHE_TTL_SECONDS = 3600
 DEFAULT_INDEX_URL = os.environ.get(
     "ROW_BOT_PLUGIN_INDEX_URL",
 ) or os.environ.get(
-    "THOTH_PLUGIN_INDEX_URL",
+    "ROW_BOT_PLUGIN_INDEX_URL",
 ) or (
     "https://raw.githubusercontent.com/siddsachar/row-bot-plugins/main/index.json"
 )
@@ -237,7 +237,7 @@ def _parse_index(raw: dict) -> MarketplaceIndex:
             author_name=author.get("name", "") if isinstance(author, dict) else "",
             author_github=author.get("github", "") if isinstance(author, dict) else "",
             tags=entry.get("tags", []),
-            min_row_bot_version=entry.get("min_row_bot_version", entry.get("min_thoth_version", "")),
+            min_row_bot_version=entry.get("min_row_bot_version", ""),
             tool_count=provides.get("tools", 0) if isinstance(provides, int) is False else 0,
             skill_count=provides.get("skills", 0) if isinstance(provides, int) is False else 0,
             verified=entry.get("verified", False),

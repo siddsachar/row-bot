@@ -58,7 +58,7 @@ def install_bundle(
     normalized_bundle = _normalized_installed_bundle(bundle, local_name)
     installed_hash = normalized_bundle.content_hash
 
-    with tempfile.TemporaryDirectory(prefix="thoth_skill_hub_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="row_bot_skill_hub_") as tmp:
         staged = pathlib.Path(tmp) / local_name
         _write_bundle_to_dir(normalized_bundle, staged)
         _assert_inside(staged, pathlib.Path(tmp))
@@ -149,7 +149,7 @@ def update_skill(local_name: str, *, enabled: bool | None = None) -> InstallResu
 
     _backup_existing_skill(record.local_name, reason="hub-update")
     dest = skills.USER_SKILLS_DIR / record.local_name
-    with tempfile.TemporaryDirectory(prefix="thoth_skill_hub_update_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="row_bot_skill_hub_update_") as tmp:
         staged = pathlib.Path(tmp) / record.local_name
         _write_bundle_to_dir(normalized, staged)
         if dest.exists():

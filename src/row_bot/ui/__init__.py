@@ -1,1 +1,1 @@
-# Thoth UI package — modular NiceGUI frontend.
+# Row-Bot UI package — modular NiceGUI frontend.

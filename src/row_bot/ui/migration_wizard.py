@@ -138,7 +138,7 @@ def field_help_text(key: str) -> str:
     return FIELD_HELP[key]
 
 
-def default_thoth_data_dir() -> Path:
+def default_row_bot_data_dir() -> Path:
     return get_row_bot_data_dir(create=False)
 
 
@@ -274,7 +274,7 @@ def build_migration_wizard_tab(reopen: Callable[[str], None] | None = None) -> N
     async def _browse_target() -> None:
         from row_bot.ui.helpers import browse_folder
 
-        picked = await browse_folder(f"Select {APP_DISPLAY_NAME} data folder", str(target_path.value or default_thoth_data_dir()))
+        picked = await browse_folder(f"Select {APP_DISPLAY_NAME} data folder", str(target_path.value or default_row_bot_data_dir()))
         if picked:
             target_path.value = picked
 
@@ -440,7 +440,7 @@ def build_migration_wizard_tab(reopen: Callable[[str], None] | None = None) -> N
             ui.spinner(size="lg")
         try:
             source_root = Path(str(source_path.value or "")).expanduser()
-            target_root = Path(str(target_path.value or default_thoth_data_dir())).expanduser()
+            target_root = Path(str(target_path.value or default_row_bot_data_dir())).expanduser()
             plan = await run.io_bound(
                 lambda: build_migration_plan(
                     str(provider.value),
@@ -503,7 +503,7 @@ def build_migration_wizard_tab(reopen: Callable[[str], None] | None = None) -> N
             ui.label(field_help_text("source")).classes("text-caption text-grey-6")
             ui.button("Browse old agent folder", icon="folder_open", on_click=_browse_source).props("flat dense")
 
-            target_path = ui.input(f"{APP_DISPLAY_NAME} target data folder", value=str(default_thoth_data_dir())).classes("w-full q-mt-sm")
+            target_path = ui.input(f"{APP_DISPLAY_NAME} target data folder", value=str(default_row_bot_data_dir())).classes("w-full q-mt-sm")
             ui.label(field_help_text("target")).classes("text-caption text-grey-6")
             ui.button(f"Browse {APP_DISPLAY_NAME} target folder", icon="folder_open", on_click=_browse_target).props("flat dense")
 

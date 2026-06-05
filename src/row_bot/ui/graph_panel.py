@@ -1,4 +1,4 @@
-"""Thoth UI — knowledge-graph explorer panel.
+"""Row-Bot UI — knowledge-graph explorer panel.
 
 Self-contained vis-network graph builder.  Can be called from any
 NiceGUI parent context.
@@ -549,7 +549,7 @@ def build_graph_panel() -> None:
         '    G.wireControls();'
         '    G.createNetwork(G.allNodes, G.allEdges, G.centerId);'
         '    G.applyFilters();'   # Apply default filters AFTER network exists
-        '    window.rowBotGraphRedraw = window.thothGraphRedraw = function() {'
+        '    window.rowBotGraphRedraw = window.rowBotGraphRedraw = function() {'
         '      if (!document.getElementById("graph-container")) return;'
         '      G.wireControls();'
         '      G.createNetwork(G.currentNodes, G.currentEdges, null);'

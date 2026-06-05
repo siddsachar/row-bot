@@ -225,10 +225,10 @@ def _looks_like_custom_tool_source(path: Path) -> bool:
         ".row-bot-custom-tool.json",
         "custom-tool.json",
         "row-bot-capsule.json",
-        "thoth-custom-tool.json",
-        ".thoth-custom-tool.json",
-        "thoth-capsule.json",
-        ".thoth-capsule.json",
+        "row-bot-custom-tool.json",
+        ".row-bot-custom-tool.json",
+        "row-bot-capsule.json",
+        ".row-bot-capsule.json",
         "README.md",
         "README.rst",
         "README.txt",
@@ -268,10 +268,10 @@ def parse_capsule_manifest(installed_path: str) -> dict:
         "custom-tool.json",
         "row-bot-capsule.json",
         ".row-bot-capsule.json",
-        "thoth-custom-tool.json",
-        ".thoth-custom-tool.json",
-        "thoth-capsule.json",
-        ".thoth-capsule.json",
+        "row-bot-custom-tool.json",
+        ".row-bot-custom-tool.json",
+        "row-bot-capsule.json",
+        ".row-bot-capsule.json",
         "capsule.json",
     ):
         path = root / filename
@@ -358,9 +358,9 @@ def propose_capsule_manifest(installed_path: str, *, source_url: str = "", use_a
             fallback = _deterministic_capsule_manifest(root, source_url=source_url)
             detail = str(exc).strip()
             if "Skipped " in detail or "no safe commands" in detail.lower():
-                fallback.warnings.insert(0, "AI proposal was rejected by safety validation, so Thoth used the basic scanner.")
+                fallback.warnings.insert(0, "AI proposal was rejected by safety validation, so Row-Bot used the basic scanner.")
             else:
-                fallback.warnings.insert(0, "AI analysis was unavailable, so Thoth used the basic scanner.")
+                fallback.warnings.insert(0, "AI analysis was unavailable, so Row-Bot used the basic scanner.")
             if detail:
                 fallback.warnings.insert(1, f"AI detail: {detail[:240]}")
             return fallback
@@ -660,7 +660,7 @@ def generate_custom_tool_proposal_with_llm(installed_path: str, *, source_url: s
         raise ValueError(f"Custom Tool folder does not exist: {installed_path}")
 
     brief = _build_custom_tool_repo_brief(root, source_url=source_url)
-    prompt = f"""You are designing a Thoth Custom Tool from a local repository.
+    prompt = f"""You are designing a Row-Bot Custom Tool from a local repository.
 
 Return ONLY valid JSON. Do not wrap in markdown.
 
@@ -734,10 +734,10 @@ def write_capsule_manifest(
                 "custom-tool.json",
                 "row-bot-capsule.json",
                 ".row-bot-capsule.json",
-                "thoth-custom-tool.json",
-                ".thoth-custom-tool.json",
-                "thoth-capsule.json",
-                ".thoth-capsule.json",
+                "row-bot-custom-tool.json",
+                ".row-bot-custom-tool.json",
+                "row-bot-capsule.json",
+                ".row-bot-capsule.json",
                 "capsule.json",
             )
             if (root / filename).exists()
@@ -853,7 +853,7 @@ def refine_custom_tool_draft_with_llm(draft_id: str, instruction: str, *, model:
         "commands": draft.commands,
         "warnings": draft.warnings,
     }
-    prompt = f"""Refine this Thoth Custom Tool draft.
+    prompt = f"""Refine this Row-Bot Custom Tool draft.
 
 Return ONLY valid JSON. Do not wrap in markdown.
 
@@ -974,10 +974,10 @@ def create_tool_from_draft(draft_id: str, *, overwrite: bool = False, community:
             "custom-tool.json",
             "row-bot-capsule.json",
             ".row-bot-capsule.json",
-            "thoth-custom-tool.json",
-            ".thoth-custom-tool.json",
-            "thoth-capsule.json",
-            ".thoth-capsule.json",
+            "row-bot-custom-tool.json",
+            ".row-bot-custom-tool.json",
+            "row-bot-capsule.json",
+            ".row-bot-capsule.json",
             "capsule.json",
         )
     )
@@ -1078,7 +1078,7 @@ def custom_tool_builder(
             if not clone_parent:
                 return {
                     "needs_input": "clone_parent",
-                    "message": "Choose a local parent folder where Thoth should clone this Custom Tool source.",
+                    "message": "Choose a local parent folder where Row-Bot should clone this Custom Tool source.",
                     "source_url": source,
                 }
             parent = Path(clone_parent).expanduser().resolve()

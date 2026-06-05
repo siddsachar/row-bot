@@ -1,4 +1,4 @@
-"""Thoth UI — Command Center (right drawer).
+"""Row-Bot UI — Command Center (right drawer).
 
 Fixed right-side panel with live workflow monitoring, approvals,
 quick launch, and recent run history.

@@ -118,7 +118,7 @@ def _source_badges(source: dict[str, Any]) -> list[tuple[str, str]]:
         badges.append((trust.replace("_", " "), "green" if "official" in trust else "grey"))
     if risk:
         badges.append((f"{risk} risk", "red" if risk == "high" else "orange" if risk == "medium" else "green"))
-    if source.get("not_verified_by_thoth"):
+    if source.get("not_verified_by_row_bot"):
         badges.append((f"not audited by {APP_DISPLAY_NAME}", "grey"))
     return badges
 

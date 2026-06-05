@@ -108,7 +108,7 @@ def preflight_optional_native_packages(
 def _install_root_hint() -> str:
     import os
 
-    root = os.environ.get("THOTH_INSTALL_ROOT")
+    root = os.environ.get("ROW_BOT_INSTALL_ROOT")
     if root:
         return root
     try:

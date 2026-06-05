@@ -1,4 +1,4 @@
-"""Thoth UI - sidebar (left drawer) with thread list.
+"""Row-Bot UI - sidebar (left drawer) with thread list.
 
 Builds the sidebar drawer, home/new buttons, thread listing, and
 settings/help buttons.  All navigation is handled via callbacks so

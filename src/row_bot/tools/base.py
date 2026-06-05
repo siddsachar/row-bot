@@ -1,4 +1,4 @@
-"""Base class for all Thoth tools."""
+"""Base class for all Row-Bot tools."""
 
 from __future__ import annotations
 

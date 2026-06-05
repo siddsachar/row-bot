@@ -1,4 +1,4 @@
-"""Thoth Insights Engine — storage and management for automated insights.
+"""Row-Bot Insights Engine — storage and management for automated insights.
 
 The dream cycle's Phase 5 generates insights about error patterns, tool
 configuration, knowledge quality, usage patterns, and system health.

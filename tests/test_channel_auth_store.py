@@ -21,7 +21,7 @@ def data_dir():
 
 
 def _reload_auth_modules(monkeypatch, data_dir):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
     import row_bot.secret_store as secret_store
     import row_bot.api_keys as api_keys
     import row_bot.channels.auth_store as channel_auth

@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
+from row_bot.migration.row_bot_legacy_rebrand import LEGACY_DATA_DIR_ENV
+
 
 def test_brand_constants_define_row_bot_identity():
     import row_bot.brand as brand
@@ -35,7 +37,7 @@ def test_data_path_helpers_default_to_row_bot_target(tmp_path, monkeypatch):
     data_paths = importlib.reload(data_paths)
 
     monkeypatch.delenv("ROW_BOT_DATA_DIR", raising=False)
-    monkeypatch.delenv("THOTH_DATA_DIR", raising=False)
+    monkeypatch.delenv(LEGACY_DATA_DIR_ENV, raising=False)
     monkeypatch.setattr(brand.Path, "home", classmethod(lambda cls: tmp_path))
     monkeypatch.setattr(data_paths.Path, "home", classmethod(lambda cls: tmp_path))
 
@@ -52,7 +54,7 @@ def test_row_bot_data_dir_ignores_legacy_runtime_env(tmp_path, monkeypatch):
     target = tmp_path / "target"
     legacy = tmp_path / "legacy"
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(target))
-    monkeypatch.setenv("THOTH_DATA_DIR", str(legacy))
+    monkeypatch.setenv(LEGACY_DATA_DIR_ENV, str(legacy))
 
     data_paths = importlib.reload(data_paths)
 
@@ -63,12 +65,10 @@ def test_row_bot_data_dir_ignores_legacy_runtime_env(tmp_path, monkeypatch):
     assert data_paths.get_row_bot_data_dir(create=False) != legacy
 
 
-def test_test_harness_pins_both_data_envs_to_same_sandbox():
+def test_test_harness_pins_row_bot_data_env_to_sandbox():
     import os
 
     row_bot_dir = Path(os.environ["ROW_BOT_DATA_DIR"]).resolve()
-    legacy_dir = Path(os.environ["THOTH_DATA_DIR"]).resolve()
 
-    assert row_bot_dir == legacy_dir
     assert ".tmp" in row_bot_dir.parts
     assert Path.cwd().resolve() in row_bot_dir.parents

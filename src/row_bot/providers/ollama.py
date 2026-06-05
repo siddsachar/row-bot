@@ -89,7 +89,7 @@ def probe_ollama_tool_round_trip(model_id: str, *, force: bool = False, timeout:
     tool = {
         "type": "function",
         "function": {
-            "name": "thoth_probe",
+            "name": "row_bot_probe",
             "description": "Return the requested probe value.",
             "parameters": {
                 "type": "object",
@@ -109,7 +109,7 @@ def probe_ollama_tool_round_trip(model_id: str, *, force: bool = False, timeout:
                 "model": model_id,
                 "messages": [{
                     "role": "user",
-                    "content": "Call the thoth_probe tool with value set to ok. Do not answer in prose.",
+                    "content": "Call the row_bot_probe tool with value set to ok. Do not answer in prose.",
                 }],
                 "tools": [tool],
                 "stream": False,
@@ -136,7 +136,7 @@ def probe_ollama_tool_round_trip(model_id: str, *, force: bool = False, timeout:
             json={
                 "model": model_id,
                 "messages": [
-                    {"role": "user", "content": "Call the thoth_probe tool with value set to ok. Do not answer in prose."},
+                    {"role": "user", "content": "Call the row_bot_probe tool with value set to ok. Do not answer in prose."},
                     assistant_message,
                     {"role": "tool", "content": "{\"value\":\"ok\"}"},
                 ],

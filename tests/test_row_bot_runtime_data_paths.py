@@ -7,6 +7,8 @@ import sys
 import textwrap
 from pathlib import Path
 
+from row_bot.migration.row_bot_legacy_rebrand import LEGACY_DATA_DIR_ENV, LEGACY_DATA_DIR_NAME
+
 
 def test_runtime_persistence_modules_use_row_bot_data_dir(tmp_path):
     fake_home = tmp_path / "home"
@@ -18,6 +20,8 @@ def test_runtime_persistence_modules_use_row_bot_data_dir(tmp_path):
         import importlib
         import json
         import pathlib
+
+        from row_bot.migration.row_bot_legacy_rebrand import LEGACY_DATA_DIR_NAME
 
         def runtime_module(name):
             return importlib.import_module(f"row_bot.{name}")
@@ -104,8 +108,8 @@ def test_runtime_persistence_modules_use_row_bot_data_dir(tmp_path):
 
         payload = {
             "home": str(pathlib.Path.home()),
-            "legacy_exists": str(pathlib.Path.home() / ".thoth"),
-            "legacy_created": (pathlib.Path.home() / ".thoth").exists(),
+            "legacy_exists": str(pathlib.Path.home() / LEGACY_DATA_DIR_NAME),
+            "legacy_created": (pathlib.Path.home() / LEGACY_DATA_DIR_NAME).exists(),
             "checks": {name: str(path) for name, path in checks.items()},
         }
         print(json.dumps(payload))
@@ -114,7 +118,7 @@ def test_runtime_persistence_modules_use_row_bot_data_dir(tmp_path):
 
     env = os.environ.copy()
     env["ROW_BOT_DATA_DIR"] = str(row_bot_data)
-    env.pop("THOTH_DATA_DIR", None)
+    env.pop(LEGACY_DATA_DIR_ENV, None)
     env["HOME"] = str(fake_home)
     env["USERPROFILE"] = str(fake_home)
     env["PYTHONPATH"] = os.pathsep.join([str(Path.cwd() / "src"), str(Path.cwd())])
@@ -132,7 +136,7 @@ def test_runtime_persistence_modules_use_row_bot_data_dir(tmp_path):
     payload = json.loads(result.stdout)
     assert payload["home"] == str(fake_home)
     assert payload["legacy_created"] is False
-    assert not (fake_home / ".thoth").exists()
+    assert not (fake_home / LEGACY_DATA_DIR_NAME).exists()
 
     row_bot_root = row_bot_data.resolve()
     for label, raw_path in payload["checks"].items():

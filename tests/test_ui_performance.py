@@ -20,7 +20,7 @@ def test_load_generation_tokens() -> None:
 def test_warn_if_slow_logs_warning(caplog) -> None:
     from row_bot.ui.performance import warn_if_slow
 
-    with caplog.at_level(logging.WARNING, logger="thoth.ui.performance"):
+    with caplog.at_level(logging.WARNING, logger="row_bot.ui.performance"):
         assert warn_if_slow("unit.test", 12.0, threshold_ms=1.0, rows=3)
 
     assert "unit.test" in caplog.text
@@ -30,7 +30,7 @@ def test_warn_if_slow_logs_warning(caplog) -> None:
 def test_timed_ui_section_logs_elapsed(caplog) -> None:
     from row_bot.ui.performance import timed_ui_section
 
-    with caplog.at_level(logging.INFO, logger="thoth.ui.performance"):
+    with caplog.at_level(logging.INFO, logger="row_bot.ui.performance"):
         with timed_ui_section("unit.section", threshold_ms=10_000):
             pass
 

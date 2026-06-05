@@ -1,4 +1,4 @@
-/* Thoth Designer — interactive runtime styles.
+/* Row-Bot Designer — interactive runtime styles.
    Route sections are stacked; only the active one is visible. Visibility is
    scoped to the outer host section (data-row-bot-route-host) so that any stray
    data-row-bot-route attributes inside agent-authored page HTML do not get

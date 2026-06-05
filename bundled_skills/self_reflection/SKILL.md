@@ -27,7 +27,7 @@ activation:
     - meeting notes
   examples:
     - Review what you know about me and clean stale memory
-author: Thoth
+author: Row-Bot
 ---
 
 When the user asks you to **review your memories**, **check what you know**, **clean up your knowledge**, or when you notice a potential contradiction in recalled memories, apply this process:

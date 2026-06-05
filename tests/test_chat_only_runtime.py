@@ -35,7 +35,7 @@ def _chat_ready_result():
 
 
 def test_build_chat_only_messages_for_fresh_thread_has_no_hidden_history(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / ".row-bot"))
     import row_bot.agent as agent
     import row_bot.threads as threads
 
@@ -69,7 +69,7 @@ def test_chat_only_history_marks_prior_tools_without_tool_bodies():
 
 
 def test_stream_chat_only_streams_and_persists_without_tools(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / ".row-bot"))
     from langchain_core.messages import AIMessageChunk
     import row_bot.agent as agent
     import row_bot.providers.readiness as readiness
@@ -101,7 +101,7 @@ def test_stream_chat_only_streams_and_persists_without_tools(tmp_path, monkeypat
 
 
 def test_stream_chat_only_reasoning_only_returns_error_without_persisting(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / ".row-bot"))
     from langchain_core.messages import AIMessageChunk
     import row_bot.agent as agent
     import row_bot.providers.readiness as readiness
@@ -130,7 +130,7 @@ def test_stream_chat_only_reasoning_only_returns_error_without_persisting(tmp_pa
 
 
 def test_stream_chat_only_llm_creation_error_names_selected_model(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / ".row-bot"))
     import row_bot.agent as agent
     import row_bot.providers.readiness as readiness
     import row_bot.threads as threads
@@ -161,7 +161,7 @@ def test_friendly_api_error_does_not_call_generic_400_tool_error(monkeypatch):
 
 
 def test_stream_agent_auto_routes_visible_chat_only_without_graph(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / ".row-bot"))
     import row_bot.agent as agent
     import row_bot.providers.readiness as readiness
 
@@ -189,7 +189,7 @@ def test_stream_agent_auto_routes_visible_chat_only_without_graph(tmp_path, monk
 
 
 def test_stream_agent_logs_resolved_runtime_decision(tmp_path, monkeypatch, caplog):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / ".row-bot"))
     import row_bot.agent as agent
     import row_bot.providers.readiness as readiness
 
@@ -334,7 +334,7 @@ def test_ollama_parameter_schema_error_is_agent_mode_failure():
 
 
 def test_stream_agent_auto_does_not_silently_fallback_on_tool_schema_error(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / ".row-bot"))
     import row_bot.agent as agent
     import row_bot.providers.readiness as readiness
 
@@ -402,7 +402,7 @@ def test_agent_graph_uses_provider_qualified_override(monkeypatch):
 
 
 def test_stream_agent_forced_workflow_uses_agent_path(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / ".row-bot"))
     import row_bot.agent as agent
 
     monkeypatch.setattr(agent, "get_agent_graph", lambda *args, **kwargs: object())

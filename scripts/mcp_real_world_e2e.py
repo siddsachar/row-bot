@@ -131,7 +131,7 @@ def _run_target(target: Target, args: argparse.Namespace) -> TargetResult:
     if target.preflight_command and shutil.which(target.preflight_command) is None:
         return TargetResult(target.name, "skip", f"Missing command on PATH: {target.preflight_command}")
 
-    with tempfile.TemporaryDirectory(prefix="thoth_mcp_e2e_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="row_bot_mcp_e2e_") as tmp:
         data_dir = Path(tmp)
         mcp_config, marketplace, runtime, mcp_settings, prefixed_tool_name = _load_modules(data_dir)
         try:
@@ -146,7 +146,7 @@ def _run_target(target: Target, args: argparse.Namespace) -> TargetResult:
             if imported_cfg.get("enabled"):
                 return TargetResult(target.name, "fail", "Imported catalog config was not disabled by default")
             source = imported_cfg.get("source") or {}
-            if not source.get("not_verified_by_thoth"):
+            if not source.get("not_verified_by_row_bot"):
                 return TargetResult(target.name, "fail", "Imported config did not preserve not-audited metadata")
 
             imported_cfg["connect_timeout"] = args.connect_timeout
@@ -196,7 +196,7 @@ def _run_target(target: Target, args: argparse.Namespace) -> TargetResult:
             destructive = runtime.get_destructive_tool_names()
             if prefixed in destructive:
                 return TargetResult(target.name, "fail", f"Read-only call tool unexpectedly requires approval: {prefixed}", tool_count, enabled_tool_count)
-            return TargetResult(target.name, "pass", "Connected, discovered, enabled, and invoked via Thoth wrapper", tool_count, enabled_tool_count, _preview(output))
+            return TargetResult(target.name, "pass", "Connected, discovered, enabled, and invoked via Row-Bot wrapper", tool_count, enabled_tool_count, _preview(output))
         except Exception as exc:
             return TargetResult(target.name, "fail", str(exc))
         finally:
@@ -220,7 +220,7 @@ def _print_results(results: list[TargetResult]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run real-world MCP end-to-end checks through Thoth's MCP runtime.")
+    parser = argparse.ArgumentParser(description="Run real-world MCP end-to-end checks through Row-Bot's MCP runtime.")
     parser.add_argument("--target", dest="targets", action="append", choices=sorted(TARGETS), help="Target to run. Repeat to run several. Defaults to public no-auth HTTP targets.")
     parser.add_argument("--include-stdio", action="store_true", help="Also run stdio targets such as Playwright when their launcher is available.")
     parser.add_argument("--connect-timeout", type=float, default=30.0, help="Connection/probe timeout per server.")

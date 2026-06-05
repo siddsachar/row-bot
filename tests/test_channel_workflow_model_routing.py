@@ -32,7 +32,7 @@ def _isolated_provider_config(tmp_path, monkeypatch):
 
 
 def _isolated_tasks_module(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.tasks as tasks
 
     return importlib.reload(tasks)
@@ -89,7 +89,7 @@ def test_phase3_telegram_model_command_stores_canonical_ref():
 
 
 def test_phase3_telegram_thread_reload_keeps_full_model_ref(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "threads"))
     import row_bot.threads as threads
 
     threads = importlib.reload(threads)
@@ -104,7 +104,7 @@ def test_phase3_telegram_thread_reload_keeps_full_model_ref(tmp_path, monkeypatc
 
 
 def test_phase0_workflow_delivery_status_is_separate_from_routing(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
     import row_bot.tasks as tasks
 
     tasks = importlib.reload(tasks)

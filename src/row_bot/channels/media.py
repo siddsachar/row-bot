@@ -1,5 +1,5 @@
 """
-Thoth – Shared Media Pipeline
+Row-Bot – Shared Media Pipeline
 ================================
 Common helpers for processing inbound media from any channel:
 
@@ -22,14 +22,14 @@ import time
 
 from row_bot.data_paths import get_row_bot_data_dir
 
-log = logging.getLogger("thoth.channels.media")
+log = logging.getLogger("row_bot.channels.media")
 
 _DATA_DIR = get_row_bot_data_dir()
 _INBOX_DIR = _DATA_DIR / "inbox"
 
 
 def _safe_filename(filename: str) -> str:
-    """Return a basename safe to place under Thoth-managed folders."""
+    """Return a basename safe to place under Row-Bot-managed folders."""
     name = pathlib.Path(str(filename or "attachment")).name.strip()
     if not name:
         name = "attachment"
@@ -105,7 +105,7 @@ def analyze_image(data: bytes,
 # ── Document / File → Save & Extract ─────────────────────────────────
 
 def save_inbound_file(data: bytes, filename: str) -> pathlib.Path:
-    """Persist an inbound file to ``~/.thoth/inbox/``.
+    """Persist an inbound file to ``~/.row-bot/inbox/``.
 
     Returns the absolute ``Path`` to the saved file.
     """
@@ -214,9 +214,9 @@ def copy_to_workspace(saved_path: pathlib.Path, workspace_filename: str | None =
         from row_bot.tools.registry import get_tool_config
         root = get_tool_config("filesystem", "workspace_root", "")
         if not root:
-            root = str(pathlib.Path.home() / "Documents" / "Thoth")
+            root = str(pathlib.Path.home() / "Documents" / "Row-Bot")
     except Exception:
-        root = str(pathlib.Path.home() / "Documents" / "Thoth")
+        root = str(pathlib.Path.home() / "Documents" / "Row-Bot")
 
     dest_dir = pathlib.Path(root) / _RECEIVED_FOLDER
     dest_dir.mkdir(parents=True, exist_ok=True)

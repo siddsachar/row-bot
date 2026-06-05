@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 def _reload_skill_modules(tmp_path: Path):
-    os.environ["THOTH_DATA_DIR"] = str(tmp_path)
+    os.environ["ROW_BOT_DATA_DIR"] = str(tmp_path)
     os.environ["ROW_BOT_DATA_DIR"] = str(tmp_path)
     for name in ("row_bot.skills", "row_bot.skills_activation", "row_bot.prompts", "row_bot.agent"):
         if name in sys.modules:

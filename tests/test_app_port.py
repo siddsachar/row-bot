@@ -4,6 +4,13 @@ from types import SimpleNamespace
 
 import row_bot.app_port as app_port
 import row_bot.launcher as launcher
+from row_bot.migration.row_bot_legacy_rebrand import LEGACY_RUNTIME_ENV_VARS
+
+
+_LEGACY_PORT_ENV = next(name for name in LEGACY_RUNTIME_ENV_VARS if name.endswith("_PORT"))
+_LEGACY_HOST_ENV = next(name for name in LEGACY_RUNTIME_ENV_VARS if name.endswith("_HOST"))
+_LEGACY_DATA_ENV = next(name for name in LEGACY_RUNTIME_ENV_VARS if name.endswith("_DATA_DIR"))
+_LEGACY_NATIVE_ENV = next(name for name in LEGACY_RUNTIME_ENV_VARS if name.endswith("_NATIVE"))
 
 
 def test_get_app_port_defaults_and_validates_env():
@@ -12,7 +19,7 @@ def test_get_app_port_defaults_and_validates_env():
     assert app_port.get_app_port(environ={"ROW_BOT_PORT": "0"}) == 8080
     assert app_port.get_app_port(environ={"ROW_BOT_PORT": "70000"}) == 8080
     assert app_port.get_app_port(environ={"ROW_BOT_PORT": "not-a-port"}) == 8080
-    assert app_port.get_app_port(environ={"THOTH_PORT": "8123"}) == 8080
+    assert app_port.get_app_port(environ={_LEGACY_PORT_ENV: "8123"}) == 8080
 
 
 def test_launcher_selects_default_port_when_free(monkeypatch):
@@ -32,14 +39,14 @@ def test_launcher_selects_default_port_when_free(monkeypatch):
     assert checked_ports == [8080]
 
 
-def test_launcher_reuses_existing_thoth_on_default_port(monkeypatch):
+def test_launcher_reuses_existing_row_bot_on_default_port(monkeypatch):
     monkeypatch.setattr(launcher, "_is_port_in_use", lambda port: port == 8080)
     monkeypatch.setattr(launcher, "_is_row_bot_server", lambda port: port == 8080)
 
     assert launcher._select_app_port(preferred=8080, max_tries=3) == (8080, True)
 
 
-def test_launcher_reuses_existing_thoth_on_dynamic_port(monkeypatch):
+def test_launcher_reuses_existing_row_bot_on_dynamic_port(monkeypatch):
     monkeypatch.setattr(launcher, "_is_port_in_use", lambda port: port in {8080, 8081})
     monkeypatch.setattr(launcher, "_is_row_bot_server", lambda port: port == 8081)
 
@@ -146,7 +153,7 @@ def test_launcher_skips_foreign_ports_and_picks_next_free(monkeypatch):
     assert launcher._select_app_port(preferred=8080, max_tries=4) == (8082, False)
 
 
-def test_launcher_reuses_existing_thoth_before_next_free(monkeypatch):
+def test_launcher_reuses_existing_row_bot_before_next_free(monkeypatch):
     monkeypatch.setattr(launcher, "_is_port_in_use", lambda port: port in {8080, 8081})
     monkeypatch.setattr(launcher, "_is_row_bot_server", lambda port: port == 8081)
 
@@ -169,19 +176,19 @@ def test_row_bot_process_passes_selected_port_to_app(monkeypatch, tmp_path):
 
     monkeypatch.setattr(launcher.subprocess, "Popen", _fake_popen)
     monkeypatch.setattr(launcher.Path, "home", classmethod(lambda cls: tmp_path))
-    monkeypatch.delenv("THOTH_PORT", raising=False)
-    monkeypatch.delenv("THOTH_HOST", raising=False)
+    monkeypatch.delenv(_LEGACY_PORT_ENV, raising=False)
+    monkeypatch.delenv(_LEGACY_HOST_ENV, raising=False)
 
-    process = launcher._ThothProcess(port=8125, host="127.0.0.1")
+    process = launcher._RowBotProcess(port=8125, host="127.0.0.1")
     process.start()
 
     assert captured["env"][app_port.ROW_BOT_PORT_ENV] == "8125"
     assert captured["env"][app_port.ROW_BOT_HOST_ENV] == "127.0.0.1"
-    assert "THOTH_DATA_DIR" not in captured["env"]
-    assert "THOTH_PORT" not in captured["env"]
-    assert "THOTH_HOST" not in captured["env"]
+    assert _LEGACY_DATA_ENV not in captured["env"]
+    assert _LEGACY_PORT_ENV not in captured["env"]
+    assert _LEGACY_HOST_ENV not in captured["env"]
     assert captured["env"]["ROW_BOT_NATIVE"] == "1"
-    assert "THOTH_NATIVE" not in captured["env"]
+    assert _LEGACY_NATIVE_ENV not in captured["env"]
     assert captured["cmd"][-1].endswith("app.py")
 
 
@@ -214,12 +221,12 @@ def test_row_bot_process_stop_closes_parent_log_handle(monkeypatch, tmp_path):
     monkeypatch.setattr(launcher.subprocess, "Popen", _fake_popen)
     monkeypatch.setattr(launcher.Path, "home", classmethod(lambda cls: tmp_path))
     monkeypatch.setattr(
-        launcher._ThothProcess,
+        launcher._RowBotProcess,
         "_request_graceful_shutdown",
         lambda self: False,
     )
 
-    process = launcher._ThothProcess(port=8125, host="127.0.0.1")
+    process = launcher._RowBotProcess(port=8125, host="127.0.0.1")
     process.start()
     log_handle = captured["stdout"]
 

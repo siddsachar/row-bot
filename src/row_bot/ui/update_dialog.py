@@ -1,4 +1,4 @@
-"""Thoth UI — Auto-update dialog & 'What's New' banner helpers.
+"""Row-Bot UI — Auto-update dialog & 'What's New' banner helpers.
 
 Provides:
 - ``show_update_dialog(info)``        — modal with notes, Install / Later / Skip

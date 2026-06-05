@@ -1,5 +1,5 @@
 """
-Thoth – Tunnel Manager
+Row-Bot – Tunnel Manager
 =======================
 Provider-agnostic tunnel infrastructure for exposing local webhook
 ports to the internet.  Channels that need inbound webhooks (e.g. SMS /

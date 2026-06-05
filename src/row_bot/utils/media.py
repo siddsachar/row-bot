@@ -1,10 +1,10 @@
 """Media-payload classification helpers.
 
-Throughout Thoth, ``msg["images"]`` entries (and ``gen.captured_images``)
+Throughout Row-Bot, ``msg["images"]`` entries (and ``gen.captured_images``)
 can be either:
   * a **base64-encoded** image string (large, opaque), OR
   * a **filename** that has been spilled/persisted to
-    ``~/.thoth/media/<thread_id>/<fname>``.
+    ``~/.row-bot/media/<thread_id>/<fname>``.
 
 These helpers provide a single canonical classifier + MIME helper so
 callers don't each re-invent a slightly different heuristic.

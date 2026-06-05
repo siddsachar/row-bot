@@ -119,7 +119,7 @@ def test_codex_token_health_revoked_refresh_requires_reconnect(monkeypatch):
 
 
 def test_streaming_codex_auth_block_message(monkeypatch, tmp_path):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.ui.streaming as streaming
     from row_bot.providers import codex
 

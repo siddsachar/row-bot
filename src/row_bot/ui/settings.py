@@ -1,4 +1,4 @@
-"""Thoth UI — Settings dialog with all configuration tabs.
+"""Row-Bot UI — Settings dialog with all configuration tabs.
 
 Contains ``open_settings()`` plus 13+ tab builder helpers.
 Receives ``state`` and ``p`` explicitly.

@@ -70,7 +70,7 @@ def test_launcher_hints_for_numpy_x86_v2_failure():
 def test_launcher_logs_app_tail_on_startup_failure(tmp_path, caplog):
     log_path = tmp_path / "row_bot_app.log"
     log_path.write_text("line one\nTraceback\nImportError: libGL.so.1 missing\n", encoding="utf-8")
-    server = launcher._ThothProcess(port=8123)
+    server = launcher._RowBotProcess(port=8123)
     server._log_file = log_path
     server._proc = None
 

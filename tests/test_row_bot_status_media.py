@@ -12,7 +12,6 @@ def _is_local_model(*installed):
 @pytest.fixture(autouse=True)
 def _isolated_row_bot_data(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
-    monkeypatch.delenv("THOTH_DATA_DIR", raising=False)
 
 
 def test_row_bot_status_normalizes_dynamic_image_model_label(monkeypatch):

@@ -10,7 +10,7 @@ tools:
 tags:
   - developer
   - coding
-author: Thoth
+author: Row-Bot
 ---
 
 # Developer Coding

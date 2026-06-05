@@ -182,10 +182,10 @@ def test_buddy_hatch_prompts_request_keyable_motion_assets():
     assert "reused existing clip" in hatch_src
     assert "reuse_existing" in hatch_src
     assert "_is_rate_limited_generation_result" in hatch_src
-    assert "THOTH_BUDDY_GOOGLE_VIDEO_SPACING_SECONDS" in hatch_src
+    assert "ROW_BOT_BUDDY_GOOGLE_VIDEO_SPACING_SECONDS" in hatch_src
     assert "The user concept is the source of truth" in hatch_src
-    assert "do not force ancient, mystical, ink, gold, teal, glyph, or Thoth-like motifs" in hatch_src
-    assert "Thoth-inspired" not in hatch_src
+    assert "do not force ancient, mystical, ink, gold, teal, glyph, or Row-Bot-like motifs" in hatch_src
+    assert "forced Row-Bot motifs" not in hatch_src
     assert "teal-gold magical glow" not in hatch_src
 
 
@@ -412,7 +412,7 @@ def test_buddy_surface_sizing_and_docked_drag_are_targeted():
     assert "_ensure_buddy_client_runtime" in buddy_ui_src
     assert "_buddy_pump_clients" in buddy_ui_src
     assert "build_in_app_buddy()" in buddy_ui_src
-    assert "_thoth_buddy_floating_shell" not in buddy_ui_src
+    assert "_row_bot_buddy_floating_shell" not in buddy_ui_src
     assert "data-buddy-floating-shell" not in buddy_ui_src
     assert "ui.element(\"div\").classes(\"row-bot-buddy-floating\")" not in buddy_ui_src
     assert "ui.timer(0.6, lambda: _push_snapshot(client))" in buddy_ui_src

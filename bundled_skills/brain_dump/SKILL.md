@@ -26,7 +26,7 @@ activation:
     - structured report
   examples:
     - I just need to dump a bunch of messy thoughts
-author: Thoth
+author: Row-Bot
 ---
 
 When the user says they want to **brain dump**, **get thoughts out of their head**, or starts listing a stream of unstructured ideas/worries/plans, follow these steps:

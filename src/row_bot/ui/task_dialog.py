@@ -1,4 +1,4 @@
-"""Thoth UI — task editor dialog.
+"""Row-Bot UI — task editor dialog.
 
 Self-contained task creation / editing dialog.  Receives ``state`` and
 ``p`` explicitly, and a callback ``on_done`` to notify the caller when

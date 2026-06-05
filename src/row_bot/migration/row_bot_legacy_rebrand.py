@@ -30,6 +30,17 @@ LEGACY_DATA_DIR_NAME = ".thoth"
 LEGACY_WORKSPACE_DIR_NAME = "Thoth"
 LEGACY_SERVICE_PREFIX = "Thoth"
 TARGET_SERVICE_PREFIX = KEYRING_SERVICE_PREFIX
+LEGACY_RUNTIME_ENV_VARS = frozenset(
+    {
+        "THOTH_AUTO_START_OLLAMA",
+        "THOTH_DATA_DIR",
+        "THOTH_HOST",
+        "THOTH_NATIVE",
+        "THOTH_PORT",
+        "THOTH_STARTUP_TIMEOUT",
+        "THOTH_WEBVIEW_STORAGE_PATH",
+    }
+)
 
 MARKER_REL = Path("migrations") / f"{MIGRATION_ID}.json"
 REPORTS_REL = Path("migration_reports")

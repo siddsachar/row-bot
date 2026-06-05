@@ -636,7 +636,7 @@ def _docker_create_args(binary: str, workspace: DeveloperWorkspace, shadow: path
         "--name",
         container_name,
         "--label",
-        f"thoth.developer.workspace_id={workspace.id}",
+        f"row_bot.developer.workspace_id={workspace.id}",
         "-v",
         f"{str(shadow)}:/workspace",
         "-w",
@@ -705,7 +705,7 @@ def _container_network_mode(binary: str, container_name: str) -> str:
 def _missing_image_message(image: str) -> str:
     return (
         f"Docker Sandbox image '{image}' is not available locally. "
-        "Thoth will not auto-pull sandbox images during command execution because "
+        "Row-Bot will not auto-pull sandbox images during command execution because "
         "Docker credential-helper and network failures can otherwise interrupt the chat. "
         f"Pull the image manually with `docker pull {image}`, or choose a sandbox image "
         "that already exists locally."

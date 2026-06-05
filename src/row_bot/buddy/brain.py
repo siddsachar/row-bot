@@ -118,7 +118,7 @@ def _owner_from_payload(kind: str, payload: dict[str, Any]) -> str:
 
 
 class BuddyBrain:
-    """Maps Thoth events into compact Buddy runtime values."""
+    """Maps Row-Bot events into compact Buddy runtime values."""
 
     def __init__(self) -> None:
         cfg = get_buddy_config()

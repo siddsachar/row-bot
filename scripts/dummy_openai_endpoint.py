@@ -26,7 +26,7 @@ MODELS = [
 
 
 class DummyOpenAIHandler(BaseHTTPRequestHandler):
-    server_version = "ThothDummyOpenAI/1.0"
+    server_version = "RowBotDummyOpenAI/1.0"
 
     def log_message(self, fmt: str, *args: Any) -> None:
         print(f"{self.address_string()} - {fmt % args}")
@@ -73,7 +73,7 @@ class DummyOpenAIHandler(BaseHTTPRequestHandler):
     def _send_chat_completion(self, payload: dict[str, Any]) -> None:
         model = str(payload.get("model") or "row-bot-dummy-chat")
         last_user = _last_user_message(payload.get("messages"))
-        content = f"Dummy endpoint received: {last_user or 'hello from Thoth'}"
+        content = f"Dummy endpoint received: {last_user or 'hello from Row-Bot'}"
         self._send_json({
             "id": "chatcmpl-row-bot-dummy",
             "object": "chat.completion",
@@ -124,7 +124,7 @@ def _last_user_message(messages: Any) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run a local dummy OpenAI-compatible endpoint for Thoth provider testing.")
+    parser = argparse.ArgumentParser(description="Run a local dummy OpenAI-compatible endpoint for Row-Bot provider testing.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()

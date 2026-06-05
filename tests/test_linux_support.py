@@ -424,9 +424,10 @@ def test_linux_launcher_resolves_installed_symlink_chain(tmp_path):
 
 def test_linux_one_line_installer_declares_verified_release_contract():
     script = Path("installer/install-linux.sh").read_text(encoding="utf-8")
+    legacy_repo = "siddsachar/" + "Th" + "oth"
 
     assert "siddsachar/row-bot" in script
-    assert "siddsachar/Thoth" not in script
+    assert legacy_repo not in script
     assert "api.github.com/repos/${REPO}" in script
     assert "releases/latest" in script
     assert "releases/tags/v${REQUESTED_VERSION#v}" in script
@@ -513,7 +514,8 @@ def test_release_workflows_reference_linux_artifact():
     assert "curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash" in installer_docs
     assert "curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash" in readme
     assert "https://github.com/siddsachar/row-bot/releases/latest" in readme
-    assert "https://github.com/siddsachar/Thoth/releases/latest" not in readme
+    legacy_repo = "siddsachar/" + "Th" + "oth"
+    assert f"https://github.com/{legacy_repo}/releases/latest" not in readme
     assert "published GitHub Release assets" in installer_docs
     assert f"bash installer/build_linux_app.sh {__version__}" in installer_docs
     assert f"bash build_linux_app.sh {__version__}" in installer_docs

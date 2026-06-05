@@ -183,7 +183,7 @@ def build_developer_tab(
             with ui.tab_panels(setup_tabs, value=open_tab).classes("w-full").props("animated"):
                 with ui.tab_panel(open_tab).classes("q-pa-none"):
                     with ui.column().classes("w-full gap-3 q-pt-md"):
-                        ui.label("Use an existing local repository. Thoth stores only a workspace link.").classes(
+                        ui.label("Use an existing local repository. Row-Bot stores only a workspace link.").classes(
                             "text-sm text-grey-6"
                         )
                         path_input = ui.input("Repository folder path").classes("w-full").props("outlined clearable")
@@ -217,7 +217,7 @@ def build_developer_tab(
 
                 with ui.tab_panel(clone_tab).classes("q-pa-none"):
                     with ui.column().classes("w-full gap-3 q-pt-md"):
-                        ui.label("Clone into an explicit parent folder. Thoth will not use its data directory.").classes(
+                        ui.label("Clone into an explicit parent folder. Row-Bot will not use its data directory.").classes(
                             "text-sm text-grey-6"
                         )
                         repo_input = ui.input("Repository URL").classes("w-full").props("outlined clearable")
@@ -393,7 +393,7 @@ def _render_custom_tools_home(state: AppState, refresh: Callable) -> None:
                     with ui.column().classes("gap-1"):
                         ui.icon("extension", size="lg").classes("text-primary")
                         ui.label("No Custom Tools yet").classes("text-h6")
-                        ui.label("Give Thoth a repo URL or folder and it will inspect, propose commands, and register the tool after review.").classes("text-sm text-grey-6")
+                        ui.label("Give Row-Bot a repo URL or folder and it will inspect, propose commands, and register the tool after review.").classes("text-sm text-grey-6")
             return
 
         with ui.element("div").classes("w-full").style(
@@ -629,7 +629,7 @@ def _show_custom_tool_wizard(state: AppState, refresh: Callable) -> None:
         with ui.row().classes("w-full items-center justify-between no-wrap"):
             with ui.column().classes("gap-0"):
                 ui.label("New Custom Tool").classes("text-h6")
-                ui.label("Create a reusable Thoth tool from a repo URL, local folder, or current workspace.").classes("text-sm text-grey-6")
+                ui.label("Create a reusable Row-Bot tool from a repo URL, local folder, or current workspace.").classes("text-sm text-grey-6")
             ui.button(icon="close", on_click=dlg.close).props("flat dense round")
 
         controls: dict[str, object] = {}
@@ -797,7 +797,7 @@ def _show_custom_tool_wizard(state: AppState, refresh: Callable) -> None:
                 ui.label(str(meta.get("reason") or "This command needs approval before testing.")).classes("text-sm text-grey-5")
                 with ui.column().classes("w-full gap-1 q-mt-sm"):
                     ui.badge(str(meta.get("label") or "Review"), color="orange").props("outline")
-                    ui.label("Thoth will prefer Docker Sandbox. If Docker cannot start, this one approved test may fall back to local execution.").classes("text-xs text-grey-6")
+                    ui.label("Row-Bot will prefer Docker Sandbox. If Docker cannot start, this one approved test may fall back to local execution.").classes("text-xs text-grey-6")
                     ui.code(command).classes("w-full text-xs").style("max-width: 100%; max-height: 160px; overflow: auto; white-space: pre-wrap;")
 
                 def _finish(approved: bool) -> None:
@@ -1012,7 +1012,7 @@ def _show_custom_tool_wizard(state: AppState, refresh: Callable) -> None:
                 with ui.stepper_navigation():
                     controls["inspect_btn"] = ui.button("Inspect Tool", icon="search", on_click=lambda: safe_ui_task(_inspect, context="developer custom tool wizard inspect")).props("color=primary no-caps")
             with ui.step("Inspect"):
-                ui.label("Review the commands Thoth proposed before creating anything.").classes("text-sm text-grey-6")
+                ui.label("Review the commands Row-Bot proposed before creating anything.").classes("text-sm text-grey-6")
                 controls["proposal_box"] = ui.column().classes("w-full gap-2")
                 with _control("proposal_box"):
                     ui.label("No inspection results yet.").classes("text-xs text-grey-6")
@@ -1591,9 +1591,9 @@ def _build_developer_inspector_static(
     (function() {{
         const handle = document.getElementById({resize_id!r});
         const panel = document.getElementById({panel_id!r});
-        const storageKey = 'thothDeveloperInspectorWidth';
-        if (!handle || !panel || handle.dataset.thothResizable === '1') return;
-        handle.dataset.thothResizable = '1';
+        const storageKey = 'rowBotDeveloperInspectorWidth';
+        if (!handle || !panel || handle.dataset.rowBotResizable === '1') return;
+        handle.dataset.rowBotResizable = '1';
 
         function clampWidth(width) {{
             const viewportMax = Math.max(560, Math.min(920, window.innerWidth * 0.65));

@@ -1,4 +1,4 @@
-"""Thoth UI - Streaming consumer, send-message, and interrupt-resume logic.
+"""Row-Bot UI - Streaming consumer, send-message, and interrupt-resume logic.
 
 This module extracts the three heavyweight async inner functions from the
 monolith:
@@ -596,7 +596,7 @@ async def consume_generation(
                         output={
                             "status": "completed",
                             "speakable": "",
-                            "worker": "thoth",
+                            "worker": "row_bot",
                         },
                         thread_id=gen.thread_id,
                         generation_id=generation_scope_id,
@@ -615,7 +615,7 @@ async def consume_generation(
                     output={
                         "status": "completed",
                         "speakable": text,
-                        "worker": "thoth",
+                        "worker": "row_bot",
                     },
                     thread_id=gen.thread_id,
                     generation_id=generation_scope_id,

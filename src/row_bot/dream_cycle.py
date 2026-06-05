@@ -11,7 +11,7 @@ the system is idle.  Performs three safe, non-destructive operations:
    conversation but have no edge are evaluated for a connection.
 
 All changes are tagged with ``source="dream_*"`` for traceability and
-logged to a persistent dream journal (``~/.thoth/dream_journal.json``).
+logged to a persistent dream journal (``~/.row-bot/dream_journal.json``).
 
 Architecture mirrors ``memory_extraction.py``: daemon thread, direct LLM
 calls (no agent overhead), conservative thresholds, batch-capped.
@@ -1249,7 +1249,7 @@ def _run_insights_phase(cycle_id: str, on_status=None) -> dict:
         from row_bot.identity import get_assistant_name
         name = get_assistant_name()
     except Exception:
-        name = "Thoth"
+        name = "Row-Bot"
 
     prompt = DREAM_INSIGHTS_PROMPT.format(
         assistant_name=name,

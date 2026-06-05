@@ -523,7 +523,7 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
         "model": target_model,
         "messages": [{
             "role": "user",
-            "content": "Call the thoth_probe_echo tool with value set to ok. Do not answer in text.",
+            "content": "Call the row_bot_probe_echo tool with value set to ok. Do not answer in text.",
         }],
         "tools": [_probe_tool_schema()],
         "tool_choice": "auto",
@@ -535,7 +535,7 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
         response = httpx.post(chat_url, headers=headers, json=tool_body, timeout=30)
         response.raise_for_status()
         payload = response.json()
-        tool_call_payload = _extract_structured_tool_call(payload, "thoth_probe_echo")
+        tool_call_payload = _extract_structured_tool_call(payload, "row_bot_probe_echo")
         result["tool_calling"] = tool_call_payload is not None
         if tool_call_payload is None:
             result["errors"].append("tools: no structured tool call returned")
@@ -544,7 +544,7 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
         result["errors"].append(f"tools: {exc}")
 
     if tool_call_payload is not None:
-        call_id = str(tool_call_payload.get("id") or "call_thoth_probe_echo")
+        call_id = str(tool_call_payload.get("id") or "call_row_bot_probe_echo")
         round_trip_body = {
             "model": target_model,
             "messages": [
@@ -595,7 +595,7 @@ def probe_custom_endpoint(endpoint_or_provider_id: str, model_id: str | None = N
     try:
         with httpx.stream("POST", chat_url, headers=headers, json=stream_tool_body, timeout=30) as response:
             response.raise_for_status()
-            tool_call_payload = _extract_streamed_structured_tool_call(response.iter_lines(), "thoth_probe_echo")
+            tool_call_payload = _extract_streamed_structured_tool_call(response.iter_lines(), "row_bot_probe_echo")
         result["streaming_tool_calling"] = tool_call_payload is not None
         if tool_call_payload is None:
             result["streaming_tool_error"] = "no streamed structured tool call returned"
@@ -755,7 +755,7 @@ def _probe_tool_schema() -> dict[str, Any]:
     return {
         "type": "function",
         "function": {
-            "name": "thoth_probe_echo",
+            "name": "row_bot_probe_echo",
             "description": "Echo a probe value to verify structured tool calling.",
             "parameters": {
                 "type": "object",
@@ -906,7 +906,7 @@ def _extract_structured_tool_call(payload: dict[str, Any], expected_name: str) -
         else:
             return None
         normalized = dict(call)
-        normalized.setdefault("id", f"call_thoth_probe_{index}")
+        normalized.setdefault("id", f"call_row_bot_probe_{index}")
         normalized.setdefault("type", "function")
         return normalized
     return None
@@ -967,7 +967,7 @@ def _extract_streamed_structured_tool_call(lines: Any, expected_name: str) -> di
         if not isinstance(parsed, dict) or parsed.get("value") != "ok":
             return None
         return {
-            "id": str(state.get("id") or f"call_thoth_probe_stream_{index}"),
+            "id": str(state.get("id") or f"call_row_bot_probe_stream_{index}"),
             "type": str(state.get("type") or "function"),
             "function": {
                 "name": expected_name,

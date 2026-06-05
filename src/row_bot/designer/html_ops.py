@@ -1213,7 +1213,7 @@ def preserve_app_mockup_widgets(old_html: str, new_html: str) -> str:
     if not preserved_blocks:
         return new_html
     preserved_html = (
-        "<!-- thoth:preserved-widget-css -->\n"
+        "<!-- row-bot:preserved-widget-css -->\n"
         + "\n".join(preserved_blocks)
     )
 

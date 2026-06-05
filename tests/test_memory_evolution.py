@@ -5,7 +5,7 @@ import json
 
 
 def _fresh_modules(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.knowledge_graph as knowledge_graph
     import row_bot.memory as memory
     import row_bot.memory_evolution as memory_evolution

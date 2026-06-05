@@ -599,7 +599,7 @@ def test_phase6_default_and_quick_choice_values_use_opencode_canonical_refs(tmp_
 
 
 def test_phase6_workflow_model_overrides_store_opencode_refs(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr("row_bot.api_keys.get_cloud_config", lambda: {"starred_models": []})
     import row_bot.tasks as tasks
@@ -620,7 +620,7 @@ def test_phase6_workflow_model_overrides_store_opencode_refs(tmp_path, monkeypat
 
 
 def test_phase6_channel_model_override_preserves_opencode_ref(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "threads"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "threads"))
     import row_bot.threads as threads
 
     threads = importlib.reload(threads)
@@ -688,7 +688,7 @@ def test_phase7_opencode_404_diagnostic_mentions_route_without_fallback():
 
 
 def test_followup_opencode_model_level_anthropic_detection(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.agent as agent
 
     assert agent._provider_uses_anthropic_messages("opencode_zen", "claude-sonnet-4-5") is True
@@ -790,7 +790,7 @@ class _FakeKeyring:
 
 
 def test_ux_opencode_api_keys_use_existing_keyring_backed_store(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
     for env_var in ("OPENCODE_ZEN_API_KEY", "OPENCODE_GO_API_KEY"):
         monkeypatch.delenv(env_var, raising=False)
 

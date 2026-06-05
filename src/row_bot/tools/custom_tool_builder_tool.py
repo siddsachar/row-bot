@@ -100,7 +100,7 @@ class CustomToolBuilderTool(BaseTool):
                 name="custom_tool_builder",
                 description=(
                     "Use when the user asks to create, add, generate, or turn a GitHub repo/local folder into a "
-                    "Thoth Custom Tool. Start with action='start'. If the user gives a repo URL, pass it as "
+                    "Row-Bot Custom Tool. Start with action='start'. If the user gives a repo URL, pass it as "
                     "source_url and pass fields.clone_parent when provided; if clone_parent is missing or must be "
                     "created, ask for it. Show proposed commands before action='create'. Use action='promote' only "
                     "after explicit user request to make the tool available in normal chat. Use this tool for Custom "

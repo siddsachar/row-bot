@@ -14,7 +14,7 @@ Safety
 * **Everything else** — triggers a LangGraph ``interrupt()`` so the user
   can approve or deny before execution.
 
-Shell history is persisted to ``~/.thoth/shell_history.json`` so that it
+Shell history is persisted to ``~/.row-bot/shell_history.json`` so that it
 survives app restarts (the subprocess session itself does not survive).
 """
 
@@ -248,7 +248,7 @@ class ShellSession:
                         f"{command}\n"
                         f"$_ok = $?\n"
                         f"[Console]::Error.WriteLine("
-                        f"'___THOTH_CWD___' + (Get-Location).Path)\n"
+                        f"'___ROW_BOT_CWD___' + (Get-Location).Path)\n"
                         f"if (-not $_ok) {{ exit 1 }}"
                     )
                     proc = subprocess.run(
@@ -261,7 +261,7 @@ class ShellSession:
                     # Unix: same idea — cwd marker goes to stderr
                     wrapped = (
                         f"{command}\n"
-                        f'echo "___THOTH_CWD___$(pwd)" >&2'
+                        f'echo "___ROW_BOT_CWD___$(pwd)" >&2'
                     )
                     shell = os.environ.get("SHELL", "/bin/bash")
                     proc = subprocess.run(
@@ -279,7 +279,7 @@ class ShellSession:
 
                 # Extract new cwd from stderr (last occurrence in case
                 # the command itself printed the marker string)
-                marker = "___THOTH_CWD___"
+                marker = "___ROW_BOT_CWD___"
                 if marker in stderr:
                     marker_pos = stderr.rfind(marker)
                     cwd_part = stderr[marker_pos + len(marker):]

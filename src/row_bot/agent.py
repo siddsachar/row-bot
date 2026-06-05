@@ -676,7 +676,7 @@ def _notify_api_error(friendly_msg: str) -> None:
     """Fire a persistent desktop notification for an API error."""
     try:
         from row_bot.notifications import notify
-        notify("Thoth – API Error", friendly_msg, sound="error", icon="⚠️",
+        notify("Row-Bot – API Error", friendly_msg, sound="error", icon="⚠️",
                toast_type="negative")
     except Exception:
         pass

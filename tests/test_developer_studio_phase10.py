@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 
 def _fresh_modules(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     for name in [
         "threads",
         "developer.storage",
@@ -275,7 +275,7 @@ def test_developer_profile_removes_conflicting_generic_tools():
 
 
 def test_developer_skill_prompt_is_scoped_to_developer_mode(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     sys.modules.pop("skills", None)
 
     import row_bot.skills as skills

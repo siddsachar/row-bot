@@ -14,9 +14,9 @@ PNG_1X1 = base64.b64decode(
 
 
 def _set_workspace(tmp_path, monkeypatch):
-    data_dir = tmp_path / ".thoth"
+    data_dir = tmp_path / ".row-bot"
     data_dir.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("THOTH_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
     inbox = tmp_path / "inbox"
     workspace = tmp_path / "workspace"
     import row_bot.channels.media as media

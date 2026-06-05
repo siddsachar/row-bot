@@ -29,7 +29,7 @@ _DEFAULT_CONFIG: dict[str, Any] = {
     "personality_description": "Warm, curious, encouraging, and not too chatty.",
     "bubble_verbosity": "normal",
     "animation_intensity": "normal",
-    "hatch_prompt": "A cute tiny mystical coding familiar for Thoth",
+    "hatch_prompt": "A cute tiny mystical coding familiar for Row-Bot",
     "overlay": {"width": 260, "height": 260, "always_on_top": True},
 }
 _lock = threading.RLock()

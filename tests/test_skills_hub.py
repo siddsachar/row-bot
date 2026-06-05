@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 def _reload_hub(tmp_path: Path):
-    os.environ["THOTH_DATA_DIR"] = str(tmp_path)
+    os.environ["ROW_BOT_DATA_DIR"] = str(tmp_path)
     os.environ["ROW_BOT_DATA_DIR"] = str(tmp_path)
     for name in list(sys.modules):
         if name == "skills" or name.startswith("skills_hub"):

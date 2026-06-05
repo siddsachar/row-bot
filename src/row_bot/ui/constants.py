@@ -1,4 +1,4 @@
-"""Thoth UI — constants, patterns and extension sets.
+"""Row-Bot UI — constants, patterns and extension sets.
 
 Pure data — no side-effects on import.
 """

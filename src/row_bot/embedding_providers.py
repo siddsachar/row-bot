@@ -114,7 +114,7 @@ def ensure_embedding_runtime_available(cfg: dict[str, Any] | None = None) -> Non
         raise RuntimeError(
             f"{model_def['label']} cannot start because Python package(s) are missing: {package_list}. "
             f"Active Python: {sys.executable}. "
-            "This packaged runtime is incomplete; reinstall Thoth from a build that passes runtime dependency verification."
+            "This packaged runtime is incomplete; reinstall Row-Bot from a build that passes runtime dependency verification."
         )
 
 

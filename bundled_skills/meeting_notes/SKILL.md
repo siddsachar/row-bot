@@ -26,7 +26,7 @@ activation:
     - structured report
   examples:
     - Summarize these meeting notes and extract action items
-author: Thoth
+author: Row-Bot
 ---
 
 When the user shares **meeting notes**, asks you to **summarise a meeting**, or says they just finished a meeting, follow these steps:

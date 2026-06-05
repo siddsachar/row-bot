@@ -1,4 +1,4 @@
-"""Designer — project persistence to ~/.thoth/designer/projects/."""
+"""Designer — project persistence to ~/.row-bot/designer/projects/."""
 
 from __future__ import annotations
 

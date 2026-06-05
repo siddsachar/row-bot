@@ -10,14 +10,14 @@ from row_bot.mcp_client.safety import sanitize_name_component
 
 
 CORE_NATIVE_CAPABILITIES: dict[str, dict[str, str]] = {
-    "memory": {"label": "Thoth Memory", "message": "Thoth Memory is the canonical user/project memory. External memory MCPs stay separate."},
-    "browser": {"label": "Thoth Browser", "message": "Thoth already includes visible browser automation. Use this MCP only when you want its specific tool surface."},
-    "filesystem": {"label": "Thoth Filesystem", "message": "Thoth already has native local file/document tools. Keep external file tools scoped and review writes."},
-    "documents": {"label": "Thoth Documents", "message": "Thoth already has native document tools. Use this MCP for a specific external conversion or workspace surface."},
-    "web_search": {"label": "Thoth Web Search", "message": "Thoth already has web/search tools. Use this MCP when you want this provider specifically."},
-    "url_reader": {"label": "Thoth URL Reader", "message": "Thoth can already read URLs. Use this MCP only for provider-specific fetch behavior."},
-    "channels": {"label": "Thoth Channels", "message": "Thoth has native channel concepts. Review messaging/send tools before enabling external channel MCPs."},
-    "designer": {"label": "Thoth Designer", "message": "Thoth has native design-generation flows. Use this MCP for source design-system context."},
+    "memory": {"label": "Row-Bot Memory", "message": "Row-Bot Memory is the canonical user/project memory. External memory MCPs stay separate."},
+    "browser": {"label": "Row-Bot Browser", "message": "Row-Bot already includes visible browser automation. Use this MCP only when you want its specific tool surface."},
+    "filesystem": {"label": "Row-Bot Filesystem", "message": "Row-Bot already has native local file/document tools. Keep external file tools scoped and review writes."},
+    "documents": {"label": "Row-Bot Documents", "message": "Row-Bot already has native document tools. Use this MCP for a specific external conversion or workspace surface."},
+    "web_search": {"label": "Row-Bot Web Search", "message": "Row-Bot already has web/search tools. Use this MCP when you want this provider specifically."},
+    "url_reader": {"label": "Row-Bot URL Reader", "message": "Row-Bot can already read URLs. Use this MCP only for provider-specific fetch behavior."},
+    "channels": {"label": "Row-Bot Channels", "message": "Row-Bot has native channel concepts. Review messaging/send tools before enabling external channel MCPs."},
+    "designer": {"label": "Row-Bot Designer", "message": "Row-Bot has native design-generation flows. Use this MCP for source design-system context."},
 }
 
 _HEURISTICS: tuple[tuple[str, tuple[str, ...]], ...] = (

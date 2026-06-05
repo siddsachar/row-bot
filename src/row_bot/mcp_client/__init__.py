@@ -1,8 +1,8 @@
-"""Core MCP client support for Thoth.
+"""Core MCP client support for Row-Bot.
 
 The package is deliberately defensive: optional dependencies, remote directory
 failures, bad server configs, and broken MCP servers must degrade to status
-entries and logs instead of breaking Thoth startup or chat.
+entries and logs instead of breaking Row-Bot startup or chat.
 """
 
 from __future__ import annotations

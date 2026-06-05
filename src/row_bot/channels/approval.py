@@ -1,5 +1,5 @@
 """
-Thoth – Shared Approval / Interrupt Helpers
+Row-Bot – Shared Approval / Interrupt Helpers
 =============================================
 Centralised logic used by *all* channels to:
 
@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-log = logging.getLogger("thoth.channels.approval")
+log = logging.getLogger("row_bot.channels.approval")
 
 
 # ── Agent resume ─────────────────────────────────────────────────────

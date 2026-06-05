@@ -20,7 +20,7 @@ _BUILTIN_PACKS_DIR = _STATIC_DIR / "buddy" / "builtins"
 _DATA_DIR = get_row_bot_data_dir()
 _BUDDY_STATIC_DIR = _DATA_DIR / "buddy"
 _USER_PACKS_DIR = _BUDDY_STATIC_DIR / "packs"
-REQUIRED_STATE_MACHINE = "ThothBuddy"
+REQUIRED_STATE_MACHINE = "RowBotBuddy"
 REQUIRED_INPUTS = {
     "mood",
     "energy",

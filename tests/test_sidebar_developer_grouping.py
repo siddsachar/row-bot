@@ -106,7 +106,7 @@ def test_all_conversations_modal_uses_visible_filter_chips():
 
 
 def test_sidebar_developer_expanded_state_persists(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
     sys.modules.pop("ui.sidebar", None)
     import row_bot.ui.sidebar as sidebar
 

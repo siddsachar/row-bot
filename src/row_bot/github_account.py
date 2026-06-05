@@ -1,4 +1,4 @@
-"""Shared GitHub account/auth helpers for Thoth features."""
+"""Shared GitHub account/auth helpers for Row-Bot features."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ import row_bot.secret_store as secret_store
 GITHUB_TOKEN_ENV = "GITHUB_TOKEN"
 GH_TOKEN_ENV = "GH_TOKEN"
 GITHUB_API_ROOT = "https://api.github.com"
-USER_AGENT = "Thoth-GitHub/1.0"
+USER_AGENT = "Row-Bot-GitHub/1.0"
 _TOKEN_CACHE_TTL_SECONDS = 300
 _STATUS_CACHE_TTL_SECONDS = 300
 _token_cache: tuple[float, bool, "GitHubToken"] | None = None

@@ -1,7 +1,7 @@
-"""Focused tests for Thoth's MCP client foundation.
+"""Focused tests for Row-Bot's MCP client foundation.
 
 These tests avoid network dependence. They validate the core invariants that
-keep MCP from breaking Thoth when config, dependencies, directories, or local
+keep MCP from breaking Row-Bot when config, dependencies, directories, or local
 stdio servers are unavailable.
 """
 
@@ -124,7 +124,7 @@ class McpClientFoundationTests(unittest.TestCase):
         cfg = marketplace.entry_to_server_config(playwright)
         source = cfg["source"]
         self.assertFalse(cfg["enabled"])
-        self.assertTrue(source["not_verified_by_thoth"])
+        self.assertTrue(source["not_verified_by_row_bot"])
         self.assertEqual(source["trust_tier"], "official_vendor")
         self.assertEqual(source["risk_level"], "medium")
         self.assertEqual(source["overlaps_native"], ["browser"])
@@ -498,7 +498,7 @@ class McpClientFoundationTests(unittest.TestCase):
         server_script.write_text(textwrap.dedent("""
             from mcp.server.fastmcp import FastMCP
 
-            mcp = FastMCP("Thoth Test MCP")
+            mcp = FastMCP("Row-Bot Test MCP")
 
 
             @mcp.tool()

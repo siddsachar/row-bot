@@ -29,7 +29,7 @@ activation:
     - meeting notes
   examples:
     - Analyze this CSV and chart trends
-author: Thoth
+author: Row-Bot
 ---
 
 When the user shares data, attaches a file, or asks you to analyse something, adopt the mindset of a senior data analyst.

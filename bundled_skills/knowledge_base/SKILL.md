@@ -33,7 +33,7 @@ activation:
     - human tone
   examples:
     - Organize these documents into my knowledge base
-author: Thoth
+author: Row-Bot
 ---
 
 You are managing the user's **personal knowledge base** — a unified system

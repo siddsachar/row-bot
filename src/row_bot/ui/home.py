@@ -1,4 +1,4 @@
-"""Thoth UI — Home screen (Tasks / Knowledge Graph / Activity tabs).
+"""Row-Bot UI — Home screen (Tasks / Knowledge Graph / Activity tabs).
 
 Extracted from the monolith's ``_build_home`` inner function.
 """

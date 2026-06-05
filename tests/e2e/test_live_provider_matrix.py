@@ -23,11 +23,11 @@ ACCEPTABLE_ERROR_RE = re.compile(
 
 
 def _enabled() -> bool:
-    return os.environ.get("THOTH_LIVE_PROVIDER_E2E", "").strip().lower() in {"1", "true", "yes"}
+    return os.environ.get("ROW_BOT_LIVE_PROVIDER_E2E", "").strip().lower() in {"1", "true", "yes"}
 
 
 def _report_path() -> Path:
-    return Path(os.environ.get("THOTH_LIVE_PROVIDER_REPORT", "test-results/live_provider_matrix.json"))
+    return Path(os.environ.get("ROW_BOT_LIVE_PROVIDER_REPORT", "test-results/live_provider_matrix.json"))
 
 
 def _event_summary(events: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -93,7 +93,7 @@ def _poison_thread(thread_id: str) -> None:
     append_checkpoint_messages(
         thread_id,
         [
-            HumanMessage(content="Hi. what tools do you have? use the thoth status tool to check"),
+            HumanMessage(content="Hi. what tools do you have? use the row bot status tool to check"),
             AIMessage(
                 content="",
                 tool_calls=[{"name": "row_bot_status", "args": {}, "id": "call_1", "type": "tool_call"}],
@@ -218,7 +218,7 @@ def _classify_result(case: dict[str, Any]) -> str:
     return "unexpected_error"
 
 
-@pytest.mark.skipif(not _enabled(), reason="set THOTH_LIVE_PROVIDER_E2E=1 to run real provider calls")
+@pytest.mark.skipif(not _enabled(), reason="set ROW_BOT_LIVE_PROVIDER_E2E=1 to run real provider calls")
 def test_live_configured_provider_matrix():
     import row_bot.agent as agent
 

@@ -1,7 +1,7 @@
-"""Thoth UI — ``<head>`` HTML injection (CSS + JS).
+"""Row-Bot UI — ``<head>`` HTML injection (CSS + JS).
 
 Call ``inject_head_html()`` once per page load to add highlight.js,
-vis-network, and custom Thoth styles/scripts.
+vis-network, and custom Row-Bot styles/scripts.
 """
 
 from __future__ import annotations
@@ -134,8 +134,8 @@ mermaid.initialize({
           var w = Math.ceil(box.width + pad * 2);
           var h = Math.ceil(box.height + pad * 2);
           svg.setAttribute('viewBox', [x, y, w, h].join(' '));
-          svg.dataset.thothIntrinsicWidth = String(w);
-          svg.dataset.thothIntrinsicHeight = String(h);
+          svg.dataset.rowBotIntrinsicWidth = String(w);
+          svg.dataset.rowBotIntrinsicHeight = String(h);
         }
       } catch (err) {}
     });
@@ -360,7 +360,7 @@ window.rowBotOpenManagedWindow = async function(options) {
         try {
             return !!(await window.pywebview.api.open_window(name, href, title, width, height));
         } catch (err) {
-            console.warn('thothOpenManagedWindow failed via pywebview bridge', err);
+            console.warn('rowBotOpenManagedWindow failed via pywebview bridge', err);
             return false;
         }
     }
@@ -373,7 +373,7 @@ window.rowBotOpenManagedWindow = async function(options) {
             return true;
         }
     } catch (err) {
-        console.warn('thothOpenManagedWindow could not reuse existing browser window', err);
+        console.warn('rowBotOpenManagedWindow could not reuse existing browser window', err);
     }
 
     var features = [
@@ -389,7 +389,7 @@ window.rowBotOpenManagedWindow = async function(options) {
     try {
         if (opened.focus) opened.focus();
     } catch (err) {
-        console.warn('thothOpenManagedWindow could not focus browser window', err);
+        console.warn('rowBotOpenManagedWindow could not focus browser window', err);
     }
     return true;
 };
@@ -401,7 +401,7 @@ window.rowBotCloseManagedWindow = async function(name) {
         try {
             return !!(await window.pywebview.api.close_window(name));
         } catch (err) {
-            console.warn('thothCloseManagedWindow failed via pywebview bridge', err);
+            console.warn('rowBotCloseManagedWindow failed via pywebview bridge', err);
             return false;
         }
     }
@@ -414,7 +414,7 @@ window.rowBotCloseManagedWindow = async function(name) {
         delete window.__rowBotManagedWindows[name];
         return true;
     } catch (err) {
-        console.warn('thothCloseManagedWindow could not close browser window', err);
+        console.warn('rowBotCloseManagedWindow could not close browser window', err);
         return false;
     }
 };
@@ -424,13 +424,13 @@ window.rowBotCloseManagedWindow = async function(name) {
     if (!window.pywebview && !navigator.userAgent.includes('pywebview')) {
         // Normal browser — let native context menu work
         // Re-check after a short delay (pywebview may inject late)
-        setTimeout(function() { if (!window.pywebview) return; initThothCtx(); }, 1500);
+        setTimeout(function() { if (!window.pywebview) return; initRowBotCtx(); }, 1500);
     } else {
-        initThothCtx();
+        initRowBotCtx();
     }
-    function initThothCtx() {
+    function initRowBotCtx() {
         if (!document.body) {
-            document.addEventListener('DOMContentLoaded', initThothCtx, {once:true});
+            document.addEventListener('DOMContentLoaded', initRowBotCtx, {once:true});
             return;
         }
         if (document.getElementById('row-bot-ctx-menu')) return;
@@ -539,5 +539,5 @@ HEAD_HTML = HEAD_HTML.replace("__ROW_BOT_BRAND_ACCENT__", APP_BRAND_ACCENT)
 
 
 def inject_head_html() -> None:
-    """Add the Thoth head HTML (CSS + JS) to the current page."""
+    """Add the Row-Bot head HTML (CSS + JS) to the current page."""
     ui.add_head_html(HEAD_HTML)

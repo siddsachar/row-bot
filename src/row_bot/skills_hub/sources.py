@@ -18,7 +18,7 @@ DEFAULT_TIMEOUT = 15
 MAX_SOURCE_BYTES = 5_000_000
 FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 BROWSER_HEADERS = {
-    "User-Agent": "Thoth-Skills-Hub/1.0",
+    "User-Agent": "Row-Bot-Skills-Hub/1.0",
     "Accept": "text/plain,application/json,text/markdown,*/*;q=0.8",
 }
 

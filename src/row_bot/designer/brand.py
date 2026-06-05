@@ -164,7 +164,7 @@ def extract_brand_from_url(url: str) -> Optional[BrandConfig]:
 
         req = urllib.request.Request(
             url,
-            headers={"User-Agent": "Thoth-Designer/1.0"},
+            headers={"User-Agent": "Row-Bot-Designer/1.0"},
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             html = resp.read(512_000).decode("utf-8", errors="replace")

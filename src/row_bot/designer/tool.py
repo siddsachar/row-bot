@@ -1724,7 +1724,7 @@ class DesignerTool(BaseTool):
                 func=_publish_link,
                 name="designer_publish_link",
                 description=(
-                    "Publish the current design as a self-contained HTML link served by Thoth. "
+                    "Publish the current design as a self-contained HTML link served by Row-Bot. "
                     "Input: optional pages range when you want to publish only part of the deck."
                 ),
             ),

@@ -1,5 +1,5 @@
 """
-Thoth – Shared Channel Commands
+Row-Bot – Shared Channel Commands
 ==================================
 Provides a common set of slash-command handlers that every channel adapter
 can delegate to.  Each handler takes a callback for sending the response
@@ -21,7 +21,7 @@ import logging
 from dataclasses import dataclass
 from typing import Callable
 
-log = logging.getLogger("thoth.channels.commands")
+log = logging.getLogger("row_bot.channels.commands")
 
 
 @dataclass
@@ -98,7 +98,7 @@ def cmd_new(channel_name: str) -> str:
 
 def cmd_status(channel_name: str) -> str:
     """Handle ``/status`` — return agent status summary."""
-    lines = [f"🤖 **Thoth Status** ({channel_name})"]
+    lines = [f"🤖 **Row-Bot Status** ({channel_name})"]
 
     # Active model
     try:
@@ -156,7 +156,7 @@ def cmd_model(channel_name: str, arg: str = "") -> str:
                 lines.append(f"- `{value}` ({label})")
         lines.append("")
         lines.append(
-            f"{channel_name} uses the model configured in Thoth unless this adapter "
+            f"{channel_name} uses the model configured in Row-Bot unless this adapter "
             "implements per-conversation model storage."
         )
         return "\n".join(lines)
@@ -166,7 +166,7 @@ def cmd_model(channel_name: str, arg: str = "") -> str:
         return (
             f"{channel_name} cannot reset a per-conversation model here because "
             "the shared command path has no storage hook. Configure the channel "
-            "model in Thoth."
+            "model in Row-Bot."
         )
     try:
         canonical = canonicalize_model_selection(raw, "channels")
@@ -175,7 +175,7 @@ def cmd_model(channel_name: str, arg: str = "") -> str:
     return (
         f"Recognized `{canonical.ref}`, but {channel_name} cannot persist "
         "per-conversation model overrides through the shared command path. "
-        "Configure the model in Thoth."
+        "Configure the model in Row-Bot."
     )
 
 

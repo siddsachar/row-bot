@@ -408,10 +408,10 @@ def _expires_soon(expires_at: str, *, skew_seconds: int = 120) -> bool:
 
 
 def codex_runtime_credentials(*, refresh_if_needed: bool = True, http_client: Any | None = None) -> CodexTokenSet:
-    """Return Thoth-owned Codex OAuth credentials for direct runtime use.
+    """Return Row-Bot-owned Codex OAuth credentials for direct runtime use.
 
     This intentionally ignores metadata-only external CLI references. Runtime
-    callers need actual bearer/account values, which Thoth only treats as
+    callers need actual bearer/account values, which Row-Bot only treats as
     available when they are stored in its provider keyring namespace.
     """
     from row_bot.providers.auth_store import get_provider_secret
@@ -889,7 +889,7 @@ def refresh_codex_token(refresh_token: str, *, http_client: Any | None = None) -
 
 
 def save_codex_oauth_tokens(token_set: CodexTokenSet) -> dict[str, Any]:
-    """Persist Thoth-owned Codex OAuth tokens in keyring and metadata in providers.json."""
+    """Persist Row-Bot-owned Codex OAuth tokens in keyring and metadata in providers.json."""
     from row_bot.providers.auth_store import set_provider_secret
     from row_bot.providers.config import update_provider_config
 
@@ -990,12 +990,12 @@ def save_external_reference(path: pathlib.Path | str | None = None) -> dict[str,
     return dict(cfg.get("providers", {}).get(CODEX_PROVIDER_ID, {}))
 
 
-def disconnect_codex_metadata(*, remove_thoth_tokens: bool = True) -> None:
-    """Remove Thoth-owned Codex metadata and optional Thoth-owned token secrets."""
+def disconnect_codex_metadata(*, remove_row_bot_tokens: bool = True) -> None:
+    """Remove Row-Bot-owned Codex metadata and optional Row-Bot-owned token secrets."""
     from row_bot.providers.auth_store import delete_provider_secret
     from row_bot.providers.config import update_provider_config
 
-    if remove_thoth_tokens:
+    if remove_row_bot_tokens:
         for credential_name in ("access_token", "refresh_token", "id_token", "account"):
             delete_provider_secret(CODEX_PROVIDER_ID, credential_name)
 

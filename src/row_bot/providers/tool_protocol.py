@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 
-VALIDATION_RETRY_MARKER = "THOTH_TOOL_VALIDATION_RETRY_REQUIRED"
+VALIDATION_RETRY_MARKER = "ROW_BOT_TOOL_VALIDATION_RETRY_REQUIRED"
 
 
 def format_validation_retry_result(

@@ -8,7 +8,7 @@ version: "1.0"
 tags:
   - quality
   - productivity
-author: Thoth
+author: Row-Bot
 ---
 
 When this skill is active, apply these behaviours across **all** interactions:

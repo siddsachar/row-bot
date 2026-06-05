@@ -11,7 +11,7 @@ def data_dir(monkeypatch):
     root.mkdir(parents=True, exist_ok=True)
     path = root / f"case-{uuid.uuid4().hex}"
     path.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("THOTH_DATA_DIR", str(path))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(path))
     yield path
 
 

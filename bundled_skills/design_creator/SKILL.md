@@ -29,7 +29,7 @@ activation:
     - research competitors
   examples:
     - Create a one-page product concept
-author: Thoth
+author: Row-Bot
 ---
 When the user asks you to **create a presentation**, **design a slide deck**,
 **make marketing material**, **build a one-pager**, **design a wireframe**,

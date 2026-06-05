@@ -1,5 +1,5 @@
 """
-Thoth – Channel Registry
+Row-Bot – Channel Registry
 ==========================
 Central registry for all channel adapters.
 
@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from row_bot.channels.base import Channel
 
-log = logging.getLogger("thoth.channels.registry")
+log = logging.getLogger("row_bot.channels.registry")
 
 # ── Internal store ───────────────────────────────────────────────────
 _channels: dict[str, "Channel"] = {}

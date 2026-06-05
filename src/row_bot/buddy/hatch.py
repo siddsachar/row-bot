@@ -338,7 +338,7 @@ def _buddy_image_prompt(prompt: str) -> str:
     return (
         "Create exactly one animated-app companion character named Buddy as a single centered avatar portrait. "
         "The user concept is the source of truth for the theme, palette, materials, and era; "
-        "do not force ancient, mystical, ink, gold, teal, glyph, or Thoth-like motifs unless "
+        "do not force ancient, mystical, ink, gold, teal, glyph, or Row-Bot-like motifs unless "
         "the user explicitly asks for them. The character should be warm, expressive, compact, "
         "friendly but not childish, with readable eyes and a simple silhouette that works "
         "at 96px. Use clear contrast and a readable rim light or outline separating every dark body edge. Show only one full character "
@@ -387,7 +387,7 @@ def _motion_request_spacing_seconds(animate_image_func: Any | None = None) -> fl
     if "google/veo" not in model:
         return 0.0
     try:
-        return max(0.0, float(os.environ.get("THOTH_BUDDY_GOOGLE_VIDEO_SPACING_SECONDS", "16")))
+        return max(0.0, float(os.environ.get("ROW_BOT_BUDDY_GOOGLE_VIDEO_SPACING_SECONDS", "16")))
     except ValueError:
         return 16.0
 
@@ -410,7 +410,7 @@ def _buddy_motion_prompt(prompt: str, clip_id: str = "idle") -> str:
         "and apparent scale from the source image. Lock the virtual camera: no zooming, cropping, panning, "
         "reframing, lens breathing, or scale pulsing. "
         f"Action direction: {spec.cue}. "
-        "Keep the source image's theme, palette, materials, and personality; do not add ancient, mystical, ink, gold, teal, glyph, or Thoth-like motifs unless they are already part of the source design. "
+        "Keep the source image's theme, palette, materials, and personality; do not add ancient, mystical, ink, gold, teal, glyph, or Row-Bot-like motifs unless they are already part of the source design. "
         "Keep the character compact enough to read at sidebar size and fit inside a rounded avatar border. "
         "Keep at least 18 percent empty margin around the full character for the entire clip, "
         "with no body, robe, feet, glow, or shadow touching the frame edge. Preserve the source image's flat solid "

@@ -1,4 +1,4 @@
-"""Thoth v3.10.0 — Comprehensive Test Suite
+"""Row-Bot v4.0.0 - Comprehensive Test Suite
 
 Validates that all modules import cleanly, key functions exist,
 config round-trips work, DB connectivity works, and the NiceGUI
@@ -31,7 +31,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_PARENT = PROJECT_ROOT / "src"
 ROW_BOT_SRC = SRC_PARENT / "row_bot"
 os.chdir(PROJECT_ROOT)
-_TEST_DATA_DIR = PROJECT_ROOT / ".tmp" / "test_suite_thoth"
+_TEST_DATA_DIR = PROJECT_ROOT / ".tmp" / "test_suite_row_bot"
 _TEST_DATA_DIR.mkdir(parents=True, exist_ok=True)
 os.environ["ROW_BOT_DATA_DIR"] = str(_TEST_DATA_DIR)
 for _path in (SRC_PARENT, PROJECT_ROOT):
@@ -392,8 +392,8 @@ FUNCTION_CHECKS = [
     ("row_bot.tools.tracker_tool", "_tracker_log"),
     ("row_bot.tools.tracker_tool", "_tracker_query"),
     ("row_bot.tools.tracker_tool", "_tracker_delete"),
-    ("launcher", "_ThothProcess"),
-    ("launcher", "ThothTray"),
+    ("launcher", "_RowBotProcess"),
+    ("launcher", "RowBotTray"),
     ("launcher", "_show_splash"),
     ("launcher", "_SPLASH_TK"),
 ]
@@ -1685,8 +1685,8 @@ try:
     import tempfile
     _test_dir = tempfile.mkdtemp()
     _sess = ShellSession(working_dir=_test_dir)
-    _result = _sess.run_command("echo hello_thoth")
-    assert "hello_thoth" in _result["output"], f"Expected 'hello_thoth' in output, got: {_result['output']}"
+    _result = _sess.run_command("echo hello_row_bot")
+    assert "hello_row_bot" in _result["output"], f"Expected 'hello_row_bot' in output, got: {_result['output']}"
     assert _result["exit_code"] == 0, f"Expected exit_code 0, got {_result['exit_code']}"
     record("PASS", "shell: session runs commands")
 
@@ -1869,16 +1869,16 @@ try:
     assert "truncated" in _long_text
     record("PASS", "browser: snapshot truncation works")
 
-    # 19j. Profile directory path is under ~/.thoth/
+    # 19j. Profile directory path is under ~/.row-bot/
     assert "browser_profile" in str(_PROFILE_DIR)
     _data_dir_env = os.environ.get("ROW_BOT_DATA_DIR")
     if _data_dir_env:
         assert str(Path(_data_dir_env).resolve()) in str(Path(_PROFILE_DIR).resolve())
     else:
-        assert ".thoth" in str(_PROFILE_DIR)
+        assert ".row-bot" in str(_PROFILE_DIR)
     record("PASS", "browser: profile dir path correct")
 
-    # 19k. History path is under ~/.thoth/
+    # 19k. History path is under ~/.row-bot/
     assert "browser_history.json" in str(_HISTORY_PATH)
     record("PASS", "browser: history path correct")
 
@@ -3781,7 +3781,7 @@ try:
     record("PASS", "v3.6: _create_chart function accepts save_to_file param")
 
     # ── 30i. Chart save_to_file produces PNG (integration) ─────────────────
-    _tmpdir30i = tempfile.mkdtemp(prefix="thoth_test30i_")
+    _tmpdir30i = tempfile.mkdtemp(prefix="row_bot_test30i_")
     try:
         # Create test CSV
         _csv30 = Path(_tmpdir30i) / "data.csv"
@@ -3830,7 +3830,7 @@ try:
 
     # ── 30l. _build_mime_message creates multipart with attachment ─────────
     from row_bot.tools.gmail_tool import _build_mime_message as _bmm30
-    _tmpdir30l = tempfile.mkdtemp(prefix="thoth_test30l_")
+    _tmpdir30l = tempfile.mkdtemp(prefix="row_bot_test30l_")
     try:
         _att_file30 = Path(_tmpdir30l) / "test.txt"
         _att_file30.write_text("hello world", encoding="utf-8")
@@ -3868,7 +3868,7 @@ try:
     record("PASS", "v3.6: export_to_pdf in filesystem _WRITE_OPS")
 
     # ── 30o. export_to_pdf creates a PDF file ──────────────────────────────
-    _tmpdir30o = tempfile.mkdtemp(prefix="thoth_test30o_")
+    _tmpdir30o = tempfile.mkdtemp(prefix="row_bot_test30o_")
     try:
         from row_bot.tools.filesystem_tool import _make_export_to_pdf_tool as _mepdf
         _pdf_tool30 = _mepdf(_tmpdir30o)
@@ -3889,7 +3889,7 @@ try:
         shutil.rmtree(_tmpdir30o, ignore_errors=True)
 
     # ── 30p. export_to_pdf auto-adds .pdf extension ───────────────────────
-    _tmpdir30p = tempfile.mkdtemp(prefix="thoth_test30p_")
+    _tmpdir30p = tempfile.mkdtemp(prefix="row_bot_test30p_")
     try:
         _pdf_tool30p = _mepdf(_tmpdir30p)
         _pdf_result30p = _pdf_tool30p.invoke({
@@ -4558,7 +4558,7 @@ try:
     record("PASS", "defaults: file_delete excluded from DEFAULT_OPERATIONS")
 
     # ── 33d. _get_workspace_root auto-sets default when unconfigured ───────
-    _tmpdir33 = tempfile.mkdtemp(prefix="thoth_test33_")
+    _tmpdir33 = tempfile.mkdtemp(prefix="row_bot_test33_")
     try:
         _fs33d = FileSystemTool()
         _old_ws33 = _fs33d.get_config("workspace_root", "")
@@ -4574,7 +4574,7 @@ try:
         shutil.rmtree(_tmpdir33, ignore_errors=True)
 
     # ── 33e. _get_workspace_root creates directory if it doesn't exist ─────
-    _tmpdir33e = tempfile.mkdtemp(prefix="thoth_test33e_")
+    _tmpdir33e = tempfile.mkdtemp(prefix="row_bot_test33e_")
     try:
         _new_ws33 = str(pathlib.Path(_tmpdir33e) / "subdir" / "workspace")
         _fs33e = FileSystemTool()
@@ -4588,7 +4588,7 @@ try:
         shutil.rmtree(_tmpdir33e, ignore_errors=True)
 
     # ── 33f. as_langchain_tools returns tools when workspace exists ────────
-    _tmpdir33f = tempfile.mkdtemp(prefix="thoth_test33f_")
+    _tmpdir33f = tempfile.mkdtemp(prefix="row_bot_test33f_")
     try:
         _fs33f = FileSystemTool()
         _old_ws33f = _fs33f.get_config("workspace_root", "")
@@ -5256,8 +5256,8 @@ try:
     assert "def list_all_models" in _models_src35, "models.py should have daemon model list facade"
     assert "return sorted(set(list_local_models()))" in _models_src35, \
         "list_all_models should only return daemon-exposed Ollama models"
-    assert "ollama.com/api/tags" not in _models_src35, "Thoth should not fetch public Ollama tags"
-    assert "def pull_model" not in _models_src35, "Thoth should not download Ollama models"
+    assert "ollama.com/api/tags" not in _models_src35, "Row-Bot should not fetch public Ollama tags"
+    assert "def pull_model" not in _models_src35, "Row-Bot should not download Ollama models"
     record("PASS", "cloud: Ollama model management is daemon-only")
 
     # ── 35ax. fetch_trending_ollama_models is importable ─────────────
@@ -6502,7 +6502,7 @@ try:
     # Cleanup
     import shutil as _sh38l
     from pathlib import Path as _P38l
-    _mdir38l = _P38l.home() / ".thoth" / "media" / _tid38l
+    _mdir38l = _P38l.home() / ".row-bot" / "media" / _tid38l
     if _mdir38l.exists():
         _sh38l.rmtree(_mdir38l, ignore_errors=True)
     record("PASS", "image: _build_conversation_html hydrates filename → data URI")
@@ -7125,7 +7125,7 @@ try:
             assert _conv_path.exists()
             _conv_text = _conv_path.read_text(encoding="utf-8")
             assert "**You:** Hello" in _conv_text
-            assert "**Thoth:** Hi there!" in _conv_text
+            assert "**Row-Bot:** Hi there!" in _conv_text
             record("PASS", "wiki_vault: export_conversation creates .md")
 
             # ── 42o. get_vault_stats ─────────────────────────────────
@@ -7145,7 +7145,7 @@ try:
 
             # ── 42q. _render_master_index ────────────────────────────
             _midx42 = _wv42._render_master_index([_e42_export, _e42_sparse])
-            assert "# Thoth Knowledge Base" in _midx42
+            assert "# Row-Bot Knowledge Base" in _midx42
             assert "2 entities" in _midx42
             record("PASS", "wiki_vault: _render_master_index summary correct")
 
@@ -8142,7 +8142,7 @@ try:
     _secret_store49._set_backend_for_tests(_FakeKeyring49())
 
     # ── 49b. Manifest validation — good manifest ─────────────────────
-    _tmpdir49 = _Path49(_tempfile49.mkdtemp(prefix="thoth_plugin_test_"))
+    _tmpdir49 = _Path49(_tempfile49.mkdtemp(prefix="row_bot_plugin_test_"))
     try:
         _good_manifest49 = {
             "id": "test-plugin",
@@ -8665,7 +8665,7 @@ try:
     record("PASS", "marketplace: MarketplaceEntry has all expected fields")
 
     # ── 51i. Installer — install from local source ───────────────────
-    _tmpdir51 = _tempfile51.mkdtemp(prefix="thoth_test_installer_")
+    _tmpdir51 = _tempfile51.mkdtemp(prefix="row_bot_test_installer_")
     _old_plugins_dir = _inst51.PLUGINS_DIR
     _inst51.PLUGINS_DIR = _pathlib51.Path(_tmpdir51) / "installed_plugins"
     _inst51.PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
@@ -8904,7 +8904,7 @@ try:
     record("PASS", "image_gen: _resolve_image_source matches filenames in cache")
 
     # ── 52h. _resolve_image_source — file path on disk ───────────────
-    _tmpdir52 = _tempfile52.mkdtemp(prefix="thoth_test_imgen_")
+    _tmpdir52 = _tempfile52.mkdtemp(prefix="row_bot_test_imgen_")
     _tmpimg52 = _Path52(_tmpdir52) / "test_img.png"
     _tmpimg52.write_bytes(b"PNG_FILE_DATA")
     _resolved4 = _resolve_image_source(str(_tmpimg52))
@@ -9997,7 +9997,7 @@ try:
     # ── 55t. Email removed from tasks.py delivery ────────────────────
     _tasks_src55 = (ROW_BOT_SRC / "tasks.py").read_text(encoding="utf-8")
     assert "row_bot.channels.email" not in _tasks_src55
-    assert "FromThoth:" not in _tasks_src55
+    assert "FromRowBot:" not in _tasks_src55
     record("PASS", "channel_infra: email removed from tasks.py")
 
     # ── 55u. tasks.py uses channel registry ──────────────────────────
@@ -12430,8 +12430,8 @@ try:
     # Simulate: two entities of different types where A's description
     # mentions B's subject — should NOT be blocked anymore
     _ea57 = {"id": "a57", "subject": "Python", "entity_type": "skill",
-             "description": "A programming language used for Thoth."}
-    _eb57 = {"id": "b57", "subject": "Thoth", "entity_type": "project",
+             "description": "A programming language used for Row-Bot."}
+    _eb57 = {"id": "b57", "subject": "Row-Bot", "entity_type": "project",
              "description": "A personal AI assistant built with Python."}
     # With same-type guard: different types → NOT blocked
     _subj_b57 = _eb57["subject"].lower()
@@ -12646,7 +12646,7 @@ try:
         "aliases: JD, Johnny\n"
         "tags: test, demo\n"
         "---\n"
-        "<!-- Managed by Thoth — edits here sync back to the knowledge graph -->\n"
+        "<!-- Managed by Row-Bot — edits here sync back to the knowledge graph -->\n"
         "# John Doe\n"
         "\n"
         "A test person for unit testing.\n"
@@ -14201,7 +14201,7 @@ try:
     import subprocess as _subprocess68m3
     import sys as _sys68m3
     import tempfile as _tempfile68m3
-    with _tempfile68m3.TemporaryDirectory(prefix="thoth_clean_first_run_") as _td68m3:
+    with _tempfile68m3.TemporaryDirectory(prefix="row_bot_clean_first_run_") as _td68m3:
         _env68m3 = dict(_os68m3.environ)
         _env68m3["ROW_BOT_DATA_DIR"] = _td68m3
         _probe68m3 = (
@@ -14244,7 +14244,7 @@ try:
     assert "Settings → Models" in _release_docs68m4["readme"], "README must direct catalog/pinning to Models"
     assert "Claude Code Delegation" in _docs_all68m4, "release docs must mention Claude Code Delegation"
     assert "claude_code_delegation" in _docs_all68m4, "release notes must include the Claude Code Delegation skill file"
-    assert "Status and insight awareness" in _release_docs68m4["release_notes"], "release notes must cover Thoth Status insights alignment"
+    assert "Status and insight awareness" in _release_docs68m4["release_notes"], "release notes must cover Row-Bot Status insights alignment"
     assert "provider/model/media configuration" in _release_docs68m4["architecture"], "architecture must cover provider-aware dream insights snapshot"
     assert "../docs/RELEASING.md" in _release_docs68m4["installer_readme"], "installer README must link to the canonical release process"
     assert "installer/row_bot_setup.iss" in _release_docs68m4["releasing"], "release process must mention Windows packaging checks"
@@ -14542,11 +14542,11 @@ except Exception as e:
 # ── 69n. self_knowledge module exports ────────────────────────────────────
 try:
     from row_bot.self_knowledge import (
-        ABOUT_THOTH, SKILL_CREATION_GUIDANCE, FEATURE_MANIFEST,
+        ABOUT_ROW_BOT, SKILL_CREATION_GUIDANCE, FEATURE_MANIFEST,
         build_identity_line, get_dynamic_state, build_self_knowledge_block,
         lookup_features,
     )
-    assert len(ABOUT_THOTH) > 100
+    assert len(ABOUT_ROW_BOT) > 100
     assert len(FEATURE_MANIFEST) >= 18
     _block69n = build_self_knowledge_block()
     assert "ABOUT YOU" in _block69n
@@ -14570,17 +14570,17 @@ try:
     _skills69o._enabled.clear()
     _skills_block69o = _query_skills69o()
     assert "No skills found." not in _skills_block69o, \
-        "Thoth Status skill query should lazy-load manual skills"
+        "Row-Bot Status skill query should lazy-load manual skills"
     _guide_names69o = [
         _skill69o.display_name
         for _skill69o in _skills69o.get_all_skills()
         if _skills69o.is_tool_guide(_skill69o)
     ]
     assert all(_guide69o not in _skills_block69o for _guide69o in _guide_names69o[:5]), \
-        "Thoth Status skill query should exclude tool guides"
+        "Row-Bot Status skill query should exclude tool guides"
     _insights_block69o = _qh69o["insights"]()
     assert "**Insights**" in _insights_block69o and "Active:" in _insights_block69o, \
-        "Thoth Status insights query should summarize active insights"
+        "Row-Bot Status insights query should summarize active insights"
     record("PASS", f"69o: RowBotStatusTool has all {len(_expected_cats69o)} query categories")
 except Exception as e:
     record("FAIL", "69o-status-categories", f"{type(e).__name__}: {e}")
@@ -19473,7 +19473,7 @@ except Exception as e:
 try:
     import json as _json73e, pathlib as _p73e, os as _os73e, importlib as _imp73e
     # Use isolated data dir
-    _tmp_dir = _p73e.Path(_os73e.environ.get("TEMP", "/tmp")) / "thoth_test_updater"
+    _tmp_dir = _p73e.Path(_os73e.environ.get("TEMP", "/tmp")) / "row_bot_test_updater"
     _tmp_dir.mkdir(parents=True, exist_ok=True)
     _saved_env = _os73e.environ.get("ROW_BOT_DATA_DIR")
     _os73e.environ["ROW_BOT_DATA_DIR"] = str(_tmp_dir)
@@ -19664,7 +19664,7 @@ print("─" * 60)
 # 74a. every registered StructuredTool produces a Gemini-valid schema
 try:
     import os as _os74a
-    _os74a.environ.setdefault("THOTH_HEADLESS", "1")
+    _os74a.environ.setdefault("ROW_BOT_HEADLESS", "1")
     import importlib as _imp74a
     _imp74a.import_module("row_bot.tools")
     try:
@@ -19957,7 +19957,7 @@ try:
     _edits_src76 = (_dev_dir76 / "edits.py").read_text(encoding="utf-8")
     _ledger_src76 = (_dev_dir76 / "change_ledger.py").read_text(encoding="utf-8")
     assert "build_developer_agent_context" in _ctx_src76, "Developer context builder should exist"
-    assert "Do not clone repositories into Thoth app data" in _ctx_src76, "Developer context should preserve clone safety"
+    assert "Do not clone repositories into Row-Bot app data" in _ctx_src76, "Developer context should preserve clone safety"
     assert "Top-level files" in _ctx_src76, "Developer context should include compact repo inventory"
     assert "maybe_answer_workspace_identity" in _ctx_src76, "Developer should answer repo/path/branch identity from context"
     assert "do not call shell, git, filesystem, or browser tools" in _ctx_src76, "Developer identity questions should not trigger tools"
@@ -20001,7 +20001,7 @@ try:
     assert "diff_stats.additions" in _dev_ui_src76 and "diff_stats.deletions" in _dev_ui_src76, "Developer inspector should render red/green line counts"
     assert "min-width: 560px" in _dev_ui_src76, "Developer inspector should be wide enough for diffs"
     assert "developer-inspector-resizer" in _dev_ui_src76, "Developer inspector should expose a left-edge resize handle"
-    assert "thothDeveloperInspectorWidth" in _dev_ui_src76, "Developer inspector width should persist after resizing"
+    assert "rowBotDeveloperInspectorWidth" in _dev_ui_src76, "Developer inspector width should persist after resizing"
     assert "startX - ev.clientX" in _dev_ui_src76, "Developer inspector should expand left when dragged left"
     assert "ui.tree(nodes, on_select=_select)" in _dev_ui_src76, "Developer file view should use native tree rendering"
     assert "request_snapshot_refresh" in _dev_ui_src76 and "get_snapshot" in _dev_ui_src76, "Developer inspector should hydrate from background snapshots"

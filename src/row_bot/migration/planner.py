@@ -29,7 +29,7 @@ except Exception:  # pragma: no cover - optional parser, planner falls back to f
     yaml = None
 
 
-DEFAULT_TARGET_ROOT = Path.home() / ".thoth" / "migration-preview"
+DEFAULT_TARGET_ROOT = Path.home() / ".row-bot" / "migration-preview"
 _SAFE_NAME_RE = re.compile(r"[^a-z0-9_.-]+")
 
 

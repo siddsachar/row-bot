@@ -1,6 +1,6 @@
 """Designer — version history snapshots and in-memory undo/redo stack.
 
-Snapshot storage: ~/.thoth/designer/history/{project_id}/{timestamp}.json
+Snapshot storage: ~/.row-bot/designer/history/{project_id}/{timestamp}.json
 Each snapshot stores the full pages list + brand config at that point in time.
 
 UndoStack: in-memory ring buffer (per project session) for fast undo/redo.

@@ -117,7 +117,7 @@ def test_get_latest_checkpoint_messages_reads_checkpointer_without_graph(monkeyp
 
 
 def test_get_token_usage_reads_checkpoint_without_agent_graph(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / ".thoth"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / ".row-bot"))
     from langchain_core.messages import HumanMessage
     import row_bot.agent as agent
     import row_bot.threads as threads

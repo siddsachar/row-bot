@@ -38,7 +38,6 @@ APP_WORKSPACE_ENV = "ROW_BOT_WORKSPACE"
 APP_TEST_MODE_ENV = "ROW_BOT_TEST_MODE"
 
 DEFAULT_DATA_DIR_NAME = ".row-bot"
-LEGACY_DATA_DIR_NAME = ".thoth"
 DEFAULT_WORKSPACE_DIR_NAME = "Row-Bot"
 LINUX_APP_HOME_NAME = APP_SLUG
 LINUX_COMMAND_NAME = APP_SLUG
@@ -59,8 +58,3 @@ STRUCTURED_LOG_FILENAME = "row_bot.log"
 def default_data_dir() -> Path:
     """Return the canonical Row-Bot data directory path without creating it."""
     return Path.home() / DEFAULT_DATA_DIR_NAME
-
-
-def legacy_data_dir() -> Path:
-    """Return the legacy data directory path for the migration module."""
-    return Path.home() / LEGACY_DATA_DIR_NAME

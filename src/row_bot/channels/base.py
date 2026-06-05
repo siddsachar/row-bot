@@ -1,5 +1,5 @@
 """
-Thoth – Channel Base Class
+Row-Bot – Channel Base Class
 ============================
 Abstract base for all messaging-channel adapters.
 
@@ -101,7 +101,7 @@ def get_last_activity(channel_name: str) -> float | None:
 # ── Channel ABC ──────────────────────────────────────────────────────
 
 class Channel(ABC):
-    """Abstract base class for a Thoth messaging-channel adapter.
+    """Abstract base class for a Row-Bot messaging-channel adapter.
 
     Subclasses **must** implement the abstract methods/properties.
     Optional outbound helpers (``send_photo``, ``send_document``, …) have
@@ -239,7 +239,7 @@ class Channel(ABC):
     # ── Thread management ────────────────────────────────────────────
 
     def make_thread_id(self, external_id: str) -> str:
-        """Derive a Thoth thread-id from a platform-specific ID.
+        """Derive a Row-Bot thread-id from a platform-specific ID.
 
         Default: ``f"{self.name}_{external_id}"``.
         """

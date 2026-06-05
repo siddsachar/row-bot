@@ -89,7 +89,7 @@ def test_trace_and_journal_loaders_are_read_only(tmp_path, monkeypatch):
 
 
 def test_graph_vis_json_includes_audit_metadata(tmp_path, monkeypatch):
-    monkeypatch.setenv("THOTH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.knowledge_graph as knowledge_graph
 
     kg = importlib.reload(knowledge_graph)

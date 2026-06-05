@@ -10,7 +10,7 @@ Design
 * **Shared visible browser** — ``headless=False``, so the user can see what
   the agent is doing and intervene (e.g. type passwords, solve CAPTCHAs).
 * **Persistent profile** — ``launch_persistent_context()`` stores state in
-  ``~/.thoth/browser_profile/`` so sites stay logged-in across restarts.
+  ``~/.row-bot/browser_profile/`` so sites stay logged-in across restarts.
 * **Per-thread tab isolation** — each agent thread (interactive chat or
   background task) gets its own tab within the single browser window.
 * **Accessibility-tree snapshots** — after every action the tool takes a

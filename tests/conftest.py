@@ -10,11 +10,13 @@ from typing import Any
 
 import pytest
 
+from row_bot.migration.row_bot_legacy_rebrand import LEGACY_DATA_DIR_NAME
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_TEST_DATA_DIR = PROJECT_ROOT / ".tmp" / "pytest_thoth"
+DEFAULT_TEST_DATA_DIR = PROJECT_ROOT / ".tmp" / "pytest_row_bot"
 DEFAULT_TEST_TMP_DIR = PROJECT_ROOT / ".tmp" / "pytest_tmp"
-LIVE_USER_DATA_DIR = Path.home() / ".thoth"
+LIVE_LEGACY_DATA_DIR = Path.home() / LEGACY_DATA_DIR_NAME
 LIVE_ROW_BOT_DATA_DIR = Path.home() / ".row-bot"
 
 
@@ -37,12 +39,11 @@ def _is_under(path: Path | None, root: Path) -> bool:
 
 def _is_live_user_state_path(path: Any) -> bool:
     resolved = _resolve_for_guard(path)
-    return _is_under(resolved, LIVE_USER_DATA_DIR) or _is_under(resolved, LIVE_ROW_BOT_DATA_DIR)
+    return _is_under(resolved, LIVE_LEGACY_DATA_DIR) or _is_under(resolved, LIVE_ROW_BOT_DATA_DIR)
 
 
 def _set_default_test_data_env() -> None:
     os.environ["ROW_BOT_DATA_DIR"] = str(DEFAULT_TEST_DATA_DIR)
-    os.environ["THOTH_DATA_DIR"] = str(DEFAULT_TEST_DATA_DIR)
 
 
 def _is_write_mode(mode: Any) -> bool:
@@ -51,10 +52,7 @@ def _is_write_mode(mode: Any) -> bool:
 
 
 def _live_write_allowed() -> bool:
-    return (
-        os.environ.get("ROW_BOT_ALLOW_LIVE_USER_STATE_WRITES") == "1"
-        or os.environ.get("THOTH_ALLOW_LIVE_USER_STATE_WRITES") == "1"
-    )
+    return os.environ.get("ROW_BOT_ALLOW_LIVE_USER_STATE_WRITES") == "1"
 
 
 def _raise_live_write(path: Any, operation: str) -> None:
@@ -68,17 +66,15 @@ def _raise_live_write(path: Any, operation: str) -> None:
 
 # Establish a non-live data directory before test modules import app code. If a
 # developer shell already points at live user state, override it for test safety.
-existing_data_dir = os.environ.get("ROW_BOT_DATA_DIR") or os.environ.get("THOTH_DATA_DIR")
+existing_data_dir = os.environ.get("ROW_BOT_DATA_DIR")
 if not existing_data_dir or _is_live_user_state_path(existing_data_dir):
     existing_data_dir = str(DEFAULT_TEST_DATA_DIR)
 os.environ["ROW_BOT_DATA_DIR"] = existing_data_dir
-os.environ["THOTH_DATA_DIR"] = existing_data_dir
 DEFAULT_TEST_DATA_DIR.mkdir(parents=True, exist_ok=True)
 DEFAULT_TEST_TMP_DIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("TMP", str(DEFAULT_TEST_TMP_DIR))
 os.environ.setdefault("TEMP", str(DEFAULT_TEST_TMP_DIR))
 os.environ.setdefault("ROW_BOT_TEST_MODE", "1")
-os.environ.setdefault("THOTH_TEST_MODE", "1")
 
 
 _ORIGINAL_BUILTINS_OPEN = builtins.open
@@ -148,17 +144,7 @@ def _guarded_sqlite_connect(database: Any, *args: Any, **kwargs: Any):
 
 
 def _synced_setenv(self: pytest.MonkeyPatch, name: str, value: str, *args: Any, **kwargs: Any) -> None:
-    previous_row_bot = os.environ.get("ROW_BOT_DATA_DIR")
     _ORIGINAL_MONKEYPATCH_SETENV(self, name, value, *args, **kwargs)
-    if name == "THOTH_DATA_DIR" and (
-        previous_row_bot is None
-        or Path(previous_row_bot).resolve(strict=False) == DEFAULT_TEST_DATA_DIR.resolve(strict=False)
-    ):
-        _ORIGINAL_MONKEYPATCH_SETENV(self, "ROW_BOT_DATA_DIR", value, *args, **kwargs)
-    elif name == "ROW_BOT_DATA_DIR":
-        previous_thoth = os.environ.get("THOTH_DATA_DIR")
-        if previous_thoth is None or Path(previous_thoth).resolve(strict=False) == DEFAULT_TEST_DATA_DIR.resolve(strict=False):
-            _ORIGINAL_MONKEYPATCH_SETENV(self, "THOTH_DATA_DIR", value, *args, **kwargs)
 
 
 builtins.open = _guarded_open
