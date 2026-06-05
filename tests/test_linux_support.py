@@ -194,6 +194,8 @@ def test_mac_and_linux_builders_copy_from_app_payload_manifest():
 
     for builder in (linux_builder, mac_builder):
         assert "scripts/app_payload_manifest.py" in builder
+        assert 'mkdir -p "$(dirname "$APP_SRC/$pkg")"' in builder
+        assert 'mkdir -p "$(dirname "$APP_SRC/$dir")"' in builder
         for category in (
             "root_python_files",
             "root_files",

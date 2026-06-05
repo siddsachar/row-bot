@@ -138,6 +138,7 @@ done < <(python3 "$MANIFEST_PY" --project-root "$PROJECT_DIR" --category runtime
 while IFS= read -r pkg; do
     [ -n "$pkg" ] || continue
     if [ -d "$PROJECT_DIR/$pkg" ]; then
+        mkdir -p "$(dirname "$APP_SRC/$pkg")"
         rsync -a \
               --exclude='__pycache__' --exclude='*.pyc' \
               --exclude='node_modules' --exclude='.pytest_cache' \
@@ -155,6 +156,7 @@ done < <(python3 "$MANIFEST_PY" --project-root "$PROJECT_DIR" --category payload
 while IFS= read -r dir; do
     [ -n "$dir" ] || continue
     if [ -d "$PROJECT_DIR/$dir" ]; then
+        mkdir -p "$(dirname "$APP_SRC/$dir")"
         rsync -a --exclude='*.pyc' "$PROJECT_DIR/$dir/" "$APP_SRC/$dir/"
     else
         fail "Manifest asset directory is missing: $dir"
