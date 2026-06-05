@@ -117,7 +117,8 @@ $RequiredTkPaths = @(
     (Join-Path "$SysPyRoot\tcl" "tk8.6"),
     (Resolve-TkSourceFile "_tkinter.pyd"),
     (Resolve-TkSourceFile "tcl86t.dll"),
-    (Resolve-TkSourceFile "tk86t.dll")
+    (Resolve-TkSourceFile "tk86t.dll"),
+    (Resolve-TkSourceFile "zlib1.dll")
 )
 $MissingTkPaths = @()
 foreach ($requiredTkPath in $RequiredTkPaths) {
@@ -135,7 +136,7 @@ if ($MissingTkPaths.Count -gt 0) {
     $PythonDir = Join-Path $BuildDir "python"
 
     # Copy _tkinter.pyd and Tcl/Tk DLLs
-    foreach ($dll in @("_tkinter.pyd", "tcl86t.dll", "tk86t.dll")) {
+    foreach ($dll in @("_tkinter.pyd", "tcl86t.dll", "tk86t.dll", "zlib1.dll")) {
         $src = Resolve-TkSourceFile $dll
         if (Test-Path $src) {
             Copy-Item $src -Destination $PythonDir -Force
