@@ -204,6 +204,14 @@ $env:TCL_LIBRARY = Join-Path $PythonDir "tcl\tcl8.6"
 $env:TK_LIBRARY = Join-Path $PythonDir "tcl\tk8.6"
 $env:PATH = (Join-Path $PythonDir "Scripts") + ";" + $PythonDir + ";" + $env:PATH
 $TkSmokeCode = @"
+import os
+import sys
+py_dir = os.path.dirname(sys.executable)
+if hasattr(os, "add_dll_directory"):
+    os.add_dll_directory(py_dir)
+    dll_dir = os.path.join(py_dir, "DLLs")
+    if os.path.isdir(dll_dir):
+        os.add_dll_directory(dll_dir)
 import _tkinter
 import tkinter
 interp = tkinter.Tcl()

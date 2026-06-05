@@ -204,6 +204,7 @@ def test_windows_installer_build_verifies_tk_runtime():
     assert '$SysPyVersion -ne $PythonVersion' in build_script
     assert 'Resolve-TkSourceFile "_tkinter.pyd"' in build_script
     assert '$env:PATH = (Join-Path $PythonDir "Scripts") + ";" + $PythonDir + ";" + $env:PATH' in build_script
+    assert 'os.add_dll_directory(py_dir)' in build_script
     assert 'import _tkinter' in build_script
     assert 'import tkinter' in build_script
     assert 'Embedded tkinter verified' in build_script
