@@ -20,7 +20,7 @@ param(
 $ErrorActionPreference = "Stop"
 $BuildDir = Join-Path $PSScriptRoot "build"
 $ProjectRoot = Split-Path $PSScriptRoot
-$VersionFile = Join-Path $ProjectRoot "version.py"
+$VersionFile = Join-Path $ProjectRoot "src\row_bot\version.py"
 $RowBotVersion = if (Test-Path $VersionFile) {
     $versionLine = Select-String -Path $VersionFile -Pattern '__version__\s*=\s*"([^"]+)"' | Select-Object -First 1
     if ($versionLine -and $versionLine.Matches.Count -gt 0) { $versionLine.Matches[0].Groups[1].Value } else { "unknown" }

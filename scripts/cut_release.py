@@ -34,7 +34,7 @@ def main() -> None:
     validate_version(args.version)
 
     version = args.version
-    replace_once(ROOT / "version.py", r'__version__ = "[^"]+"', f'__version__ = "{version}"')
+    replace_once(ROOT / "src" / "row_bot" / "version.py", r'__version__ = "[^"]+"', f'__version__ = "{version}"')
     replace_once(
         ROOT / "installer" / "row_bot_setup.iss",
         r'#define MyAppVersion\s+"[^"]+"',

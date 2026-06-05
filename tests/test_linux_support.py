@@ -521,6 +521,27 @@ def test_release_workflows_reference_linux_artifact():
     assert f"bash build_linux_app.sh {__version__}" in installer_docs
 
 
+def test_release_scripts_use_source_layout_version_file():
+    release = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+    cut_release = Path("scripts/cut_release.py").read_text(encoding="utf-8")
+    windows_builder = Path("installer/build_installer.ps1").read_text(encoding="utf-8")
+    linux_builder = Path("installer/build_linux_app.sh").read_text(encoding="utf-8")
+    mac_builder = Path("installer/build_mac_app.sh").read_text(encoding="utf-8")
+    mac_zip_builder = Path("installer/build_mac_release.sh").read_text(encoding="utf-8")
+    mac_launcher = Path("Start Row-Bot.command").read_text(encoding="utf-8")
+
+    assert "src/row_bot/version.py" in release
+    assert 'VERSION="$ROW_BOT_VERSION"' in release
+    assert "from version import __version__" not in release
+    assert '"src" / "row_bot" / "version.py"' in cut_release
+    assert 'Join-Path $ProjectRoot "src\\row_bot\\version.py"' in windows_builder
+    for script in (linux_builder, mac_builder, mac_zip_builder):
+        assert '$PROJECT_DIR/src/row_bot/version.py' in script
+        assert '$PROJECT_DIR/version.py' not in script
+    assert '$PROJECT_DIR/src/row_bot/version.py' in mac_launcher
+    assert '$PROJECT_DIR/version.py' not in mac_launcher
+
+
 def test_release_manifest_script_uses_brand_contract():
     from row_bot.brand import APP_REPOSITORY, UPDATE_MANIFEST_MARKER, UPDATER_USER_AGENT
     from scripts import append_sha_manifest

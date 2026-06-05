@@ -34,7 +34,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$SCRIPT_DIR"
 VENV_DIR="$PROJECT_DIR/.venv"
 ROW_BOT_HOME="$HOME/.row-bot"
-ROW_BOT_VERSION="$(awk -F'"' '/__version__/ { print $2; exit }' "$PROJECT_DIR/version.py" 2>/dev/null || true)"
+ROW_BOT_VERSION="$(awk -F'"' '/__version__/ { print $2; exit }' "$PROJECT_DIR/src/row_bot/version.py" 2>/dev/null || true)"
 if [ -z "$ROW_BOT_VERSION" ]; then
     ROW_BOT_VERSION="4.0.0"
 fi

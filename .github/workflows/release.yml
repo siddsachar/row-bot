@@ -40,7 +40,7 @@ concurrency:
   cancel-in-progress: true
 
 # Tracks the version this workflow is currently shipping. Kept in sync with
-# `installer/row_bot_setup.iss` (#define MyAppVersion) and `version.py`.
+# `installer/row_bot_setup.iss` (#define MyAppVersion) and `src/row_bot/version.py`.
 env:
   ROW_BOT_VERSION: "4.0.0"
 
@@ -361,7 +361,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          VERSION="$(python3 -c "from version import __version__; print(__version__)")"
+          VERSION="$ROW_BOT_VERSION"
           ARCH="$(uname -m)"
           APP_PATH="installer/build/mac/Row-Bot.app"
           DMG_PATH="dist/Row-Bot-${VERSION}-macOS-${ARCH}.dmg"

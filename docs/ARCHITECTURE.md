@@ -895,7 +895,7 @@ Row-Bot ships with **17 manual bundled skills** and **20 tool guides**. Manual s
 | **`mcp_client/`** | External Model Context Protocol client: config, runtime sessions, marketplace search, requirements, safety classification, diagnostics, and result normalization |
 | **`migration/`** | Hermes/OpenClaw migration models, redaction, source detection, dry-run planning, realistic fixtures, and guarded apply/report generation |
 | **`static/`** | Bundled frontend assets such as Mermaid, graph/visualization helpers, and Buddy runtime/motion assets |
-| **`version.py`** | Single source of truth for the current Row-Bot version |
+| **`version.py`** | Single source of truth for the current Row-Bot version, located at `src/row_bot/version.py` |
 
 ---
 

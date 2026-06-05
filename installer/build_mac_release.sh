@@ -15,7 +15,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-DEFAULT_VERSION="$(python3 - "$PROJECT_DIR/version.py" <<'PY'
+DEFAULT_VERSION="$(python3 - "$PROJECT_DIR/src/row_bot/version.py" <<'PY'
 import sys
 from pathlib import Path
 ns = {}
