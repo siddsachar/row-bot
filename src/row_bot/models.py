@@ -1,5 +1,6 @@
 import contextvars
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import ipaddress
 import json
 import logging
@@ -72,6 +73,7 @@ _CONTEXT_HEURISTICS: list[tuple[str, int]] = [
     ("grok-2",           131_072),  # Grok 2 family           — 131K
     ("grok",             131_072),  # Catch-all Grok          — 131K
     # ── MiniMax ──────────────────────────────────────────────────────
+    ("minimax-m3",     1_000_000),  # MiniMax M3 Anthropic-compatible model
     ("minimax-m2",       204_800),  # MiniMax M2.x Anthropic-compatible models
 ]
 
@@ -1336,10 +1338,9 @@ def validate_xai_key(api_key: str) -> bool:
 
 
 def validate_minimax_key(api_key: str) -> bool:
-    """Validate a MiniMax API key with the Anthropic-compatible messages API.
+    """Validate a MiniMax API key with the Anthropic-compatible models API.
 
-    MiniMax's Anthropic-compatible docs do not expose a model-list endpoint, so
-    validation uses the smallest possible message request. MiniMax reports a
+    MiniMax reports a
     valid key with no available balance as ``insufficient balance (1008)``;
     treat that as accepted credentials so the UI does not mislabel the key as
     invalid.
@@ -1347,22 +1348,18 @@ def validate_minimax_key(api_key: str) -> bool:
     import httpx
 
     try:
-        resp = httpx.post(
-            f"{MINIMAX_ANTHROPIC_BASE_URL}/v1/messages",
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": "MiniMax-M2.7",
-                "max_tokens": 1,
-                "messages": [{"role": "user", "content": [{"type": "text", "text": "Hi"}]}],
-            },
+        resp = httpx.get(
+            f"{MINIMAX_ANTHROPIC_BASE_URL}/v1/models",
+            headers={"x-api-key": api_key},
+            params={"limit": 1},
             timeout=15,
         )
         if resp.status_code == 200:
-            return True
+            try:
+                body_json = resp.json()
+            except Exception:
+                body_json = {}
+            return isinstance(body_json.get("data"), list)
         body = resp.text[:500]
         lower_body = body.lower()
         if "insufficient balance" in lower_body or "1008" in lower_body:
@@ -1694,7 +1691,8 @@ def _fetch_google_models(api_key: str) -> int:
 # Substrings that mark non-chat xAI models to drop from the provider cache.
 _XAI_SKIP_SUBSTRINGS: tuple[str, ...] = ()
 
-_MINIMAX_SUPPORTED_MODELS: tuple[tuple[str, int], ...] = (
+_MINIMAX_FALLBACK_MODELS: tuple[tuple[str, int], ...] = (
+    ("MiniMax-M3", 1_000_000),
     ("MiniMax-M2.7", 204_800),
     ("MiniMax-M2.7-highspeed", 204_800),
     ("MiniMax-M2.5", 204_800),
@@ -1703,6 +1701,162 @@ _MINIMAX_SUPPORTED_MODELS: tuple[tuple[str, int], ...] = (
     ("MiniMax-M2.1-highspeed", 204_800),
     ("MiniMax-M2", 204_800),
 )
+_MINIMAX_FALLBACK_CONTEXTS = dict(_MINIMAX_FALLBACK_MODELS)
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _minimax_metadata_int(metadata: dict, *keys: str) -> int:
+    for key in keys:
+        value = metadata.get(key)
+        if value is None:
+            continue
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0:
+            return parsed
+    return 0
+
+
+def _minimax_context_window(model_id: str, metadata: dict | None = None) -> int:
+    metadata = metadata or {}
+    api_context = _minimax_metadata_int(
+        metadata,
+        "max_input_tokens",
+        "input_token_limit",
+        "inputTokenLimit",
+        "context_window",
+        "contextWindow",
+        "context_length",
+        "contextLength",
+    )
+    if api_context:
+        return api_context
+    if model_id in _MINIMAX_FALLBACK_CONTEXTS:
+        return _MINIMAX_FALLBACK_CONTEXTS[model_id]
+    return _catalog_or_heuristic(model_id)
+
+
+def _minimax_metadata_modalities(metadata: dict, *keys: str) -> set[str]:
+    modalities: set[str] = set()
+    for key in keys:
+        value = metadata.get(key)
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, (list, tuple, set, frozenset)):
+            continue
+        for item in value:
+            text = str(item or "").strip().lower()
+            if text in {"text", "image", "video", "audio"}:
+                modalities.add(text)
+    return modalities
+
+
+def _minimax_input_modalities(model_id: str, metadata: dict | None = None) -> set[str]:
+    metadata = metadata or {}
+    inputs = {"text"}
+    inputs.update(_minimax_metadata_modalities(metadata, "input_modalities", "input", "modalities"))
+    architecture = metadata.get("architecture")
+    if isinstance(architecture, dict):
+        inputs.update(_minimax_metadata_modalities(architecture, "input_modalities", "input", "modalities"))
+    capabilities = metadata.get("capabilities")
+    if isinstance(capabilities, dict):
+        for key in ("image_input", "vision", "image"):
+            value = capabilities.get(key)
+            if value is True or (isinstance(value, dict) and value.get("supported")):
+                inputs.add("image")
+        for key in ("video_input", "video"):
+            value = capabilities.get(key)
+            if value is True or (isinstance(value, dict) and value.get("supported")):
+                inputs.add("video")
+    if metadata.get("vision") is True:
+        inputs.add("image")
+    if model_id.lower().startswith("minimax-m3"):
+        inputs.update({"image", "video"})
+    return inputs
+
+
+def _minimax_output_modalities(metadata: dict | None = None) -> set[str]:
+    metadata = metadata or {}
+    outputs = _minimax_metadata_modalities(metadata, "output_modalities", "output")
+    return outputs or {"text"}
+
+
+def _minimax_bool(metadata: dict, key: str, default: bool) -> bool:
+    value = metadata.get(key)
+    return value if isinstance(value, bool) else default
+
+
+def _minimax_model_info(
+    model_id: str,
+    metadata: dict | None = None,
+    *,
+    display_name: str | None = None,
+    source: str = "minimax_live_catalog",
+    source_confidence: str = "live_minimax_model_list",
+    last_verified_at: str = "",
+):
+    from row_bot.providers.models import ModelInfo, ModelModality, ModelTask, TransportMode
+
+    metadata = dict(metadata or {})
+    inputs = _minimax_input_modalities(model_id, metadata)
+    outputs = _minimax_output_modalities(metadata)
+    tool_calling = _minimax_bool(metadata, "tool_calling", True)
+    streaming = _minimax_bool(metadata, "streaming", True)
+    capabilities = {"text", "chat"}
+    if ModelModality.IMAGE.value in inputs:
+        capabilities.add("vision")
+    if ModelModality.VIDEO.value in inputs:
+        capabilities.add("video_input")
+    if tool_calling:
+        capabilities.add("tool_calling")
+    if streaming:
+        capabilities.add("streaming")
+    if model_id.lower().startswith("minimax-m"):
+        capabilities.add("thinking")
+    return ModelInfo(
+        provider_id="minimax",
+        model_id=model_id,
+        display_name=display_name or str(metadata.get("display_name") or model_id),
+        context_window=_minimax_context_window(model_id, metadata),
+        transport=TransportMode.ANTHROPIC_MESSAGES,
+        capabilities=frozenset(capabilities),
+        input_modalities=frozenset(inputs),
+        output_modalities=frozenset(outputs),
+        tasks=frozenset({ModelTask.CHAT.value}),
+        tool_calling=tool_calling,
+        streaming=streaming,
+        endpoint_compatibility=frozenset({TransportMode.ANTHROPIC_MESSAGES}),
+        source_confidence=source_confidence,
+        last_verified_at=last_verified_at,
+        source=source,
+    )
+
+
+def _minimax_fallback_model_infos():
+    return [
+        _minimax_model_info(
+            model_id,
+            {"max_input_tokens": context_window},
+            source="minimax_static_fallback",
+            source_confidence="documented_minimax_fallback",
+        )
+        for model_id, context_window in _MINIMAX_FALLBACK_MODELS
+    ]
+
+
+def _is_minimax_cache_entry(model_id: str, info: dict) -> bool:
+    provider = str(info.get("provider") or "")
+    if provider:
+        return provider == "minimax"
+    key = str(model_id or "")
+    if key.startswith("model:minimax:"):
+        return True
+    return _runtime_model_name(key).split("/")[-1].lower().startswith("minimax")
 
 
 def _fetch_xai_models(api_key: str) -> int:
@@ -1753,25 +1907,80 @@ def _fetch_xai_models(api_key: str) -> int:
 
 
 def _fetch_minimax_models(api_key: str) -> int:
-    """Populate MiniMax Anthropic-compatible models from the documented catalog."""
+    """Populate MiniMax Anthropic-compatible models from the live provider catalog."""
     if not api_key:
         return 0
-    from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
+    import httpx
+    from row_bot.providers.catalog import model_info_to_cache_entry
 
-    count = 0
+    fetched: list[dict] = []
+    after_id: str | None = None
+    verified_at = _utc_now_iso()
+    try:
+        while True:
+            params: dict[str, str | int] = {"limit": 100}
+            if after_id:
+                params["after_id"] = after_id
+            resp = httpx.get(
+                f"{MINIMAX_ANTHROPIC_BASE_URL}/v1/models",
+                headers={"x-api-key": api_key},
+                params=params,
+                timeout=15,
+            )
+            resp.raise_for_status()
+            body = resp.json()
+            page = body.get("data")
+            if not isinstance(page, list):
+                logger.warning("MiniMax model fetch returned malformed data payload")
+                return 0
+            fetched.extend(item for item in page if isinstance(item, dict))
+            if not body.get("has_more"):
+                break
+            after_id = str(body.get("last_id") or "")
+            if not after_id:
+                logger.warning("MiniMax model fetch indicated more pages without last_id")
+                return 0
+    except Exception as exc:
+        logger.warning("Failed to fetch minimax models: %s", exc)
+        return 0
+
+    if not fetched:
+        logger.warning("MiniMax model fetch returned no models; preserving previous cache")
+        return 0
+
+    model_infos = []
+    seen: set[str] = set()
+    for item in fetched:
+        model_id = str(item.get("id") or "").strip()
+        if not model_id or model_id in seen:
+            continue
+        seen.add(model_id)
+        display_name = str(item.get("display_name") or item.get("name") or model_id)
+        model_infos.append(_minimax_model_info(
+            model_id,
+            item,
+            display_name=display_name,
+            source="minimax_live_catalog",
+            source_confidence="live_minimax_model_list",
+            last_verified_at=verified_at,
+        ))
+
+    if not model_infos:
+        logger.warning("MiniMax model fetch contained no usable model ids; preserving previous cache")
+        return 0
+
     with _cloud_cache_lock:
-        for model_id, context_window in _MINIMAX_SUPPORTED_MODELS:
-            _cloud_model_cache[model_id] = model_info_to_cache_entry(model_info_from_metadata(
-                "minimax",
-                model_id,
-                {"max_input_tokens": context_window},
-                display_name=model_id,
-                context_window=context_window,
-                source="provider_static_catalog",
-            ))
-            count += 1
-    logger.info("Fetched %d minimax models", count)
-    return count
+        stale_keys = [
+            model_id
+            for model_id, info in _cloud_model_cache.items()
+            if isinstance(info, dict) and _is_minimax_cache_entry(str(model_id), info)
+        ]
+        for model_id in stale_keys:
+            _cloud_model_cache.pop(model_id, None)
+        for model_info in model_infos:
+            _cloud_model_cache[model_info.model_id] = model_info_to_cache_entry(model_info)
+    logger.info("Fetched %d minimax models", len(model_infos))
+    return len(model_infos)
 
 
 def _fetch_opencode_models(provider_id: str) -> int:
@@ -1871,7 +2080,13 @@ def refresh_cloud_models() -> int:
     # Fetch context catalog first so OpenAI models get accurate sizes
     fetch_context_catalog()
     with _cloud_cache_lock:
+        preserved_minimax = {
+            model_id: info
+            for model_id, info in _cloud_model_cache.items()
+            if isinstance(info, dict) and _is_minimax_cache_entry(str(model_id), info)
+        }
         _cloud_model_cache.clear()
+        _cloud_model_cache.update(preserved_minimax)
     total = 0
     total += fetch_cloud_models("openai")
     total += fetch_cloud_models("ollama_cloud")

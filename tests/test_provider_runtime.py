@@ -720,23 +720,151 @@ def test_minimax_provider_creates_chat_anthropic_with_minimax_base_url(monkeypat
     assert model.kwargs["base_url"] == "https://api.minimax.io/anthropic"
 
 
-def test_minimax_model_facade_recognizes_static_catalog(monkeypatch):
+def test_minimax_model_facade_fetches_live_catalog_and_capabilities(monkeypatch):
+    import httpx
     import row_bot.api_keys as api_keys
     import row_bot.models as models
+    from row_bot.providers.capabilities import snapshot_supports_surface
 
     old_cache = dict(models._cloud_model_cache)
     monkeypatch.setattr(api_keys, "get_key", lambda key: "test-minimax-key" if key == "MINIMAX_API_KEY" else "")
+    calls = []
+
+    class _Response:
+        status_code = 200
+        text = "{}"
+
+        def __init__(self, body):
+            self._body = body
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._body
+
+    def _fake_get(url, **kwargs):
+        calls.append({"url": url, "params": dict(kwargs.get("params") or {})})
+        if len(calls) == 1:
+            return _Response({
+                "data": [
+                    {"id": "MiniMax-M3", "display_name": "MiniMax-M3"},
+                    {"id": "MiniMax-M2.7", "display_name": "MiniMax-M2.7"},
+                ],
+                "has_more": True,
+                "last_id": "MiniMax-M2.7",
+            })
+        return _Response({
+            "data": [{"id": "MiniMax-M2.5", "display_name": "MiniMax-M2.5"}],
+            "has_more": False,
+            "last_id": "MiniMax-M2.5",
+        })
+
+    monkeypatch.setattr(httpx, "get", _fake_get)
     try:
         models._cloud_model_cache.clear()
+        models._cloud_model_cache["MiniMax-M2"] = {
+            "provider": "minimax",
+            "label": "Stale MiniMax-M2",
+            "ctx": 204_800,
+        }
         count = models.fetch_cloud_models("minimax")
 
-        assert count == 7
+        assert count == 3
+        assert calls[0]["url"] == "https://api.minimax.io/anthropic/v1/models"
+        assert calls[0]["params"] == {"limit": 100}
+        assert calls[1]["params"] == {"limit": 100, "after_id": "MiniMax-M2.7"}
+        assert "MiniMax-M2" not in models._cloud_model_cache
+        assert models.is_cloud_model("MiniMax-M3") is True
+        assert models.get_cloud_provider("MiniMax-M3") == "minimax"
+        assert models.get_cloud_model_context("MiniMax-M3") == 1_000_000
+        m3_snapshot = models._cloud_model_cache["MiniMax-M3"]["capabilities_snapshot"]
+        assert "chat" in m3_snapshot["tasks"]
+        assert "image" in m3_snapshot["input_modalities"]
+        assert "video" in m3_snapshot["input_modalities"]
+        assert snapshot_supports_surface(m3_snapshot, "vision") is True
+        assert snapshot_supports_surface(m3_snapshot, "video") is False
+        assert m3_snapshot["tool_calling"] is True
+        assert m3_snapshot["streaming"] is True
+        assert m3_snapshot["source_confidence"] == "live_minimax_model_list"
+        assert m3_snapshot["last_verified_at"]
         assert models.is_cloud_model("MiniMax-M2.7") is True
         assert models.get_cloud_provider("MiniMax-M2.7") == "minimax"
         assert models.get_cloud_model_context("MiniMax-M2.7") == 204_800
         assert models.get_provider_emoji("MiniMax-M2.7") == "M"
         assert models._cloud_model_cache["MiniMax-M2.7"]["provider"] == "minimax"
+        m2_snapshot = models._cloud_model_cache["MiniMax-M2.7"]["capabilities_snapshot"]
+        assert m2_snapshot["input_modalities"] == ["text"]
     finally:
+        models._cloud_model_cache.clear()
+        models._cloud_model_cache.update(old_cache)
+
+
+def test_minimax_live_catalog_failure_preserves_existing_cache(monkeypatch):
+    import httpx
+    import row_bot.api_keys as api_keys
+    import row_bot.models as models
+
+    old_cache = dict(models._cloud_model_cache)
+    monkeypatch.setattr(api_keys, "get_key", lambda key: "test-minimax-key" if key == "MINIMAX_API_KEY" else "")
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: (_ for _ in ()).throw(httpx.TimeoutException("boom")))
+    try:
+        models._cloud_model_cache.clear()
+        models._cloud_model_cache["MiniMax-M2.7"] = {
+            "provider": "minimax",
+            "label": "MiniMax-M2.7",
+            "ctx": 204_800,
+        }
+
+        count = models.fetch_cloud_models("minimax")
+
+        assert count == 0
+        assert "MiniMax-M2.7" in models._cloud_model_cache
+    finally:
+        models._cloud_model_cache.clear()
+        models._cloud_model_cache.update(old_cache)
+
+
+def test_minimax_live_catalog_does_not_rewrite_current_default(monkeypatch):
+    import httpx
+    import row_bot.api_keys as api_keys
+    import row_bot.models as models
+
+    old_cache = dict(models._cloud_model_cache)
+    old_current = models._current_model
+    monkeypatch.setattr(api_keys, "get_key", lambda key: "test-minimax-key" if key == "MINIMAX_API_KEY" else "")
+
+    class _Response:
+        status_code = 200
+        text = "{}"
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "data": [{"id": "MiniMax-M3", "display_name": "MiniMax-M3"}],
+                "has_more": False,
+                "last_id": "MiniMax-M3",
+            }
+
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: _Response())
+    try:
+        models._cloud_model_cache.clear()
+        models._cloud_model_cache["MiniMax-M2.7"] = {
+            "provider": "minimax",
+            "label": "MiniMax-M2.7",
+            "ctx": 204_800,
+        }
+        models._current_model = "model:minimax:MiniMax-M2.7"
+
+        count = models.fetch_cloud_models("minimax")
+
+        assert count == 1
+        assert "MiniMax-M2.7" not in models._cloud_model_cache
+        assert models._current_model == "model:minimax:MiniMax-M2.7"
+    finally:
+        models._current_model = old_current
         models._cloud_model_cache.clear()
         models._cloud_model_cache.update(old_cache)
 
@@ -790,16 +918,16 @@ def test_minimax_validation_treats_insufficient_balance_as_accepted_key(monkeypa
         status_code = 500
         text = '{"type":"error","error":{"type":"api_error","message":"insufficient balance (1008)"}}'
 
-    def _fake_post(url, **kwargs):
+    def _fake_get(url, **kwargs):
         captured["url"] = url
-        captured["json"] = kwargs.get("json")
+        captured["params"] = kwargs.get("params")
         return _Response()
 
-    monkeypatch.setattr(httpx, "post", _fake_post)
+    monkeypatch.setattr(httpx, "get", _fake_get)
 
     assert models.validate_minimax_key("test-minimax-key") is True
-    assert captured["url"] == "https://api.minimax.io/anthropic/v1/messages"
-    assert captured["json"]["model"] == "MiniMax-M2.7"
+    assert captured["url"] == "https://api.minimax.io/anthropic/v1/models"
+    assert captured["params"] == {"limit": 1}
 
 
 def test_minimax_validation_rejects_auth_failure(monkeypatch):
@@ -810,7 +938,7 @@ def test_minimax_validation_rejects_auth_failure(monkeypatch):
         status_code = 401
         text = '{"type":"error","error":{"message":"invalid api key"}}'
 
-    monkeypatch.setattr(httpx, "post", lambda *args, **kwargs: _Response())
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: _Response())
 
     assert models.validate_minimax_key("bad-key") is False
 

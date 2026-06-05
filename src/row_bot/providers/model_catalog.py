@@ -497,20 +497,10 @@ def _custom_provider_exists(provider_id: str) -> bool:
 
 def _minimax_static_model_infos() -> list[ModelInfo]:
     try:
-        from row_bot.models import _MINIMAX_SUPPORTED_MODELS
+        from row_bot.models import _minimax_fallback_model_infos
     except Exception:
         return []
-    return [
-        model_info_from_metadata(
-            "minimax",
-            str(model_id),
-            {"max_input_tokens": int(context_window or 0)},
-            display_name=str(model_id),
-            context_window=int(context_window or 0),
-            source="provider_static_catalog",
-        )
-        for model_id, context_window in _MINIMAX_SUPPORTED_MODELS
-    ]
+    return list(_minimax_fallback_model_infos())
 
 
 def _opencode_model_infos(provider_status: dict[str, dict[str, Any]] | None = None) -> list[ModelInfo]:

@@ -298,14 +298,15 @@ def _refresh_cloud_cache(*, provider_id: str | None = None) -> tuple[dict[str, d
     provider_status: dict[str, dict[str, Any]] = {}
     if provider_id:
         models.fetch_context_catalog()
-        with models._cloud_cache_lock:
-            retained = {
-                model_id: info
-                for model_id, info in models._cloud_model_cache.items()
-                if not (isinstance(info, dict) and info.get("provider") == provider_id)
-            }
-            models._cloud_model_cache.clear()
-            models._cloud_model_cache.update(retained)
+        if provider_id != "minimax":
+            with models._cloud_cache_lock:
+                retained = {
+                    model_id: info
+                    for model_id, info in models._cloud_model_cache.items()
+                    if not (isinstance(info, dict) and info.get("provider") == provider_id)
+                }
+                models._cloud_model_cache.clear()
+                models._cloud_model_cache.update(retained)
         count = models.fetch_cloud_models(provider_id)
         models._save_cloud_cache()
         provider_status[provider_id] = {"status": "ok", "count": count}

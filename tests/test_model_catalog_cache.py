@@ -57,6 +57,32 @@ def test_model_catalog_refresh_preserves_last_good_when_empty(tmp_path, monkeypa
     assert cache.read_model_catalog_cache().cloud_cache == previous.cloud_cache
 
 
+def test_minimax_provider_refresh_does_not_preclear_on_failed_fetch(monkeypatch):
+    import row_bot.models as models
+    import row_bot.providers.model_catalog_cache as cache
+
+    old_cache = dict(models._cloud_model_cache)
+    monkeypatch.setattr(models, "fetch_context_catalog", lambda: 0)
+    monkeypatch.setattr(models, "fetch_cloud_models", lambda provider_id: 0)
+    monkeypatch.setattr(models, "_save_cloud_cache", lambda: None)
+    try:
+        models._cloud_model_cache.clear()
+        models._cloud_model_cache["MiniMax-M2.7"] = {
+            "provider": "minimax",
+            "label": "MiniMax-M2.7",
+            "ctx": 204_800,
+        }
+
+        cloud_cache, status = cache._refresh_cloud_cache(provider_id="minimax")
+
+        assert "MiniMax-M2.7" in cloud_cache
+        assert cloud_cache["MiniMax-M2.7"]["provider"] == "minimax"
+        assert status == {"minimax": {"status": "ok", "count": 0}}
+    finally:
+        models._cloud_model_cache.clear()
+        models._cloud_model_cache.update(old_cache)
+
+
 def test_model_catalog_refresh_prunes_stale_custom_quick_choices(tmp_path, monkeypatch):
     import row_bot.api_keys as api_keys
     import row_bot.providers.config as provider_config

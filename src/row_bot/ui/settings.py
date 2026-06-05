@@ -2098,7 +2098,7 @@ def open_settings(
                 ui.button("Clear", icon="delete", on_click=lambda: _clear_secret("XAI_API_KEY", "xAI key", xai_refresh)).props("flat dense color=negative")
 
         with ui.expansion("MiniMax", icon="bolt", value=False).classes("w-full"):
-            ui.label("Access MiniMax M2 models through the Anthropic-compatible API.").classes("text-grey-6 text-sm")
+            ui.label("Access current MiniMax models through the Anthropic-compatible API.").classes("text-grey-6 text-sm")
             minimax_input, minimax_refresh = _secret_input("MiniMax API Key", "MINIMAX_API_KEY")
 
             async def _save_minimax():
