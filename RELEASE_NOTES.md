@@ -2,6 +2,27 @@
 
 ---
 
+## v4.0.1 - Ollama Model Picker Hotfix
+
+This patch fixes a Settings -> Models regression in v4.0.0 where local Ollama
+model selections could fail when Row-Bot saved a provider-qualified family ref
+such as `model:ollama:llama3` but the Ollama daemon exposed the installed model
+as a tagged runtime name such as `llama3:latest`.
+
+- **Ollama model switching** - local Ollama family aliases now resolve to the
+  installed daemon tag when there is one unambiguous match, while explicit tags
+  and ambiguous families remain unchanged.
+- **Provider runtime coverage** - the same alias resolution now applies through
+  both the legacy model helpers and the provider runtime constructor used by
+  chat-only/provider-backed local model paths.
+- **Regression tests** - added focused coverage for unique and ambiguous Ollama
+  family aliases, context lookup, provider-qualified picker values, and provider
+  runtime construction.
+
+Fixes #178. Thanks to @lihouwenbin for the original PR and investigation.
+
+---
+
 ## v4.0.0 - Row-Bot Rebrand, Skills Hub, Voice, Providers & Installer Reliability
 
 This is the public Row-Bot rebrand release. It moves the app from Thoth to

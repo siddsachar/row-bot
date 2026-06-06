@@ -42,7 +42,7 @@ concurrency:
 # Tracks the version this workflow is currently shipping. Kept in sync with
 # `installer/row_bot_setup.iss` (#define MyAppVersion) and `src/row_bot/version.py`.
 env:
-  ROW_BOT_VERSION: "4.0.0"
+  ROW_BOT_VERSION: "4.0.1"
   WINDOWS_PYTHON_VERSION: "3.13.2"
 
 jobs:
