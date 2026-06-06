@@ -279,6 +279,26 @@ def test_ollama_provider_ref_unwraps_at_runtime_edge(monkeypatch):
     assert model.kwargs["num_ctx"] == 32_768
 
 
+def test_ollama_provider_runtime_expands_unique_family_alias(monkeypatch):
+    fake_module = ModuleType("langchain_ollama")
+
+    class _FakeChatOllama:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    fake_module.ChatOllama = _FakeChatOllama
+    monkeypatch.setitem(sys.modules, "langchain_ollama", fake_module)
+    monkeypatch.setenv("OLLAMA_HOST", "127.0.0.1:11434")
+    monkeypatch.setattr("row_bot.models.list_local_models", lambda: ["llama3:latest"])
+    monkeypatch.setattr("row_bot.models.get_context_size", lambda model_ref=None: 32_768)
+
+    model = runtime.create_chat_model("model:ollama:llama3")
+
+    assert model.kwargs["model"] == "llama3:latest"
+    assert model.kwargs["base_url"] == "http://127.0.0.1:11434"
+    assert model.kwargs["num_ctx"] == 32_768
+
+
 def test_runtime_does_not_implicitly_route_unknown_models_to_openrouter():
     try:
         runtime.create_chat_model("qwen3:14b")

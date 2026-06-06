@@ -127,15 +127,16 @@ def create_chat_model(model_name: str, provider_id: str | None = None):
     ensure_chat_model_compatible(model_name, provider)
     if provider == "ollama":
         from langchain_ollama import ChatOllama
-        from row_bot.models import _ollama_base_url, get_context_size
+        from row_bot.models import _ollama_base_url, _ollama_runtime_model_name, get_context_size
         from row_bot.providers.ollama import is_ollama_reasoning_model
 
+        runtime_model = _ollama_runtime_model_name(resolved.selection_ref)
         kwargs = {
-            "model": model_name,
+            "model": runtime_model,
             "base_url": _ollama_base_url(),
             "num_ctx": get_context_size(resolved.selection_ref),
         }
-        if is_ollama_reasoning_model(model_name):
+        if is_ollama_reasoning_model(runtime_model):
             kwargs["reasoning"] = True
         return ChatOllama(**kwargs)
     if provider == "ollama_cloud":
