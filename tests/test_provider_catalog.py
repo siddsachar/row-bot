@@ -641,6 +641,26 @@ def test_local_ollama_discovery_uses_http_fallback(monkeypatch):
     assert models.list_local_models() == ["vendor/non-tool-chat:14b"]
 
 
+def test_local_ollama_runtime_expands_unique_family_alias(monkeypatch):
+    import row_bot.models as models
+
+    monkeypatch.setattr(models, "list_local_models", lambda: ["llama3:latest"])
+
+    assert models._ollama_runtime_model_name("model:ollama:llama3") == "llama3:latest"
+
+
+def test_local_ollama_runtime_keeps_ambiguous_family_alias(monkeypatch):
+    import row_bot.models as models
+
+    monkeypatch.setattr(
+        models,
+        "list_local_models",
+        lambda: ["llama3:8b", "llama3:70b"],
+    )
+
+    assert models._ollama_runtime_model_name("model:ollama:llama3") == "llama3"
+
+
 def test_local_ollama_context_uses_http_show_fallback(monkeypatch):
     import row_bot.models as models
 

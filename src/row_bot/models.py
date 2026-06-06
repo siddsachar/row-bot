@@ -108,6 +108,33 @@ def _runtime_model_name(model_name: str | None) -> str:
     return parsed[1] if parsed else raw
 
 
+def _ollama_runtime_model_name(model_name: str | None) -> str:
+    """Resolve local Ollama family aliases to an installed daemon tag.
+
+    Ollama accepts and displays model families such as ``llama3`` in some UI
+    paths, but the daemon inventory commonly exposes only ``llama3:latest``.
+    Keep explicit tags untouched, and only expand a bare family when the local
+    daemon has one unambiguous installed match.
+    """
+    runtime_model = _runtime_model_name(model_name).strip()
+    if not runtime_model or ":" in runtime_model:
+        return runtime_model
+    try:
+        local_models = list_local_models()
+    except Exception:
+        return runtime_model
+    if runtime_model in local_models:
+        return runtime_model
+    latest = f"{runtime_model}:latest"
+    if latest in local_models:
+        return latest
+    family_matches = [
+        name for name in local_models
+        if name.split(":", 1)[0] == runtime_model
+    ]
+    return family_matches[0] if len(family_matches) == 1 else runtime_model
+
+
 def _provider_qualified_cloud_cache_key(provider_id: str | None, model_id: str | None) -> str:
     provider = str(provider_id or "").strip()
     model = str(model_id or "").strip()
@@ -437,7 +464,7 @@ def get_llm():
         if is_cloud_model(_current_model):
             _llm_instance = _get_cloud_llm(_current_model)
         else:
-            runtime_model = _runtime_model_name(_current_model)
+            runtime_model = _ollama_runtime_model_name(_current_model)
             num_ctx = _local_num_ctx_for(_current_model)
             logger.info("Creating LLM instance: model=%s, num_ctx=%s", runtime_model, num_ctx)
             _llm_instance = _chat_ollama(model=runtime_model, num_ctx=num_ctx)
@@ -472,7 +499,7 @@ def get_llm_for(model_name: str, num_ctx: int | None = None):
     if is_cloud_model(model_name):
         return _get_cloud_llm(model_name)
 
-    runtime_model = _runtime_model_name(model_name)
+    runtime_model = _ollama_runtime_model_name(model_name)
     if num_ctx is None:
         num_ctx = _local_num_ctx_for(model_name)
     key = (runtime_model, num_ctx)
@@ -508,7 +535,7 @@ def get_model_max_context(model_name: str | None = None) -> int | None:
         return ctx if ctx > 0 else None
     if is_cloud_model(raw_name):
         return get_cloud_model_context(raw_name)
-    name = _runtime_model_name(raw_name)
+    name = _ollama_runtime_model_name(raw_name)
     if name in _model_max_ctx_cache:
         return _model_max_ctx_cache[name]
     client = _ollama_client()
@@ -553,7 +580,7 @@ def set_model(model_name: str):
         client = _ollama_client()
         if not is_cloud_model(_current_model) and client:
             try:
-                client.generate(model=_runtime_model_name(_current_model), prompt="", keep_alive=0)
+                client.generate(model=_ollama_runtime_model_name(_current_model), prompt="", keep_alive=0)
             except Exception:
                 logger.debug("Could not unload previous model %s", _current_model, exc_info=True)
     _current_model = model_name
@@ -561,7 +588,7 @@ def set_model(model_name: str):
         _llm_instance = _get_cloud_llm(model_name)
     else:
         _llm_instance = _chat_ollama(
-            model=_runtime_model_name(model_name),
+            model=_ollama_runtime_model_name(model_name),
             num_ctx=_local_num_ctx_for(model_name),
         )
     _save_settings({"model": _current_model, "context_size": _num_ctx,
@@ -713,7 +740,7 @@ def set_context_size(size: int):
         _llm_instance = _get_cloud_llm(_current_model)
     else:
         _llm_instance = _chat_ollama(
-            model=_runtime_model_name(_current_model),
+            model=_ollama_runtime_model_name(_current_model),
             num_ctx=_local_num_ctx_for(_current_model),
         )
     _save_settings({"model": _current_model, "context_size": _num_ctx,
