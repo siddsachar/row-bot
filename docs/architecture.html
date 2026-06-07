@@ -4,17 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Row-Bot - Architecture</title>
-    <meta name="description" content="Explore Row-Bot's local-first architecture diagrams for the core agent, context assembly, memory, workflows, channels, Designer Studio, safety, and self-awareness systems.">
+    <meta name="description" content="Explore Row-Bot's local-first architecture diagrams for the core agent, context assembly, knowledge graph, workflows, channels, Designer Studio, Developer Studio, skills, safety, and self-evolution systems.">
     <link rel="canonical" href="https://row-bot.ai/architecture.html">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://row-bot.ai/architecture.html">
     <meta property="og:title" content="Row-Bot Architecture">
     <meta property="og:description" content="Visual architecture diagrams for Row-Bot's local-first personal AI assistant.">
-    <meta property="og:image" content="https://row-bot.ai/Core_Agent_arch.jpg">
+    <meta property="og:image" content="https://row-bot.ai/Core_Agent_Arch.png">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Row-Bot Architecture">
     <meta name="twitter:description" content="Visual architecture diagrams for Row-Bot's local-first personal AI assistant.">
-    <meta name="twitter:image" content="https://row-bot.ai/Core_Agent_arch.jpg">
+    <meta name="twitter:image" content="https://row-bot.ai/Core_Agent_Arch.png">
     <link rel="icon" href="favicon.ico">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -386,36 +386,44 @@
                 </div>
                 <div class="diagram-grid">
                     <a class="diagram-card" href="#core-agent">
-                        <img src="Core_Agent_arch.jpg" alt="Row-Bot core agent architecture diagram">
+                        <img src="Core_Agent_Arch.png" alt="Row-Bot core agent architecture diagram">
                         <div class="diagram-caption"><span>01</span><h3>Core Agent</h3><p>Interfaces, model routing, context, memory, tool calls, workflows, storage, and control planes.</p></div>
                     </a>
                     <a class="diagram-card" href="#context">
-                        <img src="Context_arch.jpg" alt="Row-Bot context architecture diagram">
+                        <img src="Context_Arch.png" alt="Row-Bot context architecture diagram">
                         <div class="diagram-caption"><span>02</span><h3>Context Assembly</h3><p>How current turns, history, skills, memories, documents, and tool results become model-ready context.</p></div>
                     </a>
-                    <a class="diagram-card" href="#memory">
-                        <img src="Memory_arch.jpg" alt="Row-Bot memory system architecture diagram">
-                        <div class="diagram-caption"><span>03</span><h3>Memory System</h3><p>Capture, extraction, graph storage, semantic retrieval, wiki export, and Dream Cycle refinement.</p></div>
+                    <a class="diagram-card" href="#knowledge-graph">
+                        <img src="Knowledge_Graph_Arch.png" alt="Row-Bot knowledge graph architecture diagram">
+                        <div class="diagram-caption"><span>03</span><h3>Knowledge Graph</h3><p>Capture, extraction, graph storage, semantic retrieval, wiki export, and Dream Cycle refinement.</p></div>
                     </a>
                     <a class="diagram-card" href="#workflows">
-                        <img src="Workflows_arch.jpg" alt="Row-Bot background workflow architecture diagram">
+                        <img src="Workflows_Arch.png" alt="Row-Bot background workflow architecture diagram">
                         <div class="diagram-caption"><span>04</span><h3>Background Workflows</h3><p>Natural-language workflow creation, scheduling, execution, approvals, delivery, and recurring loops.</p></div>
                     </a>
                     <a class="diagram-card" href="#channels">
-                        <img src="Channels_arch.jpg" alt="Row-Bot multi-channel architecture diagram">
+                        <img src="Multi_Channel_Arch.png" alt="Row-Bot multi-channel architecture diagram">
                         <div class="diagram-caption"><span>05</span><h3>Multi-Channel Runtime</h3><p>Messaging entry points, adapters, normalization, identity mapping, attachment handling, and delivery.</p></div>
                     </a>
                     <a class="diagram-card" href="#designer">
-                        <img src="Designer_arch.jpg" alt="Row-Bot Designer Studio architecture diagram">
+                        <img src="Designer_Studio_Arch.png" alt="Row-Bot Designer Studio architecture diagram">
                         <div class="diagram-caption"><span>06</span><h3>Designer Studio</h3><p>Project modes, page generation, media, targeted edits, preview sandboxing, export, and publish paths.</p></div>
                     </a>
-                    <a class="diagram-card" href="#safety">
-                        <img src="Safety_arch.jpg" alt="Row-Bot safety privacy and control architecture diagram">
-                        <div class="diagram-caption"><span>07</span><h3>Safety, Privacy &amp; Control</h3><p>Local-first boundaries, approvals, prompt-injection defense, tool permissions, credentials, and updates.</p></div>
+                    <a class="diagram-card" href="#developer">
+                        <img src="Developer_Studio_Arch.png" alt="Row-Bot Developer Studio architecture diagram">
+                        <div class="diagram-caption"><span>07</span><h3>Developer Studio</h3><p>Workspace linking, repo context, approval modes, Git operations, Docker Sandbox, tests, and PR prep.</p></div>
                     </a>
-                    <a class="diagram-card" href="#self-aware">
-                        <img src="Self_Aware_arch.jpg" alt="Row-Bot self-awareness and self-management architecture diagram">
-                        <div class="diagram-caption"><span>08</span><h3>Self-Awareness</h3><p>Status introspection, diagnostics, capability registry, insights, skill guidance, and controlled self-management.</p></div>
+                    <a class="diagram-card" href="#skills">
+                        <img src="Skills_System_Arch.png" alt="Row-Bot skills system architecture diagram">
+                        <div class="diagram-caption"><span>08</span><h3>Skills System</h3><p>Smart Skills activation, Skills Hub imports, bundled guides, slash commands, and skill-scoped prompts.</p></div>
+                    </a>
+                    <a class="diagram-card" href="#safety">
+                        <img src="Safety_Privacy_Arch.png" alt="Row-Bot safety privacy and control architecture diagram">
+                        <div class="diagram-caption"><span>09</span><h3>Safety, Privacy &amp; Control</h3><p>Local-first boundaries, approvals, prompt-injection defense, tool permissions, credentials, and updates.</p></div>
+                    </a>
+                    <a class="diagram-card" href="#self-evolution">
+                        <img src="Self_Evolution_Arch.png" alt="Row-Bot self-evolution architecture diagram">
+                        <div class="diagram-caption"><span>10</span><h3>Self-Evolution</h3><p>Status introspection, diagnostics, capability registry, insights, skill guidance, and controlled self-management.</p></div>
                     </a>
                 </div>
             </div>
@@ -439,13 +447,15 @@
         <p>Row-Bot &middot; Architecture &middot; <a href="index.html">Home</a> &middot; <a href="https://github.com/siddsachar/row-bot" target="_blank">GitHub</a></p>
     </footer>
 
-    <a class="lightbox" id="core-agent" href="#diagrams"><figure class="lightbox-figure"><img src="Core_Agent_arch.jpg" alt="Row-Bot core agent architecture diagram"><figcaption><span>Core Agent Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
-    <a class="lightbox" id="context" href="#diagrams"><figure class="lightbox-figure"><img src="Context_arch.jpg" alt="Row-Bot context architecture diagram"><figcaption><span>Context Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
-    <a class="lightbox" id="memory" href="#diagrams"><figure class="lightbox-figure"><img src="Memory_arch.jpg" alt="Row-Bot memory system architecture diagram"><figcaption><span>Memory System Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
-    <a class="lightbox" id="workflows" href="#diagrams"><figure class="lightbox-figure"><img src="Workflows_arch.jpg" alt="Row-Bot background workflow architecture diagram"><figcaption><span>Background Workflow Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
-    <a class="lightbox" id="channels" href="#diagrams"><figure class="lightbox-figure"><img src="Channels_arch.jpg" alt="Row-Bot multi-channel architecture diagram"><figcaption><span>Multi-Channel Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
-    <a class="lightbox" id="designer" href="#diagrams"><figure class="lightbox-figure"><img src="Designer_arch.jpg" alt="Row-Bot Designer Studio architecture diagram"><figcaption><span>Designer Studio Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
-    <a class="lightbox" id="safety" href="#diagrams"><figure class="lightbox-figure"><img src="Safety_arch.jpg" alt="Row-Bot safety privacy and control architecture diagram"><figcaption><span>Safety, Privacy &amp; Control Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
-    <a class="lightbox" id="self-aware" href="#diagrams"><figure class="lightbox-figure"><img src="Self_Aware_arch.jpg" alt="Row-Bot self-awareness and self-management architecture diagram"><figcaption><span>Self-Awareness Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
+    <a class="lightbox" id="core-agent" href="#diagrams"><figure class="lightbox-figure"><img src="Core_Agent_Arch.png" alt="Row-Bot core agent architecture diagram"><figcaption><span>Core Agent Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
+    <a class="lightbox" id="context" href="#diagrams"><figure class="lightbox-figure"><img src="Context_Arch.png" alt="Row-Bot context architecture diagram"><figcaption><span>Context Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
+    <a class="lightbox" id="knowledge-graph" href="#diagrams"><figure class="lightbox-figure"><img src="Knowledge_Graph_Arch.png" alt="Row-Bot knowledge graph architecture diagram"><figcaption><span>Knowledge Graph Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
+    <a class="lightbox" id="workflows" href="#diagrams"><figure class="lightbox-figure"><img src="Workflows_Arch.png" alt="Row-Bot background workflow architecture diagram"><figcaption><span>Background Workflow Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
+    <a class="lightbox" id="channels" href="#diagrams"><figure class="lightbox-figure"><img src="Multi_Channel_Arch.png" alt="Row-Bot multi-channel architecture diagram"><figcaption><span>Multi-Channel Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
+    <a class="lightbox" id="designer" href="#diagrams"><figure class="lightbox-figure"><img src="Designer_Studio_Arch.png" alt="Row-Bot Designer Studio architecture diagram"><figcaption><span>Designer Studio Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
+    <a class="lightbox" id="developer" href="#diagrams"><figure class="lightbox-figure"><img src="Developer_Studio_Arch.png" alt="Row-Bot Developer Studio architecture diagram"><figcaption><span>Developer Studio Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
+    <a class="lightbox" id="skills" href="#diagrams"><figure class="lightbox-figure"><img src="Skills_System_Arch.png" alt="Row-Bot skills system architecture diagram"><figcaption><span>Skills System Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
+    <a class="lightbox" id="safety" href="#diagrams"><figure class="lightbox-figure"><img src="Safety_Privacy_Arch.png" alt="Row-Bot safety privacy and control architecture diagram"><figcaption><span>Safety, Privacy &amp; Control Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
+    <a class="lightbox" id="self-evolution" href="#diagrams"><figure class="lightbox-figure"><img src="Self_Evolution_Arch.png" alt="Row-Bot self-evolution architecture diagram"><figcaption><span>Self-Evolution Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
 </body>
 </html>

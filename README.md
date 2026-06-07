@@ -200,20 +200,24 @@ Read the full architecture reference: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.m
 
 <table>
    <tr>
-      <td align="center"><a href="docs/Core_Agent_arch.jpg"><img src="docs/Core_Agent_arch.jpg" width="360" alt="Row-Bot core agent architecture"></a><br><strong>Core Agent</strong></td>
-      <td align="center"><a href="docs/Context_arch.jpg"><img src="docs/Context_arch.jpg" width="360" alt="Row-Bot context architecture"></a><br><strong>Context Assembly</strong></td>
+      <td align="center"><a href="docs/Core_Agent_Arch.png"><img src="docs/Core_Agent_Arch.png" width="360" alt="Row-Bot core agent architecture"></a><br><strong>Core Agent</strong></td>
+      <td align="center"><a href="docs/Context_Arch.png"><img src="docs/Context_Arch.png" width="360" alt="Row-Bot context architecture"></a><br><strong>Context Assembly</strong></td>
    </tr>
    <tr>
-      <td align="center"><a href="docs/Memory_arch.jpg"><img src="docs/Memory_arch.jpg" width="360" alt="Row-Bot memory system architecture"></a><br><strong>Memory System</strong></td>
-      <td align="center"><a href="docs/Workflows_arch.jpg"><img src="docs/Workflows_arch.jpg" width="360" alt="Row-Bot background workflow architecture"></a><br><strong>Background Workflows</strong></td>
+      <td align="center"><a href="docs/Knowledge_Graph_Arch.png"><img src="docs/Knowledge_Graph_Arch.png" width="360" alt="Row-Bot knowledge graph architecture"></a><br><strong>Knowledge Graph</strong></td>
+      <td align="center"><a href="docs/Workflows_Arch.png"><img src="docs/Workflows_Arch.png" width="360" alt="Row-Bot background workflow architecture"></a><br><strong>Background Workflows</strong></td>
    </tr>
    <tr>
-      <td align="center"><a href="docs/Channels_arch.jpg"><img src="docs/Channels_arch.jpg" width="360" alt="Row-Bot multi-channel architecture"></a><br><strong>Multi-Channel Runtime</strong></td>
-      <td align="center"><a href="docs/Designer_arch.jpg"><img src="docs/Designer_arch.jpg" width="360" alt="Row-Bot Designer Studio architecture"></a><br><strong>Designer Studio</strong></td>
+      <td align="center"><a href="docs/Multi_Channel_Arch.png"><img src="docs/Multi_Channel_Arch.png" width="360" alt="Row-Bot multi-channel architecture"></a><br><strong>Multi-Channel Runtime</strong></td>
+      <td align="center"><a href="docs/Designer_Studio_Arch.png"><img src="docs/Designer_Studio_Arch.png" width="360" alt="Row-Bot Designer Studio architecture"></a><br><strong>Designer Studio</strong></td>
    </tr>
    <tr>
-      <td align="center"><a href="docs/Safety_arch.jpg"><img src="docs/Safety_arch.jpg" width="360" alt="Row-Bot safety privacy and control architecture"></a><br><strong>Safety, Privacy &amp; Control</strong></td>
-      <td align="center"><a href="docs/Self_Aware_arch.jpg"><img src="docs/Self_Aware_arch.jpg" width="360" alt="Row-Bot self-awareness and self-management architecture"></a><br><strong>Self-Awareness</strong></td>
+      <td align="center"><a href="docs/Developer_Studio_Arch.png"><img src="docs/Developer_Studio_Arch.png" width="360" alt="Row-Bot Developer Studio architecture"></a><br><strong>Developer Studio</strong></td>
+      <td align="center"><a href="docs/Skills_System_Arch.png"><img src="docs/Skills_System_Arch.png" width="360" alt="Row-Bot skills system architecture"></a><br><strong>Skills System</strong></td>
+   </tr>
+   <tr>
+      <td align="center"><a href="docs/Safety_Privacy_Arch.png"><img src="docs/Safety_Privacy_Arch.png" width="360" alt="Row-Bot safety privacy and control architecture"></a><br><strong>Safety, Privacy &amp; Control</strong></td>
+      <td align="center"><a href="docs/Self_Evolution_Arch.png"><img src="docs/Self_Evolution_Arch.png" width="360" alt="Row-Bot self-evolution architecture"></a><br><strong>Self-Evolution</strong></td>
    </tr>
 </table>
 
