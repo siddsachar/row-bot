@@ -1283,6 +1283,78 @@ def test_provider_transcript_normalizer_preserves_reasoning_for_supported_custom
     assert result[1].content == ""
 
 
+@pytest.mark.parametrize(
+    ("provider_id", "extra_kwargs"),
+    [
+        ("anthropic", {}),
+        ("minimax", {}),
+        ("opencode_zen", {"anthropic_messages": True}),
+    ],
+)
+def test_provider_transcript_normalizer_repairs_anthropic_signature_only_thinking_blocks(
+    tmp_path,
+    monkeypatch,
+    provider_id,
+    extra_kwargs,
+):
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
+    import row_bot.agent as agent
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    chat_models = pytest.importorskip("langchain_anthropic.chat_models")
+
+    messages = [
+        HumanMessage(content="hi"),
+        AIMessage(content=[
+            {"type": "thinking", "signature": "sig_123", "index": 0},
+            {"type": "text", "text": "hello"},
+        ]),
+    ]
+
+    result = agent._normalize_provider_facing_messages(
+        messages,
+        provider_id=provider_id,
+        **extra_kwargs,
+    )
+
+    ai = result[1]
+    assert ai.content[0] == {"type": "thinking", "thinking": "", "signature": "sig_123"}
+    assert ai.content[1] == {"type": "text", "text": "hello"}
+
+    _system, payloads = chat_models._format_messages(result)
+    thinking_block = payloads[1]["content"][0]
+    assert thinking_block == {"type": "thinking", "thinking": "", "signature": "sig_123"}
+
+
+def test_provider_transcript_normalizer_drops_incomplete_anthropic_thinking_blocks(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
+    import row_bot.agent as agent
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    chat_models = pytest.importorskip("langchain_anthropic.chat_models")
+
+    messages = [
+        HumanMessage(content="hi"),
+        AIMessage(content=[
+            {"type": "thinking", "thinking": "partial without signature"},
+            {"type": "redacted_thinking"},
+            {"type": "redacted_thinking", "data": "encrypted"},
+            {"type": "text", "text": "hello"},
+        ]),
+    ]
+
+    result = agent._normalize_provider_facing_messages(messages, provider_id="anthropic")
+
+    ai = result[1]
+    assert ai.content == [
+        {"type": "redacted_thinking", "data": "encrypted"},
+        {"type": "text", "text": "hello"},
+    ]
+
+    _system, payloads = chat_models._format_messages(result)
+    assert payloads[1]["content"] == ai.content
+
+
 def test_provider_transcript_normalizer_serializes_cleanly_for_openrouter(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.agent as agent

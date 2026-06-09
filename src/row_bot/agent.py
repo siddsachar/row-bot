@@ -182,28 +182,101 @@ def _copy_message(message: BaseMessage, **updates) -> BaseMessage:
         return message.copy(update=updates)
 
 
+def _normalize_anthropic_content_blocks(content: Any) -> tuple[Any, int, int, int]:
+    """Return Anthropic content blocks that satisfy the Messages API schema."""
+
+    if not isinstance(content, list):
+        return content, 0, 0, 0
+
+    normalized: list[Any] = []
+    repaired = 0
+    dropped = 0
+    cleaned = 0
+    changed = False
+
+    for block in content:
+        if not isinstance(block, dict):
+            normalized.append(block)
+            continue
+
+        block_type = str(block.get("type") or "")
+        if block_type == "thinking":
+            signature = block.get("signature")
+            thinking = block.get("thinking")
+            if not isinstance(signature, str) or not signature:
+                dropped += 1
+                cleaned += 1
+                changed = True
+                continue
+
+            next_block: dict[str, Any] = {
+                "type": "thinking",
+                "thinking": thinking if isinstance(thinking, str) else "",
+                "signature": signature,
+            }
+            if "cache_control" in block:
+                next_block["cache_control"] = block["cache_control"]
+            if not isinstance(thinking, str):
+                repaired += 1
+            if next_block != block:
+                cleaned += 1
+                changed = True
+            normalized.append(next_block)
+            continue
+
+        if block_type == "redacted_thinking":
+            data = block.get("data")
+            if not isinstance(data, str) or not data:
+                dropped += 1
+                cleaned += 1
+                changed = True
+                continue
+
+            next_block = {"type": "redacted_thinking", "data": data}
+            if "cache_control" in block:
+                next_block["cache_control"] = block["cache_control"]
+            if next_block != block:
+                cleaned += 1
+                changed = True
+            normalized.append(next_block)
+            continue
+
+        normalized.append(block)
+
+    return (normalized if changed else content), repaired, dropped, cleaned
+
+
 def _normalize_provider_facing_messages(
     messages: list[BaseMessage],
     *,
     provider_id: str | None = None,
+    anthropic_messages: bool | None = None,
 ) -> list[BaseMessage]:
     """Return a protocol-valid copy of messages for the next LLM call only.
 
     The checkpoint/UI transcript remains untouched. The global fixes here are
     restricted to invalid tool protocol state: invalid tool calls, duplicate
-    tool-call ids, and orphan tool results. Reasoning fields are compatibility
-    metadata, so they are stripped only when custom endpoint artifacts are
-    present in the transcript.
+    tool-call ids, orphan tool results, and provider-native Anthropic thinking
+    content blocks. Reasoning fields are compatibility metadata, so they are
+    stripped only when custom endpoint artifacts are present in the transcript.
     """
 
     before = _provider_transcript_diagnostics(messages)
     provider_supports_reasoning = _provider_supports_reasoning_fields(provider_id)
+    use_anthropic_messages = (
+        bool(anthropic_messages)
+        if anthropic_messages is not None
+        else _provider_uses_anthropic_messages(provider_id)
+    )
     keep_empty_reasoning_turns = _custom_endpoint_supports_reasoning_replay(provider_id)
     normalized: list[BaseMessage] = []
     used_tool_call_ids: set[str] = set()
     pending_tool_pairs: list[tuple[str, str]] = []
     stripped_invalid = 0
     stripped_reasoning = 0
+    repaired_anthropic_thinking = 0
+    dropped_anthropic_thinking = 0
+    cleaned_anthropic_blocks = 0
     rewritten_ids = 0
     dropped_orphans = 0
     dropped_empty = 0
@@ -220,6 +293,12 @@ def _normalize_provider_facing_messages(
 
             invalid_tool_calls = list(getattr(message, "invalid_tool_calls", None) or [])
             stripped_invalid += len(invalid_tool_calls)
+            content = getattr(message, "content", "")
+            if use_anthropic_messages:
+                content, repaired, dropped, cleaned = _normalize_anthropic_content_blocks(content)
+                repaired_anthropic_thinking += repaired
+                dropped_anthropic_thinking += dropped
+                cleaned_anthropic_blocks += cleaned
             tool_calls: list[dict] = []
             pending_tool_pairs = []
             for index, call in enumerate(getattr(message, "tool_calls", None) or []):
@@ -236,6 +315,7 @@ def _normalize_provider_facing_messages(
 
             cleaned_ai = _copy_message(
                 message,
+                content=content,
                 additional_kwargs=additional_kwargs,
                 tool_calls=tool_calls,
                 invalid_tool_calls=[],
@@ -270,6 +350,9 @@ def _normalize_provider_facing_messages(
     if (
         stripped_invalid
         or stripped_reasoning
+        or repaired_anthropic_thinking
+        or dropped_anthropic_thinking
+        or cleaned_anthropic_blocks
         or rewritten_ids
         or dropped_orphans
         or dropped_empty
@@ -281,6 +364,9 @@ def _normalize_provider_facing_messages(
             {
                 "stripped_invalid_tool_calls": stripped_invalid,
                 "stripped_reasoning_fields": stripped_reasoning,
+                "repaired_anthropic_thinking_blocks": repaired_anthropic_thinking,
+                "dropped_anthropic_thinking_blocks": dropped_anthropic_thinking,
+                "cleaned_anthropic_content_blocks": cleaned_anthropic_blocks,
                 "rewritten_tool_call_ids": rewritten_ids,
                 "dropped_orphan_tool_messages": dropped_orphans,
                 "dropped_empty_assistant_messages": dropped_empty,
@@ -1704,7 +1790,13 @@ def _pre_model_trim(state: dict) -> dict:
             #   1. The last SystemMessage (covers system prompt + metadata)
             #   2. The 3rd non-system message (covers early conversation)
             if _provider_id != "anthropic":
-                return {"llm_input_messages": _normalize_provider_facing_messages(trimmed, provider_id=_provider_id)}
+                return {
+                    "llm_input_messages": _normalize_provider_facing_messages(
+                        trimmed,
+                        provider_id=_provider_id,
+                        anthropic_messages=True,
+                    )
+                }
             _CACHE_MARKER = {"type": "ephemeral"}
             # Breakpoint 1: last system message
             _last_sys_idx = -1
