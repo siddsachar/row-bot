@@ -5,6 +5,7 @@ import logging
 import re
 import shutil
 import subprocess
+import sys
 from datetime import datetime, timezone
 from dataclasses import asdict, dataclass, field
 from hashlib import sha1
@@ -20,7 +21,14 @@ from row_bot.developer.sandbox import ApprovalDecision, decide_action
 from row_bot.developer.sandbox_runtime import detect_container_runtime, run_docker_sandbox_command
 from row_bot.developer.state import ApprovalMode
 from row_bot.developer.state import DEFAULT_SANDBOX_IMAGE, DeveloperWorkspace
-from row_bot.developer.storage import DEVELOPER_DIR, _write_json_atomic, remember_clone_parent_folder, suggested_clone_name
+from row_bot.developer.storage import (
+    DEVELOPER_DIR,
+    _write_json_atomic,
+    git_clone_error_message,
+    looks_like_git_repository_url,
+    remember_clone_parent_folder,
+    suggested_clone_name,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -52,6 +60,7 @@ class ToolCapsule:
     commands: list[dict] = field(default_factory=list)
     promoted_plugin_id: str = ""
     promoted_at: str = ""
+    environment: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -82,6 +91,7 @@ class CustomToolDraft:
     commands: list[dict] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     test_results: dict[str, dict] = field(default_factory=dict)
+    environment: dict[str, Any] = field(default_factory=dict)
     status: str = "draft"
     created_tool_id: str = ""
     created_at: str = ""
@@ -212,7 +222,7 @@ def _plugin_slug(value: str, *, sep: str = "-") -> str:
 
 
 def _is_public_source(source_url: str) -> bool:
-    return source_url.strip().startswith(("http://", "https://", "git@"))
+    return looks_like_git_repository_url(source_url)
 
 
 def _looks_like_custom_tool_source(path: Path) -> bool:
@@ -242,6 +252,207 @@ def _looks_like_custom_tool_source(path: Path) -> bool:
         "Makefile",
     )
     return any((path / name).exists() for name in indicators)
+
+
+def _path_is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+    except OSError:
+        return False
+
+
+def _row_bot_python_env() -> Path:
+    return Path(sys.prefix).expanduser().resolve()
+
+
+def _custom_tool_venv_dir(root: Path) -> Path:
+    return root / ".venv"
+
+
+def _custom_tool_venv_python(root: Path) -> Path:
+    venv = _custom_tool_venv_dir(root)
+    if sys.platform.startswith("win"):
+        return venv / "Scripts" / "python.exe"
+    return venv / "bin" / "python"
+
+
+def _is_python_custom_tool_source(root: Path) -> bool:
+    return any((root / name).exists() for name in ("pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"))
+
+
+def _python_dependency_install_args(root: Path, python_path: Path) -> tuple[list[str], str]:
+    python = str(python_path)
+    if (root / "pyproject.toml").exists() or (root / "setup.py").exists() or (root / "setup.cfg").exists():
+        return [python, "-m", "pip", "install", "-e", "."], "editable"
+    if (root / "requirements.txt").exists():
+        return [python, "-m", "pip", "install", "-r", "requirements.txt"], "requirements"
+    raise ValueError("No Python dependency manifest found. Expected pyproject.toml, setup.py, setup.cfg, or requirements.txt.")
+
+
+def _quote_command_arg(value: str) -> str:
+    text = str(value)
+    if text and re.fullmatch(r"[A-Za-z0-9_./:=@%+-]+", text):
+        return text
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _command_from_args(args: list[str]) -> str:
+    return " ".join(_quote_command_arg(arg.replace("\\", "/")) for arg in args)
+
+
+def _safe_split_command(command: str) -> list[str]:
+    try:
+        return split_command(command)
+    except ValueError:
+        return []
+
+
+def _is_pip_install_args(args: list[str]) -> bool:
+    lowered = [str(arg).lower() for arg in args]
+    if len(lowered) >= 4 and lowered[1:3] == ["-m", "pip"] and "install" in lowered[3:]:
+        return True
+    exe = Path(lowered[0]).name if lowered else ""
+    return exe in {"pip", "pip.exe", "pip3", "pip3.exe"} and "install" in lowered[1:]
+
+
+def _command_uses_row_bot_python_for_install(command: str, root: Path) -> bool:
+    args = _safe_split_command(command)
+    if not args or not _is_pip_install_args(args):
+        return False
+    exe = args[0]
+    exe_path = Path(exe).expanduser()
+    tool_venv = _custom_tool_venv_dir(root)
+    if exe_path.is_absolute() and _path_is_relative_to(exe_path, tool_venv):
+        return False
+    if Path(exe).name.lower() in {"pip", "pip.exe", "pip3", "pip3.exe"}:
+        return True
+    if exe.lower() in {"python", "python.exe", "py", "py.exe"}:
+        return True
+    if exe_path.is_absolute():
+        resolved = exe_path.resolve()
+        if resolved == Path(sys.executable).resolve():
+            return True
+        if _path_is_relative_to(resolved, _row_bot_python_env()):
+            return True
+    return False
+
+
+def _row_bot_env_guard_result(command: str, root: Path) -> CommandResult | None:
+    if not _command_uses_row_bot_python_for_install(command, root):
+        return None
+    decision = ApprovalDecision("block", "Blocked Custom Tool dependency install in Row-Bot's Python environment.")
+    return CommandResult(
+        command=command,
+        cwd=str(root),
+        returncode=None,
+        stderr=(
+            "Blocked: this Custom Tool command would install dependencies into Row-Bot's own Python environment. "
+            "Use custom_tool_builder action='setup' to install dependencies into the tool's isolated .venv."
+        ),
+        decision=decision,
+    )
+
+
+def _python_environment_hint(root: Path) -> dict[str, Any]:
+    if not _is_python_custom_tool_source(root):
+        return {}
+    venv_python = _custom_tool_venv_python(root)
+    return {
+        "type": "python",
+        "python_project": True,
+        "venv_path": str(_custom_tool_venv_dir(root)),
+        "python": str(venv_python),
+        "setup_ok": venv_python.exists(),
+        "setup_recommended": not venv_python.exists(),
+    }
+
+
+def _rewrite_command_for_python_venv(root: Path, command_text: str) -> str:
+    args = _safe_split_command(command_text)
+    if not args:
+        return command_text
+    venv_python = _custom_tool_venv_python(root)
+    if not venv_python.exists():
+        return command_text
+    if len(args) >= 3 and args[0].lower() == "cmd.exe" and args[1].lower() == "/c":
+        args = args[2:]
+    first = Path(args[0]).name.lower()
+    if first in {"python", "python.exe", "py", "py.exe"}:
+        args[0] = str(venv_python)
+        return _command_from_args(args)
+    scripts_dir = venv_python.parent
+    candidates = [scripts_dir / args[0]]
+    if sys.platform.startswith("win") and not args[0].lower().endswith(".exe"):
+        candidates.append(scripts_dir / f"{args[0]}.exe")
+    for candidate in candidates:
+        if candidate.exists():
+            args[0] = str(candidate)
+            return _command_from_args(args)
+    return command_text
+
+
+def _rewrite_commands_for_python_venv(root: Path, commands: list[dict]) -> list[dict]:
+    rewritten: list[dict] = []
+    for command in commands:
+        item = dict(command)
+        item["command"] = _rewrite_command_for_python_venv(root, str(item.get("command", "")))
+        rewritten.append(item)
+    return rewritten
+
+
+def _custom_tool_local_path_warnings(commands: list[dict]) -> list[str]:
+    warnings: list[str] = []
+    for command in commands:
+        text = str(command.get("command", ""))
+        if re.search(r"\b[A-Za-z]:[\\/]", text) and "local machine" not in " ".join(warnings):
+            warnings.append("This Custom Tool uses a local absolute path and may only work on this machine.")
+        if text.lower().startswith("cmd.exe /c") and "cmd.exe" not in " ".join(warnings):
+            warnings.append("This Custom Tool uses cmd.exe; prefer a direct executable command when possible.")
+    return warnings
+
+
+def _draft_has_passing_command_test(draft: CustomToolDraft) -> bool:
+    for key, result in draft.test_results.items():
+        if str(key).startswith("_") or not isinstance(result, dict):
+            continue
+        if result.get("ok") is True:
+            return True
+    return False
+
+
+def _custom_tool_readiness_warnings(draft: CustomToolDraft) -> list[str]:
+    warnings = _custom_tool_local_path_warnings(draft.commands)
+    if not _draft_has_passing_command_test(draft):
+        warnings.append("No Custom Tool command has passed a test yet.")
+    env = draft.environment or {}
+    if env.get("python_project") and not env.get("setup_ok"):
+        warnings.append("Python dependencies have not been installed into this tool's isolated .venv yet.")
+    return warnings
+
+
+def _append_unique_warnings(draft: CustomToolDraft, warnings: list[str]) -> None:
+    for warning in warnings:
+        if warning and warning not in draft.warnings:
+            draft.warnings.append(warning)
+
+
+def _dependency_setup_hint(draft: CustomToolDraft, result: CommandResult) -> dict[str, Any] | None:
+    if result.ok:
+        return None
+    output = f"{result.stderr}\n{result.stdout}".lower()
+    missing_dep = "modulenotfounderror" in output or "no module named" in output or "not recognized" in output
+    env = draft.environment or {}
+    if not missing_dep or not env.get("python_project"):
+        return None
+    return {
+        "action": "setup",
+        "draft_id": draft.id,
+        "message": "Install this Python tool's dependencies into its isolated .venv, then rerun the same test.",
+        "venv_path": env.get("venv_path") or str(_custom_tool_venv_dir(Path(draft.installed_path))),
+    }
 
 
 def promoted_plugin_id(capsule_id: str) -> str:
@@ -317,14 +528,17 @@ def clone_capsule_repository(repo_url: str, destination_parent: str) -> Path:
         if target.is_dir():
             return target
         raise FileExistsError(f"Clone target already exists and is not a folder: {target}")
-    subprocess.run(
-        ["git", "clone", source, str(target)],
-        cwd=str(parent),
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=600,
-    )
+    try:
+        subprocess.run(
+            ["git", "clone", source, str(target)],
+            cwd=str(parent),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(git_clone_error_message(source, target, exc)) from exc
     return target
 
 
@@ -804,6 +1018,8 @@ def create_custom_tool_draft(path: str, *, source_url: str = "", use_ai: bool = 
     now = _now_iso()
     draft_id = _draft_id(proposal.source_url, proposal.installed_path)
     existing = next((item for item in list_custom_tool_drafts() if item.id == draft_id), None)
+    root = Path(proposal.installed_path).expanduser().resolve()
+    environment = existing.environment if existing and existing.environment else _python_environment_hint(root)
     draft = CustomToolDraft(
         id=draft_id,
         source_url=proposal.source_url,
@@ -813,6 +1029,7 @@ def create_custom_tool_draft(path: str, *, source_url: str = "", use_ai: bool = 
         commands=list(proposal.commands),
         warnings=list(proposal.warnings),
         test_results=existing.test_results if existing else {},
+        environment=environment,
         status=existing.status if existing and existing.status != "deleted" else "draft",
         created_tool_id=existing.created_tool_id if existing else "",
         created_at=existing.created_at if existing else now,
@@ -823,7 +1040,7 @@ def create_custom_tool_draft(path: str, *, source_url: str = "", use_ai: bool = 
 
 def update_custom_tool_draft(draft_id: str, fields: dict[str, Any]) -> CustomToolDraft:
     draft = get_custom_tool_draft(draft_id)
-    allowed = {"name", "version", "source_url", "installed_path", "warnings", "commands", "status"}
+    allowed = {"name", "version", "source_url", "installed_path", "warnings", "commands", "status", "environment"}
     for key, value in fields.items():
         if key not in allowed:
             continue
@@ -836,6 +1053,9 @@ def update_custom_tool_draft(draft_id: str, fields: dict[str, Any]) -> CustomToo
             continue
         if key == "warnings":
             draft.warnings = [str(item).strip() for item in value if str(item).strip()] if isinstance(value, list) else []
+            continue
+        if key == "environment":
+            draft.environment = dict(value) if isinstance(value, dict) else {}
             continue
         setattr(draft, key, str(value).strip())
     return _save_draft(draft)
@@ -917,8 +1137,142 @@ def _command_from_draft(draft: CustomToolDraft, command_name: str = "") -> dict:
     return draft.commands[0]
 
 
+def _sync_capsule_from_draft(draft: CustomToolDraft) -> ToolCapsule | None:
+    if not draft.created_tool_id:
+        return None
+    data = _load_state()
+    updated: ToolCapsule | None = None
+    capsules = []
+    for item in data.get("capsules", []):
+        if item.get("id") == draft.created_tool_id:
+            item = dict(item)
+            item["name"] = draft.name
+            item["source_url"] = draft.source_url
+            item["installed_path"] = draft.installed_path
+            item["version"] = draft.version
+            item["commands"] = list(draft.commands)
+            item["environment"] = dict(draft.environment or {})
+            updated = ToolCapsule(**item)
+        capsules.append(item)
+    if updated is None:
+        return None
+    data["capsules"] = capsules
+    _save_state(data)
+    if updated.promoted_plugin_id:
+        register_promoted_capsules_with_plugins()
+    return updated
+
+
+def setup_custom_tool_python_environment(draft_id: str) -> dict[str, Any]:
+    draft = get_custom_tool_draft(draft_id)
+    root = Path(draft.installed_path).expanduser().resolve()
+    if not root.exists() or not root.is_dir():
+        raise ValueError(f"Custom Tool folder does not exist: {draft.installed_path}")
+    if not _is_python_custom_tool_source(root):
+        return {
+            "ok": False,
+            "blocked": True,
+            "message": "No Python dependency manifest found for this Custom Tool.",
+            "draft": _draft_summary(draft),
+        }
+    venv_dir = _custom_tool_venv_dir(root)
+    venv_python = _custom_tool_venv_python(root)
+    env = dict(draft.environment or _python_environment_hint(root))
+    env.update(
+        {
+            "type": "python",
+            "python_project": True,
+            "venv_path": str(venv_dir),
+            "python": str(venv_python),
+            "setup_recommended": False,
+        }
+    )
+
+    if _path_is_relative_to(Path(sys.executable), venv_dir) or _path_is_relative_to(venv_python, _row_bot_python_env()):
+        raise RuntimeError("Refusing to use Row-Bot's Python environment as a Custom Tool dependency environment.")
+
+    if not venv_python.exists():
+        create = subprocess.run(
+            [sys.executable, "-m", "venv", str(venv_dir)],
+            cwd=str(root),
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        if create.returncode != 0:
+            env.update({"setup_ok": False, "last_setup_at": _now_iso()})
+            draft.environment = env
+            draft.status = "setup_failed"
+            draft.test_results["_setup_python_environment"] = {
+                "command": f"{sys.executable} -m venv {venv_dir}",
+                "cwd": str(root),
+                "ran": True,
+                "ok": False,
+                "returncode": create.returncode,
+                "stdout": (create.stdout or "")[-4000:],
+                "stderr": (create.stderr or "")[-4000:],
+            }
+            _save_draft(draft)
+            return {"ok": False, "setup": draft.test_results["_setup_python_environment"], "draft": _draft_summary(draft)}
+
+    install_args, source = _python_dependency_install_args(root, venv_python)
+    if _path_is_relative_to(Path(install_args[0]), _row_bot_python_env()):
+        raise RuntimeError("Refusing to install Custom Tool dependencies into Row-Bot's Python environment.")
+    install = subprocess.run(
+        install_args,
+        cwd=str(root),
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=900,
+    )
+    command_text = _command_from_args(install_args)
+    setup_record = {
+        "command": command_text,
+        "cwd": str(root),
+        "ran": True,
+        "ok": install.returncode == 0,
+        "returncode": install.returncode,
+        "stdout": (install.stdout or "")[-4000:],
+        "stderr": (install.stderr or "")[-4000:],
+    }
+    env.update(
+        {
+            "dependency_source": source,
+            "last_setup_at": _now_iso(),
+            "setup_ok": install.returncode == 0,
+            "setup_command": command_text,
+        }
+    )
+    draft.environment = env
+    draft.test_results["_setup_python_environment"] = setup_record
+    if install.returncode == 0:
+        draft.commands = _rewrite_commands_for_python_venv(root, draft.commands)
+        for warning in _custom_tool_local_path_warnings(draft.commands):
+            if warning not in draft.warnings:
+                draft.warnings.append(warning)
+        draft.status = "dependencies_installed"
+    else:
+        draft.status = "setup_failed"
+    _save_draft(draft)
+    if draft.created_tool_id:
+        _sync_capsule_from_draft(draft)
+    return {"ok": install.returncode == 0, "setup": setup_record, "draft": _draft_summary(get_custom_tool_draft(draft_id))}
+
+
 def custom_tool_command_needs_query(command: str) -> bool:
     return "{query}" in str(command or "")
+
+
+def _query_placeholder_replacement(command: str, value: str) -> str:
+    args = _safe_split_command(command)
+    if len(args) >= 3 and args[0].lower() == "cmd.exe" and args[1].lower() == "/c":
+        args = args[2:]
+    exe = Path(args[0]).name.lower() if args else ""
+    if len(args) >= 3 and exe in {"python", "python.exe", "py", "py.exe"} and args[1] == "-c" and "{query}" in args[2]:
+        return repr(value)
+    return _quote_command_arg(value)
 
 
 def substitute_custom_tool_query(command: str, query: str = "", *, default_query: str = "") -> str:
@@ -930,7 +1284,7 @@ def substitute_custom_tool_query(command: str, query: str = "", *, default_query
     single_value = value.replace("\\", "\\\\").replace("'", "\\'")
     text = text.replace('"{query}"', f'"{double_value}"')
     text = text.replace("'{query}'", f"'{single_value}'")
-    return text.replace("{query}", repr(value))
+    return text.replace("{query}", _query_placeholder_replacement(text, value))
 
 
 def test_custom_tool_draft_command(
@@ -947,7 +1301,9 @@ def test_custom_tool_draft_command(
         query,
         default_query=DEFAULT_CUSTOM_TOOL_TEST_QUERY,
     )
-    result = run_workspace_command(draft.installed_path, command_text, approval_mode)
+    root = Path(draft.installed_path).expanduser().resolve()
+    result = _row_bot_env_guard_result(command_text, root) or run_workspace_command(str(root), command_text, approval_mode)
+    setup_hint = _dependency_setup_hint(draft, result)
     draft.test_results[str(command.get("name", "Command"))] = {
         "command": result.command,
         "cwd": result.cwd,
@@ -957,6 +1313,8 @@ def test_custom_tool_draft_command(
         "stdout": result.stdout[-4000:],
         "stderr": result.stderr[-4000:],
     }
+    if setup_hint:
+        draft.test_results[str(command.get("name", "Command"))]["setup_hint"] = setup_hint
     draft.status = "tested" if result.ok else "test_failed"
     _save_draft(draft)
     return result
@@ -964,6 +1322,7 @@ def test_custom_tool_draft_command(
 
 def create_tool_from_draft(draft_id: str, *, overwrite: bool = False, community: bool = True) -> ToolCapsule:
     draft = get_custom_tool_draft(draft_id)
+    _append_unique_warnings(draft, _custom_tool_readiness_warnings(draft))
     proposal = draft.to_proposal()
     root = Path(draft.installed_path).expanduser().resolve()
     manifest_exists = any(
@@ -987,7 +1346,7 @@ def create_tool_from_draft(draft_id: str, *, overwrite: bool = False, community:
     draft.created_tool_id = tool.id
     draft.status = "created"
     _save_draft(draft)
-    return tool
+    return _sync_capsule_from_draft(draft) or tool
 
 
 def enable_created_custom_tool_from_draft(draft_id: str, enabled: bool = True) -> ToolCapsule:
@@ -1004,6 +1363,9 @@ def promote_created_custom_tool_from_draft(draft_id: str, *, enabled: bool = Tru
     draft = get_custom_tool_draft(draft_id)
     if not draft.created_tool_id:
         raise ValueError("Create the Custom Tool before making it available in chat.")
+    _append_unique_warnings(draft, _custom_tool_readiness_warnings(draft))
+    _save_draft(draft)
+    _sync_capsule_from_draft(draft)
     tool = promote_capsule(draft.created_tool_id, enabled=enabled)
     draft.status = "promoted"
     _save_draft(draft)
@@ -1073,7 +1435,7 @@ def custom_tool_builder(
                 if not maybe_parent.exists() or target.exists() or not _looks_like_custom_tool_source(maybe_parent):
                     fields["clone_parent"] = path
                     path = ""
-        if not path and source.startswith(("http://", "https://", "git@")):
+        if not path and _is_public_source(source):
             clone_parent = str(fields.get("clone_parent", "") or fields.get("clone_parent_folder", "")).strip()
             if not clone_parent:
                 return {
@@ -1131,7 +1493,13 @@ def custom_tool_builder(
             command_name=command_name,
             query=str(fields.get("query", "") or fields.get("test_query", "")),
         )
-        return {"draft": _draft_summary(get_custom_tool_draft(draft_id)), "result": result.__dict__}
+        draft = get_custom_tool_draft(draft_id)
+        return {"draft": _draft_summary(draft), "result": result.__dict__, "setup_hint": _dependency_setup_hint(draft, result)}
+    if normalized == "setup":
+        draft, response = _get_builder_draft_or_response(normalized, draft_id)
+        if response:
+            return response
+        return setup_custom_tool_python_environment(draft_id)
     if normalized == "create":
         draft, response = _get_builder_draft_or_response(normalized, draft_id)
         if response:
@@ -1257,6 +1625,10 @@ def run_custom_tool_test_command(
         raise PermissionError(f"Custom Tool is disabled: {tool.name}")
 
     command = substitute_custom_tool_query(command, query, default_query=DEFAULT_CUSTOM_TOOL_TEST_QUERY)
+    root = Path(tool.installed_path).expanduser().resolve()
+    guard = _row_bot_env_guard_result(command, root)
+    if guard:
+        return guard
     action = classify_command_action(command)
     decision = decide_action(approval_mode, action)  # type: ignore[arg-type]
     if decision.requires_approval and not approved_once:
@@ -1467,7 +1839,11 @@ def run_capsule_command(
         raise KeyError(f"Custom Tool not found: {capsule_id}")
     if require_enabled and not capsule.enabled:
         raise PermissionError(f"Custom Tool is disabled: {capsule.name}")
-    return run_workspace_command(capsule.installed_path, command, approval_mode)
+    root = Path(capsule.installed_path).expanduser().resolve()
+    guard = _row_bot_env_guard_result(command, root)
+    if guard:
+        return guard
+    return run_workspace_command(str(root), command, approval_mode)
 
 
 class _CapsuleCommandInput(BaseModel):

@@ -366,6 +366,34 @@ def test_custom_tool_builder_starts_from_repo_url_with_clone_parent(tmp_path, mo
     assert started["draft"]["commands"]
 
 
+def test_custom_tool_builder_accepts_ssh_repo_url_with_clone_parent(tmp_path, monkeypatch):
+    capsules = _fresh_modules(tmp_path, monkeypatch)
+    clone_parent = tmp_path / "clones"
+    clone_parent.mkdir()
+    cloned = clone_parent / "gitignore"
+    cloned.mkdir()
+    (cloned / "README.md").write_text("# gitignore\n", encoding="utf-8")
+
+    calls = {}
+
+    def _fake_clone(url: str, parent: str):
+        calls["url"] = url
+        calls["parent"] = parent
+        return cloned
+
+    monkeypatch.setattr(capsules, "clone_capsule_repository", _fake_clone)
+
+    started = capsules.custom_tool_builder(
+        "start",
+        source_url="ssh://git@github.com/github/gitignore.git",
+        fields={"clone_parent": str(clone_parent)},
+    )
+
+    assert calls == {"url": "ssh://git@github.com/github/gitignore.git", "parent": str(clone_parent)}
+    assert started["draft"]["installed_path"] == str(cloned.resolve())
+    assert started["draft"]["source_url"] == "ssh://git@github.com/github/gitignore.git"
+
+
 def test_custom_tool_builder_recovers_clone_parent_passed_as_source_path(tmp_path, monkeypatch):
     capsules = _fresh_modules(tmp_path, monkeypatch)
     clone_parent = tmp_path / "custom-tool-test"
@@ -392,6 +420,30 @@ def test_custom_tool_builder_recovers_clone_parent_passed_as_source_path(tmp_pat
 
     assert calls == {"url": "https://github.com/github/gitignore", "parent": str(clone_parent)}
     assert started["draft"]["installed_path"] == str(cloned.resolve())
+    assert started["draft"]["commands"]
+
+
+def test_custom_tool_builder_reuses_existing_scp_git_target(tmp_path, monkeypatch):
+    capsules = _fresh_modules(tmp_path, monkeypatch)
+    clone_parent = tmp_path / "custom-tool-test"
+    cloned = clone_parent / "gitignore"
+    cloned.mkdir(parents=True)
+    (cloned / "README.md").write_text("# gitignore\n", encoding="utf-8")
+    (cloned / "Python.gitignore").write_text("__pycache__/\n", encoding="utf-8")
+
+    def _unexpected_clone(*_args, **_kwargs):
+        raise AssertionError("existing SCP-style clone target should be reused")
+
+    monkeypatch.setattr(capsules.subprocess, "run", _unexpected_clone)
+
+    started = capsules.custom_tool_builder(
+        "start",
+        source_path=str(clone_parent),
+        source_url="git@github.com:github/gitignore.git",
+    )
+
+    assert started["draft"]["installed_path"] == str(cloned.resolve())
+    assert started["draft"]["source_url"] == "git@github.com:github/gitignore.git"
     assert started["draft"]["commands"]
 
 
@@ -425,10 +477,33 @@ def test_custom_tool_builder_missing_clone_parent_requires_create_approval(tmp_p
     assert started["draft"]["installed_path"] == str(cloned.resolve())
 
 
+def test_custom_tool_clone_reports_git_stderr(tmp_path, monkeypatch):
+    capsules = _fresh_modules(tmp_path, monkeypatch)
+
+    def _fail_clone(*_args, **_kwargs):
+        raise capsules.subprocess.CalledProcessError(
+            128,
+            ["git", "clone"],
+            stderr="remote: Repository not found.\nfatal: repository not found",
+        )
+
+    monkeypatch.setattr(capsules.subprocess, "run", _fail_clone)
+
+    try:
+        capsules.clone_capsule_repository("https://github.com/example/missing", str(tmp_path))
+    except RuntimeError as exc:
+        message = str(exc)
+        assert "Git clone failed" in message
+        assert "exit 128" in message
+        assert "Repository not found" in message
+    else:
+        raise AssertionError("Custom Tool clone should report git stderr on clone failure")
+
+
 def test_custom_tool_builder_empty_draft_actions_are_friendly(tmp_path, monkeypatch):
     capsules = _fresh_modules(tmp_path, monkeypatch)
 
-    for action in ("show", "refine", "update", "test", "create", "enable", "promote"):
+    for action in ("show", "refine", "update", "test", "setup", "create", "enable", "promote"):
         result = capsules.custom_tool_builder(action, draft_id="")
         assert result["blocked"] is True
         assert result["needs_input"] == "draft"
@@ -454,6 +529,15 @@ def test_custom_tool_clone_reuses_existing_target_folder(tmp_path, monkeypatch):
     cloned = capsules.clone_capsule_repository("https://github.com/example/repo", str(tmp_path))
 
     assert cloned == target.resolve()
+
+
+def test_suggested_clone_name_handles_git_url_variants(tmp_path, monkeypatch):
+    capsules = _fresh_modules(tmp_path, monkeypatch)
+
+    assert capsules.suggested_clone_name("git@github.com:owner/repo.git") == "repo"
+    assert capsules.suggested_clone_name("ssh://git@github.com/owner/repo.git") == "repo"
+    assert capsules.suggested_clone_name("https://github.com/owner/repo.git?tab=readme") == "repo"
+    assert capsules.suggested_clone_name("https://github.com/owner/repo.git#main") == "repo"
 
 
 def test_tool_capsule_runner_uses_capsule_path_and_policy(tmp_path, monkeypatch):
@@ -573,6 +657,111 @@ def test_custom_tool_draft_test_substitutes_query_placeholder(tmp_path, monkeypa
     assert "'python'.lower()" in captured["command"]
 
 
+def test_custom_tool_query_substitution_quotes_urls_with_shell_characters(tmp_path, monkeypatch):
+    capsules = _fresh_modules(tmp_path, monkeypatch)
+
+    command = capsules.substitute_custom_tool_query(
+        "python -m pyseoanalyzer {query}",
+        "https://example.com?a=1&b=2",
+    )
+
+    assert command == 'python -m pyseoanalyzer "https://example.com?a=1&b=2"'
+
+
+def test_custom_tool_draft_test_blocks_row_bot_pip_install(tmp_path, monkeypatch):
+    capsules = _fresh_modules(tmp_path, monkeypatch)
+    install_path = tmp_path / "capsule"
+    install_path.mkdir()
+    draft = capsules.CustomToolDraft(
+        id="draft-unsafe-install",
+        source_url="https://github.com/example/tool",
+        installed_path=str(install_path),
+        name="Example Tool",
+        commands=[
+            {
+                "name": "Install deps",
+                "command": "pip install sampleproject",
+                "description": "Unsafe install command",
+            }
+        ],
+    )
+    capsules._save_draft(draft)
+
+    def unexpected_run(*_args, **_kwargs):
+        raise AssertionError("unsafe Custom Tool pip install should be blocked before execution")
+
+    monkeypatch.setattr(capsules, "run_workspace_command", unexpected_run)
+
+    result = capsules.test_custom_tool_draft_command("draft-unsafe-install")
+    saved = capsules.get_custom_tool_draft("draft-unsafe-install")
+
+    assert result.ran is False
+    assert result.decision.decision == "block"
+    assert "Row-Bot's own Python environment" in result.stderr
+    assert saved.status == "test_failed"
+
+
+def test_custom_tool_builder_setup_python_uses_tool_venv_and_syncs_created_tool(tmp_path, monkeypatch):
+    capsules = _fresh_modules(tmp_path, monkeypatch)
+    install_path = tmp_path / "python-seo-analyzer"
+    install_path.mkdir()
+    (install_path / "pyproject.toml").write_text("[project]\nname = \"python-seo-analyzer\"\n", encoding="utf-8")
+
+    def _fake_proposal(path, *, source_url="", use_ai=True):
+        return capsules.CapsuleManifestProposal(
+            name="Website SEO Auditor",
+            version="1.0.0",
+            source_url=source_url or "https://github.com/sethblack/python-seoanalyzer",
+            installed_path=str(path),
+            commands=[
+                {
+                    "name": "Audit website",
+                    "command": 'python -m pyseoanalyzer "{query}"',
+                    "description": "Audit a website URL.",
+                }
+            ],
+            warnings=[],
+        )
+
+    calls: list[list[str]] = []
+
+    def _fake_run(args, **_kwargs):
+        calls.append([str(item) for item in args])
+        if len(args) >= 4 and args[1:3] == ["-m", "venv"]:
+            scripts = install_path / ".venv" / ("Scripts" if sys.platform.startswith("win") else "bin")
+            scripts.mkdir(parents=True)
+            (scripts / ("python.exe" if sys.platform.startswith("win") else "python")).write_text("", encoding="utf-8")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        if len(args) >= 5 and args[1:3] == ["-m", "pip"] and "install" in args:
+            assert str(install_path / ".venv") in str(args[0])
+            return SimpleNamespace(returncode=0, stdout="installed\n", stderr="")
+        raise AssertionError(f"unexpected subprocess args: {args!r}")
+
+    monkeypatch.setattr(capsules, "propose_capsule_manifest", _fake_proposal)
+    monkeypatch.setattr(capsules.subprocess, "run", _fake_run)
+
+    started = capsules.custom_tool_builder(
+        "start",
+        source_path=str(install_path),
+        source_url="https://github.com/sethblack/python-seoanalyzer",
+    )
+    draft_id = started["draft"]["id"]
+    setup = capsules.custom_tool_builder("setup", draft_id=draft_id)
+    created = capsules.custom_tool_builder("create", draft_id=draft_id)
+
+    saved = capsules.get_custom_tool_draft(draft_id)
+    command = saved.commands[0]["command"]
+
+    assert setup["ok"] is True
+    assert saved.environment["setup_ok"] is True
+    assert ".venv" in command
+    assert not command.startswith("python -m")
+    assert calls[0][1:3] == ["-m", "venv"]
+    assert calls[1][1:3] == ["-m", "pip"]
+    assert created["tool"]["environment"]["setup_ok"] is True
+    assert created["tool"]["commands"][0]["command"] == command
+
+
 def test_tool_capsule_promotion_registers_plugin_tool_and_removes_safely(tmp_path, monkeypatch):
     capsules = _fresh_modules(tmp_path, monkeypatch)
     install_path = tmp_path / "capsule"
@@ -640,6 +829,8 @@ def test_tool_capsule_developer_ui_exposes_end_to_end_actions():
     assert "Run Smoke Test" in source
     assert "All commands" in source
     assert "run_custom_tool_test_command" in source
+    assert "setup_custom_tool_python_environment" in source
+    assert "Set Up Python Venv" in source
     assert "Test query" in source
     assert "custom_tool_command_needs_query" in source
     assert "Test First Command" not in source
@@ -651,8 +842,12 @@ def test_tool_capsule_developer_ui_exposes_end_to_end_actions():
     assert "custom_tool_builder" in capsules_source
     assert 'name="custom_tool_builder"' in global_tool_source
     assert "Use `custom_tool_builder` for lifecycle state" in guide_source
+    assert 'action="setup"' in guide_source
+    assert "isolated .venv" in global_tool_source
     assert "Shell can help with extra read-only inspection" in guide_source
     assert "Do not use shell to manually register" in guide_source
+    assert "Clone parent folder (only for repo URLs)" in source
+    assert "repo-named subfolder inside the parent" in source
     assert '"custom_tool_builder"' in utilities_source
     assert "CUSTOM_TOOL_DRAFTS_PATH" in capsules_source
     assert 'name="developer_custom_tool_builder"' not in tool_source

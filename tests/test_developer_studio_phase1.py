@@ -74,6 +74,29 @@ def test_developer_clone_requires_explicit_destination(tmp_path, monkeypatch):
         raise AssertionError("clone_repository must require an existing explicit destination folder")
 
 
+def test_developer_clone_reports_git_stderr(tmp_path, monkeypatch):
+    _threads, storage = _fresh_modules(tmp_path, monkeypatch)
+
+    def _fail_clone(*_args, **_kwargs):
+        raise storage.subprocess.CalledProcessError(
+            128,
+            ["git", "clone"],
+            stderr="remote: Repository not found.\nfatal: repository not found",
+        )
+
+    monkeypatch.setattr(storage.subprocess, "run", _fail_clone)
+
+    try:
+        storage.clone_repository("https://github.com/example/missing", str(tmp_path))
+    except RuntimeError as exc:
+        message = str(exc)
+        assert "Git clone failed" in message
+        assert "exit 128" in message
+        assert "Repository not found" in message
+    else:
+        raise AssertionError("clone_repository should report git stderr on clone failure")
+
+
 def test_code_thread_metadata_and_classification(tmp_path, monkeypatch):
     threads, storage = _fresh_modules(tmp_path, monkeypatch)
     repo = tmp_path / "repo"

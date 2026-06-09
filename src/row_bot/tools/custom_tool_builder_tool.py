@@ -14,7 +14,7 @@ from row_bot.tools.base import BaseTool
 
 class _CustomToolBuilderInput(BaseModel):
     action: str = Field(
-        description="One of: start, show, list, refine, update, test, create, enable, promote, delete."
+        description="One of: start, show, list, refine, update, test, setup, create, enable, promote, delete."
     )
     source_path: str = Field(default="", description="Local repo/folder path for action=start.")
     source_url: str = Field(default="", description="Repo URL or label for action=start.")
@@ -102,10 +102,11 @@ class CustomToolBuilderTool(BaseTool):
                     "Use when the user asks to create, add, generate, or turn a GitHub repo/local folder into a "
                     "Row-Bot Custom Tool. Start with action='start'. If the user gives a repo URL, pass it as "
                     "source_url and pass fields.clone_parent when provided; if clone_parent is missing or must be "
-                    "created, ask for it. Show proposed commands before action='create'. Use action='promote' only "
-                    "after explicit user request to make the tool available in normal chat. Use this tool for Custom "
-                    "Tool lifecycle state; shell is only for extra inspection or approved testing, not manual "
-                    "registration."
+                    "created, ask for it. Show proposed commands before action='create'. For Python repos, use "
+                    "action='setup' to install dependencies into the tool's isolated .venv; do not run pip installs "
+                    "manually in Row-Bot's environment. Use action='promote' only after explicit user request to make "
+                    "the tool available in normal chat. Use this tool for Custom Tool lifecycle state; shell is only "
+                    "for extra inspection or approved testing, not manual registration."
                 ),
                 args_schema=_CustomToolBuilderInput,
             )

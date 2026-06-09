@@ -20,6 +20,7 @@ from row_bot.developer.storage import (
     list_workspace_threads,
     list_clone_parent_folders,
     list_workspaces,
+    looks_like_git_repository_url,
     remove_workspace,
     set_workspace_execution_settings,
     suggested_clone_name,
@@ -34,6 +35,7 @@ from row_bot.developer.tool_capsules import (
     DEFAULT_CUSTOM_TOOL_TEST_QUERY,
     delete_custom_tool_draft,
     enable_created_custom_tool_from_draft,
+    get_custom_tool_draft,
     list_custom_tool_drafts,
     list_capsules,
     promote_capsule,
@@ -44,6 +46,7 @@ from row_bot.developer.tool_capsules import (
     run_capsule_command,
     run_custom_tool_test_command,
     set_capsule_enabled,
+    setup_custom_tool_python_environment,
     write_capsule_manifest,
 )
 from row_bot.developer.git import create_branch, suggest_feature_branch
@@ -404,6 +407,18 @@ def _render_custom_tools_home(state: AppState, refresh: Callable) -> None:
 
 
 def _render_custom_tool_draft_card(draft, refresh: Callable) -> None:
+    async def _setup_python_env() -> None:
+        try:
+            result = await run.io_bound(setup_custom_tool_python_environment, draft.id)
+        except Exception as exc:
+            ui.notify(str(exc), type="negative", close_button=True)
+            return
+        ui.notify(
+            "Python environment ready" if result.get("ok") else str(result.get("message") or "Python setup failed"),
+            type="positive" if result.get("ok") else "warning",
+        )
+        refresh()
+
     async def _create_from_draft() -> None:
         try:
             await run.io_bound(create_tool_from_draft, draft.id)
@@ -432,8 +447,14 @@ def _render_custom_tool_draft_card(draft, refresh: Callable) -> None:
                     ui.badge("draft", color="blue").props("outline")
                     ui.badge(draft.status, color="grey").props("outline")
                     ui.badge(f"{len(draft.commands)} command{'s' if len(draft.commands) != 1 else ''}", color="blue-grey").props("outline")
+                    env = getattr(draft, "environment", {}) or {}
+                    if env.get("python_project"):
+                        ui.badge("venv ready" if env.get("setup_ok") else "venv needed", color="green" if env.get("setup_ok") else "amber").props("outline")
             with ui.button(icon="more_vert").props("flat dense round"):
                 with ui.menu():
+                    env = getattr(draft, "environment", {}) or {}
+                    if env.get("python_project") and not env.get("setup_ok"):
+                        ui.menu_item("Set Up Python Venv", on_click=lambda: safe_ui_task(_setup_python_env, context="developer setup custom tool python env"))
                     ui.menu_item("Create Tool", on_click=lambda: safe_ui_task(_create_from_draft, context="developer create custom tool draft"))
                     ui.separator()
                     ui.menu_item("Delete Draft", on_click=lambda: safe_ui_task(_delete_draft, context="developer delete custom tool draft"))
@@ -572,6 +593,9 @@ def _render_custom_tool_card(state: AppState, tool, refresh: Callable) -> None:
                     if tool.promoted_plugin_id:
                         ui.badge("available in chat", color="blue").props("outline")
                     ui.badge(f"{len(tool.commands)} command{'s' if len(tool.commands) != 1 else ''}", color="blue-grey").props("outline")
+                    env = getattr(tool, "environment", {}) or {}
+                    if env.get("python_project"):
+                        ui.badge("isolated venv" if env.get("setup_ok") else "venv needed", color="green" if env.get("setup_ok") else "amber").props("outline")
             with ui.button(icon="more_vert").props("flat dense round"):
                 with ui.menu():
                     ui.menu_item("Disable" if tool.enabled else "Enable", on_click=lambda val=not tool.enabled: safe_ui_task(lambda: _toggle(val), context="developer toggle custom tool card"))
@@ -638,6 +662,17 @@ def _show_custom_tool_wizard(state: AppState, refresh: Callable) -> None:
         def _control(name: str):
             return controls[name]
 
+        async def _refresh_wizard_state_from_draft(draft_id: str):
+            updated_draft = await run.io_bound(get_custom_tool_draft, draft_id)
+            state_box["draft"] = updated_draft
+            state_box["proposal"] = updated_draft
+            if updated_draft.created_tool_id:
+                tools = await run.io_bound(list_capsules)
+                updated_tool = next((item for item in tools if item.id == updated_draft.created_tool_id), None)
+                if updated_tool is not None:
+                    state_box["tool"] = updated_tool
+            return updated_draft
+
         async def _browse_source() -> None:
             source_in = _control("source_in")
             picked = await browse_folder("Select custom tool repo/folder", str(source_in.value or ""))
@@ -696,7 +731,7 @@ def _show_custom_tool_wizard(state: AppState, refresh: Callable) -> None:
                 source = raw_source
                 folder = raw_source
                 reused_existing_clone = False
-                if source.startswith(("http://", "https://", "git@")):
+                if looks_like_git_repository_url(source):
                     parent = str(clone_parent.value or "").strip()
                     if not parent:
                         raise ValueError("Choose a clone parent folder for repo URLs.")
@@ -757,11 +792,43 @@ def _show_custom_tool_wizard(state: AppState, refresh: Callable) -> None:
                     ui.label(str(exc)).classes("text-negative text-xs")
                 return
             state_box["tool"] = tool
+            await _refresh_wizard_state_from_draft(draft.id)
             with result_box:
                 ui.badge(f"created {tool.name}", color="green").props("outline")
                 ui.label(f"{len(tool.commands)} command(s) ready for testing.").classes("text-xs text-grey-6")
             _render_wizard_test_panel()
             stepper.next()
+
+        async def _setup_python_env() -> None:
+            result_box = _control("result_box")
+            draft = state_box.get("draft")
+            if draft is None:
+                ui.notify("Inspect the Custom Tool first.", type="warning")
+                return
+            result_box.clear()
+            with result_box:
+                with ui.row().classes("items-center gap-2"):
+                    ui.spinner(size="sm")
+                    ui.label("Setting up isolated Python environment...").classes("text-xs text-grey-6")
+            try:
+                result = await run.io_bound(setup_custom_tool_python_environment, draft.id)
+                updated_draft = await _refresh_wizard_state_from_draft(draft.id)
+            except Exception as exc:
+                result_box.clear()
+                with result_box:
+                    ui.label(str(exc)).classes("text-negative text-xs")
+                return
+            result_box.clear()
+            with result_box:
+                ui.badge("dependencies installed" if result.get("ok") else "setup failed", color="green" if result.get("ok") else "amber").props("outline")
+                env = getattr(updated_draft, "environment", {}) or {}
+                if env.get("venv_path"):
+                    ui.label(str(env.get("venv_path"))).classes("text-xs text-grey-6 ellipsis")
+                setup = result.get("setup") or {}
+                text = str(setup.get("stdout") or setup.get("stderr") or result.get("message") or "")
+                if text:
+                    ui.code(text).classes("w-full text-xs").style("max-width: 100%; max-height: 180px; overflow: auto; white-space: pre-wrap;")
+            _render_wizard_test_panel()
 
         async def _run_smoke_test() -> None:
             tool = state_box.get("tool")
@@ -879,6 +946,13 @@ def _show_custom_tool_wizard(state: AppState, refresh: Callable) -> None:
                     ui.code(text).classes("w-full text-xs").style("max-width: 100%; max-height: 180px; overflow: auto; white-space: pre-wrap;")
                 else:
                     ui.label("Command passed with no output." if result.ok else "No output.").classes("text-xs text-grey-6")
+                env = getattr(draft, "environment", {}) or {}
+                if not result.ok and env.get("python_project") and not env.get("setup_ok"):
+                    ui.button(
+                        "Set Up Python Venv",
+                        icon="download",
+                        on_click=lambda: safe_ui_task(_setup_python_env, context="developer custom tool wizard setup after failed test"),
+                    ).props("outline no-caps")
 
         def _render_wizard_test_panel() -> None:
             test_box = _control("test_box")
@@ -893,6 +967,21 @@ def _show_custom_tool_wizard(state: AppState, refresh: Callable) -> None:
                 if not commands:
                     ui.label("No commands found to test.").classes("text-xs text-grey-6")
                     return
+                env = getattr(draft, "environment", {}) or {}
+                if env.get("python_project"):
+                    with ui.row().classes("w-full items-center justify-between no-wrap gap-2"):
+                        with ui.column().classes("gap-0").style("min-width: 0;"):
+                            with ui.row().classes("items-center gap-2 flex-wrap"):
+                                ui.badge("Python", color="blue").props("outline")
+                                ui.badge("venv ready" if env.get("setup_ok") else "venv needed", color="green" if env.get("setup_ok") else "amber").props("outline")
+                            if env.get("venv_path"):
+                                ui.label(str(env.get("venv_path"))).classes("text-xs text-grey-6 ellipsis")
+                        if not env.get("setup_ok"):
+                            ui.button(
+                                "Set Up Python Venv",
+                                icon="download",
+                                on_click=lambda: safe_ui_task(_setup_python_env, context="developer custom tool wizard setup python env"),
+                            ).props("outline no-caps").classes("shrink-0")
                 has_query_commands = any(custom_tool_command_needs_query(str(item.get("command", ""))) for item in commands)
                 if has_query_commands:
                     saved_query = str(state_box.get("test_query", DEFAULT_CUSTOM_TOOL_TEST_QUERY) or DEFAULT_CUSTOM_TOOL_TEST_QUERY)
@@ -996,9 +1085,9 @@ def _show_custom_tool_wizard(state: AppState, refresh: Callable) -> None:
 
         with ui.stepper().props("vertical").classes("w-full") as stepper:
             with ui.step("Source"):
-                ui.label("Choose where the tool comes from. Repo URLs are cloned only into a folder you choose.").classes("text-sm text-grey-6")
+                ui.label("Choose where the tool comes from. Repo URLs are cloned into a repo-named subfolder inside the parent you choose.").classes("text-sm text-grey-6")
                 controls["source_in"] = ui.input("Repo URL or local folder").classes("w-full").props("dense outlined")
-                controls["clone_parent"] = ui.input("Clone into folder (only for repo URLs)").classes("w-full").props("dense outlined")
+                controls["clone_parent"] = ui.input("Clone parent folder (only for repo URLs)").classes("w-full").props("dense outlined")
                 with ui.expansion("Advanced", icon="tune").classes("w-full"):
                     controls["overwrite_sw"] = ui.switch("Replace existing internal config after review", value=False)
                 with ui.row().classes("gap-2 flex-wrap"):

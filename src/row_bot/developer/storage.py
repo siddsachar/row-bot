@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 DATA_DIR = get_row_bot_data_dir()
 DEVELOPER_DIR = DATA_DIR / "developer"
 WORKSPACES_PATH = DEVELOPER_DIR / "workspaces.json"
+GIT_REPOSITORY_URL_PREFIXES = ("http://", "https://", "git@", "ssh://", "git://")
 _REPLACE_RETRY_WINERRORS = {5, 32}
 
 
@@ -221,12 +222,29 @@ def remember_clone_parent_folder(path: str) -> None:
     _save_payload(payload)
 
 
+def looks_like_git_repository_url(source: str) -> bool:
+    return str(source or "").strip().startswith(GIT_REPOSITORY_URL_PREFIXES)
+
+
 def suggested_clone_name(repo_url: str) -> str:
-    tail = repo_url.rstrip("/").rsplit("/", 1)[-1]
+    cleaned = repo_url.strip().rstrip("/")
+    cleaned = cleaned.split("?", 1)[0].split("#", 1)[0]
+    scp_match = re.match(r"^[^/@\s]+@[^:\s]+:(?P<path>.+)$", cleaned)
+    if scp_match:
+        cleaned = scp_match.group("path").rstrip("/")
+    tail = cleaned.rsplit("/", 1)[-1]
     if tail.endswith(".git"):
         tail = tail[:-4]
     safe = re.sub(r"[^A-Za-z0-9._-]+", "-", tail).strip("-._")
     return safe or "repository"
+
+
+def git_clone_error_message(repo_url: str, target: pathlib.Path, exc: subprocess.CalledProcessError) -> str:
+    detail = (exc.stderr or exc.stdout or "").strip()
+    message = f"Git clone failed for {repo_url} into {target} (exit {exc.returncode})."
+    if detail:
+        message = f"{message}\n{detail}"
+    return message
 
 
 def clone_repository(repo_url: str, destination_parent: str) -> DeveloperWorkspace:
@@ -239,14 +257,17 @@ def clone_repository(repo_url: str, destination_parent: str) -> DeveloperWorkspa
     target = parent / suggested_clone_name(repo_url)
     if target.exists():
         raise FileExistsError(f"Clone target already exists: {target}")
-    subprocess.run(
-        ["git", "clone", repo_url, str(target)],
-        cwd=str(parent),
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=600,
-    )
+    try:
+        subprocess.run(
+            ["git", "clone", repo_url, str(target)],
+            cwd=str(parent),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(git_clone_error_message(repo_url, target, exc)) from exc
     return add_or_update_local_workspace(str(target), repo_url=repo_url)
 
 
