@@ -1144,6 +1144,7 @@ def open_settings(
                 vision_invalid_reason = ""
             else:
                 vision_value = ""
+        vision_select_value = vision_value if vision_value in vision_opts else None
 
         def _has_pinned_picker_choice(options: list[dict]) -> bool:
             return any(str(option.get("source") or "") != "included_value" for option in options)
@@ -1253,7 +1254,7 @@ def open_settings(
                     on_change=lambda e: setattr(vsvc, "enabled", e.value)
                 ).props("dense")
             with vision_controls:
-                vision_select = ui.select(label="Vision model", options=vision_opts, value=vision_value or None).classes("col-grow").props('use-input input-debounce=300 dense outlined')
+                vision_select = ui.select(label="Vision model", options=vision_opts, value=vision_select_value).classes("col-grow").props('use-input input-debounce=300 dense outlined')
                 camera_controls = ui.row().classes("items-end gap-2")
                 with camera_controls:
                     camera_select = ui.select(
@@ -1298,7 +1299,7 @@ def open_settings(
                     vision_invalid_reason
                     or "Current local Vision model is not available. Manage local models in Ollama, then refresh or pin another Vision model below."
                 ).classes("text-warning text-xs q-pb-sm")
-                vision_missing.visible = bool(vision_invalid_reason) or (
+                vision_missing.visible = bool(vision_invalid_reason) or (bool(vision_value) and vision_select_value is None) or (
                     bool(vsvc.model) and not is_cloud_model(vsvc.model) and not _is_local_selection(vsvc.model)
                 )
 

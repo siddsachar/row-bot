@@ -181,6 +181,21 @@ def vision_model_compatibility(model: str | None) -> dict[str, Any]:
 
         if provider_id:
             try:
+                from row_bot.providers.capability_resolution import resolve_capability_snapshot
+
+                snapshot = resolve_capability_snapshot(provider_id, model_id)
+                if snapshot:
+                    if not snapshot_supports_surface(snapshot, "vision"):
+                        result.update({
+                            "usable": False,
+                            "explicit": True,
+                            "reason": "capability metadata says this model is not compatible with vision",
+                        })
+                    return result
+            except Exception:
+                logger.debug("Could not inspect provider Vision model metadata", exc_info=True)
+
+            try:
                 from row_bot.providers.config import load_provider_config
 
                 ref = model_ref(provider_id, model_id)

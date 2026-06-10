@@ -377,3 +377,5 @@ def test_models_tab_validates_stale_vision_default_before_display():
     assert "vision_model_compatibility" in models_section
     assert "Resetting incompatible Vision default" in models_section
     assert "not currently marked as Vision-capable" in models_section
+    assert "vision_select_value = vision_value if vision_value in vision_opts else None" in models_section
+    assert "value=vision_select_value" in models_section

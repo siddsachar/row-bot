@@ -10,6 +10,21 @@ class _FakeOllamaClient:
         return {"message": {"content": "vision ok"}}
 
 
+def _write_ollama_catalog_cache(monkeypatch, tmp_path, rows):
+    import row_bot.providers.model_catalog_cache as cache
+
+    monkeypatch.setattr(cache, "CATALOG_CACHE_PATH", tmp_path / "model_catalog_cache.json")
+    cache.write_model_catalog_cache(cache.CatalogCacheSnapshot(
+        version=cache.CACHE_VERSION,
+        generated_at=123.0,
+        cloud_cache={},
+        ollama_rows=list(rows),
+        provider_status={"ollama": {"status": "ok", "count": len(rows)}},
+        warnings=(),
+        reason="test",
+    ))
+
+
 def test_local_vision_strips_ollama_provider_ref(monkeypatch):
     import row_bot.vision as vision
 
@@ -78,6 +93,54 @@ def test_custom_openai_vision_ref_routes_provider_runtime(tmp_path, monkeypatch)
     content = captured["messages"][0].content
     assert content[0] == {"type": "text", "text": "describe"}
     assert content[1]["type"] == "image_url"
+
+
+def test_vision_compatibility_uses_cached_ollama_vision_metadata(tmp_path, monkeypatch):
+    import row_bot.providers.config as provider_config
+    import row_bot.vision as vision
+
+    model_id = "qwen3.6:35b-a3b-mtp-q4_K_M"
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    _write_ollama_catalog_cache(monkeypatch, tmp_path, [{
+        "provider_id": "ollama",
+        "model_id": model_id,
+        "capabilities_snapshot": {
+            "capabilities": ["chat", "streaming", "text", "vision"],
+            "input_modalities": ["image", "text"],
+            "output_modalities": ["text"],
+            "tasks": ["chat"],
+            "transport": "ollama_chat",
+        },
+    }])
+
+    result = vision.vision_model_compatibility(f"model:ollama:{model_id}")
+
+    assert result["usable"] is True
+    assert result["explicit"] is False
+
+
+def test_vision_compatibility_rejects_cached_text_only_ollama_metadata(tmp_path, monkeypatch):
+    import row_bot.providers.config as provider_config
+    import row_bot.vision as vision
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    _write_ollama_catalog_cache(monkeypatch, tmp_path, [{
+        "provider_id": "ollama",
+        "model_id": "plain-text-local:latest",
+        "capabilities_snapshot": {
+            "capabilities": ["chat", "streaming", "text"],
+            "input_modalities": ["text"],
+            "output_modalities": ["text"],
+            "tasks": ["chat"],
+            "transport": "ollama_chat",
+        },
+    }])
+
+    result = vision.vision_model_compatibility("model:ollama:plain-text-local:latest")
+
+    assert result["usable"] is False
+    assert result["explicit"] is True
+    assert "not compatible with vision" in result["reason"]
 
 
 def test_custom_openai_vision_ref_blocks_manual_disabled_endpoint(tmp_path, monkeypatch):

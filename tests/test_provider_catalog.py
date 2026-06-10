@@ -274,6 +274,25 @@ def test_ollama_provider_definition_and_model_capabilities():
     assert model_supports_surface(vision_info, "vision") is True
 
 
+def test_ollama_catalog_uses_daemon_reported_vision_capabilities_for_unknown_family():
+    model_id = "qwen3.6:35b-a3b-mtp-q4_K_M"
+
+    rows = ollama_catalog_rows(
+        [model_id],
+        [],
+        metadata_by_model={
+            model_id: {
+                "capabilities": ["completion", "vision"],
+                "input_modalities": ["image", "text"],
+            },
+        },
+    )
+
+    assert rows[0]["model_id"] == model_id
+    assert "vision" in rows[0]["capabilities_snapshot"]["capabilities"]
+    assert "image" in rows[0]["capabilities_snapshot"]["input_modalities"]
+
+
 def test_ollama_cloud_provider_definition_and_capabilities():
     definition = get_provider_definition("ollama_cloud")
     classified = classify_model_capabilities("ollama_cloud", "gpt-oss:120b-cloud")
