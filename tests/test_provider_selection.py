@@ -24,6 +24,37 @@ from row_bot.providers.selection import (
 )
 
 
+def _write_ollama_catalog_cache(monkeypatch, tmp_path, rows):
+    import row_bot.providers.model_catalog_cache as cache
+
+    monkeypatch.setattr(cache, "CATALOG_CACHE_PATH", tmp_path / "model_catalog_cache.json")
+    cache.write_model_catalog_cache(cache.CatalogCacheSnapshot(
+        version=cache.CACHE_VERSION,
+        generated_at=123.0,
+        cloud_cache={},
+        ollama_rows=list(rows),
+        provider_status={"ollama": {"status": "ok", "count": len(rows)}},
+        warnings=(),
+        reason="test",
+    ))
+
+
+def _ollama_vision_row(model_id: str) -> dict:
+    return {
+        "provider_id": "ollama",
+        "model_id": model_id,
+        "display_name": model_id,
+        "installed": True,
+        "capabilities_snapshot": {
+            "capabilities": ["chat", "streaming", "text", "vision"],
+            "input_modalities": ["image", "text"],
+            "output_modalities": ["text"],
+            "tasks": ["chat"],
+            "transport": "ollama_chat",
+        },
+    }
+
+
 def test_legacy_starred_models_migrate_to_quick_choices(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": ["gpt-4o", "qwen3:14b"]})
@@ -339,6 +370,20 @@ def test_included_ollama_value_stays_provider_qualified(tmp_path, monkeypatch):
     assert options[0]["provider_id"] == "ollama"
 
 
+def test_included_ollama_vision_value_uses_cached_catalog_snapshot(tmp_path, monkeypatch):
+    model_id = "qwen3.6:35b-a3b-mtp-q4_K_M"
+    ref = f"model:ollama:{model_id}"
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+    _write_ollama_catalog_cache(monkeypatch, tmp_path, [_ollama_vision_row(model_id)])
+
+    options = list_model_choice_options("vision", include_values=[ref])
+
+    assert [option["value"] for option in options] == [ref]
+    assert options[0]["provider_id"] == "ollama"
+    assert options[0]["source"] == "included_value"
+
+
 def test_unknown_bare_selection_resolves_to_ollama_not_openrouter(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
@@ -445,6 +490,29 @@ def test_grouped_quick_choices_refreshes_stale_capability_snapshots(tmp_path, mo
     stored = {choice["model_id"]: choice for choice in provider_config.load_provider_config()["quick_choices"]}
     assert "image" not in stored["qwen3.6:27b"]["capabilities_snapshot"]["input_modalities"]
     assert "image" in stored["gpt-5.4"]["capabilities_snapshot"]["input_modalities"]
+
+
+def test_grouped_quick_choices_preserves_cached_ollama_vision_metadata(tmp_path, monkeypatch):
+    model_id = "qwen3.6:35b-a3b-mtp-q4_K_M"
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+    _write_ollama_catalog_cache(monkeypatch, tmp_path, [_ollama_vision_row(model_id)])
+
+    add_quick_choice_for_model(
+        model_id,
+        provider_id="ollama",
+        capabilities_snapshot={
+            "tasks": ["chat"],
+            "input_modalities": ["text"],
+            "output_modalities": ["text"],
+        },
+    )
+
+    groups = {group["id"]: group["choices"] for group in grouped_quick_choices(include_inactive=True, include_media_defaults=False)}
+
+    assert [choice["model_id"] for choice in groups["vision"]] == [model_id]
+    stored = provider_config.load_provider_config()["quick_choices"][0]
+    assert "image" in stored["capabilities_snapshot"]["input_modalities"]
 
 
 def test_custom_quick_choice_refreshes_from_endpoint_model_cache(tmp_path, monkeypatch):

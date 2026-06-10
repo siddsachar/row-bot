@@ -4,7 +4,7 @@ from typing import Any
 
 from row_bot.providers.capabilities import snapshot_supports_surface
 from row_bot.providers.auth_store import get_provider_secret, provider_secret_status
-from row_bot.providers.catalog import get_provider_definition, model_info_from_metadata
+from row_bot.providers.catalog import get_provider_definition
 from row_bot.providers.custom import custom_endpoint_secret, get_custom_endpoint, is_custom_openai_provider
 
 
@@ -306,34 +306,17 @@ def _capability_snapshot_for_selection(model_name: str, provider_id: str) -> dic
                 snapshot = model.get("capabilities_snapshot")
                 return dict(snapshot) if isinstance(snapshot, dict) else {}
         return {}
-    if provider_id == "ollama":
-        try:
-            from row_bot.providers.ollama import ollama_model_info
-            return ollama_model_info(model_name).capability_snapshot()
-        except Exception:
-            return {}
-    cached = _cached_provider_capability_snapshot(provider_id, model_name)
-    if cached:
-        return cached
-    return model_info_from_metadata(provider_id, model_name).capability_snapshot()
+    if provider_id in {"opencode_zen", "opencode_go"}:
+        return {}
+    from row_bot.providers.capability_resolution import resolve_capability_snapshot
+
+    return resolve_capability_snapshot(provider_id, model_name)
 
 
 def _cached_provider_capability_snapshot(provider_id: str, model_name: str) -> dict[str, Any]:
-    try:
-        from row_bot.models import _cloud_model_cache
+    from row_bot.providers.capability_resolution import cached_provider_capability_snapshot
 
-        cached = _cloud_model_cache.get(f"model:{provider_id}:{model_name}") or _cloud_model_cache.get(model_name)
-    except Exception:
-        return {}
-    if not isinstance(cached, dict):
-        return {}
-    provider = str(cached.get("provider") or "")
-    if provider and provider != provider_id:
-        return {}
-    snapshot = cached.get("capabilities_snapshot")
-    if isinstance(snapshot, dict) and snapshot:
-        return dict(snapshot)
-    return {}
+    return cached_provider_capability_snapshot(provider_id, model_name)
 
 
 def _infer_provider(model_name: str) -> str:

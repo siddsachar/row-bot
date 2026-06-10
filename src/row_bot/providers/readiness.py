@@ -507,13 +507,6 @@ def _snapshot_for_resolved(
             {},
             transport=resolved.transport,
         ).capability_snapshot()
-    if resolved.provider_id == "ollama":
-        try:
-            from row_bot.providers.ollama import ollama_model_info
-
-            return ollama_model_info(resolved.runtime_model).capability_snapshot()
-        except Exception:
-            pass
     if resolved.provider_id in {"opencode_zen", "opencode_go"}:
         try:
             from row_bot.providers.opencode import opencode_known_route, opencode_model_info
@@ -523,9 +516,18 @@ def _snapshot_for_resolved(
                 return opencode_model_info(route).capability_snapshot()
         except Exception:
             pass
-    cached = _cached_capability_snapshot_for_resolved(resolved)
-    if cached:
-        return cached
+    try:
+        from row_bot.providers.capability_resolution import resolve_capability_snapshot
+
+        resolved_snapshot = resolve_capability_snapshot(
+            resolved.provider_id,
+            resolved.runtime_model,
+            transport=resolved.transport,
+        )
+        if resolved_snapshot:
+            return resolved_snapshot
+    except Exception:
+        pass
     return model_info_from_metadata(
         resolved.provider_id,
         resolved.runtime_model,
@@ -535,21 +537,9 @@ def _snapshot_for_resolved(
 
 
 def _cached_capability_snapshot_for_resolved(resolved: ResolvedProviderConfig) -> dict[str, Any]:
-    try:
-        from row_bot.models import _cloud_model_cache
+    from row_bot.providers.capability_resolution import cached_provider_capability_snapshot
 
-        info = _cloud_model_cache.get(resolved.selection_ref) or _cloud_model_cache.get(resolved.runtime_model)
-    except Exception:
-        return {}
-    if not isinstance(info, Mapping):
-        return {}
-    provider = str(info.get("provider") or "")
-    if provider and provider != resolved.provider_id:
-        return {}
-    snapshot = info.get("capabilities_snapshot")
-    if isinstance(snapshot, Mapping) and snapshot:
-        return dict(snapshot)
-    return {}
+    return cached_provider_capability_snapshot(resolved.provider_id, resolved.runtime_model)
 
 
 def _snapshot_source(snapshot: Mapping[str, Any], resolved: ResolvedProviderConfig) -> str:

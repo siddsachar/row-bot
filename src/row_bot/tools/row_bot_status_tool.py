@@ -198,8 +198,10 @@ def _resolve_model_update_value(value: str, *, surface: str) -> tuple[str | None
         if not is_model_local(model_id):
             return None, f"Local model '{raw}' is not installed. Install it with Ollama or pin an installed model in Settings → Models."
         if surface == "vision":
-            from row_bot.providers.ollama import is_ollama_vision_capable
-            if not is_ollama_vision_capable(model_id):
+            from row_bot.providers.capability_resolution import resolve_capability_snapshot
+
+            snapshot = resolve_capability_snapshot("ollama", model_id)
+            if not snapshot or not snapshot_supports_surface(snapshot, "vision"):
                 return None, f"Local model '{raw}' is installed, but Row-Bot does not have Vision capability metadata for it. Choose a Vision model from Settings → Models."
         return model_id, None
 

@@ -572,48 +572,17 @@ def _inferred_capability_snapshot(choice: dict[str, Any]) -> dict[str, Any]:
     if not provider_id or not model_id:
         return {}
     try:
-        if provider_id.startswith("custom_openai_"):
-            from row_bot.providers.custom import custom_model_cache_entries
+        from row_bot.providers.capability_resolution import resolve_capability_snapshot
 
-            cached = custom_model_cache_entries().get(model_id)
-            if isinstance(cached, dict) and str(cached.get("provider") or "") == provider_id:
-                snapshot = cached.get("capabilities_snapshot")
-                if isinstance(snapshot, dict) and snapshot:
-                    return dict(snapshot)
-            return {}
-        if provider_id == "ollama":
-            from row_bot.providers.ollama import ollama_model_info
-            return ollama_model_info(model_id).capability_snapshot()
-        if provider_id == "codex":
-            from row_bot.providers.codex import list_codex_model_infos
-            for model_info in list_codex_model_infos():
-                if model_info.model_id == model_id:
-                    return model_info.capability_snapshot()
-        cached = _cached_provider_capability_snapshot(provider_id, model_id)
-        if cached:
-            return cached
-        from row_bot.providers.catalog import model_info_from_metadata
-        return model_info_from_metadata(provider_id, model_id).capability_snapshot()
+        return resolve_capability_snapshot(provider_id, model_id)
     except Exception:
         return {}
 
 
 def _cached_provider_capability_snapshot(provider_id: str, model_id: str) -> dict[str, Any]:
-    try:
-        from row_bot.models import _cloud_model_cache
+    from row_bot.providers.capability_resolution import cached_provider_capability_snapshot
 
-        cached = _cloud_model_cache.get(model_ref(provider_id, model_id)) or _cloud_model_cache.get(model_id)
-    except Exception:
-        return {}
-    if not isinstance(cached, dict):
-        return {}
-    provider = str(cached.get("provider") or "")
-    if provider and provider != provider_id:
-        return {}
-    snapshot = cached.get("capabilities_snapshot")
-    if isinstance(snapshot, dict) and snapshot:
-        return dict(snapshot)
-    return {}
+    return cached_provider_capability_snapshot(provider_id, model_id)
 
 
 def _selection_capability_snapshot(provider_id: str, model_id: str) -> dict[str, Any]:

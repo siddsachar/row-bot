@@ -9,6 +9,21 @@ def _is_local_model(*installed):
     return lambda model: model in installed_set
 
 
+def _write_ollama_catalog_cache(monkeypatch, tmp_path, rows):
+    import row_bot.providers.model_catalog_cache as cache
+
+    monkeypatch.setattr(cache, "CATALOG_CACHE_PATH", tmp_path / "model_catalog_cache.json")
+    cache.write_model_catalog_cache(cache.CatalogCacheSnapshot(
+        version=cache.CACHE_VERSION,
+        generated_at=123.0,
+        cloud_cache={},
+        ollama_rows=list(rows),
+        provider_status={"ollama": {"status": "ok", "count": len(rows)}},
+        warnings=(),
+        reason="test",
+    ))
+
+
 @pytest.fixture(autouse=True)
 def _isolated_row_bot_data(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
@@ -180,6 +195,36 @@ def test_row_bot_status_rejects_local_model_without_vision_metadata(tmp_path, mo
 
     assert model_value is None
     assert "does not have Vision capability metadata" in str(error)
+
+
+def test_row_bot_status_allows_installed_local_vision_from_cached_ollama_metadata(tmp_path, monkeypatch):
+    import row_bot.api_keys as api_keys
+    import row_bot.models as models
+    import row_bot.providers.config as provider_config
+    from row_bot.tools.row_bot_status_tool import _resolve_model_update_value
+
+    model_id = "qwen3.6:35b-a3b-mtp-q4_K_M"
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+    monkeypatch.setattr(models, "is_model_local", _is_local_model(model_id))
+    monkeypatch.setattr(models, "list_cloud_models", lambda provider=None: [])
+    monkeypatch.setattr(models, "list_cloud_vision_models", lambda: [])
+    _write_ollama_catalog_cache(monkeypatch, tmp_path, [{
+        "provider_id": "ollama",
+        "model_id": model_id,
+        "capabilities_snapshot": {
+            "capabilities": ["chat", "streaming", "text", "vision"],
+            "input_modalities": ["image", "text"],
+            "output_modalities": ["text"],
+            "tasks": ["chat"],
+            "transport": "ollama_chat",
+        },
+    }])
+
+    model_value, error = _resolve_model_update_value(model_id, surface="vision")
+
+    assert error is None
+    assert model_value == model_id
 
 
 def test_row_bot_status_vision_model_update_persists_valid_model(tmp_path, monkeypatch):
