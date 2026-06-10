@@ -324,6 +324,7 @@ def create_thread(
     approval_mode: str = "",
     model_override: str = "",
     name_source: str = THREAD_NAME_SOURCE_AUTO,
+    seed_default_skills: bool = True,
 ) -> str:
     """Create or replace the metadata row for a conversation thread."""
     _ensure_thread_db()
@@ -337,6 +338,10 @@ def create_thread(
     )
     now = datetime.now().isoformat()
     with sqlite3.connect(DB_PATH) as conn:
+        existed = conn.execute(
+            "SELECT 1 FROM thread_meta WHERE thread_id = ?",
+            (tid,),
+        ).fetchone() is not None
         conn.execute(
             "INSERT INTO thread_meta ("
             "thread_id, name, created_at, updated_at, model_override, project_id, "
@@ -362,6 +367,14 @@ def create_thread(
             ),
         )
         conn.commit()
+    if (
+        seed_default_skills
+        and not existed
+        and not str(project_id or "").strip()
+        and not str(developer_workspace_id or "").strip()
+        and not str(thread_type or "").strip()
+    ):
+        _seed_thread_default_skills_safe(tid, surface="chat")
     return tid
 
 
@@ -459,10 +472,27 @@ def list_developer_workspace_threads(workspace_id: str) -> list[tuple]:
     return rows
 
 
-def _save_thread_meta(thread_id: str, name: str):
+def _seed_thread_default_skills_safe(thread_id: str, *, surface: str = "chat") -> None:
+    try:
+        from row_bot.skills_activation import seed_thread_default_skills
+
+        seed_thread_default_skills(thread_id, surface=surface)
+    except Exception:
+        logger.debug(
+            "Failed to seed default skills for thread %s",
+            thread_id,
+            exc_info=True,
+        )
+
+
+def _save_thread_meta(thread_id: str, name: str, *, seed_default_skills: bool = False):
     _ensure_thread_db()
     now = datetime.now().isoformat()
     conn = sqlite3.connect(DB_PATH)
+    existed = conn.execute(
+        "SELECT 1 FROM thread_meta WHERE thread_id = ?",
+        (thread_id,),
+    ).fetchone() is not None
     conn.execute(
         "INSERT INTO thread_meta (thread_id, name, created_at, updated_at, name_source) "
         "VALUES (?, ?, ?, ?, ?) "
@@ -471,6 +501,8 @@ def _save_thread_meta(thread_id: str, name: str):
     )
     conn.commit()
     conn.close()
+    if seed_default_skills and not existed:
+        _seed_thread_default_skills_safe(thread_id, surface="chat")
 
 
 def _thread_ui_media_path(thread_id: str) -> pathlib.Path:
@@ -1061,7 +1093,7 @@ def pick_or_create_thread() -> dict:
         if choice == "0":
             thread_id = uuid.uuid4().hex[:12]
             name = input("Give this conversation a name: ").strip() or f"Thread-{thread_id[:6]}"
-            _save_thread_meta(thread_id, name)
+            _save_thread_meta(thread_id, name, seed_default_skills=True)
             print(f"\nStarted new thread: {name}\n")
             return {"configurable": {"thread_id": thread_id}}
         elif choice.isdigit() and 1 <= int(choice) <= len(threads):

@@ -306,6 +306,7 @@ def create_workspace_thread(
         approval_mode=workspace.approval_mode,
         name_source=name_source,
     )
+    _seed_developer_thread_skills(thread_id)
     workspace.touch()
     save_workspace(workspace)
     return thread_id
@@ -343,10 +344,25 @@ def ensure_workspace_thread(workspace_id: str) -> str:
         developer_workspace_id=workspace.id,
         approval_mode=workspace.approval_mode,
     )
+    _seed_developer_thread_skills(thread_id)
     workspace.default_thread_id = thread_id
     workspace.touch()
     save_workspace(workspace)
     return thread_id
+
+
+def _seed_developer_thread_skills(thread_id: str) -> None:
+    """Snapshot current Developer skill defaults onto a new Developer thread."""
+    try:
+        from row_bot.skills import get_default_active_skill_names
+        from row_bot.threads import set_thread_skills_override
+
+        set_thread_skills_override(
+            thread_id,
+            get_default_active_skill_names("developer"),
+        )
+    except Exception:
+        logger.debug("Failed to seed Developer thread skills", exc_info=True)
 
 
 def detect_git_summary(path: str) -> dict:

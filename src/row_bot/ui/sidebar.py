@@ -239,7 +239,13 @@ def build_sidebar(
 
                 tid = uuid.uuid4().hex[:12]
                 name = f"💻 Thread {datetime.now().strftime('%b %d, %H:%M')}"
-                await run.io_bound(_save_thread_meta, tid, name)
+                await run.io_bound(
+                    lambda: _save_thread_meta(
+                        tid,
+                        name,
+                        seed_default_skills=True,
+                    )
+                )
                 stop_voice_for_thread_change(state, p, reason="new_thread")
                 prev = state.thread_id
                 prev_gen = _active_generations.get(prev) if prev else None

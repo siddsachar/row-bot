@@ -526,9 +526,15 @@ def check_skills() -> CheckResult:
             skills_mod.load_skills()
         manual = skills_mod.get_manual_skills()
         enabled = [sk for sk in manual if skills_mod.is_enabled(sk.name)]
+        pinned = skills_mod.get_pinned_skill_names()
         if not manual:
             return CheckResult("Skills", "inactive", "No manual skills", settings_tab="Skills")
-        return CheckResult("Skills", "ok" if enabled else "inactive", f"{len(enabled)} / {len(manual)} enabled", settings_tab="Skills")
+        return CheckResult(
+            "Skills",
+            "ok" if enabled else "inactive",
+            f"{len(enabled)} / {len(manual)} available, {len(pinned)} pinned",
+            settings_tab="Skills",
+        )
     except Exception as exc:
         return CheckResult("Skills", "error", str(exc), settings_tab="Skills")
 

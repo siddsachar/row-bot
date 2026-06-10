@@ -141,7 +141,7 @@ def test_direct_skill_activation_and_reset_dispatch(tmp_path):
 
     reset = slash_commands.dispatch_text_command("thread-a", "/skill-reset")
     assert reset == "Skills reset for this chat."
-    assert activation.resolve_active_skill_names("thread-a") == []
+    assert activation.resolve_active_skill_names("thread-a") == skills.get_default_active_skill_names("chat")
 
 
 def test_slash_token_replacement_preserves_draft_text(tmp_path):

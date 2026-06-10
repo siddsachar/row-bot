@@ -52,8 +52,25 @@ def test_settings_polish_helpers_are_local_and_used():
         "_build_voice_tab",
         "_build_channels_tab",
         "_build_preferences_tab",
+        "_build_skills_tab",
     ):
         assert "_settings_header(" in _function_source(tab_name)
+
+
+def test_skills_tab_uses_compact_management_surface():
+    skills_src = _function_source("_build_skills_tab")
+
+    assert "_settings_header(" in skills_src
+    assert "_settings_section(" in skills_src
+    assert "_metric_chip(" in skills_src
+    assert '"Search skills"' in skills_src
+    assert '"Filter"' in skills_src
+    assert '"Sort"' in skills_src
+    assert '"More actions"' in skills_src
+    assert "ui.menu_item" in skills_src
+    assert '"Pinned skills start active in new chats, tasks, Designer, and Developer."' in skills_src
+    assert 'with ui.card().classes("w-full q-pa-sm")' not in skills_src
+    assert '"Available",\n                                value=skills_mod.is_enabled' not in skills_src
 
 
 def test_status_and_home_links_follow_new_information_architecture():

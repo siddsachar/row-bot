@@ -91,7 +91,8 @@ _CREATE_TABLE_SQL = {
             concurrency_group   TEXT,
             trigger             TEXT,
             tools_override      TEXT,
-            channels            TEXT
+            channels            TEXT,
+            advanced_mode       INTEGER DEFAULT 0
         )
     """,
     "task_runs": """
@@ -190,6 +191,7 @@ _COLUMN_MIGRATIONS = {
         ("trigger", "TEXT"),
         ("tools_override", "TEXT"),
         ("channels", "TEXT"),
+        ("advanced_mode", "INTEGER DEFAULT 0"),
     ],
     "task_runs": [
         ("finished_at", "TEXT"),
@@ -222,6 +224,7 @@ _REQUIRED_COLUMNS = {
         "persistent_thread_id", "delete_after_run", "allowed_commands",
         "allowed_recipients", "skills_override", "steps", "safety_mode",
         "concurrency_group", "trigger", "tools_override", "channels",
+        "advanced_mode",
     },
     "task_runs": {
         "id", "task_id", "thread_id", "started_at", "finished_at", "status",
@@ -544,7 +547,8 @@ def _init_db() -> None:
             concurrency_group   TEXT,                   -- null = no limit / 'local_gpu' / custom
             trigger             TEXT,                   -- JSON trigger config (null = schedule/manual only)
             tools_override      TEXT,                    -- JSON list of tool names (null = all enabled)
-            channels            TEXT                     -- JSON list of channel names (null = workflow default)
+            channels            TEXT,                    -- JSON list of channel names (null = workflow default)
+            advanced_mode       INTEGER DEFAULT 0        -- 1 = reopen in Advanced editor mode
         )
     """)
     conn.execute("""
@@ -625,6 +629,7 @@ def _init_db() -> None:
         ("trigger", "TEXT"),
         ("tools_override", "TEXT"),
         ("channels", "TEXT"),
+        ("advanced_mode", "INTEGER DEFAULT 0"),
     ]:
         try:
             conn.execute(f"ALTER TABLE tasks ADD COLUMN {col} {defn}")
@@ -977,7 +982,9 @@ def create_task(
     trigger: dict | None = None,
     tools_override: list[str] | None = None,
     channels: list[str] | None = None,
+    advanced_mode: bool | None = None,
     enabled: bool = True,
+    apply_default_skills: bool = True,
 ) -> str:
     """Create a new task and return its ID.
 
@@ -1008,8 +1015,20 @@ def create_task(
     now = datetime.now().isoformat()
     if prompts is None:
         prompts = []
+    if advanced_mode is None:
+        advanced_mode = bool(steps)
     model_override = _canonicalize_workflow_model_override(model_override)
     safety_mode = legacy_safety_mode_to_approval_mode(safety_mode)
+    if notify_only:
+        skills_override = None
+    elif skills_override is None and apply_default_skills:
+        try:
+            from row_bot.skills import get_default_active_skill_names
+
+            skills_override = get_default_active_skill_names("task")
+        except Exception:
+            logger.debug("Failed to resolve default workflow skills", exc_info=True)
+            skills_override = []
     # If steps provided, also sync prompts for backward compat
     if steps:
         assign_step_ids(steps)
@@ -1021,20 +1040,21 @@ def create_task(
         "(id, name, description, icon, prompts, schedule, at, notify_only, "
         "notify_label, delivery_channel, delivery_target, model_override, "
         "persistent_thread_id, delete_after_run, created_at, enabled, skills_override, "
-        "steps, safety_mode, concurrency_group, trigger, tools_override, channels) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "steps, safety_mode, concurrency_group, trigger, tools_override, channels, advanced_mode) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             task_id, name, description, icon, json.dumps(prompts),
             schedule, at, int(notify_only), notify_label,
             delivery_channel, delivery_target, model_override,
             persistent_thread_id, int(delete_after_run), now, int(enabled),
-            json.dumps(skills_override) if skills_override else None,
+            json.dumps(skills_override) if skills_override is not None else None,
             json.dumps(steps) if steps else "[]",
             safety_mode,
             concurrency_group,
             json.dumps(trigger) if trigger else None,
             json.dumps(tools_override) if tools_override else None,
             json.dumps(channels) if channels is not None else None,
+            int(bool(advanced_mode)),
         ),
     )
     conn.commit()
@@ -1089,7 +1109,7 @@ def update_task(task_id: str, **kwargs) -> None:
         "allowed_commands", "allowed_recipients",
         "skills_override",
         "steps", "safety_mode", "concurrency_group", "trigger",
-        "tools_override", "channels",
+        "tools_override", "channels", "advanced_mode",
     }
 
     # ── Validate delivery if either field is being changed ───────────
@@ -1116,7 +1136,7 @@ def update_task(task_id: str, **kwargs) -> None:
                    "skills_override", "steps", "trigger",
                    "tools_override", "channels"):
             value = json.dumps(value)
-        if key in ("notify_only", "delete_after_run"):
+        if key in ("notify_only", "delete_after_run", "advanced_mode"):
             value = int(value)
         conn.execute(
             f"UPDATE tasks SET {key} = ? WHERE id = ?",
@@ -1230,6 +1250,8 @@ def duplicate_task(task_id: str) -> str | None:
         safety_mode=task.get("safety_mode") or "block",
         concurrency_group=task.get("concurrency_group"),
         channels=task.get("channels"),
+        advanced_mode=bool(task.get("advanced_mode")),
+        apply_default_skills=False,
     )
 
 
@@ -1239,6 +1261,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     d["notify_only"] = bool(d.get("notify_only", 0))
     d["delete_after_run"] = bool(d.get("delete_after_run", 0))
     d["enabled"] = bool(d.get("enabled", 1))
+    d["advanced_mode"] = bool(d.get("advanced_mode", 0))
     d["allowed_commands"] = json.loads(d.get("allowed_commands") or "[]")
     d["allowed_recipients"] = json.loads(d.get("allowed_recipients") or "[]")
     raw_skills = d.get("skills_override")

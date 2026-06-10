@@ -279,17 +279,11 @@ def test_developer_skill_prompt_is_scoped_to_developer_mode(tmp_path, monkeypatc
     sys.modules.pop("skills", None)
 
     import row_bot.skills as skills
-    from row_bot.developer.profile import DEVELOPER_AUTO_SKILLS
-
     importlib.reload(skills)
     skills.load_skills()
 
     regular_prompt = skills.get_skills_prompt([], active_tool_names=[])
-    developer_prompt = skills.get_skills_prompt(
-        [],
-        active_tool_names=["developer"],
-        extra_skill_names=DEVELOPER_AUTO_SKILLS,
-    )
+    developer_prompt = skills.get_skills_prompt([], active_tool_names=["developer"])
 
     assert "Developer Tool Guide" not in regular_prompt
     assert "Developer Tool Guide" in developer_prompt

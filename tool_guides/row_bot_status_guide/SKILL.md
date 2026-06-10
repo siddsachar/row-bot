@@ -16,7 +16,7 @@ QUERYING STATUS (row_bot_status):
 - Use category='model' to check the current model, provider, and context window.
 - Use category='channels' to see which messaging channels are running.
 - Use category='memory' for knowledge graph entity/relation counts.
-- Use category='skills' to list enabled and disabled skills.
+- Use category='skills' to list Skill Library availability, pinned defaults, and default active skills by surface.
 - Use category='tools' to list enabled and disabled tools.
 - Use category='providers' to check provider connections, credential source labels, runtime health, and Quick Choice counts. Model catalog browsing, pinning, and defaults live in Settings -> Models.
 - Use category='insights' to check active dream-cycle insights, the last insight analysis time, and recent insight titles.
@@ -70,13 +70,21 @@ CHANGING SETTINGS (row_bot_update_setting):
   - cloud_context_size: set provider/cloud context cap (value = token count e.g. '131072')
   - dream_cycle: enable or disable the dream cycle (value = 'on' or 'off')
   - dream_window: set dream cycle time window (value = 'START-END' e.g. '1-5')
-  - skill_toggle: enable or disable a skill (value = 'skill_name:on' or 'skill_name:off')
+  - skill_toggle: make a skill Available or Off (value = 'skill_name:on' or 'skill_name:off')
+  - skill_pin: pin or unpin a skill as default active in new chats/tasks/designer/developer threads (value = 'skill_name:on' or 'skill_name:off')
   - tool_toggle: enable or disable a tool (value = 'tool_name:on' or 'tool_name:off'); for MCP use 'mcp:on' or 'mcp:off', which controls the global MCP client as well as the parent External MCP Tools toggle.
   - image_gen_model: set the image generation model (value = provider/model-id, bare model id, or exact model label from Settings -> Models)
   - video_gen_model: set the video generation model (value = provider/model-id, bare model id, or exact model label from Settings -> Models)
   - run_dream_cycle: manually trigger the dream cycle now (value = 'now')
   - self_improvement: enable or disable self-improvement (value = 'on' or 'off')
-- When the user asks to turn on/off a tool or skill, use tool_toggle or skill_toggle.
+- Skill Library terms:
+  - Available means the skill can be selected in chat/workflows and suggested when relevant.
+  - Pinned means the skill starts active by default in new chats, tasks, designer threads, and developer threads; the user can still remove it per workflow.
+  - Designer threads also start with Design Creator when it is available.
+  - Tool guides are separate from Skill Library items and are activated by their tools, not by skill pins.
+- When the user asks to turn on/off a tool or make a skill available/off, use tool_toggle or skill_toggle.
+  Do NOT pretend to make the change — you MUST call row_bot_update_setting.
+- When the user asks to pin/unpin a skill, make it active by default, or stop making it active by default in new chats/tasks/workflows, use skill_pin.
   Do NOT pretend to make the change — you MUST call row_bot_update_setting.
 - When changing the active model to a provider model, prefer an existing Quick Choice from the Models catalog. Route selections may be visible in config but are not executable until routing runtime is enabled.
 - When changing the Vision model, prefer an existing Vision Quick Choice from Settings -> Models. If a provider/custom endpoint model is marked incompatible or Vision was manually disabled for that endpoint, do not use it for image/screen analysis until the user changes the endpoint override or selects another Vision-capable model.

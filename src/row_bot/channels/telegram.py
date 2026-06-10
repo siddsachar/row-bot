@@ -159,7 +159,7 @@ def _get_or_create_thread(chat_id: int) -> dict:
     suffix = uuid.uuid4().hex[:6]
     thread_id = f"tg_{chat_id}_{suffix}"
     name = f"✈️ Telegram – {chat_id}"
-    _save_thread_meta(thread_id, name)
+    _save_thread_meta(thread_id, name, seed_default_skills=True)
     return {"configurable": {"thread_id": thread_id}}
 
 
@@ -169,7 +169,7 @@ def _new_thread(chat_id: int) -> dict:
     suffix = uuid.uuid4().hex[:6]
     thread_id = f"tg_{chat_id}_{suffix}"
     name = f"✈️ Telegram – {chat_id} ({suffix})"
-    _save_thread_meta(thread_id, name)
+    _save_thread_meta(thread_id, name, seed_default_skills=True)
     return {"configurable": {"thread_id": thread_id}}
 
 

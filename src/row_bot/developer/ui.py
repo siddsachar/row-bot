@@ -1230,78 +1230,6 @@ def _files_to_tree_nodes(
     return _finalize(roots), file_node_paths, folder_node_ids
 
 
-def _build_developer_skill_selector(thread_id: str | None) -> None:
-    if not thread_id:
-        return
-    try:
-        import row_bot.skills as skills_mod
-        from row_bot.agent import clear_agent_cache
-        from row_bot.threads import get_thread_skills_override, set_thread_skills_override
-    except Exception:
-        return
-
-    skills_mod.load_skills()
-    enabled_skills = [sk for sk in skills_mod.get_enabled_skills() if not skills_mod.is_tool_guide(sk)]
-    if not enabled_skills:
-        ui.button("Extra skills: 0", icon="auto_fix_high").props("flat dense no-caps size=sm disabled").tooltip(
-            "No manual skills are enabled in Settings"
-        )
-        return
-
-    enabled_names = {sk.name for sk in enabled_skills}
-    current = get_thread_skills_override(thread_id)
-    active_names = (set(current) & enabled_names) if current is not None else set()
-    button = ui.button(
-        f"Extra skills: {len(active_names)}",
-        icon="auto_fix_high",
-    ).props("flat dense no-caps size=sm").classes("text-xs").tooltip(
-        "Developer starts with normal skills off. Enable extras for this thread here."
-    )
-
-    def _update_label() -> None:
-        cur = get_thread_skills_override(thread_id)
-        active = (set(cur) & enabled_names) if cur is not None else set()
-        button.text = f"Extra skills: {len(active)}"
-        button.update()
-
-    def _toggle(name: str, value: bool) -> None:
-        cur = get_thread_skills_override(thread_id)
-        names = set(cur or [])
-        if value:
-            names.add(name)
-        else:
-            names.discard(name)
-        set_thread_skills_override(thread_id, sorted(names))
-        clear_agent_cache()
-        _update_label()
-
-    async def _clear() -> None:
-        set_thread_skills_override(thread_id, [])
-        clear_agent_cache()
-        for checkbox in checkboxes.values():
-            checkbox.value = False
-        _update_label()
-
-    checkboxes = {}
-    with button:
-        with ui.menu().classes("q-pa-sm"):
-            ui.label("Extra skills for Developer").classes("text-xs text-grey-5 q-mb-xs")
-            with ui.column().classes("gap-0"):
-                for skill in enabled_skills:
-                    checkbox = ui.checkbox(
-                        f"{skill.icon} {skill.display_name}",
-                        value=skill.name in active_names,
-                        on_change=lambda e, name=skill.name: _toggle(name, bool(e.value)),
-                    ).classes("text-sm")
-                    checkboxes[skill.name] = checkbox
-            ui.separator()
-            ui.button(
-                "Clear extras",
-                icon="remove_done",
-                on_click=lambda: asyncio.create_task(_clear()),
-            ).props("flat dense no-caps size=sm")
-
-
 def build_developer_workspace(
     workspace_id: str,
     *,
@@ -1476,7 +1404,6 @@ def build_developer_workspace(
                             context="developer new thread",
                         ),
                     ).props("flat dense round").tooltip("New thread")
-                    _build_developer_skill_selector(state.thread_id)
                     ui.select(
                         {
                             "local": "Local",

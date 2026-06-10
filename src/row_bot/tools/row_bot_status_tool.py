@@ -49,7 +49,7 @@ class _StatusQueryInput(BaseModel):
             "'model' (current model and provider info), "
             "'channels' (messaging channel status), "
             "'memory' (knowledge graph stats), "
-            "'skills' (Skill Library availability), "
+            "'skills' (Skill Library availability and pinned defaults), "
             "'tools' (enabled/disabled tools), "
             "'mcp' (external MCP server/tool status), "
             "'providers' (provider connections, credential sources, and Quick Choices), "
@@ -83,6 +83,7 @@ class _SettingUpdateInput(BaseModel):
             "'dream_cycle' (enable/disable — value is 'on' or 'off'), "
             "'dream_window' (dream cycle hours — value is 'START-END' e.g. '1-5'), "
             "'skill_toggle' (make a Skill Library item Available/Off — value is 'skill_name:on' or 'skill_name:off'), "
+            "'skill_pin' (pin/unpin a Skill Library item as default active — value is 'skill_name:on' or 'skill_name:off'), "
             "'tool_toggle' (enable/disable a tool — value is 'tool_name:on' or 'tool_name:off'; use 'mcp:on/off' for the global MCP client), "
             "'image_gen_model' (set image generation model — value may be provider/model-id, bare model id, or model label), "
             "'video_gen_model' (set video generation model — value may be provider/model-id, bare model id, or model label), "
@@ -149,7 +150,7 @@ def _normalize_lookup_token(value: str) -> str:
 def _model_setting_supported_message() -> str:
     return (
         "model, vision_model, name, personality, context_size, cloud_context_size, "
-        "dream_cycle, dream_window, skill_toggle, tool_toggle, image_gen_model, "
+        "dream_cycle, dream_window, skill_toggle, skill_pin, tool_toggle, image_gen_model, "
         "video_gen_model, run_dream_cycle, self_improvement"
     )
 
@@ -414,18 +415,43 @@ def _query_memory() -> str:
 
 def _query_skills() -> str:
     try:
-        from row_bot.skills import get_manual_skill_statuses
+        from row_bot.skills import get_default_active_skill_names, get_manual_skill_statuses, is_pinned
         skill_statuses = get_manual_skill_statuses()
         if not skill_statuses:
             return "**Skills**\nNo skills found."
         available_count = sum(1 for _skill, is_available in skill_statuses if is_available)
         off_count = len(skill_statuses) - available_count
-        lines = [f"**Skill Library** ({available_count} available, {off_count} off)"]
-        lines.append("- Available skills can be activated in chat with the Skills picker or /skill.")
+        pinned_count = sum(
+            1
+            for skill, is_available in skill_statuses
+            if is_available and is_pinned(skill.name)
+        )
+        skill_labels = {skill.name: skill.display_name for skill, _is_available in skill_statuses}
+
+        def _default_labels(surface: str) -> str:
+            names = get_default_active_skill_names(surface)
+            if not names:
+                return "None"
+            return ", ".join(skill_labels.get(name, name) for name in names)
+
+        lines = [f"**Skill Library** ({available_count} available, {off_count} off, {pinned_count} pinned)"]
+        lines.append("- Available means a skill can be selected in chat and suggested when relevant.")
+        lines.append("- Pinned skills start active in new chats, tasks, designer threads, and developer threads; users can remove them per workflow.")
+        lines.append("- Designer threads also start with Design Creator when it is available.")
         lines.append("- Tool guides are separate tool instructions and are not listed here.")
+        lines.append(f"- Default chat skills: {_default_labels('chat')}")
+        lines.append(f"- Default task skills: {_default_labels('task')}")
+        lines.append(f"- Default designer skills: {_default_labels('designer')}")
+        lines.append(f"- Default developer skills: {_default_labels('developer')}")
         for skill, is_available in skill_statuses:
             status = "Available" if is_available else "Off"
-            lines.append(f"- {skill.display_name}: {status}")
+            markers: list[str] = []
+            if is_available and is_pinned(skill.name):
+                markers.append("Pinned default")
+            if skill.name in get_default_active_skill_names("designer") and not is_pinned(skill.name):
+                markers.append("Designer default")
+            marker_text = f" ({', '.join(markers)})" if markers else ""
+            lines.append(f"- {skill.display_name}: {status}{marker_text}")
         return "\n".join(lines)
     except Exception as exc:
         return f"**Skills**\nError: {exc}"
@@ -1247,11 +1273,64 @@ def _update_setting(setting: str, value: str) -> str:
         if not approval:
             return "Skill toggle cancelled."
         try:
+            from row_bot.skills import is_pinned as skill_is_pinned
             from row_bot.skills import set_enabled as skill_set_enabled
+            was_pinned = skill_is_pinned(resolved_name)
             skill_set_enabled(resolved_name, on)
+            if not on and was_pinned:
+                return f"Skill '{resolved_label}' is now Off and no longer pinned."
             return f"Skill '{resolved_label}' is now {'Available' if on else 'Off'}."
         except Exception as exc:
             return f"Failed to toggle skill: {exc}"
+
+    elif setting == "skill_pin":
+        try:
+            name_part, toggle = value.rsplit(":", 1)
+            name_part = name_part.strip()
+            on = toggle.strip().lower() in ("on", "true", "yes", "enable", "enabled", "1")
+            off = toggle.strip().lower() in ("off", "false", "no", "disable", "disabled", "0")
+            if not on and not off:
+                raise ValueError
+        except Exception:
+            return f"Invalid value '{value}'. Use 'skill_name:on' or 'skill_name:off'."
+        try:
+            resolved_name, resolved_label, suggestions = _resolve_manual_skill_name(name_part)
+        except Exception as exc:
+            return f"Failed to inspect Skill Library: {exc}"
+        if not resolved_name:
+            suggestion_text = f" Try one of: {', '.join(suggestions)}." if suggestions else ""
+            return f"Unknown Skill Library item '{name_part}'.{suggestion_text}"
+        approval = interrupt({
+            "tool": "row_bot_update_setting",
+            "label": f"{'Pin' if on else 'Unpin'} skill '{resolved_label}'",
+            "description": (
+                f"{'Pin' if on else 'Unpin'} Skill Library item '{resolved_label}' "
+                f"for new chats, tasks, designer threads, and developer threads"
+            ),
+            "args": {"setting": "skill_pin", "value": f"{resolved_name}:{'on' if on else 'off'}"},
+        })
+        if not approval:
+            return "Skill pin change cancelled."
+        try:
+            from row_bot.skills import is_enabled as skill_is_enabled
+            from row_bot.skills import set_pinned as skill_set_pinned
+            skill_set_pinned(resolved_name, on)
+            if on:
+                return (
+                    f"Skill '{resolved_label}' is now pinned and Available. "
+                    "It will start active in new chats, tasks, designer threads, and developer threads."
+                )
+            if skill_is_enabled(resolved_name):
+                return (
+                    f"Skill '{resolved_label}' is no longer pinned. "
+                    "It remains Available unless you turn it off separately."
+                )
+            return (
+                f"Skill '{resolved_label}' is no longer pinned. "
+                "It is Off and will stay Off unless you make it Available."
+            )
+        except Exception as exc:
+            return f"Failed to change skill pin: {exc}"
 
     elif setting == "tool_toggle":
         try:
@@ -1658,7 +1737,8 @@ class RowBotStatusTool(BaseTool):
                     "cloud_context_size, dream_cycle (on/off), "
                     "dream_window (e.g. '1-5'), "
                     "skill_toggle for Skill Library Available/Off (e.g. 'deep_research:off'), "
-                        "tool_toggle (e.g. 'arxiv:off' or 'mcp:off'), "
+                    "skill_pin for pinned default active skills (e.g. 'deep_research:on'), "
+                    "tool_toggle (e.g. 'arxiv:off' or 'mcp:off'), "
                     "image_gen_model, video_gen_model, "
                     "run_dream_cycle (trigger immediately), "
                     "self_improvement (on/off)."

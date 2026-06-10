@@ -701,10 +701,40 @@ def set_smart_off(thread_id: str, value: bool) -> None:
     _save_store(store)
 
 
-def reset_thread(thread_id: str) -> None:
+def seed_thread_default_skills(
+    thread_id: str,
+    *,
+    surface: str = "chat",
+    replace: bool = False,
+) -> list[str]:
+    """Snapshot the current default manual skills onto a thread.
+
+    Existing non-empty activation state is left alone unless ``replace`` is set.
+    """
+    import row_bot.skills as skills
+
+    defaults = skills.get_default_active_skill_names(surface)
+    store = _load_store()
+    state = _thread_state(store, thread_id)
+    has_state = any(
+        state.get(key)
+        for key in ("pinned", "disabled", "dismissed")
+    ) or bool(state.get("smart_off"))
+    if has_state and not replace:
+        return resolve_active_skill_names(thread_id)
+    state["pinned"] = _ordered_unique(defaults)
+    state["disabled"] = []
+    state["dismissed"] = []
+    state["smart_off"] = False
+    _save_store(store)
+    return list(state["pinned"])
+
+
+def reset_thread(thread_id: str, *, surface: str = "chat") -> None:
     store = _load_store()
     store.setdefault("threads", {}).pop(str(thread_id or "default"), None)
     _save_store(store)
+    seed_thread_default_skills(thread_id, surface=surface, replace=True)
 
 
 def resolve_active_skill_names(

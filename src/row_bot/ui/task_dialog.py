@@ -177,10 +177,12 @@ def show_task_dialog(
         _skills_override_data = _draft_payload.get("skills_override")
         _persistent_enabled = bool(_draft_payload.get("persistent_enabled", _persistent_enabled))
 
-    # Determine if we should show advanced mode initially
-    _has_advanced = bool(task and any(
+    # Determine if we should show advanced mode initially. Persisted mode wins,
+    # while legacy tasks with non-prompt steps still reopen in Advanced.
+    _legacy_has_advanced_steps = bool(task and any(
         s.get("type") not in ("prompt", None) for s in _steps_data
     )) if _steps_data else False
+    _has_advanced = bool(task and task.get("advanced_mode")) or _legacy_has_advanced_steps
     if isinstance(_draft_payload, dict) and "advanced" in _draft_payload:
         _has_advanced = bool(_draft_payload.get("advanced"))
 
@@ -1531,10 +1533,13 @@ def show_task_dialog(
                 _task_all_skills = _task_skills_mod.get_enabled_manual_skills()
                 _task_sk_override = _skills_override_data
                 _task_enabled_names = set(sk.name for sk in _task_all_skills)
+                _task_default_names = set(
+                    _task_skills_mod.get_default_active_skill_names("task")
+                )
                 _task_sk_active = (
                     set(_task_sk_override) & _task_enabled_names
                     if _task_sk_override is not None
-                    else set(_task_enabled_names)
+                    else _task_default_names & _task_enabled_names
                 )
                 _task_sk_checkboxes: dict = {}
                 if _task_all_skills:
@@ -1542,7 +1547,7 @@ def show_task_dialog(
                         with ui.expansion("✨ Skills override (optional)").classes("w-full"):
                             ui.label(
                                 "Choose which skills are active when this task runs. "
-                                "Leave unchecked to use the global default."
+                                "Pinned skills are selected by default for new tasks."
                             ).style("font-size: 0.75rem; color: #666;")
                             for _tsk in _task_all_skills:
                                 _tcb = ui.checkbox(
@@ -1615,7 +1620,7 @@ def show_task_dialog(
 
         def _current_skills_override_value(is_advanced: bool):
             if not (is_advanced and _task_sk_checkboxes):
-                return None
+                return _skills_override_data if not is_new else None
             checked = [n for n, cb in _task_sk_checkboxes.items() if cb.value]
             return checked if checked else []
 
@@ -1924,7 +1929,7 @@ def show_task_dialog(
                         cur_tools_override = _checked_tools if _checked_tools else []
 
                 # Parse skills override (advanced mode only)
-                cur_skills_override = None
+                cur_skills_override = task.get("skills_override") if task else None
                 if is_advanced and _task_sk_checkboxes:
                     _checked = [n for n, cb in _task_sk_checkboxes.items() if cb.value]
                     cur_skills_override = _checked if _checked else []
@@ -1968,6 +1973,7 @@ def show_task_dialog(
                             trigger=cur_trigger,
                             tools_override=cur_tools_override,
                             channels=cur_channels,
+                            advanced_mode=is_advanced,
                         )
                         all_t = list_tasks()
                         if all_t:
@@ -2016,6 +2022,8 @@ def show_task_dialog(
                             updates["tools_override"] = cur_tools_override
                         if cur_channels != task.get("channels"):
                             updates["channels"] = cur_channels
+                        if bool(is_advanced) != bool(task.get("advanced_mode")):
+                            updates["advanced_mode"] = bool(is_advanced)
                         # Persistent thread toggle
                         _want_persistent = persistent_toggle.value
                         _had_persistent = bool(task.get("persistent_thread_id"))

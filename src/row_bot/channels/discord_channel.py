@@ -88,7 +88,11 @@ def _make_thread_id(channel_id: int | str) -> str:
 
 def _get_or_create_thread(channel_id: int | str) -> str:
     thread_id = _make_thread_id(channel_id)
-    _save_thread_meta(thread_id, "🎮 Discord conversation")  # creates or bumps updated_at
+    _save_thread_meta(
+        thread_id,
+        "🎮 Discord conversation",
+        seed_default_skills=True,
+    )  # creates or bumps updated_at
     return thread_id
 
 
@@ -96,7 +100,7 @@ def _new_thread(channel_id: int | str) -> str:
     import time
     suffix = str(int(time.time()))
     thread_id = f"discord_{channel_id}_{suffix}"
-    _save_thread_meta(thread_id, "Discord conversation")
+    _save_thread_meta(thread_id, "Discord conversation", seed_default_skills=True)
     return thread_id
 
 

@@ -2179,109 +2179,231 @@ def open_settings(
                 logger.warning("Skills hub not available: %s", exc, exc_info=True)
                 ui.notify("Skills hub is not available yet", type="warning")
 
-        ui.label("✨ Skill Library").classes("text-h6")
-        ui.label(
-            "Available skills can be selected in chat and suggested when relevant."
-        ).classes("text-grey-6 text-sm")
-        ui.separator().classes("q-my-md")
+        _settings_header(
+            "Skills",
+            "Manage skill availability, pinned defaults, and installed skills.",
+            "auto_fix_high",
+        )
 
-        with ui.row().classes("w-full justify-end q-mb-md gap-2"):
-            ui.button(
-                "Browse Skills",
-                icon="travel_explore",
-                on_click=_open_hub_browser,
-            ).props("flat")
-            ui.button("Create Skill", icon="add", on_click=lambda: _open_skill_editor()).props("color=primary")
+        metrics_row = ui.row().classes("items-center gap-2 q-mb-sm")
 
-        skills_container = ui.column().classes("w-full gap-2")
+        with _settings_section(
+            "Skill library",
+            "Pinned skills start active in new chats, tasks, Designer, and Developer.",
+            icon="library_books",
+        ):
+            with ui.row().classes("w-full items-center gap-2 q-mb-xs flex-wrap"):
+                search_input = ui.input(
+                    placeholder="Search skills",
+                ).props("dense outlined clearable").classes("col").style(
+                    "min-width: 220px; max-width: 420px;"
+                )
+                filter_select = ui.select(
+                    ["All", "Pinned", "Available", "Custom", "Public"],
+                    value="All",
+                    label="Filter",
+                ).props("dense outlined").classes("w-36")
+                sort_select = ui.select(
+                    ["Name", "Recently used", "Token cost", "Source"],
+                    value="Name",
+                    label="Sort",
+                ).props("dense outlined").classes("w-44")
+                ui.space()
+                ui.button(
+                    "Browse Skills",
+                    icon="travel_explore",
+                    on_click=_open_hub_browser,
+                ).props("flat dense no-caps")
+                ui.button(
+                    "Create Skill",
+                    icon="add",
+                    on_click=lambda: _open_skill_editor(),
+                ).props("color=primary dense no-caps")
+
+            skills_container = ui.column().classes("w-full gap-0")
 
         def _refresh_skills_list():
             from row_bot.skills_hub.provenance import load_records
 
+            metrics_row.clear()
             skills_container.clear()
             all_skills = skills_mod.get_manual_skills()
             skill_telemetry = get_skill_telemetry()
             hub_records = load_records()
+            enabled_count = sum(1 for sk in all_skills if skills_mod.is_enabled(sk.name))
+            pinned_count = sum(1 for sk in all_skills if skills_mod.is_pinned(sk.name))
+            custom_count = sum(1 for sk in all_skills if sk.source == "user")
+            public_count = sum(1 for sk in all_skills if sk.name in hub_records)
+            with metrics_row:
+                _metric_chip("available", enabled_count, icon="toggle_on")
+                _metric_chip("pinned", pinned_count, icon="push_pin")
+                _metric_chip("custom", custom_count, icon="edit")
+                _metric_chip("public", public_count, icon="public")
             if not all_skills:
                 with skills_container:
                     ui.label("No skills found. Create one to get started!").classes("text-grey-5 italic")
                 return
 
+            query = str(search_input.value or "").strip().lower()
+            filter_value = str(filter_select.value or "All")
+            sort_value = str(sort_select.value or "Name")
+
+            def _source_label(sk) -> str:
+                if sk.source == "bundled":
+                    return "Bundled"
+                if hub_records.get(sk.name):
+                    return "Public"
+                return "Custom"
+
+            def _search_text(sk) -> str:
+                return " ".join([
+                    sk.name,
+                    sk.display_name,
+                    sk.description,
+                    " ".join(sk.tags or []),
+                    _source_label(sk),
+                ]).lower()
+
+            def _include_skill(sk) -> bool:
+                if query and query not in _search_text(sk):
+                    return False
+                if filter_value == "Pinned":
+                    return skills_mod.is_pinned(sk.name)
+                if filter_value == "Available":
+                    return skills_mod.is_enabled(sk.name)
+                if filter_value == "Custom":
+                    return sk.source == "user"
+                if filter_value == "Public":
+                    return sk.name in hub_records
+                return True
+
+            def _sort_key(sk):
+                tel = skill_telemetry.get(sk.name, {})
+                if sort_value == "Recently used":
+                    return (str(tel.get("last_used") or ""), sk.display_name.lower())
+                if sort_value == "Token cost":
+                    return (skills_mod.estimate_skill_tokens(sk.name), sk.display_name.lower())
+                if sort_value == "Source":
+                    return (_source_label(sk), sk.display_name.lower())
+                return (sk.display_name.lower(), sk.name)
+
+            visible_skills = [sk for sk in all_skills if _include_skill(sk)]
+            reverse = sort_value == "Recently used"
+            visible_skills.sort(key=_sort_key, reverse=reverse)
+
             with skills_container:
-                for sk in all_skills:
+                if not visible_skills:
+                    ui.label("No skills match the current filters.").classes("text-grey-6 text-sm q-pa-sm")
+                    return
+
+                for index, sk in enumerate(visible_skills):
                     hub_record = hub_records.get(sk.name)
-                    with ui.card().classes("w-full q-pa-sm"):
-                        with ui.row().classes("w-full items-center no-wrap"):
+                    _tel = skill_telemetry.get(sk.name, {})
+                    _uses = int(_tel.get("usage_count", 0) or 0)
+                    _last_used = str(_tel.get("last_used") or "")
+                    tokens = skills_mod.estimate_skill_tokens(sk.name)
+                    _is_pinned = skills_mod.is_pinned(sk.name)
+
+                    def _set_available(e, n=sk.name):
+                        skills_mod.set_enabled(n, bool(e.value))
+                        _refresh_skills_list()
+
+                    def _toggle_pin(n=sk.name):
+                        try:
+                            skills_mod.set_pinned(n, not skills_mod.is_pinned(n))
+                            _refresh_skills_list()
+                        except Exception as exc:
+                            logger.warning("Could not update skill pin: %s", exc, exc_info=True)
+                            ui.notify(str(exc), type="warning")
+
+                    with ui.column().classes("w-full gap-1 q-px-sm q-py-sm").style(
+                        "border-bottom: 1px solid rgba(148, 163, 184, 0.14);"
+                        + ("border-top: 1px solid rgba(148, 163, 184, 0.14);" if index == 0 else "")
+                    ):
+                        with ui.row().classes("w-full items-center no-wrap gap-2"):
                             ui.switch(
                                 "",
                                 value=skills_mod.is_enabled(sk.name),
-                                on_change=lambda e, n=sk.name: skills_mod.set_enabled(n, e.value),
-                            )
-                            ui.label(f"{sk.icon} {sk.display_name}").classes("text-body1 text-weight-medium")
-                            ui.space()
-                            if sk.source == "bundled":
-                                ui.badge("Bundled", color="blue-grey").props("outline")
-                            elif hub_record:
-                                ui.badge("Public", color="orange").props("outline")
-                                ui.badge(hub_record.source.replace("_", " ").title(), color="blue").props("outline")
-                            else:
-                                ui.badge("Custom", color="teal").props("outline")
-                            _available = skills_mod.is_enabled(sk.name)
-                            ui.badge(
-                                "Available" if _available else "Off",
-                                color="green" if _available else "grey",
-                            ).props("outline").tooltip(
+                                on_change=_set_available,
+                            ).props("dense").tooltip(
                                 f"Available skills can be selected in the chat skill picker and suggested by {APP_DISPLAY_NAME}."
                             )
-                            _tel = skill_telemetry.get(sk.name, {})
-                            _uses = int(_tel.get("usage_count", 0) or 0)
-                            if _uses:
-                                ui.badge(f"{_uses} uses", color="indigo").props("outline")
-                            if _tel.get("last_used"):
-                                _last_used = str(_tel.get("last_used"))
-                                ui.badge(f"Last {_last_used[:10]}", color="grey").props("outline")
-                            tokens = skills_mod.estimate_skill_tokens(sk.name)
-                            if tokens > 0:
-                                ui.badge(f"~{tokens} tokens", color="orange").props(
-                                    "outline"
-                                ).tooltip("Approximate tokens in this skill's instructions")
-                        ui.label(sk.description).classes("text-grey-6 text-sm q-pl-lg")
+                            ui.button(
+                                icon="push_pin",
+                                on_click=lambda _=None, n=sk.name: _toggle_pin(n),
+                            ).props(
+                                "flat dense round size=sm "
+                                f"color={'primary' if _is_pinned else 'grey'}"
+                            ).tooltip(
+                                "Pinned skills start active in new chats, tasks, Designer, and Developer."
+                            )
+                            with ui.column().classes("gap-0").style("min-width: 0; flex: 1 1 auto;"):
+                                with ui.row().classes("items-center gap-2 no-wrap w-full"):
+                                    ui.label(f"{sk.icon} {sk.display_name}").classes(
+                                        "text-sm text-weight-medium"
+                                    ).style(
+                                        "min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                                    )
+                                    if _is_pinned:
+                                        ui.badge("Pinned", color="primary").props("outline dense")
+                                ui.label(sk.description or "No description.").classes("text-grey-6 text-xs").style(
+                                    "overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;"
+                                )
+                            with ui.row().classes("items-center justify-end gap-1 flex-wrap").style(
+                                "flex: 0 1 360px; min-width: 0;"
+                            ):
+                                source = _source_label(sk)
+                                source_color = (
+                                    "blue-grey"
+                                    if source == "Bundled"
+                                    else "orange"
+                                    if source == "Public"
+                                    else "teal"
+                                )
+                                ui.badge(source, color=source_color).props("outline dense")
+                                if _uses:
+                                    ui.label(f"{_uses} uses").classes("text-grey-6 text-xs")
+                                if _last_used:
+                                    ui.label(_last_used[:10]).classes("text-grey-6 text-xs")
+                                if tokens > 0:
+                                    token_class = "text-orange text-xs" if tokens >= 1800 else "text-grey-6 text-xs"
+                                    ui.label(f"~{tokens} tok").classes(token_class).tooltip(
+                                        "Approximate tokens in this skill's instructions"
+                                    )
+                            with ui.button(icon="more_vert").props("flat dense round size=sm").tooltip("More actions"):
+                                with ui.menu().classes("q-pa-xs"):
+                                    if hub_record:
+                                        ui.menu_item("Audit", lambda n=sk.name: _open_hub_audit(n))
+                                        ui.menu_item("Check update", lambda n=sk.name: _check_hub_update(n))
+                                        ui.menu_item("Update", lambda n=sk.name: _update_hub_skill(n))
+                                        _url = str(hub_record.metadata.get("url") or "")
+                                        if _url:
+                                            ui.menu_item(
+                                                "Open source",
+                                                lambda url=_url: ui.run_javascript(
+                                                    "window.open("
+                                                    + json.dumps(url)
+                                                    + ", '_blank', 'noopener,noreferrer')"
+                                                ),
+                                            )
+                                        ui.separator()
+                                        ui.menu_item(
+                                            "Uninstall",
+                                            lambda n=sk.name: _confirm_uninstall_hub_skill(n),
+                                        ).classes("text-negative")
+                                    elif sk.source == "user":
+                                        ui.menu_item("Edit", lambda n=sk.name: _open_skill_editor(n))
+                                        ui.separator()
+                                        ui.menu_item(
+                                            "Delete",
+                                            lambda n=sk.name: _confirm_delete_skill(n),
+                                        ).classes("text-negative")
+                                    else:
+                                        ui.menu_item("Duplicate & Customize", lambda n=sk.name: _duplicate_skill(n))
 
-                        with ui.row().classes("q-pl-lg q-mt-xs gap-1"):
-                            if hub_record:
-                                ui.button(
-                                    "Audit", icon="fact_check",
-                                    on_click=lambda _, n=sk.name: _open_hub_audit(n),
-                                ).props("flat dense size=sm")
-                                ui.button(
-                                    "Check Update", icon="sync",
-                                    on_click=lambda _, n=sk.name: _check_hub_update(n),
-                                ).props("flat dense size=sm")
-                                ui.button(
-                                    "Update", icon="download",
-                                    on_click=lambda _, n=sk.name: _update_hub_skill(n),
-                                ).props("flat dense size=sm")
-                                ui.button(
-                                    "Uninstall", icon="delete",
-                                    on_click=lambda _, n=sk.name: _confirm_uninstall_hub_skill(n),
-                                ).props("flat dense size=sm color=negative")
-                                _url = str(hub_record.metadata.get("url") or "")
-                                if _url:
-                                    ui.link("Open Source", _url, new_tab=True).classes("text-caption q-ml-sm")
-                            elif sk.source == "user":
-                                ui.button(
-                                    "Edit", icon="edit",
-                                    on_click=lambda _, n=sk.name: _open_skill_editor(n),
-                                ).props("flat dense size=sm")
-                                ui.button(
-                                    "Delete", icon="delete",
-                                    on_click=lambda _, n=sk.name: _confirm_delete_skill(n),
-                                ).props("flat dense size=sm color=negative")
-                            else:
-                                ui.button(
-                                    "Duplicate & Customise", icon="content_copy",
-                                    on_click=lambda _, n=sk.name: _duplicate_skill(n),
-                                ).props("flat dense size=sm")
+        search_input.on("update:model-value", lambda _: _refresh_skills_list())
+        filter_select.on_value_change(lambda _: _refresh_skills_list())
+        sort_select.on_value_change(lambda _: _refresh_skills_list())
 
         def _open_hub_audit(name: str) -> None:
             from row_bot.skills_hub.provenance import get_record

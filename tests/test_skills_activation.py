@@ -555,7 +555,7 @@ def test_channel_skill_list_filters_and_reset_aliases(tmp_path):
         result = activation.apply_channel_skill_command("thread-a", reset_text)
         assert result is not None
         assert result.kind == "reset"
-        assert activation.resolve_active_skill_names("thread-a") == []
+        assert activation.resolve_active_skill_names("thread-a") == skills.get_default_active_skill_names("chat")
 
 
 def test_background_resolution_is_explicit_only(tmp_path):

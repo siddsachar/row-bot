@@ -61,7 +61,7 @@ def test_channel_dispatch_skill_reset_aliases_use_thread_id(tmp_path):
         commands.dispatch("sms", "/skill meeting_notes", thread_id="sms_1")
         response = commands.dispatch("sms", reset_text, thread_id="sms_1")
         assert response and "reset" in response.lower()
-        assert activation.resolve_active_skill_names("sms_1") == []
+        assert activation.resolve_active_skill_names("sms_1") == skills.get_default_active_skill_names("chat")
 
 
 def test_channel_skills_text_fallback_lists_available_runtime_skills(tmp_path):

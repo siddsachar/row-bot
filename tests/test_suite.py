@@ -14568,9 +14568,23 @@ try:
     assert not _missing_cats69o, f"Missing query categories: {_missing_cats69o}"
     _skills69o._skills_cache.clear()
     _skills69o._enabled.clear()
+    _skills69o._pinned.clear()
     _skills_block69o = _query_skills69o()
     assert "No skills found." not in _skills_block69o, \
         "Row-Bot Status skill query should lazy-load manual skills"
+    assert "pinned" in _skills_block69o, \
+        "Row-Bot Status skill query should summarize pinned skill defaults"
+    assert "Default designer skills:" in _skills_block69o, \
+        "Row-Bot Status skill query should report designer defaults"
+    _skills69o.set_pinned("proactive_agent", True)
+    _skills69o.set_enabled("design_creator", True)
+    _skills_block69o = _query_skills69o()
+    assert "Default chat skills: Proactive Agent" in _skills_block69o, \
+        "Row-Bot Status skill query should report chat defaults"
+    assert "Default designer skills: Proactive Agent, Design Creator" in _skills_block69o, \
+        "Row-Bot Status skill query should report designer defaults"
+    assert "Proactive Agent: Available (Pinned default)" in _skills_block69o, \
+        "Row-Bot Status skill query should mark pinned defaults"
     _guide_names69o = [
         _skill69o.display_name
         for _skill69o in _skills69o.get_all_skills()
@@ -14578,6 +14592,10 @@ try:
     ]
     assert all(_guide69o not in _skills_block69o for _guide69o in _guide_names69o[:5]), \
         "Row-Bot Status skill query should exclude tool guides"
+    from row_bot.tools.row_bot_status_tool import RowBotStatusTool as _RowBotStatusTool69o
+    _status_tools69o = {tool.name: tool for tool in _RowBotStatusTool69o().as_langchain_tools()}
+    assert "skill_pin" in _status_tools69o["row_bot_update_setting"].description, \
+        "Row-Bot Status setting update tool should expose skill_pin"
     _insights_block69o = _qh69o["insights"]()
     assert "**Insights**" in _insights_block69o and "Active:" in _insights_block69o, \
         "Row-Bot Status insights query should summarize active insights"
@@ -20081,9 +20099,9 @@ try:
         assert (_P76("bundled_skills") / _skill76 / "SKILL.md").exists(), f"Developer bundled skill missing: {_skill76}"
     _agent_src76 = _source_path("agent.py").read_text(encoding="utf-8")
     _skills_src76 = _source_path("skills.py").read_text(encoding="utf-8")
-    assert "DEVELOPER_AUTO_SKILLS" in _agent_src76 and "active_tool_names" in _agent_src76, "Developer skills should be injected only for Developer active tools"
-    assert "developer_custom_tools" in _source_path("developer/profile.py").read_text(encoding="utf-8"), "Developer Custom Tools skill should be auto-scoped to Developer mode"
-    assert "extra_skill_names" in _skills_src76, "Skills prompt should support Developer-only extra skills"
+    assert "DEVELOPER_AUTO_SKILLS" not in _agent_src76 and "active_tool_names" in _agent_src76, "Developer guidance should be tool-bound, not extra manual skill injection"
+    assert "developer_custom_tools" in _source_path("developer/profile.py").read_text(encoding="utf-8"), "Developer Custom Tools guidance should be auto-scoped to Developer mode"
+    assert "extra_skill_names" in _skills_src76, "Skills prompt should still support explicit extra manual skills for non-tool-guide callers"
     _custom_tool_builder_tool_src76 = _source_path("tools/custom_tool_builder_tool.py").read_text(encoding="utf-8")
     _custom_tool_builder_guide76 = _P76("tool_guides/custom_tool_builder_guide/SKILL.md").read_text(encoding="utf-8")
     _settings_src76 = _source_path("ui/settings.py").read_text(encoding="utf-8")

@@ -42,6 +42,8 @@ TOOL_GUIDES_DIR = tool_guides_dir()
 
 CONFIG_PATH = DATA_DIR / "skills_config.json"
 BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY = "bundled_manual_defaults_v2_applied"
+SKILL_PINS_CONFIG_KEY = "skill_pins_v1_applied"
+DEFAULT_PINNED_SKILL_NAMES = ("proactive_agent",)
 
 # ── Data Model ───────────────────────────────────────────────────────────────
 
@@ -180,6 +182,7 @@ def _normalize_activation_metadata(value) -> dict[str, list[str]]:
 # ── Config (enable/disable state) ───────────────────────────────────────────
 
 _enabled: dict[str, bool] = {}  # name → enabled
+_pinned: list[str] = []  # ordered manual skill names pinned for new work
 
 
 def _load_config() -> dict:
@@ -200,6 +203,7 @@ def _save_config(metadata: dict | None = None):
     """Persist the current enabled state to disk."""
     data = _load_config()
     data["skills"] = _enabled
+    data["pinned"] = _pinned
     if metadata:
         data.update(metadata)
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
@@ -249,15 +253,32 @@ def _is_bundled_manual_skill(skill: Skill) -> bool:
         return False
 
 
+def _ordered_unique(names: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for raw in names:
+        name = str(raw or "").strip()
+        if name and name not in seen:
+            seen.add(name)
+            result.append(name)
+    return result
+
+
 def load_skills():
     """Discover all skills, apply persisted enable/disable state, populate cache."""
-    global _skills_cache, _enabled
+    global _skills_cache, _enabled, _pinned
 
     _skills_cache = _discover_skills()
 
     config = _load_config()
     saved = config.get("skills", {})
+    if not isinstance(saved, dict):
+        saved = {}
+    saved_pinned = config.get("pinned", [])
+    if not isinstance(saved_pinned, list):
+        saved_pinned = []
     migrate_bundled_manual_defaults = not bool(config.get(BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY))
+    migrate_skill_pins = not bool(config.get(SKILL_PINS_CONFIG_KEY))
 
     # Merge saved state with discovered skills
     new_enabled: dict[str, bool] = {}
@@ -267,12 +288,37 @@ def load_skills():
         elif migrate_bundled_manual_defaults and _is_bundled_manual_skill(skill):
             new_enabled[name] = True
         elif name in saved:
-            new_enabled[name] = saved[name]
+            new_enabled[name] = bool(saved[name])
         else:
             new_enabled[name] = skill.enabled_by_default
 
     _enabled = new_enabled
-    _save_config({BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY: True})
+    manual_names = {
+        name for name, skill in _skills_cache.items()
+        if not is_tool_guide(skill)
+    }
+    new_pinned = [
+        name for name in _ordered_unique(saved_pinned)
+        if name in manual_names
+    ]
+    if migrate_skill_pins:
+        for name in DEFAULT_PINNED_SKILL_NAMES:
+            skill = _skills_cache.get(name)
+            if skill and not is_tool_guide(skill) and name not in new_pinned:
+                new_pinned.append(name)
+
+    for name in new_pinned:
+        _enabled[name] = True
+
+    _pinned = [
+        name for name in _ordered_unique(new_pinned)
+        if name in manual_names and _enabled.get(name, False)
+    ]
+
+    _save_config({
+        BUNDLED_MANUAL_DEFAULTS_CONFIG_KEY: True,
+        SKILL_PINS_CONFIG_KEY: True,
+    })
 
     manual_count = sum(1 for skill in _skills_cache.values() if not skill.tools)
     manual_enabled = sum(
@@ -339,9 +385,77 @@ def is_enabled(name: str) -> bool:
 
 def set_enabled(name: str, value: bool):
     """Enable or disable a skill and persist."""
+    global _pinned
     _enabled[name] = value
+    if not value:
+        _pinned = [pinned_name for pinned_name in _pinned if pinned_name != name]
     _save_config()
     logger.info("Skill '%s' %s", name, "enabled" if value else "disabled")
+
+
+def is_pinned(name: str) -> bool:
+    """Return whether a manual skill is pinned for new chats and tasks."""
+    _ensure_skills_loaded()
+    return str(name or "") in _pinned
+
+
+def set_pinned(name: str, value: bool) -> None:
+    """Pin or unpin a manual skill for new chats and tasks.
+
+    Pinning a skill also makes it available. Tool guides cannot be pinned.
+    """
+    global _pinned
+    _ensure_skills_loaded()
+    skill_name = str(name or "").strip()
+    skill = _skills_cache.get(skill_name)
+    if not skill:
+        raise ValueError(f"Skill not found: {skill_name}")
+    if is_tool_guide(skill):
+        raise ValueError(f"Tool guides cannot be pinned: {skill_name}")
+    if value:
+        _enabled[skill_name] = True
+        _pinned = _ordered_unique([*_pinned, skill_name])
+    else:
+        _pinned = [pinned_name for pinned_name in _pinned if pinned_name != skill_name]
+    _save_config()
+    logger.info("Skill '%s' %s", skill_name, "pinned" if value else "unpinned")
+
+
+def get_pinned_skill_names() -> list[str]:
+    """Return enabled manual skill names pinned for new chats and tasks."""
+    _ensure_skills_loaded()
+    return [
+        name for name in _pinned
+        if name in _skills_cache
+        and not is_tool_guide(_skills_cache[name])
+        and _enabled.get(name, False)
+    ]
+
+
+def get_pinned_manual_skills() -> list[Skill]:
+    """Return manual skills pinned for new chats and tasks."""
+    return [_skills_cache[name] for name in get_pinned_skill_names()]
+
+
+def _append_default_skill(names: list[str], skill_name: str) -> None:
+    skill = _skills_cache.get(skill_name)
+    if (
+        skill
+        and not is_tool_guide(skill)
+        and _enabled.get(skill.name, False)
+        and skill.name not in names
+    ):
+        names.append(skill.name)
+
+
+def get_default_active_skill_names(surface: str = "chat") -> list[str]:
+    """Return the manual skill snapshot to use for newly-created work."""
+    _ensure_skills_loaded()
+    surface_name = str(surface or "chat").strip().lower()
+    names = get_pinned_skill_names()
+    if surface_name == "designer":
+        _append_default_skill(names, "design_creator")
+    return names
 
 
 def get_enabled_skills() -> list[Skill]:
@@ -648,6 +762,7 @@ def update_skill(
 
 def delete_skill(name: str) -> bool:
     """Delete a user skill from disk and cache.  Returns True on success."""
+    global _pinned
     skill = _skills_cache.get(name)
     if not skill or skill.source != "user" or not skill.path:
         logger.warning("Cannot delete skill '%s': not a user skill", name)
@@ -663,6 +778,7 @@ def delete_skill(name: str) -> bool:
 
     _skills_cache.pop(name, None)
     _enabled.pop(name, None)
+    _pinned = [pinned_name for pinned_name in _pinned if pinned_name != name]
     _save_config()
     logger.info("Deleted skill '%s'", name)
     return True

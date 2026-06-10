@@ -131,7 +131,7 @@ def _make_thread_id(phone: str) -> str:
 def _get_or_create_thread(phone: str) -> str:
     thread_id = _make_thread_id(phone)
     name = f"📱 SMS – {phone}"
-    _save_thread_meta(thread_id, name)  # creates or bumps updated_at
+    _save_thread_meta(thread_id, name, seed_default_skills=True)  # creates or bumps updated_at
     return thread_id
 
 
@@ -140,7 +140,7 @@ def _new_thread(phone: str) -> str:
     import time as _time
     suffix = str(int(_time.time()))
     thread_id = f"sms_{phone.replace('+', '').replace('-', '')}_{suffix}"
-    _save_thread_meta(thread_id, f"📱 SMS – {phone}")
+    _save_thread_meta(thread_id, f"📱 SMS – {phone}", seed_default_skills=True)
     return thread_id
 
 

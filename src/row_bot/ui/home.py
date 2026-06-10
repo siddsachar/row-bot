@@ -622,7 +622,12 @@ def build_home(
             designer_container = ui.column().classes("w-full h-full")
 
             def _open_designer_project(project, initial_prompt: str | None = None, staged_files=None):
-                from row_bot.threads import _get_thread_approval_mode, _save_thread_meta, _set_thread_project_id
+                from row_bot.threads import (
+                    _get_thread_approval_mode,
+                    _save_thread_meta,
+                    _set_thread_project_id,
+                    set_thread_skills_override,
+                )
                 from row_bot.designer.storage import save_project
                 from row_bot.memory_extraction import set_active_thread
 
@@ -632,6 +637,14 @@ def build_home(
                     tid = _uuid.uuid4().hex[:12]
                     _save_thread_meta(tid, f"🎨 {project.name}")
                     _set_thread_project_id(tid, project.id)
+                    try:
+                        from row_bot.skills import get_default_active_skill_names
+
+                        default_designer_skills = get_default_active_skill_names("designer")
+                        if default_designer_skills:
+                            set_thread_skills_override(tid, default_designer_skills)
+                    except Exception:
+                        logger.debug("Failed to seed Designer default skills", exc_info=True)
                     project.thread_id = tid
                     save_project(project)
 

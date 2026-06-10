@@ -1015,6 +1015,7 @@ def build_command_center(
                                 _save_thread_meta(
                                     new_tid,
                                     f"Investigate: {ins_title}",
+                                    seed_default_skills=True,
                                 )
                                 stop_voice_for_thread_change(state, p, reason="command_center_insight")
                                 state.thread_id = new_tid

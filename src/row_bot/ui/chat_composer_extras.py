@@ -104,7 +104,7 @@ def create_developer_composer_extras(
             enabled_tool_names=enabled_tool_names or chat_enabled_tool_names,
             last_user_text=lambda: last_user_message_text(state),
             skill_button_tooltip=(
-                "Developer starts with normal skills off. Enable extras for this thread here."
+                "Choose skills for this Developer thread"
             ),
         ),
     )
@@ -413,7 +413,7 @@ class ComposerExtrasController:
             picker_text = self.config.last_user_text()
         picker_suggestions = self._suggestions_for_text(picker_text, limit=3)
         picker_suggestions_by_name = {s.name: s for s in picker_suggestions}
-        title = "Developer Extra Skills" if self.config.skill_mode == "developer" else "Skills"
+        title = "Skills"
         with ui.dialog() as dlg, ui.card().classes("w-full q-pa-md").style(
             "min-width: min(720px, 92vw); max-width: 760px;"
         ):
@@ -421,6 +421,27 @@ class ComposerExtrasController:
                 ui.label(title).classes("text-h6")
                 ui.space()
                 ui.button(icon="close", on_click=dlg.close).props("flat round dense")
+            if self.config.skill_mode == "developer":
+                try:
+                    from row_bot.developer.profile import DEVELOPER_AUTO_SKILLS
+
+                    guidance_items = []
+                    for name in DEVELOPER_AUTO_SKILLS:
+                        skill = self._get_skill(name)
+                        if skill:
+                            guidance_items.append(f"{skill.icon} {skill.display_name}")
+                    if guidance_items:
+                        with ui.expansion(
+                            "Automatic Developer guidance",
+                            icon="tips_and_updates",
+                        ).props("dense expand-icon-toggle").classes("w-full q-mb-sm"):
+                            ui.label(
+                                "Included automatically while the Developer tool is active."
+                            ).classes("text-xs text-grey-6 q-mb-xs")
+                            for item in guidance_items:
+                                ui.label(item).classes("text-xs text-grey-5")
+                except Exception:
+                    logger.debug("Could not render Developer guidance disclosure", exc_info=True)
             search = ui.input(
                 placeholder="Search skills",
             ).props("dense outlined clearable").classes("w-full q-mb-sm")
@@ -524,7 +545,7 @@ class ComposerExtrasController:
             self.active_skill_names = self._ordered_skill_names(self.active_skill_names)
             draft_suggestions = self._suggestions_for_text(draft_text, limit=3)
             with self.skill_chips_row:
-                label = "Extra skills" if self.config.skill_mode == "developer" else "Skills"
+                label = "Skills"
                 ui.button(label, icon="auto_fix_high", on_click=self._open_skill_picker).props(
                     "outline dense no-caps size=sm"
                 ).classes("text-xs").tooltip(self.config.skill_button_tooltip or "Choose skills for this chat")
@@ -685,14 +706,20 @@ class ComposerExtrasController:
 
     def _reset_skills_from_palette(self) -> None:
         if self.config.skill_mode in {"developer", "thread_override"}:
-            self._save_thread_override([])
+            try:
+                from row_bot.skills import get_default_active_skill_names
+
+                self._save_thread_override(get_default_active_skill_names(self.config.surface))
+            except Exception:
+                logger.debug("Could not resolve surface skill defaults", exc_info=True)
+                self._save_thread_override([])
         else:
             from row_bot.skills_activation import reset_thread
 
             reset_thread(self._thread_id())
-        self.active_skill_names = []
+        self.active_skill_names = self._load_active_skill_names()
         self._after_skills_changed()
-        ui.notify("Skills reset for this chat.", type="info")
+        ui.notify("Skills reset for this thread.", type="info")
 
     def _run_callback(self, callback: Callable[[], Any]) -> None:
         try:

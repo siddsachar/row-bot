@@ -1074,7 +1074,13 @@ def build_chat(
 
             def _reset_skills_from_palette() -> None:
                 _reset_chat_skills(state.thread_id)
-                _active_skill_names["names"] = []
+                _reset_snap = _get_skill_activation_snapshot(
+                    state.thread_id,
+                    current_text="",
+                    enabled_tool_names=_enabled_tool_names,
+                    explicit_override=_thread_override,
+                )
+                _active_skill_names["names"] = list(_reset_snap.active)
                 clear_agent_cache()
                 _refresh_skill_chips_now()
                 ui.notify("Skills reset for this chat.", type="info")

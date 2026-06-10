@@ -1527,7 +1527,6 @@ def _pre_model_trim(state: dict) -> dict:
             if _thread_id:
                 skills_override = get_thread_skills_override(_thread_id)
             active_tool_names = _current_enabled_tool_names_var.get()
-            extra_skill_names = []
             manual_skill_names = None
 
             # In designer mode, suppress manual skills — only tool guides
@@ -1558,20 +1557,9 @@ def _pre_model_trim(state: dict) -> dict:
                     is_background=False,
                 )
 
-            try:
-                from row_bot.developer.tool_context import infer_workspace_id_from_thread
-                from row_bot.developer.profile import DEVELOPER_AUTO_SKILLS
-
-                if _thread_id and infer_workspace_id_from_thread(_thread_id):
-                    manual_skill_names = manual_skill_names if manual_skill_names is not None else []
-                    extra_skill_names = DEVELOPER_AUTO_SKILLS
-            except Exception:
-                pass
-
             skills_text = get_skills_prompt(
                 manual_skill_names,
                 active_tool_names=active_tool_names,
-                extra_skill_names=extra_skill_names,
             )
             if skills_text:
                 _injections.append(SystemMessage(content=skills_text))
