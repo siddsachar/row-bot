@@ -927,10 +927,24 @@ async def index():
         binding = getattr(p, "active_voice_binding", None)
         if binding is not None and binding.is_current(state.thread_id):
             return await binding.send_talk(text)
+        surface = _active_voice_surface()
+        if surface == "normal_chat":
+            logger.info(
+                "voice.realtime.pipeline %s",
+                {
+                    "stage": "active_voice_surface_fallback",
+                    "surface": surface,
+                    "thread_id": state.thread_id,
+                    "text_chars": len(str(text or "")),
+                    "voice_mode": True,
+                },
+            )
+            return await _send_message(text, voice_mode=True)
         logger.info(
             "voice.realtime.pipeline %s",
             {
                 "stage": "active_voice_surface_missing",
+                "surface": surface,
                 "thread_id": state.thread_id,
                 "text_chars": len(str(text or "")),
                 "voice_mode": voice_mode,

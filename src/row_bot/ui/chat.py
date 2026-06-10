@@ -1293,6 +1293,42 @@ def build_chat(
             .style("font-size: 0.95rem;")
         )
 
+        def _register_active_voice_binding() -> None:
+            from row_bot.voice.actions import ActiveVoiceSurfaceBinding
+
+            thread_id = str(state.thread_id or "")
+
+            def _get_text() -> str:
+                return str(p.chat_input.value or "") if p.chat_input is not None else ""
+
+            def _set_text(value: str) -> None:
+                if p.chat_input is None:
+                    return
+                p.chat_input.value = value
+                p.chat_input.update()
+                try:
+                    _queue_skill_chip_refresh(value)
+                except Exception:
+                    logger.debug("Smart Skills draft suggestions were not synced for voice text", exc_info=True)
+
+            p.active_voice_binding = ActiveVoiceSurfaceBinding(
+                surface="normal_chat",
+                thread_id=thread_id,
+                get_composer_text=_get_text,
+                set_composer_text=_set_text,
+                send_talk_text=send_message,
+            )
+            logger.info(
+                "voice.realtime.pipeline %s",
+                {
+                    "stage": "active_voice_surface_bound",
+                    "surface": "normal_chat",
+                    "thread_id": thread_id,
+                },
+            )
+
+        _register_active_voice_binding()
+
         try:
             def _on_composer_value(e) -> None:
                 payload = e.args
@@ -1428,6 +1464,7 @@ def build_chat(
             )
 
             def _start_local_talk() -> None:
+                _register_active_voice_binding()
                 state.voice_input_mode = "talk"
                 state.voice_enabled = True
                 state.voice_coordinator.start_talk()
@@ -1452,6 +1489,7 @@ def build_chat(
                     return
                 state.voice_input_mode = "talk"
                 state.voice_enabled = True
+                _register_active_voice_binding()
                 session_id = state.voice_coordinator.start_realtime_talk()
                 if p.dictate_btn:
                     _set_dictate_button_active(p, False)
@@ -1477,6 +1515,10 @@ def build_chat(
                     run_realtime_client_js(p, stop_realtime_client_js(), context="stop_realtime_talk")
                 state.voice_enabled = False
                 state.voice_coordinator.stop()
+                binding = getattr(p, "active_voice_binding", None)
+                if binding is not None:
+                    binding.clear()
+                p.active_voice_binding = None
 
             def _toggle_voice():
                 if not (state.voice_enabled and state.voice_input_mode == "talk"):
@@ -1492,11 +1534,16 @@ def build_chat(
                 if state.voice_enabled and state.voice_input_mode == "dictate":
                     state.voice_enabled = False
                     state.voice_coordinator.stop()
+                    binding = getattr(p, "active_voice_binding", None)
+                    if binding is not None:
+                        binding.clear()
+                    p.active_voice_binding = None
                     if p.dictate_btn:
                         _set_dictate_button_active(p, False)
                     return
                 state.voice_input_mode = "dictate"
                 state.voice_enabled = True
+                _register_active_voice_binding()
                 state.voice_coordinator.start_dictation()
                 if p.voice_switch:
                     _set_talk_button_active(p, False)

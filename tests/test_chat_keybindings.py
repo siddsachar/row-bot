@@ -1,5 +1,6 @@
 from pathlib import Path
 import asyncio
+import re
 from types import SimpleNamespace
 
 from row_bot.ui.chat_components import _submit_voice_transcript
@@ -221,6 +222,52 @@ def test_active_chat_input_uses_shared_voice_control_bridge():
     assert "binding.append_dictation(text)" in app_src
     assert "await binding.send_talk(text)" in app_src
     assert "p.active_voice_binding = None" in lifecycle_src
+
+
+def test_normal_chat_registers_active_voice_surface_binding():
+    chat_src = _source("src/row_bot/ui/chat.py")
+
+    assert "def _register_active_voice_binding" in chat_src
+    assert "ActiveVoiceSurfaceBinding" in chat_src
+    assert 'surface="normal_chat"' in chat_src
+    assert "send_talk_text=send_message" in chat_src
+    assert "active_voice_surface_bound" in chat_src
+    assert "Smart Skills draft suggestions were not synced for voice text" in chat_src
+    assert re.search(
+        r"def _start_local_talk\(\) -> None:\s+_register_active_voice_binding\(\)\s+"
+        r"state\.voice_input_mode = \"talk\"",
+        chat_src,
+    )
+    assert re.search(
+        r"def _start_realtime_talk\(\) -> None:.*?state\.voice_input_mode = \"talk\".*?"
+        r"_register_active_voice_binding\(\).*?start_realtime_talk",
+        chat_src,
+        re.S,
+    )
+    assert re.search(
+        r"def _stop_talk\(\) -> None:.*?binding = getattr\(p, \"active_voice_binding\", None\).*?"
+        r"binding\.clear\(\).*?p\.active_voice_binding = None",
+        chat_src,
+        re.S,
+    )
+    assert re.search(
+        r"def _toggle_dictate\(\):.*?binding = getattr\(p, \"active_voice_binding\", None\).*?"
+        r"binding\.clear\(\).*?p\.active_voice_binding = None.*?"
+        r"state\.voice_input_mode = \"dictate\".*?_register_active_voice_binding\(\).*?"
+        r"state\.voice_coordinator\.start_dictation\(\)",
+        chat_src,
+        re.S,
+    )
+
+
+def test_normal_chat_voice_bridge_falls_back_when_binding_is_missing():
+    app_src = _source("src/row_bot/app.py")
+
+    assert "surface = _active_voice_surface()" in app_src
+    assert 'if surface == "normal_chat":' in app_src
+    assert '"stage": "active_voice_surface_fallback"' in app_src
+    assert "return await _send_message(text, voice_mode=True)" in app_src
+    assert '"stage": "active_voice_surface_missing"' in app_src
 
 
 def test_realtime_voice_uses_guarded_progress_cues_during_row_bot_stream():
