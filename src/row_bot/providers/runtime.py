@@ -33,6 +33,11 @@ def list_configured_provider_ids() -> list[str]:
     except Exception:
         pass
     try:
+        if provider_status("claude_subscription").get("configured"):
+            configured.append("claude_subscription")
+    except Exception:
+        pass
+    try:
         from row_bot.providers.custom import list_custom_endpoints
         configured.extend(str(endpoint["provider_id"]) for endpoint in list_custom_endpoints() if endpoint.get("enabled", True))
     except Exception:
@@ -80,6 +85,56 @@ def provider_status(provider_id: str) -> dict:
             "runtime_enabled": token_health.runnable,
             "token_health": token_health.status,
             "token_health_detail": token_health.detail,
+            "last_error": provider_cfg.get("last_error") or "",
+        }
+    if provider_id == "claude_subscription":
+        from row_bot.providers.claude_subscription import (
+            CLAUDE_SUBSCRIPTION_PROVIDER_ID,
+            check_claude_subscription_token_health,
+            discover_claude_subscription_credentials,
+        )
+        from row_bot.providers.config import load_provider_config
+
+        token_health = check_claude_subscription_token_health(refresh_if_needed=True)
+        token_status = provider_secret_status(CLAUDE_SUBSCRIPTION_PROVIDER_ID, "access_token")
+        provider_cfg = load_provider_config().get("providers", {}).get(CLAUDE_SUBSCRIPTION_PROVIDER_ID, {})
+        external_configured = bool(
+            provider_cfg.get("source") == "external_cli"
+            and provider_cfg.get("external_reference_exists")
+        )
+        discovered = discover_claude_subscription_credentials()
+        configured = bool(token_status.get("configured") or external_configured)
+        source = ""
+        if token_status.get("configured"):
+            source = str(provider_cfg.get("source") or token_status.get("source") or "keyring")
+        elif external_configured:
+            source = "external_cli"
+        elif provider_cfg.get("source") == "external_cli":
+            source = "external_cli"
+        elif discovered.get("exists") or discovered.get("cli_installed"):
+            source = "external_cli_detected"
+        return {
+            "provider_id": provider_id,
+            "configured": configured,
+            "source": source,
+            "fingerprint": token_status.get("fingerprint") or provider_cfg.get("fingerprint") or "",
+            "auth_method": provider_cfg.get("auth_method") or "",
+            "expires_at": provider_cfg.get("expires_at") or discovered.get("expires_at") or "",
+            "account_id_hash": provider_cfg.get("account_id_hash") or discovered.get("account_id_hash") or "",
+            "user_hash": provider_cfg.get("user_hash") or discovered.get("user_hash") or "",
+            "plan_type": provider_cfg.get("plan_type") or "",
+            "external_reference_label": provider_cfg.get("external_reference_label") or discovered.get("label") or "",
+            "external_reference_path_hash": provider_cfg.get("external_reference_path_hash") or discovered.get("path_hash") or "",
+            "external_reference_exists": bool(provider_cfg.get("external_reference_exists") or discovered.get("exists")),
+            "external_reference_source": provider_cfg.get("external_reference_source") or "claude_code",
+            "external_reference_metadata_only": True,
+            "cli_installed": bool(provider_cfg.get("cli_installed") or discovered.get("cli_installed")),
+            "cli_version": provider_cfg.get("cli_version") or discovered.get("cli_version") or "",
+            "auth_status": provider_cfg.get("auth_status") or discovered.get("auth_status") or "",
+            "runtime_enabled": token_health.runnable,
+            "token_health": token_health.status,
+            "token_health_detail": token_health.detail,
+            "last_runtime_probe": dict(provider_cfg.get("last_runtime_probe") or {}),
             "last_error": provider_cfg.get("last_error") or "",
         }
     if provider_id == "ollama":
@@ -236,6 +291,16 @@ def create_chat_model(model_name: str, provider_id: str | None = None):
                 "Connect ChatGPT in Settings -> Providers, then try the Codex model again."
             )
         return ChatCodexResponses(model_name=model_name)
+    if provider == "claude_subscription":
+        from row_bot.providers.claude_subscription import claude_subscription_runtime_available
+        from row_bot.providers.transports.claude_subscription_messages import ChatClaudeSubscriptionMessages
+
+        if not claude_subscription_runtime_available():
+            raise ValueError(
+                "Claude Subscription runtime needs Row-Bot-owned OAuth tokens. "
+                "Connect Claude Subscription in Settings -> Providers, then try the provider-qualified model again."
+            )
+        return ChatClaudeSubscriptionMessages(model_name=model_name)
     if provider == "openai":
         from langchain_openai import ChatOpenAI
         api_key = get_provider_secret("openai")

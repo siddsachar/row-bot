@@ -17,7 +17,7 @@ Row-Bot is a local-first desktop AI assistant for reasoning through work, orches
 
 It gives you chat, memory, tools, workflows, Developer Studio, Designer Studio, Smart Skills, Skills Hub, Custom Tools, plugins, messaging channels, realtime voice, and flexible model routing while keeping durable data local.
 
-Bring the model path that fits the job: local models through [Ollama](https://ollama.com/), OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, Ollama Cloud, ChatGPT / Codex subscription models, or custom OpenAI-compatible endpoints such as oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, and SGLang. Row-Bot keeps provider identity, model capabilities, context limits, and chat-only fallbacks explicit so local, hosted, and self-hosted models can coexist without surprise routing.
+Bring the model path that fits the job: local models through [Ollama](https://ollama.com/), OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, Ollama Cloud, ChatGPT / Codex subscription models, Claude Subscription models, or custom OpenAI-compatible endpoints such as oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, and SGLang. Row-Bot keeps provider identity, model capabilities, context limits, and chat-only fallbacks explicit so local, hosted, and self-hosted models can coexist without surprise routing.
 
 The Row-Bot app has no account system, no Row-Bot-hosted server, and no telemetry pipeline. Provider keys and subscription tokens are stored in the OS credential store when available.
 
@@ -112,7 +112,7 @@ On first launch, Row-Bot opens a setup wizard. Pick one of three paths:
 | Mode | Use it when | Setup |
 |------|-------------|-------|
 | Local | You want inference and embeddings on your machine. | Choose a local runtime, download a recommended model such as `qwen3:14b` or a smaller model such as `qwen3:8b`, then start chatting. Ollama is the supported local runtime today. |
-| Providers | You want hosted models, frontier reasoning, or no local model download. | Add an OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, or Ollama Cloud key, pick a default model, and save Quick Choices. ChatGPT / Codex sign-in is available in Settings after launch. |
+| Providers | You want hosted models, frontier reasoning, or no local model download. | Add an OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, or Ollama Cloud key, pick a default model, and save Quick Choices. ChatGPT / Codex and Claude Subscription sign-in are available in Settings after launch. |
 | Custom/Self-hosted | You run oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, or a private gateway. | Enter an OpenAI-compatible base URL such as `http://127.0.0.1:1234/v1`, choose the closest compatibility profile, add a key if your server requires one, fetch models, and choose a default. |
 
 Common first prompts:
@@ -140,6 +140,7 @@ Model catalog browsing, pinning, defaults, and Quick Choices live in Settings â†
 |---------|--------------|----------|
 | OpenAI | `OPENAI_API_KEY` | OpenAI models and image tools. |
 | ChatGPT / Codex | In-app ChatGPT sign-in | Subscription-backed Codex models through ChatGPT's internal backend. |
+| Claude Subscription | In-app Claude OAuth or explicit setup-token import | Subscription-backed Claude models through Row-Bot-owned OAuth. This is separate from Anthropic API. |
 | Anthropic | `ANTHROPIC_API_KEY` | Claude models through the direct API. |
 | Google AI | `GOOGLE_API_KEY` | Gemini models, Imagen, and Veo. |
 | xAI | `XAI_API_KEY` | Grok models, Grok Imagine, and Grok Imagine Video. |
@@ -157,11 +158,15 @@ Model catalog browsing, pinning, defaults, and Quick Choices live in Settings â†
 | ngrok | `NGROK_AUTHTOKEN` | Tunnels for inbound webhooks. |
 | Gmail and Google Calendar | Google Cloud OAuth `credentials.json` | Email search/read/draft/send and calendar view/create/update/move/delete. |
 
-Configure providers in Settings, Channels, and Accounts. Keys and in-app ChatGPT / Codex tokens are stored in Windows Credential Manager, macOS Keychain, or Linux Secret Service/KWallet when available. `~/.row-bot/api_keys.json` and `~/.row-bot/providers.json` keep metadata only, such as saved state, provider status, Quick Choices, compatibility profiles, probe results, and masked fingerprints.
+Configure providers in Settings, Channels, and Accounts. Keys and in-app ChatGPT / Codex and Claude Subscription OAuth tokens are stored in Windows Credential Manager, macOS Keychain, or Linux Secret Service/KWallet when available. `~/.row-bot/api_keys.json` and `~/.row-bot/providers.json` keep metadata only, such as saved state, provider status, Quick Choices, compatibility profiles, probe results, and masked fingerprints.
 
 Embedding providers are configured separately from chat models. Local embeddings are available for private document and vector indexing. Optional cloud embeddings show a privacy warning because document text is sent to the selected embedding provider.
 
-External Codex CLI login files are metadata/reference only. Row-Bot can detect that a CLI login exists, but direct Codex runtime requires the in-app ChatGPT sign-in and does not copy runnable tokens from `~/.codex/auth.json`.
+External Codex CLI and Claude Code login files are metadata/reference only. Row-Bot can detect that a CLI login exists, but direct Codex runtime requires the in-app ChatGPT sign-in and direct Claude Subscription runtime requires Row-Bot-owned Claude OAuth or an explicit user import. Row-Bot does not copy runnable tokens from `~/.codex/auth.json` or `~/.claude/*`, and Claude Subscription never falls back to `ANTHROPIC_API_KEY`.
+
+Claude Subscription supports two Row-Bot-owned auth paths in Settings -> Providers: in-app Claude OAuth, or explicit import of a token printed by `claude setup-token`. The setup-token path is a user paste/import action; Row-Bot still does not silently read Claude Code environment variables or credential files.
+
+After connecting Claude Subscription, Settings -> Providers can run a Claude Subscription runtime test that checks native OAuth chat, a forced Row-Bot tool call, and tool-result replay. A failed runtime test is stored as provider metadata and prevents Row-Bot from advertising Claude Subscription as tool-ready until it is fixed or reconnected; `claude -p` remains a separate Claude Code delegation path, not the provider runtime.
 
 ## Tools and Safety
 

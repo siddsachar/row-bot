@@ -22,6 +22,7 @@ TRUSTED_AGENT_PROVIDERS = {
     "opencode_zen",
     "opencode_go",
     "codex",
+    "claude_subscription",
     "ollama_cloud",
 }
 
@@ -184,6 +185,7 @@ def evaluate_agent_readiness(
     tool_round_trip: bool | None = None
     streaming_tool_calling: bool | None = None
     tool_calling_source = source
+    status_info = dict(status or provider_status(resolved.provider_id) or {})
 
     if resolved.provider_id.startswith("custom_openai_"):
         endpoint = resolved.endpoint or {}
@@ -225,6 +227,36 @@ def evaluate_agent_readiness(
             tool_round_trip = None
             errors.append("OpenRouter tool metadata is missing or inconclusive")
             actions.append("Choose a model with explicit OpenRouter tool support metadata.")
+    elif resolved.provider_id == "claude_subscription":
+        probe = status_info.get("last_runtime_probe") if isinstance(status_info.get("last_runtime_probe"), dict) else {}
+        if probe and probe.get("ok") is False:
+            tool_calling = probe.get("tool_calling") if probe.get("tool_calling") in (True, False) else None
+            tool_round_trip = probe.get("tool_round_trip") if probe.get("tool_round_trip") in (True, False) else None
+            streaming_tool_calling = probe.get("streaming_tool_calling") if probe.get("streaming_tool_calling") in (True, False) else None
+            tool_calling_source = "runtime_probe"
+            source = "runtime_probe"
+            confidence = "low"
+            errors.append("Claude Subscription native OAuth runtime probe failed")
+            probe_errors = probe.get("errors") if isinstance(probe.get("errors"), list) else []
+            if probe_errors:
+                errors.append(str(probe_errors[0]))
+            actions.append("Reconnect Claude Subscription, re-run the runtime test, or use Chat Only until the account/runtime succeeds.")
+        elif probe and probe.get("ok") is True:
+            tool_calling = True
+            tool_round_trip = True
+            streaming_tool_calling = probe.get("streaming_tool_calling") if probe.get("streaming_tool_calling") in (True, False) else None
+            tool_calling_source = "runtime_probe"
+            source = "runtime_probe"
+            confidence = "high"
+        elif tool_calling is not False:
+            tool_calling = True
+            tool_round_trip = True
+            tool_calling_source = "trusted_provider"
+            source = "trusted_provider"
+            confidence = "high"
+        else:
+            tool_round_trip = False
+            errors.append("model metadata says structured tool calling is not supported")
     elif resolved.provider_id in TRUSTED_AGENT_PROVIDERS:
         if tool_calling is not False:
             tool_calling = True
@@ -280,7 +312,6 @@ def evaluate_agent_readiness(
     else:
         errors.append("structured tool calling is unknown")
 
-    status_info = dict(status or provider_status(resolved.provider_id) or {})
     configured = bool(status_info.get("configured"))
     if resolved.provider_id == "ollama" and not status_info:
         configured = True
@@ -366,6 +397,7 @@ def evaluate_chat_readiness(
     streaming = normalized.get("streaming")
     source = _snapshot_source(snapshot, resolved)
     confidence = "high" if source in {"trusted_provider", "probe", "catalog"} else "low"
+    status_info = dict(status or provider_status(resolved.provider_id) or {})
 
     if tasks and not tasks.intersection(CHAT_TASKS):
         errors.append("model does not expose a chat or responses generation task")
@@ -394,8 +426,20 @@ def evaluate_chat_readiness(
             actions.append("Run the custom endpoint probe for this model.")
         if context_policy and getattr(context_policy, "cap_source", "") in {"profile_default", "heuristic"}:
             warnings.append("custom endpoint context is inferred; provider metadata or a manual context setting is safer")
+    elif resolved.provider_id == "claude_subscription":
+        probe = status_info.get("last_runtime_probe") if isinstance(status_info.get("last_runtime_probe"), dict) else {}
+        if probe and probe.get("ok") is False and probe.get("chat_ok") is not True:
+            source = "runtime_probe"
+            confidence = "low"
+            errors.append("Claude Subscription native OAuth chat probe failed")
+            probe_errors = probe.get("errors") if isinstance(probe.get("errors"), list) else []
+            if probe_errors:
+                errors.append(str(probe_errors[0]))
+            actions.append("Reconnect Claude Subscription or re-run the runtime test after account access is fixed.")
+        elif probe and probe.get("ok") is True:
+            source = "runtime_probe"
+            confidence = "high"
 
-    status_info = dict(status or provider_status(resolved.provider_id) or {})
     configured = bool(status_info.get("configured"))
     if resolved.provider_id == "ollama" and not status_info:
         configured = True

@@ -218,6 +218,10 @@ def build_model_catalog_rows(
     for model_info in _codex_model_infos():
         _add_model_info_row(rows, model_info, provider_status, pinned_by_ref, default_refs, installed=True)
 
+    if provider_status.get("claude_subscription", {}).get("configured"):
+        for model_info in _claude_subscription_model_infos():
+            _add_model_info_row(rows, model_info, provider_status, pinned_by_ref, default_refs, installed=True)
+
     for surface, ref in default_refs.items():
         if ref in rows:
             continue
@@ -334,6 +338,9 @@ def _catalog_row(
     if provider_id == "codex" and not bool(status.get("runtime_enabled")):
         runtime_ready = False
         status_reason = "Codex account is connected, but direct chat runtime is not enabled yet."
+    if provider_id == "claude_subscription" and not bool(status.get("runtime_enabled")):
+        runtime_ready = False
+        status_reason = "Claude Subscription runtime needs a Row-Bot OAuth connection."
     if "chat" in categories and runtime_ready:
         try:
             from row_bot.providers.readiness import evaluate_runtime_readiness
@@ -529,6 +536,15 @@ def _codex_model_infos() -> list[ModelInfo]:
         from row_bot.providers.codex import list_codex_model_infos
 
         return list_codex_model_infos()
+    except Exception:
+        return []
+
+
+def _claude_subscription_model_infos() -> list[ModelInfo]:
+    try:
+        from row_bot.providers.claude_subscription import list_claude_subscription_model_infos
+
+        return list_claude_subscription_model_infos()
     except Exception:
         return []
 

@@ -919,6 +919,7 @@ _PROVIDER_EMOJI: dict[str | None, str] = {
     "ollama": "☁️",
     "ollama_cloud": "☁️",
     "codex": "C",
+    "claude_subscription": "C",
     "opencode_zen": "OZ",
     "opencode_go": "OG",
     "openrouter": "🌐",
@@ -998,6 +999,16 @@ def list_cloud_models(provider: str | None = None) -> list[str]:
                 from row_bot.providers.codex import list_codex_model_infos
                 seen = set(models)
                 for model_info in list_codex_model_infos():
+                    if model_info.model_id not in seen:
+                        models.append(model_info.model_id)
+                        seen.add(model_info.model_id)
+            except Exception:
+                pass
+        if provider == "claude_subscription":
+            try:
+                from row_bot.providers.claude_subscription import list_claude_subscription_model_infos
+                seen = set(models)
+                for model_info in list_claude_subscription_model_infos():
                     if model_info.model_id not in seen:
                         models.append(model_info.model_id)
                         seen.add(model_info.model_id)
@@ -1145,6 +1156,15 @@ def get_cloud_model_context(model_name: str) -> int:
                     return int(model_info.context_window)
         except Exception:
             pass
+    if provider_id == "claude_subscription":
+        try:
+            from row_bot.providers.claude_subscription import list_claude_subscription_model_infos
+
+            for model_info in list_claude_subscription_model_infos():
+                if model_info.model_id == runtime_model and model_info.context_window:
+                    return int(model_info.context_window)
+        except Exception:
+            pass
     return _catalog_or_heuristic(runtime_model)
 
 
@@ -1166,6 +1186,15 @@ def list_cloud_vision_models() -> list[str]:
                 seen.add(model_info.model_id)
     except Exception:
         pass
+    try:
+        from row_bot.providers.claude_subscription import list_claude_subscription_model_infos
+        seen = set(vision_models)
+        for model_info in list_claude_subscription_model_infos():
+            if model_info.model_id not in seen and snapshot_supports_surface(model_info.capability_snapshot(), "vision"):
+                vision_models.append(model_info.model_id)
+                seen.add(model_info.model_id)
+    except Exception:
+        pass
     return vision_models
 
 
@@ -1181,6 +1210,17 @@ def is_cloud_vision_model(model_name: str) -> bool:
                 model_info.model_id == runtime_model
                 and snapshot_supports_surface(model_info.capability_snapshot(), "vision")
                 for model_info in list_codex_model_infos()
+            )
+        except Exception:
+            return False
+    if parsed and parsed[0] == "claude_subscription":
+        try:
+            from row_bot.providers.capabilities import snapshot_supports_surface
+            from row_bot.providers.claude_subscription import list_claude_subscription_model_infos
+            return any(
+                model_info.model_id == runtime_model
+                and snapshot_supports_surface(model_info.capability_snapshot(), "vision")
+                for model_info in list_claude_subscription_model_infos()
             )
         except Exception:
             return False
@@ -1542,6 +1582,8 @@ def fetch_cloud_models(provider: str) -> int:
         if not api_key:
             return 0
         return _fetch_opencode_models(provider)
+    elif provider == "claude_subscription":
+        return _fetch_claude_subscription_models()
     else:
         return 0
 
@@ -2091,6 +2133,32 @@ def _fetch_opencode_models(provider_id: str) -> int:
     return count
 
 
+def _fetch_claude_subscription_models() -> int:
+    """Populate Claude Subscription models from Row-Bot-owned OAuth catalog."""
+    from row_bot.providers.catalog import model_info_to_cache_entry
+    from row_bot.providers.claude_subscription import list_claude_subscription_model_infos
+
+    try:
+        infos = list_claude_subscription_model_infos(force_refresh=True)
+    except Exception as exc:
+        logger.warning("Failed to fetch claude_subscription models: %s", exc)
+        return 0
+    if not infos:
+        return 0
+    with _cloud_cache_lock:
+        stale_keys = [
+            model_id
+            for model_id, info in _cloud_model_cache.items()
+            if isinstance(info, dict) and str(info.get("provider") or "") == "claude_subscription"
+        ]
+        for model_id in stale_keys:
+            _cloud_model_cache.pop(model_id, None)
+        for model_info in infos:
+            _cloud_model_cache[model_info.selection_ref] = model_info_to_cache_entry(model_info)
+    logger.info("Fetched %d claude_subscription models", len(infos))
+    return len(infos)
+
+
 def refresh_cloud_models() -> int:
     """Clear cache and re-fetch from all configured providers.
 
@@ -2124,6 +2192,7 @@ def refresh_cloud_models() -> int:
     total += fetch_cloud_models("minimax")
     total += fetch_cloud_models("opencode_zen")
     total += fetch_cloud_models("opencode_go")
+    total += fetch_cloud_models("claude_subscription")
     _save_cloud_cache()
 
     # Do not rewrite the user's default just because a provider refresh missed
@@ -2172,6 +2241,16 @@ def _cloud_model_available_after_refresh(model_name: str) -> bool:
             )
         except Exception:
             logger.debug("Could not validate Codex default model after refresh", exc_info=True)
+    if provider_id == "claude_subscription":
+        try:
+            from row_bot.providers.claude_subscription import list_claude_subscription_model_infos
+
+            return any(
+                model_info.model_id == parsed_model
+                for model_info in list_claude_subscription_model_infos()
+            )
+        except Exception:
+            logger.debug("Could not validate Claude Subscription default model after refresh", exc_info=True)
     return False
 
 

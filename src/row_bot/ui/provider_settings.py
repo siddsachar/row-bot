@@ -145,6 +145,7 @@ def _source_label(source: str) -> str:
         "external_cli": "Using external CLI login",
         "external_cli_detected": "External CLI login detected",
         "oauth_device": "Signed in with ChatGPT",
+        "oauth_pkce": "Connected with Row-Bot OAuth",
         "no_auth": "No API key required",
         "local_daemon": "Local daemon running",
         "not_running": "Not running",
@@ -166,6 +167,22 @@ def _codex_action_state(card: dict) -> dict[str, bool]:
     }
 
 
+def _claude_subscription_action_state(card: dict) -> dict[str, bool]:
+    if card.get("provider_id") != "claude_subscription":
+        return {}
+    configured = bool(card.get("configured"))
+    source = str(card.get("source") or "")
+    external_exists = bool(card.get("external_reference_exists"))
+    return {
+        "can_connect": source != "oauth_pkce" or not configured,
+        "can_import_setup_token": True,
+        "can_reference": external_exists and not configured,
+        "can_disconnect": configured or source == "external_cli",
+        "can_test_runtime": configured and bool(card.get("runtime_enabled")),
+        "runtime_enabled": bool(card.get("runtime_enabled")),
+    }
+
+
 def build_provider_summary_cards() -> None:
     from row_bot.providers.status import provider_status_cards
 
@@ -176,7 +193,7 @@ def build_provider_summary_cards() -> None:
         if configured:
             if source == "external_cli":
                 return "#38bdf8", "Referenced"
-            if source == "oauth_device":
+            if source in {"oauth_device", "oauth_pkce"}:
                 return "#22c55e", "Connected"
             return "#22c55e", "Connected"
         if source == "external_cli_detected":
@@ -286,14 +303,165 @@ def build_provider_summary_cards() -> None:
         ui.notify(f"Disconnected {APP_DISPLAY_NAME} Codex metadata", type="info")
         defer_ui(_load)
 
+    def _reference_claude_subscription_login() -> None:
+        from row_bot.providers.claude_subscription import save_external_reference
+
+        saved = save_external_reference()
+        if saved.get("configured"):
+            ui.notify("Referenced external Claude Code login as metadata only", type="positive")
+        else:
+            ui.notify("No Claude Code credential cache found to reference", type="warning")
+        defer_ui(_load)
+
+    async def _connect_claude_subscription_login() -> None:
+        from row_bot.providers.claude_subscription import start_claude_subscription_oauth_flow
+
+        notification = ui.notification("Starting Claude Subscription sign-in...", type="ongoing", spinner=True, timeout=None)
+        try:
+            flow = await run.io_bound(start_claude_subscription_oauth_flow)
+        except Exception as exc:
+            notification.dismiss()
+            ui.notify(f"Could not start Claude Subscription sign-in: {exc}", type="negative")
+            return
+        notification.dismiss()
+        _show_claude_subscription_oauth_dialog(flow)
+
+    def _show_claude_subscription_oauth_dialog(flow) -> None:
+        from row_bot.providers.claude_subscription import (
+            ClaudeSubscriptionAuthorization,
+            exchange_claude_subscription_authorization,
+            save_claude_subscription_oauth_tokens,
+            seed_recommended_claude_subscription_quick_choices,
+        )
+
+        with ui.dialog() as dialog:
+            with ui.card().classes("w-full").style("max-width: 32rem;"):
+                ui.label("Connect Claude Subscription").classes("text-h6")
+                ui.label("Open the authorization page, complete Claude sign-in, then paste the returned authorization code.").classes("text-grey-6 text-sm")
+                with ui.row().classes("items-center gap-2 no-wrap"):
+                    ui.link("Open Claude Login", flow.authorization_url, new_tab=True).classes("text-primary text-sm")
+                    ui.badge("OAuth", color="blue-grey").props("outline dense")
+                code_input = ui.input(label="Authorization code").props("outlined dense").classes("w-full")
+                ui.label(f"Expires: {flow.expires_at}").classes("text-grey-6 text-xs")
+                status_label = ui.label("").classes("text-grey-6 text-sm")
+
+                async def _finish_login() -> None:
+                    authorization_code = str(code_input.value or "").strip()
+                    if not authorization_code:
+                        ui.notify("Paste the Claude authorization code first", type="warning")
+                        return
+                    check_note = ui.notification("Completing Claude Subscription sign-in...", type="ongoing", spinner=True, timeout=None)
+                    try:
+                        token_set = await run.io_bound(
+                            exchange_claude_subscription_authorization,
+                            ClaudeSubscriptionAuthorization(
+                                authorization_code=authorization_code,
+                                code_verifier=flow.code_verifier,
+                                redirect_uri=flow.redirect_uri,
+                                token_url=flow.token_url,
+                                client_id=flow.client_id,
+                                state=flow.state,
+                            ),
+                        )
+                        await run.io_bound(save_claude_subscription_oauth_tokens, token_set)
+                        await run.io_bound(seed_recommended_claude_subscription_quick_choices)
+                    except Exception as exc:
+                        check_note.dismiss()
+                        status_label.text = f"Sign-in failed: {exc}"
+                        status_label.update()
+                        ui.notify(f"Claude Subscription sign-in failed: {exc}", type="negative")
+                        return
+                    check_note.dismiss()
+                    dialog.close()
+                    ui.notify("Claude Subscription connected", type="positive")
+                    defer_ui(_load)
+
+                with ui.row().classes("w-full items-center justify-end gap-2"):
+                    ui.button("Cancel", icon="close", on_click=dialog.close).props("flat dense")
+                    ui.button("Connect", icon="check", on_click=_finish_login).props("flat dense color=primary")
+        dialog.open()
+
+    def _import_claude_subscription_setup_token_dialog() -> None:
+        from row_bot.providers.claude_subscription import (
+            import_claude_subscription_setup_token,
+            seed_recommended_claude_subscription_quick_choices,
+        )
+
+        with ui.dialog() as dialog:
+            with ui.card().classes("w-full").style("max-width: 32rem;"):
+                ui.label("Import Claude Setup Token").classes("text-h6")
+                ui.label("Paste the token printed by claude setup-token. Row-Bot will store it as Claude Subscription OAuth.").classes("text-grey-6 text-sm")
+                token_input = ui.input(
+                    label="Setup token",
+                    password=True,
+                    password_toggle_button=True,
+                ).props("outlined dense").classes("w-full")
+                status_label = ui.label("").classes("text-grey-6 text-sm")
+
+                async def _save_token() -> None:
+                    token = str(token_input.value or "").strip()
+                    if not token:
+                        ui.notify("Paste the Claude setup token first", type="warning")
+                        return
+                    check_note = ui.notification("Importing Claude setup token...", type="ongoing", spinner=True, timeout=None)
+                    try:
+                        await run.io_bound(import_claude_subscription_setup_token, token)
+                        await run.io_bound(seed_recommended_claude_subscription_quick_choices)
+                    except Exception as exc:
+                        check_note.dismiss()
+                        status_label.text = f"Import failed: {exc}"
+                        status_label.update()
+                        ui.notify(f"Claude setup token import failed: {exc}", type="negative")
+                        return
+                    check_note.dismiss()
+                    dialog.close()
+                    ui.notify("Claude Subscription connected", type="positive")
+                    defer_ui(_load)
+
+                with ui.row().classes("w-full items-center justify-end gap-2"):
+                    ui.button("Cancel", icon="close", on_click=dialog.close).props("flat dense")
+                    ui.button("Import", icon="key", on_click=_save_token).props("flat dense color=primary")
+        dialog.open()
+
+    def _disconnect_claude_subscription() -> None:
+        from row_bot.providers.claude_subscription import disconnect_claude_subscription_metadata
+
+        disconnect_claude_subscription_metadata()
+        ui.notify("Disconnected Claude Subscription metadata", type="info")
+        defer_ui(_load)
+
+    async def _test_claude_subscription_runtime() -> None:
+        from row_bot.providers.claude_subscription import run_claude_subscription_runtime_probe
+
+        notification = ui.notification("Testing Claude Subscription runtime...", type="ongoing", spinner=True, timeout=None)
+        try:
+            probe = await run.io_bound(run_claude_subscription_runtime_probe)
+        except Exception as exc:
+            notification.dismiss()
+            ui.notify(f"Claude Subscription runtime test failed: {exc}", type="negative")
+            defer_ui(_load)
+            return
+        notification.dismiss()
+        if probe.get("ok"):
+            ui.notify("Claude Subscription runtime and tool calls work", type="positive")
+        else:
+            errors = probe.get("errors") if isinstance(probe.get("errors"), list) else []
+            detail = str(errors[0]) if errors else "runtime test did not pass"
+            ui.notify(f"Claude Subscription runtime test failed: {detail}", type="warning")
+        defer_ui(_load)
+
     def _render_row(card: dict) -> None:
         source = str(card.get("source") or "")
         dot_color, state_label = _status_style(bool(card.get("configured")), source)
         if card.get("provider_id") == "codex" and card.get("configured") and not card.get("runtime_enabled"):
             dot_color, state_label = "#f59e0b", "Reconnect"
+        if card.get("provider_id") == "claude_subscription" and card.get("configured") and not card.get("runtime_enabled"):
+            dot_color, state_label = "#f59e0b", "Reconnect"
         metadata = _metadata_label(card)
         fingerprint = str(card.get("fingerprint") or "")
         account_hash = str(card.get("account_id_hash") or "")
+        user_hash = str(card.get("user_hash") or "")
+        runtime_probe = card.get("last_runtime_probe") if isinstance(card.get("last_runtime_probe"), dict) else {}
         with ui.row().classes("items-center gap-2 no-wrap w-full q-px-sm q-py-xs").style("min-height: 42px; border-bottom: 1px solid rgba(148, 163, 184, 0.14);"):
             ui.label(card.get("icon") or "AI").classes("text-base").style("width: 22px; text-align: center;")
             with ui.column().classes("gap-0").style("min-width: 0; flex: 1;"):
@@ -304,6 +472,8 @@ def build_provider_summary_cards() -> None:
                 sub = _source_label(source) if source else "Add credentials to enable this provider"
                 if card.get("provider_id") == "codex" and card.get("configured") and not card.get("runtime_enabled"):
                     sub = "Reconnect ChatGPT to use Codex models in chat"
+                if card.get("provider_id") == "claude_subscription" and card.get("configured") and not card.get("runtime_enabled"):
+                    sub = "Claude Code login found, but Row-Bot runtime is not connected"
                 if metadata:
                     sub = f"{sub} · {metadata}"
                 ui.label(sub).classes("text-grey-6 text-xs").style("line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;")
@@ -312,6 +482,13 @@ def build_provider_summary_cards() -> None:
                     ui.badge(fingerprint, color="blue-grey").props("outline dense").tooltip("Credential fingerprint")
                 if account_hash:
                     ui.badge(account_hash, color="blue-grey").props("outline dense").tooltip("ChatGPT account fingerprint")
+                if user_hash and not account_hash:
+                    ui.badge(user_hash, color="blue-grey").props("outline dense").tooltip("Account fingerprint")
+                if card.get("provider_id") == "claude_subscription" and runtime_probe:
+                    probe_ok = bool(runtime_probe.get("ok"))
+                    errors = runtime_probe.get("errors") if isinstance(runtime_probe.get("errors"), list) else []
+                    tooltip = "Claude Subscription runtime test passed" if probe_ok else (str(errors[0]) if errors else "Claude Subscription runtime test failed")
+                    ui.badge("runtime ok" if probe_ok else "runtime failed", color="green" if probe_ok else "orange").props("outline dense").tooltip(tooltip)
                 ui.badge(str(card.get("risk_label") or "api_key"), color="grey").props("outline dense")
                 codex_actions = _codex_action_state(card)
                 if codex_actions.get("can_connect"):
@@ -320,6 +497,17 @@ def build_provider_summary_cards() -> None:
                     ui.button(icon="link", on_click=_reference_codex_login).props("flat dense round size=sm").tooltip("Reference existing Codex CLI login")
                 if codex_actions.get("can_disconnect"):
                     ui.button(icon="link_off", on_click=_disconnect_codex).props("flat dense round size=sm color=negative").tooltip(f"Disconnect {APP_DISPLAY_NAME} Codex metadata")
+                claude_actions = _claude_subscription_action_state(card)
+                if claude_actions.get("can_connect"):
+                    ui.button(icon="login", on_click=_connect_claude_subscription_login).props("flat dense round size=sm color=primary").tooltip("Connect Claude Subscription in app")
+                if claude_actions.get("can_import_setup_token"):
+                    ui.button(icon="key", on_click=_import_claude_subscription_setup_token_dialog).props("flat dense round size=sm").tooltip("Import Claude setup token")
+                if claude_actions.get("can_test_runtime"):
+                    ui.button(icon="science", on_click=_test_claude_subscription_runtime).props("flat dense round size=sm").tooltip("Test Claude Subscription runtime")
+                if claude_actions.get("can_reference"):
+                    ui.button(icon="link", on_click=_reference_claude_subscription_login).props("flat dense round size=sm").tooltip("Check external Claude Code login")
+                if claude_actions.get("can_disconnect"):
+                    ui.button(icon="link_off", on_click=_disconnect_claude_subscription).props("flat dense round size=sm color=negative").tooltip("Disconnect Row-Bot Claude Subscription metadata")
                 ui.button(icon="refresh", on_click=lambda: defer_ui(_load)).props("flat dense round size=sm").tooltip("Refresh status")
 
     def _render(cards: list[dict]) -> None:

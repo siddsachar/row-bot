@@ -41,6 +41,15 @@ PROVIDER_DEFINITIONS: dict[str, ProviderDefinition] = {
         experimental=True,
         icon="C",
     ),
+    "claude_subscription": ProviderDefinition(
+        id="claude_subscription",
+        display_name="Claude Subscription",
+        auth_methods=(AuthMethod.EXTERNAL_CLI, AuthMethod.OAUTH_PKCE),
+        default_transport=TransportMode.ANTHROPIC_MESSAGES,
+        risk_label="subscription",
+        experimental=True,
+        icon="C",
+    ),
     "openrouter": ProviderDefinition(
         id="openrouter",
         display_name="OpenRouter",
@@ -388,6 +397,20 @@ def classify_model_capabilities(
         default_transport = TransportMode.OPENAI_RESPONSES
         tasks = {ModelTask.RESPONSES.value}
         endpoint_compatibility = {TransportMode.OPENAI_RESPONSES}
+    if provider_id == "claude_subscription":
+        default_transport = TransportMode.ANTHROPIC_MESSAGES
+        endpoint_compatibility = {TransportMode.ANTHROPIC_MESSAGES}
+        tool_calling = metadata.get("tool_calling") if isinstance(metadata.get("tool_calling"), bool) else True
+        streaming = metadata.get("streaming") if isinstance(metadata.get("streaming"), bool) else True
+        for key in ("input_modalities", "input", "modalities"):
+            modalities = metadata.get(key)
+            if isinstance(modalities, str):
+                modalities = [modalities]
+            if isinstance(modalities, (list, tuple, set, frozenset)):
+                normalized = {str(item).strip().lower() for item in modalities}
+                if "image" in normalized:
+                    input_modalities.add(ModelModality.IMAGE.value)
+                    capabilities.add("vision")
     if provider_id == "minimax":
         default_transport = TransportMode.ANTHROPIC_MESSAGES
         endpoint_compatibility = {TransportMode.ANTHROPIC_MESSAGES}

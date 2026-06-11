@@ -72,6 +72,16 @@ def resolve_capability_metadata(
         except Exception:
             pass
 
+    if provider == "claude_subscription":
+        try:
+            from row_bot.providers.claude_subscription import list_claude_subscription_model_infos
+
+            for model_info in list_claude_subscription_model_infos():
+                if model_info.model_id == model:
+                    return ResolvedCapabilitySnapshot(model_info.capability_snapshot(), "claude_subscription_catalog")
+        except Exception:
+            pass
+
     if provider in {"opencode_zen", "opencode_go"}:
         try:
             from row_bot.providers.opencode import opencode_known_route, opencode_model_info

@@ -18,9 +18,10 @@ def _path_label(path: pathlib.Path) -> dict[str, str]:
 
 def discover_external_credentials() -> list[dict[str, Any]]:
     """Return display-safe references to known external credential stores."""
+    from row_bot.providers.claude_subscription import discover_claude_subscription_credentials
     from row_bot.providers.codex import discover_codex_credentials
 
-    results = [discover_codex_credentials()]
+    results = [discover_codex_credentials(), discover_claude_subscription_credentials()]
 
     if shutil.which("gh"):
         results.append({"provider_id": "copilot", "source": "gh_cli", "label": "gh auth token", "exists": "true"})

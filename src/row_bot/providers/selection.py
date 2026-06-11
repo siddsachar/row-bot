@@ -293,6 +293,7 @@ _PROVIDER_ICON_LABELS: dict[str, str] = {
     "local": "Local",
     "ollama": "Local",
     "openai": "OpenAI",
+    "claude_subscription": "Claude Subscription",
     "openrouter": "OpenRouter",
     "anthropic": "Anthropic",
     "google": "Google",
@@ -541,6 +542,13 @@ def _surface_inactive_reason(choice: dict[str, Any], surface: str) -> str:
                 return "Codex account is connected, but direct chat runtime is not enabled yet."
         except Exception:
             return "Codex direct chat runtime is not enabled yet."
+    if choice.get("provider_id") == "claude_subscription":
+        try:
+            from row_bot.providers.runtime import provider_status
+            if not provider_status("claude_subscription").get("runtime_enabled"):
+                return "Claude Subscription runtime needs a Row-Bot OAuth connection."
+        except Exception:
+            return "Claude Subscription runtime is not enabled yet."
     if choice.get("active") is False:
         return str(choice.get("inactive_reason") or choice.get("last_error") or "This Quick Choice is inactive.")
     inactive_surfaces = choice.get("inactive_surfaces")
