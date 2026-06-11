@@ -2,7 +2,7 @@
 
 Responsibilities:
     • Splash screen while the server starts (tkinter — no extra deps)
-    • System-tray icon (green = running, grey = stopped)
+    • Branded system-tray icon with running/stopped state feedback
     • Launch  ``python app.py``  as a headless server subprocess
     • Open a pywebview native window pointing at the server
     • Closing the window keeps the server (and tasks/channels) alive
@@ -68,6 +68,7 @@ _STARTUP_TIMEOUT_ENV = APP_STARTUP_TIMEOUT_ENV
 _ICON_SIZE = 64               # px for generated tray icons
 _APP_ICON_PATH = app_icon_path()
 _APP_GLYPH_PATH = static_dir() / "row_bot_glyph_256.png"
+_APP_FAVICON_PATH = static_dir() / "favicon.ico"
 _ACTIVE_TRAY: "RowBotTray | None" = None
 _OLLAMA_AUTOSTART_ENV = APP_AUTO_START_OLLAMA_ENV
 _GRACEFUL_SHUTDOWN_REQUEST_TIMEOUT = 3.0
@@ -279,9 +280,9 @@ def _wait_for_ollama(timeout: float = 15.0) -> None:
     logger.warning("Ollama did not become reachable within %.0fs", timeout)
 
 
-# ── Icon generation (Pillow, no external files) ──────────────────────────────
+# ── Tray icon generation (branded Pillow image for pystray) ──────────────────
 
-def _make_icon(colour: str) -> _PILImage.Image:
+def _make_status_dot_icon(colour: str) -> _PILImage.Image:
     """Create a solid circle icon with the given colour on a transparent bg."""
     from PIL import Image, ImageDraw
 
@@ -295,19 +296,79 @@ def _make_icon(colour: str) -> _PILImage.Image:
     return img
 
 
-# Pre-generate the three state icons lazily
+def _tray_icon_candidate_paths() -> tuple[Path, ...]:
+    return (_APP_GLYPH_PATH, _APP_ICON_PATH, _APP_FAVICON_PATH)
+
+
+def _normalize_tray_icon(image: _PILImage.Image) -> _PILImage.Image:
+    from PIL import Image
+
+    resampling = getattr(Image, "Resampling", Image).LANCZOS
+    icon = image.convert("RGBA")
+    alpha_bbox = icon.getchannel("A").getbbox()
+    if alpha_bbox:
+        icon = icon.crop(alpha_bbox)
+    icon.thumbnail((_ICON_SIZE, _ICON_SIZE), resampling)
+    canvas = Image.new("RGBA", (_ICON_SIZE, _ICON_SIZE), (0, 0, 0, 0))
+    left = (_ICON_SIZE - icon.width) // 2
+    top = (_ICON_SIZE - icon.height) // 2
+    canvas.alpha_composite(icon, (left, top))
+    return canvas
+
+
+_tray_base_icon_loaded = False
+_tray_base_icon: _PILImage.Image | None = None
 _icons: dict[str, _PILImage.Image] = {}
+
+
+def _load_tray_base_icon() -> _PILImage.Image | None:
+    """Load the branded tray base icon, falling back gracefully on failures."""
+    global _tray_base_icon_loaded, _tray_base_icon
+    if _tray_base_icon_loaded:
+        return _tray_base_icon
+
+    from PIL import Image
+
+    _tray_base_icon_loaded = True
+    for path in _tray_icon_candidate_paths():
+        try:
+            if not path or not Path(path).exists():
+                continue
+            with Image.open(path) as image:
+                _tray_base_icon = _normalize_tray_icon(image)
+                return _tray_base_icon
+        except Exception:
+            logger.debug("Could not load tray icon asset %s", path, exc_info=True)
+    _tray_base_icon = None
+    return None
+
+
+def _draw_status_badge(image: _PILImage.Image, state: str) -> None:
+    from PIL import ImageDraw
+
+    colour = "#22c55e" if state == "running" else "#6b7280"
+    draw = ImageDraw.Draw(image)
+    badge_size = max(14, _ICON_SIZE // 4)
+    margin = max(3, _ICON_SIZE // 16)
+    left = _ICON_SIZE - badge_size - margin
+    top = _ICON_SIZE - badge_size - margin
+    bbox = [left, top, left + badge_size, top + badge_size]
+    outline_width = max(2, _ICON_SIZE // 32)
+    draw.ellipse(bbox, fill=colour, outline=(15, 23, 42, 230), width=outline_width)
 
 
 def _get_icon(state: str) -> _PILImage.Image:
     """Return the icon for a launcher state string."""
-    colour_map = {
-        "running":  "#22c55e",   # green
-    }
-    colour = colour_map.get(state, "#6b7280")  # grey fallback
-    if colour not in _icons:
-        _icons[colour] = _make_icon(colour)
-    return _icons[colour]
+    cache_key = "running" if state == "running" else "stopped"
+    if cache_key not in _icons:
+        base_icon = _load_tray_base_icon()
+        if base_icon is not None:
+            icon = base_icon.copy()
+            _draw_status_badge(icon, cache_key)
+        else:
+            icon = _make_status_dot_icon("#22c55e" if cache_key == "running" else "#6b7280")
+        _icons[cache_key] = icon
+    return _icons[cache_key]
 
 
 # ── Port check ───────────────────────────────────────────────────────────────

@@ -17,7 +17,13 @@ from row_bot.data_paths import get_row_bot_data_dir
 from nicegui import run, ui
 from row_bot.ui.timer_utils import safe_timer
 
-from row_bot.ui.status_checks import CheckResult, run_all_checks
+from row_bot.ui.status_checks import (
+    CheckResult,
+    order_status_results,
+    run_all_checks,
+    run_heavy_checks,
+    run_light_checks,
+)
 from row_bot.ui.performance import log_ui_perf
 
 logger = logging.getLogger(__name__)
@@ -159,6 +165,16 @@ _status_cache: dict[str, CheckResult] = {}
 _cache_time: float = 0.0
 _CACHE_TTL = 300.0  # 5 minutes for heavy checks
 _status_refresh_task: asyncio.Task[list[CheckResult]] | None = None
+_status_refresh_task_id: int = 0
+_heavy_refresh_task: asyncio.Task[list[CheckResult]] | None = None
+_heavy_refresh_task_id: int = 0
+_refresh_generation = 0
+
+
+def _next_refresh_id() -> int:
+    global _refresh_generation
+    _refresh_generation += 1
+    return _refresh_generation
 
 
 def _status_cache_stale() -> bool:
@@ -172,7 +188,7 @@ def _placeholder_results() -> list[CheckResult]:
 def _get_render_cached_results() -> list[CheckResult]:
     """Return current status pills without running synchronous health checks."""
     started = time.perf_counter()
-    results = list(_status_cache.values()) if _status_cache else _placeholder_results()
+    results = order_status_results(list(_status_cache.values())) if _status_cache else _placeholder_results()
     log_ui_perf(
         "home.status_bar.cached",
         (time.perf_counter() - started) * 1000.0,
@@ -191,28 +207,130 @@ def _get_cached_results() -> list[CheckResult]:
 
 def _force_refresh() -> list[CheckResult]:
     """Force-refresh all checks (bypasses cache)."""
+    return _force_refresh_with_id(refresh_id=_next_refresh_id())
+
+
+def _replace_status_cache(results: list[CheckResult]) -> list[CheckResult]:
     global _status_cache, _cache_time
+    ordered = order_status_results(results)
+    _status_cache = {r.name: r for r in ordered}
+    _cache_time = time.time()
+    return ordered
+
+
+def _merge_status_cache(results: list[CheckResult], *, mark_fresh: bool = True) -> list[CheckResult]:
+    global _status_cache, _cache_time
+    merged = dict(_status_cache)
+    for result in results:
+        merged[result.name] = result
+    ordered = order_status_results(list(merged.values()))
+    _status_cache = {r.name: r for r in ordered}
+    if mark_fresh:
+        _cache_time = time.time()
+    return ordered
+
+
+def _force_refresh_with_id(*, refresh_id: int) -> list[CheckResult]:
     started = time.perf_counter()
     all_results = run_all_checks()
-    _status_cache = {r.name: r for r in all_results}
-    _cache_time = time.time()
+    ordered = _replace_status_cache(all_results)
     log_ui_perf(
-        "home.status_bar.force_refresh",
+        "home.status_bar.aggregate",
         (time.perf_counter() - started) * 1000.0,
         threshold_ms=500.0,
-        results=len(all_results),
+        refresh_id=refresh_id,
+        results=len(ordered),
+        cached=False,
+        stale=False,
+        mode="full",
     )
-    return all_results
+    log_ui_perf(
+        "home.status_bar.force_refresh",
+        0.0,
+        threshold_ms=999999.0,
+        refresh_id=refresh_id,
+        results=len(ordered),
+    )
+    return ordered
+
+
+def _refresh_light_results(*, refresh_id: int) -> list[CheckResult]:
+    started = time.perf_counter()
+    light_results = run_light_checks()
+    merged = _merge_status_cache(light_results, mark_fresh=False)
+    log_ui_perf(
+        "home.status_bar.light_refresh",
+        (time.perf_counter() - started) * 1000.0,
+        threshold_ms=500.0,
+        refresh_id=refresh_id,
+        results=len(light_results),
+        cache_results=len(merged),
+        cached=False,
+        stale=True,
+    )
+    return merged
+
+
+def _refresh_heavy_results(*, refresh_id: int) -> list[CheckResult]:
+    started = time.perf_counter()
+    heavy_results = run_heavy_checks(live_ollama_probe=False)
+    merged = _merge_status_cache(heavy_results)
+    log_ui_perf(
+        "home.status_bar.heavy_refresh",
+        (time.perf_counter() - started) * 1000.0,
+        threshold_ms=1500.0,
+        refresh_id=refresh_id,
+        results=len(heavy_results),
+        cache_results=len(merged),
+        cached=False,
+        stale=False,
+    )
+    return merged
 
 
 async def _coalesced_force_refresh() -> list[CheckResult]:
     """Run one shared full status refresh for concurrent Home renders."""
-    global _status_refresh_task
+    global _status_refresh_task, _status_refresh_task_id
+    refresh_id = _next_refresh_id()
     if _status_refresh_task is None or _status_refresh_task.done():
-        from nicegui import run
-
-        _status_refresh_task = asyncio.create_task(run.io_bound(_force_refresh))
+        _status_refresh_task_id = refresh_id
+        _status_refresh_task = asyncio.create_task(
+            run.io_bound(lambda: _force_refresh_with_id(refresh_id=_status_refresh_task_id))
+        )
+    else:
+        refresh_id = _status_refresh_task_id
+        log_ui_perf(
+            "home.status_bar.async_refresh",
+            0.0,
+            threshold_ms=999999.0,
+            refresh_id=refresh_id,
+            coalesced=True,
+            mode="full",
+        )
     return await asyncio.shield(_status_refresh_task)
+
+
+async def _coalesced_heavy_refresh(*, refresh_id: int | None = None) -> list[CheckResult]:
+    """Run one shared heavy status refresh for concurrent Home renders."""
+    global _heavy_refresh_task, _heavy_refresh_task_id
+    if refresh_id is None:
+        refresh_id = _next_refresh_id()
+    if _heavy_refresh_task is None or _heavy_refresh_task.done():
+        _heavy_refresh_task_id = refresh_id
+        _heavy_refresh_task = asyncio.create_task(
+            run.io_bound(lambda: _refresh_heavy_results(refresh_id=_heavy_refresh_task_id))
+        )
+    else:
+        refresh_id = _heavy_refresh_task_id
+        log_ui_perf(
+            "home.status_bar.async_refresh",
+            0.0,
+            threshold_ms=999999.0,
+            refresh_id=refresh_id,
+            coalesced=True,
+            mode="heavy",
+        )
+    return await asyncio.shield(_heavy_refresh_task)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -496,28 +614,62 @@ def build_status_bar(
             if not _status_cache_stale():
                 return
             started = time.perf_counter()
+            refresh_id = _next_refresh_id()
             try:
-                refreshed = await _coalesced_force_refresh()
+                refreshed = await run.io_bound(lambda: _refresh_light_results(refresh_id=refresh_id))
                 _render_pills(pills_container, {r.name: r for r in refreshed})
                 log_ui_perf(
                     "home.status_bar.async_refresh",
                     (time.perf_counter() - started) * 1000.0,
                     threshold_ms=500.0,
+                    refresh_id=refresh_id,
+                    mode="light",
+                    coalesced=False,
                     results=len(refreshed),
                 )
             except Exception:
-                logger.debug("Status bar async refresh failed", exc_info=True)
+                logger.debug("Status bar light refresh failed", exc_info=True)
+
+            async def _refresh_heavy_pills() -> None:
+                heavy_started = time.perf_counter()
+                try:
+                    heavy_refreshed = await _coalesced_heavy_refresh(refresh_id=refresh_id)
+                    _render_pills(pills_container, {r.name: r for r in heavy_refreshed})
+                    log_ui_perf(
+                        "home.status_bar.async_refresh",
+                        (time.perf_counter() - heavy_started) * 1000.0,
+                        threshold_ms=999999.0,
+                        refresh_id=refresh_id,
+                        mode="heavy",
+                        results=len(heavy_refreshed),
+                    )
+                except Exception:
+                    logger.debug("Status bar heavy refresh failed", exc_info=True)
+
+            asyncio.create_task(_refresh_heavy_pills())
 
         asyncio.create_task(_refresh_pills_if_needed())
 
         # ── RIGHT: Diagnosis button ───────────────────────────────
+        _diagnosis_running = False
+
         async def _run_diagnosis():
             """Force-refresh and show full diagnosis dialog."""
+            nonlocal _diagnosis_running
+            if _diagnosis_running:
+                return
+            _diagnosis_running = True
             # Show spinner while checks run
             diag_btn_el.classes(add='row-bot-diag-spinning')
             await asyncio.sleep(0.05)  # let UI update
-            diag_results = _force_refresh()
-            diag_btn_el.classes(remove='row-bot-diag-spinning')
+            try:
+                diag_results = await _coalesced_force_refresh()
+            except Exception:
+                logger.debug("Status diagnosis refresh failed; using cached results", exc_info=True)
+                diag_results = _get_render_cached_results()
+            finally:
+                diag_btn_el.classes(remove='row-bot-diag-spinning')
+                _diagnosis_running = False
             elapsed = max(
                 r.checked_at for r in diag_results
             ) - min(r.checked_at for r in diag_results) if diag_results else 0

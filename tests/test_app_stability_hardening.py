@@ -1,5 +1,6 @@
 import importlib
 import json
+import logging
 from types import SimpleNamespace
 import uuid
 from pathlib import Path
@@ -76,6 +77,36 @@ def test_stability_client_error_writes_local_report(data_dir, monkeypatch):
     assert payload["message"] == "synthetic client failure"
     assert payload["extra"]["client"]["source"] == "pytest"
     assert "object object" in payload["extra"]["client"]["details"]
+
+
+def test_resize_observer_warning_is_benign_and_rate_limited(data_dir, monkeypatch, caplog):
+    import row_bot.stability as stability
+
+    stability = importlib.reload(stability)
+    payload = {
+        "kind": "error",
+        "message": "ResizeObserver loop completed with undelivered notifications.",
+        "source": "http://localhost:8080/",
+        "line": 0,
+        "column": 0,
+        "stack": "",
+    }
+
+    with caplog.at_level(logging.INFO, logger="row_bot.stability"):
+        first = stability.record_client_error(payload)
+        second = stability.record_client_error(payload)
+        third = stability.record_client_error(payload)
+
+    assert first is None
+    assert second is None
+    assert third is None
+    assert stability.classify_client_report(payload) == "browser_layout_warning"
+    assert not list((data_dir / "crashes").glob("*client_error*.json"))
+    state = next(iter(stability._client_warning_state.values()))
+    assert state["count"] == 3
+    assert state["suppressed_count"] == 2
+    info_messages = [record.message for record in caplog.records if record.levelname == "INFO"]
+    assert len([message for message in info_messages if "browser layout warning" in message]) == 1
 
 
 def test_stability_source_contracts_are_wired():

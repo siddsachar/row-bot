@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import logging
+import time
 from typing import Any, Literal, Mapping
 
 from row_bot.providers.capabilities import CHAT_TASKS, normalize_snapshot
@@ -8,6 +10,8 @@ from row_bot.providers.catalog import model_info_from_metadata
 from row_bot.providers.models import TransportMode
 from row_bot.providers.resolution import ResolvedProviderConfig, resolve_provider_config
 from row_bot.providers.runtime import provider_status
+
+logger = logging.getLogger(__name__)
 
 AGENT_MODE_MIN_CONTEXT = 32_000
 CHAT_ONLY_MIN_CONTEXT = 16_384
@@ -112,6 +116,14 @@ class ModelRuntimeReadiness:
     chat: ChatReadinessResult
     selected_mode: RuntimeMode
     selection_reason: str
+    timings: dict[str, float] = field(default_factory=dict)
+
+
+def _provider_status_snapshot(provider_id: str, *, refresh_tokens: bool = True) -> dict[str, Any]:
+    try:
+        return dict(provider_status(provider_id, refresh_tokens=refresh_tokens) or {})
+    except TypeError:
+        return dict(provider_status(provider_id) or {})
 
 
 def evaluate_agent_readiness(
@@ -122,6 +134,7 @@ def evaluate_agent_readiness(
     status: Mapping[str, Any] | None = None,
     context_window_override: int | None = None,
     probe_ollama_tools: bool = False,
+    refresh_provider_status: bool = True,
 ) -> AgentReadinessResult:
     resolved = value if isinstance(value, ResolvedProviderConfig) else resolve_provider_config(
         str(value or ""),
@@ -185,7 +198,11 @@ def evaluate_agent_readiness(
     tool_round_trip: bool | None = None
     streaming_tool_calling: bool | None = None
     tool_calling_source = source
-    status_info = dict(status or provider_status(resolved.provider_id) or {})
+    status_info = dict(
+        status
+        if status is not None
+        else _provider_status_snapshot(resolved.provider_id, refresh_tokens=refresh_provider_status)
+    )
 
     if resolved.provider_id.startswith("custom_openai_"):
         endpoint = resolved.endpoint or {}
@@ -350,6 +367,7 @@ def evaluate_chat_readiness(
     capability_snapshot: Mapping[str, Any] | None = None,
     status: Mapping[str, Any] | None = None,
     context_window_override: int | None = None,
+    refresh_provider_status: bool = True,
 ) -> ChatReadinessResult:
     resolved = value if isinstance(value, ResolvedProviderConfig) else resolve_provider_config(
         str(value or ""),
@@ -397,7 +415,11 @@ def evaluate_chat_readiness(
     streaming = normalized.get("streaming")
     source = _snapshot_source(snapshot, resolved)
     confidence = "high" if source in {"trusted_provider", "probe", "catalog"} else "low"
-    status_info = dict(status or provider_status(resolved.provider_id) or {})
+    status_info = dict(
+        status
+        if status is not None
+        else _provider_status_snapshot(resolved.provider_id, refresh_tokens=refresh_provider_status)
+    )
 
     if tasks and not tasks.intersection(CHAT_TASKS):
         errors.append("model does not expose a chat or responses generation task")
@@ -475,27 +497,57 @@ def evaluate_runtime_readiness(
     status: Mapping[str, Any] | None = None,
     context_window_override: int | None = None,
     probe_ollama_tools: bool = False,
+    refresh_provider_status: bool = True,
 ) -> ModelRuntimeReadiness:
+    total_started = time.perf_counter()
     resolved = value if isinstance(value, ResolvedProviderConfig) else resolve_provider_config(
         str(value or ""),
         provider_id,
         allow_legacy_local=True,
     )
+    timings: dict[str, float] = {}
+    status_snapshot = dict(status or {}) if status is not None else None
+    if status_snapshot is None:
+        status_started = time.perf_counter()
+        status_snapshot = _provider_status_snapshot(
+            resolved.provider_id,
+            refresh_tokens=refresh_provider_status,
+        )
+        timings["provider_status_ms"] = (time.perf_counter() - status_started) * 1000.0
+    else:
+        timings["provider_status_ms"] = 0.0
+    agent_started = time.perf_counter()
     agent = evaluate_agent_readiness(
         resolved,
         capability_snapshot=capability_snapshot,
-        status=status,
+        status=status_snapshot,
         context_window_override=context_window_override,
         probe_ollama_tools=probe_ollama_tools,
+        refresh_provider_status=refresh_provider_status,
     )
+    timings["agent_readiness_ms"] = (time.perf_counter() - agent_started) * 1000.0
+    chat_started = time.perf_counter()
     chat = evaluate_chat_readiness(
         resolved,
         capability_snapshot=capability_snapshot,
-        status=status,
+        status=status_snapshot,
         context_window_override=context_window_override,
+        refresh_provider_status=refresh_provider_status,
+    )
+    timings["chat_readiness_ms"] = (time.perf_counter() - chat_started) * 1000.0
+    timings["total_ms"] = (time.perf_counter() - total_started) * 1000.0
+    logger.info(
+        "provider readiness timing: provider_id=%s model_ref=%s refresh_provider_status=%s provider_status_ms=%.1f agent_readiness_ms=%.1f chat_readiness_ms=%.1f total_ms=%.1f",
+        resolved.provider_id,
+        resolved.selection_ref,
+        bool(refresh_provider_status),
+        timings["provider_status_ms"],
+        timings["agent_readiness_ms"],
+        timings["chat_readiness_ms"],
+        timings["total_ms"],
     )
     if agent.ready:
-        return ModelRuntimeReadiness(agent=agent, chat=chat, selected_mode="agent", selection_reason="Agent Mode requirements are satisfied.")
+        return ModelRuntimeReadiness(agent=agent, chat=chat, selected_mode="agent", selection_reason="Agent Mode requirements are satisfied.", timings=timings)
     if chat.ready:
         if _agent_verification_inconclusive(agent):
             return ModelRuntimeReadiness(
@@ -503,10 +555,11 @@ def evaluate_runtime_readiness(
                 chat=chat,
                 selected_mode="blocked",
                 selection_reason="Agent Mode verification timed out; retry verification or choose a confirmed Agent-ready model.",
+                timings=timings,
             )
-        return ModelRuntimeReadiness(agent=agent, chat=chat, selected_mode="chat_only", selection_reason="Model can chat but is not Agent-ready.")
+        return ModelRuntimeReadiness(agent=agent, chat=chat, selected_mode="chat_only", selection_reason="Model can chat but is not Agent-ready.", timings=timings)
     reason = chat.errors[0] if chat.errors else (agent.errors[0] if agent.errors else "No supported runtime is available.")
-    return ModelRuntimeReadiness(agent=agent, chat=chat, selected_mode="blocked", selection_reason=reason)
+    return ModelRuntimeReadiness(agent=agent, chat=chat, selected_mode="blocked", selection_reason=reason, timings=timings)
 
 
 def _agent_verification_inconclusive(agent: AgentReadinessResult) -> bool:

@@ -1138,9 +1138,15 @@ def _collect_system_snapshot() -> str:
 
         cards = provider_status_cards()
         configured = [card for card in cards if card.get("configured")]
+        def _models_snapshot(card: dict) -> str:
+            model_count = card.get("model_count")
+            if model_count is None:
+                return "models=unknown"
+            return f"models={model_count}"
+
         lines = [
             f"  {card.get('display_name')}: source={card.get('source') or 'unknown'}, "
-            f"runtime_enabled={card.get('runtime_enabled')}, models={card.get('model_count') or 0}"
+            f"runtime_enabled={card.get('runtime_enabled')}, {_models_snapshot(card)}"
             for card in configured[:12]
         ]
         quick_count = len([choice for choice in list_quick_choices("status_tool") if choice.get("kind") == "model"])

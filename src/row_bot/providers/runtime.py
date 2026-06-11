@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from row_bot.providers.capabilities import snapshot_supports_surface
@@ -45,13 +46,15 @@ def list_configured_provider_ids() -> list[str]:
     return configured
 
 
-def provider_status(provider_id: str) -> dict:
+def provider_status(provider_id: str, *, refresh_tokens: bool = True) -> dict:
     if provider_id == "codex":
         from row_bot.providers.codex import check_codex_token_health
         from row_bot.providers.codex import discover_codex_credentials
         from row_bot.providers.config import load_provider_config
 
-        token_health = check_codex_token_health(refresh_if_needed=True)
+        token_health_started = time.perf_counter()
+        token_health = check_codex_token_health(refresh_if_needed=refresh_tokens)
+        token_health_ms = (time.perf_counter() - token_health_started) * 1000.0
         token_status = provider_secret_status("codex", "access_token")
         provider_cfg = load_provider_config().get("providers", {}).get("codex", {})
         external_configured = bool(
@@ -85,6 +88,9 @@ def provider_status(provider_id: str) -> dict:
             "runtime_enabled": token_health.runnable,
             "token_health": token_health.status,
             "token_health_detail": token_health.detail,
+            "token_refresh_allowed": bool(refresh_tokens),
+            "token_health_refreshed": token_health.status == "refreshed",
+            "token_health_ms": round(token_health_ms, 3),
             "last_error": provider_cfg.get("last_error") or "",
         }
     if provider_id == "claude_subscription":
@@ -95,7 +101,9 @@ def provider_status(provider_id: str) -> dict:
         )
         from row_bot.providers.config import load_provider_config
 
-        token_health = check_claude_subscription_token_health(refresh_if_needed=True)
+        token_health_started = time.perf_counter()
+        token_health = check_claude_subscription_token_health(refresh_if_needed=refresh_tokens)
+        token_health_ms = (time.perf_counter() - token_health_started) * 1000.0
         token_status = provider_secret_status(CLAUDE_SUBSCRIPTION_PROVIDER_ID, "access_token")
         provider_cfg = load_provider_config().get("providers", {}).get(CLAUDE_SUBSCRIPTION_PROVIDER_ID, {})
         external_configured = bool(
@@ -134,6 +142,9 @@ def provider_status(provider_id: str) -> dict:
             "runtime_enabled": token_health.runnable,
             "token_health": token_health.status,
             "token_health_detail": token_health.detail,
+            "token_refresh_allowed": bool(refresh_tokens),
+            "token_health_refreshed": token_health.status == "refreshed",
+            "token_health_ms": round(token_health_ms, 3),
             "last_runtime_probe": dict(provider_cfg.get("last_runtime_probe") or {}),
             "last_error": provider_cfg.get("last_error") or "",
         }

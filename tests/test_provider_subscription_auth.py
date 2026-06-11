@@ -231,6 +231,51 @@ def test_codex_provider_definition_and_status_group(tmp_path, monkeypatch):
     assert card["runtime_enabled"] is False
 
 
+def test_codex_status_catalog_uses_fallback_without_live_fetch(tmp_path, monkeypatch):
+    import row_bot.providers.codex as codex
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+
+    def _fail_live_fetch(*_args, **_kwargs):
+        raise AssertionError("status catalog must not live-fetch Codex models")
+
+    monkeypatch.setattr(codex, "fetch_codex_model_infos", _fail_live_fetch)
+
+    infos = codex.list_codex_model_infos_for_status()
+
+    assert infos
+    assert all(info.provider_id == "codex" for info in infos)
+    assert {info.source for info in infos} == {"codex_documented_fallback_catalog"}
+
+
+def test_codex_provider_status_counts_safe_catalog_without_live_fetch(tmp_path, monkeypatch):
+    import row_bot.providers.codex as codex
+    import row_bot.providers.status as provider_status
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(
+        provider_status,
+        "provider_status",
+        lambda provider_id: {
+            "configured": provider_id == "codex",
+            "runtime_enabled": provider_id == "codex",
+            "source": "external_cli" if provider_id == "codex" else "",
+        },
+    )
+
+    def _fail_live_fetch(*_args, **_kwargs):
+        raise AssertionError("provider status must not live-fetch Codex models")
+
+    monkeypatch.setattr(codex, "fetch_codex_model_infos", _fail_live_fetch)
+
+    card = next(card for card in provider_status.provider_status_cards() if card["provider_id"] == "codex")
+
+    assert card["model_count"] > 0
+    assert card["model_count_status"] == "known"
+    assert card["model_count_source"] == "codex_documented_fallback_catalog"
+    assert card["chat_count"] == card["model_count"]
+
+
 def test_codex_provider_ui_action_state_for_detected_and_configured_login():
     from row_bot.ui.provider_settings import _codex_action_state, _source_label
 

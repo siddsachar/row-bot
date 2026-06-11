@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import threading
 import queue
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -109,6 +110,16 @@ class GenerationState:
     stop_event: threading.Event
     config: dict
     enabled_tools: list
+    generation_id: str = ""
+    created_at: float = field(default_factory=time.perf_counter)
+    producer_thread_started_at: float = 0.0
+    first_producer_event_at: float = 0.0
+    first_answer_token_at: float = 0.0
+    done_event_at: float = 0.0
+    consumer_finalized_at: float = 0.0
+    queue_empty_wait_ms: float = 0.0
+    producer_wait_ms: float = 0.0
+    finalization_ms: float = 0.0
     # Accumulated output
     accumulated: str = ""
     thinking_text: str = ""

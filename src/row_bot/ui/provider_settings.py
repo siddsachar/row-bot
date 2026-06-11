@@ -209,7 +209,13 @@ def build_provider_summary_cards() -> None:
             parts.append(f"{plan_type} plan")
         model_count = card.get("model_count")
         if model_count is not None:
-            parts.append(f"{model_count} models")
+            source = str(card.get("model_count_source") or "")
+            if "fallback" in source:
+                parts.append(f"{model_count} known models")
+            else:
+                parts.append(f"{model_count} models")
+        elif card.get("configured") or card.get("runtime_enabled"):
+            parts.append("catalog count unknown")
         chat_count = int(card.get("chat_count") or 0)
         media_count = int(card.get("media_count") or 0)
         if chat_count:

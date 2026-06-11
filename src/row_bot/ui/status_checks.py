@@ -10,14 +10,21 @@ import json
 import logging
 import sqlite3
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Callable
 
 from row_bot.data_paths import get_row_bot_data_dir
+from row_bot.ui.performance import log_ui_perf
 
 logger = logging.getLogger(__name__)
 
 _DATA_DIR = get_row_bot_data_dir()
+_PROBE_CACHE_TTL_SECONDS = 30.0
+_HEAVY_CHECK_TIMEOUT_SECONDS = 3.0
+_HEAVY_CHECK_WORKERS = 4
+_probe_cache: dict[str, tuple[float, CheckResult]] = {}
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -33,6 +40,7 @@ class CheckResult:
     detail: str = ""
     checked_at: float = field(default_factory=time.time)
     settings_tab: str = ""  # which settings tab to open on click
+    metadata: dict[str, object] = field(default_factory=dict)
 
     @property
     def dot_color(self) -> str:
@@ -66,18 +74,115 @@ class CheckResult:
 # INDIVIDUAL CHECKS
 # ═════════════════════════════════════════════════════════════════════════════
 
-def check_ollama() -> CheckResult:
-    """Check if Ollama server is reachable."""
+def _cached_probe(name: str, factory: Callable[[], CheckResult], *, ttl_seconds: float = _PROBE_CACHE_TTL_SECONDS) -> CheckResult:
+    now = time.time()
+    cached = _probe_cache.get(name)
+    if cached and now - cached[0] < ttl_seconds:
+        return cached[1]
+    result = factory()
+    _probe_cache[name] = (now, result)
+    return result
+
+
+def _flatten_check_result(result: CheckResult | list[CheckResult]) -> list[CheckResult]:
+    if isinstance(result, list):
+        return result
+    return [result]
+
+
+def _status_counts(results: list[CheckResult]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for result in results:
+        counts[result.status] = counts.get(result.status, 0) + 1
+    return counts
+
+
+def _check_metadata(results: list[CheckResult]) -> dict[str, object]:
+    if len(results) != 1:
+        return {}
+    metadata = dict(results[0].metadata or {})
+    return metadata
+
+
+def _run_timed_check(fn: Callable[[], CheckResult | list[CheckResult]], *, kind: str) -> list[CheckResult]:
+    started = time.perf_counter()
     try:
-        from row_bot.models import _ollama_reachable, get_current_model, is_cloud_model
-        if _ollama_reachable(timeout=1.0):
-            return CheckResult("Ollama", "ok", "Server reachable", settings_tab="Models")
-        model = get_current_model()
-        if model and not is_cloud_model(model):
-            return CheckResult("Ollama", "warn", "Local model server unreachable", settings_tab="Models")
-        return CheckResult("Ollama", "inactive", "Not in use", settings_tab="Models")
+        results = _flatten_check_result(fn())
     except Exception as exc:
-        return CheckResult("Ollama", "warn", str(exc), settings_tab="Models")
+        results = [CheckResult(fn.__name__, "error", str(exc))]
+    elapsed_ms = (time.perf_counter() - started) * 1000.0
+    log_ui_perf(
+        f"home.status_check.{fn.__name__}",
+        elapsed_ms,
+        threshold_ms=120.0 if kind == "light" else 350.0,
+        check=fn.__name__,
+        kind=kind,
+        results=len(results),
+        status_counts=_status_counts(results),
+        **_check_metadata(results),
+    )
+    return results
+
+
+def check_ollama(*, live_probe: bool = True) -> CheckResult:
+    """Check if Ollama server is reachable."""
+    if not live_probe:
+        try:
+            from row_bot.models import get_current_model, is_cloud_model
+
+            model = get_current_model()
+            if not model or is_cloud_model(model):
+                return CheckResult(
+                    "Ollama",
+                    "inactive",
+                    "Not in use",
+                    settings_tab="Models",
+                    metadata={
+                        "live_probe": False,
+                        "skip_reason": "routine_refresh_not_using_local_ollama",
+                    },
+                )
+        except Exception as exc:
+            return CheckResult("Ollama", "warn", str(exc), settings_tab="Models")
+
+    def _check() -> CheckResult:
+        try:
+            from row_bot.models import _ollama_reachable, get_current_model, is_cloud_model
+            model = get_current_model()
+            if _ollama_reachable(timeout=1.0):
+                return CheckResult(
+                    "Ollama",
+                    "ok",
+                    "Server reachable",
+                    settings_tab="Models",
+                    metadata={"live_probe": True},
+                )
+            if model and not is_cloud_model(model):
+                return CheckResult(
+                    "Ollama",
+                    "warn",
+                    "Local model server unreachable",
+                    settings_tab="Models",
+                    metadata={"live_probe": True},
+                )
+            return CheckResult(
+                "Ollama",
+                "inactive",
+                "Not in use",
+                settings_tab="Models",
+                metadata={"live_probe": True},
+            )
+        except Exception as exc:
+            return CheckResult("Ollama", "warn", str(exc), settings_tab="Models")
+
+    return _cached_probe("ollama:live", _check)
+
+
+def _routine_check_ollama() -> CheckResult:
+    return check_ollama(live_probe=False)
+
+
+_routine_check_ollama.__name__ = "check_ollama"
 
 
 def check_active_model() -> CheckResult:
@@ -457,15 +562,18 @@ def check_document_store() -> CheckResult:
 
 def check_network() -> CheckResult:
     """Quick outbound connectivity check."""
-    try:
-        import socket as _sock
-        s = _sock.create_connection(("1.1.1.1", 53), timeout=2)
-        s.close()
-        return CheckResult("Network", "ok", "Connected", settings_tab="System")
-    except OSError:
-        return CheckResult("Network", "warn", "No internet", settings_tab="System")
-    except Exception as exc:
-        return CheckResult("Network", "error", str(exc), settings_tab="System")
+    def _check() -> CheckResult:
+        try:
+            import socket as _sock
+            s = _sock.create_connection(("1.1.1.1", 53), timeout=2)
+            s.close()
+            return CheckResult("Network", "ok", "Connected", settings_tab="System")
+        except OSError:
+            return CheckResult("Network", "warn", "No internet", settings_tab="System")
+        except Exception as exc:
+            return CheckResult("Network", "error", str(exc), settings_tab="System")
+
+    return _cached_probe("network", _check)
 
 
 def check_logging() -> CheckResult:
@@ -688,31 +796,108 @@ HEAVY_CHECKS = [
 ]
 
 
+_RESULT_ORDER = {
+    "Ollama": 0,
+    "Model": 1,
+    "Cloud API": 2,
+    "Tunnel": 4,
+    "Gmail OAuth": 5,
+    "Calendar OAuth": 6,
+    "X OAuth": 7,
+    "GitHub": 8,
+    "Workflows": 9,
+    "Knowledge": 10,
+    "Dream Cycle": 11,
+    "TTS": 12,
+    "Wiki Vault": 13,
+    "Logging": 14,
+    "Disk": 15,
+    "Threads DB": 16,
+    "FAISS Index": 17,
+    "Documents": 18,
+    "Search": 19,
+    "Skills": 20,
+    "Tracker": 21,
+    "Buddy": 22,
+    "MCP": 23,
+    "Plugins": 24,
+    "Network": 25,
+    "Tools": 26,
+}
+
+
+def status_result_order_key(result: CheckResult) -> tuple[float, str]:
+    """Return a stable display key matching the registry order."""
+    return (_RESULT_ORDER.get(result.name, 3.0), result.name)
+
+
+def order_status_results(results: list[CheckResult]) -> list[CheckResult]:
+    return sorted(results, key=status_result_order_key)
+
+
+def _run_checks(checks: list[Callable[[], CheckResult | list[CheckResult]]], *, kind: str) -> list[CheckResult]:
+    results: list[CheckResult] = []
+    for fn in checks:
+        results.extend(_run_timed_check(fn, kind=kind))
+    return results
+
+
+def _run_checks_concurrently(
+    checks: list[Callable[[], CheckResult | list[CheckResult]]],
+    *,
+    kind: str,
+    max_workers: int = _HEAVY_CHECK_WORKERS,
+    timeout_seconds: float = _HEAVY_CHECK_TIMEOUT_SECONDS,
+) -> list[CheckResult]:
+    results_by_index: dict[int, list[CheckResult]] = {}
+    executor = ThreadPoolExecutor(max_workers=max(1, int(max_workers)))
+    futures = {
+        index: executor.submit(_run_timed_check, fn, kind=kind)
+        for index, fn in enumerate(checks)
+    }
+    try:
+        for index, future in futures.items():
+            fn = checks[index]
+            try:
+                results_by_index[index] = future.result(timeout=timeout_seconds)
+            except TimeoutError:
+                log_ui_perf(
+                    f"home.status_check.{fn.__name__}.timeout",
+                    timeout_seconds * 1000.0,
+                    threshold_ms=350.0,
+                    check=fn.__name__,
+                    kind=kind,
+                    timeout=True,
+                    results=1,
+                )
+                results_by_index[index] = [
+                    CheckResult(fn.__name__, "warn", f"Timed out after {timeout_seconds:.0f}s")
+                ]
+            except Exception as exc:
+                results_by_index[index] = [CheckResult(fn.__name__, "error", str(exc))]
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+    results: list[CheckResult] = []
+    for index in range(len(checks)):
+        results.extend(results_by_index.get(index, []))
+    return results
+
+
 def run_all_checks() -> list[CheckResult]:
     """Run every registered check and return results."""
-    results = []
-    for fn in ALL_CHECKS:
-        try:
-            result = fn()
-            if isinstance(result, list):
-                results.extend(result)
-            else:
-                results.append(result)
-        except Exception as exc:
-            results.append(CheckResult(fn.__name__, "error", str(exc)))
-    return results
+    return _run_checks(ALL_CHECKS, kind="full")
 
 
 def run_light_checks() -> list[CheckResult]:
     """Run only lightweight (instant) checks."""
-    results = []
-    for fn in LIGHT_CHECKS:
-        try:
-            result = fn()
-            if isinstance(result, list):
-                results.extend(result)
-            else:
-                results.append(result)
-        except Exception as exc:
-            results.append(CheckResult(fn.__name__, "error", str(exc)))
-    return results
+    return _run_checks(LIGHT_CHECKS, kind="light")
+
+
+def run_heavy_checks(*, live_ollama_probe: bool = True) -> list[CheckResult]:
+    """Run heavier status checks with bounded concurrency."""
+    checks = [
+        _routine_check_ollama if fn is check_ollama and not live_ollama_probe else fn
+        for fn in HEAVY_CHECKS
+    ]
+    return _run_checks_concurrently(checks, kind="heavy")

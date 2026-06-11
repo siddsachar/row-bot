@@ -72,7 +72,20 @@ class ChatCodexResponses(BaseChatModel):
         tool_index = 0
         started = time.perf_counter()
         first_delta_logged = False
-        logger.info("codex_sse: stream start model=%s", self.model_name)
+        try:
+            from row_bot.agent import get_active_runtime_context
+
+            runtime_context = get_active_runtime_context()
+        except Exception:
+            runtime_context = {}
+        thread_id = str(runtime_context.get("thread_id") or "")
+        generation_id = str(runtime_context.get("generation_id") or "")
+        logger.info(
+            "codex_sse: stream start model=%s thread_id=%s generation_id=%s",
+            self.model_name,
+            thread_id,
+            generation_id,
+        )
         for event in self._iter_response_events(body):
             event_type = event.get("type")
             if event_type == "response.output_text.delta":
@@ -81,7 +94,12 @@ class ChatCodexResponses(BaseChatModel):
                     continue
                 if not first_delta_logged:
                     first_delta_logged = True
-                    logger.info("codex_sse: first delta after %.3fs", time.perf_counter() - started)
+                    logger.info(
+                        "codex_sse: first delta after %.3fs thread_id=%s generation_id=%s",
+                        time.perf_counter() - started,
+                        thread_id,
+                        generation_id,
+                    )
                 saw_text_delta = True
                 chunk = ChatGenerationChunk(message=AIMessageChunk(content=delta))
                 if run_manager:
@@ -106,7 +124,12 @@ class ChatCodexResponses(BaseChatModel):
                     if run_manager:
                         run_manager.on_llm_new_token(text, chunk=chunk)
                     yield chunk
-        logger.info("codex_sse: stream complete after %.3fs", time.perf_counter() - started)
+        logger.info(
+            "codex_sse: stream complete after %.3fs thread_id=%s generation_id=%s",
+            time.perf_counter() - started,
+            thread_id,
+            generation_id,
+        )
         yield ChatGenerationChunk(message=AIMessageChunk(content="", chunk_position="last"))
 
     def _request_events(self, messages: list[BaseMessage], **kwargs: Any) -> list[dict[str, Any]]:

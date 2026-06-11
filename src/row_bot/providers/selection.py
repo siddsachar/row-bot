@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 from typing import Any, Iterable
 
 from row_bot.providers.capabilities import snapshot_supports_surface
@@ -434,7 +435,15 @@ def list_model_choice_options(
     *,
     include_values: Iterable[str] | None = None,
     include_inactive: bool = False,
-) -> list[dict[str, Any]]:
+    return_diagnostics: bool = False,
+) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], dict[str, Any]]:
+    started = time.perf_counter()
+    include_values_list = list(include_values or [])
+    diagnostics: dict[str, Any] = {
+        "surface": surface,
+        "include_inactive": include_inactive,
+        "include_values_count": len(include_values_list),
+    }
     options: list[dict[str, Any]] = []
     seen: set[str] = set()
 
@@ -447,7 +456,23 @@ def list_model_choice_options(
         seen.add(value)
         options.append(option)
 
-    for choice in list_quick_choices(surface, include_inactive=include_inactive):
+    quick_started = time.perf_counter()
+    quick_result = list_quick_choices(
+        surface,
+        include_inactive=include_inactive,
+        return_diagnostics=return_diagnostics,
+    )
+    if return_diagnostics:
+        quick_choices, quick_diagnostics = quick_result
+        diagnostics.update({
+            f"quick_choices_{key}": value
+            for key, value in quick_diagnostics.items()
+        })
+    else:
+        quick_choices = quick_result
+    diagnostics["quick_choices_ms"] = (time.perf_counter() - quick_started) * 1000.0
+    option_build_started = time.perf_counter()
+    for choice in quick_choices:
         if choice.get("kind") != "model" or not choice.get("model_id"):
             continue
         provider_id = str(choice.get("provider_id") or infer_provider_id(str(choice.get("model_id") or "")) or "local")
@@ -469,13 +494,18 @@ def list_model_choice_options(
             "reason": str(choice.get("inactive_reason") or ""),
         })
 
-    for value in include_values or []:
+    for value in include_values_list:
         add_option(_model_choice_option_for_value(
             str(value or ""),
             surface=surface,
             include_inactive=include_inactive,
         ))
 
+    diagnostics["option_build_ms"] = (time.perf_counter() - option_build_started) * 1000.0
+    diagnostics["total_ms"] = (time.perf_counter() - started) * 1000.0
+    diagnostics["options"] = len(options)
+    if return_diagnostics:
+        return options, diagnostics
     return options
 
 
@@ -534,18 +564,42 @@ def _quick_choice_for_model(
     }
 
 
-def _surface_inactive_reason(choice: dict[str, Any], surface: str) -> str:
+def _provider_status_for_picker(provider_id: str, diagnostics: dict[str, Any] | None = None) -> dict[str, Any]:
+    cache = None
+    if diagnostics is not None:
+        cache = diagnostics.setdefault("_provider_status_cache", {})
+        if provider_id in cache:
+            return dict(cache[provider_id])
+    started = time.perf_counter()
+    try:
+        from row_bot.providers.runtime import provider_status
+
+        try:
+            status = dict(provider_status(provider_id, refresh_tokens=False) or {})
+        except TypeError:
+            status = dict(provider_status(provider_id) or {})
+    finally:
+        if diagnostics is not None:
+            diagnostics["provider_status_ms"] = diagnostics.get("provider_status_ms", 0.0) + (
+                time.perf_counter() - started
+            ) * 1000.0
+            diagnostics["provider_status_calls"] = diagnostics.get("provider_status_calls", 0) + 1
+            diagnostics["provider_status_refresh_tokens"] = False
+    if cache is not None:
+        cache[provider_id] = dict(status)
+    return status
+
+
+def _surface_inactive_reason(choice: dict[str, Any], surface: str, diagnostics: dict[str, Any] | None = None) -> str:
     if choice.get("provider_id") == "codex":
         try:
-            from row_bot.providers.runtime import provider_status
-            if not provider_status("codex").get("runtime_enabled"):
+            if not _provider_status_for_picker("codex", diagnostics).get("runtime_enabled"):
                 return "Codex account is connected, but direct chat runtime is not enabled yet."
         except Exception:
             return "Codex direct chat runtime is not enabled yet."
     if choice.get("provider_id") == "claude_subscription":
         try:
-            from row_bot.providers.runtime import provider_status
-            if not provider_status("claude_subscription").get("runtime_enabled"):
+            if not _provider_status_for_picker("claude_subscription", diagnostics).get("runtime_enabled"):
                 return "Claude Subscription runtime needs a Row-Bot OAuth connection."
         except Exception:
             return "Claude Subscription runtime is not enabled yet."
@@ -557,9 +611,9 @@ def _surface_inactive_reason(choice: dict[str, Any], surface: str) -> str:
     return ""
 
 
-def _annotated_choice(choice: dict[str, Any], surface: str) -> dict[str, Any]:
+def _annotated_choice(choice: dict[str, Any], surface: str, diagnostics: dict[str, Any] | None = None) -> dict[str, Any]:
     annotated = dict(choice)
-    reason = _surface_inactive_reason(choice, surface)
+    reason = _surface_inactive_reason(choice, surface, diagnostics)
     annotated["active"] = not bool(reason)
     annotated["inactive_reason"] = reason
     return annotated
@@ -768,10 +822,16 @@ def seed_configured_media_quick_choices() -> list[dict[str, Any]]:
     return quick
 
 
-def _choice_matches_surface(choice: dict[str, Any], surface: str, *, include_inactive: bool = False) -> bool:
+def _choice_matches_surface(
+    choice: dict[str, Any],
+    surface: str,
+    *,
+    include_inactive: bool = False,
+    diagnostics: dict[str, Any] | None = None,
+) -> bool:
     visibility = choice.get("visibility")
     supports_surface = snapshot_supports_surface(choice.get("capabilities_snapshot"), surface)
-    inactive_reason = _surface_inactive_reason(choice, surface)
+    inactive_reason = _surface_inactive_reason(choice, surface, diagnostics)
     if inactive_reason and not include_inactive:
         return False
     if surface and isinstance(visibility, list) and surface not in visibility:
@@ -982,14 +1042,35 @@ def deactivate_quick_choice_for_error(
     return deactivate_quick_choice(ref, model_id=model_id, provider_id=provider_id, surface=surface, reason=reason)
 
 
-def list_quick_choices(surface: str = "chat", *, include_routes: bool = False, include_inactive: bool = False) -> list[dict[str, Any]]:
+def list_quick_choices(
+    surface: str = "chat",
+    *,
+    include_routes: bool = False,
+    include_inactive: bool = False,
+    return_diagnostics: bool = False,
+) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], dict[str, Any]]:
+    started = time.perf_counter()
+    diagnostics: dict[str, Any] = {
+        "surface": surface,
+        "include_routes": include_routes,
+        "include_inactive": include_inactive,
+        "provider_status_ms": 0.0,
+        "provider_status_calls": 0,
+    }
+    migrate_started = time.perf_counter()
     migrate_legacy_starred_models()
+    diagnostics["migrate_ms"] = (time.perf_counter() - migrate_started) * 1000.0
+    validate_started = time.perf_counter()
     quick = validate_quick_choices_for_surface(surface)
+    diagnostics["validate_ms"] = (time.perf_counter() - validate_started) * 1000.0
+    annotate_started = time.perf_counter()
     choices = [
-        _annotated_choice(choice, surface) for choice in quick
-        if isinstance(choice, dict) and _choice_matches_surface(choice, surface, include_inactive=include_inactive)
+        _annotated_choice(choice, surface, diagnostics) for choice in quick
+        if isinstance(choice, dict) and _choice_matches_surface(choice, surface, include_inactive=include_inactive, diagnostics=diagnostics)
     ]
+    diagnostics["annotate_ms"] = (time.perf_counter() - annotate_started) * 1000.0
     if include_routes:
+        routes_started = time.perf_counter()
         cfg = load_provider_config()
         for route in cfg.get("routes", []):
             if isinstance(route, dict) and route.get("enabled"):
@@ -1006,7 +1087,14 @@ def list_quick_choices(surface: str = "chat", *, include_routes: bool = False, i
                     "active": False,
                     "inactive_reason": "Routing execution is configured but not enabled until the routing phase.",
                 })
-    return sorted(choices, key=lambda c: (int(c.get("order", 1000)), str(c.get("display_name") or c.get("id"))))
+        diagnostics["routes_ms"] = (time.perf_counter() - routes_started) * 1000.0
+    sorted_choices = sorted(choices, key=lambda c: (int(c.get("order", 1000)), str(c.get("display_name") or c.get("id"))))
+    diagnostics["total_ms"] = (time.perf_counter() - started) * 1000.0
+    diagnostics["choices"] = len(sorted_choices)
+    diagnostics.pop("_provider_status_cache", None)
+    if return_diagnostics:
+        return sorted_choices, diagnostics
+    return sorted_choices
 
 
 def grouped_quick_choices(

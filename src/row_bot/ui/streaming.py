@@ -51,6 +51,10 @@ from row_bot.voice.speech_policy import make_speakable_response, user_requested_
 
 logger = logging.getLogger(__name__)
 
+STREAM_RENDER_MIN_INTERVAL_SECONDS = 0.075
+STREAM_RENDER_MIN_CHARS = 64
+STREAM_RENDER_MAX_INTERVAL_SECONDS = 0.25
+
 
 def _client_is_live(client: Any) -> bool:
     if client is None or getattr(client, "_deleted", False):
@@ -196,6 +200,65 @@ def _spill_excess_captured_images(gen: GenerationState) -> None:
 def _format_assistant_markdown(text: str) -> str:
     """Normalise assistant markdown before rendering in streaming UI."""
     return autolink_urls(_auto_fence_mermaid(text or ""))
+
+
+class LiveMarkdownBatcher:
+    """Coalesce live markdown renders without changing accumulated text."""
+
+    def __init__(
+        self,
+        render: Callable[[str], None],
+        *,
+        formatter: Callable[[str], str] | None = None,
+        now: Callable[[], float] = time.perf_counter,
+        min_interval_seconds: float = STREAM_RENDER_MIN_INTERVAL_SECONDS,
+        min_chars: int = STREAM_RENDER_MIN_CHARS,
+        max_interval_seconds: float = STREAM_RENDER_MAX_INTERVAL_SECONDS,
+    ) -> None:
+        self._render = render
+        self._formatter = formatter or (lambda value: value)
+        self._now = now
+        self._min_interval_seconds = max(0.0, float(min_interval_seconds))
+        self._min_chars = max(1, int(min_chars))
+        self._max_interval_seconds = max(self._min_interval_seconds, float(max_interval_seconds))
+        self._content = ""
+        self._dirty = False
+        self._has_rendered = False
+        self._last_rendered_len = 0
+        self._last_render_at = 0.0
+        self.flush_count = 0
+
+    def update(self, content: str, *, force: bool = False) -> bool:
+        self._content = str(content or "")
+        self._dirty = True
+        return self.flush(force=force)
+
+    def flush(self, *, force: bool = False) -> bool:
+        if not self._dirty:
+            return False
+        now = self._now()
+        if not force and not self._should_flush(now):
+            return False
+        self._render(self._formatter(self._content))
+        self._dirty = False
+        self._has_rendered = True
+        self._last_rendered_len = len(self._content)
+        self._last_render_at = now
+        self.flush_count += 1
+        return True
+
+    def _should_flush(self, now: float) -> bool:
+        if self._content and not self._has_rendered:
+            return True
+        if not self._has_rendered:
+            return False
+        added_chars = abs(len(self._content) - self._last_rendered_len)
+        elapsed = max(0.0, now - self._last_render_at)
+        return (
+            added_chars >= self._min_chars
+            or (added_chars > 0 and elapsed >= self._min_interval_seconds)
+            or elapsed >= self._max_interval_seconds
+        )
 
 
 def _img_data_uri(b64: str) -> str:
@@ -556,9 +619,13 @@ async def consume_generation(
     _drain_deadline = 0.0
     _last_buddy_token_at = 0.0
     _consume_started = time.perf_counter()
+    if not gen.generation_id:
+        gen.generation_id = f"{gen.thread_id}:{id(gen)}"
     _stream_updates = 0
+    _answer_stream_updates = 0
+    _thinking_stream_updates = 0
 
-    generation_scope_id = f"{gen.thread_id}:{id(gen)}"
+    generation_scope_id = gen.generation_id
     realtime_chunker = None
     realtime_speech_queue = None
     if gen.voice_mode and state.voice_coordinator.transport == "realtime":
@@ -807,6 +874,80 @@ async def consume_generation(
         except Exception:
             logger.debug("Buddy event emit failed", exc_info=True)
 
+    def _render_answer_content(content: str) -> None:
+        if gen.assistant_md:
+            gen.assistant_md.set_content(content)
+
+    answer_batcher = LiveMarkdownBatcher(
+        _render_answer_content,
+        formatter=_format_assistant_markdown,
+        now=time.perf_counter,
+    )
+
+    def _render_thinking_content(content: str) -> None:
+        if gen.thinking_label:
+            gen.thinking_label.delete()
+            gen.thinking_label = None
+        if gen.thinking_collapsed:
+            if gen.thinking_code:
+                gen.thinking_code.set_content(str(content or "").strip()[:8_000])
+            return
+        if gen.thinking_md is None and gen.wrapper:
+            with gen.wrapper:
+                gen.thinking_md = ui.markdown(
+                    "", extras=["code-friendly", "fenced-code-blocks"]
+                ).classes("row-bot-msg w-full").style(
+                    "opacity: 0.55; font-size: 0.88rem; font-style: italic;"
+                )
+        if gen.thinking_md and not gen.thinking_collapsed:
+            gen.thinking_md.set_content(content)
+
+    thinking_batcher = LiveMarkdownBatcher(_render_thinking_content, now=time.perf_counter)
+
+    def _update_answer_render(reason: str, *, force: bool = False) -> bool:
+        if gen.detached or not gen.assistant_md:
+            return False
+        try:
+            return answer_batcher.update(gen.accumulated, force=force)
+        except Exception as exc:
+            _handle_ui_runtime_error(gen, state, exc, reason)
+            logger.debug("%s failed", reason, exc_info=True)
+            return False
+
+    def _flush_answer_render(reason: str, *, force: bool = False) -> bool:
+        if gen.detached or not gen.assistant_md:
+            return False
+        try:
+            return answer_batcher.flush(force=force)
+        except Exception as exc:
+            _handle_ui_runtime_error(gen, state, exc, reason)
+            logger.debug("%s failed", reason, exc_info=True)
+            return False
+
+    def _update_thinking_render(reason: str, *, force: bool = False) -> bool:
+        if gen.detached:
+            return False
+        try:
+            return thinking_batcher.update(gen.thinking_text, force=force)
+        except Exception as exc:
+            _handle_ui_runtime_error(gen, state, exc, reason)
+            logger.debug("%s failed", reason, exc_info=True)
+            return False
+
+    def _flush_thinking_render(reason: str, *, force: bool = False) -> bool:
+        if gen.detached:
+            return False
+        try:
+            return thinking_batcher.flush(force=force)
+        except Exception as exc:
+            _handle_ui_runtime_error(gen, state, exc, reason)
+            logger.debug("%s failed", reason, exc_info=True)
+            return False
+
+    def _flush_live_renders(reason: str, *, force: bool = False) -> None:
+        _flush_answer_render(f"{reason} answer render", force=force)
+        _flush_thinking_render(f"{reason} thinking render", force=force)
+
     _buddy(BuddyEventType.GENERATION_STARTED, "Thinking")
     _set_realtime_generation_state("thinking", detail="generation_started")
     _voice_diag("generation_consumer_started")
@@ -832,7 +973,7 @@ async def consume_generation(
                         gen.thinking_md = None
                     if gen.assistant_md:
                         gen.assistant_md.set_visibility(True)
-                        gen.assistant_md.set_content(_format_assistant_markdown(gen.accumulated))
+                        _update_answer_render("stop-handling answer render", force=True)
                 except Exception as exc:
                     _handle_ui_runtime_error(gen, state, exc, "stop-handling UI cleanup")
                     logger.debug("Stop-handling UI cleanup failed", exc_info=True)
@@ -845,6 +986,9 @@ async def consume_generation(
         try:
             event = gen.q.get_nowait()
         except queue.Empty:
+            _empty_wait_started = time.perf_counter()
+            if not gen.detached:
+                _flush_live_renders("queue-empty live render")
             if gen.voice_mode and state.voice_coordinator.transport == "realtime":
                 if not _flush_realtime_speech_queue("queue_empty"):
                     _maybe_speak_realtime_progress("queue_empty")
@@ -860,6 +1004,7 @@ async def consume_generation(
                     generation_elapsed=elapsed,
                 )
             await asyncio.sleep(0.05)
+            gen.queue_empty_wait_ms += (time.perf_counter() - _empty_wait_started) * 1000.0
             continue
 
         if event is None:
@@ -869,6 +1014,11 @@ async def consume_generation(
             continue
 
         event_type, payload = event
+        event_seen_at = time.perf_counter()
+        if not gen.first_producer_event_at:
+            gen.first_producer_event_at = event_seen_at
+        if event_type == "done" and not gen.done_event_at:
+            gen.done_event_at = event_seen_at
         _break_loop = False
         if not gen.detached:
             _detach_if_ui_client_deleted(gen, state, f"before {event_type} UI update")
@@ -882,18 +1032,24 @@ async def consume_generation(
             )
         ):
             gen.first_content = True
+            if not gen.first_answer_token_at:
+                gen.first_answer_token_at = event_seen_at
             if not gen.detached:
                 try:
                     if gen.thinking_label:
                         gen.thinking_label.delete()
                         gen.thinking_label = None
                     if gen.thinking_text and not gen.thinking_collapsed:
+                        _flush_thinking_render("first-content thinking render", force=True)
                         _render_thinking_collapse(gen)
                     if gen.assistant_md:
                         gen.assistant_md.set_visibility(True)
                 except Exception as exc:
                     _handle_ui_runtime_error(gen, state, exc, "first-content transition")
                     logger.error("Error rendering thinking collapse", exc_info=True)
+
+        if event_type in {"error", "tool_call", "tool_done", "summarizing", "interrupt", "done"}:
+            _flush_live_renders(f"{event_type} boundary", force=True)
 
         if event_type == "error":
             _buddy(BuddyEventType.GENERATION_ERROR, "Error", error=str(payload)[:500])
@@ -909,7 +1065,7 @@ async def consume_generation(
                         gen.thinking_label.delete()
                     if gen.assistant_md:
                         gen.assistant_md.set_visibility(True)
-                        gen.assistant_md.set_content(_format_assistant_markdown(gen.accumulated))
+                        _update_answer_render("error-event answer render", force=True)
                 except Exception as exc:
                     _handle_ui_runtime_error(gen, state, exc, "error-event cleanup")
                     logger.debug("Error-event UI cleanup failed", exc_info=True)
@@ -1009,26 +1165,9 @@ async def consume_generation(
             _buddy(BuddyEventType.THINKING, "Reasoning")
             gen.thinking_text += payload
             _stream_updates += 1
+            _thinking_stream_updates += 1
             if not gen.detached:
-                try:
-                    if gen.thinking_label:
-                        gen.thinking_label.delete()
-                        gen.thinking_label = None
-                    if gen.thinking_collapsed:
-                        if gen.thinking_code:
-                            gen.thinking_code.set_content(gen.thinking_text.strip()[:8_000])
-                    elif gen.thinking_md is None and gen.wrapper:
-                        with gen.wrapper:
-                            gen.thinking_md = ui.markdown(
-                                "", extras=["code-friendly", "fenced-code-blocks"]
-                            ).classes("row-bot-msg w-full").style(
-                                "opacity: 0.55; font-size: 0.88rem; font-style: italic;"
-                            )
-                    if gen.thinking_md and not gen.thinking_collapsed:
-                        gen.thinking_md.set_content(gen.thinking_text)
-                except Exception as exc:
-                    _handle_ui_runtime_error(gen, state, exc, "thinking-token rendering")
-                    logger.debug("Thinking-token rendering failed", exc_info=True)
+                _update_thinking_render("thinking-token rendering")
 
         elif event_type == "token":
             if not str(payload or "").strip() and not str(gen.accumulated or "").strip():
@@ -1038,17 +1177,14 @@ async def consume_generation(
                 if gen.voice_mode and state.voice_coordinator.transport == "realtime":
                     state.voice_coordinator.mark_realtime_latency("first_token")
             _stream_updates += 1
+            _answer_stream_updates += 1
             _now = asyncio.get_event_loop().time()
             if _now - _last_buddy_token_at > 0.8:
                 _last_buddy_token_at = _now
                 _buddy(BuddyEventType.TOKEN, "Writing")
             gen.accumulated += payload
             if not gen.detached and gen.assistant_md:
-                try:
-                    gen.assistant_md.set_content(_format_assistant_markdown(gen.accumulated))
-                except Exception as exc:
-                    _handle_ui_runtime_error(gen, state, exc, "token content update")
-                    logger.debug("Token content update failed", exc_info=True)
+                _update_answer_render("token content update")
 
             realtime_tts = gen.tts_active and state.voice_coordinator.transport == "realtime"
             if realtime_tts:
@@ -1116,13 +1252,14 @@ async def consume_generation(
                         gen.thinking_label.delete()
                         gen.thinking_label = None
                     if gen.thinking_text and not gen.thinking_collapsed:
+                        _flush_thinking_render("done-event thinking render", force=True)
                         _render_thinking_collapse(gen)
                     elif gen.thinking_md and gen.thinking_expansion:
                         gen.thinking_md.delete()
                         gen.thinking_md = None
                     if gen.assistant_md:
                         gen.assistant_md.set_visibility(True)
-                        gen.assistant_md.set_content(_format_assistant_markdown(gen.accumulated))
+                        _update_answer_render("done-event answer render", force=True)
                 except Exception as exc:
                     _handle_ui_runtime_error(gen, state, exc, "done-event finalization")
                     logger.debug("Done-event UI finalization failed", exc_info=True)
@@ -1137,12 +1274,14 @@ async def consume_generation(
     if gen.status == "streaming":
         gen.status = "done"
     _voice_diag("generation_finalizing")
+    _finalization_started = time.perf_counter()
 
     try:
         if not gen.detached:
             _detach_if_ui_client_deleted(gen, state, "post-stream finalization")
 
         if not gen.detached:
+            _flush_live_renders("post-stream finalization", force=True)
             if gen.tts_active and gen.status == "done":
                 if (
                     state.voice_coordinator.transport == "realtime"
@@ -1386,15 +1525,73 @@ async def consume_generation(
                 )
             )
 
+    gen.consumer_finalized_at = time.perf_counter()
+    gen.finalization_ms = (gen.consumer_finalized_at - _finalization_started) * 1000.0
+    if gen.producer_thread_started_at and gen.first_producer_event_at:
+        gen.producer_wait_ms = max(
+            0.0,
+            (gen.first_producer_event_at - gen.producer_thread_started_at) * 1000.0,
+        )
+    _lifecycle_elapsed_ms = (gen.consumer_finalized_at - (gen.created_at or _consume_started)) * 1000.0
+    _first_event_ms = (
+        max(0.0, (gen.first_producer_event_at - gen.created_at) * 1000.0)
+        if gen.first_producer_event_at and gen.created_at
+        else None
+    )
+    _first_answer_token_ms = (
+        max(0.0, (gen.first_answer_token_at - gen.created_at) * 1000.0)
+        if gen.first_answer_token_at and gen.created_at
+        else None
+    )
+    _done_event_ms = (
+        max(0.0, (gen.done_event_at - gen.created_at) * 1000.0)
+        if gen.done_event_at and gen.created_at
+        else None
+    )
+    log_ui_perf(
+        "generation.lifecycle",
+        _lifecycle_elapsed_ms,
+        threshold_ms=1000.0,
+        thread_id=gen.thread_id,
+        generation_id=gen.generation_id,
+        status=gen.status,
+        detached=gen.detached,
+        producer_wait_ms=round(gen.producer_wait_ms, 1),
+        queue_empty_wait_ms=round(gen.queue_empty_wait_ms, 1),
+        first_producer_event_ms=round(_first_event_ms, 1) if _first_event_ms is not None else None,
+        first_answer_token_ms=round(_first_answer_token_ms, 1) if _first_answer_token_ms is not None else None,
+        done_event_ms=round(_done_event_ms, 1) if _done_event_ms is not None else None,
+        finalization_ms=round(gen.finalization_ms, 1),
+        stream_updates=_stream_updates,
+        answer_stream_updates=_answer_stream_updates,
+        thinking_stream_updates=_thinking_stream_updates,
+        ui_flushes=answer_batcher.flush_count,
+        thinking_ui_flushes=thinking_batcher.flush_count,
+        answer_chars=len(gen.accumulated or ""),
+        low_ui_flush_count=answer_batcher.flush_count <= 4,
+    )
+
     log_ui_perf(
         "streaming.consume_generation",
         (time.perf_counter() - _consume_started) * 1000.0,
         rows=_stream_updates,
+        stream_updates=_stream_updates,
+        answer_stream_updates=_answer_stream_updates,
+        thinking_stream_updates=_thinking_stream_updates,
+        ui_flushes=answer_batcher.flush_count,
+        thinking_ui_flushes=thinking_batcher.flush_count,
         thread_id=gen.thread_id,
+        generation_id=gen.generation_id,
         status=gen.status,
         detached=gen.detached,
+        producer_wait_ms=round(gen.producer_wait_ms, 1),
+        queue_empty_wait_ms=round(gen.queue_empty_wait_ms, 1),
+        first_answer_token_ms=round(_first_answer_token_ms, 1) if _first_answer_token_ms is not None else None,
+        finalization_ms=round(gen.finalization_ms, 1),
         thinking_chars=len(gen.thinking_text or ""),
         answer_chars=len(gen.accumulated or ""),
+        chars_per_stream_update=round(len(gen.accumulated or "") / max(1, _answer_stream_updates), 3),
+        chars_per_ui_flush=round(len(gen.accumulated or "") / max(1, answer_batcher.flush_count), 3),
     )
 
 
@@ -1927,6 +2124,7 @@ async def send_message(
     is_designer = bool(getattr(state, "active_designer_project", None))
     runtime_surface = "developer" if is_developer else "designer" if is_designer else "normal_chat"
     runtime_mode = "agent" if is_developer or is_designer else "auto"
+    generation_id = f"{gen_thread_id}:{uuid.uuid4().hex[:12]}"
     if runtime_mode == "agent":
         from row_bot.models import get_current_model
 
@@ -1938,6 +2136,7 @@ async def send_message(
             "thread_id": gen_thread_id,
             "runtime_surface": runtime_surface,
             "runtime_mode": runtime_mode,
+            "generation_id": generation_id,
             "approval_mode": _thread_approval_mode,
             **({"model_override": _thread_mo} if _thread_mo else {}),
             **({"developer_workspace_id": state.active_developer_workspace_id} if getattr(state, "active_developer_workspace_id", None) else {}),
@@ -1971,6 +2170,7 @@ async def send_message(
         stop_event=stop_ev,
         config=config,
         enabled_tools=enabled_tools,
+        generation_id=generation_id,
         voice_mode=voice_mode,
         tts_active=voice_mode and (state.tts_service.enabled or state.voice_coordinator.transport == "realtime"),
         tts_allow_long=voice_mode and user_requested_read_aloud(text),
@@ -2008,6 +2208,7 @@ async def send_message(
 
     # ── Start producer thread ────────────────────────────────────────
     def _sync_stream():
+        gen.producer_thread_started_at = time.perf_counter()
         first_event_logged = False
         try:
             if voice_mode or state.voice_coordinator.transport == "realtime":
@@ -2024,6 +2225,20 @@ async def send_message(
                                    stop_event=stop_ev):
                 if stop_ev.is_set():
                     break
+                event_now = time.perf_counter()
+                if not gen.first_producer_event_at:
+                    gen.first_producer_event_at = event_now
+                if isinstance(ev, tuple) and ev:
+                    ev_type = ev[0]
+                    ev_payload = ev[1] if len(ev) > 1 else None
+                    if (
+                        not gen.first_answer_token_at
+                        and ev_type in {"token", "done"}
+                        and str(ev_payload or "").strip()
+                    ):
+                        gen.first_answer_token_at = event_now
+                    if ev_type == "done" and not gen.done_event_at:
+                        gen.done_event_at = event_now
                 if not first_event_logged and (voice_mode or state.voice_coordinator.transport == "realtime"):
                     first_event_logged = True
                     logger.info(
@@ -2143,11 +2358,13 @@ async def resume_after_interrupt(
     if not await _agent_ready_forced_surface(_thread_mo or get_current_model(), runtime_surface):
         return
     recursion_limit = recursion_limit_for_mode(is_developer=is_developer)
+    generation_id = f"{gen_thread_id}:{uuid.uuid4().hex[:12]}"
     config = {
         "configurable": {
             "thread_id": gen_thread_id,
             "runtime_surface": runtime_surface,
             "runtime_mode": "agent",
+            "generation_id": generation_id,
             "approval_mode": _thread_approval_mode,
             **({"model_override": _thread_mo} if _thread_mo else {}),
             **({"developer_workspace_id": state.active_developer_workspace_id} if getattr(state, "active_developer_workspace_id", None) else {}),
@@ -2173,6 +2390,7 @@ async def resume_after_interrupt(
         stop_event=stop_ev,
         config=config,
         enabled_tools=enabled_tools,
+        generation_id=generation_id,
     )
     _active_generations[gen_thread_id] = gen
 
@@ -2186,6 +2404,7 @@ async def resume_after_interrupt(
 
     # ── Start producer thread ────────────────────────────────────────
     def _sync_resume():
+        gen.producer_thread_started_at = time.perf_counter()
         try:
             for ev in resume_stream_agent(
                 enabled_tools, config, approved,
@@ -2194,6 +2413,20 @@ async def resume_after_interrupt(
             ):
                 if stop_ev.is_set():
                     break
+                event_now = time.perf_counter()
+                if not gen.first_producer_event_at:
+                    gen.first_producer_event_at = event_now
+                if isinstance(ev, tuple) and ev:
+                    ev_type = ev[0]
+                    ev_payload = ev[1] if len(ev) > 1 else None
+                    if (
+                        not gen.first_answer_token_at
+                        and ev_type in {"token", "done"}
+                        and str(ev_payload or "").strip()
+                    ):
+                        gen.first_answer_token_at = event_now
+                    if ev_type == "done" and not gen.done_event_at:
+                        gen.done_event_at = event_now
                 gen.q.put(ev)
         except Exception as exc:
             if not stop_ev.is_set():

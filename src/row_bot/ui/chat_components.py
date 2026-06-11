@@ -30,8 +30,10 @@ _model_picker_options_cache: dict[str, Any] = {
     "signature": None,
     "loaded_at": 0.0,
     "options": [],
+    "diagnostics": {},
 }
 _model_picker_options_refresh_task: asyncio.Task | None = None
+_model_picker_options_last_diagnostics: dict[str, Any] = {}
 _composer_css_added = False
 
 
@@ -201,14 +203,25 @@ def _copy_model_picker_options(options: list[dict[str, Any]]) -> list[dict[str, 
     return [dict(option) for option in options if isinstance(option, dict)]
 
 
-def _get_cached_model_picker_options() -> tuple[list[dict[str, Any]], bool] | None:
+def _get_cached_model_picker_options() -> tuple[list[dict[str, Any]], bool, dict[str, Any]] | None:
     options = _model_picker_options_cache.get("options")
     signature = _model_picker_options_cache.get("signature")
-    if not options or signature != _provider_config_signature():
+    current_signature = _provider_config_signature()
+    if not options or signature != current_signature:
         return None
     loaded_at = float(_model_picker_options_cache.get("loaded_at") or 0.0)
-    stale = (time.monotonic() - loaded_at) > _MODEL_PICKER_CACHE_TTL_SECONDS
-    return _copy_model_picker_options(options), stale
+    age_ms = max(0.0, (time.monotonic() - loaded_at) * 1000.0)
+    stale = age_ms > (_MODEL_PICKER_CACHE_TTL_SECONDS * 1000.0)
+    metadata = {
+        "cache_hit": True,
+        "cache_stale": stale,
+        "cache_age_ms": round(age_ms, 1),
+        "cache_signature_match": True,
+    }
+    diagnostics = _model_picker_options_cache.get("diagnostics")
+    if isinstance(diagnostics, dict):
+        metadata.update({f"cached_{key}": value for key, value in diagnostics.items()})
+    return _copy_model_picker_options(options), stale, metadata
 
 
 def _store_model_picker_options(options: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -217,14 +230,22 @@ def _store_model_picker_options(options: list[dict[str, Any]]) -> list[dict[str,
         "signature": _provider_config_signature(),
         "loaded_at": time.monotonic(),
         "options": copied,
+        "diagnostics": dict(_model_picker_options_last_diagnostics),
     })
     return _copy_model_picker_options(copied)
 
 
 def _load_model_picker_options_sync() -> list[dict[str, Any]]:
+    global _model_picker_options_last_diagnostics
     from row_bot.providers.selection import list_model_choice_options
 
-    return _copy_model_picker_options(list_model_choice_options("chat"))
+    result = list_model_choice_options("chat", return_diagnostics=True)
+    if isinstance(result, tuple):
+        options, diagnostics = result
+        _model_picker_options_last_diagnostics = dict(diagnostics)
+        return _copy_model_picker_options(options)
+    _model_picker_options_last_diagnostics = {}
+    return _copy_model_picker_options(result)
 
 
 async def _refresh_model_picker_options() -> list[dict[str, Any]]:
@@ -943,7 +964,7 @@ def _build_inline_model_picker(
     cached_options = _get_cached_model_picker_options()
     _cached_picker_stale = True
     if cached_options is not None:
-        _cached_options, _cached_picker_stale = cached_options
+        _cached_options, _cached_picker_stale, _cached_metadata = cached_options
         _merge_picker_options(_cached_options)
         log_ui_perf(
             "chat.model_picker.options.cache",
@@ -951,6 +972,7 @@ def _build_inline_model_picker(
             threshold_ms=500.0,
             options=len(_cached_options),
             stale=_cached_picker_stale,
+            **_cached_metadata,
         )
 
     async def _on_model_pick(e):
@@ -1026,11 +1048,15 @@ def _build_inline_model_picker(
             options_started = time.perf_counter()
             options = await _refresh_model_picker_options()
             options_elapsed_ms = (time.perf_counter() - options_started) * 1000.0
+            load_diagnostics = dict(_model_picker_options_last_diagnostics)
+            load_diagnostics.pop("options", None)
             log_ui_perf(
                 "chat.model_picker.options.load",
                 options_elapsed_ms,
                 threshold_ms=500.0,
                 options=len(options),
+                cache_hit=False,
+                **load_diagnostics,
             )
             if (
                 generation_getter is not None

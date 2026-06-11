@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from row_bot.providers.catalog import list_provider_definitions
+from row_bot.providers.models import ModelInfo
 from row_bot.providers.runtime import provider_status
 from row_bot.providers.selection import list_quick_choices
 
@@ -35,14 +36,95 @@ def _cached_model_stats(provider_id: str) -> dict[str, int]:
     return stats
 
 
+def _source_label_for_model_infos(infos: list[ModelInfo], fallback: str) -> str:
+    sources = sorted({str(info.source or "").strip() for info in infos if str(info.source or "").strip()})
+    return sources[0] if len(sources) == 1 else (fallback if sources else "")
+
+
+def _model_infos_stats(infos: list[ModelInfo], *, fallback_source: str) -> dict[str, object]:
+    stats: dict[str, object] = {
+        "model_count": len(infos),
+        "chat_count": 0,
+        "media_count": 0,
+        "model_count_source": _source_label_for_model_infos(infos, fallback_source),
+        "model_count_status": "known" if infos else "empty_verified",
+    }
+    for info in infos:
+        tasks = {str(task) for task in (info.tasks or frozenset()) if str(task)}
+        if tasks.intersection({"chat", "responses"}) or not tasks:
+            stats["chat_count"] = int(stats["chat_count"]) + 1
+        if tasks.intersection({"image_generation", "image_edit", "video_generation"}):
+            stats["media_count"] = int(stats["media_count"]) + 1
+    return stats
+
+
+def _provider_catalog_stats(provider_id: str) -> dict[str, object]:
+    try:
+        if provider_id == "codex":
+            from row_bot.providers.codex import list_codex_model_infos_for_status
+
+            return _model_infos_stats(
+                list_codex_model_infos_for_status(),
+                fallback_source="codex_status_catalog",
+            )
+        if provider_id == "claude_subscription":
+            from row_bot.providers.claude_subscription import list_claude_subscription_model_infos_for_status
+
+            return _model_infos_stats(
+                list_claude_subscription_model_infos_for_status(),
+                fallback_source="claude_subscription_status_catalog",
+            )
+    except Exception:
+        return {
+            "model_count": None,
+            "chat_count": 0,
+            "media_count": 0,
+            "model_count_source": "",
+            "model_count_status": "unavailable",
+        }
+    return {
+        "model_count": None,
+        "chat_count": 0,
+        "media_count": 0,
+        "model_count_source": "",
+        "model_count_status": "unknown",
+    }
+
+
 def provider_status_cards() -> list[dict]:
     cards: list[dict] = []
     for definition in list_provider_definitions():
         status = provider_status(definition.id)
         cache_stats = _cached_model_stats(definition.id)
+        catalog_stats = _provider_catalog_stats(definition.id)
         model_count = status.get("model_count")
+        model_count_source = str(status.get("model_count_source") or "")
+        model_count_status = str(status.get("model_count_status") or "")
+        chat_count = cache_stats["chat_count"]
+        media_count = cache_stats["media_count"]
         if model_count is None:
-            model_count = cache_stats["model_count"] or None
+            if cache_stats["model_count"]:
+                model_count = cache_stats["model_count"]
+                model_count_source = "cloud_cache"
+                model_count_status = "known"
+            elif catalog_stats.get("model_count") is not None:
+                model_count = catalog_stats.get("model_count")
+                model_count_source = str(catalog_stats.get("model_count_source") or "")
+                model_count_status = str(catalog_stats.get("model_count_status") or "")
+                chat_count = int(catalog_stats.get("chat_count") or 0)
+                media_count = int(catalog_stats.get("media_count") or 0)
+            else:
+                model_count = None
+                model_count_status = model_count_status or str(catalog_stats.get("model_count_status") or "unknown")
+        else:
+            try:
+                model_count = int(model_count)
+            except (TypeError, ValueError):
+                model_count = None
+                model_count_status = model_count_status or "unknown"
+            else:
+                model_count_status = model_count_status or ("empty_verified" if model_count == 0 else "known")
+                model_count_source = model_count_source or "runtime_status"
         cards.append({
             "provider_id": definition.id,
             "display_name": definition.display_name,
@@ -67,8 +149,10 @@ def provider_status_cards() -> list[dict]:
             "last_runtime_probe": dict(status.get("last_runtime_probe") or {}),
             "last_error": status.get("last_error") or "",
             "model_count": model_count,
-            "chat_count": cache_stats["chat_count"],
-            "media_count": cache_stats["media_count"],
+            "model_count_status": model_count_status or "unknown",
+            "model_count_source": model_count_source,
+            "chat_count": chat_count,
+            "media_count": media_count,
             "risk_label": definition.risk_label,
             "icon": definition.icon,
             "group": _provider_group(definition.id, definition.risk_label),
@@ -82,7 +166,12 @@ def summarize_providers() -> str:
         state = "configured" if card["configured"] else "not set"
         source = f" ({card['source']})" if card.get("source") else ""
         count_label = "local model(s)" if card.get("provider_id") == "ollama" else "catalog model(s)"
-        count = f", {card['model_count']} {count_label}" if card.get("model_count") is not None else ""
+        if card.get("model_count") is not None:
+            count = f", {card['model_count']} {count_label}"
+        elif card.get("configured") or card.get("runtime_enabled"):
+            count = ", catalog count unknown"
+        else:
+            count = ""
         extra = ""
         provider_id = str(card.get("provider_id") or "")
         if provider_id.startswith("custom_openai_"):

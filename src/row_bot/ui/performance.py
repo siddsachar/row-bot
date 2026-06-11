@@ -82,6 +82,50 @@ def warn_if_slow(
     return True
 
 
+def warn_if_many_components(
+    name: str,
+    components: int,
+    *,
+    limit: int = UI_COMPONENT_WARN_COUNT,
+    elapsed_ms: float | None = None,
+    **metadata: Any,
+) -> bool:
+    if components <= limit:
+        return False
+    fields = dict(metadata)
+    fields.update({
+        "components": components,
+        "component_warn_count": limit,
+    })
+    if elapsed_ms is not None:
+        fields["elapsed_ms"] = round(elapsed_ms, 1)
+    suffix = _metadata_string(fields)
+    logger.warning("ui perf component count high: %s%s%s", name, " " if suffix else "", suffix)
+    return True
+
+
+def warn_if_large_payload(
+    name: str,
+    payload_chars: int,
+    *,
+    limit: int = UI_PAYLOAD_WARN_CHARS,
+    elapsed_ms: float | None = None,
+    **metadata: Any,
+) -> bool:
+    if payload_chars <= limit:
+        return False
+    fields = dict(metadata)
+    fields.update({
+        "payload_chars": payload_chars,
+        "payload_warn_chars": limit,
+    })
+    if elapsed_ms is not None:
+        fields["elapsed_ms"] = round(elapsed_ms, 1)
+    suffix = _metadata_string(fields)
+    logger.warning("ui perf payload large: %s%s%s", name, " " if suffix else "", suffix)
+    return True
+
+
 def log_ui_perf(
     name: str,
     elapsed_ms: float,
@@ -107,20 +151,20 @@ def log_ui_perf(
     slow_threshold = threshold_ms if threshold_ms is not None else UI_DATA_WARN_MS
     warn_if_slow(name, elapsed_ms, threshold_ms=slow_threshold, **fields)
     if components is not None and components > UI_COMPONENT_WARN_COUNT:
-        warn_if_slow(
-            f"{name}.components",
-            elapsed_ms,
-            threshold_ms=0,
+        warn_if_many_components(
+            name,
             components=components,
             limit=UI_COMPONENT_WARN_COUNT,
+            elapsed_ms=elapsed_ms,
+            **{key: value for key, value in fields.items() if key != "components"},
         )
     if payload_chars is not None and payload_chars > UI_PAYLOAD_WARN_CHARS:
-        warn_if_slow(
-            f"{name}.payload",
-            elapsed_ms,
-            threshold_ms=0,
+        warn_if_large_payload(
+            name,
             payload_chars=payload_chars,
             limit=UI_PAYLOAD_WARN_CHARS,
+            elapsed_ms=elapsed_ms,
+            **{key: value for key, value in fields.items() if key != "payload_chars"},
         )
 
 

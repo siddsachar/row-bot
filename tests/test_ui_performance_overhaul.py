@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 
@@ -108,6 +109,54 @@ def test_graph_chat_and_streaming_are_instrumented() -> None:
     assert "event.stopPropagation()" in graph_src
     assert "chat.transcript.render" in chat_src
     assert "streaming.consume_generation" in streaming_src
+
+
+def test_fast_oversized_payload_logs_payload_warning_not_slow(monkeypatch, caplog) -> None:
+    import row_bot.stability as stability
+    import row_bot.ui.performance as perf
+
+    snapshots: list[str] = []
+    monkeypatch.setattr(stability, "log_performance_snapshot", lambda label: snapshots.append(label))
+
+    with caplog.at_level(logging.WARNING, logger="row_bot.ui.performance"):
+        perf.log_ui_perf(
+            "graph_panel.render",
+            11.2,
+            threshold_ms=1000.0,
+            payload_chars=356_930,
+        )
+
+    messages = [record.message for record in caplog.records]
+    assert any("ui perf payload large: graph_panel.render" in message for message in messages)
+    assert not any("ui perf slow: graph_panel.render.payload" in message for message in messages)
+    assert not any("threshold=0.0ms" in message for message in messages)
+    assert snapshots == []
+
+
+def test_slow_render_still_logs_slow_warning(monkeypatch, caplog) -> None:
+    import row_bot.stability as stability
+    import row_bot.ui.performance as perf
+
+    snapshots: list[str] = []
+    monkeypatch.setattr(stability, "log_performance_snapshot", lambda label: snapshots.append(label))
+
+    with caplog.at_level(logging.WARNING, logger="row_bot.ui.performance"):
+        perf.log_ui_perf("graph_panel.render", 1500.0, threshold_ms=1000.0, payload_chars=10)
+
+    messages = [record.message for record in caplog.records]
+    assert any("ui perf slow: graph_panel.render" in message for message in messages)
+    assert snapshots == ["ui-slow:graph_panel.render"]
+
+
+def test_fast_component_count_warning_is_not_slow(caplog) -> None:
+    import row_bot.ui.performance as perf
+
+    with caplog.at_level(logging.WARNING, logger="row_bot.ui.performance"):
+        perf.log_ui_perf("settings.render", 12.0, threshold_ms=1000.0, components=500)
+
+    messages = [record.message for record in caplog.records]
+    assert any("ui perf component count high: settings.render" in message for message in messages)
+    assert not any("ui perf slow: settings.render.components" in message for message in messages)
 
 
 def test_transcript_rendering_is_bounded_and_generation_safe() -> None:

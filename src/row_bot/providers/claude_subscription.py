@@ -1536,6 +1536,14 @@ def list_claude_subscription_model_infos(
     return fallback_claude_subscription_model_infos()
 
 
+def list_claude_subscription_model_infos_for_status() -> list[ModelInfo]:
+    """Return Claude subscription catalog metadata for status cards without live discovery."""
+    cached_infos = _load_catalog_cache()
+    if cached_infos:
+        return cached_infos
+    return fallback_claude_subscription_model_infos()
+
+
 def seed_recommended_claude_subscription_quick_choices(*, max_choices: int = 1) -> list[dict[str, Any]]:
     from row_bot.providers.config import load_provider_config
     from row_bot.providers.runtime import provider_status

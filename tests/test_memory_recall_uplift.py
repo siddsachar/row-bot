@@ -190,11 +190,27 @@ def test_memory_policy_skips_greetings_and_runtime_status(tmp_path, monkeypatch)
     kg, _mem, policy, _extraction = _fresh_memory_modules(tmp_path, monkeypatch)
     kg.save_entity("fact", "Rosebud Code", "The user's code word is rosebud.", source="test")
 
-    greeting = policy.build_auto_recall("hi", [], runtime_surface="agent")
+    greeting = policy.build_auto_recall(
+        "hi",
+        [],
+        thread_id="thread-1",
+        generation_id="gen-1",
+        runtime_surface="agent",
+        provider_id="codex",
+        model_ref="model:codex:gpt-5.5",
+    )
     runtime = policy.build_auto_recall("what model are you using?", [], runtime_surface="agent")
 
     assert greeting.allowed is False
     assert greeting.reason == "greeting_only"
+    assert greeting.trace["thread_id"] == "thread-1"
+    assert greeting.trace["generation_id"] == "gen-1"
+    assert greeting.trace["provider_id"] == "codex"
+    assert greeting.trace["model_ref"] == "model:codex:gpt-5.5"
+    assert greeting.trace["memory_recall.query_build_ms"] >= 0
+    assert greeting.trace["memory_recall.gating_ms"] >= 0
+    assert greeting.trace["memory_recall.total_ms"] >= 0
+    assert greeting.trace["memory_recall.retrieve_ms"] == 0
     assert runtime.allowed is False
     assert runtime.reason == "runtime_status_request"
 
@@ -300,7 +316,14 @@ def test_memory_policy_records_compact_recall_trace(tmp_path, monkeypatch):
         3,
         {
             "thread_id": "thread-1",
+            "generation_id": "gen-1",
             "runtime_surface": "agent",
+            "provider_id": "openai",
+            "model_ref": "model:openai:gpt-4o",
+            "memory_recall.total_pipeline_ms": 12.5,
+            "memory_recall.format_ms": 1.5,
+            "memory_recall.touch_ms": 0.25,
+            "timings_ms": {"query_build": 0.1, "gating": 0.2},
             "top_scores": [{"id": "mem1", "sources": ["keyword"], "final": 0.9}],
         },
     )
@@ -310,4 +333,9 @@ def test_memory_policy_records_compact_recall_trace(tmp_path, monkeypatch):
     rows = json.loads(trace_path.read_text(encoding="utf-8"))
     assert rows[-1]["selected_ids"] == ["mem1"]
     assert rows[-1]["block_chars"] == 120
+    assert rows[-1]["generation_id"] == "gen-1"
+    assert rows[-1]["provider_id"] == "openai"
+    assert rows[-1]["model_ref"] == "model:openai:gpt-4o"
+    assert rows[-1]["total_pipeline_ms"] == 12.5
+    assert rows[-1]["timings_ms"]["gating"] == 0.2
     assert rows[-1]["top_scores"][0]["sources"] == ["keyword"]

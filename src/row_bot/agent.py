@@ -1616,31 +1616,85 @@ def _pre_model_trim(state: dict) -> dict:
                 touch_selected_memories,
             )
 
+            recall_started = time.perf_counter()
             context_window = max(1, int(max_tokens / 0.85))
+            recall_model_ref = _active_model_override.get() or get_current_model()
+            recall_provider_id = ""
+            try:
+                from row_bot.providers.selection import parse_model_ref
+
+                parsed = parse_model_ref(recall_model_ref)
+                recall_provider_id = str(parsed[0] if parsed else get_cloud_provider(recall_model_ref) or "")
+            except Exception:
+                recall_provider_id = str(get_cloud_provider(recall_model_ref) or "")
             decision = build_auto_recall(
                 human_texts[0],
                 human_texts[1:],
                 thread_id=_thread_id or "",
+                generation_id=_current_generation_id_var.get(""),
                 runtime_surface="agent",
+                provider_id=recall_provider_id,
+                model_ref=str(recall_model_ref or ""),
                 context_window=context_window,
             )
             recall_block = ""
             if decision.allowed and decision.selected:
+                format_started = time.perf_counter()
                 recall_block = format_recall_block(
                     decision.selected,
                     context_window=context_window,
                 )
+                decision.trace["memory_recall.format_ms"] = round(
+                    (time.perf_counter() - format_started) * 1000.0,
+                    3,
+                )
                 if recall_block:
                     trimmed.insert(last_human_idx, SystemMessage(content=recall_block))
+                    touch_started = time.perf_counter()
                     touch_selected_memories(decision)
+                    decision.trace["memory_recall.touch_ms"] = round(
+                        (time.perf_counter() - touch_started) * 1000.0,
+                        3,
+                    )
+            else:
+                decision.trace.setdefault("memory_recall.format_ms", 0.0)
+                decision.trace.setdefault("memory_recall.touch_ms", 0.0)
+            decision.trace.setdefault("memory_recall.format_ms", 0.0)
+            decision.trace.setdefault("memory_recall.touch_ms", 0.0)
+            decision.trace["memory_recall.block_chars"] = len(recall_block)
+            decision.trace["memory_recall.allowed"] = decision.allowed
+            decision.trace["memory_recall.reason"] = decision.reason
+            decision.trace["memory_recall.candidates"] = decision.candidates_seen
+            decision.trace["memory_recall.selected"] = len(decision.selected)
+            decision.trace["memory_recall.total_pipeline_ms"] = round(
+                (time.perf_counter() - recall_started) * 1000.0,
+                3,
+            )
+            trace_started = time.perf_counter()
             record_recall_trace(decision, block_chars=len(recall_block))
+            decision.trace["memory_recall.trace_write_ms"] = round(
+                (time.perf_counter() - trace_started) * 1000.0,
+                3,
+            )
             logger.info(
-                "memory auto-recall trace: allowed=%s reason=%s candidates=%d selected=%d block_chars=%d trace=%s",
+                "memory auto-recall trace: allowed=%s reason=%s candidates=%d selected=%d block_chars=%d total_ms=%.3f query_build_ms=%s gating_ms=%s retrieve_ms=%s rank_filter_ms=%s format_ms=%s touch_ms=%s trace_write_ms=%s thread_id=%s generation_id=%s provider_id=%s model_ref=%s trace=%s",
                 decision.allowed,
                 decision.reason,
                 decision.candidates_seen,
                 len(decision.selected),
                 len(recall_block),
+                decision.trace["memory_recall.total_pipeline_ms"],
+                decision.trace.get("memory_recall.query_build_ms"),
+                decision.trace.get("memory_recall.gating_ms"),
+                decision.trace.get("memory_recall.retrieve_ms"),
+                decision.trace.get("memory_recall.rank_filter_ms"),
+                decision.trace.get("memory_recall.format_ms"),
+                decision.trace.get("memory_recall.touch_ms"),
+                decision.trace.get("memory_recall.trace_write_ms"),
+                _thread_id or "",
+                _current_generation_id_var.get(""),
+                recall_provider_id,
+                recall_model_ref,
                 decision.trace,
             )
     except Exception as exc:
@@ -1885,6 +1939,9 @@ _approval_mode_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
 _current_runtime_reason_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
     "current_runtime_reason", default=""
 )
+_current_generation_id_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
+    "current_generation_id", default=""
+)
 _developer_context_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
     "developer_context", default=""
 )
@@ -1906,6 +1963,7 @@ def get_active_runtime_context() -> dict:
         "selected_runtime_mode": _current_selected_runtime_mode_var.get(""),
         "approval_mode": get_approval_mode(),
         "runtime_reason": _current_runtime_reason_var.get(""),
+        "generation_id": _current_generation_id_var.get(""),
         "model_override": _model_override_var.get(""),
         "enabled_tool_names": tuple(_current_enabled_tool_names_var.get(()) or ()),
     }
@@ -1919,6 +1977,7 @@ def _set_active_runtime_context(
     selected_runtime_mode: str = "",
     approval_mode: str = DEFAULT_APPROVAL_MODE,
     runtime_reason: str = "",
+    generation_id: str = "",
     model_override: str = "",
     enabled_tool_names: list[str] | tuple[str, ...] | None = None,
 ) -> None:
@@ -1928,6 +1987,7 @@ def _set_active_runtime_context(
     _current_selected_runtime_mode_var.set(selected_runtime_mode or "")
     _approval_mode_var.set(normalize_approval_mode(approval_mode, DEFAULT_APPROVAL_MODE))
     _current_runtime_reason_var.set(runtime_reason or "")
+    _current_generation_id_var.set(generation_id or "")
     _model_override_var.set(model_override or "")
     _current_enabled_tool_names_var.set(tuple(enabled_tool_names or ()))
 
@@ -2737,6 +2797,7 @@ def invoke_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         selected_runtime_mode="agent",
         approval_mode=configurable.get("approval_mode", DEFAULT_APPROVAL_MODE),
         runtime_reason="forced_agent" if runtime_mode == "agent" else runtime_mode,
+        generation_id=str(configurable.get("generation_id") or ""),
         model_override=_model_ov or "",
         enabled_tool_names=enabled_tool_names,
     )
@@ -3019,13 +3080,21 @@ def _chat_only_llm(model_label: str):
     return create_chat_model(resolved.runtime_model, resolved.provider_id)
 
 
-def stream_chat_only(user_input: str, config: dict, *, stop_event: threading.Event | None = None):
+def stream_chat_only(
+    user_input: str,
+    config: dict,
+    *,
+    stop_event: threading.Event | None = None,
+    phase_timings: dict[str, Any] | None = None,
+):
     """Stream a normal chat response without constructing a ReAct graph or tools."""
     from row_bot.providers.readiness import evaluate_chat_readiness
     from row_bot.threads import append_checkpoint_messages
 
     config = _normalize_agent_config(config)
     configurable = config.get("configurable") or {}
+    phase_timings = dict(phase_timings or {})
+    _chat_started = time.perf_counter()
     thread_id = str(configurable.get("thread_id") or "")
     model_label, _use_override = _selected_model_label_from_config(config)
     _set_active_runtime_context(
@@ -3035,11 +3104,16 @@ def stream_chat_only(user_input: str, config: dict, *, stop_event: threading.Eve
         selected_runtime_mode="chat_only",
         approval_mode=configurable.get("approval_mode", DEFAULT_APPROVAL_MODE),
         runtime_reason="chat_only",
+        generation_id=str(configurable.get("generation_id") or ""),
         model_override=model_label,
         enabled_tool_names=(),
     )
     set_active_model_override(model_label)
+    _readiness_started = time.perf_counter()
     readiness = evaluate_chat_readiness(model_label)
+    phase_timings["generation.chat_readiness_ms"] = (
+        time.perf_counter() - _readiness_started
+    ) * 1000.0
     if not readiness.ready:
         yield ("error", readiness.user_message())
         return
@@ -3058,18 +3132,35 @@ def stream_chat_only(user_input: str, config: dict, *, stop_event: threading.Eve
     )
 
     try:
+        _llm_started = time.perf_counter()
         llm = _chat_only_llm(model_label)
+        phase_timings["generation.chat_model_create_ms"] = (
+            time.perf_counter() - _llm_started
+        ) * 1000.0
     except Exception as exc:
         yield ("error", _friendly_api_error(str(exc), model_label))
         return
+    _messages_started = time.perf_counter()
     messages = _build_chat_only_messages(thread_id, user_input, context_window=readiness.context_window)
+    phase_timings["generation.chat_context_assembly_ms"] = (
+        time.perf_counter() - _messages_started
+    ) * 1000.0
     full_answer: list[str] = []
     full_reasoning: list[str] = []
     thinking_signalled = False
     decoder = _ReasoningTextStreamDecoder()
 
+    _provider_started = time.perf_counter()
+    provider_call: dict[str, Any] = {
+        "index": 1,
+        "mode": "stream",
+        "start_ms": 0.0,
+    }
     try:
         stream_iter = llm.stream(messages)
+        phase_timings["generation.provider_stream_create_ms"] = (
+            time.perf_counter() - _provider_started
+        ) * 1000.0
     except Exception:
         stream_iter = None
 
@@ -3088,22 +3179,47 @@ def stream_chat_only(user_input: str, config: dict, *, stop_event: threading.Eve
                     if not text:
                         continue
                     if part.get("type") == "text":
+                        first_answer_ms = (time.perf_counter() - _provider_started) * 1000.0
+                        phase_timings.setdefault(
+                            "generation.provider_first_answer_token_ms",
+                            first_answer_ms,
+                        )
+                        provider_call.setdefault("first_answer_token_ms", first_answer_ms)
                         full_answer.append(text)
                         yield ("token", text)
                     elif part.get("type") == "reasoning":
+                        provider_call.setdefault(
+                            "first_reasoning_token_ms",
+                            (time.perf_counter() - _provider_started) * 1000.0,
+                        )
                         thinking_signalled = True
                         full_reasoning.append(text)
                         yield ("thinking_token", text)
         else:
+            provider_call["mode"] = "invoke"
+            _provider_started = time.perf_counter()
             result = llm.invoke(messages)
+            phase_timings["generation.provider_invoke_ms"] = (
+                time.perf_counter() - _provider_started
+            ) * 1000.0
             for part in decode_ai_stream_parts(result, decoder):
                 text = str(part.get("text") or "")
                 if not text:
                     continue
                 if part.get("type") == "text":
+                    first_answer_ms = (time.perf_counter() - _provider_started) * 1000.0
+                    phase_timings.setdefault(
+                        "generation.provider_first_answer_token_ms",
+                        first_answer_ms,
+                    )
+                    provider_call.setdefault("first_answer_token_ms", first_answer_ms)
                     full_answer.append(text)
                     yield ("token", text)
                 elif part.get("type") == "reasoning":
+                    provider_call.setdefault(
+                        "first_reasoning_token_ms",
+                        (time.perf_counter() - _provider_started) * 1000.0,
+                    )
                     full_reasoning.append(text)
                     yield ("thinking_token", text)
     except Exception as exc:
@@ -3111,6 +3227,41 @@ def stream_chat_only(user_input: str, config: dict, *, stop_event: threading.Eve
         return
 
     answer = "".join(full_answer)
+    provider_done_ms = (time.perf_counter() - _provider_started) * 1000.0
+    phase_timings["generation.provider_stream_ms"] = provider_done_ms
+    provider_call.update({
+        "complete_ms": provider_done_ms,
+        "duration_ms": provider_done_ms,
+        "answer_chunks": len(full_answer),
+        "answer_chars": len(answer),
+        "reasoning_chunks": len(full_reasoning),
+        "reasoning_chars": len("".join(full_reasoning)),
+    })
+    phase_timings["generation.provider_call_count"] = 1
+    phase_timings["generation.provider_calls"] = [
+        {
+            key: round(value, 1) if isinstance(value, float) else value
+            for key, value in provider_call.items()
+        }
+    ]
+    phase_timings["generation.total_chat_only_ms"] = (
+        time.perf_counter() - _chat_started
+    ) * 1000.0
+    logger.info(
+        "chat-only stream completion diagnostics=%s",
+        {
+            **{
+                key: round(value, 1) if isinstance(value, float) else value
+                for key, value in phase_timings.items()
+            },
+            "thread_id": thread_id,
+            "model_ref": model_label,
+            "answer_chars": len(answer),
+            "answer_chunks": len(full_answer),
+            "reasoning_chars": len("".join(full_reasoning)),
+            "reasoning_chunks": len(full_reasoning),
+        },
+    )
     additional_kwargs = {"reasoning_content": "".join(full_reasoning)} if full_reasoning else {}
     if not answer and full_reasoning:
         yield ("error", "The model returned reasoning but no final answer. Try again or switch models.")
@@ -3154,6 +3305,11 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
     runtime_mode = str(configurable.get("runtime_mode") or "agent")
     _model_ov = configurable.get("model_override")
     model_label, _ = _selected_model_label_from_config(config)
+    phase_timings: dict[str, Any] = {
+        "generation.generation_id": str(configurable.get("generation_id") or ""),
+        "generation.runtime_surface": runtime_surface,
+        "generation.model_ref": model_label,
+    }
     _set_active_runtime_context(
         thread_id=str(configurable.get("thread_id") or ""),
         runtime_surface=runtime_surface,
@@ -3161,6 +3317,7 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         selected_runtime_mode="pending",
         approval_mode=configurable.get("approval_mode", DEFAULT_APPROVAL_MODE),
         runtime_reason="evaluating",
+        generation_id=str(configurable.get("generation_id") or ""),
         model_override=_model_ov or "",
         enabled_tool_names=enabled_tool_names,
     )
@@ -3169,17 +3326,31 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         try:
             from row_bot.providers.readiness import evaluate_runtime_readiness
 
+            _runtime_started = time.perf_counter()
             runtime_readiness = evaluate_runtime_readiness(
                 model_label,
                 probe_ollama_tools=False,
             )
+            phase_timings["generation.runtime_selection_ms"] = (
+                time.perf_counter() - _runtime_started
+            ) * 1000.0
+            if getattr(runtime_readiness, "timings", None):
+                phase_timings.update({
+                    f"generation.readiness.{key}": value
+                    for key, value in runtime_readiness.timings.items()
+                })
         except Exception as exc:
             yield ("error", str(exc))
             return
         if runtime_mode == "chat_only" or runtime_readiness.selected_mode == "chat_only":
             _current_selected_runtime_mode_var.set("chat_only")
             _current_runtime_reason_var.set(runtime_readiness.selection_reason)
-            yield from stream_chat_only(user_input, config, stop_event=stop_event)
+            yield from stream_chat_only(
+                user_input,
+                config,
+                stop_event=stop_event,
+                phase_timings=phase_timings,
+            )
             return
         if runtime_readiness.selected_mode == "blocked":
             _current_selected_runtime_mode_var.set("blocked")
@@ -3237,6 +3408,7 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         selected_runtime_mode="agent",
         approval_mode=configurable.get("approval_mode", DEFAULT_APPROVAL_MODE),
         runtime_reason=_current_runtime_reason_var.get(""),
+        generation_id=str(configurable.get("generation_id") or ""),
         model_override=_model_ov or "",
         enabled_tool_names=enabled_tool_names,
     )
@@ -3244,15 +3416,24 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         (config.get("configurable") or {}).get("developer_context", "") or ""
     )
     set_active_model_override(_model_ov or "")
+    _graph_build_started = time.perf_counter()
     agent = get_agent_graph(enabled_tool_names, model_override=_model_ov)
+    phase_timings["generation.graph_build_ms"] = (
+        time.perf_counter() - _graph_build_started
+    ) * 1000.0
 
     # ── Context summarization (runs before the main agent stream) ────
     if _should_summarize(agent, config, user_input):
+        _summarize_started = time.perf_counter()
         yield ("summarizing", None)
         _do_summarize(agent, config, model_override=_model_ov)
+        phase_timings["generation.summarize_ms"] = (
+            time.perf_counter() - _summarize_started
+        ) * 1000.0
 
     for event in _stream_graph(agent, {"messages": [("human", user_input)]}, config,
-                               stop_event=stop_event):
+                               stop_event=stop_event,
+                               phase_timings=phase_timings):
         yield event
 
 
@@ -3341,6 +3522,7 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
         selected_runtime_mode="agent",
         approval_mode=configurable.get("approval_mode", DEFAULT_APPROVAL_MODE),
         runtime_reason="resume",
+        generation_id=str(configurable.get("generation_id") or ""),
         model_override=_model_ov or "",
         enabled_tool_names=enabled_tool_names,
     )
@@ -3377,6 +3559,7 @@ def resume_invoke_agent(enabled_tool_names: list[str], config: dict, approved: b
         selected_runtime_mode="agent",
         approval_mode=configurable.get("approval_mode", DEFAULT_APPROVAL_MODE),
         runtime_reason="resume",
+        generation_id=str(configurable.get("generation_id") or ""),
         model_override=_model_ov or "",
         enabled_tool_names=enabled_tool_names,
     )
@@ -3600,6 +3783,7 @@ def _log_stream_completion(
     loop_detected: bool,
     browser_budget_exceeded: bool,
     latest_ai_message=None,
+    phase_timings: dict[str, Any] | None = None,
 ) -> None:
     """Log enough completion detail to diagnose reasoning-only model stops."""
     response_metadata = dict(getattr(latest_ai_message, "response_metadata", None) or {})
@@ -3613,6 +3797,11 @@ def _log_stream_completion(
         or ""
     )
     diagnostics = _agent_runtime_diagnostics(config)
+    if phase_timings:
+        diagnostics.update({
+            key: round(value, 1) if isinstance(value, float) else value
+            for key, value in phase_timings.items()
+        })
     diagnostics.update({
         "answer_chars": int(answer_chars),
         "answer_chunks": int(answer_chunks),
@@ -3646,8 +3835,11 @@ def _log_stream_completion(
 
 
 def _stream_graph(agent, input_data, config: dict,
-                  *, stop_event: threading.Event | None = None):
+                  *, stop_event: threading.Event | None = None,
+                  phase_timings: dict[str, Any] | None = None):
     """Shared streaming logic for both initial invocation and resume."""
+    phase_timings = dict(phase_timings or {})
+    _graph_stream_started = time.perf_counter()
     full_answer = []
     thinking_signalled = False
     decoder = _ReasoningTextStreamDecoder()
@@ -3659,6 +3851,57 @@ def _stream_graph(agent, input_data, config: dict,
     _reasoning_chunks = 0
     _tool_result_count = 0
     _stopped_by_user = False
+    _provider_calls: list[dict[str, Any]] = []
+    _current_provider_call: dict[str, Any] | None = None
+    _provider_call_index = 0
+    _last_tool_result_at: float | None = None
+
+    def _relative_ms(moment: float) -> float:
+        return (moment - _graph_stream_started) * 1000.0
+
+    def _public_provider_call(call: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: round(value, 1) if isinstance(value, float) else value
+            for key, value in call.items()
+            if not key.startswith("_")
+        }
+
+    def _ensure_provider_call(moment: float, meta: dict[str, Any] | None = None) -> dict[str, Any]:
+        nonlocal _current_provider_call, _provider_call_index
+        if _current_provider_call is None:
+            _provider_call_index += 1
+            _current_provider_call = {
+                "index": _provider_call_index,
+                "_started_at": moment,
+                "first_event_ms": _relative_ms(moment),
+                "chunks": 0,
+                "answer_chunks": 0,
+                "answer_chars": 0,
+                "reasoning_chunks": 0,
+                "reasoning_chars": 0,
+                "tool_call_chunks": 0,
+                "tool_calls": 0,
+            }
+            if _last_tool_result_at is not None:
+                _current_provider_call["tool_gap_ms"] = (
+                    moment - _last_tool_result_at
+                ) * 1000.0
+            if isinstance(meta, dict):
+                run_id = str(meta.get("run_id") or meta.get("langgraph_checkpoint_ns") or "")
+                if run_id:
+                    _current_provider_call["run_id"] = run_id
+        return _current_provider_call
+
+    def _finish_provider_call(moment: float, reason: str) -> None:
+        nonlocal _current_provider_call
+        if _current_provider_call is None:
+            return
+        started_at = float(_current_provider_call.get("_started_at") or moment)
+        _current_provider_call["complete_ms"] = _relative_ms(moment)
+        _current_provider_call["duration_ms"] = (moment - started_at) * 1000.0
+        _current_provider_call["end_reason"] = reason
+        _provider_calls.append(_public_provider_call(_current_provider_call))
+        _current_provider_call = None
 
     # Loop detection: track consecutive identical tool call signatures.
     # If the same (name, args_hash) appears 4 times in a row, the model
@@ -3682,11 +3925,15 @@ def _stream_graph(agent, input_data, config: dict,
         logger.debug("Checkpoint version repair skipped", exc_info=True)
 
     try:
+        _stream_iter_started = time.perf_counter()
         stream_iter = agent.stream(
             input_data,
             config=config,
             stream_mode=["messages", "updates"],
         )
+        phase_timings["generation.graph_stream_create_ms"] = (
+            time.perf_counter() - _stream_iter_started
+        ) * 1000.0
     except Exception as exc:
         exc_str = str(exc)
         # Auto-repair orphaned tool calls and retry once
@@ -3696,11 +3943,15 @@ def _stream_graph(agent, input_data, config: dict,
             logger.warning("Orphaned tool calls detected — repairing checkpoint")
             try:
                 repair_orphaned_tool_calls(config=config, agent_graph=agent)
+                _stream_iter_started = time.perf_counter()
                 stream_iter = agent.stream(
                     input_data,
                     config=config,
                     stream_mode=["messages", "updates"],
                 )
+                phase_timings["generation.graph_stream_retry_create_ms"] = (
+                    time.perf_counter() - _stream_iter_started
+                ) * 1000.0
             except Exception as retry_exc:
                 logger.error(
                     "_stream_graph retry failed before iteration: %s diagnostics=%s",
@@ -3732,6 +3983,11 @@ def _stream_graph(agent, input_data, config: dict,
 
     try:
       for event in stream_iter:
+        event_seen_at = time.perf_counter()
+        phase_timings.setdefault(
+            "generation.provider_first_event_ms",
+            (event_seen_at - _graph_stream_started) * 1000.0,
+        )
         # ── Stop-button cancellation ─────────────────────────────────────
         if stop_event and stop_event.is_set():
             _stopped_by_user = True
@@ -3750,7 +4006,9 @@ def _stream_graph(agent, input_data, config: dict,
                     # Tool call initiated by the agent
                     tc_list = getattr(m, "tool_calls", [])
                     if tc_list:
+                        provider_call = _ensure_provider_call(event_seen_at)
                         for tc in tc_list:
+                            provider_call["tool_calls"] = int(provider_call.get("tool_calls") or 0) + 1
                             tc_id = tc.get("id", tc["name"])
                             if tc_id not in _seen_tool_calls:
                                 _seen_tool_calls.add(tc_id)
@@ -3782,6 +4040,8 @@ def _stream_graph(agent, input_data, config: dict,
 
                     # Tool result returned
                     if m.type == "tool":
+                        _finish_provider_call(event_seen_at, "tool_result")
+                        _last_tool_result_at = event_seen_at
                         _tool_result_count += 1
                         yield ("tool_done", {
                             "name": _resolve_tool_display_name(m.name),
@@ -3803,6 +4063,8 @@ def _stream_graph(agent, input_data, config: dict,
                 continue
             if meta.get("langgraph_node") != "agent":
                 continue
+            provider_call = _ensure_provider_call(event_seen_at, meta)
+            provider_call["chunks"] = int(provider_call.get("chunks") or 0) + 1
 
             # Track finish_reason from streaming response_metadata
             _rm = getattr(msg, "response_metadata", None) or {}
@@ -3817,6 +4079,8 @@ def _stream_graph(agent, input_data, config: dict,
             has_tool_call_chunk = bool(
                 getattr(msg, "tool_calls", []) or getattr(msg, "tool_call_chunks", [])
             )
+            if has_tool_call_chunk:
+                provider_call["tool_call_chunks"] = int(provider_call.get("tool_call_chunks") or 0) + 1
             decoded_parts = decode_ai_stream_parts(msg, decoder)
             if not decoded_parts:
                 if has_tool_call_chunk:
@@ -3832,12 +4096,23 @@ def _stream_graph(agent, input_data, config: dict,
                 if part.get("type") == "reasoning":
                     _reasoning_chars += len(decoded_text)
                     _reasoning_chunks += 1
+                    provider_call.setdefault("first_reasoning_token_ms", _relative_ms(time.perf_counter()))
+                    provider_call["reasoning_chunks"] = int(provider_call.get("reasoning_chunks") or 0) + 1
+                    provider_call["reasoning_chars"] = int(provider_call.get("reasoning_chars") or 0) + len(decoded_text)
                     thinking_signalled = True
                     yield ("thinking_token", decoded_text)
                 elif part.get("type") == "text":
                     if not decoded_text.strip() and not _joined_visible_answer(full_answer):
                         continue
                     thinking_signalled = False
+                    first_answer_ms = _relative_ms(time.perf_counter())
+                    phase_timings.setdefault(
+                        "generation.provider_first_answer_token_ms",
+                        first_answer_ms,
+                    )
+                    provider_call.setdefault("first_answer_token_ms", first_answer_ms)
+                    provider_call["answer_chunks"] = int(provider_call.get("answer_chunks") or 0) + 1
+                    provider_call["answer_chars"] = int(provider_call.get("answer_chars") or 0) + len(decoded_text)
                     _answer_chars += len(decoded_text)
                     _answer_chunks += 1
                     full_answer.append(decoded_text)
@@ -3891,11 +4166,15 @@ def _stream_graph(agent, input_data, config: dict,
                         if content:
                             content = _re.sub(r"<think>.*?</think>", "", content, flags=_re.DOTALL)
                             content = _re.sub(r"</?think>", "", content)
-                            if content:
-                                _answer_chars += len(content)
-                                _answer_chunks += 1
-                                full_answer.append(content)
-                                yield ("token", content)
+                        if content:
+                            phase_timings.setdefault(
+                                "generation.provider_first_answer_token_ms",
+                                (time.perf_counter() - _graph_stream_started) * 1000.0,
+                            )
+                            _answer_chars += len(content)
+                            _answer_chunks += 1
+                            full_answer.append(content)
+                            yield ("token", content)
             except Exception as retry_exc:
                 _rmsg = _friendly_api_error(str(retry_exc))
                 logger.error(
@@ -3932,6 +4211,15 @@ def _stream_graph(agent, input_data, config: dict,
             yield ("error", _err)
         return
 
+    _stream_done_at = time.perf_counter()
+    _finish_provider_call(_stream_done_at, "complete")
+    phase_timings["generation.provider_stream_ms"] = (
+        _stream_done_at - _graph_stream_started
+    ) * 1000.0
+    if _provider_calls:
+        phase_timings["generation.provider_call_count"] = len(_provider_calls)
+        phase_timings["generation.provider_calls"] = list(_provider_calls)
+
     # Handle loop detection — repair orphans and yield friendly error
     if _loop_detected:
         _log_stream_completion(
@@ -3947,6 +4235,7 @@ def _stream_graph(agent, input_data, config: dict,
             loop_detected=_loop_detected,
             browser_budget_exceeded=_browser_budget_exceeded,
             latest_ai_message=_latest_ai_message_from_state(agent, config),
+            phase_timings=phase_timings,
         )
         logger.warning("Loop detected: same tool+args called %d times consecutively", _LOOP_THRESHOLD)
         try:
@@ -3976,6 +4265,7 @@ def _stream_graph(agent, input_data, config: dict,
             loop_detected=_loop_detected,
             browser_budget_exceeded=_browser_budget_exceeded,
             latest_ai_message=_latest_ai_message_from_state(agent, config),
+            phase_timings=phase_timings,
         )
         logger.warning("Browser tool budget exceeded: %d browser tool calls", _browser_tool_count)
         try:
@@ -4010,6 +4300,7 @@ def _stream_graph(agent, input_data, config: dict,
             loop_detected=_loop_detected,
             browser_budget_exceeded=_browser_budget_exceeded,
             latest_ai_message=_latest_ai_message_from_state(agent, config),
+            phase_timings=phase_timings,
         )
         all_interrupts: list[dict] = []
         for task in state.tasks:
@@ -4056,6 +4347,7 @@ def _stream_graph(agent, input_data, config: dict,
         loop_detected=_loop_detected,
         browser_budget_exceeded=_browser_budget_exceeded,
         latest_ai_message=latest_ai_message,
+        phase_timings=phase_timings,
     )
 
     if reasoning_only_final:

@@ -638,6 +638,69 @@ def test_stream_graph_finalizes_whitespace_only_answer_after_successful_tool_res
     assert persisted[-1].content == "Image files include heatmap_regional_sales.png and marketing_content_design.png."
 
 
+def test_stream_graph_logs_provider_call_segments_around_tool_result(caplog):
+    import row_bot.agent as agent
+    from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
+
+    tool_call = {"name": "row_bot_status", "args": {}, "id": "call_1", "type": "tool_call"}
+    tool_result = ToolMessage(content="Status is green.", name="row_bot_status", tool_call_id="call_1")
+    state_messages = [
+        HumanMessage(content="check status"),
+        AIMessage(content="", tool_calls=[tool_call]),
+        tool_result,
+        AIMessage(content="Everything is green."),
+    ]
+
+    class FakeState:
+        next = []
+        tasks = []
+        values = {"messages": state_messages}
+
+    class FakeGraph:
+        def stream(self, input_data, config=None, stream_mode=None):
+            yield ("updates", {"agent": {"messages": [AIMessage(content="", tool_calls=[tool_call])]}})
+            yield ("updates", {"tools": {"messages": [tool_result]}})
+            yield (
+                "messages",
+                (
+                    AIMessageChunk(content="Everything is green."),
+                    {"langgraph_node": "agent", "run_id": "provider-call-2"},
+                ),
+            )
+
+        def get_state(self, config):
+            return FakeState()
+
+    with caplog.at_level(logging.INFO, logger="row_bot.agent"):
+        events = list(agent._stream_graph(
+            FakeGraph(),
+            {"messages": [("human", "check status")]},
+            {
+                "configurable": {
+                    "thread_id": "thread-agent",
+                    "model_override": "model:custom_openai_lab:local",
+                    "generation_id": "thread-agent:gen-1",
+                }
+            },
+        ))
+
+    assert any(event_type == "tool_call" and "Row-Bot Status" in payload for event_type, payload in events)
+    assert events[-1] == ("done", "Everything is green.")
+    completion_logs = [
+        record.getMessage()
+        for record in caplog.records
+        if "stream completion diagnostics=" in record.getMessage()
+    ]
+    assert completion_logs
+    message = completion_logs[-1]
+    assert "'generation.provider_call_count': 2" in message
+    assert "'generation.provider_calls':" in message
+    assert "'end_reason': 'tool_result'" in message
+    assert "'end_reason': 'complete'" in message
+    assert "'tool_gap_ms':" in message
+    assert "'first_answer_token_ms':" in message
+
+
 def test_forced_agent_surfaces_are_wired_in_callers():
     from pathlib import Path
 

@@ -148,6 +148,8 @@ def build_chat(
         }
 
     def _resolve_model_surface():
+        started = time.perf_counter()
+        phase_timings: dict[str, float | str | bool] = {}
         active_model = state.thread_model_override or get_current_model()
         model_label = model_id_from_choice_value(active_model)
         prov = get_cloud_provider(active_model) or "ollama"
@@ -158,12 +160,23 @@ def build_chat(
             from row_bot.providers.resolution import resolve_provider_config
             from row_bot.providers.readiness import evaluate_runtime_readiness
 
+            provider_config_started = time.perf_counter()
             resolved = resolve_provider_config(active_model, allow_legacy_local=True)
+            phase_timings["provider_config_ms"] = (time.perf_counter() - provider_config_started) * 1000.0
             prov = resolved.provider_id
             prov_label = resolved.provider_display_name
             model_label = resolved.runtime_model
             local_execution = resolved.execution_location == "local" or resolved.risk_label == "local_private"
-            runtime = evaluate_runtime_readiness(resolved)
+            readiness_started = time.perf_counter()
+            runtime = evaluate_runtime_readiness(resolved, refresh_provider_status=False)
+            phase_timings["runtime_readiness_ms"] = (time.perf_counter() - readiness_started) * 1000.0
+            phase_timings.update({
+                f"readiness_{key}": value
+                for key, value in getattr(runtime, "timings", {}).items()
+            })
+            phase_timings["provider_id"] = prov
+            phase_timings["model_ref"] = resolved.selection_ref
+            phase_timings["refresh_provider_status"] = False
             if runtime.selected_mode == "agent":
                 mode_label = "Agent Mode"
             elif runtime.selected_mode == "chat_only":
@@ -172,6 +185,7 @@ def build_chat(
                 mode_label = "Unavailable - " + runtime.selection_reason
         except Exception:
             local_execution = not is_cloud_model(active_model)
+        phase_timings["total_ms"] = (time.perf_counter() - started) * 1000.0
         if not local_execution and is_cloud_model(active_model):
             try:
                 from row_bot.providers.ollama import is_ollama_cloud_offload_model
@@ -187,6 +201,7 @@ def build_chat(
                 "icon_color": "orange",
                 "text": f"Using {model_label} via {prov_label} - data is sent to the cloud",
                 "text_class": "text-orange text-sm",
+                "timings": phase_timings,
                 "banner_style": (
                     "background: rgba(255, 152, 0, 0.08); "
                     "border-radius: 8px; border: 1px solid rgba(255, 152, 0, 0.25);"
@@ -201,6 +216,7 @@ def build_chat(
             "icon_color": "green",
             "text": f"Using {model_label} via {prov_label} - local/private",
             "text_class": "text-green text-sm",
+            "timings": phase_timings,
             "banner_style": (
                 "background: rgba(76, 175, 80, 0.08); "
                 "border-radius: 8px; border: 1px solid rgba(76, 175, 80, 0.25);"
@@ -234,6 +250,7 @@ def build_chat(
             (time.perf_counter() - started) * 1000.0,
             threshold_ms=500.0,
             thread_id=state.thread_id,
+            **dict(surface.get("timings") or {}),
         )
 
     def _refresh_model_surface() -> None:

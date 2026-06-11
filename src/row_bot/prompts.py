@@ -695,6 +695,41 @@ performance, startup errors, tool/MCP configuration issues, logs, databases,
 caches, or system health. Use error_pattern, tool_config, or system_health for
 those instead.
 
+Do not report a provider as having zero or empty catalog models from
+`models=unknown` alone. Treat unknown provider catalog counts as diagnostic
+context; require explicit error evidence, a verified empty count, or broken
+user-facing behavior before creating an empty-catalog insight.
+
+For streaming performance evidence, prefer `stream_updates`, `ui_flushes`,
+and character-density fields over the legacy `rows` field. Do not describe
+`rows` as persisted transcript rows unless the evidence explicitly refers to
+persistence.
+Do not treat low `ui_flushes` or low `thinking_ui_flushes` as UI streaming
+churn. If total generation time is high but phase timings are missing or the
+flush count is low, classify it as generation lifecycle latency needing phase
+attribution rather than a live-render batching regression.
+
+For model picker evidence, distinguish Quick Choice option loading from full
+provider catalog refresh. Do not recommend catalog parallelization, provider
+discovery timeout changes, or token-refresh caching unless the logs show live
+catalog/model discovery or token refresh on the picker/banner critical path.
+
+For UI performance evidence, `.payload` and `.components` suffixes are budget
+warnings, not slow-render evidence by themselves. Treat `threshold=0.0ms` as a
+measurement smell from older logs, and preserve real slow-render warnings only
+when elapsed time exceeds a real render threshold.
+
+Treat Chromium ResizeObserver messages (`ResizeObserver loop completed with
+undelivered notifications.` and `ResizeObserver loop limit exceeded`) as known
+browser layout warnings unless there is stack/component evidence, visible
+jitter, high frequency across sessions, or correlated slow UI timings.
+
+For Home status-bar performance, distinguish `home.status_bar.cached`,
+`light_refresh`, `heavy_refresh`, `aggregate`, and `async_refresh` entries.
+Do not call a background refresh "blocking" unless the evidence comes from a
+synchronous UI callback; use the shared `refresh_id` to avoid double-counting
+nested timing logs for the same refresh.
+
 Return a JSON array of objects, each with these fields:
 - category (string)
 - severity (string)

@@ -14,6 +14,7 @@ import logging
 import os
 from pathlib import Path
 import re
+from time import perf_counter
 from typing import Any
 
 from row_bot.data_paths import get_row_bot_data_dir
@@ -245,33 +246,81 @@ def build_auto_recall(
     recent_user_texts: list[str],
     *,
     thread_id: str = "",
+    generation_id: str = "",
     runtime_surface: str = "normal_chat",
+    provider_id: str = "",
+    model_ref: str = "",
     context_window: int | None = None,
 ) -> MemoryRecallDecision:
     """Return the bounded auto-recall decision for an Agent turn."""
+    total_started = perf_counter()
+    query_started = perf_counter()
     latest = (latest_user_text or "").strip()
     query = _build_query(latest, recent_user_texts)
+    query_build_ms = (perf_counter() - query_started) * 1000.0
     trace: dict[str, Any] = {
         "thread_id": thread_id,
+        "generation_id": generation_id,
         "runtime_surface": runtime_surface,
+        "provider_id": provider_id,
+        "model_ref": model_ref,
         "context_window": context_window,
         "query_chars": len(query),
+        "timings_ms": {
+            "query_build": round(query_build_ms, 3),
+        },
     }
 
-    if not latest:
-        return MemoryRecallDecision(False, "empty_latest_user_text", query, [], 0, trace)
-    if _is_greeting_only(latest):
-        return MemoryRecallDecision(False, "greeting_only", query, [], 0, trace)
-    if _is_runtime_request(latest):
-        return MemoryRecallDecision(False, "runtime_status_request", query, [], 0, trace)
-    if _is_file_only_turn(latest):
-        return MemoryRecallDecision(False, "file_only_current_turn", query, [], 0, trace)
+    def _finish(
+        allowed: bool,
+        reason: str,
+        selected: list[dict],
+        candidates_seen: int,
+        *,
+        gating_started: float | None = None,
+        gating_ms: float | None = None,
+        retrieve_ms: float = 0.0,
+        rank_filter_ms: float = 0.0,
+    ) -> MemoryRecallDecision:
+        timings = trace.setdefault("timings_ms", {})
+        if gating_ms is None and gating_started is not None:
+            gating_ms = (perf_counter() - gating_started) * 1000.0
+        timings.update({
+            "gating": round(float(gating_ms or 0.0), 3),
+            "retrieve": round(retrieve_ms, 3),
+            "rank_filter": round(rank_filter_ms, 3),
+            "total": round((perf_counter() - total_started) * 1000.0, 3),
+        })
+        trace["memory_recall.query_build_ms"] = timings.get("query_build", 0.0)
+        trace["memory_recall.gating_ms"] = timings.get("gating", 0.0)
+        trace["memory_recall.retrieve_ms"] = timings.get("retrieve", 0.0)
+        trace["memory_recall.rank_filter_ms"] = timings.get("rank_filter", 0.0)
+        trace["memory_recall.total_ms"] = timings.get("total", 0.0)
+        trace["allowed"] = allowed
+        trace["reason"] = reason
+        trace["candidates_seen"] = candidates_seen
+        trace["selected_count"] = len(selected)
+        return MemoryRecallDecision(allowed, reason, query, selected, candidates_seen, trace)
 
+    gating_started = perf_counter()
+    if not latest:
+        return _finish(False, "empty_latest_user_text", [], 0, gating_started=gating_started)
+    if _is_greeting_only(latest):
+        return _finish(False, "greeting_only", [], 0, gating_started=gating_started)
+    if _is_runtime_request(latest):
+        return _finish(False, "runtime_status_request", [], 0, gating_started=gating_started)
+    if _is_file_only_turn(latest):
+        return _finish(False, "file_only_current_turn", [], 0, gating_started=gating_started)
+
+    gating_ms = (perf_counter() - gating_started) * 1000.0
+    retrieve_ms = 0.0
     try:
         import row_bot.knowledge_graph as kg
 
+        retrieve_started = perf_counter()
         if kg.count_entities() <= 0:
-            return MemoryRecallDecision(False, "no_memories", query, [], 0, trace)
+            retrieve_ms = (perf_counter() - retrieve_started) * 1000.0
+            return _finish(False, "no_memories", [], 0, gating_ms=gating_ms, retrieve_ms=retrieve_ms)
         candidates = kg.retrieve_memory_candidates(
             query,
             top_k=10,
@@ -280,11 +329,13 @@ def build_auto_recall(
             max_results=24,
             include_keyword=True,
         )
+        retrieve_ms = (perf_counter() - retrieve_started) * 1000.0
     except Exception as exc:
         trace["error"] = str(exc)
         logger.debug("Memory auto-recall candidate retrieval failed", exc_info=True)
-        return MemoryRecallDecision(False, "retrieval_failed", query, [], 0, trace)
+        return _finish(False, "retrieval_failed", [], 0, gating_ms=gating_ms, retrieve_ms=retrieve_ms)
 
+    rank_started = perf_counter()
     query_terms = set(_terms(query))
     is_broad = len(query_terms) <= 2 and not bool(query_terms & _PERSONAL_ANCHORS)
     wants_history = bool(query_terms & _HISTORY_WORDS)
@@ -322,7 +373,15 @@ def build_auto_recall(
             "top_scores": [],
             "rejected": rejected[:8],
         })
-        return MemoryRecallDecision(False, "no_valid_candidates", query, [], len(candidates), trace)
+        return _finish(
+            False,
+            "no_valid_candidates",
+            [],
+            len(candidates),
+            gating_ms=gating_ms,
+            retrieve_ms=retrieve_ms,
+            rank_filter_ms=(perf_counter() - rank_started) * 1000.0,
+        )
 
     if is_broad and len(scored) > 1:
         margin = scored[0][0] - scored[1][0]
@@ -334,7 +393,15 @@ def build_auto_recall(
                 "rejected": rejected[:8],
                 "margin": round(margin, 4),
             })
-            return MemoryRecallDecision(False, "weak_margin_for_broad_query", query, [], len(candidates), trace)
+            return _finish(
+                False,
+                "weak_margin_for_broad_query",
+                [],
+                len(candidates),
+                gating_ms=gating_ms,
+                retrieve_ms=retrieve_ms,
+                rank_filter_ms=(perf_counter() - rank_started) * 1000.0,
+            )
 
     selected = []
     for score, candidate, debug in scored[:AUTO_RECALL_MAX_MEMORIES]:
@@ -349,7 +416,15 @@ def build_auto_recall(
         "top_scores": [debug for _score, _cand, debug in scored[:5]],
         "rejected": rejected[:8],
     })
-    return MemoryRecallDecision(True, "selected", query, selected, len(candidates), trace)
+    return _finish(
+        True,
+        "selected",
+        selected,
+        len(candidates),
+        gating_ms=gating_ms,
+        retrieve_ms=retrieve_ms,
+        rank_filter_ms=(perf_counter() - rank_started) * 1000.0,
+    )
 
 
 def _recall_token_budget(context_window: int | None = None) -> int:
@@ -426,12 +501,20 @@ def record_recall_trace(decision: MemoryRecallDecision, *, block_chars: int = 0)
             "allowed": decision.allowed,
             "reason": decision.reason,
             "thread_id": decision.trace.get("thread_id"),
+            "generation_id": decision.trace.get("generation_id"),
             "runtime_surface": decision.trace.get("runtime_surface"),
+            "provider_id": decision.trace.get("provider_id"),
+            "model_ref": decision.trace.get("model_ref"),
             "query_chars": len(decision.query or ""),
             "candidates_seen": decision.candidates_seen,
             "selected_ids": [m.get("id") for m in decision.selected if m.get("id")],
             "selected_count": len(decision.selected),
             "block_chars": block_chars,
+            "timings_ms": dict(decision.trace.get("timings_ms") or {}),
+            "total_ms": decision.trace.get("memory_recall.total_ms"),
+            "total_pipeline_ms": decision.trace.get("memory_recall.total_pipeline_ms"),
+            "format_ms": decision.trace.get("memory_recall.format_ms"),
+            "touch_ms": decision.trace.get("memory_recall.touch_ms"),
             "top_scores": decision.trace.get("top_scores", [])[:5],
             "rejected": decision.trace.get("rejected", [])[:5],
         }

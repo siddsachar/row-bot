@@ -176,10 +176,90 @@ def test_chat_banner_uses_provider_resolution_for_local_custom_models():
     surface_section = source.split("def _model_surface", 1)[1].split("def _render_model_banner", 1)[0]
 
     assert "resolve_provider_config(active_model" in surface_section
-    assert "evaluate_runtime_readiness(resolved)" in surface_section
+    assert "evaluate_runtime_readiness(resolved, refresh_provider_status=False)" in surface_section
     assert "Chat Only - tools and actions are off" in surface_section
     assert "local_execution" in surface_section
     assert "local/private" in surface_section
+
+
+def test_runtime_readiness_reuses_provider_status_snapshot(monkeypatch):
+    import row_bot.providers.readiness as readiness
+    from row_bot.providers.models import TransportMode
+    from row_bot.providers.resolution import ResolvedProviderConfig
+
+    calls: list[str] = []
+
+    def _status(provider_id: str):
+        calls.append(provider_id)
+        return {"configured": True}
+
+    monkeypatch.setattr(readiness, "provider_status", _status)
+    resolved = ResolvedProviderConfig(
+        selection_ref="model:openai:gpt-4o",
+        provider_id="openai",
+        model_id="gpt-4o",
+        runtime_model="gpt-4o",
+        provider_display_name="OpenAI API",
+        transport=TransportMode.OPENAI_CHAT,
+    )
+    snapshot = {
+        "tasks": ["chat"],
+        "input_modalities": ["text"],
+        "output_modalities": ["text"],
+        "transport": TransportMode.OPENAI_CHAT.value,
+        "tool_calling": True,
+        "streaming": True,
+    }
+
+    result = readiness.evaluate_runtime_readiness(
+        resolved,
+        capability_snapshot=snapshot,
+        context_window_override=65_536,
+    )
+
+    assert calls == ["openai"]
+    assert result.timings["provider_status_ms"] >= 0
+    assert result.timings["agent_readiness_ms"] >= 0
+    assert result.timings["chat_readiness_ms"] >= 0
+
+
+def test_picker_option_loading_uses_non_refreshing_status_and_no_live_catalog(tmp_path, monkeypatch):
+    import row_bot.api_keys as api_keys
+    import row_bot.providers.codex as codex
+    import row_bot.providers.model_catalog_cache as catalog_cache
+    import row_bot.providers.runtime as provider_runtime
+    import row_bot.providers.selection as selection
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("picker option loading must not refresh live catalogs")
+
+    monkeypatch.setattr(catalog_cache, "refresh_model_catalog_cache", _boom)
+    monkeypatch.setattr(codex, "list_codex_model_infos", _boom)
+
+    refresh_flags: list[bool] = []
+
+    def _provider_status(provider_id: str, *, refresh_tokens: bool = True):
+        refresh_flags.append(refresh_tokens)
+        return {"configured": True, "runtime_enabled": True}
+
+    monkeypatch.setattr(provider_runtime, "provider_status", _provider_status)
+    snapshot = {"tasks": ["chat"], "input_modalities": ["text"], "output_modalities": ["text"]}
+    selection.add_quick_choice_for_model(
+        "gpt-5.5",
+        provider_id="codex",
+        display_name="GPT-5.5",
+        capabilities_snapshot=snapshot,
+    )
+
+    options, diagnostics = selection.list_model_choice_options("chat", return_diagnostics=True)
+
+    assert [option["value"] for option in options] == ["model:codex:gpt-5.5"]
+    assert refresh_flags == [False]
+    assert diagnostics["quick_choices_provider_status_calls"] == 1
+    assert diagnostics["quick_choices_provider_status_refresh_tokens"] is False
 
 
 def test_non_tool_custom_endpoint_is_blocked_for_agent_mode(tmp_path, monkeypatch):

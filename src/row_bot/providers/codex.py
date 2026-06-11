@@ -1021,6 +1021,14 @@ def list_codex_model_infos(*, force_refresh: bool = False, http_client: Any | No
     return fallback_codex_model_infos()
 
 
+def list_codex_model_infos_for_status() -> list[ModelInfo]:
+    """Return Codex catalog metadata for status cards without live discovery."""
+    cached_infos = _load_codex_catalog_cache()
+    if cached_infos:
+        return cached_infos
+    return fallback_codex_model_infos()
+
+
 def seed_recommended_codex_quick_choices(*, max_choices: int = 1) -> list[dict[str, Any]]:
     from row_bot.providers.runtime import provider_status
     from row_bot.providers.selection import add_quick_choice_for_model

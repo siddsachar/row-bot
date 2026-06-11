@@ -35,6 +35,12 @@ _INSTALLED = False
 _FATAL_LOG_HANDLE = None
 _PERF_MONITOR_TASK: asyncio.Task | None = None
 _PERF_STOP = threading.Event()
+_BENIGN_BROWSER_LAYOUT_MESSAGES = {
+    "ResizeObserver loop completed with undelivered notifications.",
+    "ResizeObserver loop limit exceeded",
+}
+_CLIENT_WARNING_RATE_LIMIT_SECONDS = 60.0
+_client_warning_state: dict[str, dict[str, Any]] = {}
 
 
 def session_id() -> str:
@@ -100,8 +106,64 @@ def record_client_error(payload: dict[str, Any]) -> pathlib.Path | None:
     if kind == "connection_state":
         logger.info("Client-side connection state reported: %s", msg)
         return None
+    classification = classify_client_report(safe_payload)
+    if classification == "browser_layout_warning":
+        rate = _rate_limit_client_warning(classification, safe_payload)
+        log_message = (
+            "Client-side browser layout warning: %s count=%d suppressed=%d"
+        )
+        if rate["log"]:
+            logger.info(log_message, msg, rate["count"], rate["suppressed_count"])
+        else:
+            logger.debug(log_message, msg, rate["count"], rate["suppressed_count"])
+        return None
     logger.warning("Client-side error reported: %s", msg)
     return _write_report("client_error", msg, extra={"client": safe_payload})
+
+
+def classify_client_report(payload: dict[str, Any]) -> str:
+    """Classify browser reports before writing crash-style diagnostics."""
+    msg = str(payload.get("message") or payload.get("reason") or "").strip()
+    if msg in _BENIGN_BROWSER_LAYOUT_MESSAGES:
+        return "browser_layout_warning"
+    return "client_error"
+
+
+def _client_warning_fingerprint(classification: str, payload: dict[str, Any]) -> str:
+    parts = [
+        classification,
+        str(payload.get("kind") or ""),
+        str(payload.get("source") or ""),
+        str(payload.get("message") or payload.get("reason") or ""),
+    ]
+    return "\x1f".join(parts)
+
+
+def _rate_limit_client_warning(classification: str, payload: dict[str, Any]) -> dict[str, Any]:
+    now = time.monotonic()
+    fingerprint = _client_warning_fingerprint(classification, payload)
+    state = _client_warning_state.setdefault(
+        fingerprint,
+        {
+            "classification": classification,
+            "first_seen": now,
+            "last_seen": now,
+            "last_logged": 0.0,
+            "count": 0,
+            "suppressed_count": 0,
+        },
+    )
+    state["last_seen"] = now
+    state["count"] = int(state.get("count") or 0) + 1
+    should_log = (
+        int(state.get("count") or 0) == 1
+        or now - float(state.get("last_logged") or 0.0) >= _CLIENT_WARNING_RATE_LIMIT_SECONDS
+    )
+    if should_log:
+        state["last_logged"] = now
+    else:
+        state["suppressed_count"] = int(state.get("suppressed_count") or 0) + 1
+    return {**state, "log": should_log}
 
 
 def start_performance_monitor(
