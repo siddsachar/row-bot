@@ -11,9 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-import pathlib
 import re
-from datetime import datetime
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -26,7 +24,6 @@ from row_bot.tools.approval_gate import gate_action
 logger = logging.getLogger(__name__)
 
 _DATA_DIR = get_row_bot_data_dir()
-_SKILL_VERSIONS_DIR = _DATA_DIR / "skill_versions"
 
 
 def _approval_gate_bool(payload: dict, *, blocked_message: str) -> bool:
@@ -54,6 +51,7 @@ class _StatusQueryInput(BaseModel):
             "'mcp' (external MCP server/tool status), "
             "'providers' (provider connections, credential sources, and Quick Choices), "
             "'insights' (active dream-cycle insights and last analysis), "
+            "'evolution' (controlled self-evolution proposals, action runs, rejections, and curator dry-runs), "
             "'api_keys' (legacy/API key storage status — never returns key values), "
             "'identity' (configured name and personality), "
             "'tasks' (active scheduled tasks summary), "
@@ -312,7 +310,7 @@ def _query_overview() -> str:
     from row_bot.version import __version__
     parts = [f"**Row-Bot v{__version__}**"]
     for cat in ("model", "providers", "vision", "image_gen", "video_gen", "voice", "api_keys", "memory",
-                "channels", "skills", "tools", "mcp", "identity", "tasks", "insights", "config", "designer", "updates"):
+                "channels", "skills", "tools", "mcp", "identity", "tasks", "insights", "evolution", "config", "designer", "updates"):
         try:
             parts.append(_QUERY_HANDLERS[cat]())
         except Exception as exc:
@@ -566,9 +564,43 @@ def _query_insights() -> str:
                 lines.append(f"  - … and {len(active) - 8} more")
         else:
             lines.append("- No active insights")
+        try:
+            from row_bot.evolution import TERMINAL_PROPOSAL_STATUSES, list_action_runs, list_proposals
+
+            proposals = list_proposals()
+            active_proposals = [
+                proposal
+                for proposal in proposals
+                if proposal.get("status") not in TERMINAL_PROPOSAL_STATUSES
+            ]
+            lines.append(f"- Active proposals: {len(active_proposals)}")
+            for proposal in active_proposals[:6]:
+                lines.append(
+                    "  - "
+                    f"[{proposal.get('proposal_type')}/{proposal.get('risk')}/{proposal.get('status')}] "
+                    f"{proposal.get('title')} ({proposal.get('id')})"
+                )
+            runs = list_action_runs(limit=3)
+            if runs:
+                lines.append("- Recent action runs:")
+                for run in runs:
+                    lines.append(
+                        f"  - [{run.get('action_type')}/{run.get('result')}] {run.get('proposal_id')}"
+                    )
+        except Exception as exc:
+            lines.append(f"- Proposal data unavailable: {exc}")
         return "\n".join(lines)
     except Exception as exc:
         return f"**Insights**\nError: {exc}"
+
+
+def _query_evolution() -> str:
+    try:
+        from row_bot.evolution import evolution_summary
+
+        return evolution_summary()
+    except Exception as exc:
+        return f"**Controlled Self-Evolution**\nError: {exc}"
 
 
 def _query_identity() -> str:
@@ -1003,6 +1035,7 @@ _QUERY_HANDLERS = {
     "mcp": _query_mcp,
     "providers": _query_providers,
     "insights": _query_insights,
+    "evolution": _query_evolution,
     "api_keys": _query_api_keys,
     "identity": _query_identity,
     "tasks": _query_tasks,
@@ -1494,55 +1527,31 @@ def _create_skill(
     instructions: str,
     tags: str = "",
 ) -> str:
-    """Create a new user skill (requires confirmation, additive only)."""
-    def interrupt(payload: dict) -> bool:
-        return _approval_gate_bool(
-            payload,
-            blocked_message="BLOCKED: Creating skills is disabled in Block approval mode.",
-        )
-
-    # Validate name format
-    name = name.strip().lower().replace(" ", "_")
-    if not name:
-        return "Skill name cannot be empty."
-
-    # Check for existing skill
+    """Create a skill proposal. Applying the proposal performs the mutation."""
     try:
-        from row_bot.skills import get_all_skills
-        existing = {s.name for s in get_all_skills()}
-        if name in existing:
-            return f"A skill named '{name}' already exists. Skill creation is additive only — cannot overwrite."
-    except Exception:
-        pass
+        from row_bot.evolution import build_create_skill_proposal
 
-    # Require user confirmation
-    approval = interrupt({
-        "tool": "row_bot_create_skill",
-        "label": "Create new skill",
-        "description": f"Create skill '{display_name}' ({name}): {description}",
-        "args": {"name": name, "display_name": display_name},
-    })
-    if not approval:
-        return "Skill creation cancelled."
-
-    try:
-        from row_bot.skills import create_skill
-        tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
-        skill = create_skill(
-            name=name,
-            display_name=display_name,
-            icon=icon,
-            description=description,
-            instructions=instructions,
-            tags=tag_list,
-            enabled=True,
+        proposal = build_create_skill_proposal(
+            {
+                "name": name,
+                "display_name": display_name,
+                "icon": icon,
+                "description": description,
+                "instructions": instructions,
+                "tags": tags,
+                "enabled": True,
+            },
+            rationale="Requested through row_bot_create_skill. This records a previewable proposal before any skill file is created.",
         )
-        if skill:
-            return f"Skill '{display_name}' created and enabled. View it in Settings → Skills."
-        return "Skill creation failed — unknown error."
+        validation = proposal.get("preview", {}).get("validation", {})
+        return (
+            f"Skill creation proposal created: {proposal['id']}\n"
+            f"Status: {proposal.get('status')}\n"
+            f"Validation: {json.dumps(validation, ensure_ascii=False)}\n"
+            "Preview this proposal, then call row_bot_apply_proposal with the proposal id after user approval."
+        )
     except Exception as exc:
-        return f"Failed to create skill: {exc}"
-
+        return f"Failed to create skill proposal: {exc}"
 
 # ═════════════════════════════════════════════════════════════════════════════
 # SKILL PATCHING (versioned, with user-space override for bundled skills)
@@ -1558,128 +1567,144 @@ class _PatchSkillInput(BaseModel):
     )
 
 
-def _version_backup(skill_name: str, content: str, reason: str) -> int:
-    """Save a version backup and return the new version number."""
-    version_dir = _SKILL_VERSIONS_DIR / skill_name
-    version_dir.mkdir(parents=True, exist_ok=True)
+class _SendFeedbackInput(BaseModel):
+    title: str = Field(description="Short feedback title.")
+    summary: str = Field(description="Short feedback summary. Secrets and local user paths are redacted before saving.")
+    insight_id: str = Field(default="", description="Optional insight id to attach to the feedback proposal.")
+    include_logs: bool = Field(default=False, description="Include a small redacted recent warning/error log excerpt.")
 
-    changelog_path = version_dir / "changelog.json"
-    changelog: list[dict] = []
-    if changelog_path.exists():
-        try:
-            changelog = json.loads(changelog_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
 
-    version_num = len(changelog) + 1
-    backup_path = version_dir / f"v{version_num}.md"
-    backup_path.write_text(content, encoding="utf-8")
+class _ProposalApplyInput(BaseModel):
+    proposal_id: str = Field(description="The controlled-evolution proposal id to apply.")
 
-    changelog.append({
-        "version": version_num,
-        "timestamp": datetime.now().isoformat(),
-        "reason": reason,
-    })
-    changelog_path.write_text(
-        json.dumps(changelog, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
 
-    return version_num
+class _ProposalRejectInput(BaseModel):
+    proposal_id: str = Field(description="The controlled-evolution proposal id to reject.")
+    reason: str = Field(default="", description="Why this proposal should not be repeated.")
+
+
+class _ProposalVerifyInput(BaseModel):
+    proposal_id: str = Field(description="The proposal id to mark verified after validation or user confirmation.")
+    note: str = Field(default="", description="Short verification note.")
+
+
+class _CuratorDryRunInput(BaseModel):
+    create_proposals: bool = Field(default=True, description="Whether the dry-run should create review proposals. It never mutates skills.")
 
 
 def _patch_skill(name: str, updated_instructions: str, reason: str) -> str:
-    """Patch an existing skill with updated instructions (requires confirmation)."""
-    def interrupt(payload: dict) -> bool:
-        return _approval_gate_bool(
-            payload,
-            blocked_message="BLOCKED: Patching skills is disabled in Block approval mode.",
-        )
-
-    name = name.strip()
-    if not name:
-        return "Skill name cannot be empty."
-
+    """Create a bounded patch proposal. Applying the proposal performs the mutation."""
     try:
-        from row_bot.skills import get_all_skills, is_tool_guide
-    except ImportError:
-        return "Skills module not available."
+        from row_bot.evolution import build_patch_skill_proposal
 
-    # Find the skill
-    all_skills = {s.name: s for s in get_all_skills()}
-    skill = all_skills.get(name)
-    if not skill:
-        return f"Skill '{name}' not found."
-
-    # Tool guides are report-only — cannot be patched
-    if is_tool_guide(skill):
+        proposal = build_patch_skill_proposal(
+            target_skill=name.strip(),
+            updated_instructions=updated_instructions,
+            reason=reason,
+        )
+        preview = proposal.get("preview", {})
+        validation = preview.get("validation", {})
         return (
-            f"'{name}' is a tool guide and cannot be patched directly. "
-            f"If you noticed a discrepancy, save it as a self_knowledge "
-            f"memory for the developer to review."
+            f"Skill patch proposal created: {proposal['id']}\n"
+            f"Status: {proposal.get('status')}\n"
+            f"Changed lines: {preview.get('changed_lines', 0)}\n"
+            f"Validation: {json.dumps(validation, ensure_ascii=False)}\n"
+            "Preview the diff, then call row_bot_apply_proposal with the proposal id after user approval."
         )
+    except Exception as exc:
+        return f"Failed to create skill patch proposal: {exc}"
 
-    # Require user confirmation
-    approval = interrupt({
-        "tool": "row_bot_patch_skill",
-        "label": f"Patch skill: {skill.display_name}",
-        "description": (
-            f"Update instructions for '{skill.display_name}'.\n"
-            f"Reason: {reason}\n\n"
-            f"The original will be backed up before any changes."
-        ),
-        "args": {"name": name, "reason": reason},
-    })
-    if not approval:
-        return "Skill patch cancelled."
+
+def _send_feedback(
+    title: str,
+    summary: str,
+    insight_id: str = "",
+    include_logs: bool = False,
+) -> str:
+    """Create a redacted send-feedback proposal without uploading anything."""
 
     try:
-        # Backup current version
-        current_content = ""
-        if skill.path:
-            md_path = skill.path / "SKILL.md"
-            if md_path.exists():
-                current_content = md_path.read_text(encoding="utf-8")
-        if current_content:
-            ver = _version_backup(name, current_content, reason)
-            logger.info("Backed up skill '%s' as v%d", name, ver)
+        from row_bot.evolution import build_send_feedback_proposal
 
-        if skill.source == "bundled":
-            # Bundled skill — create user-space override (original untouched)
-            from row_bot.skills import create_skill
-            new_skill = create_skill(
-                name=skill.name,
-                display_name=skill.display_name,
-                icon=skill.icon,
-                description=skill.description,
-                instructions=updated_instructions,
-                tags=skill.tags if skill.tags else None,
-                enabled=True,
-                version=skill.version,
-            )
-            if new_skill:
-                return (
-                    f"Skill '{skill.display_name}' patched via user-space override. "
-                    f"Original bundled version preserved. "
-                    f"Backup saved. View in Settings → Skills."
-                )
-            return "Failed to create user-space override."
-        else:
-            # User skill — update in place
-            from row_bot.skills import update_skill
-            updated = update_skill(
-                name=name,
-                instructions=updated_instructions,
-            )
-            if updated:
-                return (
-                    f"Skill '{skill.display_name}' patched successfully. "
-                    f"Backup saved as v{ver}."
-                )
-            return "Skill update failed."
+        insight = None
+        if insight_id:
+            try:
+                from row_bot.insights import get_insight_by_id
 
+                insight = get_insight_by_id(insight_id)
+            except Exception:
+                insight = None
+        proposal = build_send_feedback_proposal(
+            insight,
+            title=title,
+            summary=summary,
+            include_logs=include_logs,
+            insight_ids=[insight_id] if insight_id else [],
+        )
+        return (
+            f"Send feedback proposal created: {proposal['id']}\n"
+            "Preview the redacted report, then copy it, save it locally, or submit it through the contact page."
+        )
     except Exception as exc:
-        logger.error("Skill patch failed for '%s': %s", name, exc, exc_info=True)
-        return f"Failed to patch skill: {exc}"
+        return f"Failed to create send feedback proposal: {exc}"
+
+
+def _apply_controlled_proposal(proposal_id: str) -> str:
+    """Apply a proposal through the controlled action-run path."""
+
+    try:
+        from row_bot.evolution import apply_proposal
+
+        result = apply_proposal(proposal_id, require_approval=True)
+        run = result.get("action_run") or {}
+        refs = run.get("result_refs") or []
+        rollback = run.get("rollback_ref") or ""
+        details = [result.get("message", "Proposal applied.")]
+        if refs:
+            details.append("Result refs: " + ", ".join(str(ref) for ref in refs))
+        if rollback:
+            details.append(f"Rollback ref: {rollback}")
+        return "\n".join(details)
+    except Exception as exc:
+        return f"Failed to apply proposal: {exc}"
+
+
+def _reject_controlled_proposal(proposal_id: str, reason: str = "") -> str:
+    try:
+        from row_bot.evolution import reject_proposal
+
+        proposal = reject_proposal(proposal_id, reason)
+        return f"Proposal rejected: {proposal.get('title')} ({proposal_id}). Rejection memory recorded."
+    except Exception as exc:
+        return f"Failed to reject proposal: {exc}"
+
+
+def _verify_controlled_proposal(proposal_id: str, note: str = "") -> str:
+    try:
+        from row_bot.evolution import mark_proposal_verified
+
+        if mark_proposal_verified(proposal_id, note):
+            return f"Proposal verified: {proposal_id}"
+        return f"Proposal not found or could not be verified: {proposal_id}"
+    except Exception as exc:
+        return f"Failed to verify proposal: {exc}"
+
+
+def _curator_dry_run(create_proposals: bool = True) -> str:
+    try:
+        from row_bot.evolution import review_skill_library_dry_run
+
+        report = review_skill_library_dry_run(create_proposals=create_proposals)
+        summary = report.get("summary", {})
+        return (
+            f"Curator dry-run complete: {report.get('id')}\n"
+            f"Manual skills: {summary.get('manual_skill_count', 0)}\n"
+            f"Findings: {summary.get('finding_count', 0)}\n"
+            f"Proposals: {summary.get('proposal_count', 0)}\n"
+            f"Mutated skills: {report.get('mutated_skills')}"
+        )
+    except Exception as exc:
+        return f"Curator dry-run failed: {exc}"
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1723,7 +1748,7 @@ class RowBotStatusTool(BaseTool):
                 description=(
                     "Query Row-Bot's current status and configuration. "
                     "Categories: overview, version, model, channels, memory, skills, "
-                    "tools, mcp, providers, insights, api_keys, identity, tasks, vision, "
+                    "tools, mcp, providers, insights, evolution, api_keys, identity, tasks, vision, "
                     "image_gen, video_gen, voice, config, designer, updates, logs, errors."
                 ),
                 args_schema=_StatusQueryInput,
@@ -1759,9 +1784,9 @@ class RowBotStatusTool(BaseTool):
                 func=_create_skill,
                 name="row_bot_create_skill",
                 description=(
-                    "Create a new user skill (reusable instruction pack). "
+                    "Create a proposal for a new user skill (reusable instruction pack). "
                     "Requires user confirmation. Additive only — cannot "
-                    "overwrite existing skills."
+                    "apply the proposal separately after preview and approval."
                 ),
                 args_schema=_CreateSkillInput,
             ))
@@ -1769,12 +1794,57 @@ class RowBotStatusTool(BaseTool):
                 func=_patch_skill,
                 name="row_bot_patch_skill",
                 description=(
-                    "Patch an existing skill with improved instructions. "
-                    "Requires user confirmation. Backs up the original. "
-                    "Bundled skills are patched via user-space override "
-                    "(originals preserved). Tool guides cannot be patched."
+                    "Create a bounded patch-skill proposal with a diff preview. "
+                    "Does not mutate skills; apply the proposal separately after approval. "
+                    "Tool guides cannot be patched through this path."
                 ),
                 args_schema=_PatchSkillInput,
+            ))
+            tools.append(StructuredTool.from_function(
+                func=_send_feedback,
+                name="row_bot_send_feedback",
+                description=(
+                    "Create a redacted send-feedback proposal. Applying it saves a local "
+                    "markdown report; the user can copy it or submit it through the "
+                    "Row-Bot contact page."
+                ),
+                args_schema=_SendFeedbackInput,
+            ))
+            tools.append(StructuredTool.from_function(
+                func=_apply_controlled_proposal,
+                name="row_bot_apply_proposal",
+                description=(
+                    "Apply a controlled self-evolution proposal. Mutating proposal types "
+                    "are approval-gated, audited as ActionRun records, and skill patches "
+                    "include rollback refs."
+                ),
+                args_schema=_ProposalApplyInput,
+            ))
+            tools.append(StructuredTool.from_function(
+                func=_reject_controlled_proposal,
+                name="row_bot_reject_proposal",
+                description=(
+                    "Reject a controlled self-evolution proposal and record feedback so "
+                    "similar future proposals can account for the rejection."
+                ),
+                args_schema=_ProposalRejectInput,
+            ))
+            tools.append(StructuredTool.from_function(
+                func=_verify_controlled_proposal,
+                name="row_bot_verify_proposal",
+                description=(
+                    "Mark an applied proposal verified after explicit validation or user confirmation."
+                ),
+                args_schema=_ProposalVerifyInput,
+            ))
+            tools.append(StructuredTool.from_function(
+                func=_curator_dry_run,
+                name="row_bot_review_skill_library",
+                description=(
+                    "Run a manual dry-run review of the skill library. It reports findings "
+                    "and may create proposals, but never mutates skill files."
+                ),
+                args_schema=_CuratorDryRunInput,
             ))
 
         return tools

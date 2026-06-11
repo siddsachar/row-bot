@@ -82,6 +82,25 @@ def _save_store(store: dict) -> None:
 
 # ── CRUD ─────────────────────────────────────────────────────────────────────
 
+def _normalize_for_evolution(candidate: dict) -> dict:
+    try:
+        from row_bot.evolution import normalize_insight_for_evolution
+
+        return normalize_insight_for_evolution(candidate)
+    except Exception:
+        logger.debug("Could not normalize insight for evolution", exc_info=True)
+        return candidate
+
+
+def _ensure_linked_proposals(insight: dict) -> None:
+    try:
+        from row_bot.evolution import ensure_proposals_for_insight
+
+        ensure_proposals_for_insight(insight)
+    except Exception:
+        logger.debug("Could not create linked proposals for insight %s", insight.get("id"), exc_info=True)
+
+
 def add_insight(
     *,
     category: str,
@@ -94,6 +113,10 @@ def add_insight(
     confidence: float = 0.5,
     source_cycle: str = "",
     skill_draft: Optional[dict] = None,
+    fingerprint: str = "",
+    source: str = "",
+    affected_surface: str = "",
+    evidence_refs: Optional[list[str]] = None,
 ) -> Optional[dict]:
     """Add a new insight, deduplicating against existing ones.
 
@@ -104,6 +127,23 @@ def add_insight(
         return None
     if severity not in VALID_SEVERITIES:
         severity = "info"
+
+    normalized = _normalize_for_evolution(
+        {
+            "category": category,
+            "severity": severity,
+            "title": title,
+            "body": body,
+            "evidence": evidence or [],
+            "suggestion": suggestion,
+            "affected_surface": affected_surface,
+            "skill_draft": skill_draft,
+        }
+    )
+    category = str(normalized.get("category") or category)
+    if category not in VALID_CATEGORIES:
+        category = "system_health"
+    skill_draft = normalized.get("skill_draft")
 
     store = _load_store()
     insights = store["insights"]
@@ -125,6 +165,7 @@ def add_insight(
                 existing["severity"] = severity
             logger.info("Merged insight into existing: %s", existing["id"])
             _save_store(store)
+            _ensure_linked_proposals(existing)
             existing["_merged"] = True  # transient flag for callers
             return existing
 
@@ -142,6 +183,10 @@ def add_insight(
         "confidence": round(confidence, 2),
         "status": "new",
         "source_cycle": source_cycle,
+        "fingerprint": fingerprint,
+        "source": source or ("dream_cycle" if source_cycle else ""),
+        "affected_surface": affected_surface,
+        "evidence_refs": evidence_refs or [],
         "skill_draft": skill_draft,
     }
 
@@ -153,6 +198,7 @@ def add_insight(
 
     _save_store(store)
     logger.info("Added insight: %s — %s", insight["id"], title)
+    _ensure_linked_proposals(insight)
     return insight
 
 
@@ -225,7 +271,7 @@ def get_insight_by_id(insight_id: str) -> Optional[dict]:
 
 
 def apply_insight(insight_id: str) -> dict:
-    """Apply a backend-fixable insight and mark it handled."""
+    """Convert a backend-fixable insight into approval-gated proposal(s)."""
     insight = get_insight_by_id(insight_id)
     if not insight:
         return {"ok": False, "message": "Insight not found", "action": None}
@@ -241,72 +287,37 @@ def apply_insight(insight_id: str) -> dict:
     if insight.get("category") != "skill_proposal":
         return {
             "ok": False,
-            "message": "Only skill proposal insights can be applied automatically",
+            "message": "Only skill proposal insights can be converted from Apply; use Investigate or Report Issue for this insight.",
             "action": None,
         }
-
-    if not insight.get("auto_fixable"):
-        return {
-            "ok": False,
-            "message": "Insight is not marked auto-fixable",
-            "action": None,
-        }
-
-    draft = insight.get("skill_draft")
-    if not isinstance(draft, dict):
-        return {"ok": False, "message": "Insight has no skill draft", "action": None}
-
-    name = (draft.get("name", "") or "").strip()
-    if not name:
-        return {"ok": False, "message": "Skill draft has no name", "action": None}
 
     try:
-        from row_bot.skills import create_skill, get_skill
+        from row_bot.evolution import ensure_proposals_for_insight
 
-        existing = get_skill(name)
-        if existing is not None:
-            return {
-                "ok": False,
-                "message": f"Skill already exists: {name}",
-                "action": None,
-            }
-
-        skill = create_skill(
-            name=name,
-            display_name=draft.get("display_name", name) or name,
-            icon=draft.get("icon", "🧩"),
-            description=draft.get("description", ""),
-            instructions=draft.get("instructions", ""),
-            tags=draft.get("tags"),
-            enabled=bool(draft.get("enabled", draft.get("enabled_by_default", True))),
-            version=draft.get("version", "1.0"),
-        )
+        proposals = [
+            proposal
+            for proposal in ensure_proposals_for_insight(insight)
+            if proposal.get("proposal_type") in {"create_skill", "patch_skill"}
+        ]
     except ValueError as exc:
         return {"ok": False, "message": str(exc), "action": None}
     except Exception as exc:
-        logger.warning("Failed to apply insight %s: %s", insight_id, exc, exc_info=True)
+        logger.warning("Failed to propose insight %s: %s", insight_id, exc, exc_info=True)
         return {
             "ok": False,
-            "message": f"Failed to create skill: {exc}",
+            "message": f"Failed to create proposal: {exc}",
             "action": None,
         }
 
-    if not skill:
-        return {"ok": False, "message": "Failed to create skill", "action": None}
-
-    if not update_insight_status(insight_id, "applied"):
-        return {
-            "ok": False,
-            "message": "Skill created but failed to mark insight applied",
-            "action": skill.name,
-        }
+    if not proposals:
+        return {"ok": False, "message": "No skill proposal could be generated", "action": None}
 
     return {
         "ok": True,
-        "message": f"Skill created: {skill.display_name}",
-        "action": skill.name,
+        "message": f"Created {len(proposals)} proposal(s). Preview and approve before applying.",
+        "action": [proposal["id"] for proposal in proposals],
+        "proposals": proposals,
     }
-
 
 def get_insights_meta() -> dict:
     """Return the meta section of the insights store."""

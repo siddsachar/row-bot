@@ -86,6 +86,7 @@ RUNTIME_MODULE_ROOTS = frozenset(
         "dream_cycle",
         "embedding_config",
         "embedding_providers",
+        "evolution",
         "github_account",
         "identity",
         "insights",
@@ -20143,6 +20144,20 @@ try:
     assert "developer_import_sandbox_changes" in _developer_tool_src76, "Developer tools should import sandbox patches explicitly"
     assert "Docker Sandbox mode" in _developer_guide_src76 and "developer_import_sandbox_changes" in _developer_guide_src76, "Developer guide should teach sandbox import flow"
     record("PASS", "76s: Developer Docker Sandbox is optional, shadowed, and import-gated")
+
+    _evolution_src77 = _source_path("evolution.py").read_text(encoding="utf-8")
+    _insights_src77 = _source_path("insights.py").read_text(encoding="utf-8")
+    _status_src77 = _source_path("tools/row_bot_status_tool.py").read_text(encoding="utf-8")
+    _command_center_src77 = _source_path("ui/command_center.py").read_text(encoding="utf-8")
+    _self_reflection77 = _P76("bundled_skills/self_reflection/SKILL.md").read_text(encoding="utf-8")
+    assert "VALID_PROPOSAL_TYPES" in _evolution_src77 and "ActionRun" in _evolution_src77, "Controlled evolution should define proposal/action-run model"
+    assert "tests/test_suite.py" not in _evolution_src77, "Packaged self-evolution validators must not depend on the internal test suite"
+    assert "ensure_proposals_for_insight" in _insights_src77 and "Created {len(proposals)} proposal" in _insights_src77, "Insight apply should create proposals, not direct skill mutations"
+    assert "save_thread_draft" in _source_path("threads.py").read_text(encoding="utf-8"), "Investigate should use durable thread drafts"
+    assert "row_bot_apply_proposal" in _status_src77 and '"evolution": _query_evolution' in _status_src77, "Status tool should expose controlled evolution"
+    assert "_show_proposal_preview" in _command_center_src77 and "review_skill_library_dry_run" in _command_center_src77, "Command Center should preview proposals and run curator dry-runs"
+    assert "Do not edit `insights.json`" in _self_reflection77 and "row_bot_send_feedback" in _self_reflection77, "Self-reflection skill should use proposal/action model"
+    record("PASS", "77a: Controlled self-evolution proposal/action guardrails are wired")
 
 except Exception as e:
     record("FAIL", "developer-studio-foundations-76", f"{type(e).__name__}: {e}")

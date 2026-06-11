@@ -509,6 +509,57 @@ def _thread_ui_media_path(thread_id: str) -> pathlib.Path:
     return _THREAD_UI_DIR / f"{thread_id}.media.json"
 
 
+def _thread_ui_draft_path(thread_id: str) -> pathlib.Path:
+    safe_id = str(thread_id or "").strip()
+    return _THREAD_UI_DIR / f"{safe_id}.draft.json"
+
+
+def save_thread_draft(thread_id: str, text: str, *, source: str = "") -> None:
+    """Persist a composer draft for a thread until it is sent or replaced."""
+
+    if not thread_id:
+        return
+    try:
+        payload = {
+            "thread_id": str(thread_id),
+            "text": str(text or ""),
+            "source": str(source or ""),
+            "updated_at": datetime.now().isoformat(),
+        }
+        _thread_ui_draft_path(thread_id).write_text(
+            json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+        )
+    except Exception:
+        logger.warning("Failed to save thread draft for %s", thread_id, exc_info=True)
+
+
+def load_thread_draft(thread_id: str) -> dict | None:
+    """Load a persisted composer draft for a thread, if present."""
+
+    if not thread_id:
+        return None
+    try:
+        path = _thread_ui_draft_path(thread_id)
+        if not path.exists():
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else None
+    except Exception:
+        logger.warning("Failed to load thread draft for %s", thread_id, exc_info=True)
+        return None
+
+
+def delete_thread_draft(thread_id: str) -> None:
+    """Remove a persisted composer draft."""
+
+    if not thread_id:
+        return
+    try:
+        _thread_ui_draft_path(thread_id).unlink(missing_ok=True)
+    except Exception:
+        logger.debug("Failed to delete thread draft for %s", thread_id, exc_info=True)
+
+
 def _thread_media_dir(thread_id: str) -> pathlib.Path:
     """Return (and lazily create) the per-thread media directory."""
     d = _MEDIA_DIR / thread_id
@@ -638,6 +689,10 @@ def _delete_thread(thread_id: str):
     try:
         legacy = _THREAD_UI_DIR / f"{thread_id}.images.json"
         legacy.unlink(missing_ok=True)
+    except Exception:
+        pass
+    try:
+        delete_thread_draft(thread_id)
     except Exception:
         pass
 

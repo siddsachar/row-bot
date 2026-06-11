@@ -7,7 +7,6 @@ quick launch, and recent run history.
 from __future__ import annotations
 
 import logging
-import uuid
 from datetime import datetime
 from typing import Any, Callable
 
@@ -28,6 +27,13 @@ _COMMAND_CENTER_CSS = """
 .row-bot-command-center-drawer {
     transition: width 180ms ease, max-width 180ms ease;
     overflow: hidden;
+    max-width: 100vw;
+    box-sizing: border-box;
+}
+.row-bot-command-center-drawer *,
+.row-bot-command-center-drawer *::before,
+.row-bot-command-center-drawer *::after {
+    box-sizing: border-box;
 }
 .workflow-console-rail {
     position: absolute;
@@ -99,6 +105,67 @@ _COMMAND_CENTER_CSS = """
 }
 .workflow-console-scroll {
     width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+}
+.workflow-console-scroll .q-scrollarea__container,
+.workflow-console-scroll .q-scrollarea__content {
+    width: 100%;
+    min-width: 100%;
+    max-width: 100%;
+}
+.workflow-console-content,
+.workflow-console-section {
+    width: 100%;
+    min-width: 100%;
+    max-width: 100%;
+    align-self: stretch;
+    overflow-x: hidden;
+}
+.row-bot-command-center-insights-expansion,
+.row-bot-command-center-insights-expansion .q-expansion-item,
+.row-bot-command-center-insights-expansion .q-expansion-item__content,
+.row-bot-insight-card,
+.row-bot-insight-proposals {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+}
+.row-bot-insight-proposal-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 26px;
+    column-gap: 4px;
+    align-items: center;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    padding-top: 4px;
+}
+.row-bot-insight-proposal-main {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 4px;
+    row-gap: 3px;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+}
+.row-bot-insight-proposal-title {
+    flex: 1 1 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.row-bot-insight-preview-btn.q-btn {
+    width: 24px;
+    min-width: 24px;
+    height: 24px;
 }
 .row-bot-command-center-drawer.workflow-console-collapsed .workflow-console-rail {
     display: flex;
@@ -326,10 +393,12 @@ def build_command_center(
         safe_timer(3.0, _refresh_rail_counts)
 
         with ui.scroll_area().classes("w-full h-full workflow-console-scroll"):
-          with ui.column().classes("w-full gap-2").style(
-              "overflow: hidden; padding: 6px 8px;"
+          with ui.column().classes("w-full gap-2 workflow-console-content").style(
+              "overflow-x: hidden; padding: 6px 8px;"
           ):
-            with ui.column().classes("w-full gap-2 row-bot-inner-panel"):
+            with ui.column().classes("w-full gap-2 row-bot-inner-panel workflow-console-section").style(
+                "width: 100%; min-width: 100%; max-width: 100%; overflow-x: hidden;"
+            ):
                 with ui.row().classes("w-full items-start justify-between no-wrap"):
                     with ui.column().classes("gap-0"):
                         ui.label("Workflow Console").classes(
@@ -824,13 +893,20 @@ def build_command_center(
             # ════════════════════════════════════════════════════
             # §6  INSIGHTS  (separate inner panel)
             # ════════════════════════════════════════════════════
-            with ui.column().classes("w-full gap-2 row-bot-inner-panel"):
+            with ui.column().classes("w-full gap-2 row-bot-inner-panel workflow-console-section").style(
+                "width: 100%; min-width: 100%; max-width: 100%; overflow-x: hidden;"
+            ):
                 with ui.expansion("Insights", icon="lightbulb", value=False).classes(
                     "w-full row-bot-command-center-insights-expansion"
                 ):
-                    _insights_container = ui.column().classes("w-full gap-0 q-pt-xs")
+                    _insights_container = ui.column().classes("w-full gap-0 q-pt-xs").style(
+                        "min-width: 0; max-width: 100%; overflow-x: hidden;"
+                    )
+                proposal_dialog_state = {"open": False}
 
                 def _rebuild_insights() -> None:
+                    if proposal_dialog_state.get("open"):
+                        return
                     _insights_container.clear()
                     try:
                         from row_bot.insights import (
@@ -867,6 +943,32 @@ def build_command_center(
                                 ).classes("text-xs text-grey-7").style(
                                     "margin-left: auto;"
                                 )
+                            else:
+                                ui.element("div").style("margin-left: auto;")
+
+                            def _review_skill_library():
+                                try:
+                                    from row_bot.evolution import review_skill_library_dry_run
+
+                                    report = review_skill_library_dry_run(create_proposals=True)
+                                    summary = report.get("summary", {})
+                                    ui.notify(
+                                        (
+                                            "Skill review dry-run complete: "
+                                            f"{summary.get('finding_count', 0)} finding(s), "
+                                            f"{summary.get('proposal_count', 0)} proposal(s)."
+                                        ),
+                                        type="positive",
+                                    )
+                                    refresh = _rebuild_insights
+                                    refresh()
+                                except Exception as exc:
+                                    ui.notify(f"Skill review failed: {exc}", type="negative")
+
+                            ui.button(
+                                icon="manage_search",
+                                on_click=_review_skill_library,
+                            ).props("flat round dense size=xs").tooltip("Review skill library")
 
                         if not active:
                             with ui.row().classes(
@@ -886,6 +988,7 @@ def build_command_center(
                                 state, p, rebuild_main,
                                 rebuild_thread_list,
                                 load_thread_messages,
+                                proposal_dialog_state,
                             )
 
                 def _render_insight_card(
@@ -896,6 +999,7 @@ def build_command_center(
                     rebuild_main,
                     rebuild_thread_list,
                     load_thread_messages,
+                    proposal_dialog_state: dict,
                 ) -> None:
                     from row_bot.insights import (
                         dismiss_insight, pin_insight,
@@ -911,12 +1015,13 @@ def build_command_center(
                     suggestion = ins.get("suggestion", "")
                     iid = ins["id"]
                     is_pinned = ins.get("status") == "pinned"
-                    has_draft = bool(ins.get("skill_draft"))
-                    can_apply = (
-                        cat == "skill_proposal"
-                        and bool(ins.get("auto_fixable"))
-                        and has_draft
-                    )
+                    proposals: list[dict] = []
+                    try:
+                        from row_bot.evolution import list_display_proposals_for_insight
+
+                        proposals = list_display_proposals_for_insight(ins, include_terminal=True)
+                    except Exception:
+                        logger.debug("Could not load proposals for insight %s", iid, exc_info=True)
 
                     sev_colors = {
                         "critical": "#ff5252",
@@ -925,10 +1030,28 @@ def build_command_center(
                     }
                     border_color = sev_colors.get(sev, sev_colors["info"])
 
-                    with ui.card().classes("w-full q-my-xs").style(
+                    def _navigate_to_thread(thread_id: str, thread_name: str = "") -> None:
+                        from row_bot.memory_extraction import set_active_thread
+                        from row_bot.ui.voice_lifecycle import stop_voice_for_thread_change
+
+                        tid = str(thread_id or "").strip()
+                        if not tid:
+                            return
+                        prev = state.thread_id
+                        stop_voice_for_thread_change(state, p, reason="command_center_insight")
+                        state.thread_id = tid
+                        state.thread_name = thread_name or f"Investigate: {title}"
+                        state.messages = load_thread_messages(tid)
+                        p.pending_files.clear()
+                        set_active_thread(tid, previous_id=prev)
+                        rebuild_main()
+                        rebuild_thread_list()
+
+                    with ui.card().classes("w-full q-my-xs row-bot-insight-card").style(
                         f"padding: 0.4rem 0.5rem;"
                         f" border-left: 3px solid {border_color};"
-                        f" overflow: hidden; box-sizing: border-box;"
+                        f" min-width: 0; max-width: 100%;"
+                        f" overflow: hidden; overflow-x: hidden; box-sizing: border-box;"
                     ):
                         # Title row
                         with ui.row().classes(
@@ -948,8 +1071,10 @@ def build_command_center(
                             ui.label(body).classes(
                                 "text-xs text-grey-6"
                             ).style(
-                                "white-space: normal;"
-                                " word-break: break-word;"
+                                "white-space: normal; overflow: hidden;"
+                                " overflow-wrap: anywhere; word-break: break-word;"
+                                " display: -webkit-box; -webkit-line-clamp: 3;"
+                                " -webkit-box-orient: vertical;"
                             )
 
                         # Suggestion
@@ -957,10 +1082,53 @@ def build_command_center(
                             ui.label(
                                 f"💬 {suggestion}"
                             ).classes("text-xs text-grey-5").style(
-                                "white-space: normal;"
-                                " word-break: break-word;"
-                                " font-style: italic;"
+                                "white-space: normal; overflow: hidden;"
+                                " overflow-wrap: anywhere; word-break: break-word;"
+                                " display: -webkit-box; -webkit-line-clamp: 3;"
+                                " -webkit-box-orient: vertical; font-style: italic;"
                             )
+
+                        if proposals:
+                            display_proposals = sorted(
+                                proposals[:4],
+                                key=lambda item: (
+                                    _proposal_status_order(str(item.get("status") or "")),
+                                    _proposal_type_order(str(item.get("proposal_type") or "")),
+                                ),
+                            )
+                            with ui.column().classes("w-full gap-1 q-mt-xs row-bot-insight-proposals").style(
+                                "min-width: 0; max-width: 100%; overflow-x: hidden;"
+                            ):
+                                for proposal in display_proposals:
+                                    ptype = str(proposal.get("proposal_type", "proposal"))
+                                    pstatus = str(proposal.get("status", "ready"))
+                                    with ui.element("div").classes("row-bot-insight-proposal-row"):
+                                        with ui.element("div").classes("row-bot-insight-proposal-main"):
+                                            ui.badge(
+                                                _proposal_type_label(ptype), color="grey-8"
+                                            ).props("dense").classes("text-xs")
+                                            ui.badge(
+                                                _proposal_status_label(pstatus),
+                                                color=_proposal_status_color(pstatus),
+                                            ).props("dense").classes("text-xs")
+                                            ui.label(
+                                                _compact_proposal_title(proposal)
+                                            ).classes("text-xs row-bot-insight-proposal-title").tooltip(
+                                                str(proposal.get("title", "Proposal"))
+                                            )
+                                        ui.button(
+                                            icon="visibility",
+                                            on_click=lambda pid=proposal["id"]: _show_proposal_preview(
+                                                pid,
+                                                refresh_fn,
+                                                navigate_thread=_navigate_to_thread,
+                                                dialog_state=proposal_dialog_state,
+                                            ),
+                                        ).props("flat round dense size=xs").classes(
+                                            "row-bot-insight-preview-btn"
+                                        ).tooltip(
+                                            f"Preview {_proposal_type_label(ptype)}"
+                                        )
 
                         # Action buttons
                         with ui.row().classes(
@@ -1002,70 +1170,340 @@ def build_command_center(
                                 ).style(f"color: {APP_BRAND_ACCENT};")
 
                             # Investigate — opens chat with context
-                            def _investigate(
-                                ins_title=title,
-                                ins_body=body,
-                                ins_sug=suggestion,
-                            ):
-                                from row_bot.memory_extraction import set_active_thread
-                                from row_bot.threads import _save_thread_meta
-                                from row_bot.ui.voice_lifecycle import stop_voice_for_thread_change
+                            if not proposals:
+                                def _generate(insight=ins):
+                                    try:
+                                        from row_bot.evolution import ensure_proposals_for_insight
 
-                                new_tid = uuid.uuid4().hex[:12]
-                                _save_thread_meta(
-                                    new_tid,
-                                    f"Investigate: {ins_title}",
-                                    seed_default_skills=True,
-                                )
-                                stop_voice_for_thread_change(state, p, reason="command_center_insight")
-                                state.thread_id = new_tid
-                                state.thread_name = (
-                                    f"Investigate: {ins_title}"
-                                )
-                                state.messages = []
-                                p.pending_files.clear()
-                                set_active_thread(new_tid)
-                                rebuild_main()
-                                rebuild_thread_list()
-                                # Pre-fill input with context
-                                msg = (
-                                    f"An automated insight was generated:"
-                                    f"\n\n**{ins_title}**\n{ins_body}"
-                                )
-                                if ins_sug:
-                                    msg += f"\n\nSuggestion: {ins_sug}"
-                                msg += (
-                                    "\n\nPlease investigate this and"
-                                    " suggest what I should do."
-                                )
-                                if p.chat_input:
-                                    p.chat_input.value = msg
-
-                            ui.button(
-                                "Investigate", on_click=_investigate
-                            ).props(
-                                "flat dense no-caps size=xs"
-                            ).style("color: #64b5f6;")
-
-                            # Apply — only for skill_proposal with draft
-                            if can_apply:
-                                def _apply(i=iid):
-                                    _apply_skill_draft(i, refresh_fn)
+                                        created = ensure_proposals_for_insight(insight)
+                                        ui.notify(
+                                            f"Prepared {len(created)} proposal(s)",
+                                            type="positive" if created else "info",
+                                        )
+                                        refresh_fn()
+                                    except Exception as exc:
+                                        ui.notify(f"Could not prepare proposals: {exc}", type="negative")
 
                                 ui.button(
-                                    "Apply", on_click=_apply
+                                    "Generate proposals", on_click=_generate
                                 ).props(
                                     "flat dense no-caps size=xs"
-                                ).style("color: #66bb6a;")
+                                ).style("color: #64b5f6;")
 
                 _rebuild_insights()
                 safe_timer(30.0, _rebuild_insights)
 
 
+def _proposal_type_order(proposal_type: str) -> int:
+    order = {
+        "send_feedback": 0,
+        "investigate": 1,
+        "create_skill": 2,
+        "patch_skill": 3,
+        "consolidate_skills": 4,
+    }
+    return order.get(str(proposal_type or ""), 99)
+
+
+def _proposal_status_order(status: str) -> int:
+    order = {
+        "ready": 0,
+        "draft": 1,
+        "approved": 2,
+        "applied": 3,
+        "verified": 4,
+        "rejected": 5,
+        "failed": 6,
+    }
+    return order.get(str(status or ""), 99)
+
+
+def _proposal_type_label(proposal_type: str) -> str:
+    labels = {
+        "send_feedback": "feedback",
+        "investigate": "investigate",
+        "create_skill": "skill",
+        "patch_skill": "patch",
+        "consolidate_skills": "review",
+    }
+    return labels.get(str(proposal_type or ""), str(proposal_type or "proposal").replace("_", " "))
+
+
+def _proposal_status_color(status: str) -> str:
+    colors = {
+        "ready": "blue-grey",
+        "draft": "grey",
+        "approved": "primary",
+        "applied": "positive",
+        "verified": "green",
+        "rejected": "warning",
+        "failed": "negative",
+    }
+    return colors.get(str(status or ""), "blue-grey")
+
+
+def _proposal_status_label(status: str) -> str:
+    labels = {
+        "ready": "review",
+        "draft": "draft",
+        "approved": "approved",
+        "applied": "done",
+        "verified": "verified",
+        "rejected": "rejected",
+        "failed": "failed",
+    }
+    return labels.get(str(status or ""), str(status or "review"))
+
+
+def _compact_proposal_title(proposal: dict) -> str:
+    title = str(proposal.get("title") or "Proposal").strip()
+    for prefix in (
+        "Send feedback:",
+        "Investigate:",
+        "Create skill:",
+        "Patch skill:",
+        "Review overlap:",
+    ):
+        if title.lower().startswith(prefix.lower()):
+            title = title[len(prefix) :].strip()
+            break
+    return title or "Proposal"
+
+
+def _proposal_preview_text(proposal: dict) -> str:
+    """Return a compact, readable proposal preview."""
+
+    import json
+
+    preview = proposal.get("preview") if isinstance(proposal.get("preview"), dict) else {}
+    if proposal.get("proposal_type") == "patch_skill" and preview.get("diff"):
+        body = preview.get("diff", "")
+    elif proposal.get("proposal_type") == "create_skill":
+        overlaps = preview.get("overlaps") if isinstance(preview.get("overlaps"), list) else []
+        lines = [
+            f"Skill: {preview.get('display_name') or preview.get('skill_name') or 'Untitled skill'}",
+            f"Identifier: {preview.get('skill_name') or 'unknown'}",
+        ]
+        description = str(preview.get("description") or "").strip()
+        if description:
+            lines.extend(["", "Description:", description])
+        instructions = str(preview.get("instructions_preview") or "").strip()
+        if instructions:
+            lines.extend(["", "Instructions preview:", instructions])
+        tags = preview.get("tags")
+        if isinstance(tags, list) and tags:
+            lines.extend(["", "Tags: " + ", ".join(str(tag) for tag in tags)])
+        lines.extend(
+            [
+                "",
+                f"Estimated tokens: {preview.get('estimated_tokens', 0)}",
+                f"Suggested enabled: {bool(preview.get('suggested_enabled'))}",
+            ]
+        )
+        if overlaps:
+            lines.extend(["", "Potential overlaps:"])
+            for item in overlaps[:5]:
+                lines.append(
+                    f"- {item.get('display_name') or item.get('name')} "
+                    f"({item.get('source', 'unknown')}, score {item.get('score', 0)})"
+                )
+        body = "\n".join(lines)
+    elif proposal.get("proposal_type") == "send_feedback":
+        draft = preview.get("feedback_draft") if isinstance(preview.get("feedback_draft"), dict) else {}
+        body = f"{draft.get('title', '')}\n\n{draft.get('body', '')}".strip()
+    elif proposal.get("proposal_type") == "investigate":
+        body = preview.get("draft_prompt") or preview.get("text") or ""
+    else:
+        body = json.dumps(preview, indent=2, ensure_ascii=False)
+    validation = preview.get("validation") if isinstance(preview.get("validation"), dict) else {}
+    if validation:
+        body += "\n\nValidation:\n" + json.dumps(validation, indent=2, ensure_ascii=False)
+    return str(body or "No preview available.")
+
+
+def _show_proposal_preview(
+    proposal_id: str,
+    refresh_fn,
+    *,
+    navigate_thread=None,
+    dialog_state: dict | None = None,
+) -> None:
+    """Open a preview/approval dialog for a controlled-evolution proposal."""
+
+    import json
+
+    from nicegui import ui as _ui
+
+    try:
+        from row_bot.evolution import apply_proposal, get_proposal, reject_proposal
+
+        proposal = get_proposal(proposal_id)
+    except Exception as exc:
+        _ui.notify(f"Could not load proposal: {exc}", type="negative")
+        return
+
+    if not proposal:
+        _ui.notify("Proposal not found", type="warning")
+        return
+
+    if dialog_state is not None:
+        dialog_state["open"] = True
+
+    with _ui.dialog() as dialog, _ui.card().classes("w-full").style(
+        "max-width: 760px; max-height: 82vh; overflow: auto;"
+    ):
+        dialog.props("persistent")
+
+        def _close_dialog(*, refresh: bool = False) -> None:
+            if dialog_state is not None:
+                dialog_state["open"] = False
+            dialog.close()
+            if refresh:
+                refresh_fn()
+
+        _ui.label(str(proposal.get("title", "Proposal"))).classes("text-subtitle1 font-bold")
+        with _ui.row().classes("items-center gap-1"):
+            _ui.badge(str(proposal.get("proposal_type", "proposal")), color="blue-grey")
+            _ui.badge(f"risk: {proposal.get('risk', 'low')}", color="orange")
+            _ui.badge(f"state: {_proposal_status_label(str(proposal.get('status', 'ready')))}", color="grey")
+            _ui.badge(f"confidence: {proposal.get('confidence', 0)}", color="grey-8")
+        rationale = str(proposal.get("rationale") or "")
+        if rationale:
+            _ui.label(rationale).classes("text-sm text-grey-5").style(
+                "white-space: normal; word-break: break-word;"
+            )
+        proposal_type = str(proposal.get("proposal_type") or "")
+        preview_text = _proposal_preview_text(proposal)
+        _ui.label(preview_text).classes("text-xs").style(
+            "white-space: pre-wrap; word-break: break-word; "
+            "border: 1px solid rgba(255,255,255,0.12); padding: 8px; border-radius: 6px; "
+            "max-height: 380px; overflow: auto; width: 100%;"
+        )
+        _ui.label(
+            f"Verification: {proposal.get('verification_plan') or 'Review after applying.'}"
+        ).classes("text-xs text-grey-6").style("white-space: normal;")
+        status = str(proposal.get("status") or "ready")
+        is_terminal = status in {"applied", "verified", "rejected", "failed"}
+        if is_terminal:
+            _ui.label(
+                f"This proposal is {_proposal_status_label(status)} and is shown for history."
+            ).classes("text-xs text-grey-5")
+            reason_input = None
+        else:
+            reason_input = _ui.input("Rejection reason").classes("w-full").props("dense")
+
+        with _ui.row().classes("w-full justify-end gap-2"):
+            _ui.button("Close", on_click=lambda: _close_dialog()).props("flat no-caps")
+
+            def _reject() -> None:
+                try:
+                    reject_proposal(proposal_id, str(reason_input.value if reason_input else ""))
+                    _ui.notify("Proposal rejected", type="info")
+                    _close_dialog(refresh=True)
+                except Exception as exc:
+                    _ui.notify(f"Reject failed: {exc}", type="negative")
+
+            def _apply_current() -> dict:
+                try:
+                    return apply_proposal(
+                        proposal_id,
+                        require_approval=False,
+                        approved_by_user=True,
+                    )
+                except Exception as exc:
+                    return {"ok": False, "message": f"Apply failed: {exc}"}
+
+            def _approve() -> None:
+                result = _apply_current()
+                try:
+                    _ui.notify(
+                        result.get("message", "Proposal applied"),
+                        type="positive" if result.get("ok") else "warning",
+                    )
+                    if result.get("ok") and proposal_type == "investigate" and navigate_thread:
+                        refs = (result.get("action_run") or {}).get("result_refs") or []
+                        if refs:
+                            navigate_thread(str(refs[0]), str(proposal.get("title") or "Investigate"))
+                    _close_dialog(refresh=True)
+                except Exception as exc:
+                    _ui.notify(f"Apply failed: {exc}", type="negative")
+
+            if is_terminal:
+                if proposal_type == "investigate" and navigate_thread:
+                    try:
+                        from row_bot.evolution import list_action_runs
+
+                        runs = list_action_runs(proposal_id=proposal_id, limit=1)
+                    except Exception:
+                        runs = []
+                    refs = (runs[0].get("result_refs") if runs else []) or []
+                    if refs:
+                        _ui.button(
+                            "Open thread",
+                            on_click=lambda tid=str(refs[0]): (
+                                navigate_thread(tid, str(proposal.get("title") or "Investigate")),
+                                _close_dialog(refresh=True),
+                            ),
+                        ).props("outline no-caps color=primary")
+                elif proposal_type == "send_feedback":
+                    def _open_contact() -> None:
+                        from row_bot.brand import APP_SUPPORT_URL
+
+                        _ui.run_javascript(
+                            f"window.open({json.dumps(APP_SUPPORT_URL)}, '_blank')"
+                        )
+                        _close_dialog(refresh=True)
+
+                    _ui.button("Open contact page", on_click=_open_contact).props(
+                        "outline no-caps color=primary"
+                    )
+            elif proposal_type == "send_feedback":
+                _ui.button("Reject", on_click=_reject).props("outline no-caps color=warning")
+
+                def _copy_feedback() -> None:
+                    _ui.run_javascript(
+                        f"navigator.clipboard.writeText({json.dumps(preview_text)})"
+                    )
+                    _ui.notify("Feedback report copied", type="positive")
+
+                def _save_feedback() -> None:
+                    result = _apply_current()
+                    _ui.notify(
+                        result.get("message", "Feedback report saved"),
+                        type="positive" if result.get("ok") else "warning",
+                    )
+                    if result.get("ok"):
+                        _close_dialog(refresh=True)
+
+                def _submit_feedback() -> None:
+                    from row_bot.brand import APP_SUPPORT_URL
+
+                    result = _apply_current()
+                    if result.get("ok") or "already applied" in str(result.get("message", "")).lower():
+                        _ui.run_javascript(
+                            f"window.open({json.dumps(APP_SUPPORT_URL)}, '_blank')"
+                        )
+                        _ui.notify("Opening Row-Bot contact page", type="positive")
+                        _close_dialog(refresh=True)
+                    else:
+                        _ui.notify(
+                            result.get("message", "Could not prepare feedback report"),
+                            type="warning",
+                        )
+
+                _ui.button("Copy report", on_click=_copy_feedback).props("outline no-caps")
+                _ui.button("Save report", on_click=_save_feedback).props("outline no-caps color=primary")
+                _ui.button("Submit", on_click=_submit_feedback).props("unelevated no-caps color=positive")
+            else:
+                _ui.button("Reject", on_click=_reject).props("outline no-caps color=warning")
+                _ui.button("Approve", on_click=_approve).props("unelevated no-caps color=positive")
+    dialog.open()
+
+
 def _apply_skill_draft(
     insight_id: str, refresh_fn
 ) -> None:
-    """Apply a skill-proposal insight through the backend helper."""
+    """Create controlled skill proposals from a skill-proposal insight."""
     from nicegui import ui as _ui
 
     try:
@@ -1073,13 +1511,13 @@ def _apply_skill_draft(
 
         result = apply_insight(insight_id)
         _ui.notify(
-            result.get("message", "Failed to apply insight"),
+            result.get("message", "Failed to create proposal"),
             type="positive" if result.get("ok") else "warning",
         )
         if result.get("ok"):
             refresh_fn()
     except Exception as exc:
-        _ui.notify(f"Failed to apply insight: {exc}", type="negative")
+        _ui.notify(f"Failed to create proposal: {exc}", type="negative")
 
 
 def _escape_html(text: str) -> str:
