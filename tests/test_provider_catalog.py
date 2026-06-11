@@ -32,6 +32,33 @@ def test_minimax_provider_definition_and_model_inference():
     assert definition.auth_methods[0].value == "api_key"
 
 
+def test_atlascloud_provider_definition_and_capabilities():
+    from row_bot.providers.resolution import resolve_provider_config
+
+    definition = get_provider_definition("atlascloud")
+    assert definition is not None
+    assert definition.display_name == "Atlas Cloud"
+    assert definition.default_transport == TransportMode.OPENAI_CHAT
+    assert definition.base_url == "https://api.atlascloud.ai/v1"
+    assert definition.risk_label == "cloud_provider"
+    assert definition.auth_methods[0].value == "api_key"
+
+    classified = classify_model_capabilities("atlascloud", "deepseek-ai/DeepSeek-V3-0324")
+    assert "chat" in classified["tasks"]
+    assert classified["transport"] == TransportMode.OPENAI_CHAT
+
+    resolved = resolve_provider_config(
+        "model:atlascloud:deepseek-ai/DeepSeek-V3-0324",
+        allow_legacy_local=False,
+    )
+    assert resolved.provider_id == "atlascloud"
+    assert resolved.model_id == "deepseek-ai/DeepSeek-V3-0324"
+    assert resolved.transport == TransportMode.OPENAI_CHAT
+    assert resolved.base_url == "https://api.atlascloud.ai/v1"
+    assert resolved.risk_label == "cloud_provider"
+    assert resolved.execution_location == "remote"
+
+
 def test_settings_models_tab_does_not_auto_load_heavy_work():
     source = (ROOT / "src" / "row_bot" / "ui" / "settings.py").read_text(encoding="utf-8")
 

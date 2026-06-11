@@ -33,6 +33,7 @@ GOOGLE_GENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 XAI_BASE_URL = "https://api.x.ai/v1"
 MINIMAX_ANTHROPIC_BASE_URL = "https://api.minimax.io/anthropic"
 OLLAMA_CLOUD_BASE_URL = "https://ollama.com"
+ATLASCLOUD_BASE_URL = "https://api.atlascloud.ai/v1"
 
 # ── Context-size heuristics (prefix-match, checked top-to-bottom) ───────────
 # Used when the provider API doesn't expose context_length (e.g. OpenAI) and
@@ -922,6 +923,7 @@ _PROVIDER_EMOJI: dict[str | None, str] = {
     "claude_subscription": "C",
     "opencode_zen": "OZ",
     "opencode_go": "OG",
+    "atlascloud": "AC",
     "openrouter": "🌐",
     "anthropic": "🔶",
     "google": "💎",
@@ -987,6 +989,12 @@ def is_minimax_available() -> bool:
     """Return True if a MiniMax API key is configured."""
     from row_bot.api_keys import get_key
     return bool(get_key("MINIMAX_API_KEY"))
+
+
+def is_atlascloud_available() -> bool:
+    """Return True if an Atlas Cloud API key is configured."""
+    from row_bot.api_keys import get_key
+    return bool(get_key("ATLASCLOUD_API_KEY"))
 
 
 def list_cloud_models(provider: str | None = None) -> list[str]:
@@ -1582,6 +1590,11 @@ def fetch_cloud_models(provider: str) -> int:
         if not api_key:
             return 0
         return _fetch_opencode_models(provider)
+    elif provider == "atlascloud":
+        api_key = get_key("ATLASCLOUD_API_KEY")
+        if not api_key:
+            return 0
+        return _fetch_atlascloud_models(api_key)
     elif provider == "claude_subscription":
         return _fetch_claude_subscription_models()
     else:
@@ -1975,6 +1988,51 @@ def _fetch_xai_models(api_key: str) -> int:
     return count
 
 
+def _fetch_atlascloud_models(api_key: str) -> int:
+    """Fetch models from the Atlas Cloud OpenAI-compatible ``/v1/models`` endpoint.
+
+    Atlas Cloud exposes an OpenAI-compatible catalog whose model IDs use the
+    ``provider/model`` form (e.g. ``deepseek-ai/DeepSeek-V3-0324``).  Context
+    size is taken from ``context_length``/``context_window`` when present and
+    otherwise resolved via the shared catalog / prefix heuristic.
+    """
+    import httpx
+    from row_bot.providers.capabilities import model_supports_surface
+    from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
+
+    try:
+        resp = httpx.get(
+            f"{ATLASCLOUD_BASE_URL}/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+    except Exception as exc:
+        logger.warning("Failed to fetch atlascloud models: %s", exc)
+        return 0
+
+    count = 0
+    with _cloud_cache_lock:
+        for m in data:
+            mid = m.get("id", "")
+            if not mid:
+                continue
+            ctx = m.get("context_length") or m.get("context_window") or _catalog_or_heuristic(mid)
+            model_info = model_info_from_metadata(
+                "atlascloud", mid, m,
+                display_name=m.get("name", mid),
+                context_window=ctx,
+            )
+            if not any(model_supports_surface(model_info, surface) for surface in ("chat", "image", "video")):
+                continue
+            _cloud_model_cache[mid] = model_info_to_cache_entry(model_info)
+            count += 1
+
+    logger.info("Fetched %d atlascloud models", count)
+    return count
+
+
 def _fetch_minimax_models(api_key: str) -> int:
     """Populate MiniMax Anthropic-compatible models from the live provider catalog."""
     if not api_key:
@@ -2192,6 +2250,7 @@ def refresh_cloud_models() -> int:
     total += fetch_cloud_models("minimax")
     total += fetch_cloud_models("opencode_zen")
     total += fetch_cloud_models("opencode_go")
+    total += fetch_cloud_models("atlascloud")
     total += fetch_cloud_models("claude_subscription")
     _save_cloud_cache()
 

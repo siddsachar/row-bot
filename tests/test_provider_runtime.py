@@ -740,6 +740,43 @@ def test_minimax_provider_creates_chat_anthropic_with_minimax_base_url(monkeypat
     assert model.kwargs["base_url"] == "https://api.minimax.io/anthropic"
 
 
+def test_atlascloud_provider_creates_openai_compatible_client(monkeypatch):
+    monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id: "test-atlas-key")
+
+    model = runtime.create_chat_model("deepseek-ai/DeepSeek-V3-0324", provider_id="atlascloud")
+
+    assert type(model).__name__ == "ChatOpenAICompatible"
+    assert model.model_name == "deepseek-ai/DeepSeek-V3-0324"
+    assert model.api_key == "test-atlas-key"
+    assert model.base_url == "https://api.atlascloud.ai/v1"
+    assert model.endpoint["provider_id"] == "atlascloud"
+    assert model.endpoint["transport"] == "openai_chat"
+
+
+def test_atlascloud_provider_requires_api_key(monkeypatch):
+    monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id: "")
+
+    try:
+        runtime.create_chat_model("deepseek-ai/DeepSeek-V3-0324", provider_id="atlascloud")
+    except ValueError as exc:
+        assert "Atlas Cloud API key not configured" in str(exc)
+    else:
+        raise AssertionError("Expected missing Atlas Cloud key to raise")
+
+
+def test_atlascloud_listed_among_configured_providers(monkeypatch):
+    monkeypatch.setattr(
+        runtime,
+        "is_provider_available",
+        lambda provider_id: provider_id == "atlascloud",
+    )
+    monkeypatch.setattr(runtime, "provider_status", lambda provider_id, **kwargs: {"configured": False})
+
+    configured = runtime.list_configured_provider_ids()
+
+    assert "atlascloud" in configured
+
+
 def test_minimax_model_facade_fetches_live_catalog_and_capabilities(monkeypatch):
     import httpx
     import row_bot.api_keys as api_keys
@@ -926,6 +963,79 @@ def test_ollama_cloud_offload_model_facade_routes_to_local_ollama_provider():
 
     assert models.is_cloud_model("model:ollama:gpt-oss:120b-cloud") is True
     assert models.get_cloud_provider("model:ollama:gpt-oss:120b-cloud") == "ollama"
+
+
+def test_atlascloud_model_facade_fetches_openai_compatible_catalog(monkeypatch):
+    import httpx
+    import row_bot.api_keys as api_keys
+    import row_bot.models as models
+
+    old_cache = dict(models._cloud_model_cache)
+    captured = {}
+
+    class _Response:
+        status_code = 200
+        text = "{}"
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "data": [
+                    {"id": "deepseek-ai/DeepSeek-V3-0324", "context_length": 163_840},
+                    {"id": "qwen/qwen3-32b"},
+                ]
+            }
+
+    def _fake_get(url, **kwargs):
+        captured["url"] = url
+        captured["headers"] = dict(kwargs.get("headers") or {})
+        return _Response()
+
+    monkeypatch.setattr(api_keys, "get_key", lambda key: "test-atlas-key" if key == "ATLASCLOUD_API_KEY" else "")
+    monkeypatch.setattr(httpx, "get", _fake_get)
+    try:
+        models._cloud_model_cache.clear()
+        count = models.fetch_cloud_models("atlascloud")
+
+        assert count == 2
+        assert captured["url"] == "https://api.atlascloud.ai/v1/models"
+        assert captured["headers"]["Authorization"] == "Bearer test-atlas-key"
+        assert models.is_cloud_model("model:atlascloud:deepseek-ai/DeepSeek-V3-0324") is True
+        assert models.get_cloud_provider("model:atlascloud:deepseek-ai/DeepSeek-V3-0324") == "atlascloud"
+        assert models.get_cloud_model_context("model:atlascloud:deepseek-ai/DeepSeek-V3-0324") == 163_840
+        assert models._cloud_model_cache["deepseek-ai/DeepSeek-V3-0324"]["provider"] == "atlascloud"
+        assert models._cloud_model_cache["qwen/qwen3-32b"]["provider"] == "atlascloud"
+        assert models.get_provider_emoji("model:atlascloud:deepseek-ai/DeepSeek-V3-0324") == "AC"
+    finally:
+        models._cloud_model_cache.clear()
+        models._cloud_model_cache.update(old_cache)
+
+
+def test_atlascloud_live_catalog_failure_preserves_existing_cache(monkeypatch):
+    import httpx
+    import row_bot.api_keys as api_keys
+    import row_bot.models as models
+
+    old_cache = dict(models._cloud_model_cache)
+    monkeypatch.setattr(api_keys, "get_key", lambda key: "test-atlas-key" if key == "ATLASCLOUD_API_KEY" else "")
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: (_ for _ in ()).throw(httpx.TimeoutException("boom")))
+    try:
+        models._cloud_model_cache.clear()
+        models._cloud_model_cache["deepseek-ai/DeepSeek-V3-0324"] = {
+            "provider": "atlascloud",
+            "label": "DeepSeek-V3-0324",
+            "ctx": 163_840,
+        }
+
+        count = models.fetch_cloud_models("atlascloud")
+
+        assert count == 0
+        assert "deepseek-ai/DeepSeek-V3-0324" in models._cloud_model_cache
+    finally:
+        models._cloud_model_cache.clear()
+        models._cloud_model_cache.update(old_cache)
 
 
 def test_minimax_validation_treats_insufficient_balance_as_accepted_key(monkeypatch):

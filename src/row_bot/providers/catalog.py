@@ -77,6 +77,15 @@ PROVIDER_DEFINITIONS: dict[str, ProviderDefinition] = {
         risk_label="cloud_provider",
         icon="OG",
     ),
+    "atlascloud": ProviderDefinition(
+        id="atlascloud",
+        display_name="Atlas Cloud",
+        auth_methods=(AuthMethod.API_KEY,),
+        default_transport=TransportMode.OPENAI_CHAT,
+        base_url="https://api.atlascloud.ai/v1",
+        risk_label="cloud_provider",
+        icon="AC",
+    ),
     "anthropic": ProviderDefinition(
         id="anthropic",
         display_name="Anthropic API",

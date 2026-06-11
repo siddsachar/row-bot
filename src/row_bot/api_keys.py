@@ -61,6 +61,11 @@ MINIMAX_KEY_DEFINITIONS = {
     "MiniMax API Key": "MINIMAX_API_KEY",
 }
 
+# Atlas Cloud API credentials – managed in the Providers settings tab.
+ATLASCLOUD_KEY_DEFINITIONS = {
+    "Atlas Cloud API Key": "ATLASCLOUD_API_KEY",
+}
+
 # ── Cloud provider configuration ────────────────────────────────────────────
 _CLOUD_CONFIG_PATH = DATA_DIR / "cloud_config.json"
 
