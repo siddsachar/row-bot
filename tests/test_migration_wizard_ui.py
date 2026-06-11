@@ -14,8 +14,17 @@ class MigrationWizardUiTests(unittest.TestCase):
         self.assertIn("Open Migration Wizard", settings_source)
         self.assertIn("def _open_migration_wizard_dialog", settings_source)
         self.assertIn('"Migration": tab_prefs', settings_source)
+        self.assertIn('"row_bot.ui.migration_wizard"', settings_source)
+        self.assertNotIn('"ui.migration_wizard"', settings_source)
         self.assertNotIn('ui.tab("Migration"', settings_source)
         self.assertGreater(settings_source.index("Open Migration Wizard"), settings_source.index("build_update_section"))
+
+    def test_first_run_wizard_launches_migration_with_package_import(self) -> None:
+        setup_source = Path("src/row_bot/ui/setup_wizard.py").read_text(encoding="utf-8")
+
+        self.assertIn("def _open_first_run_migration_wizard", setup_source)
+        self.assertIn('"row_bot.ui.migration_wizard"', setup_source)
+        self.assertNotIn('"ui.migration_wizard"', setup_source)
 
     def test_wizard_guidance_describes_safe_flow(self) -> None:
         from row_bot.ui.migration_wizard import field_help_text, wizard_step_titles, workflow_steps

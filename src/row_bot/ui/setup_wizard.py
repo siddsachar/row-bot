@@ -180,7 +180,7 @@ async def show_setup_wizard(
                 with ui.scroll_area().classes("w-full").style("height: calc(100vh - 76px);"):
                     with ui.column().classes("w-full px-6 py-4"):
                         __import__(
-                            "ui.migration_wizard",
+                            "row_bot.ui.migration_wizard",
                             fromlist=["build_migration_wizard_tab"],
                         ).build_migration_wizard_tab()
         migration_dlg.open()

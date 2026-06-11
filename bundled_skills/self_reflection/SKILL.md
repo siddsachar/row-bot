@@ -1,7 +1,7 @@
 ---
 name: self_reflection
 display_name: Self-Reflection
-icon: mirror
+icon: "🪞"
 description: Periodically review memory for contradictions, gaps, stale information, and controlled improvement proposals.
 enabled_by_default: true
 version: "1.2"

@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 _DATA_DIR = get_row_bot_data_dir()
 _PROBE_CACHE_TTL_SECONDS = 30.0
+_OLLAMA_ROUTINE_PROBE_TIMEOUT_SECONDS = 0.2
+_OLLAMA_LIVE_PROBE_TIMEOUT_SECONDS = 1.0
 _HEAVY_CHECK_TIMEOUT_SECONDS = 3.0
 _HEAVY_CHECK_WORKERS = 4
 _probe_cache: dict[str, tuple[float, CheckResult]] = {}
@@ -126,56 +128,59 @@ def _run_timed_check(fn: Callable[[], CheckResult | list[CheckResult]], *, kind:
 
 def check_ollama(*, live_probe: bool = True) -> CheckResult:
     """Check if Ollama server is reachable."""
-    if not live_probe:
-        try:
-            from row_bot.models import get_current_model, is_cloud_model
+    timeout = (
+        _OLLAMA_LIVE_PROBE_TIMEOUT_SECONDS
+        if live_probe
+        else _OLLAMA_ROUTINE_PROBE_TIMEOUT_SECONDS
+    )
+    metadata = {"live_probe": live_probe, "probe_timeout_seconds": timeout}
+    try:
+        from row_bot.models import _ollama_reachable, get_current_model, is_cloud_model
 
-            model = get_current_model()
-            if not model or is_cloud_model(model):
-                return CheckResult(
-                    "Ollama",
-                    "inactive",
-                    "Not in use",
-                    settings_tab="Models",
-                    metadata={
-                        "live_probe": False,
-                        "skip_reason": "routine_refresh_not_using_local_ollama",
-                    },
-                )
-        except Exception as exc:
-            return CheckResult("Ollama", "warn", str(exc), settings_tab="Models")
-
-    def _check() -> CheckResult:
-        try:
-            from row_bot.models import _ollama_reachable, get_current_model, is_cloud_model
-            model = get_current_model()
-            if _ollama_reachable(timeout=1.0):
-                return CheckResult(
-                    "Ollama",
-                    "ok",
-                    "Server reachable",
-                    settings_tab="Models",
-                    metadata={"live_probe": True},
-                )
-            if model and not is_cloud_model(model):
-                return CheckResult(
-                    "Ollama",
-                    "warn",
-                    "Local model server unreachable",
-                    settings_tab="Models",
-                    metadata={"live_probe": True},
-                )
+        if _ollama_reachable(timeout=timeout):
             return CheckResult(
                 "Ollama",
-                "inactive",
-                "Not in use",
+                "ok",
+                "Server reachable",
                 settings_tab="Models",
-                metadata={"live_probe": True},
+                metadata=metadata,
             )
-        except Exception as exc:
-            return CheckResult("Ollama", "warn", str(exc), settings_tab="Models")
 
-    return _cached_probe("ollama:live", _check)
+        try:
+            model = get_current_model()
+            using_local_model = bool(model and not is_cloud_model(model))
+        except Exception as exc:
+            return CheckResult(
+                "Ollama",
+                "warn",
+                str(exc),
+                settings_tab="Models",
+                metadata=metadata,
+            )
+
+        if using_local_model:
+            return CheckResult(
+                "Ollama",
+                "warn",
+                "Local model server unreachable",
+                settings_tab="Models",
+                metadata=metadata,
+            )
+        return CheckResult(
+            "Ollama",
+            "inactive",
+            "Server offline",
+            settings_tab="Models",
+            metadata=metadata,
+        )
+    except Exception as exc:
+        return CheckResult(
+            "Ollama",
+            "warn",
+            str(exc),
+            settings_tab="Models",
+            metadata=metadata,
+        )
 
 
 def _routine_check_ollama() -> CheckResult:
