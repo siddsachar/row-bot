@@ -321,6 +321,7 @@ def open_settings(
         "OPENROUTER_API_KEY": "openrouter",
         "OPENCODE_ZEN_API_KEY": "opencode_zen",
         "OPENCODE_GO_API_KEY": "opencode_go",
+        "ATLASCLOUD_API_KEY": "atlascloud",
         "ANTHROPIC_API_KEY": "anthropic",
         "GOOGLE_API_KEY": "google",
         "XAI_API_KEY": "xai",
@@ -2027,6 +2028,25 @@ def open_settings(
             with ui.row().classes("gap-2"):
                 ui.button("Save Key", icon="save", on_click=_save_opencode_go).props("flat dense")
                 ui.button("Clear", icon="delete", on_click=lambda: _clear_secret("OPENCODE_GO_API_KEY", "OpenCode Go key", go_refresh)).props("flat dense color=negative")
+
+        with ui.expansion("Atlas Cloud", icon="cloud", value=False).classes("w-full"):
+            ui.label("OpenAI-compatible access to 100+ open models (DeepSeek, Qwen, Kimi, and more).").classes("text-grey-6 text-sm")
+            atlas_input, atlas_refresh = _secret_input("Atlas Cloud API Key", "ATLASCLOUD_API_KEY")
+
+            async def _save_atlascloud():
+                val = _secret_value_or_notify(atlas_input.value, "Atlas Cloud key")
+                if not val:
+                    return
+                set_key("ATLASCLOUD_API_KEY", val)
+                clear_provider_runtime_cache()
+                atlas_input.value = ""
+                atlas_input.update()
+                atlas_refresh()
+                ui.notify("Atlas Cloud key saved", type="positive")
+                _start_catalog_refresh_ui(reason="provider_key_saved", provider_id="atlascloud", force=True)
+            with ui.row().classes("gap-2"):
+                ui.button("Save Key", icon="save", on_click=_save_atlascloud).props("flat dense")
+                ui.button("Clear", icon="delete", on_click=lambda: _clear_secret("ATLASCLOUD_API_KEY", "Atlas Cloud key", atlas_refresh)).props("flat dense color=negative")
 
         with ui.expansion("🔶 Anthropic", icon="smart_toy", value=False).classes("w-full"):
             ui.label("Direct access to Claude models.").classes("text-grey-6 text-sm")

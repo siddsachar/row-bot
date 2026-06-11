@@ -17,7 +17,7 @@ Row-Bot is a local-first desktop AI assistant for reasoning through work, orches
 
 It gives you chat, memory, tools, workflows, Developer Studio, Designer Studio, Smart Skills, Skills Hub, Custom Tools, plugins, messaging channels, realtime voice, and flexible model routing while keeping durable data local.
 
-Bring the model path that fits the job: local models through [Ollama](https://ollama.com/), OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, Ollama Cloud, ChatGPT / Codex subscription models, Claude Subscription models, or custom OpenAI-compatible endpoints such as oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, and SGLang. Row-Bot keeps provider identity, model capabilities, context limits, and chat-only fallbacks explicit so local, hosted, and self-hosted models can coexist without surprise routing.
+Bring the model path that fits the job: local models through [Ollama](https://ollama.com/), OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, [Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=Thoth), Ollama Cloud, ChatGPT / Codex subscription models, Claude Subscription models, or custom OpenAI-compatible endpoints such as oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, and SGLang. Row-Bot keeps provider identity, model capabilities, context limits, and chat-only fallbacks explicit so local, hosted, and self-hosted models can coexist without surprise routing.
 
 The Row-Bot app has no account system, no Row-Bot-hosted server, and no telemetry pipeline. Provider keys and subscription tokens are stored in the OS credential store when available.
 
@@ -112,7 +112,7 @@ On first launch, Row-Bot opens a setup wizard. Pick one of three paths:
 | Mode | Use it when | Setup |
 |------|-------------|-------|
 | Local | You want inference and embeddings on your machine. | Choose a local runtime, download a recommended model such as `qwen3:14b` or a smaller model such as `qwen3:8b`, then start chatting. Ollama is the supported local runtime today. |
-| Providers | You want hosted models, frontier reasoning, or no local model download. | Add an OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, or Ollama Cloud key, pick a default model, and save Quick Choices. ChatGPT / Codex and Claude Subscription sign-in are available in Settings after launch. |
+| Providers | You want hosted models, frontier reasoning, or no local model download. | Add an OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, Atlas Cloud, or Ollama Cloud key, pick a default model, and save Quick Choices. ChatGPT / Codex and Claude Subscription sign-in are available in Settings after launch. |
 | Custom/Self-hosted | You run oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, or a private gateway. | Enter an OpenAI-compatible base URL such as `http://127.0.0.1:1234/v1`, choose the closest compatibility profile, add a key if your server requires one, fetch models, and choose a default. |
 
 Common first prompts:
@@ -146,6 +146,7 @@ Model catalog browsing, pinning, defaults, and Quick Choices live in Settings â†
 | xAI | `XAI_API_KEY` | Grok models, Grok Imagine, and Grok Imagine Video. |
 | MiniMax | `MINIMAX_API_KEY` | Current MiniMax models through the Anthropic-compatible API, discovered from the live provider catalog where available. |
 | OpenRouter | `OPENROUTER_API_KEY` | Access to 100+ provider models. |
+| [Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=Thoth) | `ATLASCLOUD_API_KEY` | OpenAI-compatible access to 100+ open models (DeepSeek, Qwen, Kimi, and more), discovered from the live provider catalog. |
 | Ollama Cloud | `OLLAMA_CLOUD_API_KEY` or local daemon sign-in | Direct Ollama Cloud models and cloud-tagged daemon models. |
 | Custom OpenAI-compatible endpoint | Base URL and optional key | Self-hosted or proxy models through profiles for oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, and generic servers. |
 | Tavily | `TAVILY_API_KEY` | Live web search. |

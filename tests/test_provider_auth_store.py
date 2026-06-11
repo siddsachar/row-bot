@@ -75,6 +75,15 @@ def test_ollama_cloud_provider_auth_store_uses_environment(monkeypatch):
     os.environ.pop("OLLAMA_API_KEY", None)
 
 
+def test_atlascloud_provider_auth_store_uses_environment(monkeypatch):
+    monkeypatch.setenv("ATLASCLOUD_API_KEY", "atlascloud-env-secret")
+
+    assert get_provider_secret("atlascloud") == "atlascloud-env-secret"
+    assert provider_secret_status("atlascloud")["source"] == "environment"
+
+    os.environ.pop("ATLASCLOUD_API_KEY", None)
+
+
 def test_provider_auth_store_reports_keyring_when_saved_key_is_loaded_into_env(tmp_path, monkeypatch):
     monkeypatch.setattr(api_keys, "KEYS_PATH", tmp_path / "api_keys.json")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)

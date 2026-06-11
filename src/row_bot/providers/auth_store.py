@@ -16,6 +16,7 @@ PROVIDER_API_KEY_ENV: dict[str, str] = {
     "openrouter": "OPENROUTER_API_KEY",
     "opencode_zen": "OPENCODE_ZEN_API_KEY",
     "opencode_go": "OPENCODE_GO_API_KEY",
+    "atlascloud": "ATLASCLOUD_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
     "google": "GOOGLE_API_KEY",
     "xai": "XAI_API_KEY",

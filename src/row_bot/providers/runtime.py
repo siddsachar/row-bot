@@ -21,6 +21,7 @@ def list_configured_provider_ids() -> list[str]:
             "openrouter",
             "opencode_zen",
             "opencode_go",
+            "atlascloud",
             "anthropic",
             "google",
             "xai",
@@ -350,6 +351,26 @@ def create_chat_model(model_name: str, provider_id: str | None = None):
             model=model_name,
             api_key=api_key,
             base_url=api_url,
+        )
+    if provider == "atlascloud":
+        from row_bot.providers.transports.openai_compatible import ChatOpenAICompatible
+
+        api_key = get_provider_secret("atlascloud")
+        if not api_key:
+            raise ValueError("Atlas Cloud API key not configured. Set it in Settings → Providers.")
+        definition = get_provider_definition("atlascloud")
+        base_url = definition.base_url if definition and definition.base_url else "https://api.atlascloud.ai/v1"
+        return ChatOpenAICompatible(
+            model_name=model_name,
+            api_key=api_key,
+            base_url=base_url,
+            endpoint={
+                "provider_id": "atlascloud",
+                "display_name": "Atlas Cloud",
+                "base_url": base_url,
+                "transport": "openai_chat",
+                "profile": "generic",
+            },
         )
 
     from langchain_openrouter import ChatOpenRouter

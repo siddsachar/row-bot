@@ -25,6 +25,7 @@ TRUSTED_AGENT_PROVIDERS = {
     "minimax",
     "opencode_zen",
     "opencode_go",
+    "atlascloud",
     "codex",
     "claude_subscription",
     "ollama_cloud",
