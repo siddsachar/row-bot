@@ -687,6 +687,14 @@ For skill_proposal insights, include a "skill_draft" object with:
   {{"name": "slug_name", "display_name": "Human Name", "icon": "emoji", \
 "description": "one-line", "instructions": "Full skill instructions markdown"}}
 
+Use skill_proposal only for repeated user-facing workflows the assistant
+should learn as reusable guidance. Do not use skill_proposal for internal app
+bugs, provider/model discovery failures, API key or keyring problems, task
+hygiene, stale/duplicated automations, graph rendering budgets, status-bar
+performance, startup errors, tool/MCP configuration issues, logs, databases,
+caches, or system health. Use error_pattern, tool_config, or system_health for
+those instead.
+
 Return a JSON array of objects, each with these fields:
 - category (string)
 - severity (string)

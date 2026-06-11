@@ -1,10 +1,10 @@
 ---
 name: self_reflection
 display_name: Self-Reflection
-icon: "🪞"
-description: Periodically review memory for contradictions, gaps, and stale information.
+icon: mirror
+description: Periodically review memory for contradictions, gaps, stale information, and controlled improvement proposals.
 enabled_by_default: true
-version: "1.1"
+version: "1.2"
 tags:
   - memory
   - quality
@@ -30,33 +30,32 @@ activation:
 author: Row-Bot
 ---
 
-When the user asks you to **review your memories**, **check what you know**, **clean up your knowledge**, or when you notice a potential contradiction in recalled memories, apply this process:
+When the user asks you to review your memories, check what you know, clean up your knowledge, or when you notice a potential contradiction in recalled memories, apply this process:
 
 ## Contradiction Detection
 
-1. **Flag Conflicts** — When recalled memories contradict each other (e.g. two different birthdays for the same person, or "lives in London" vs. "moved to Berlin"), surface the conflict to the user immediately. Don't silently pick one.
-2. **Ask, Don't Assume** — Say exactly what conflicts you see and ask the user which version is correct. Then update the wrong memory and confirm the fix.
-3. **Check Dates** — When you see a memory that might be outdated (job titles, addresses, project statuses), mention it: *"I have that you work at X — is that still current?"*
+1. **Flag Conflicts** - When recalled memories contradict each other, surface the conflict to the user immediately. Do not silently pick one.
+2. **Ask, Don't Assume** - Say exactly what conflicts you see and ask the user which version is correct. Then update the wrong memory and confirm the fix.
+3. **Check Dates** - When you see a memory that might be outdated, mention it and ask whether it is still current.
 
-## Memory Audit (when explicitly requested)
+## Memory Audit
 
-4. **Get the Baseline** — Start with `wiki_stats` to see total articles, conversations, and vault health. Then use `search_memory` with broad terms to scan for coverage gaps — it now includes semantic, keyword, and graph-expansion search in one call.
-5. **Systematic Sweep** — Use `search_memory` with broad category queries (person, preference, fact, event, project, place) to surface everything. Use `explore_connections` to visualise relationships and spot gaps. Review each category for:
-   - **Duplicates** — Same fact stored under different wording
-   - **Stale entries** — Jobs, addresses, or statuses that may have changed
-   - **User-only connections** — Entities whose only relationship is the auto-link to User (visible in the graph panel with "Hide unlinked" toggle) — these need richer connections
-   - **Missing links** — Related memories that aren't connected (e.g. a person and their workplace)
-6. **Fix As You Go** — Update or `link_memories` during the audit rather than compiling a report first. Confirm each change with the user.
-7. **Rebuild after cleanup** — After bulk updates (merging duplicates, fixing links), run `wiki_rebuild` to regenerate the wiki vault with clean, up-to-date articles.
-8. **Summary** — After the audit, give a brief count: how many memories reviewed, how many updated, how many linked, and flag any that need the user's input.
+4. **Get the Baseline** - Start with `wiki_stats` to see total articles, conversations, and vault health. Then use `search_memory` with broad terms to scan for coverage gaps.
+5. **Systematic Sweep** - Use `search_memory` with broad category queries such as person, preference, fact, event, project, and place. Use `explore_connections` to visualize relationships and spot gaps.
+6. **Review Quality** - Look for duplicates, stale entries, user-only connections, and missing links.
+7. **Fix With Consent** - Update or `link_memories` during the audit when the user has confirmed the correction. Confirm each change.
+8. **Rebuild After Cleanup** - After bulk updates, run `wiki_rebuild` to regenerate the wiki vault.
+9. **Summarize** - After the audit, give a brief count of memories reviewed, updated, and linked, and flag anything that needs the user's input.
 
 ## Ongoing Awareness
 
-9. **Correction Logging** — When the user corrects you on a fact ("Actually, it's March 20, not March 15"), always update the existing memory. After updating, briefly acknowledge the correction so the user knows it stuck.
-10. **Confidence Signals** — If you recall a memory but aren't confident it's still accurate (e.g. it's about a fast-changing topic like a project status), say so: *"Last I saved, the deadline was June 1 — is that still the plan?"*
+10. **Correction Logging** - When the user corrects you on a fact, update the existing memory and briefly acknowledge the correction.
+11. **Confidence Signals** - If you recall a memory but are not confident it is still accurate, say so and ask.
 
-## Insights Review
+## Insights And Evolution
 
-11. **Check Automated Insights** — When performing a reflection, also check for pending insights from the dream cycle. Use `row_bot_status` with category `insights` to see active insight counts, last analysis time, and recent insight titles; read `~/.row-bot/insights.json` only when you need the full bodies/evidence or need to update statuses.
-12. **Present Insights** — For each active insight (status "new" or "pinned"), summarize it for the user with category, severity, and the suggestion. Group by category.
-13. **Act on Insights** — Ask the user what to do with each insight: dismiss it, investigate further, or apply the suggestion. For skill proposals with drafts, offer to create the skill. After the user decides, update the insight status accordingly by editing the insights file.
+12. **Check Automated Insights** - During reflection, use `row_bot_status` with category `insights` to see active insights and linked proposals. Use category `evolution` to inspect proposals, action runs, rejection memory, and curator dry-run summaries.
+13. **Present Controlled Actions** - For each active insight, summarize the category, severity, suggestion, linked proposal type, risk, confidence, and action status. Group related items by category.
+14. **Use Proposals, Not Direct Edits** - Do not edit `insights.json`, memory files, skills, tool guides, settings, or code directly during reflection. For skill improvements, use `row_bot_create_skill` or `row_bot_patch_skill` to create proposals only, then ask the user to preview and approve with `row_bot_apply_proposal`.
+15. **Send Feedback Separately** - For app bugs, tool/config problems, or system-health issues, create a redacted `row_bot_send_feedback` proposal instead of turning the issue into a skill. Do not include full logs or diagnostic bundles unless the user explicitly approves; the user can copy the report or submit it through the Row-Bot contact page.
+16. **Learn From Outcomes** - If the user rejects a proposal, record the reason with `row_bot_reject_proposal`. Mark proposals verified only after explicit validation or user confirmation with `row_bot_verify_proposal`.

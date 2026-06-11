@@ -648,13 +648,20 @@ def create_skill(
     enabled: bool = True,
     version: str = "1.0",
     allow_tool_guide: bool = False,
+    allow_override_existing_bundled: bool = False,
 ) -> Skill:
     """Create a new user skill on disk and register it in the cache."""
     skill_dir = USER_SKILLS_DIR / name.replace(" ", "-").lower()
     md_path = skill_dir / "SKILL.md"
 
-    if get_skill(name) is not None:
-        raise ValueError(f"Skill already exists: {name}")
+    existing = get_skill(name)
+    if existing is not None:
+        if not (
+            allow_override_existing_bundled
+            and existing.source == "bundled"
+            and not is_tool_guide(existing)
+        ):
+            raise ValueError(f"Skill already exists: {name}")
     if md_path.exists():
         raise ValueError(f"Skill directory already contains SKILL.md: {skill_dir.name}")
 

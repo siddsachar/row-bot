@@ -1299,6 +1299,31 @@ def build_chat(
             .style("font-size: 0.95rem;")
         )
 
+        def _clear_persisted_thread_draft() -> None:
+            try:
+                from row_bot.threads import delete_thread_draft
+
+                delete_thread_draft(str(state.thread_id or ""))
+            except Exception:
+                logger.debug("Could not clear persisted thread draft", exc_info=True)
+
+        try:
+            from row_bot.threads import load_thread_draft
+
+            draft = load_thread_draft(str(state.thread_id or ""))
+            draft_text = str((draft or {}).get("text") or "")
+            if draft_text and not str(p.chat_input.value or "").strip():
+                p.chat_input.value = draft_text
+                p.chat_input.update()
+                _draft_state["text"] = draft_text
+                _queue_skill_chip_refresh(draft_text)
+                try:
+                    p.chat_input.run_method("focus")
+                except Exception:
+                    pass
+        except Exception:
+            logger.debug("Could not restore persisted thread draft", exc_info=True)
+
         def _register_active_voice_binding() -> None:
             from row_bot.voice.actions import ActiveVoiceSurfaceBinding
 
@@ -1377,6 +1402,7 @@ def build_chat(
             text = p.chat_input.value
             if text and text.strip():
                 p.chat_input.value = ""
+                _clear_persisted_thread_draft()
                 try:
                     _queue_skill_chip_refresh("")
                 except Exception:
@@ -1390,6 +1416,7 @@ def build_chat(
                 await send_message(text)
             elif p.pending_files:
                 p.chat_input.value = ""
+                _clear_persisted_thread_draft()
                 try:
                     _queue_skill_chip_refresh("")
                 except Exception:

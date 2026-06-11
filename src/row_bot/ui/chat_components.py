@@ -577,10 +577,36 @@ def build_chat_input_bar(
             except Exception:
                 logger.debug("Shared composer extras failed to attach input handlers", exc_info=True)
 
+        def _clear_persisted_thread_draft() -> None:
+            try:
+                from row_bot.threads import delete_thread_draft
+
+                delete_thread_draft(str(state.thread_id or ""))
+            except Exception:
+                logger.debug("Could not clear persisted thread draft", exc_info=True)
+
+        try:
+            from row_bot.threads import load_thread_draft
+
+            draft = load_thread_draft(str(state.thread_id or ""))
+            draft_text = str((draft or {}).get("text") or "")
+            if draft_text and not str(p.chat_input.value or "").strip():
+                p.chat_input.value = draft_text
+                p.chat_input.update()
+                if composer_extras is not None:
+                    composer_extras.queue_skill_chip_refresh(draft_text)
+                try:
+                    p.chat_input.run_method("focus")
+                except Exception:
+                    pass
+        except Exception:
+            logger.debug("Could not restore persisted thread draft", exc_info=True)
+
         async def _on_send():
             text = p.chat_input.value
             if text and text.strip():
                 p.chat_input.value = ""
+                _clear_persisted_thread_draft()
                 if composer_extras is not None:
                     try:
                         composer_extras.clear_draft_on_send()
@@ -594,6 +620,7 @@ def build_chat_input_bar(
                 await send_fn(text)
             elif p.pending_files:
                 p.chat_input.value = ""
+                _clear_persisted_thread_draft()
                 if composer_extras is not None:
                     try:
                         composer_extras.clear_draft_on_send()
