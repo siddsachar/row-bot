@@ -83,6 +83,15 @@ def test_parse_skill_commands(tmp_path):
     assert cmd.name == "meeting notes"
 
 
+def test_bundled_self_reflection_uses_mirror_emoji():
+    from row_bot.skills import _parse_skill_md
+
+    skill = _parse_skill_md(Path("bundled_skills/self_reflection/SKILL.md"), source="bundled")
+
+    assert skill is not None
+    assert skill.icon == "🪞"
+
+
 def test_thread_scoped_state_off_and_reset(tmp_path):
     _write_skill(tmp_path, "research_brief", description="Research and summarize sources", tags=["research"])
     skills, activation = _reload_skill_modules(tmp_path)
