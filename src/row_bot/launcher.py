@@ -357,11 +357,19 @@ def _draw_status_badge(image: _PILImage.Image, state: str) -> None:
     draw.ellipse(bbox, fill=colour, outline=(15, 23, 42, 230), width=outline_width)
 
 
+def _use_branded_tray_icon() -> bool:
+    if sys.platform == "darwin":
+        # The packaged macOS menu-bar path is more reliable with the simple
+        # high-contrast status dot; keep the branded glyph opt-in for debugging.
+        return os.environ.get("ROW_BOT_BRANDED_TRAY_ICON", "").strip().lower() in {"1", "true", "yes", "on"}
+    return True
+
+
 def _get_icon(state: str) -> _PILImage.Image:
     """Return the icon for a launcher state string."""
     cache_key = "running" if state == "running" else "stopped"
     if cache_key not in _icons:
-        base_icon = _load_tray_base_icon()
+        base_icon = _load_tray_base_icon() if _use_branded_tray_icon() else None
         if base_icon is not None:
             icon = base_icon.copy()
             _draw_status_badge(icon, cache_key)

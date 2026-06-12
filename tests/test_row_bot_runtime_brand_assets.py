@@ -157,6 +157,28 @@ def test_tray_icon_uses_branded_asset_when_available(tmp_path, monkeypatch):
     assert len(icon.getcolors(maxcolors=4096) or []) > 1
 
 
+def test_macos_tray_icon_uses_status_dot_by_default(monkeypatch):
+    import row_bot.launcher as launcher
+
+    calls = {"count": 0}
+
+    def _load_base_icon():
+        calls["count"] += 1
+        return Image.new("RGBA", (launcher._ICON_SIZE, launcher._ICON_SIZE), (10, 20, 30, 255))
+
+    monkeypatch.setattr(launcher.sys, "platform", "darwin")
+    monkeypatch.delenv("ROW_BOT_BRANDED_TRAY_ICON", raising=False)
+    monkeypatch.setattr(launcher, "_icons", {}, raising=False)
+    monkeypatch.setattr(launcher, "_load_tray_base_icon", _load_base_icon)
+
+    icon = launcher._get_icon("running")
+
+    assert calls["count"] == 0
+    assert icon.mode == "RGBA"
+    assert icon.size == (launcher._ICON_SIZE, launcher._ICON_SIZE)
+    assert icon.getpixel((launcher._ICON_SIZE // 2, launcher._ICON_SIZE // 2))[:3] == (34, 197, 94)
+
+
 def test_tray_icon_falls_back_safely_when_assets_are_missing(tmp_path, monkeypatch):
     import row_bot.launcher as launcher
 

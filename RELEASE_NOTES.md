@@ -129,6 +129,10 @@ after the 4.0.0 rebrand.
 - **Insights status tray diagnostics** - fixes the insights status tray
   diagnostic path so provider and runtime issues are surfaced with more useful
   state.
+- **macOS menu-bar icon visibility** - keeps macOS packaged builds on the
+  high-contrast status-dot tray icon by default, avoiding invisible or failed
+  menu-bar rendering from the branded tray glyph while preserving the branded
+  tray icon path on other platforms.
 - **Row-Bot status tool updates** - refreshes the Row-Bot status tool and
   guide, including provider/media reporting paths used during diagnostics.
 - **Provider settings and status UI** - updates provider settings, status
