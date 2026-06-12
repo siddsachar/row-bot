@@ -743,10 +743,10 @@ def test_minimax_provider_creates_chat_anthropic_with_minimax_base_url(monkeypat
 def test_atlascloud_provider_creates_openai_compatible_client(monkeypatch):
     monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id: "test-atlas-key")
 
-    model = runtime.create_chat_model("deepseek-ai/DeepSeek-V3-0324", provider_id="atlascloud")
+    model = runtime.create_chat_model("deepseek-ai/deepseek-v4-pro", provider_id="atlascloud")
 
     assert type(model).__name__ == "ChatOpenAICompatible"
-    assert model.model_name == "deepseek-ai/DeepSeek-V3-0324"
+    assert model.model_name == "deepseek-ai/deepseek-v4-pro"
     assert model.api_key == "test-atlas-key"
     assert model.base_url == "https://api.atlascloud.ai/v1"
     assert model.endpoint["provider_id"] == "atlascloud"
@@ -757,7 +757,7 @@ def test_atlascloud_provider_requires_api_key(monkeypatch):
     monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id: "")
 
     try:
-        runtime.create_chat_model("deepseek-ai/DeepSeek-V3-0324", provider_id="atlascloud")
+        runtime.create_chat_model("deepseek-ai/deepseek-v4-pro", provider_id="atlascloud")
     except ValueError as exc:
         assert "Atlas Cloud API key not configured" in str(exc)
     else:
@@ -983,7 +983,7 @@ def test_atlascloud_model_facade_fetches_openai_compatible_catalog(monkeypatch):
         def json(self):
             return {
                 "data": [
-                    {"id": "deepseek-ai/DeepSeek-V3-0324", "context_length": 163_840},
+                    {"id": "deepseek-ai/deepseek-v4-pro", "context_length": 163_840},
                     {"id": "qwen/qwen3-32b"},
                 ]
             }
@@ -1002,12 +1002,12 @@ def test_atlascloud_model_facade_fetches_openai_compatible_catalog(monkeypatch):
         assert count == 2
         assert captured["url"] == "https://api.atlascloud.ai/v1/models"
         assert captured["headers"]["Authorization"] == "Bearer test-atlas-key"
-        assert models.is_cloud_model("model:atlascloud:deepseek-ai/DeepSeek-V3-0324") is True
-        assert models.get_cloud_provider("model:atlascloud:deepseek-ai/DeepSeek-V3-0324") == "atlascloud"
-        assert models.get_cloud_model_context("model:atlascloud:deepseek-ai/DeepSeek-V3-0324") == 163_840
-        assert models._cloud_model_cache["deepseek-ai/DeepSeek-V3-0324"]["provider"] == "atlascloud"
+        assert models.is_cloud_model("model:atlascloud:deepseek-ai/deepseek-v4-pro") is True
+        assert models.get_cloud_provider("model:atlascloud:deepseek-ai/deepseek-v4-pro") == "atlascloud"
+        assert models.get_cloud_model_context("model:atlascloud:deepseek-ai/deepseek-v4-pro") == 163_840
+        assert models._cloud_model_cache["deepseek-ai/deepseek-v4-pro"]["provider"] == "atlascloud"
         assert models._cloud_model_cache["qwen/qwen3-32b"]["provider"] == "atlascloud"
-        assert models.get_provider_emoji("model:atlascloud:deepseek-ai/DeepSeek-V3-0324") == "AC"
+        assert models.get_provider_emoji("model:atlascloud:deepseek-ai/deepseek-v4-pro") == "AC"
     finally:
         models._cloud_model_cache.clear()
         models._cloud_model_cache.update(old_cache)
@@ -1023,16 +1023,16 @@ def test_atlascloud_live_catalog_failure_preserves_existing_cache(monkeypatch):
     monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: (_ for _ in ()).throw(httpx.TimeoutException("boom")))
     try:
         models._cloud_model_cache.clear()
-        models._cloud_model_cache["deepseek-ai/DeepSeek-V3-0324"] = {
+        models._cloud_model_cache["deepseek-ai/deepseek-v4-pro"] = {
             "provider": "atlascloud",
-            "label": "DeepSeek-V3-0324",
+            "label": "deepseek-v4-pro",
             "ctx": 163_840,
         }
 
         count = models.fetch_cloud_models("atlascloud")
 
         assert count == 0
-        assert "deepseek-ai/DeepSeek-V3-0324" in models._cloud_model_cache
+        assert "deepseek-ai/deepseek-v4-pro" in models._cloud_model_cache
     finally:
         models._cloud_model_cache.clear()
         models._cloud_model_cache.update(old_cache)

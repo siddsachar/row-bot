@@ -43,16 +43,16 @@ def test_atlascloud_provider_definition_and_capabilities():
     assert definition.risk_label == "cloud_provider"
     assert definition.auth_methods[0].value == "api_key"
 
-    classified = classify_model_capabilities("atlascloud", "deepseek-ai/DeepSeek-V3-0324")
+    classified = classify_model_capabilities("atlascloud", "deepseek-ai/deepseek-v4-pro")
     assert "chat" in classified["tasks"]
     assert classified["transport"] == TransportMode.OPENAI_CHAT
 
     resolved = resolve_provider_config(
-        "model:atlascloud:deepseek-ai/DeepSeek-V3-0324",
+        "model:atlascloud:deepseek-ai/deepseek-v4-pro",
         allow_legacy_local=False,
     )
     assert resolved.provider_id == "atlascloud"
-    assert resolved.model_id == "deepseek-ai/DeepSeek-V3-0324"
+    assert resolved.model_id == "deepseek-ai/deepseek-v4-pro"
     assert resolved.transport == TransportMode.OPENAI_CHAT
     assert resolved.base_url == "https://api.atlascloud.ai/v1"
     assert resolved.risk_label == "cloud_provider"

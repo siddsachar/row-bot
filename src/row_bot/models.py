@@ -1992,7 +1992,7 @@ def _fetch_atlascloud_models(api_key: str) -> int:
     """Fetch models from the Atlas Cloud OpenAI-compatible ``/v1/models`` endpoint.
 
     Atlas Cloud exposes an OpenAI-compatible catalog whose model IDs use the
-    ``provider/model`` form (e.g. ``deepseek-ai/DeepSeek-V3-0324``).  Context
+    ``provider/model`` form (e.g. ``deepseek-ai/deepseek-v4-pro``).  Context
     size is taken from ``context_length``/``context_window`` when present and
     otherwise resolved via the shared catalog / prefix heuristic.
     """

@@ -13,11 +13,45 @@
    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-4F78A4?style=flat" alt="Platform">
 </p>
 
+<p align="center">
+  <a href="https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=row-bot">
+    <img src="docs/atlas-cloud-logo.png" alt="Atlas Cloud" width="200">
+  </a>
+</p>
+
+> 🎁 **[Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=row-bot)** is a full-modal, OpenAI-compatible AI inference platform — plug it into Row-Bot's provider-neutral routing as a drop-in hosted backend to reach DeepSeek, Qwen, GLM, Kimi, MiniMax and more through a single API and key, no multi-vendor setup needed.
+> Budget-friendly: [coding plan](https://www.atlascloud.ai/console/coding-plan)
+
+```env
+ATLASCLOUD_API_KEY=<atlascloud-api-key>
+ATLASCLOUD_BASE_URL=https://api.atlascloud.ai/v1
+ATLASCLOUD_MODEL=deepseek-ai/deepseek-v4-pro
+```
+
+`deepseek-ai/deepseek-v4-pro` is a reasoning model — give it enough `max_tokens` (>= 512), otherwise tokens are spent on the reasoning trace and `content` can come back empty with `finish_reason=length`.
+
+<details>
+<summary>All Atlas Cloud chat models (59)</summary>
+
+- Anthropic (Claude): `anthropic/claude-haiku-4.5-20251001`, `anthropic/claude-opus-4.8`, `anthropic/claude-sonnet-4.6`
+- OpenAI (GPT): `openai/gpt-5.4`, `openai/gpt-5.5`
+- Google (Gemini): `google/gemini-3.1-flash-lite`, `google/gemini-3.1-pro-preview`, `google/gemini-3.5-flash`
+- Alibaba (Qwen): `qwen/qwen2.5-7b-instruct`, `Qwen/Qwen3-235B-A22B-Instruct-2507`, `qwen/qwen3-235b-a22b-thinking-2507`, `qwen/qwen3-30b-a3b`, `Qwen/Qwen3-30B-A3B-Instruct-2507`, `qwen/qwen3-30b-a3b-thinking-2507`, `qwen/qwen3-32b`, `qwen/qwen3-8b`, `Qwen/Qwen3-Coder`, `qwen/qwen3-coder-next`, `qwen/qwen3-max-2026-01-23`, `Qwen/Qwen3-Next-80B-A3B-Instruct`, `Qwen/Qwen3-Next-80B-A3B-Thinking`, `Qwen/Qwen3-VL-235B-A22B-Instruct`, `qwen/qwen3-vl-235b-a22b-thinking`, `qwen/qwen3-vl-30b-a3b-instruct`, `qwen/qwen3-vl-30b-a3b-thinking`, `qwen/qwen3-vl-8b-instruct`, `qwen/qwen3.5-122b-a10b`, `qwen/qwen3.5-27b`, `qwen/qwen3.5-35b-a3b`, `qwen/qwen3.5-397b-a17b`, `qwen/qwen3.6-35b-a3b`, `qwen/qwen3.6-plus`
+- DeepSeek: `deepseek-ai/deepseek-ocr`, `deepseek-ai/deepseek-r1-0528`, `deepseek-ai/DeepSeek-V3-0324`, `deepseek-ai/DeepSeek-V3.1`, `deepseek-ai/DeepSeek-V3.1-Terminus`, `deepseek-ai/deepseek-v3.2`, `deepseek-ai/DeepSeek-V3.2-Exp`, `deepseek-ai/deepseek-v4-flash`, `deepseek-ai/deepseek-v4-pro`
+- Moonshot (Kimi): `moonshotai/Kimi-K2-Instruct`, `moonshotai/Kimi-K2-Instruct-0905`, `moonshotai/Kimi-K2-Thinking`, `moonshotai/kimi-k2.5`, `moonshotai/kimi-k2.6`
+- Zhipu (GLM): `zai-org/GLM-4.6`, `zai-org/glm-4.7`, `zai-org/glm-5`, `zai-org/glm-5-turbo`, `zai-org/glm-5.1`, `zai-org/glm-5v-turbo`
+- MiniMax: `MiniMaxAI/MiniMax-M2`, `minimaxai/minimax-m2.1`, `minimaxai/minimax-m2.5`, `minimaxai/minimax-m2.7`
+- xAI: `xai/grok-4.3`
+- Kuaishou (KAT): `kwaipilot/kat-coder-pro-v2`
+- Other: `owl`
+
+</details>
+
 Row-Bot is a local-first desktop AI assistant for reasoning through work, orchestrating tools and models, and getting durable tasks done on your machine. The name is literal: **Reason. Orchestrate. Work.**
 
 It gives you chat, memory, tools, workflows, Developer Studio, Designer Studio, Smart Skills, Skills Hub, Custom Tools, plugins, messaging channels, realtime voice, and flexible model routing while keeping durable data local.
 
-Bring the model path that fits the job: local models through [Ollama](https://ollama.com/), OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, [Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=Thoth), Ollama Cloud, ChatGPT / Codex subscription models, Claude Subscription models, or custom OpenAI-compatible endpoints such as oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, and SGLang. Row-Bot keeps provider identity, model capabilities, context limits, and chat-only fallbacks explicit so local, hosted, and self-hosted models can coexist without surprise routing.
+Bring the model path that fits the job: local models through [Ollama](https://ollama.com/), OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, [Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=row-bot), Ollama Cloud, ChatGPT / Codex subscription models, Claude Subscription models, or custom OpenAI-compatible endpoints such as oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, and SGLang. Row-Bot keeps provider identity, model capabilities, context limits, and chat-only fallbacks explicit so local, hosted, and self-hosted models can coexist without surprise routing.
 
 The Row-Bot app has no account system, no Row-Bot-hosted server, and no telemetry pipeline. Provider keys and subscription tokens are stored in the OS credential store when available.
 
@@ -146,7 +180,7 @@ Model catalog browsing, pinning, defaults, and Quick Choices live in Settings �
 | xAI | `XAI_API_KEY` | Grok models, Grok Imagine, and Grok Imagine Video. |
 | MiniMax | `MINIMAX_API_KEY` | Current MiniMax models through the Anthropic-compatible API, discovered from the live provider catalog where available. |
 | OpenRouter | `OPENROUTER_API_KEY` | Access to 100+ provider models. |
-| [Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=Thoth) | `ATLASCLOUD_API_KEY` | OpenAI-compatible access to 100+ open models (DeepSeek, Qwen, Kimi, and more), discovered from the live provider catalog. |
+| [Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=row-bot) | `ATLASCLOUD_API_KEY` | OpenAI-compatible access to DeepSeek, Qwen, GLM, Kimi, MiniMax, and more, discovered from the live provider catalog. Default suggested model `deepseek-ai/deepseek-v4-pro`. |
 | Ollama Cloud | `OLLAMA_CLOUD_API_KEY` or local daemon sign-in | Direct Ollama Cloud models and cloud-tagged daemon models. |
 | Custom OpenAI-compatible endpoint | Base URL and optional key | Self-hosted or proxy models through profiles for oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, and generic servers. |
 | Tavily | `TAVILY_API_KEY` | Live web search. |
