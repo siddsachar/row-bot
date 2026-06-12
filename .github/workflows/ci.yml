@@ -54,7 +54,7 @@ jobs:
         run: python -m pytest tests/test_startup_hardening.py tests/test_app_port.py
 
       - name: Focused provider model selection tests
-        run: python -m pytest tests/test_provider_catalog.py tests/test_provider_selection.py tests/test_row_bot_status_media.py tests/test_provider_subscription_auth.py
+        run: python -m pytest tests/test_provider_catalog.py tests/test_provider_selection.py tests/test_provider_runtime.py tests/test_row_bot_status_media.py tests/test_provider_subscription_auth.py tests/test_atlascloud_first_class_provider.py tests/test_openai_compatible_transport.py tests/test_claude_subscription_auth.py tests/test_claude_subscription_transport.py
 
       - name: Runtime smoke on Linux
         if: runner.os == 'Linux'

@@ -1,6 +1,6 @@
 @echo off
 :: ============================================================================
-:: Row-Bot v4.0.1 â€“ Post-install dependency setup
+:: Row-Bot v4.1.0 - Post-install dependency setup
 :: Called by Inno Setup after file extraction.
 ::
 :: This script:
@@ -21,7 +21,7 @@ set "LOG=%INSTALL_DIR%\install_log.txt"
 set "PYTHONNOUSERSITE=1"
 
 echo ==========================================
-echo  Row-Bot v4.0.1 - Installing dependencies
+echo  Row-Bot v4.1.0 - Installing dependencies
 echo  This may take 5-25 minutes depending
 echo  on your system and internet connection.
 echo  Please do not close this window.
@@ -29,7 +29,7 @@ echo ==========================================
 echo.
 
 echo ========================================= >> "%LOG%" 2>&1
-echo  Row-Bot v4.0.1 - Install log              >> "%LOG%" 2>&1
+echo  Row-Bot v4.1.0 - Install log              >> "%LOG%" 2>&1
 echo  Install dir: %INSTALL_DIR%               >> "%LOG%" 2>&1
 echo  Date: %DATE% %TIME%                      >> "%LOG%" 2>&1
 echo ========================================= >> "%LOG%" 2>&1
@@ -91,7 +91,7 @@ if %ERRORLEVEL% NEQ 0 (
 
 :: â”€â”€ 4. Optionally download and install Ollama â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 :: Ollama is only needed for local language models.  Row-Bot can run entirely
-:: with cloud models (OpenAI / OpenRouter) so Ollama is optional.
+:: with cloud models and subscription providers, so Ollama is optional.
 echo.
 echo [4/5] Ollama (local AI models)
 
@@ -105,7 +105,7 @@ if %ERRORLEVEL% EQU 0 (
 
 echo.
 echo  Ollama lets you run AI models locally on your PC (free, private).
-echo  If you only want to use cloud models (OpenAI / OpenRouter),
+echo  If you only want to use cloud or subscription models,
 echo  you can skip this step.
 echo.
 set /p INSTALL_OLLAMA="  Install Ollama now? [Y/n] "

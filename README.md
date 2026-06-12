@@ -13,24 +13,41 @@
    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-4F78A4?style=flat" alt="Platform">
 </p>
 
-Row-Bot is a local-first desktop AI assistant for reasoning through work, orchestrating tools and models, and getting durable tasks done on your machine. The name is literal: **Reason. Orchestrate. Work.**
+Row-Bot is a local-first desktop AI assistant for doing real work with models,
+memory, and tools. Its name is the operating model: **Reason** through messy
+context, **Orchestrate** tools and model providers, and **Work** inside the
+files, repos, workflows, and channels you choose.
 
-It gives you chat, memory, tools, workflows, Developer Studio, Designer Studio, Smart Skills, Skills Hub, Custom Tools, plugins, messaging channels, realtime voice, and flexible model routing while keeping durable data local.
+It combines chat, durable memory, tool use, workflows, Developer Studio,
+Designer Studio, Smart Skills, Skills Hub, Custom Tools, plugins, messaging
+channels, realtime voice, and provider-aware model routing. Durable app data
+stays local by default.
 
-Bring the model path that fits the job: local models through [Ollama](https://ollama.com/), OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, [Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=Thoth), Ollama Cloud, ChatGPT / Codex subscription models, Claude Subscription models, or custom OpenAI-compatible endpoints such as oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, and SGLang. Row-Bot keeps provider identity, model capabilities, context limits, and chat-only fallbacks explicit so local, hosted, and self-hosted models can coexist without surprise routing.
+Choose the model path that fits the task: local models through
+[Ollama](https://ollama.com/); provider keys for OpenAI, Anthropic, Google AI,
+xAI, MiniMax, OpenRouter,
+[Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=row_bot),
+and Ollama Cloud; subscription sign-in for ChatGPT / Codex and Claude
+Subscription; or custom OpenAI-compatible endpoints such as oMLX, LM Studio,
+vLLM, llama.cpp, LocalAI, LiteLLM, and SGLang. Row-Bot keeps provider identity,
+capability labels, context limits, and chat-only fallbacks explicit so local,
+hosted, and self-hosted models can sit side by side.
 
-The Row-Bot app has no account system, no Row-Bot-hosted server, and no telemetry pipeline. Provider keys and subscription tokens are stored in the OS credential store when available.
+Row-Bot itself has no account system, no Row-Bot-hosted inference server, and
+no telemetry pipeline. Provider calls go to the provider or endpoint you choose,
+and provider keys and subscription tokens are stored in the OS credential store
+when available.
 
 Download the latest installer from [GitHub Releases](https://github.com/siddsachar/row-bot/releases). Windows and macOS use one-click installers. Linux has a one-line user installer.
 
 <table align="center">
   <tr>
-    <td align="center"><a href="https://youtu.be/ansfEqAr6g0"><img src="https://img.youtube.com/vi/ansfEqAr6g0/maxresdefault.jpg" width="360" alt="Demo 1"></a></td>
-    <td align="center"><a href="https://youtu.be/61JFO0ElgBE"><img src="https://img.youtube.com/vi/61JFO0ElgBE/maxresdefault.jpg" width="360" alt="Demo 2"></a></td>
+    <td align="center"><a href="https://youtu.be/GA2Tnlt4jNk"><img src="https://img.youtube.com/vi/GA2Tnlt4jNk/maxresdefault.jpg" width="360" alt="Turn Research Into a Client-Ready Report with Row-Bot"></a><br><sub><a href="https://youtu.be/GA2Tnlt4jNk">Turn Research Into a Client-Ready Report with Row-Bot</a></sub></td>
+    <td align="center"><a href="https://youtu.be/wOUSGTyfEpk"><img src="https://img.youtube.com/vi/wOUSGTyfEpk/maxresdefault.jpg" width="360" alt="Turn Your Inbox Into an Action Plan with Row-Bot"></a><br><sub><a href="https://youtu.be/wOUSGTyfEpk">Turn Your Inbox Into an Action Plan with Row-Bot</a></sub></td>
   </tr>
   <tr>
-    <td align="center"><a href="https://youtu.be/dMoSay7uyoc"><img src="https://img.youtube.com/vi/dMoSay7uyoc/maxresdefault.jpg" width="360" alt="Demo 3"></a></td>
-    <td align="center"><a href="https://youtu.be/xYJC2IVKH7Y"><img src="https://img.youtube.com/vi/xYJC2IVKH7Y/maxresdefault.jpg" width="360" alt="Demo 4"></a></td>
+    <td align="center"><a href="https://youtu.be/Vuk2xz-vPcA"><img src="https://img.youtube.com/vi/Vuk2xz-vPcA/maxresdefault.jpg" width="360" alt="Create a Background AI Workflow with Row-Bot"></a><br><sub><a href="https://youtu.be/Vuk2xz-vPcA">Create a Background AI Workflow with Row-Bot</a></sub></td>
+    <td align="center"><a href="https://youtu.be/hRLuOEqbsds"><img src="https://img.youtube.com/vi/hRLuOEqbsds/maxresdefault.jpg" width="360" alt="Create Launch Campaign Designs with Row-Bot Designer Studio"></a><br><sub><a href="https://youtu.be/hRLuOEqbsds">Create Launch Campaign Designs with Row-Bot Designer Studio</a></sub></td>
   </tr>
 </table>
 
@@ -38,15 +55,16 @@ Download the latest installer from [GitHub Releases](https://github.com/siddsach
 
 | Area | Details |
 |------|---------|
-| Agent and models | LangGraph ReAct agent, streaming responses, thinking bubbles, smart context trimming, provider-qualified model selection, readiness routing, chat-only fallback for non-tool models, custom endpoint profiles and probes, live MiniMax discovery, OpenCode providers, local and hosted model catalogs, background model cache, and per-thread, per-workflow, and per-Developer model overrides. |
+| Agent and models | LangGraph ReAct agent, streaming responses, thinking bubbles, smart context trimming, provider-qualified model selection, readiness routing, chat-only fallback for non-tool models, chat/agent/vision capability labels, custom endpoint profiles and probes, live Atlas Cloud and MiniMax discovery, ChatGPT / Codex and Claude Subscription providers, OpenCode providers, local and hosted model catalogs, background model cache, and per-thread, per-workflow, and per-Developer model overrides. |
 | Memory and knowledge | Personal knowledge graph, 10 entity types, 67 typed relations, bounded semantic/lexical/graph recall, audit and review states, recall traces, graph visualization, Obsidian-compatible wiki export, document extraction with source provenance, Dream Cycle refinement, duplicate merging, stale-confidence decay, relationship inference, self-knowledge, insights, and conversation search. |
 | Tools | 30+ core tool modules for web search, DuckDuckGo, Wikipedia, arXiv, YouTube transcripts, URL reading, documents, wiki vault, Gmail, Google Calendar, filesystem, shell, browser automation, workflows, tracker, channels, X, image generation/editing, video generation, MCP, Developer Studio, Designer Studio, Custom Tool Builder, status, calculator, Wolfram Alpha, weather, vision, memory, system info, and charts. File tools read PDF, CSV, Excel, JSON, JSONL, TSV, and image files, with schema, stats, previews, and PDF export where supported. |
 | Developer Studio | Local Git workspace linking and cloning, code threads, repo inspector, file tree, diffs, todos, tests, branch, commit, push and PR prep, approval modes, and optional Docker Sandbox with a shadow workspace and explicit import back into the real repo. |
 | Designer Studio | Decks, documents, landing pages, app mockups, and storyboards with a sandboxed interactive runtime, templates, brand controls, critique and repair, AI image and video generation, chart insertion, Mermaid and Plotly rendering, shareable HTML, and export to PDF, HTML, PNG, and PPTX. |
 | Workflows | Scheduled runs, webhook triggers, task-completion triggers, step pipelines, conditions, approvals, subtasks, notification-only runs, concurrency groups, delivery defaults, per-workflow model/tool/skill overrides, safety modes, run status, run history, upcoming runs, and a Workflow Console. |
+| Controlled self-evolution | Structured self-reflection, bounded change proposals, reviewable execution boundaries, persistence, Dream Cycle and memory integration, and Command Center/status visibility for improvement work that stays explicit and auditable. |
 | Channels and voice | Telegram, WhatsApp, Discord, Slack, and SMS with streaming, reactions, media intake, voice transcription, document extraction, approval routing, health checks, auto-generated send/photo/document tools, and optional tunnel support. Realtime voice adds provider-backed voice sessions, action handling, speech/cue policy, and local faster-whisper STT plus Kokoro TTS options. |
 | Platform and app | Native desktop app, setup wizard, tray integration on Windows and macOS, desktop notifications, local browser-first Linux launch, optional Linux native window/tray mode, faster transcript and Settings surfaces, Home status bar for models, OAuth, MCP, plugins, documents, workflows, Buddy, logging, disk, task DB recovery, and verified auto-updates. |
-| Extensibility | Smart Skills, slash commands, Skills Hub browsing/import/search, sandboxed plugin marketplace, bundled skills and tool guides, external MCP clients over stdio, Streamable HTTP, and SSE, Custom Tools from repos or folders, Claude Code Delegation through an approval-gated CLI worker, migration from selected Hermes/OpenClaw data, setup center, identity settings, and stability diagnostics. |
+| Extensibility | Smart Skills, pinned skills, slash commands, Skills Hub browsing/import/search, sandboxed plugin marketplace, bundled skills and tool guides, external MCP clients over stdio, Streamable HTTP, and SSE, Custom Tools from repos or folders, hardened Custom Tool Builder setup, Claude Code Delegation through an approval-gated CLI worker, migration from selected Hermes/OpenClaw data, setup center, identity settings, and stability diagnostics. |
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full subsystem reference.
 
@@ -81,7 +99,7 @@ curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/i
 To install a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash -s -- 4.0.1
+curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash -s -- 4.1.0
 ```
 
 The installer downloads the release tarball, verifies its SHA256 from the GitHub release manifest, installs under `~/.local/share/row-bot`, creates `~/.local/bin/row-bot`, and stores user data in `~/.row-bot`. The default Linux build opens in your system browser. Native window and tray support are available when the required GTK, Qt, and AppIndicator libraries are installed.
@@ -112,7 +130,7 @@ On first launch, Row-Bot opens a setup wizard. Pick one of three paths:
 | Mode | Use it when | Setup |
 |------|-------------|-------|
 | Local | You want inference and embeddings on your machine. | Choose a local runtime, download a recommended model such as `qwen3:14b` or a smaller model such as `qwen3:8b`, then start chatting. Ollama is the supported local runtime today. |
-| Providers | You want hosted models, frontier reasoning, or no local model download. | Add an OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, Atlas Cloud, or Ollama Cloud key, pick a default model, and save Quick Choices. ChatGPT / Codex and Claude Subscription sign-in are available in Settings after launch. |
+| Providers | You want hosted models, frontier reasoning, or no local model download. | Add an OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, Atlas Cloud, or Ollama Cloud key, refresh live catalogs where available, pick a default model, and save Quick Choices. ChatGPT / Codex and Claude Subscription sign-in are available in Settings after launch. |
 | Custom/Self-hosted | You run oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, or a private gateway. | Enter an OpenAI-compatible base URL such as `http://127.0.0.1:1234/v1`, choose the closest compatibility profile, add a key if your server requires one, fetch models, and choose a default. |
 
 Common first prompts:
@@ -134,7 +152,14 @@ For local and self-hosted servers, use a context window large enough for Row-Bot
 
 Most tools work without API keys. Add keys only for the providers and integrations you use.
 
-Model catalog browsing, pinning, defaults, and Quick Choices live in Settings â†’ Models. Model choices stay provider-qualified, so the same model ID from a local runtime, OpenRouter, a custom endpoint, or a direct provider remains distinct. Row-Bot also tracks whether a selected model is ready for full agent/tool use, should run chat-only, or needs a larger context window or different endpoint profile.
+Model catalog browsing, pinning, defaults, and Quick Choices live in
+`Settings â†’ Models`. Model choices stay provider-qualified, so the same model
+ID from a local runtime, OpenRouter, Atlas Cloud, a custom endpoint, or a direct
+provider remains distinct. Row-Bot also tracks whether a selected model is ready
+for full agent/tool use, supports vision, should run chat-only, or needs a
+larger context window or different endpoint profile. Live catalogs such as Atlas
+Cloud and MiniMax refresh through the same provider path, and Atlas image/video
+generation rows are filtered out of chat, agent, and vision model surfaces.
 
 | Service | Key or setup | Used for |
 |---------|--------------|----------|
@@ -146,7 +171,7 @@ Model catalog browsing, pinning, defaults, and Quick Choices live in Settings â†
 | xAI | `XAI_API_KEY` | Grok models, Grok Imagine, and Grok Imagine Video. |
 | MiniMax | `MINIMAX_API_KEY` | Current MiniMax models through the Anthropic-compatible API, discovered from the live provider catalog where available. |
 | OpenRouter | `OPENROUTER_API_KEY` | Access to 100+ provider models. |
-| [Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=Thoth) | `ATLASCLOUD_API_KEY` | OpenAI-compatible access to 100+ open models (DeepSeek, Qwen, Kimi, and more), discovered from the live provider catalog. |
+| [Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=row_bot) | `ATLASCLOUD_API_KEY` | OpenAI-compatible access to Atlas-hosted chat, agent, and vision models, discovered from the live provider catalog. Image and video generation rows are not exposed as chat models. |
 | Ollama Cloud | `OLLAMA_CLOUD_API_KEY` or local daemon sign-in | Direct Ollama Cloud models and cloud-tagged daemon models. |
 | Custom OpenAI-compatible endpoint | Base URL and optional key | Self-hosted or proxy models through profiles for oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, and generic servers. |
 | Tavily | `TAVILY_API_KEY` | Live web search. |
@@ -160,6 +185,11 @@ Model catalog browsing, pinning, defaults, and Quick Choices live in Settings â†
 | Gmail and Google Calendar | Google Cloud OAuth `credentials.json` | Email search/read/draft/send and calendar view/create/update/move/delete. |
 
 Configure providers in Settings, Channels, and Accounts. Keys and in-app ChatGPT / Codex and Claude Subscription OAuth tokens are stored in Windows Credential Manager, macOS Keychain, or Linux Secret Service/KWallet when available. `~/.row-bot/api_keys.json` and `~/.row-bot/providers.json` keep metadata only, such as saved state, provider status, Quick Choices, compatibility profiles, probe results, and masked fingerprints.
+
+Atlas Cloud uses an OpenAI-compatible API, but Row-Bot treats it as a
+first-class provider with its own setup, auth, catalog refresh, provider
+identity, capability labels, streaming behavior, and chat/agent/vision surface
+filtering.
 
 Embedding providers are configured separately from chat models. Local embeddings are available for private document and vector indexing. Optional cloud embeddings show a privacy warning because document text is sent to the selected embedding provider.
 
@@ -190,6 +220,8 @@ Safety controls are built into the tool layer:
 - Browser tabs are isolated per thread and cleaned up when tasks or threads finish.
 - Developer Studio has its own approval modes for edits, commands, Git operations, commits, pushes, and PR prep.
 - Docker Sandbox is opt-in and runs commands in a shadow workspace until you explicitly import changes.
+- Controlled self-evolution produces bounded, reviewable proposals and does not
+  silently modify repos or app code.
 - Smart Skills, slash commands, and Skills Hub imports stay user-controlled; installed skills can be enabled, disabled, reviewed, and removed.
 - Custom Tools are reviewed, smoke-tested, enabled, promoted, disabled, and removed without deleting their source repos.
 - Gmail and Calendar permissions are tiered for read, compose/write, and destructive actions.
