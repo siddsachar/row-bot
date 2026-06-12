@@ -2,6 +2,215 @@
 
 ---
 
+## v4.1.0 - Providers, Controlled Self-Evolution, Skills & Diagnostics
+
+This release builds on v4.0.1 with a broad provider and runtime reliability
+pass. It adds first-class Atlas Cloud support, introduces a Claude Subscription
+provider path, lands controlled self-evolution, improves skill activation and
+pinning, hardens custom tool creation, and fixes several model-picker,
+streaming, voice, vision, setup, and diagnostics regressions that surfaced
+after the 4.0.0 rebrand.
+
+### Provider Runtime & Model Catalog
+
+- **Atlas Cloud first-class provider** - adds Atlas Cloud as a native provider
+  instead of treating it as a generic custom endpoint, with provider identity,
+  setup copy, authentication wiring, runtime routing, and model references that
+  behave like the existing first-class providers.
+- **Atlas Cloud model catalog fetching** - adds live Atlas model discovery,
+  cache integration, provider-qualified model refs, catalog refresh handling,
+  and status/readiness checks so Atlas models appear through the same catalog
+  path as other providers.
+- **Atlas Cloud agent capability classification** - maps Atlas-hosted models
+  into chat and agent-ready surfaces using the provider's API metadata plus
+  curated fallbacks for known frontier/provider families, including OpenAI,
+  Anthropic, Gemini, Qwen, Kimi, GLM, MiniMax, DeepSeek, and similar
+  tool-capable chat models.
+- **Atlas Cloud vision capability support** - classifies Atlas-hosted
+  multimodal chat models as vision-capable where supported, including hosted
+  OpenAI, Gemini, Anthropic, Qwen-VL, Kimi-VL, GLM vision, and related model
+  families.
+- **Atlas Cloud media-model filtering** - keeps Atlas image-generation and
+  video-generation models out of chat, agent, and vision picker surfaces for
+  this phase, preventing non-chat media models from leaking into incompatible
+  workflows.
+- **Atlas Cloud streaming fixes** - scopes the OpenAI-compatible buffered
+  tool-call path so Atlas can stream assistant text after tool calls without
+  disturbing existing OpenAI-compatible providers.
+- **Atlas Claude transport handling** - adds Atlas-specific Claude behavior for
+  streaming, tool-call replay, and native tool-history cleanup so
+  Anthropic-hosted models behind Atlas can complete agent turns reliably.
+- **OpenAI-compatible transport regression coverage** - expands tests around
+  streaming, buffered tool output, Claude-shaped tool calls, and
+  provider-specific transport behavior to protect OpenRouter and other existing
+  compatible endpoints.
+- **Provider capability resolution** - strengthens the shared
+  capability-resolution path used by catalogs, readiness checks, vision
+  routing, and agent eligibility so provider metadata, curated known-good
+  families, and cached model data agree more consistently.
+- **Provider status and readiness improvements** - updates provider readiness,
+  runtime selection, status reporting, catalog cache behavior, and auth-store
+  integration to support the new providers without changing the behavior of
+  existing ones.
+
+### Claude Subscription Provider
+
+- **Claude Subscription provider support** - adds a first-class provider path
+  for Claude Subscription usage, with provider registration, auth-state
+  detection, model references, runtime selection, and setup/status surfaces.
+- **Claude Subscription messages transport** - adds a dedicated transport for
+  Claude Subscription message exchange, including prompt conversion, tool-call
+  handling, and response normalization.
+- **Claude Subscription auth and diagnostics** - adds provider
+  subscription-auth helpers, external credential handling, readiness checks,
+  and tests so the app can report whether the subscription runtime is actually
+  available.
+- **Provider selection integration** - wires Claude Subscription into
+  provider/model selection without taking over Anthropic API-key behavior or
+  other Claude-compatible provider paths.
+
+### Controlled Self-Evolution
+
+- **Controlled self-evolution engine** - introduces the first controlled
+  self-evolution runtime, with structured change proposals, reviewable
+  execution boundaries, persistence, and test coverage.
+- **Self-reflection skill updates** - adds bundled self-reflection guidance so
+  Row-Bot can reason about improvement opportunities through a constrained
+  skill flow instead of ad-hoc code changes.
+- **Dream-cycle integration** - connects controlled improvement work into the
+  existing dream-cycle and memory-policy systems so reflection output can be
+  captured and revisited safely.
+- **Prompt and agent integration** - updates agent and prompt wiring so
+  self-improvement behavior is explicit, bounded, and aligned with the rest of
+  the assistant runtime.
+- **Command Center visibility** - adds UI/status hooks for evolution state and
+  related activity so controlled self-evolution is observable instead of hidden
+  background behavior.
+
+### Skills, Developer Tools & Custom Tool Builder
+
+- **Skill pinning defaults** - adds default pinning behavior and activation
+  tests so important skills can remain discoverable and stable across sessions.
+- **Skill activation reliability** - improves the skill activation path and
+  channel command handling, with coverage for pinned skills, command routing,
+  and activation edge cases.
+- **Custom tool builder hardening** - strengthens Git and virtualenv handling
+  in the custom tool builder so new tool projects are created more reliably
+  across local environments.
+- **Developer Studio storage and capsules** - improves developer storage, tool
+  capsule handling, and Developer Studio UI behavior used by the custom tool
+  flow.
+- **Tool-builder guidance updates** - refreshes the custom tool builder guide
+  to reflect the safer Git/venv workflow and the current implementation.
+
+### Chat, Voice & Model Picker Reliability
+
+- **Anthropic thinking-block normalization** - fixes normalization of
+  Anthropic thinking blocks so reasoning content does not corrupt downstream
+  transcript handling.
+- **Local voice talk submission fix** - repairs local voice talk submission so
+  voice input can be sent through the normal chat path again.
+- **Ollama vision cache handling** - fixes Ollama vision model detection to
+  respect cached capability data instead of losing vision support after catalog
+  refreshes.
+- **Migration wizard repair** - fixes migration wizard UI and Ollama status
+  behavior so setup and upgrade flows do not report misleading provider state.
+- **Model-picker regression coverage** - adds tests around chat-only, vision,
+  provider readiness, and model-picker behavior to prevent capability labels
+  from drifting again.
+- **Streaming batcher coverage** - expands streaming tests around batched output
+  so incremental rendering remains responsive after provider and tool-call
+  changes.
+- **Chat keybinding coverage** - adds chat keybinding tests to protect composer
+  behavior while provider and streaming internals continue to evolve.
+
+### Insights, Status & Diagnostics
+
+- **Insights status tray diagnostics** - fixes the insights status tray
+  diagnostic path so provider and runtime issues are surfaced with more useful
+  state.
+- **Row-Bot status tool updates** - refreshes the Row-Bot status tool and
+  guide, including provider/media reporting paths used during diagnostics.
+- **Provider settings and status UI** - updates provider settings, status
+  checks, status bar, setup wizard, and related UI state for the new
+  provider/runtime readiness model.
+- **Home and performance stability** - improves home-screen performance
+  behavior and adds UI performance coverage for the post-rebrand shell.
+- **Application stability tests** - adds broader app-stability hardening tests
+  around setup, settings, provider state, streaming, and catalog interactions.
+
+### Documentation, Website & Architecture
+
+- **Architecture docs refresh** - updates the architecture documentation and
+  diagrams to match the Row-Bot rebrand and current runtime/provider structure.
+- **Website download links** - updates the docs site download links for the
+  v4.0.1 package line.
+- **Runtime and provider documentation alignment** - updates README and docs
+  surfaces touched by provider setup, installer guidance, and architecture
+  diagrams.
+
+### Tests & Release Validation
+
+- **Atlas Cloud coverage** - adds first-class Atlas tests for model catalog
+  fetching, capability classification, auth/setup behavior, OpenAI-compatible
+  transport behavior, streaming, tool calls, and vision refs.
+- **Claude Subscription coverage** - adds Claude Subscription auth, transport,
+  provider runtime, and subscription-readiness tests.
+- **Controlled self-evolution coverage** - adds controlled self-evolution tests
+  around proposal handling, persistence, guardrails, and integration points.
+- **Skill and command coverage** - adds tests for skill pinning, skill
+  activation, channel skill commands, and custom tool builder flows.
+- **Provider runtime coverage** - expands provider catalog, runtime, selection,
+  readiness, auth-store, API-key storage, and subscription-auth tests.
+- **UI and workflow coverage** - expands tests for migration wizard behavior,
+  insights provider status, status media, chat keybindings, streaming batching,
+  home performance, and settings/provider contracts.
+
+### Breaking Changes And Caveats
+
+- Atlas Cloud requires an Atlas Cloud API key and a successful catalog refresh
+  before its live model list can be used.
+- Atlas Cloud image-generation and video-generation models are intentionally
+  hidden from chat, agent, and vision surfaces in this phase.
+- Atlas capability labels depend on provider metadata plus curated known-good
+  model families; newly released Atlas models may need a catalog refresh or
+  future classification update before they appear with the most specific
+  capability label.
+- Claude Subscription support depends on the local subscription auth/runtime
+  path being available and should not be confused with the Anthropic API-key
+  provider.
+- Controlled self-evolution is deliberately constrained to reviewable, bounded
+  flows; it is not an unrestricted autonomous code modification mode.
+- Custom tool builder reliability still depends on a working local Git and
+  Python virtualenv environment.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `src/row_bot/providers/atlascloud.py` | Adds Atlas Cloud provider definition, setup metadata, catalog fetching, model filtering, and capability classification. |
+| `src/row_bot/providers/claude_subscription.py` | Adds Claude Subscription as a first-class provider. |
+| `src/row_bot/providers/transports/openai_compatible.py` | Updates OpenAI-compatible streaming/tool-call handling, including Atlas-scoped buffering behavior. |
+| `src/row_bot/providers/transports/claude_subscription_messages.py` | Adds Claude Subscription message transport. |
+| `src/row_bot/providers/capability_resolution.py` | Adds shared provider capability resolution for chat, agent, and vision readiness. |
+| `src/row_bot/providers/catalog.py`, `model_catalog.py`, `model_catalog_cache.py` | Updates provider catalog discovery, caching, and model metadata handling. |
+| `src/row_bot/providers/runtime.py`, `readiness.py`, `selection.py`, `status.py` | Updates runtime selection, provider readiness, selection, and status reporting for new provider behavior. |
+| `src/row_bot/api_keys.py`, `external_credentials.py`, `providers/auth_store.py` | Updates provider authentication and credential-state handling. |
+| `src/row_bot/models.py`, `vision.py` | Updates model refs and vision capability handling. |
+| `src/row_bot/evolution.py` | Adds controlled self-evolution engine. |
+| `src/row_bot/dream_cycle.py`, `memory_policy.py`, `prompts.py`, `agent.py` | Integrates controlled self-evolution, reflection, and provider/runtime behavior into agent flows. |
+| `bundled_skills/self_reflection/SKILL.md` | Adds self-reflection guidance for controlled improvement work. |
+| `src/row_bot/skills.py`, `skills_activation.py` | Adds skill pinning defaults and activation improvements. |
+| `src/row_bot/developer/storage.py`, `developer/tool_capsules.py`, `developer/ui.py` | Hardens Developer Studio storage, tool capsules, and UI flows. |
+| `src/row_bot/tools/custom_tool_builder_tool.py`, `tool_guides/custom_tool_builder_guide/SKILL.md` | Hardens custom tool builder Git/venv flow and updates guidance. |
+| `src/row_bot/tools/row_bot_status_tool.py`, `tool_guides/row_bot_status_guide/SKILL.md` | Updates status diagnostics and guide behavior. |
+| `src/row_bot/ui/*` | Updates provider settings, setup wizard, status surfaces, streaming, chat, home, sidebar, task dialog, and performance behavior. |
+| `src/row_bot/channels/*` | Updates channel skill-command behavior across Discord, Slack, SMS, Telegram, and WhatsApp. |
+| `docs/ARCHITECTURE.md`, `docs/index.html`, `README.md`, `installer/README.md` | Refreshes docs, download links, architecture diagrams, and installer guidance. |
+| `tests/*` | Adds or expands Atlas Cloud, Claude Subscription, provider runtime, controlled self-evolution, skill pinning, custom tool builder, status, streaming, model picker, migration wizard, and UI performance coverage. |
+
+---
+
 ## v4.0.1 - Ollama Model Picker Hotfix
 
 This patch fixes a Settings -> Models regression in v4.0.0 where local Ollama

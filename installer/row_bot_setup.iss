@@ -1,5 +1,5 @@
 ; =============================================================================
-; Row-Bot v4.0.1 - Inno Setup Script
+; Row-Bot v4.1.0 - Inno Setup Script
 ; Self-contained installer: bundles embedded Python with all pip packages
 ; pre-installed.  No internet downloads at install time.
 ; =============================================================================
@@ -29,6 +29,46 @@
   #error Embedded Python is missing httpx. Run installer\build_installer.ps1 before compiling row_bot_setup.iss.
 #endif
 
+#ifnexist "build\python\Lib\site-packages\keyring\__init__.py"
+  #error Embedded Python is missing keyring. Run installer\build_installer.ps1 before compiling row_bot_setup.iss.
+#endif
+
+#ifnexist "build\python\Lib\site-packages\langchain_ollama\__init__.py"
+  #error Embedded Python is missing langchain_ollama. Run installer\build_installer.ps1 before compiling row_bot_setup.iss.
+#endif
+
+#ifnexist "build\python\Lib\site-packages\langchain_openai\__init__.py"
+  #error Embedded Python is missing langchain_openai. Run installer\build_installer.ps1 before compiling row_bot_setup.iss.
+#endif
+
+#ifnexist "build\python\Lib\site-packages\langchain_anthropic\__init__.py"
+  #error Embedded Python is missing langchain_anthropic. Run installer\build_installer.ps1 before compiling row_bot_setup.iss.
+#endif
+
+#ifnexist "build\python\Lib\site-packages\langchain_google_genai\__init__.py"
+  #error Embedded Python is missing langchain_google_genai. Run installer\build_installer.ps1 before compiling row_bot_setup.iss.
+#endif
+
+#ifnexist "build\python\Lib\site-packages\langchain_openrouter\__init__.py"
+  #error Embedded Python is missing langchain_openrouter. Run installer\build_installer.ps1 before compiling row_bot_setup.iss.
+#endif
+
+#ifnexist "build\python\Lib\site-packages\langchain_xai\__init__.py"
+  #error Embedded Python is missing langchain_xai. Run installer\build_installer.ps1 before compiling row_bot_setup.iss.
+#endif
+
+#ifnexist "build\python\Lib\site-packages\google\genai\__init__.py"
+  #error Embedded Python is missing google.genai. Run installer\build_installer.ps1 before compiling row_bot_setup.iss.
+#endif
+
+#ifnexist "build\python\Lib\site-packages\openai\__init__.py"
+  #error Embedded Python is missing openai. Run installer\build_installer.ps1 before compiling row_bot_setup.iss.
+#endif
+
+#ifnexist "build\python\Lib\site-packages\mcp\__init__.py"
+  #error Embedded Python is missing mcp. Run installer\build_installer.ps1 before compiling row_bot_setup.iss.
+#endif
+
 #ifnexist "build\python\Lib\site-packages\youtube_search\__init__.py"
   #error Embedded Python is missing youtube_search. Run installer\build_installer.ps1 before compiling row_bot_setup.iss.
 #endif
@@ -38,7 +78,7 @@
 #endif
 
 #define MyAppName      "Row-Bot"
-#define MyAppVersion   "4.0.1"
+#define MyAppVersion   "4.1.0"
 #define MyAppPublisher "Row-Bot"
 #define MyAppURL       "https://row-bot.ai"
 #define MyAppExeName   "launch_row_bot.vbs"
@@ -82,7 +122,7 @@ Source: "..\requirements.txt";       DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\row-bot.ico";            DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\scripts\verify_runtime_dependencies.py"; DestDir: "{app}\app\scripts"; Flags: ignoreversion
 Source: "..\src\row_bot\*";        DestDir: "{app}\app\src\row_bot"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "__pycache__\*,*.pyc,node_modules\*,.pytest_cache\*,tests\*,test\*,test-results\*,*.test.js,*.spec.js,*.bak,*.bak[0-9]*"
-; Source-layout coverage: stability.py, embedding_config.py, embedding_providers.py, ui\model_catalog.py, ui\provider_settings.py, ui\tool_trace.py, ui\onboarding_center.py, ui\onboarding_state.py, channels\telegram.py, channels\whatsapp.py.
+; Source-layout coverage: recursive src\row_bot include covers embedding_config.py, embedding_providers.py, providers, provider transports, model catalog, Developer, Skills Hub, self-evolution, channels\telegram.py, and channels\whatsapp.py.
 Source: "..\static\*";              DestDir: "{app}\app\static"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\sounds\*";              DestDir: "{app}\app\sounds"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\bundled_skills\*";      DestDir: "{app}\app\bundled_skills"; Flags: ignoreversion recursesubdirs createallsubdirs

@@ -14192,6 +14192,16 @@ try:
     assert "build\\python\\Lib\\site-packages\\transformers\\__init__.py" in _iss68
     assert "build\\python\\Lib\\site-packages\\torch\\__init__.py" in _iss68
     assert "build\\python\\Lib\\site-packages\\httpx\\__init__.py" in _iss68
+    assert "build\\python\\Lib\\site-packages\\keyring\\__init__.py" in _iss68
+    assert "build\\python\\Lib\\site-packages\\langchain_ollama\\__init__.py" in _iss68
+    assert "build\\python\\Lib\\site-packages\\langchain_openai\\__init__.py" in _iss68
+    assert "build\\python\\Lib\\site-packages\\langchain_anthropic\\__init__.py" in _iss68
+    assert "build\\python\\Lib\\site-packages\\langchain_google_genai\\__init__.py" in _iss68
+    assert "build\\python\\Lib\\site-packages\\langchain_openrouter\\__init__.py" in _iss68
+    assert "build\\python\\Lib\\site-packages\\langchain_xai\\__init__.py" in _iss68
+    assert "build\\python\\Lib\\site-packages\\google\\genai\\__init__.py" in _iss68
+    assert "build\\python\\Lib\\site-packages\\openai\\__init__.py" in _iss68
+    assert "build\\python\\Lib\\site-packages\\mcp\\__init__.py" in _iss68
     assert "build\\python\\Lib\\site-packages\\youtube_search\\__init__.py" in _iss68
     assert "build\\python\\Lib\\site-packages\\youtube_transcript_api\\__init__.py" in _iss68
     assert "verify_runtime_dependencies.py" in _P68("installer/build_installer.ps1").read_text(encoding="utf-8")
