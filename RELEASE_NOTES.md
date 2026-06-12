@@ -129,10 +129,9 @@ after the 4.0.0 rebrand.
 - **Insights status tray diagnostics** - fixes the insights status tray
   diagnostic path so provider and runtime issues are surfaced with more useful
   state.
-- **Native macOS menu-bar icon** - switches packaged macOS builds to an
-  AppKit-backed template status item using the Row-Bot glyph, so the menu-bar
-  icon follows system light/dark tinting while Windows and Linux keep the
-  existing tray behavior.
+- **macOS tray reliability** - restores the packaged macOS launcher to the
+  pystray green/grey status dots after the native menu-bar icon path proved
+  unreliable on test installs.
 - **Row-Bot status tool updates** - refreshes the Row-Bot status tool and
   guide, including provider/media reporting paths used during diagnostics.
 - **Provider settings and status UI** - updates provider settings, status
