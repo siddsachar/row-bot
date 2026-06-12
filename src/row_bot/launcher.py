@@ -27,7 +27,7 @@ import urllib.request
 import uuid
 import webbrowser
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from row_bot.app_port import DEFAULT_APP_PORT, ROW_BOT_HOST_ENV, ROW_BOT_PORT_ENV, parse_app_port
 from row_bot.brand import (
@@ -69,6 +69,7 @@ _ICON_SIZE = 64               # px for generated tray icons
 _APP_ICON_PATH = app_icon_path()
 _APP_GLYPH_PATH = static_dir() / "row_bot_glyph_256.png"
 _APP_FAVICON_PATH = static_dir() / "favicon.ico"
+_MACOS_TRAY_BACKEND_ENV = "ROW_BOT_MAC_TRAY_BACKEND"
 _ACTIVE_TRAY: "RowBotTray | None" = None
 _OLLAMA_AUTOSTART_ENV = APP_AUTO_START_OLLAMA_ENV
 _GRACEFUL_SHUTDOWN_REQUEST_TIMEOUT = 3.0
@@ -377,6 +378,257 @@ def _get_icon(state: str) -> _PILImage.Image:
             icon = _make_status_dot_icon("#22c55e" if cache_key == "running" else "#6b7280")
         _icons[cache_key] = icon
     return _icons[cache_key]
+
+
+def _make_macos_template_tray_icon() -> _PILImage.Image:
+    """Return a monochrome alpha-mask tray glyph for macOS template tinting."""
+    from PIL import Image
+
+    base_icon = _load_tray_base_icon()
+    if base_icon is None:
+        base_icon = _make_status_dot_icon("#000000")
+    icon = base_icon.convert("RGBA")
+    alpha = icon.getchannel("A")
+    template = Image.new("RGBA", icon.size, (0, 0, 0, 0))
+    template.putalpha(alpha)
+    return template
+
+
+def _macos_tray_backend_preference() -> str:
+    return os.environ.get(_MACOS_TRAY_BACKEND_ENV, "native").strip().lower()
+
+
+def _use_native_macos_tray() -> bool:
+    if sys.platform != "darwin":
+        return False
+    return _macos_tray_backend_preference() not in {"0", "false", "off", "pystray", "legacy"}
+
+
+def _tray_state_label(title: str) -> str:
+    lowered = title.lower()
+    if "running" in lowered:
+        return "Running"
+    if "stopped" in lowered:
+        return "Stopped"
+    return "Ready"
+
+
+class _PystrayTrayIcon:
+    backend_name = "pystray"
+
+    def __init__(self, *, callbacks: dict[str, Callable[[], None]]) -> None:
+        import pystray
+
+        menu = pystray.Menu(
+            pystray.MenuItem(f"Open {APP_DISPLAY_NAME}", callbacks["open"], default=True),
+            pystray.MenuItem("Open in Browser", callbacks["open_browser"]),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Show Buddy", callbacks["show_buddy"]),
+            pystray.MenuItem("Hide Buddy", callbacks["hide_buddy"]),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Quit", callbacks["quit"]),
+        )
+        self._icon = pystray.Icon(
+            name=APP_DISPLAY_NAME,
+            icon=_get_icon("stopped"),
+            title=f"{APP_DISPLAY_NAME} - stopped",
+            menu=menu,
+        )
+
+    @property
+    def icon(self) -> _PILImage.Image | None:
+        return self._icon.icon
+
+    @icon.setter
+    def icon(self, value: _PILImage.Image) -> None:
+        self._icon.icon = value
+
+    @property
+    def title(self) -> str:
+        return self._icon.title
+
+    @title.setter
+    def title(self, value: str) -> None:
+        self._icon.title = value
+
+    def run(self) -> None:
+        self._icon.run()
+
+    def stop(self) -> None:
+        self._icon.stop()
+
+
+class _MacStatusItemTrayIcon:
+    backend_name = "macos_native"
+
+    def __init__(self, *, callbacks: dict[str, Callable[[], None]]) -> None:
+        import io
+
+        import AppKit
+        import Foundation
+
+        self._AppKit = AppKit
+        self._Foundation = Foundation
+        self._app = AppKit.NSApplication.sharedApplication()
+        self._status_bar = AppKit.NSStatusBar.systemStatusBar()
+        self._status_item = self._status_bar.statusItemWithLength_(AppKit.NSVariableStatusItemLength)
+        self._button = self._status_item.button()
+        if self._button is None:
+            raise RuntimeError("macOS status item button unavailable")
+        self._title = f"{APP_DISPLAY_NAME} - stopped"
+        self._template_png = io.BytesIO()
+        _make_macos_template_tray_icon().save(self._template_png, format="PNG")
+
+        class _Delegate(Foundation.NSObject):
+            callbacks = None
+
+            def open_(self, sender) -> None:  # noqa: ANN001, ARG002
+                self.callbacks["open"]()
+
+            def openBrowser_(self, sender) -> None:  # noqa: ANN001, ARG002
+                self.callbacks["open_browser"]()
+
+            def showBuddy_(self, sender) -> None:  # noqa: ANN001, ARG002
+                self.callbacks["show_buddy"]()
+
+            def hideBuddy_(self, sender) -> None:  # noqa: ANN001, ARG002
+                self.callbacks["hide_buddy"]()
+
+            def quit_(self, sender) -> None:  # noqa: ANN001, ARG002
+                self.callbacks["quit"]()
+
+        self._delegate = _Delegate.alloc().init()
+        self._delegate.callbacks = callbacks
+        self._status_menu_item = None
+        self._menu = self._build_menu()
+        self._status_item.setMenu_(self._menu)
+        self._button.setImage_(self._make_template_nsimage())
+        self._button.setToolTip_(self._title)
+
+    @property
+    def icon(self) -> _PILImage.Image | None:
+        return None
+
+    @icon.setter
+    def icon(self, value: _PILImage.Image) -> None:  # noqa: ARG002
+        # The native macOS menu bar uses a static template glyph. The poller
+        # still sets this property for the pystray backend, but AppKit view
+        # updates must stay on the main thread.
+        return
+
+    @property
+    def title(self) -> str:
+        return self._title
+
+    @title.setter
+    def title(self, value: str) -> None:
+        self._title = value
+        try:
+            self._button.performSelectorOnMainThread_withObject_waitUntilDone_(
+                "setToolTip:",
+                value,
+                False,
+            )
+            if self._status_menu_item is not None:
+                self._status_menu_item.performSelectorOnMainThread_withObject_waitUntilDone_(
+                    "setTitle:",
+                    f"Status: {_tray_state_label(value)}",
+                    False,
+                )
+        except Exception:
+            logger.debug("Could not update macOS status item title", exc_info=True)
+
+    def _make_template_nsimage(self):
+        png = self._template_png.getvalue()
+        data = self._Foundation.NSData(png)
+        image = self._AppKit.NSImage.alloc().initWithData_(data)
+        if image is None:
+            raise RuntimeError("Could not build macOS tray image")
+        try:
+            thickness = float(self._status_bar.thickness())
+            image.setSize_(self._AppKit.NSMakeSize(thickness, thickness))
+        except Exception:
+            pass
+        image.setTemplate_(True)
+        return image
+
+    def _build_menu(self):
+        AppKit = self._AppKit
+        menu = AppKit.NSMenu.alloc().initWithTitle_(APP_DISPLAY_NAME)
+        self._status_menu_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "Status: Stopped",
+            None,
+            "",
+        )
+        self._status_menu_item.setEnabled_(False)
+        menu.addItem_(self._status_menu_item)
+        menu.addItem_(AppKit.NSMenuItem.separatorItem())
+        for title, selector in (
+            (f"Open {APP_DISPLAY_NAME}", b"open:"),
+            ("Open in Browser", b"openBrowser:"),
+        ):
+            item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, selector, "")
+            item.setTarget_(self._delegate)
+            menu.addItem_(item)
+        menu.addItem_(AppKit.NSMenuItem.separatorItem())
+        for title, selector in (
+            ("Show Buddy", b"showBuddy:"),
+            ("Hide Buddy", b"hideBuddy:"),
+        ):
+            item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, selector, "")
+            item.setTarget_(self._delegate)
+            menu.addItem_(item)
+        menu.addItem_(AppKit.NSMenuItem.separatorItem())
+        quit_item = AppKit.NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Quit", b"quit:", "")
+        quit_item.setTarget_(self._delegate)
+        menu.addItem_(quit_item)
+        return menu
+
+    def run(self) -> None:
+        _launch_event("tray_runloop_start", mode=self.backend_name)
+        try:
+            self._app.run()
+        finally:
+            try:
+                self._status_bar.removeStatusItem_(self._status_item)
+            except Exception:
+                logger.debug("Could not remove macOS status item", exc_info=True)
+
+    def stop(self) -> None:
+        try:
+            self._app.performSelectorOnMainThread_withObject_waitUntilDone_(
+                "stop:",
+                self._app,
+                False,
+            )
+            event = self._AppKit.NSEvent.otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2_(
+                self._AppKit.NSApplicationDefined,
+                self._AppKit.NSPoint(0, 0),
+                0,
+                0.0,
+                0,
+                None,
+                0,
+                0,
+                0,
+            )
+            self._app.postEvent_atStart_(event, True)
+        except Exception:
+            logger.debug("Could not stop macOS status item run loop", exc_info=True)
+
+
+def _create_tray_icon(*, callbacks: dict[str, Callable[[], None]]):
+    if _use_native_macos_tray():
+        try:
+            icon = _MacStatusItemTrayIcon(callbacks=callbacks)
+            _launch_event("tray_backend_selected", mode=icon.backend_name)
+            return icon
+        except Exception as exc:
+            logger.warning("Native macOS tray unavailable; falling back to pystray: %s", exc)
+            _launch_event("tray_backend_fallback", mode="pystray", status=type(exc).__name__)
+    icon = _PystrayTrayIcon(callbacks=callbacks)
+    _launch_event("tray_backend_selected", mode=icon.backend_name)
+    return icon
 
 
 # ── Port check ───────────────────────────────────────────────────────────────
@@ -1833,8 +2085,6 @@ class RowBotTray:
     def __init__(self, *, preferred_port: int = _PORT, host: str | None = None,
                  preferred_mode: str | None = None, no_splash: bool = False,
                  no_ollama: bool = False) -> None:
-        import pystray
-
         self._preferred_port = preferred_port
         self._port = preferred_port
         self._host = host
@@ -1848,20 +2098,14 @@ class RowBotTray:
         self._stop_event = threading.Event()
         self._quitting = False
 
-        menu = pystray.Menu(
-            pystray.MenuItem(f"Open {APP_DISPLAY_NAME}", self._on_open, default=True),
-            pystray.MenuItem("Open in Browser", self._on_open_browser),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Show Buddy", self._on_show_buddy),
-            pystray.MenuItem("Hide Buddy", self._on_hide_buddy),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Quit", self._on_quit),
-        )
-        self._icon = pystray.Icon(
-            name=APP_DISPLAY_NAME,
-            icon=_get_icon("stopped"),
-            title=f"{APP_DISPLAY_NAME} — stopped",
-            menu=menu,
+        self._icon = _create_tray_icon(
+            callbacks={
+                "open": self._on_open,
+                "open_browser": self._on_open_browser,
+                "show_buddy": self._on_show_buddy,
+                "hide_buddy": self._on_hide_buddy,
+                "quit": self._on_quit,
+            },
         )
 
     # ── Helpers ──────────────────────────────────────────────────────────

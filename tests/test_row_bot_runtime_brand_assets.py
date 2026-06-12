@@ -68,6 +68,9 @@ def test_runtime_brand_assets_are_file_backed_and_visible():
     assert '_APP_GLYPH_PATH = static_dir() / "row_bot_glyph_256.png"' in launcher_src
     assert '_APP_FAVICON_PATH = static_dir() / "favicon.ico"' in launcher_src
     assert "_load_tray_base_icon" in launcher_src
+    assert "_make_macos_template_tray_icon" in launcher_src
+    assert "_MacStatusItemTrayIcon" in launcher_src
+    assert "ROW_BOT_MAC_TRAY_BACKEND" in launcher_src
     assert "_make_status_dot_icon" in launcher_src
     assert "green = running, grey = stopped" not in launcher_src
     assert "tk.PhotoImage(file=GLYPH_PATH)" in launcher_src
@@ -119,14 +122,20 @@ def test_runtime_brand_assets_are_file_backed_and_visible():
         assert "#f0c040" not in src
 
 
-def test_row_bot_glyph_assets_have_no_transparent_padding():
+def test_row_bot_glyph_assets_are_visible_and_normalized_for_tray():
+    import row_bot.launcher as launcher
+
     for path in (
         Path("static") / "row_bot_glyph_256.png",
         Path("docs") / "row_bot_glyph_256.png",
         Path("docs") / "row_bot_glyph.png",
     ):
         image = Image.open(path).convert("RGBA")
-        assert image.getchannel("A").getbbox() == (0, 0, image.width, image.height)
+        assert image.getchannel("A").getbbox() is not None
+        normalized = launcher._normalize_tray_icon(image)
+        assert normalized.mode == "RGBA"
+        assert normalized.size == (launcher._ICON_SIZE, launcher._ICON_SIZE)
+        assert normalized.getchannel("A").getbbox() is not None
 
     for path in (Path("row-bot.ico"), Path("static") / "favicon.ico"):
         image = Image.open(path).convert("RGBA")
@@ -145,6 +154,7 @@ def test_tray_icon_uses_branded_asset_when_available(tmp_path, monkeypatch):
     monkeypatch.setattr(launcher, "_APP_GLYPH_PATH", glyph)
     monkeypatch.setattr(launcher, "_APP_ICON_PATH", missing)
     monkeypatch.setattr(launcher, "_APP_FAVICON_PATH", missing)
+    monkeypatch.setattr(launcher.sys, "platform", "win32")
     monkeypatch.setattr(launcher, "_icons", {}, raising=False)
     monkeypatch.setattr(launcher, "_tray_base_icon_loaded", False, raising=False)
     monkeypatch.setattr(launcher, "_tray_base_icon", None, raising=False)
@@ -157,7 +167,31 @@ def test_tray_icon_uses_branded_asset_when_available(tmp_path, monkeypatch):
     assert len(icon.getcolors(maxcolors=4096) or []) > 1
 
 
-def test_macos_tray_icon_uses_status_dot_by_default(monkeypatch):
+def test_macos_template_tray_icon_uses_glyph_alpha_mask(monkeypatch):
+    import row_bot.launcher as launcher
+
+    calls = {"count": 0}
+
+    def _load_base_icon():
+        calls["count"] += 1
+        image = Image.new("RGBA", (launcher._ICON_SIZE, launcher._ICON_SIZE), (10, 20, 30, 0))
+        for x in range(20, 44):
+            for y in range(20, 44):
+                image.putpixel((x, y), (10, 20, 30, 255))
+        return image
+
+    monkeypatch.setattr(launcher, "_load_tray_base_icon", _load_base_icon)
+
+    icon = launcher._make_macos_template_tray_icon()
+
+    assert calls["count"] == 1
+    assert icon.mode == "RGBA"
+    assert icon.size == (launcher._ICON_SIZE, launcher._ICON_SIZE)
+    assert icon.getpixel((launcher._ICON_SIZE // 2, launcher._ICON_SIZE // 2)) == (0, 0, 0, 255)
+    assert icon.getpixel((0, 0))[3] == 0
+
+
+def test_macos_pystray_fallback_still_uses_status_dot_by_default(monkeypatch):
     import row_bot.launcher as launcher
 
     calls = {"count": 0}
@@ -217,3 +251,154 @@ def test_tray_icon_caches_by_state(monkeypatch):
 
     assert first is second
     assert calls["count"] == 1
+
+
+def test_pystray_backend_constructs_legacy_tray_icon(monkeypatch):
+    import sys
+    import types
+
+    import row_bot.launcher as launcher
+    from row_bot.brand import APP_DISPLAY_NAME
+
+    callbacks = {
+        "open": lambda: None,
+        "open_browser": lambda: None,
+        "show_buddy": lambda: None,
+        "hide_buddy": lambda: None,
+        "quit": lambda: None,
+    }
+    created = {}
+
+    class FakeMenu:
+        SEPARATOR = object()
+
+        def __init__(self, *items):
+            self.items = items
+
+    class FakeMenuItem:
+        def __init__(self, text, action, default=False):
+            self.text = text
+            self.action = action
+            self.default = default
+
+    class FakeIcon:
+        def __init__(self, *, name, icon, title, menu):
+            created.update(name=name, icon=icon, title=title, menu=menu)
+
+        def run(self):
+            pass
+
+        def stop(self):
+            pass
+
+    fake_pystray = types.SimpleNamespace(Menu=FakeMenu, MenuItem=FakeMenuItem, Icon=FakeIcon)
+    monkeypatch.setitem(sys.modules, "pystray", fake_pystray)
+    monkeypatch.setattr(launcher, "_icons", {}, raising=False)
+
+    tray_icon = launcher._PystrayTrayIcon(callbacks=callbacks)
+
+    assert isinstance(tray_icon._icon, FakeIcon)
+    assert created["name"] == APP_DISPLAY_NAME
+    assert created["title"] == f"{APP_DISPLAY_NAME} - stopped"
+    assert created["menu"].items[0].default is True
+    assert created["menu"].items[0].action is callbacks["open"]
+
+
+def test_native_macos_tray_backend_selected_by_default(monkeypatch):
+    import row_bot.launcher as launcher
+
+    callbacks = {
+        "open": lambda: None,
+        "open_browser": lambda: None,
+        "show_buddy": lambda: None,
+        "hide_buddy": lambda: None,
+        "quit": lambda: None,
+    }
+
+    class FakeNative:
+        backend_name = "macos_native"
+
+        def __init__(self, *, callbacks):
+            self.callbacks = callbacks
+
+    class FakePystray:
+        backend_name = "pystray"
+
+        def __init__(self, *, callbacks):
+            self.callbacks = callbacks
+
+    monkeypatch.setattr(launcher.sys, "platform", "darwin")
+    monkeypatch.delenv("ROW_BOT_MAC_TRAY_BACKEND", raising=False)
+    monkeypatch.setattr(launcher, "_MacStatusItemTrayIcon", FakeNative)
+    monkeypatch.setattr(launcher, "_PystrayTrayIcon", FakePystray)
+
+    icon = launcher._create_tray_icon(callbacks=callbacks)
+
+    assert isinstance(icon, FakeNative)
+    assert icon.callbacks is callbacks
+
+
+def test_macos_tray_backend_can_use_pystray_escape_hatch(monkeypatch):
+    import row_bot.launcher as launcher
+
+    callbacks = {
+        "open": lambda: None,
+        "open_browser": lambda: None,
+        "show_buddy": lambda: None,
+        "hide_buddy": lambda: None,
+        "quit": lambda: None,
+    }
+
+    class FakeNative:
+        backend_name = "macos_native"
+
+        def __init__(self, *, callbacks):
+            raise AssertionError("native backend should not be constructed")
+
+    class FakePystray:
+        backend_name = "pystray"
+
+        def __init__(self, *, callbacks):
+            self.callbacks = callbacks
+
+    monkeypatch.setattr(launcher.sys, "platform", "darwin")
+    monkeypatch.setenv("ROW_BOT_MAC_TRAY_BACKEND", "pystray")
+    monkeypatch.setattr(launcher, "_MacStatusItemTrayIcon", FakeNative)
+    monkeypatch.setattr(launcher, "_PystrayTrayIcon", FakePystray)
+
+    icon = launcher._create_tray_icon(callbacks=callbacks)
+
+    assert isinstance(icon, FakePystray)
+
+
+def test_macos_tray_backend_falls_back_to_pystray_on_native_error(monkeypatch):
+    import row_bot.launcher as launcher
+
+    callbacks = {
+        "open": lambda: None,
+        "open_browser": lambda: None,
+        "show_buddy": lambda: None,
+        "hide_buddy": lambda: None,
+        "quit": lambda: None,
+    }
+
+    class BrokenNative:
+        backend_name = "macos_native"
+
+        def __init__(self, *, callbacks):
+            raise RuntimeError("no status item")
+
+    class FakePystray:
+        backend_name = "pystray"
+
+        def __init__(self, *, callbacks):
+            self.callbacks = callbacks
+
+    monkeypatch.setattr(launcher.sys, "platform", "darwin")
+    monkeypatch.delenv("ROW_BOT_MAC_TRAY_BACKEND", raising=False)
+    monkeypatch.setattr(launcher, "_MacStatusItemTrayIcon", BrokenNative)
+    monkeypatch.setattr(launcher, "_PystrayTrayIcon", FakePystray)
+
+    icon = launcher._create_tray_icon(callbacks=callbacks)
+
+    assert isinstance(icon, FakePystray)
