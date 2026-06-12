@@ -46,6 +46,7 @@ def test_atlascloud_provider_definition_and_capabilities():
     classified = classify_model_capabilities("atlascloud", "deepseek-ai/DeepSeek-V3-0324")
     assert "chat" in classified["tasks"]
     assert classified["transport"] == TransportMode.OPENAI_CHAT
+    assert classified["tool_calling"] is None
 
     resolved = resolve_provider_config(
         "model:atlascloud:deepseek-ai/DeepSeek-V3-0324",

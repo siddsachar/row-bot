@@ -132,6 +132,7 @@ async def show_setup_wizard(
         validate_google_key,
         validate_xai_key,
         validate_minimax_key,
+        validate_atlascloud_key,
         refresh_cloud_models,
         list_cloud_models,
         get_provider_emoji,
@@ -283,6 +284,10 @@ async def show_setup_wizard(
                 ).classes("w-full")
                 setup_minimax_key = ui.input(
                     "MiniMax API Key (optional)",
+                    password=True, password_toggle_button=True,
+                ).classes("w-full")
+                setup_atlascloud_key = ui.input(
+                    "Atlas Cloud API Key (optional)",
                     password=True, password_toggle_button=True,
                 ).classes("w-full")
                 setup_or_key = ui.input(
@@ -466,10 +471,11 @@ async def show_setup_wizard(
                     goog_val = setup_goog_key.value.strip()
                     xai_val = setup_xai_key.value.strip()
                     minimax_val = setup_minimax_key.value.strip()
+                    atlascloud_val = setup_atlascloud_key.value.strip()
                     or_val = setup_or_key.value.strip()
                     opencode_zen_val = setup_opencode_zen_key.value.strip()
                     opencode_go_val = setup_opencode_go_key.value.strip()
-                    if not oai_val and not ollama_cloud_val and not anth_val and not goog_val and not xai_val and not minimax_val and not or_val and not opencode_zen_val and not opencode_go_val:
+                    if not oai_val and not ollama_cloud_val and not anth_val and not goog_val and not xai_val and not minimax_val and not atlascloud_val and not or_val and not opencode_zen_val and not opencode_go_val:
                         ui.notify("Enter at least one API key", type="warning")
                         return
                     entered_providers = [
@@ -481,6 +487,7 @@ async def show_setup_wizard(
                             ("google", goog_val),
                             ("xai", xai_val),
                             ("minimax", minimax_val),
+                            ("atlascloud", atlascloud_val),
                             ("openrouter", or_val),
                             ("opencode_zen", opencode_zen_val),
                             ("opencode_go", opencode_go_val),
@@ -538,6 +545,14 @@ async def show_setup_wizard(
                                 timeout=5000,
                             )
                         set_key("MINIMAX_API_KEY", minimax_val)
+                    if atlascloud_val:
+                        atlascloud_valid = await run.io_bound(validate_atlascloud_key, atlascloud_val)
+                        if not atlascloud_valid:
+                            cloud_status.text = "Invalid Atlas Cloud API key."
+                            cloud_done["value"] = False
+                            _update_finish()
+                            return
+                        set_key("ATLASCLOUD_API_KEY", atlascloud_val)
                     if oai_val:
                         set_key("OPENAI_API_KEY", oai_val)
                     if opencode_zen_val:

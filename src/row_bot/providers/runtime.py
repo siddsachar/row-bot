@@ -164,6 +164,22 @@ def provider_status(provider_id: str, *, refresh_tokens: bool = True) -> dict:
             "fingerprint": "",
             "model_count": count,
         }
+    if provider_id == "atlascloud":
+        from row_bot.providers.config import load_provider_config
+
+        status = provider_secret_status(provider_id, "api_key")
+        provider_cfg = load_provider_config().get("providers", {}).get("atlascloud", {})
+        status["provider_id"] = provider_id
+        if isinstance(provider_cfg.get("last_runtime_probe"), dict):
+            status["last_runtime_probe"] = dict(provider_cfg.get("last_runtime_probe") or {})
+        if isinstance(provider_cfg.get("runtime_probes"), dict):
+            status["runtime_probes"] = {
+                str(model_id): dict(probe)
+                for model_id, probe in provider_cfg.get("runtime_probes", {}).items()
+                if isinstance(probe, dict)
+            }
+        status["last_error"] = provider_cfg.get("last_error") or ""
+        return status
     if is_custom_openai_provider(provider_id):
         endpoint = get_custom_endpoint(provider_id)
         configured = bool(endpoint and endpoint.get("base_url") and endpoint.get("enabled", True))
@@ -369,7 +385,7 @@ def create_chat_model(model_name: str, provider_id: str | None = None):
                 "display_name": "Atlas Cloud",
                 "base_url": base_url,
                 "transport": "openai_chat",
-                "profile": "generic",
+                "profile": "atlascloud",
             },
         )
 

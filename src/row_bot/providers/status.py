@@ -147,6 +147,11 @@ def provider_status_cards() -> list[dict]:
             "token_health": status.get("token_health") or "",
             "token_health_detail": status.get("token_health_detail") or "",
             "last_runtime_probe": dict(status.get("last_runtime_probe") or {}),
+            "runtime_probes": {
+                str(model_id): dict(probe)
+                for model_id, probe in (status.get("runtime_probes") or {}).items()
+                if isinstance(probe, dict)
+            } if isinstance(status.get("runtime_probes"), dict) else {},
             "last_error": status.get("last_error") or "",
             "model_count": model_count,
             "model_count_status": model_count_status or "unknown",

@@ -50,6 +50,35 @@ class _StreamingClient(_Client):
         return _StreamResponse()
 
 
+class _TextStreamResponse:
+    status_code = 200
+    text = ""
+
+    def __init__(self, *parts: str):
+        self.parts = parts
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def iter_lines(self):
+        for part in self.parts:
+            yield ("data: " + json.dumps({"choices": [{"delta": {"content": part}}]})).encode("utf-8")
+        yield b"data: [DONE]"
+
+
+class _TextStreamingClient(_Client):
+    def __init__(self, *parts: str):
+        super().__init__()
+        self.parts = parts
+
+    def stream(self, method, url, **kwargs):
+        self.calls.append((url, kwargs))
+        return _TextStreamResponse(*self.parts)
+
+
 class _EmptyStreamResponse:
     status_code = 200
     text = ""
@@ -264,6 +293,78 @@ class _UnreadErrorStreamingClient(_Client):
         return _UnreadErrorStreamResponse()
 
 
+class _AnthropicTextStreamResponse:
+    status_code = 200
+    text = ""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def iter_lines(self):
+        yield b'data: {"type":"message_start","message":{"id":"msg_1","type":"message"}}'
+        yield b'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}'
+        yield b'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hel"}}'
+        yield b'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"lo"}}'
+        yield b'data: {"type":"content_block_stop","index":0}'
+        yield b'data: {"type":"message_stop"}'
+
+
+class _AnthropicTextStreamingClient(_Client):
+    def stream(self, method, url, **kwargs):
+        self.calls.append((url, kwargs))
+        return _AnthropicTextStreamResponse()
+
+
+class _AnthropicToolStreamResponse:
+    status_code = 200
+    text = ""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def iter_lines(self):
+        yield b'data: {"type":"message_start","message":{"id":"msg_1","type":"message"}}'
+        yield b'data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"lookup","input":{}}}'
+        yield b'data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\\"q\\":"}}'
+        yield b'data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\\"x\\"}"}}'
+        yield b'data: {"type":"content_block_stop","index":1}'
+        yield b'data: {"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null}}'
+        yield b'data: {"type":"message_stop"}'
+
+
+class _AnthropicToolStreamingClient(_Client):
+    def stream(self, method, url, **kwargs):
+        self.calls.append((url, kwargs))
+        return _AnthropicToolStreamResponse()
+
+
+class _AnthropicEmptyStreamResponse:
+    status_code = 200
+    text = ""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def iter_lines(self):
+        yield b'data: {"type":"message_start","message":{"id":"msg_1","type":"message"}}'
+        yield b'data: {"type":"message_stop"}'
+
+
+class _AnthropicEmptyStreamingClient(_Client):
+    def stream(self, method, url, **kwargs):
+        self.calls.append((url, kwargs))
+        return _AnthropicEmptyStreamResponse()
+
+
 class _ReasoningResponse(_Response):
     def __init__(self):
         super().__init__({
@@ -442,6 +543,56 @@ def test_openai_compatible_transport_keeps_native_tool_history_for_custom_profil
     assert body["messages"][-1] == {"role": "tool", "content": "result", "tool_call_id": "call_1"}
 
 
+def test_atlascloud_anthropic_flattens_prior_tool_history_but_keeps_current_tools():
+    client = _Client()
+    model = ChatOpenAICompatible(
+        model_name="anthropic/claude-opus-4.8",
+        base_url="https://api.atlascloud.ai/v1",
+        endpoint={"provider_id": "atlascloud", "profile": "atlascloud"},
+        http_client=client,
+    )
+
+    model.invoke(
+        [
+            HumanMessage(content="hi"),
+            AIMessage(content="", tool_calls=[{"name": "lookup", "args": {"q": "x"}, "id": "call_1"}]),
+            ToolMessage(content="result", name="lookup", tool_call_id="call_1"),
+            HumanMessage(content="continue"),
+        ],
+        tools=[{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object"}}}],
+    )
+
+    body = client.calls[0][1]["json"]
+    assert "tools" in body
+    assert body["tools"][0]["function"]["name"] == "lookup"
+    assert "tool_calls" not in body["messages"][1]
+    assert body["messages"][1] == {"role": "assistant", "content": ""}
+    assert body["messages"][2] == {"role": "user", "content": "[Tool result from lookup]: result"}
+
+
+def test_atlascloud_non_anthropic_preserves_native_tool_history():
+    client = _Client()
+    model = ChatOpenAICompatible(
+        model_name="openai/gpt-5.5",
+        base_url="https://api.atlascloud.ai/v1",
+        endpoint={"provider_id": "atlascloud", "profile": "atlascloud"},
+        http_client=client,
+    )
+
+    model.invoke(
+        [
+            HumanMessage(content="hi"),
+            AIMessage(content="", tool_calls=[{"name": "lookup", "args": {"q": "x"}, "id": "call_1"}]),
+            ToolMessage(content="result", name="lookup", tool_call_id="call_1"),
+        ],
+        tools=[{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object"}}}],
+    )
+
+    body = client.calls[0][1]["json"]
+    assert body["messages"][1]["tool_calls"][0]["function"]["name"] == "lookup"
+    assert body["messages"][2] == {"role": "tool", "content": "result", "tool_call_id": "call_1"}
+
+
 def test_openai_compatible_transport_applies_runtime_context_param(monkeypatch):
     monkeypatch.setattr("row_bot.models.get_context_size", lambda model_name=None: 32_768)
     client = _Client()
@@ -557,6 +708,112 @@ def test_openai_compatible_transport_streams_reasoning_chunks():
 
     assert chunks[0].additional_kwargs["reasoning_content"] == "thinking"
     assert chunks[1].content == "answer"
+
+
+def test_atlascloud_streams_visible_content_after_tool_result_with_tools_bound():
+    client = _TextStreamingClient("final ", "answer")
+    model = ChatOpenAICompatible(
+        model_name="openai/gpt-5.5",
+        base_url="https://api.atlascloud.ai/v1",
+        endpoint={"provider_id": "atlascloud", "profile": "atlascloud"},
+        http_client=client,
+    )
+
+    chunks = list(model.stream(
+        [
+            HumanMessage(content="what tools?"),
+            AIMessage(content="", tool_calls=[{"name": "lookup", "args": {"q": "x"}, "id": "call_1"}]),
+            ToolMessage(content="result", name="lookup", tool_call_id="call_1"),
+        ],
+        tools=[{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object"}}}],
+    ))
+
+    visible = [str(chunk.content or "") for chunk in chunks if chunk.content]
+    assert visible == ["final ", "answer"]
+    assert client.calls[0][1]["json"]["stream"] is True
+    assert len(client.calls) == 1
+
+
+def test_custom_openai_transport_still_buffers_content_after_tool_result_with_tools_bound():
+    client = _TextStreamingClient("final ", "answer")
+    model = ChatOpenAICompatible(
+        model_name="qwen",
+        base_url="http://127.0.0.1:1234/v1",
+        endpoint={
+            "provider_id": "custom_openai_tools",
+            "last_probe": {"streaming_ok": True, "tool_calling": True, "streaming_tool_calling": True},
+        },
+        http_client=client,
+    )
+
+    chunks = list(model.stream(
+        [
+            HumanMessage(content="what tools?"),
+            AIMessage(content="", tool_calls=[{"name": "lookup", "args": {"q": "x"}, "id": "call_1"}]),
+            ToolMessage(content="result", name="lookup", tool_call_id="call_1"),
+        ],
+        tools=[{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object"}}}],
+    ))
+
+    visible = [str(chunk.content or "") for chunk in chunks if chunk.content]
+    assert visible == ["final answer"]
+    assert client.calls[0][1]["json"]["stream"] is True
+    assert len(client.calls) == 1
+
+
+def test_atlascloud_anthropic_text_stream_is_parsed():
+    client = _AnthropicTextStreamingClient()
+    model = ChatOpenAICompatible(
+        model_name="anthropic/claude-opus-4.8",
+        base_url="https://api.atlascloud.ai/v1",
+        endpoint={"provider_id": "atlascloud", "profile": "atlascloud"},
+        http_client=client,
+    )
+
+    chunks = list(model.stream([HumanMessage(content="hi")]))
+
+    assert [str(chunk.content or "") for chunk in chunks if chunk.content] == ["hel", "lo"]
+    assert len(client.calls) == 1
+
+
+def test_atlascloud_anthropic_tool_stream_is_parsed():
+    client = _AnthropicToolStreamingClient()
+    model = ChatOpenAICompatible(
+        model_name="anthropic/claude-opus-4.8",
+        base_url="https://api.atlascloud.ai/v1",
+        endpoint={"provider_id": "atlascloud", "profile": "atlascloud"},
+        http_client=client,
+    )
+
+    chunks = list(model.stream(
+        [HumanMessage(content="lookup")],
+        tools=[{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object"}}}],
+    ))
+
+    tool_chunks = [chunk.tool_call_chunks[0] for chunk in chunks if chunk.tool_call_chunks]
+    assert tool_chunks == [{
+        "name": "lookup",
+        "args": '{"q":"x"}',
+        "id": "toolu_1",
+        "index": 1,
+        "type": "tool_call_chunk",
+    }]
+    assert len(client.calls) == 1
+
+
+def test_atlascloud_anthropic_empty_stream_does_not_retry_non_stream():
+    client = _AnthropicEmptyStreamingClient()
+    model = ChatOpenAICompatible(
+        model_name="anthropic/claude-opus-4.8",
+        base_url="https://api.atlascloud.ai/v1",
+        endpoint={"provider_id": "atlascloud", "profile": "atlascloud"},
+        http_client=client,
+    )
+
+    with pytest.raises(RuntimeError, match="Skipped non-stream fallback"):
+        list(model.stream([HumanMessage(content="hi")]))
+
+    assert len(client.calls) == 1
 
 
 def test_openai_compatible_transport_falls_back_when_probe_marks_streaming_bad():

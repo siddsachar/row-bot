@@ -25,7 +25,6 @@ TRUSTED_AGENT_PROVIDERS = {
     "minimax",
     "opencode_zen",
     "opencode_go",
-    "atlascloud",
     "codex",
     "claude_subscription",
     "ollama_cloud",
@@ -125,6 +124,21 @@ def _provider_status_snapshot(provider_id: str, *, refresh_tokens: bool = True) 
         return dict(provider_status(provider_id, refresh_tokens=refresh_tokens) or {})
     except TypeError:
         return dict(provider_status(provider_id) or {})
+
+
+def _runtime_probe_for_model(status_info: Mapping[str, Any], resolved: ResolvedProviderConfig) -> dict[str, Any]:
+    probes = status_info.get("runtime_probes") if isinstance(status_info.get("runtime_probes"), dict) else {}
+    for key in (resolved.model_id, resolved.runtime_model):
+        probe = probes.get(key) if isinstance(probes, dict) else None
+        if isinstance(probe, dict):
+            return dict(probe)
+    probe = status_info.get("last_runtime_probe") if isinstance(status_info.get("last_runtime_probe"), dict) else {}
+    if not probe:
+        return {}
+    probe_model = str(probe.get("model_id") or "").strip()
+    if probe_model and probe_model not in {resolved.model_id, resolved.runtime_model}:
+        return {}
+    return dict(probe)
 
 
 def evaluate_agent_readiness(
@@ -285,6 +299,40 @@ def evaluate_agent_readiness(
         else:
             tool_round_trip = False
             errors.append("model metadata says structured tool calling is not supported")
+    elif resolved.provider_id == "atlascloud":
+        probe = _runtime_probe_for_model(status_info, resolved)
+        if probe and probe.get("ok") is True:
+            tool_calling = True
+            tool_round_trip = True
+            streaming_tool_calling = probe.get("streaming_tool_calling") if probe.get("streaming_tool_calling") in (True, False) else None
+            tool_calling_source = "runtime_probe"
+            source = "runtime_probe"
+            confidence = "high"
+        elif probe and probe.get("ok") is False:
+            tool_calling = probe.get("tool_calling") if probe.get("tool_calling") in (True, False) else tool_calling
+            tool_round_trip = probe.get("tool_round_trip") if probe.get("tool_round_trip") in (True, False) else None
+            streaming_tool_calling = probe.get("streaming_tool_calling") if probe.get("streaming_tool_calling") in (True, False) else None
+            tool_calling_source = "runtime_probe"
+            source = "runtime_probe"
+            confidence = "low"
+            errors.append("Atlas Cloud tool round trip has not been proven")
+            probe_errors = probe.get("errors") if isinstance(probe.get("errors"), list) else []
+            if probe_errors:
+                errors.append(str(probe_errors[0]))
+            actions.append("Run the Atlas Cloud runtime tool probe or use Chat Only.")
+        elif tool_calling is False:
+            tool_round_trip = False
+            errors.append("Atlas Cloud metadata says this model does not support structured tools")
+            actions.append("Choose another Atlas Cloud model or use Chat Only.")
+        elif tool_calling is True:
+            tool_round_trip = True
+            tool_calling_source = "atlascloud_metadata"
+            source = "catalog"
+            confidence = "medium"
+        else:
+            tool_round_trip = None
+            errors.append("Atlas Cloud structured tool support is unknown")
+            actions.append("Choose a model with explicit Atlas Cloud tool support metadata or use Chat Only.")
     elif resolved.provider_id == "ollama":
         probe: dict[str, Any] | None = None
         if probe_ollama_tools:

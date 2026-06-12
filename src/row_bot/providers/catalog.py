@@ -384,6 +384,49 @@ def classify_model_capabilities(
     if isinstance(metadata.get("tool_calling"), bool):
         tool_calling = bool(metadata.get("tool_calling"))
 
+    if provider_id == "atlascloud":
+        from row_bot.providers.atlascloud import (
+            atlascloud_input_modalities,
+            atlascloud_is_media_or_non_chat_model,
+            atlascloud_output_modalities,
+            atlascloud_tool_calling,
+        )
+
+        default_transport = TransportMode.OPENAI_CHAT
+        endpoint_compatibility = {TransportMode.OPENAI_CHAT}
+        streaming = metadata.get("streaming") if isinstance(metadata.get("streaming"), bool) else True
+        tool_calling = atlascloud_tool_calling(model_id, metadata)
+        if atlascloud_is_media_or_non_chat_model(model_id, metadata):
+            return {
+                "capabilities": set(),
+                "input_modalities": {ModelModality.TEXT.value},
+                "output_modalities": set(),
+                "tasks": set(),
+                "tool_calling": False,
+                "streaming": streaming,
+                "endpoint_compatibility": endpoint_values(endpoint_compatibility),
+                "transport": default_transport,
+            }
+        input_modalities = atlascloud_input_modalities(model_id, metadata)
+        output_modalities = atlascloud_output_modalities(metadata)
+        capabilities = {"text", "chat"}
+        if ModelModality.IMAGE.value in input_modalities:
+            capabilities.add("vision")
+        if tool_calling is True:
+            capabilities.add("tool_calling")
+        if streaming is True:
+            capabilities.add("streaming")
+        return {
+            "capabilities": capabilities,
+            "input_modalities": input_modalities,
+            "output_modalities": output_modalities,
+            "tasks": tasks,
+            "tool_calling": tool_calling,
+            "streaming": streaming,
+            "endpoint_compatibility": endpoint_values(endpoint_compatibility),
+            "transport": default_transport,
+        }
+
     if provider_id in {"ollama", "ollama_cloud"}:
         default_transport = TransportMode.OLLAMA_CLOUD_CHAT if provider_id == "ollama_cloud" else TransportMode.OLLAMA_CHAT
         endpoint_compatibility = {default_transport}

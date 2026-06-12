@@ -751,6 +751,7 @@ def test_atlascloud_provider_creates_openai_compatible_client(monkeypatch):
     assert model.base_url == "https://api.atlascloud.ai/v1"
     assert model.endpoint["provider_id"] == "atlascloud"
     assert model.endpoint["transport"] == "openai_chat"
+    assert model.endpoint["profile"] == "atlascloud"
 
 
 def test_atlascloud_provider_requires_api_key(monkeypatch):
@@ -1005,8 +1006,9 @@ def test_atlascloud_model_facade_fetches_openai_compatible_catalog(monkeypatch):
         assert models.is_cloud_model("model:atlascloud:deepseek-ai/DeepSeek-V3-0324") is True
         assert models.get_cloud_provider("model:atlascloud:deepseek-ai/DeepSeek-V3-0324") == "atlascloud"
         assert models.get_cloud_model_context("model:atlascloud:deepseek-ai/DeepSeek-V3-0324") == 163_840
-        assert models._cloud_model_cache["deepseek-ai/DeepSeek-V3-0324"]["provider"] == "atlascloud"
-        assert models._cloud_model_cache["qwen/qwen3-32b"]["provider"] == "atlascloud"
+        assert "deepseek-ai/DeepSeek-V3-0324" not in models._cloud_model_cache
+        assert models._cloud_model_cache["model:atlascloud:deepseek-ai/DeepSeek-V3-0324"]["provider"] == "atlascloud"
+        assert models._cloud_model_cache["model:atlascloud:qwen/qwen3-32b"]["provider"] == "atlascloud"
         assert models.get_provider_emoji("model:atlascloud:deepseek-ai/DeepSeek-V3-0324") == "AC"
     finally:
         models._cloud_model_cache.clear()
@@ -1023,7 +1025,7 @@ def test_atlascloud_live_catalog_failure_preserves_existing_cache(monkeypatch):
     monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: (_ for _ in ()).throw(httpx.TimeoutException("boom")))
     try:
         models._cloud_model_cache.clear()
-        models._cloud_model_cache["deepseek-ai/DeepSeek-V3-0324"] = {
+        models._cloud_model_cache["model:atlascloud:deepseek-ai/DeepSeek-V3-0324"] = {
             "provider": "atlascloud",
             "label": "DeepSeek-V3-0324",
             "ctx": 163_840,
@@ -1032,7 +1034,7 @@ def test_atlascloud_live_catalog_failure_preserves_existing_cache(monkeypatch):
         count = models.fetch_cloud_models("atlascloud")
 
         assert count == 0
-        assert "deepseek-ai/DeepSeek-V3-0324" in models._cloud_model_cache
+        assert "model:atlascloud:deepseek-ai/DeepSeek-V3-0324" in models._cloud_model_cache
     finally:
         models._cloud_model_cache.clear()
         models._cloud_model_cache.update(old_cache)

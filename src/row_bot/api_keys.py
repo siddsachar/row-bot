@@ -316,6 +316,12 @@ def _remove_metadata_key(env_var: str) -> None:
 
 def _get_stored_key(env_var: str) -> str:
     try:
+        metadata = _read_key_file()
+        service = metadata.get("service") if isinstance(metadata, dict) else ""
+        if isinstance(service, str) and service and service != secret_store.SERVICE_NAME:
+            value = secret_store.get_secret(env_var, service=service)
+            if value:
+                return value
         return secret_store.get_secret(env_var) or ""
     except secret_store.SecretStoreError:
         _set_storage_warning("Secure API key storage is unavailable. legacy plaintext keys may still be used until secure storage works.")

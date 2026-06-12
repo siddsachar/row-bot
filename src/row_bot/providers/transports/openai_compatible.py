@@ -109,9 +109,74 @@ class ChatOpenAICompatible(BaseChatModel):
         )
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
-        buffered_content_for_tools = bool(tools)
+        atlas_endpoint = _is_atlascloud_endpoint(self.endpoint)
+        atlas_anthropic_route = _is_atlascloud_anthropic_route(self.endpoint, self.model_name)
+        atlas_stream_visible_after_tool = atlas_endpoint and bool(tools) and _history_has_tool_result(messages)
+        buffered_content_for_tools = bool(tools) and not atlas_stream_visible_after_tool
+        anthropic_tool_assembler = _AnthropicStreamToolCallAssembler(
+            provider=str(self.endpoint.get("provider_id") or "custom"),
+            model=self.model_name,
+        )
         for payload in self._iter_stream_events(body):
             payload_seen = True
+            if atlas_anthropic_route and _is_anthropic_stream_payload(payload):
+                event_payload = _anthropic_event_payload(payload)
+                event_type = _anthropic_event_type(event_payload)
+                if event_type == "error":
+                    raise RuntimeError(_atlascloud_stream_error_message(self.model_name, event_payload))
+                if event_type == "content_block_start":
+                    block = event_payload.get("content_block") if isinstance(event_payload.get("content_block"), dict) else {}
+                    block_type = str(block.get("type") or "").strip()
+                    index = _anthropic_content_block_index(event_payload)
+                    if block_type == "tool_use":
+                        anthropic_tool_assembler.add_start(index, block)
+                    elif block_type == "text":
+                        content = str(block.get("text") or "")
+                        if content:
+                            content_seen = True
+                            content_parts.append(content)
+                            suppress_marker = atlas_endpoint and bool(tools) and _contains_text_tool_call_marker(content)
+                            visible_content = "" if buffered_content_for_tools or suppress_marker else content
+                            chunk = ChatGenerationChunk(message=AIMessageChunk(content=visible_content))
+                            if visible_content and run_manager:
+                                run_manager.on_llm_new_token(visible_content, chunk=chunk)
+                            yield chunk
+                    elif block_type in {"thinking", "redacted_thinking"}:
+                        reasoning = str(block.get("thinking") or block.get("text") or "")
+                        if reasoning:
+                            reasoning_seen = True
+                            reasoning_parts.append(reasoning)
+                            yield ChatGenerationChunk(message=AIMessageChunk(content="", additional_kwargs={"reasoning_content": reasoning}))
+                    continue
+                if event_type == "content_block_delta":
+                    delta = event_payload.get("delta") if isinstance(event_payload.get("delta"), dict) else {}
+                    delta_type = str(delta.get("type") or "").strip()
+                    if delta_type == "text_delta":
+                        content = str(delta.get("text") or "")
+                        if content:
+                            content_seen = True
+                            content_parts.append(content)
+                            raw_preview = "".join(content_parts)
+                            suppress_marker = atlas_endpoint and bool(tools) and _contains_text_tool_call_marker(raw_preview)
+                            visible_content = "" if buffered_content_for_tools or suppress_marker else content
+                            chunk = ChatGenerationChunk(message=AIMessageChunk(content=visible_content))
+                            if visible_content and run_manager:
+                                run_manager.on_llm_new_token(visible_content, chunk=chunk)
+                            yield chunk
+                    elif delta_type == "thinking_delta":
+                        reasoning = str(delta.get("thinking") or "")
+                        if reasoning:
+                            reasoning_seen = True
+                            reasoning_parts.append(reasoning)
+                            yield ChatGenerationChunk(message=AIMessageChunk(content="", additional_kwargs={"reasoning_content": reasoning}))
+                    elif delta_type == "input_json_delta":
+                        anthropic_tool_assembler.add_delta(
+                            _anthropic_content_block_index(event_payload),
+                            str(delta.get("partial_json") or ""),
+                        )
+                    continue
+                if event_type in {"message_start", "message_delta", "message_stop", "content_block_stop", "ping"}:
+                    continue
             choice = _first_choice(payload)
             delta = choice.get("delta") if isinstance(choice.get("delta"), dict) else {}
             content = str(delta.get("content") or "")
@@ -124,7 +189,9 @@ class ChatOpenAICompatible(BaseChatModel):
                 if reasoning:
                     reasoning_parts.append(reasoning)
                 additional_kwargs = {"reasoning_content": reasoning} if reasoning else {}
-                visible_content = "" if buffered_content_for_tools else content
+                raw_preview = "".join(content_parts)
+                suppress_marker = atlas_endpoint and bool(tools) and _contains_text_tool_call_marker(raw_preview)
+                visible_content = "" if buffered_content_for_tools or suppress_marker else content
                 chunk = ChatGenerationChunk(message=AIMessageChunk(content=visible_content, additional_kwargs=additional_kwargs))
                 if visible_content and run_manager:
                     run_manager.on_llm_new_token(visible_content, chunk=chunk)
@@ -132,6 +199,8 @@ class ChatOpenAICompatible(BaseChatModel):
             for call in delta.get("tool_calls") or []:
                 tool_assembler.add(call)
         finalized_tool_calls = tool_assembler.finalize()
+        if atlas_anthropic_route:
+            finalized_tool_calls.extend(anthropic_tool_assembler.finalize())
         known_tool_names = _known_tool_names(tools)
         raw_content = "".join(content_parts)
         if known_tool_names:
@@ -163,6 +232,12 @@ class ChatOpenAICompatible(BaseChatModel):
                 )
                 yield ChatGenerationChunk(message=AIMessageChunk(content="", tool_call_chunks=[chunk_payload]))
         if not content_seen and not reasoning_seen and not tool_seen:
+            if payload_seen and atlas_anthropic_route:
+                raise RuntimeError(
+                    "Atlas Cloud returned streaming events for "
+                    f"{self.model_name}, but Row-Bot could not find supported text, reasoning, or tool-call deltas. "
+                    "Skipped non-stream fallback to avoid a long Claude timeout."
+                )
             logger.warning(
                 "custom_openai_stream: empty stream; retrying non-stream fallback provider=%s model=%s payload_seen=%s",
                 self.endpoint.get("provider_id") or "custom",
@@ -239,9 +314,10 @@ class ChatOpenAICompatible(BaseChatModel):
         **kwargs: Any,
     ) -> dict[str, Any]:
         accepts_tools = _endpoint_accepts_tools(self.endpoint)
+        include_tool_history = accepts_tools and _use_native_tool_history(self.endpoint, self.model_name)
         body: dict[str, Any] = {
             "model": self.model_name,
-            "messages": _openai_messages(messages, endpoint=self.endpoint, include_tool_fields=accepts_tools),
+            "messages": _openai_messages(messages, endpoint=self.endpoint, include_tool_fields=include_tool_history),
             "stream": stream,
         }
         if stop:
@@ -509,8 +585,77 @@ def _message_text(message: BaseMessage) -> str:
     return str(content or "")
 
 
+def _is_atlascloud_endpoint(endpoint: dict[str, Any]) -> bool:
+    provider_id = str(endpoint.get("provider_id") or "").strip().lower()
+    profile = str(endpoint.get("profile") or "").strip().lower()
+    return provider_id == "atlascloud" or profile == "atlascloud"
+
+
+def _is_atlascloud_anthropic_route(endpoint: dict[str, Any], model_name: str) -> bool:
+    return _is_atlascloud_endpoint(endpoint) and str(model_name or "").strip().lower().startswith("anthropic/")
+
+
+def _history_has_tool_result(messages: Sequence[BaseMessage]) -> bool:
+    return any(isinstance(message, ToolMessage) for message in messages)
+
+
+def _contains_text_tool_call_marker(text: str) -> bool:
+    raw = str(text or "")
+    return "<tool_call" in raw or "<function=" in raw
+
+
+def _anthropic_event_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    data = payload.get("data")
+    if isinstance(data, dict):
+        merged = dict(data)
+        if not merged.get("type") and payload.get("event"):
+            merged["type"] = payload.get("event")
+        return merged
+    return payload
+
+
+def _anthropic_event_type(payload: dict[str, Any]) -> str:
+    return str(payload.get("type") or payload.get("event") or "").strip()
+
+
+def _is_anthropic_stream_payload(payload: dict[str, Any]) -> bool:
+    event_payload = _anthropic_event_payload(payload)
+    event_type = _anthropic_event_type(event_payload)
+    return event_type in {
+        "message_start",
+        "message_delta",
+        "message_stop",
+        "content_block_start",
+        "content_block_delta",
+        "content_block_stop",
+        "ping",
+        "error",
+    }
+
+
+def _anthropic_content_block_index(payload: dict[str, Any]) -> int:
+    try:
+        return int(payload.get("index") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _atlascloud_stream_error_message(model_name: str, payload: dict[str, Any]) -> str:
+    error = payload.get("error") if isinstance(payload.get("error"), dict) else {}
+    error_type = str(error.get("type") or payload.get("type") or "stream_error")
+    message = str(error.get("message") or payload.get("message") or "unknown streaming error")
+    return f"Atlas Cloud stream error for {model_name}: {error_type}: {message}"
+
+
 def _endpoint_accepts_tools(endpoint: dict[str, Any]) -> bool:
     return True
+
+
+def _use_native_tool_history(endpoint: dict[str, Any], model_name: str) -> bool:
+    if _is_atlascloud_anthropic_route(endpoint, model_name):
+        return False
+    mode = str(endpoint.get("tool_history_mode") or "native_required").strip().lower()
+    return mode in {"", "native_required", "native"}
 
 
 def _endpoint_streaming_supported(endpoint: dict[str, Any], *, has_tools: bool = False) -> bool:
@@ -624,6 +769,67 @@ class _StreamToolCallAssembler:
             return int(raw_index)
         except (TypeError, ValueError):
             return len(self._order)
+
+
+class _AnthropicStreamToolCallAssembler:
+    def __init__(self, *, provider: str, model: str):
+        self.provider = provider
+        self.model = model
+        self._order: list[int] = []
+        self._calls: dict[int, dict[str, Any]] = {}
+
+    def add_start(self, stream_index: int, block: dict[str, Any]) -> None:
+        state = self._state(stream_index)
+        if block.get("id") and not state["id"]:
+            state["id"] = str(block.get("id"))
+        if block.get("name") and not state["name"]:
+            state["name"] = str(block.get("name")).strip()
+        input_value = block.get("input")
+        if isinstance(input_value, dict):
+            state["input"] = input_value
+
+    def add_delta(self, stream_index: int, partial_json: str) -> None:
+        state = self._state(stream_index)
+        if partial_json:
+            state["arguments"].append(partial_json)
+
+    def finalize(self) -> list[dict[str, Any]]:
+        chunks: list[dict[str, Any]] = []
+        for stream_index in self._order:
+            state = self._calls[stream_index]
+            name = str(state.get("name") or "").strip()
+            if not name:
+                logger.warning(
+                    "custom_openai_stream: dropped anthropic streamed tool call without name provider=%s model=%s index=%s args_chars=%d",
+                    self.provider,
+                    self.model,
+                    stream_index,
+                    len("".join(state.get("arguments") or [])),
+                )
+                continue
+            arguments = "".join(state.get("arguments") or [])
+            if not arguments:
+                input_value = state.get("input") if isinstance(state.get("input"), dict) else {}
+                arguments = json.dumps(input_value)
+            chunks.append({
+                "name": name,
+                "args": arguments,
+                "id": str(state.get("id") or f"anthropic_call_{stream_index}"),
+                "index": int(stream_index),
+            })
+        return chunks
+
+    def _state(self, stream_index: int) -> dict[str, Any]:
+        if stream_index not in self._calls:
+            self._calls[stream_index] = {
+                "index": stream_index,
+                "id": "",
+                "name": "",
+                "input": {},
+                "arguments": [],
+            }
+            self._order.append(stream_index)
+        return self._calls[stream_index]
 
 
 def _drop_empty_or_unsupported(body: dict[str, Any], *, accepts_tools: bool) -> None:

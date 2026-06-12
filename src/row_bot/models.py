@@ -1451,6 +1451,30 @@ def validate_minimax_key(api_key: str) -> bool:
         return False
 
 
+def validate_atlascloud_key(api_key: str) -> bool:
+    """Validate an Atlas Cloud API key by listing OpenAI-compatible models."""
+    import httpx
+    from row_bot.providers.atlascloud import atlascloud_models_url
+
+    try:
+        resp = httpx.get(
+            atlascloud_models_url(),
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            try:
+                body_json = resp.json()
+            except Exception:
+                body_json = {}
+            return isinstance(body_json.get("data"), list)
+        logger.warning("Atlas Cloud key validation: %d - %s", resp.status_code, resp.text[:200])
+        return False
+    except Exception as exc:
+        logger.warning("Atlas Cloud key validation error: %s", exc)
+        return False
+
+
 def _catalog_or_heuristic(model_id: str) -> int:
     """Resolve context size for any model via catalog → heuristic → fallback.
 
@@ -1991,46 +2015,102 @@ def _fetch_xai_models(api_key: str) -> int:
 def _fetch_atlascloud_models(api_key: str) -> int:
     """Fetch models from the Atlas Cloud OpenAI-compatible ``/v1/models`` endpoint.
 
-    Atlas Cloud exposes an OpenAI-compatible catalog whose model IDs use the
-    ``provider/model`` form (e.g. ``deepseek-ai/DeepSeek-V3-0324``).  Context
-    size is taken from ``context_length``/``context_window`` when present and
-    otherwise resolved via the shared catalog / prefix heuristic.
+    Atlas Cloud exposes an OpenAI-compatible catalog, but phase 1 only admits
+    LLM chat/vision rows. Cache entries are provider-qualified because Atlas
+    IDs commonly use the same slash form as OpenRouter model IDs.
     """
     import httpx
+    from row_bot.providers.atlascloud import (
+        atlascloud_model_info_from_metadata,
+        atlascloud_models_url,
+        list_atlascloud_fallback_model_infos,
+    )
     from row_bot.providers.capabilities import model_supports_surface
-    from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
+    from row_bot.providers.catalog import model_info_to_cache_entry
 
+    with _cloud_cache_lock:
+        existing_atlas_rows = {
+            str(model_id): dict(info)
+            for model_id, info in _cloud_model_cache.items()
+            if isinstance(info, dict) and str(info.get("provider") or "") == "atlascloud"
+        }
+
+    source = "live"
+    data: list[dict] = []
     try:
         resp = httpx.get(
-            f"{ATLASCLOUD_BASE_URL}/models",
+            atlascloud_models_url(),
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=15,
         )
         resp.raise_for_status()
-        data = resp.json().get("data", [])
+        raw_data = resp.json().get("data", [])
+        if not isinstance(raw_data, list):
+            logger.warning("Atlas Cloud model fetch returned malformed data payload")
+            return 0
+        data = [item for item in raw_data if isinstance(item, dict)]
     except Exception as exc:
-        logger.warning("Failed to fetch atlascloud models: %s", exc)
+        if existing_atlas_rows:
+            logger.warning("Failed to fetch atlascloud models: %s; preserving previous Atlas cache", exc)
+            return 0
+        logger.warning("Failed to fetch atlascloud models: %s; using static fallback", exc)
+        source = "fallback"
+
+    verified_at = _utc_now_iso()
+    model_infos = []
+    if source == "live":
+        seen: set[str] = set()
+        for m in data:
+            mid = str(m.get("id") or "").strip()
+            if not mid or mid in seen:
+                continue
+            seen.add(mid)
+            ctx = m.get("context_length") or m.get("context_window") or _catalog_or_heuristic(mid)
+            model_info = atlascloud_model_info_from_metadata(
+                mid,
+                m,
+                display_name=str(m.get("name") or m.get("display_name") or m.get("displayName") or mid),
+                context_window=ctx,
+                source="atlascloud_live_catalog",
+                source_confidence="live_atlascloud_model_list",
+                last_verified_at=verified_at,
+            )
+            if not model_info or not model_supports_surface(model_info, "chat"):
+                continue
+            model_infos.append(model_info)
+    if not model_infos:
+        if source == "live" and data:
+            if existing_atlas_rows:
+                logger.warning("Atlas Cloud live catalog returned no usable chat models; preserving previous cache")
+                return 0
+            logger.warning("Atlas Cloud live catalog returned no usable chat models; using static fallback")
+            model_infos = list_atlascloud_fallback_model_infos()
+            source = "fallback"
+        else:
+            model_infos = list_atlascloud_fallback_model_infos()
+            source = "fallback"
+    if not model_infos:
         return 0
 
-    count = 0
-    with _cloud_cache_lock:
-        for m in data:
-            mid = m.get("id", "")
-            if not mid:
-                continue
-            ctx = m.get("context_length") or m.get("context_window") or _catalog_or_heuristic(mid)
-            model_info = model_info_from_metadata(
-                "atlascloud", mid, m,
-                display_name=m.get("name", mid),
-                context_window=ctx,
-            )
-            if not any(model_supports_surface(model_info, surface) for surface in ("chat", "image", "video")):
-                continue
-            _cloud_model_cache[mid] = model_info_to_cache_entry(model_info)
-            count += 1
+    if source == "fallback" and existing_atlas_rows:
+        logger.warning("Atlas Cloud fallback skipped because previous Atlas cache exists")
+        return 0
 
-    logger.info("Fetched %d atlascloud models", count)
-    return count
+    with _cloud_cache_lock:
+        stale_keys = [
+            model_id
+            for model_id, info in _cloud_model_cache.items()
+            if isinstance(info, dict) and str(info.get("provider") or "") == "atlascloud"
+        ]
+        for model_id in stale_keys:
+            _cloud_model_cache.pop(model_id, None)
+        for model_info in model_infos:
+            entry = model_info_to_cache_entry(model_info)
+            entry["source"] = "atlascloud_live_catalog" if source == "live" else "atlascloud_static_fallback"
+            _cloud_model_cache[model_info.selection_ref] = entry
+
+    logger.info("Fetched %d atlascloud models", len(model_infos))
+    return len(model_infos)
 
 
 def _fetch_minimax_models(api_key: str) -> int:
@@ -2233,13 +2313,17 @@ def refresh_cloud_models() -> int:
     # Fetch context catalog first so OpenAI models get accurate sizes
     fetch_context_catalog()
     with _cloud_cache_lock:
-        preserved_minimax = {
+        preserved_rows = {
             model_id: info
             for model_id, info in _cloud_model_cache.items()
-            if isinstance(info, dict) and _is_minimax_cache_entry(str(model_id), info)
+            if isinstance(info, dict)
+            and (
+                _is_minimax_cache_entry(str(model_id), info)
+                or str(info.get("provider") or "") == "atlascloud"
+            )
         }
         _cloud_model_cache.clear()
-        _cloud_model_cache.update(preserved_minimax)
+        _cloud_model_cache.update(preserved_rows)
     total = 0
     total += fetch_cloud_models("openai")
     total += fetch_cloud_models("ollama_cloud")

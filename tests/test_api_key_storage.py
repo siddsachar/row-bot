@@ -51,7 +51,7 @@ class ApiKeyStorageTests(unittest.TestCase):
             os.environ.pop("ROW_BOT_DATA_DIR", None)
         else:
             os.environ["ROW_BOT_DATA_DIR"] = self.old_data_dir
-        for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+        for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ATLASCLOUD_API_KEY"):
             os.environ.pop(key, None)
         self.temp_dir.cleanup()
 
@@ -114,6 +114,26 @@ class ApiKeyStorageTests(unittest.TestCase):
         self.assertNotIn("OPENAI_API_KEY", os.environ)
         metadata = json.loads(Path(self.api_keys.KEYS_PATH).read_text(encoding="utf-8"))
         self.assertNotIn("OPENAI_API_KEY", metadata.get("keys", {}))
+
+    def test_get_key_uses_metadata_service_when_it_differs_from_default(self) -> None:
+        service = "row-bot:test-profile-service"
+        self.backend.values[(service, "api_keys:ATLASCLOUD_API_KEY")] = "atlas-secret-1234"
+        Path(self.api_keys.KEYS_PATH).write_text(
+            json.dumps({
+                "version": 2,
+                "storage": "keyring",
+                "service": service,
+                "keys": {
+                    "ATLASCLOUD_API_KEY": {
+                        "configured": True,
+                        "fingerprint": "****1234",
+                    }
+                },
+            }),
+            encoding="utf-8",
+        )
+
+        self.assertEqual(self.api_keys.get_key("ATLASCLOUD_API_KEY"), "atlas-secret-1234")
 
     def test_plugin_secret_writes_keyring_and_metadata_only(self) -> None:
         self.plugin_state.set_plugin_secret("plugin-a", "API_KEY", "plug-secret-1234")

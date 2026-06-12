@@ -298,7 +298,7 @@ def _refresh_cloud_cache(*, provider_id: str | None = None) -> tuple[dict[str, d
     provider_status: dict[str, dict[str, Any]] = {}
     if provider_id:
         models.fetch_context_catalog()
-        if provider_id != "minimax":
+        if provider_id not in {"minimax", "atlascloud"}:
             with models._cloud_cache_lock:
                 retained = {
                     model_id: info
