@@ -700,6 +700,7 @@ def _process_inbound(data: dict) -> None:
         goal_start = ch_runtime.prepare_channel_goal_start(body, _cmd_thread_id)
         if goal_start is not None and _cmd_thread_id:
             config = {"configurable": {"thread_id": _cmd_thread_id}}
+            _send_message_sync(chat_id, ch_runtime.format_goal_started_ack(goal_start))
             result = ch_runtime.run_channel_goal_sync(
                 channel_name="whatsapp",
                 thread_id=_cmd_thread_id,

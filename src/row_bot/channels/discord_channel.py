@@ -533,6 +533,7 @@ async def start_bot() -> bool:
                         for part in _split_message(reply):
                             await message.channel.send(part)
 
+                    await _goal_send_text(ch_runtime.format_goal_started_ack(goal_start))
                     result = await ch_runtime.run_channel_goal_async(
                         channel_name="discord",
                         thread_id=_cmd_thread_id,

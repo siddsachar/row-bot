@@ -393,6 +393,7 @@ async def _handle_inbound_sms(request) -> Any:
     goal_start = ch_runtime.prepare_channel_goal_start(body, _cmd_thread_id)
     if goal_start is not None and _cmd_thread_id:
         config = {"configurable": {"thread_id": _cmd_thread_id}}
+        _send_reply(from_number, ch_runtime.format_goal_started_ack(goal_start))
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None,

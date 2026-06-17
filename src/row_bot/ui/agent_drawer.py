@@ -8,7 +8,7 @@ from typing import Callable
 from nicegui import ui
 
 from row_bot.ui.render import open_agent_peek_dialog
-from row_bot.ui.state import AppState, P
+from row_bot.ui.state import AppState, P, _active_generations
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +63,11 @@ def _open_agent_thread(
         from row_bot.ui.voice_lifecycle import stop_voice_for_thread_change
 
         prev = state.thread_id
+        prev_gen = _active_generations.get(prev) if prev else None
+        if prev_gen and str(getattr(prev_gen, "status", "")) == "streaming":
+            from row_bot.ui.streaming import _detach_generation
+
+            _detach_generation(prev_gen, state, "open_agent_child_thread")
         stop_voice_for_thread_change(state, p, reason="open_agent_child_thread")
         state.active_designer_project = None
         state.active_developer_workspace_id = None

@@ -216,6 +216,9 @@ class P:
     model_banner_container: Any = None
     parent_agent_strip_container: Any = None
     refresh_parent_agent_strip: Any = None
+    goal_strip_container: Any = None
+    refresh_goal_strip: Any = None
+    goal_strip_refresh_timer: Any = None
     settings_dlg: ui.dialog = None      # type: ignore[assignment]
     export_dlg: ui.dialog = None        # type: ignore[assignment]
     interrupt_dlg: ui.dialog = None     # type: ignore[assignment]

@@ -971,7 +971,25 @@ def build_designer_editor(
                         p,
                     )
 
-                    from row_bot.ui.goal_ui import build_goal_progress_panel
+                    def _refresh_goal_strip() -> None:
+                        if p.goal_strip_container is None:
+                            return
+                        try:
+                            from row_bot.ui.goal_ui import build_goal_progress_panel
+
+                            p.goal_strip_container.clear()
+                            with p.goal_strip_container:
+                                build_goal_progress_panel(
+                                    state,
+                                    p,
+                                    rebuild_main=rebuild_main,
+                                    send_message=send_message,
+                                    surface="designer",
+                                )
+                        except Exception:
+                            logger.debug("Could not refresh Designer Goal strip", exc_info=True)
+
+                    p.refresh_goal_strip = _refresh_goal_strip
 
                     with ui.expansion("References", icon="collections_bookmark").classes(
                         "w-full shrink-0"
@@ -995,14 +1013,6 @@ def build_designer_editor(
                         _references_ref[0] = ui.column().classes("w-full gap-2 q-mt-sm")
                         _refresh_references_panel()
 
-                    build_goal_progress_panel(
-                        state,
-                        p,
-                        rebuild_main=rebuild_main,
-                        send_message=send_message,
-                        surface="designer",
-                    )
-
                     # Render messages from the thread (state.messages)
                     _msgs = state.messages or []
                     build_chat_messages(
@@ -1013,6 +1023,10 @@ def build_designer_editor(
                     )
 
                     # Full input bar (textarea, attach, voice, send, stop, model picker)
+                    p.goal_strip_container = ui.column().classes("w-full shrink-0 gap-0 row-bot-goal-strip-slot")
+                    p.goal_strip_refresh_timer = ui.timer(2.0, _refresh_goal_strip)
+                    _refresh_goal_strip()
+
                     build_chat_input_bar(
                         p, state,
                         send_fn=_send_with_references,

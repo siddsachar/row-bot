@@ -24,6 +24,10 @@ def test_activity_center_uses_current_agent_goal_runs_and_channel_monitor():
     assert 'status in {"active", "paused"}' in goal_section
     assert "Needs Attention" in src
     assert "Running Now" in src
+    assert "row-bot-workflows-card" in src
+    assert 'ui.label("Workflows")' in src
+    assert src.index("row-bot-workflows-card") < src.index("build_channel_monitor")
+    assert src.index("row-bot-workflows-card") < src.index('ui.expansion("Insights"')
     assert "list_agent_runs" in src
     assert 'kind="subagent"' in src
     assert "stop_agent_run" in src
@@ -55,6 +59,8 @@ def test_profile_library_lives_in_left_sidebar():
     assert "build_profile_library" in sidebar
     assert "Channels" not in sidebar
     assert "build_profile_library" in library
+    assert "Agent profiles" in library
+    assert "Toggle Agent profiles panel" in library
     assert "open_profile_view_dialog" in library
     assert "open_profile_editor_dialog" in library
     assert "list_agent_tool_catalog" in library
@@ -153,6 +159,9 @@ def test_agent_drawer_contract_and_surface_usage():
     assert "open_agent_peek_dialog" in drawer
     assert "open_in_new" in drawer
     assert "_open_agent_thread" in drawer
+    assert "_active_generations" in drawer
+    assert "from row_bot.ui.streaming import _detach_generation" in drawer
+    assert '_detach_generation(prev_gen, state, "open_agent_child_thread")' in drawer
     assert "load_thread_messages" in drawer
     assert "set_active_thread" in drawer
     assert "list_agent_runs" in drawer
@@ -165,20 +174,29 @@ def test_agent_drawer_contract_and_surface_usage():
     assert "_render_parent_agent_strip" in chat
     assert "parent_agent_strip_container" in chat
     assert "refresh_parent_agent_strip" in chat
+    assert "_refresh_parent_agent_strip()" in chat
     assert "build_parent_agent_drawer" in chat
     assert "build_parent_agent_drawer" in designer
     assert "build_parent_agent_drawer" in developer
     assert "rebuild_main=lambda **kw: _rebuild_main(**kw)" in app
     assert "agent_child_open" not in chat
 
+    streaming = _read("ui/streaming.py")
+    assert "def _detach_if_thread_changed" in streaming
+    assert '_detach_if_thread_changed(gen, state, "active thread changed")' in streaming
+
 
 def test_shared_goal_ui_is_used_by_all_chat_surfaces():
     goal_ui = _read("ui/goal_ui.py")
     chat = _read("ui/chat.py")
+    state = _read("ui/state.py")
+    streaming = _read("ui/streaming.py")
+    app = Path("src/row_bot/app.py").read_text(encoding="utf-8")
     designer = Path("src/row_bot/designer/editor.py").read_text(encoding="utf-8")
     developer = Path("src/row_bot/developer/ui.py").read_text(encoding="utf-8")
 
     assert "def build_goal_progress_panel" in goal_ui
+    assert "-> str | None" in goal_ui
     assert "def _open_goal_detail_dialog" in goal_ui
     assert "goals.get_current_goal" in goal_ui
     assert "goals.pause_goal" in goal_ui
@@ -197,6 +215,36 @@ def test_shared_goal_ui_is_used_by_all_chat_surfaces():
     assert 'surface="main"' in chat
     assert 'surface="developer"' in developer
     assert 'surface="designer"' in designer
+    assert "goal_strip_container" in state
+    assert "refresh_goal_strip" in state
+    assert "goal_strip_refresh_timer" in state
+    assert "row-bot-goal-strip-slot" in chat
+    assert "row-bot-goal-strip-slot" in developer
+    assert "row-bot-goal-strip-slot" in designer
+    assert chat.index("p.chat_scroll =") < chat.index("p.goal_strip_container =")
+    assert developer.index("build_chat_messages(") < developer.index("p.goal_strip_container =")
+    assert designer.index("build_chat_messages(") < designer.index("p.goal_strip_container =")
+    assert chat.index("p.goal_strip_container =") < chat.index("with ui.column().classes(\"w-full shrink-0 gap-0\").style(")
+    assert developer.index("p.goal_strip_container =") < developer.index("build_chat_input_bar(")
+    assert designer.index("p.goal_strip_container =") < designer.index("build_chat_input_bar(")
+    assert "ui.timer(2.0, _refresh_goal_strip)" in chat
+    assert "ui.timer(2.0, _refresh_goal_strip)" in developer
+    assert "ui.timer(2.0, _refresh_goal_strip)" in designer
+    assert "cb.refresh_goal_strip" in app
+    assert "_schedule_goal_strip_refresh(cb)" in streaming
+    assert "def _schedule_goal_surface_refresh" in streaming
+    assert "rebuild(immediate=True, reason=reason)" in streaming
+    assert 'reason=f"goal_visible_final_' in streaming
+    assert "goals.get_current_goal(gen.thread_id, include_terminal=True)" in streaming
+    assert 'raw_tool_name in ("goal_update", "goal_status")' in streaming
+    assert '"goal" in str(tool_name).lower()' in streaming
+    assert "if state.thread_id == gen.thread_id and not gen.detached:\n        _schedule_goal_strip_refresh(cb)" in streaming
+    goal_start_block = streaming.split(
+        "if await run.io_bound(lambda: goals.is_goal_start_argument(arg)):",
+        1,
+    )[1].split("else:", 1)[0]
+    assert "goals.start_goal" in goal_start_block
+    assert "_schedule_goal_strip_refresh(cb)" in goal_start_block
 
 
 def test_sidebar_hides_child_agent_threads_by_default():

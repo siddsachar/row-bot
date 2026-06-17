@@ -391,6 +391,19 @@ def _detach_if_ui_client_deleted(
     return False
 
 
+def _detach_if_thread_changed(
+    gen: GenerationState,
+    state: AppState,
+    reason: str,
+) -> bool:
+    """Detach live UI handles when the shared page switches to another thread."""
+
+    if gen.detached or state.thread_id == gen.thread_id:
+        return False
+    _detach_generation(gen, state, reason)
+    return True
+
+
 def _generation_is_terminal(gen: GenerationState) -> bool:
     return str(getattr(gen, "status", "")).lower() in {"done", "error", "stopped"}
 
@@ -622,6 +635,7 @@ class _Callbacks:
         "render_text_with_embeds",
         "refresh_chat_messages",
         "refresh_parent_agent_strip",
+        "refresh_goal_strip",
     )
 
     def __init__(self) -> None:
@@ -650,6 +664,46 @@ def _schedule_parent_agent_strip_refresh(cb: Any) -> None:
         except Exception:
             logger.debug("Parent Agent strip delayed refresh scheduling failed", exc_info=True)
             break
+
+
+def _refresh_goal_strip(cb: Any) -> None:
+    refresh = getattr(cb, "refresh_goal_strip", None)
+    if not callable(refresh):
+        return
+    try:
+        refresh()
+    except Exception:
+        logger.debug("Goal strip refresh failed", exc_info=True)
+
+
+def _schedule_goal_strip_refresh(cb: Any) -> None:
+    _refresh_goal_strip(cb)
+    for delay in (0.25, 1.0, 3.0, 5.0):
+        try:
+            ui.timer(delay, lambda cb=cb: _refresh_goal_strip(cb), once=True)
+        except Exception:
+            logger.debug("Goal strip delayed refresh scheduling failed", exc_info=True)
+            break
+
+
+def _rebuild_goal_surface(cb: Any, *, reason: str) -> None:
+    rebuild = getattr(cb, "rebuild_main", None)
+    if not callable(rebuild):
+        return
+    try:
+        rebuild(immediate=True, reason=reason)
+    except TypeError:
+        try:
+            rebuild()
+        except Exception:
+            logger.debug("Goal surface rebuild failed", exc_info=True)
+    except Exception:
+        logger.debug("Goal surface rebuild failed", exc_info=True)
+
+
+def _schedule_goal_surface_refresh(cb: Any, *, reason: str) -> None:
+    _schedule_goal_strip_refresh(cb)
+    _rebuild_goal_surface(cb, reason=reason)
 
 
 def _looks_like_new_agent_request(text: str) -> bool:
@@ -1531,6 +1585,7 @@ async def consume_generation(
 
     try:
       while True:
+        _detach_if_thread_changed(gen, state, "active thread changed")
         # ── Stop handling ────────────────────────────────────────────
         if gen.stop_event.is_set() and not _stopped_shown:
             _stopped_shown = True
@@ -2125,13 +2180,33 @@ async def consume_generation(
             )
             if decision.should_continue and decision.continuation_prompt:
                 goal_continuation_prompt = decision.continuation_prompt
-            if decision.goal and state.thread_id == gen.thread_id and not gen.detached:
-                try:
-                    cb.rebuild_main()
-                except TypeError:
-                    pass
+            refresh_goal = decision.goal
+            if refresh_goal is None:
+                refresh_goal = await run.io_bound(
+                    lambda: goals.get_current_goal(gen.thread_id, include_terminal=True)
+                )
+            if refresh_goal and state.thread_id == gen.thread_id and not gen.detached:
+                _schedule_goal_strip_refresh(cb)
         except Exception:
             logger.debug("Goal Mode post-turn evaluation failed", exc_info=True)
+
+    if state.thread_id == gen.thread_id and not gen.detached:
+        _schedule_goal_strip_refresh(cb)
+
+    if state.thread_id == gen.thread_id and not gen.detached:
+        try:
+            from row_bot import goals
+
+            visible_goal = await run.io_bound(
+                lambda: goals.get_current_goal(gen.thread_id, include_terminal=True)
+            )
+            if visible_goal:
+                _schedule_goal_surface_refresh(
+                    cb,
+                    reason=f"goal_visible_final_{str(visible_goal.get('status') or 'updated')}",
+                )
+        except Exception:
+            logger.debug("Goal visible final surface refresh failed", exc_info=True)
 
     if goal_continuation_prompt and state.thread_id == gen.thread_id and not gen.detached:
         logger.info(
@@ -2391,6 +2466,12 @@ async def _handle_tool_done(
     gen.tool_results.append(tool_result)
     if is_agent_tool_result(tool_result):
         _refresh_parent_agent_strip(cb)
+    if (
+        raw_tool_name in ("goal_update", "goal_status")
+        or "goal" in str(raw_tool_name).lower()
+        or "goal" in str(tool_name).lower()
+    ):
+        _schedule_goal_strip_refresh(cb)
 
     # Vision capture
     if raw_tool_name in ("analyze_image",) or tool_name == "\U0001f441\ufe0f Vision":
@@ -2718,6 +2799,7 @@ async def send_message(
                 if await run.io_bound(lambda: goals.is_goal_start_argument(arg)):
                     goal = await run.io_bound(lambda: goals.start_goal(gen_thread_id, arg))
                     goal_agent_input_override = goals.build_initial_goal_prompt(goal)
+                    _schedule_goal_strip_refresh(cb)
                 else:
                     command_response = await run.io_bound(
                         lambda: dispatch_text_command(
@@ -2740,6 +2822,7 @@ async def send_message(
                         cb.add_chat_message(assistant_msg)
                         touch_thread(state.thread_id)
                         try:
+                            _schedule_goal_strip_refresh(cb)
                             cb.rebuild_main()
                         except TypeError:
                             pass
@@ -3176,6 +3259,7 @@ async def resume_after_interrupt(
                             reason="Approval was denied by the user.",
                         )
                     )
+                _schedule_goal_strip_refresh(cb)
                 try:
                     cb.rebuild_main()
                 except TypeError:

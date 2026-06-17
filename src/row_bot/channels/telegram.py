@@ -738,6 +738,9 @@ async def _cmd_goal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         async def _goal_send_text(message: str) -> None:
             await update.effective_chat.send_message(message)
 
+        await update.effective_chat.send_message(
+            ch_runtime.format_goal_started_ack(goal_start)
+        )
         result = await ch_runtime.run_channel_goal_async(
             channel_name="telegram",
             thread_id=thread_id,

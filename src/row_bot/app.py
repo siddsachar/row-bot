@@ -1288,6 +1288,11 @@ async def index():
         if callable(getattr(p, "refresh_parent_agent_strip", None))
         else None
     )
+    cb.refresh_goal_strip = lambda: (
+        p.refresh_goal_strip()
+        if callable(getattr(p, "refresh_goal_strip", None))
+        else None
+    )
 
     def _refresh_chat_messages() -> None:
         """Synchronize the active transcript without a full visible rebuild."""

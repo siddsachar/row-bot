@@ -695,137 +695,6 @@ def build_command_center(
                 _rebuild_agent_runs()
                 safe_timer(5.0, _rebuild_agent_runs)
 
-                # ════════════════════════════════════════════════════
-                # §1  RUNNING
-                # ════════════════════════════════════════════════════
-                ui.separator().classes("q-my-none")
-                _live_container = ui.column().classes("w-full gap-0")
-
-                def _rebuild_live() -> None:
-                    _live_container.clear()
-                    running = _safe_workflow_read(
-                        "running tasks", get_running_tasks, {}
-                    )
-                    with _live_container:
-                        ui.label("Active Workflows").classes(
-                            "text-xs font-bold text-grey-5"
-                        ).style("letter-spacing: 0.8px; text-transform: uppercase;")
-                        if not running:
-                            with ui.row().classes(
-                                "w-full justify-center q-py-sm"
-                            ).style("opacity: 0.4;"):
-                                ui.icon("play_circle", size="sm").classes("text-grey-7")
-                                ui.label("No workflows running").classes("text-xs text-grey-7")
-                            return
-
-                        # Running tasks
-                        for tid, info in running.items():
-                            _render_live_task(tid, info, is_paused=False)
-
-                def _render_live_task(tid: str, info: dict, *, is_paused: bool) -> None:
-                    icon = info.get("icon", "⚡")
-                    name = info.get("name", "Task")
-                    step = info.get("step", 0)
-                    total = info.get("total", 0)
-                    step_label = info.get("step_label", "")
-                    started = info.get("started_at", "")
-
-                    with ui.card().classes("w-full q-my-xs").style(
-                        "padding: 0.4rem 0.5rem;"
-                        "border-left: 3px solid #4caf50;"
-                        "overflow: hidden; box-sizing: border-box;"
-                    ):
-                        # Header: icon + name + badge + stop
-                        with ui.row().classes("w-full items-center no-wrap gap-1").style(
-                            "overflow: hidden;"
-                        ):
-                            ui.label(icon).style("font-size: 1rem;")
-                            ui.label(name).classes(
-                                "font-bold text-xs ellipsis"
-                            ).style("flex: 1; min-width: 0;")
-                            ui.badge("running", color="green").props(
-                                "dense"
-                            ).classes("text-xs")
-                            def _stop(t=tid, n=name):
-                                stop_task(t)
-                                ui.notify(f"⏹ Stopping {n}…", type="warning")
-                            ui.button(icon="stop", on_click=_stop).props(
-                                "round flat dense size=xs"
-                            ).style("color: #ff6b6b;").tooltip("Stop")
-
-                        # Step info + progress
-                        if total > 0:
-                            with ui.row().classes("w-full items-center no-wrap gap-1"):
-                                ui.label(
-                                    f"Step {step + 1}/{total}"
-                                ).classes("text-xs text-grey-6")
-                                ui.linear_progress(
-                                    value=(step + 1) / total,
-                                    show_value=False
-                                ).classes("flex-grow").props(
-                                    "color=primary"
-                                ).style("height: 4px;")
-                                if started:
-                                    ui.label(_elapsed(started)).classes(
-                                        "text-xs text-grey-7"
-                                    )
-
-                        # Step label
-                        if step_label:
-                            ui.label(step_label).classes(
-                                "text-xs text-grey-5 ellipsis"
-                            ).style("max-width: 100%;")
-
-                        # Expandable log
-                        logs = get_task_logs(tid, 15)
-                        if logs:
-                            with ui.expansion("Log", icon="terminal").props(
-                                "dense"
-                            ).classes("w-full text-xs").style(
-                                "min-width: 0; max-width: 100%; overflow: hidden;"
-                            ):
-                                ui.html(
-                                    '<pre style="'
-                                    "font-size: 0.65rem; line-height: 1.3;"
-                                    "background: rgba(0,0,0,0.3); padding: 6px;"
-                                    "border-radius: 4px; margin: 0;"
-                                    "max-height: 180px; overflow-y: auto;"
-                                    "overflow-x: hidden;"
-                                    "white-space: pre-wrap; word-break: break-all;"
-                                    '">'
-                                    + _escape_html("\n".join(logs))
-                                    + "</pre>",
-                                    sanitize=False,
-                                )
-
-                def _render_paused_task(run: dict) -> None:
-                    icon = run.get("task_icon", "⚡")
-                    name = run.get("task_name", "Task")
-                    step = run.get("steps_done", 0)
-                    total = run.get("steps_total", 0)
-
-                    with ui.card().classes("w-full q-my-xs").style(
-                        "padding: 0.4rem 0.5rem;"
-                        "border-left: 3px solid #f0c040;"
-                        "overflow: hidden; box-sizing: border-box;"
-                    ):
-                        with ui.row().classes("w-full items-center no-wrap gap-1").style(
-                            "overflow: hidden;"
-                        ):
-                            ui.label(icon).style("font-size: 1rem;")
-                            ui.label(name).classes(
-                                "font-bold text-xs ellipsis"
-                            ).style("flex: 1; min-width: 0;")
-                            ui.badge("paused", color="amber").props(
-                                "dense"
-                            ).classes("text-xs")
-                        if total > 0:
-                            ui.label(
-                                f"Step {step}/{total} · Waiting for approval"
-                            ).classes("text-xs text-grey-6")
-
-                _rebuild_live()
-                safe_timer(3.0, _rebuild_live)
 
                 # ════════════════════════════════════════════════════
                 # §2  PENDING APPROVALS
@@ -1047,6 +916,113 @@ def build_command_center(
                     ui.button(
                         "+ New", on_click=_new_workflow
                     ).props("outline dense no-caps").classes("flex-grow")
+
+            with ui.column().classes("w-full gap-2 row-bot-inner-panel workflow-console-section row-bot-workflows-card").style(
+                "width: 100%; min-width: 100%; max-width: 100%; overflow-x: hidden;"
+            ):
+                with ui.row().classes("w-full items-center no-wrap gap-2"):
+                    ui.icon("account_tree", size="xs").classes("text-primary")
+                    ui.label("Workflows").classes(
+                        "text-xs font-bold text-grey-5"
+                    ).style("letter-spacing: 0.8px; text-transform: uppercase;")
+                _live_container = ui.column().classes("w-full gap-0")
+
+                def _rebuild_live() -> None:
+                    _live_container.clear()
+                    running = _safe_workflow_read(
+                        "running tasks", get_running_tasks, {}
+                    )
+                    with _live_container:
+                        ui.label("Active Workflows").classes(
+                            "text-xs font-bold text-grey-5"
+                        ).style("letter-spacing: 0.8px; text-transform: uppercase;")
+                        if not running:
+                            with ui.row().classes(
+                                "w-full justify-center q-py-sm"
+                            ).style("opacity: 0.4;"):
+                                ui.icon("play_circle", size="sm").classes("text-grey-7")
+                                ui.label("No workflows running").classes("text-xs text-grey-7")
+                            return
+
+                        for tid, info in running.items():
+                            _render_live_task(tid, info, is_paused=False)
+
+                def _render_live_task(tid: str, info: dict, *, is_paused: bool) -> None:
+                    icon = info.get("icon", "*")
+                    name = info.get("name", "Task")
+                    step = info.get("step", 0)
+                    total = info.get("total", 0)
+                    step_label = info.get("step_label", "")
+                    started = info.get("started_at", "")
+
+                    with ui.card().classes("w-full q-my-xs").style(
+                        "padding: 0.4rem 0.5rem;"
+                        "border-left: 3px solid #4caf50;"
+                        "overflow: hidden; box-sizing: border-box;"
+                    ):
+                        with ui.row().classes("w-full items-center no-wrap gap-1").style(
+                            "overflow: hidden;"
+                        ):
+                            ui.label(icon).style("font-size: 1rem;")
+                            ui.label(name).classes(
+                                "font-bold text-xs ellipsis"
+                            ).style("flex: 1; min-width: 0;")
+                            ui.badge("running", color="green").props(
+                                "dense"
+                            ).classes("text-xs")
+
+                            def _stop(t=tid, n=name):
+                                stop_task(t)
+                                ui.notify(f"Stopping {n}...", type="warning")
+
+                            ui.button(icon="stop", on_click=_stop).props(
+                                "round flat dense size=xs"
+                            ).style("color: #ff6b6b;").tooltip("Stop")
+
+                        if total > 0:
+                            with ui.row().classes("w-full items-center no-wrap gap-1"):
+                                ui.label(
+                                    f"Step {step + 1}/{total}"
+                                ).classes("text-xs text-grey-6")
+                                ui.linear_progress(
+                                    value=(step + 1) / total,
+                                    show_value=False,
+                                ).classes("flex-grow").props(
+                                    "color=primary"
+                                ).style("height: 4px;")
+                                if started:
+                                    ui.label(_elapsed(started)).classes(
+                                        "text-xs text-grey-7"
+                                    )
+
+                        if step_label:
+                            ui.label(step_label).classes(
+                                "text-xs text-grey-5 ellipsis"
+                            ).style("max-width: 100%;")
+
+                        logs = get_task_logs(tid, 15)
+                        if logs:
+                            with ui.expansion("Log", icon="terminal").props(
+                                "dense"
+                            ).classes("w-full text-xs").style(
+                                "min-width: 0; max-width: 100%; overflow: hidden;"
+                            ):
+                                ui.html(
+                                    '<pre style="'
+                                    "font-size: 0.65rem; line-height: 1.3;"
+                                    "background: rgba(0,0,0,0.3); padding: 6px;"
+                                    "border-radius: 4px; margin: 0;"
+                                    "max-height: 180px; overflow-y: auto;"
+                                    "overflow-x: hidden;"
+                                    "white-space: pre-wrap; word-break: break-all;"
+                                    '">'
+                                    + _escape_html("\n".join(logs))
+                                    + "</pre>",
+                                    sanitize=False,
+                                )
+
+                _rebuild_live()
+                safe_timer(3.0, _rebuild_live)
 
             with ui.column().classes("w-full gap-2 row-bot-inner-panel workflow-console-section").style(
                 "width: 100%; min-width: 100%; max-width: 100%; overflow-x: hidden;"

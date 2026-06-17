@@ -266,23 +266,23 @@ def build_goal_progress_panel(
     rebuild_main: Callable[..., None],
     send_message: Callable[..., Any] | None = None,
     surface: str = "chat",
-) -> None:
+) -> str | None:
     """Render the current thread-bound Goal controls for any chat surface."""
 
     if not state.thread_id:
-        return
+        return None
     try:
         from row_bot import goals
 
         goal = goals.get_current_goal(state.thread_id, include_terminal=True)
     except Exception:
         logger.debug("Could not load Goal Mode status for %s", surface, exc_info=True)
-        return
+        return None
     if not goal:
-        return
+        return None
     status = str(goal.get("status") or "")
     if status == "cleared":
-        return
+        return None
 
     objective = str(goal.get("objective") or "Goal")
     turns_used = int(goal.get("turns_used") or 0)
@@ -328,12 +328,13 @@ def build_goal_progress_panel(
             ui.notify(f"Could not clear goal: {exc}", type="negative", close_button=True)
 
     with ui.column().classes(
-        f"w-full gap-1 q-px-md q-pb-xs row-bot-goal-panel row-bot-goal-panel-{surface}"
-    ):
+        f"w-full gap-0 row-bot-goal-panel row-bot-goal-panel-{surface}"
+    ).style("padding: 0 12px 3px 12px;"):
         with ui.row().classes("w-full items-center no-wrap gap-2").style(
             "border: 1px solid rgba(59, 130, 246, 0.30); "
-            "border-radius: 8px; padding: 7px 8px; "
-            "background: rgba(59, 130, 246, 0.055);"
+            "border-radius: 12px 12px 8px 8px; padding: 6px 9px; "
+            "background: rgba(59, 130, 246, 0.055); "
+            "margin: 0 6px -1px 6px;"
         ):
             ui.icon("flag", size="xs").classes("text-primary")
             ui.badge(status, color=_goal_status_color(status)).props("outline dense")
@@ -364,3 +365,4 @@ def build_goal_progress_panel(
             ui.button(icon="clear", on_click=_clear_goal).props(
                 "flat dense round size=xs color=negative"
             ).tooltip("Clear goal")
+    return status

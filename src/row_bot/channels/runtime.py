@@ -65,6 +65,19 @@ def prepare_channel_goal_start(text: str, thread_id: str | None) -> ChannelGoalS
     )
 
 
+def format_goal_started_ack(goal_start: ChannelGoalStart) -> str:
+    """Return the immediate channel acknowledgement for a started Goal."""
+
+    objective = " ".join(str(goal_start.objective or "Goal").split())
+    if len(objective) > 220:
+        objective = objective[:217].rstrip() + "..."
+    return (
+        f"Goal started: {objective}\n\n"
+        "I'm working on it now. This may take a bit; I'll send progress or the final result here, "
+        "and I'll ask for approval if a step needs it."
+    )
+
+
 def _extract_agent_result(result: Any) -> tuple[str, Any | None]:
     if isinstance(result, tuple):
         answer = str(result[0] or "") if result else ""

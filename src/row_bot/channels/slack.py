@@ -532,6 +532,10 @@ async def _handle_dm(event: dict, say, client) -> None:
         async def _goal_send_text(message: str) -> None:
             await say(_md_to_mrkdwn(message), channel=channel_id)
 
+        await say(
+            _md_to_mrkdwn(ch_runtime.format_goal_started_ack(goal_start)),
+            channel=channel_id,
+        )
         result = await ch_runtime.run_channel_goal_async(
             channel_name="slack",
             thread_id=_cmd_thread_id,

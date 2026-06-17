@@ -82,10 +82,10 @@ def build_chat(
             rebuild_thread_list=rebuild_thread_list,
         )
 
-    def _render_goal_progress_panel() -> None:
+    def _render_goal_progress_panel() -> str | None:
         from row_bot.ui.goal_ui import build_goal_progress_panel
 
-        build_goal_progress_panel(
+        return build_goal_progress_panel(
             state,
             p,
             rebuild_main=rebuild_main,
@@ -309,7 +309,18 @@ def build_chat(
 
     p.refresh_parent_agent_strip = _refresh_parent_agent_strip
     _refresh_parent_agent_strip()
-    _render_goal_progress_panel()
+
+    def _refresh_goal_strip() -> None:
+        if p.goal_strip_container is None:
+            return
+        try:
+            p.goal_strip_container.clear()
+            with p.goal_strip_container:
+                _render_goal_progress_panel()
+        except Exception:
+            logger.debug("Could not refresh Goal strip", exc_info=True)
+
+    p.refresh_goal_strip = _refresh_goal_strip
 
     # Scrollable message area
     p.chat_scroll = ui.scroll_area().classes("w-full flex-grow").style(_surface["scroll_style"])
@@ -456,6 +467,7 @@ def build_chat(
                         _reattach_gen.thinking_label = None
                         _reattach_gen.thinking_md = None
             _reattach_gen.detached = False
+            _refresh_parent_agent_strip()
             if p.stop_btn:
                 p.stop_btn.enable()
         elif _reattach_gen and _reattach_gen.status in ("done", "error", "stopped", "interrupted"):
@@ -723,6 +735,10 @@ def build_chat(
             await ui.run_javascript(
                 f"document.getElementById('c{_hidden_upload.id}').querySelector('input[type=file]').click()"
             )
+
+    p.goal_strip_container = ui.column().classes("w-full shrink-0 gap-0 row-bot-goal-strip-slot")
+    p.goal_strip_refresh_timer = ui.timer(2.0, _refresh_goal_strip)
+    _refresh_goal_strip()
 
     with ui.column().classes("w-full shrink-0 gap-0").style(
         "border: 1px solid rgba(255,255,255,0.15); border-radius: 18px; "
