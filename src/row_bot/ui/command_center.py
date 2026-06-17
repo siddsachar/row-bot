@@ -463,7 +463,7 @@ def build_command_center(
                         from row_bot import goals
 
                         attention_goals = goals.list_goals(
-                            statuses=["waiting_approval", "waiting_user", "blocked", "failed"],
+                            statuses=["waiting_approval", "blocked"],
                             limit=6,
                         )
                         running_goals = goals.list_goals(
@@ -504,7 +504,7 @@ def build_command_center(
                         if current_goal:
                             goal_id = str(current_goal.get("id") or "")
                             status = str(current_goal.get("status") or "")
-                            if goal_id and goal_id not in seen and status not in {"completed", "cleared"}:
+                            if goal_id and goal_id not in seen and status in {"active", "paused"}:
                                 seen.add(goal_id)
                                 ordered.insert(0, current_goal)
                         if not ordered:

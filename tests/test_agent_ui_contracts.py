@@ -17,6 +17,11 @@ def test_activity_center_uses_current_agent_goal_runs_and_channel_monitor():
     assert "Current work, approvals, schedules" in src
     assert "prepare_channel_goal_start" not in src
     assert "list_goals" in src
+    assert 'statuses=["waiting_approval", "blocked"]' in src
+    goal_section = src.split("def _rebuild_goal_activity", 1)[1].split("def _render_goal_activity_row", 1)[0]
+    assert "waiting_user" not in goal_section
+    assert "failed" not in goal_section
+    assert 'status in {"active", "paused"}' in goal_section
     assert "Needs Attention" in src
     assert "Running Now" in src
     assert "list_agent_runs" in src
