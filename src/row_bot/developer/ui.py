@@ -1454,6 +1454,16 @@ def build_developer_workspace(
                 rebuild_thread_list=rebuild_thread_list,
             )
 
+            from row_bot.ui.goal_ui import build_goal_progress_panel
+
+            build_goal_progress_panel(
+                state,
+                p,
+                rebuild_main=rebuild_main,
+                send_message=send_message,
+                surface="developer",
+            )
+
             hidden_upload = build_file_upload(p, state)
             build_chat_messages(
                 p,

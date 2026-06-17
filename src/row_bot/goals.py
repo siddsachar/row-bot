@@ -354,7 +354,7 @@ def resume_goal(thread_id: str) -> dict[str, Any] | None:
         "active",
         reason="Goal resumed.",
         verdict="continue",
-        source_statuses=("paused", "blocked"),
+        source_statuses=("paused", "blocked", "waiting_approval"),
     )
     if goal and int(goal.get("turns_used") or 0) >= int(goal.get("max_turns") or DEFAULT_GOAL_MAX_TURNS):
         extend_goal_budget(goal["id"])
@@ -768,6 +768,21 @@ def after_turn(
         latest = get_goal(goal["id"])
         return GoalContinuationDecision(latest or goal, False, reason="continuation already claimed", status="active")
     latest = get_goal(goal["id"]) or goal
+    active_run_id = str(latest.get("active_run_id") or "")
+    if active_run_id:
+        try:
+            append_agent_event(
+                active_run_id,
+                "goal.continuation_requested",
+                {
+                    "goal_id": latest.get("id"),
+                    "turn_id": turn_id,
+                    "reason": reason or "goal incomplete",
+                },
+                visibility="log",
+            )
+        except Exception:
+            pass
     return GoalContinuationDecision(
         latest,
         True,
@@ -839,6 +854,34 @@ def _deterministic_goal_decision(goal: Mapping[str, Any]) -> str:
     return "continue"
 
 
+def _goal_child_agent_dependencies(goal: Mapping[str, Any], *, limit: int = 12) -> list[dict[str, Any]]:
+    thread_id = str(goal.get("thread_id") or "").strip()
+    if not thread_id:
+        return []
+    try:
+        from row_bot.agent_runs import list_agent_runs
+
+        runs = list_agent_runs(parent_thread_id=thread_id, kind="subagent", limit=limit)
+    except Exception:
+        return []
+    dependencies: list[dict[str, Any]] = []
+    for run in runs[: max(1, int(limit or 12))]:
+        dependencies.append(
+            {
+                "id": run.get("id"),
+                "status": run.get("status"),
+                "display_name": run.get("display_name"),
+                "profile": run.get("profile_display_name") or run.get("profile_slug"),
+                "summary": run.get("summary"),
+                "status_message": run.get("status_message"),
+                "error": run.get("error"),
+                "turns_used": run.get("turns_used"),
+                "max_turns": run.get("max_turns"),
+            }
+        )
+    return dependencies
+
+
 def _verify_goal(
     goal: Mapping[str, Any],
     *,
@@ -849,6 +892,7 @@ def _verify_goal(
     context = {
         "assistant_text": str(assistant_text or "")[-6000:],
         "model_override": str(model_override or ""),
+        "child_agent_dependencies": _goal_child_agent_dependencies(goal),
     }
     try:
         result = verifier(dict(goal), context) if verifier else _invoke_goal_verifier(dict(goal), context)
@@ -886,6 +930,7 @@ def _invoke_goal_verifier(goal: dict[str, Any], context: dict[str, Any]) -> Mapp
         "last_reason": goal.get("last_reason"),
         "evidence": goal.get("evidence_json") or [],
         "blockers": goal.get("blockers_json") or [],
+        "child_agent_dependencies": context.get("child_agent_dependencies") or [],
         "latest_assistant_response": context.get("assistant_text") or "",
     }
     response = llm.invoke(

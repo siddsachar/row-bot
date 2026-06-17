@@ -90,6 +90,8 @@ def test_row_bot_status_reports_agents_profiles_and_goals(tmp_path, monkeypatch)
 
     agents = status_tool._row_bot_status("agents")
     assert "**Agents**" in agents
+    assert "Current runs:" in agents
+    assert "Recent runs:" not in agents
     assert "Status child" in agents
     assert "subagent/running" in agents
     assert "thread:status" in agents
@@ -115,6 +117,8 @@ def test_row_bot_status_reports_agents_profiles_and_goals(tmp_path, monkeypatch)
 
     goal_status = status_tool._row_bot_status("goals")
     assert "**Goals**" in goal_status
+    assert "Current goals:" in goal_status
+    assert "Recent goals:" not in goal_status
     assert "ship status coverage" in goal_status
     assert "paused" in goal_status
     assert "Seeded the status checks" in goal_status
@@ -136,6 +140,8 @@ def test_row_bot_status_agent_goal_categories_are_discoverable(tmp_path, monkeyp
     assert "category='agents'" in guide
     assert "category='agent_profiles'" in guide
     assert "category='goals'" in guide
+    assert "current durable agent runs" in guide
+    assert "current goal mode status" in guide
     assert "global enabled/disabled tools" in guide
     assert "effective thread tool scope" in guide
     assert "runtime-bound" in guide

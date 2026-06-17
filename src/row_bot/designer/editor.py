@@ -971,6 +971,8 @@ def build_designer_editor(
                         p,
                     )
 
+                    from row_bot.ui.goal_ui import build_goal_progress_panel
+
                     with ui.expansion("References", icon="collections_bookmark").classes(
                         "w-full shrink-0"
                     ).props("dense default-opened"):
@@ -992,6 +994,14 @@ def build_designer_editor(
 
                         _references_ref[0] = ui.column().classes("w-full gap-2 q-mt-sm")
                         _refresh_references_panel()
+
+                    build_goal_progress_panel(
+                        state,
+                        p,
+                        rebuild_main=rebuild_main,
+                        send_message=send_message,
+                        surface="designer",
+                    )
 
                     # Render messages from the thread (state.messages)
                     _msgs = state.messages or []

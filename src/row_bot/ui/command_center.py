@@ -1,7 +1,7 @@
-"""Row-Bot UI — Command Center (right drawer).
+"""Row-Bot UI — Activity Center (right drawer).
 
-Fixed right-side panel with live agent/workflow monitoring, approvals,
-quick launch, profile library, and compact workflow history.
+Fixed right-side panel with current work, approvals, schedules, channels,
+operational insights, and compact launch controls.
 """
 
 from __future__ import annotations
@@ -268,11 +268,11 @@ def build_command_center(
     load_thread_messages: Callable[[str], list[dict]],
     open_settings: Callable[..., None] | None = None,
 ) -> None:
-    """Build the always-open right drawer with 5 workflow sections."""
+    """Build the always-open right drawer for current activity."""
     from row_bot.tasks import (
         get_running_tasks, get_task_logs, get_task, stop_task,
         get_pending_approvals, respond_to_approval,
-        get_next_fire_times, get_recent_runs,
+        get_next_fire_times,
         list_tasks, run_task_background, get_running_task_thread,
         _prepare_task_thread,
     )
@@ -282,7 +282,7 @@ def build_command_center(
         try:
             return fn()
         except Exception as exc:
-            logger.warning("Workflow console %s unavailable: %s", label, exc)
+            logger.warning("Activity Center %s unavailable: %s", label, exc)
             return fallback
 
     def _render_workflow_unavailable() -> None:
@@ -313,11 +313,11 @@ def build_command_center(
             rail_shell._props["data-workflow-console-rail"] = "1"
             toggle_btn = ui.button(icon="chevron_right").classes(
                 "workflow-console-toggle"
-            ).props("round flat dense").tooltip("Toggle Agent Console")
-            ui.html('<div class="workflow-console-rail-label">Agents</div>', sanitize=False)
+            ).props("round flat dense").tooltip("Toggle Activity Center")
+            ui.html('<div class="workflow-console-rail-label">Activity</div>', sanitize=False)
             with ui.element("div").classes("workflow-console-rail-badges"):
                 running_badge = ui.html(
-                    '<div class="workflow-console-rail-badge running" title="Running agents and workflows">0</div>',
+                    '<div class="workflow-console-rail-badge running" title="Running goals, agents, and workflows">0</div>',
                     sanitize=False,
                 )
                 approval_badge = ui.html(
@@ -363,6 +363,16 @@ def build_command_center(
 
                 running_count += len(list_agent_runs(
                     statuses=["queued", "running", "waiting_approval", "waiting_user", "paused"],
+                    kind="subagent",
+                    limit=100,
+                ))
+            except Exception:
+                pass
+            try:
+                from row_bot.goals import list_goals
+
+                running_count += len(list_goals(
+                    statuses=["active", "waiting_approval", "paused", "blocked"],
                     limit=100,
                 ))
             except Exception:
@@ -378,7 +388,7 @@ def build_command_center(
                 insights_count = 0
 
             running_badge.set_content(
-                f'<div class="workflow-console-rail-badge running" title="Running agents and workflows">{running_count}</div>'
+                f'<div class="workflow-console-rail-badge running" title="Running goals, agents, and workflows">{running_count}</div>'
             )
             approval_badge.set_content(
                 f'<div class="workflow-console-rail-badge approval" title="Pending approvals">{pending_count}</div>'
@@ -412,21 +422,22 @@ def build_command_center(
             ):
                 with ui.row().classes("w-full items-start justify-between no-wrap"):
                     with ui.column().classes("gap-0"):
-                        ui.label("Agent Console").classes(
+                        ui.label("Activity Center").classes(
                             "text-subtitle1 font-bold"
                         ).style(f"color: {APP_BRAND_ACCENT}; letter-spacing: 0.5px;")
                         ui.label(
-                            "Current activity, approvals, launch"
+                            "Current work, approvals, schedules"
                         ).classes("text-xs text-grey-6").style(
                             "margin-top: -2px; letter-spacing: 0.3px;"
                         )
                     ui.button(icon="chevron_right", on_click=_toggle_drawer).props(
                         "round flat dense"
-                    ).tooltip("Collapse Agent Console").style(
+                    ).tooltip("Collapse Activity Center").style(
                         f"color: {APP_BRAND_ACCENT}; margin-top: -2px;"
                     )
 
                 ui.separator().classes("q-my-none")
+                _goal_activity_container = ui.column().classes("w-full gap-0")
                 _agent_runs_container = ui.column().classes("w-full gap-0")
                 _agent_preview_state = {"run_id": ""}
                 _agent_preview_container = ui.column().classes("w-full gap-0")
@@ -442,7 +453,82 @@ def build_command_center(
                         "failed": "negative",
                         "blocked": "negative",
                         "stopped": "orange",
+                        "active": "primary",
+                        "completed": "positive",
                     }.get(str(status or ""), "grey-6")
+
+                def _rebuild_goal_activity() -> None:
+                    _goal_activity_container.clear()
+                    try:
+                        from row_bot import goals
+
+                        attention_goals = goals.list_goals(
+                            statuses=["waiting_approval", "waiting_user", "blocked", "failed"],
+                            limit=6,
+                        )
+                        running_goals = goals.list_goals(
+                            statuses=["active", "paused"],
+                            limit=6,
+                        )
+                        current_goal = (
+                            goals.get_current_goal(str(state.thread_id or ""))
+                            if state.thread_id
+                            else None
+                        )
+                    except Exception as exc:
+                        logger.warning("Activity Center goals unavailable: %s", exc)
+                        attention_goals = []
+                        running_goals = []
+                        current_goal = None
+                    with _goal_activity_container:
+                        ui.label("Needs Attention").classes(
+                            "text-xs font-bold text-grey-5"
+                        ).style("letter-spacing: 0.8px; text-transform: uppercase;")
+                        if not attention_goals:
+                            ui.label("No goals need attention").classes(
+                                "text-xs text-grey-7 q-ml-sm"
+                            ).style("opacity: 0.5;")
+                        for goal_row in attention_goals[:6]:
+                            _render_goal_activity_row(goal_row)
+
+                        ui.label("Running Now").classes(
+                            "text-xs font-bold text-grey-5 q-mt-xs"
+                        ).style("letter-spacing: 0.8px; text-transform: uppercase;")
+                        seen: set[str] = set()
+                        ordered: list[dict] = []
+                        for goal_row in running_goals:
+                            goal_id = str(goal_row.get("id") or "")
+                            if goal_id and goal_id not in seen:
+                                seen.add(goal_id)
+                                ordered.append(goal_row)
+                        if current_goal:
+                            goal_id = str(current_goal.get("id") or "")
+                            status = str(current_goal.get("status") or "")
+                            if goal_id and goal_id not in seen and status not in {"completed", "cleared"}:
+                                seen.add(goal_id)
+                                ordered.insert(0, current_goal)
+                        if not ordered:
+                            ui.label("No goals running").classes(
+                                "text-xs text-grey-7 q-ml-sm"
+                            ).style("opacity: 0.5;")
+                        for goal_row in ordered[:6]:
+                            _render_goal_activity_row(goal_row)
+
+                def _render_goal_activity_row(goal_row: dict) -> None:
+                    status = str(goal_row.get("status") or "unknown")
+                    objective = str(goal_row.get("objective") or "Goal")
+                    detail = str(
+                        goal_row.get("last_progress")
+                        or goal_row.get("last_reason")
+                        or ""
+                    )
+                    with ui.row().classes("w-full items-center no-wrap gap-1 q-py-xs").style(
+                        "overflow: hidden;"
+                    ):
+                        ui.badge(status, color=_agent_status_color(status)).props("outline dense")
+                        ui.label(objective).classes("text-xs ellipsis").style("flex: 1; min-width: 0;")
+                        if detail:
+                            ui.label(detail).classes("text-xs text-grey-7 ellipsis").style("max-width: 150px;")
 
                 def _rebuild_agent_preview() -> None:
                     _agent_preview_container.clear()
@@ -533,7 +619,7 @@ def build_command_center(
                             else []
                         )
                     except Exception as exc:
-                        logger.warning("Agent Console runs unavailable: %s", exc)
+                        logger.warning("Activity Center agent runs unavailable: %s", exc)
                         attention = []
                         active = []
                         current_recent = []
@@ -546,24 +632,16 @@ def build_command_center(
                                 if run_id and run_id not in seen:
                                     seen.add(run_id)
                                     ordered.append(run_row)
-                        completed_current: list[dict] = []
                         for run_row in current_recent:
                             run_id = str(run_row.get("id") or "")
                             if not run_id or run_id in seen:
                                 continue
                             status = str(run_row.get("status") or "")
                             if status in {"completed", "completed_delivery_failed", "stopped", "cancelled"}:
-                                completed_current.append(run_row)
                                 continue
                             seen.add(run_id)
                             ordered.append(run_row)
-                        for run_row in completed_current[:2]:
-                            run_id = str(run_row.get("id") or "")
-                            if run_id and run_id not in seen:
-                                seen.add(run_id)
-                                ordered.append(run_row)
-                        hidden_completed = max(0, len(completed_current) - 2)
-                        label = "Current Agents"
+                        label = "Current Chat Agents"
                         if attention:
                             label += f" ({len(attention)} need attention)"
                         ui.label(label).classes(
@@ -612,11 +690,8 @@ def build_command_center(
                                             _refresh_rail_counts(),
                                         ),
                                     ).props("round flat dense size=xs color=orange").tooltip("Stop Agent")
-                        if hidden_completed:
-                            ui.label(f"{hidden_completed} more completed in this chat").classes(
-                                "text-xs text-grey-7 q-ml-sm"
-                            ).style("opacity: 0.6;")
-
+                _rebuild_goal_activity()
+                safe_timer(5.0, _rebuild_goal_activity)
                 _rebuild_agent_runs()
                 safe_timer(5.0, _rebuild_agent_runs)
 
@@ -631,18 +706,11 @@ def build_command_center(
                     running = _safe_workflow_read(
                         "running tasks", get_running_tasks, {}
                     )
-                    # Also include paused runs (not in _active_runs)
-                    paused_runs = [
-                        r for r in _safe_workflow_read(
-                            "recent runs", lambda: get_recent_runs(10), []
-                        )
-                        if r.get("status") == "paused"
-                    ]
                     with _live_container:
-                        ui.label("▶ Running").classes(
+                        ui.label("Active Workflows").classes(
                             "text-xs font-bold text-grey-5"
                         ).style("letter-spacing: 0.8px; text-transform: uppercase;")
-                        if not running and not paused_runs:
+                        if not running:
                             with ui.row().classes(
                                 "w-full justify-center q-py-sm"
                             ).style("opacity: 0.4;"):
@@ -653,12 +721,6 @@ def build_command_center(
                         # Running tasks
                         for tid, info in running.items():
                             _render_live_task(tid, info, is_paused=False)
-
-                        # Paused tasks (from DB, not in _active_runs)
-                        for pr in paused_runs:
-                            _tid = pr.get("thread_id", "")
-                            if _tid not in running:
-                                _render_paused_task(pr)
 
                 def _render_live_task(tid: str, info: dict, *, is_paused: bool) -> None:
                     icon = info.get("icon", "⚡")
@@ -914,7 +976,7 @@ def build_command_center(
                 # §4  QUICK LAUNCH
                 # ════════════════════════════════════════════════════
                 ui.separator().classes("q-my-none")
-                ui.label("🚀 Quick Launch").classes(
+                ui.label("Launch").classes(
                     "text-xs font-bold text-grey-5"
                 ).style(
                     "letter-spacing: 0.8px; text-transform: uppercase;"
@@ -985,115 +1047,6 @@ def build_command_center(
                     ui.button(
                         "+ New", on_click=_new_workflow
                     ).props("outline dense no-caps").classes("flex-grow")
-
-                # ════════════════════════════════════════════════════
-                # §5  RECENT RUNS
-                # ════════════════════════════════════════════════════
-                ui.separator().classes("q-my-none")
-                _recent_container = ui.column().classes("w-full gap-0")
-
-                def _rebuild_recent() -> None:
-                    _recent_container.clear()
-                    recent = _safe_workflow_read(
-                        "recent runs", lambda: get_recent_runs(4), None
-                    )
-                    with _recent_container:
-                        ui.label("Recent Workflows").classes(
-                            "text-xs font-bold text-grey-5"
-                        ).style(
-                            "letter-spacing: 0.8px; text-transform: uppercase;"
-                        )
-                        if recent is None:
-                            _render_workflow_unavailable()
-                            return
-                        if not recent:
-                            ui.label("No runs yet").classes(
-                                "text-xs text-grey-7 q-ml-sm"
-                            ).style("opacity: 0.5;")
-                            return
-                        for r in recent:
-                            _render_recent_run(r)
-
-                def _render_recent_run(r: dict) -> None:
-                    status = r.get("status", "unknown")
-                    s_icon, s_color = _STATUS_DOT.get(
-                        status, ("pending", "grey-6")
-                    )
-                    thread_id = r.get("thread_id", "")
-
-                    def _navigate(tid=thread_id, tname=r.get("task_name", "")):
-                        if not tid:
-                            return
-                        from row_bot.ui.voice_lifecycle import stop_voice_for_thread_change
-
-                        stop_voice_for_thread_change(state, p, reason="command_center_thread")
-                        prev = state.thread_id
-                        prev_gen = _active_generations.get(prev) if prev else None
-                        if prev_gen and prev_gen.status == "streaming":
-                            prev_gen.detached = True
-                        state.thread_id = tid
-                        state.thread_name = tname
-                        state.messages = load_thread_messages(tid)
-                        p.pending_files.clear()
-                        set_active_thread(tid, previous_id=prev)
-                        rebuild_main()
-                        rebuild_thread_list()
-
-                    with ui.row().classes(
-                        "w-full items-center no-wrap gap-1 q-py-xs"
-                    ).style(
-                        ("cursor: pointer; " if thread_id else "")
-                        + "overflow: hidden;"
-                    ).on("click", _navigate if thread_id else lambda: None):
-                        ui.label(
-                            r.get("task_icon", "⚡")
-                        ).style("font-size: 0.85rem;")
-                        ui.label(
-                            r.get("task_name", "?")
-                        ).classes(
-                            "text-xs ellipsis"
-                        ).style("flex: 1; min-width: 0;")
-                        ui.icon(s_icon, size="xs").classes(f"text-{s_color}")
-                        started = r.get("started_at", "")
-                        if started:
-                            ui.label(_relative_time(started)).classes(
-                                "text-xs text-grey-7"
-                            )
-                        # Retry button for failed runs
-                        if status == "failed":
-                            task_id = r.get("task_id", "")
-
-                            def _retry(tid_r=task_id):
-                                task = get_task(tid_r)
-                                if not task:
-                                    ui.notify("Workflow not found", type="negative")
-                                    return
-                                new_tid = _prepare_task_thread(task)
-                                from row_bot.tools import registry as tool_registry
-                                bg_tools = [
-                                    tl.name
-                                    for tl in tool_registry.get_enabled_tools()
-                                ]
-                                run_task_background(
-                                    tid_r, new_tid, bg_tools,
-                                    start_step=0, notification=True,
-                                )
-                                ui.notify("🔄 Retrying…", type="positive")
-                                rebuild_thread_list()
-                                defer_ui(_rebuild_live, delay=0.5)
-                                defer_ui(_rebuild_recent, delay=1.0)
-
-                            ui.button(
-                                icon="refresh", on_click=_retry
-                            ).props(
-                                "round flat dense size=xs"
-                            ).style(f"color: {APP_BRAND_ACCENT};").tooltip("Retry").on(
-                                "click",
-                                js_handler="(e) => e.stopPropagation()",
-                            )
-
-                _rebuild_recent()
-                safe_timer(10.0, _rebuild_recent)
 
             with ui.column().classes("w-full gap-2 row-bot-inner-panel workflow-console-section").style(
                 "width: 100%; min-width: 100%; max-width: 100%; overflow-x: hidden;"

@@ -934,9 +934,22 @@ async def index():
     def _open_export():
         open_export(state, p)
 
-    def _send_message(text: str, voice_mode: bool = False):
-        mark_user_activity("send message")
-        return send_message(text, state=state, p=p, cb=cb, voice_mode=voice_mode)
+    def _send_message(
+        text: str,
+        voice_mode: bool = False,
+        *,
+        internal_goal_continuation: bool = False,
+    ):
+        if not internal_goal_continuation:
+            mark_user_activity("send message")
+        return send_message(
+            text,
+            state=state,
+            p=p,
+            cb=cb,
+            voice_mode=voice_mode,
+            internal_goal_continuation=internal_goal_continuation,
+        )
 
     async def _send_active_voice_message(text: str, *, voice_mode: bool = False):
         binding = getattr(p, "active_voice_binding", None)

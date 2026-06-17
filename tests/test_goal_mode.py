@@ -77,6 +77,16 @@ def test_goal_slash_lifecycle_and_channel_scope(tmp_path, monkeypatch):
     assert resumed and "Goal resumed" in resumed
     assert goals.get_current_goal(thread_id)["status"] == "active"
 
+    goals.set_goal_status(
+        goals.get_current_goal(thread_id)["id"],
+        "waiting_approval",
+        reason="Waiting on approval",
+        verdict="paused",
+    )
+    resumed_from_approval = slash_commands.dispatch_text_command(thread_id, "/goal resume")
+    assert resumed_from_approval and "Goal resumed" in resumed_from_approval
+    assert goals.get_current_goal(thread_id)["status"] == "active"
+
     completed = slash_commands.dispatch_text_command(thread_id, "/goal done tested")
     assert completed and "marked complete" in completed.lower()
     assert goals.get_current_goal(thread_id, include_terminal=True)["status"] == "completed"
@@ -117,12 +127,12 @@ def test_goal_tool_registers_and_updates_current_goal(tmp_path, monkeypatch):
 
 
 def test_goal_after_turn_uses_same_model_verifier_and_claims_once(tmp_path, monkeypatch):
-    threads, _agent_runs, goals, _slash, _commands, _goal_tool = _fresh_goal_modules(
+    threads, agent_runs, goals, _slash, _commands, _goal_tool = _fresh_goal_modules(
         tmp_path,
         monkeypatch,
     )
     thread_id = threads.create_thread("Goal verifier")
-    goals.start_goal(thread_id, "keep going")
+    started_goal = goals.start_goal(thread_id, "keep going")
 
     import row_bot.models as models
 
@@ -158,6 +168,8 @@ def test_goal_after_turn_uses_same_model_verifier_and_claims_once(tmp_path, monk
     assert decision.status == "active"
     assert called["model_ref"] == "local:target"
     assert "not done yet" in goals.get_current_goal(thread_id)["last_reason"]
+    events = agent_runs.get_agent_events(started_goal["active_run_id"])
+    assert "goal.continuation_requested" in {event["type"] for event in events}
 
     duplicate = goals.after_turn(
         thread_id=thread_id,
@@ -193,6 +205,87 @@ def test_goal_verifier_failure_falls_back_to_continue(tmp_path, monkeypatch):
     assert "Verifier unavailable" in current["last_reason"]
 
 
+def test_goal_verifier_receives_child_agent_dependency_evidence(tmp_path, monkeypatch):
+    threads, agent_runs, goals, _slash, _commands, _goal_tool = _fresh_goal_modules(
+        tmp_path,
+        monkeypatch,
+    )
+    thread_id = threads.create_thread("Goal child evidence")
+    goals.start_goal(thread_id, "finish delegated work")
+    agent_runs.create_agent_run(
+        run_id="child-complete",
+        kind="subagent",
+        status="completed",
+        parent_thread_id=thread_id,
+        thread_id="child-thread",
+        display_name="Child verifier",
+        summary="Child completed the delegated verification.",
+    )
+
+    captured = {}
+
+    def verifier(_goal, context):
+        captured["dependencies"] = context.get("child_agent_dependencies")
+        return {"verdict": "complete", "reason": "child evidence proves completion"}
+
+    decision = goals.after_turn(
+        thread_id=thread_id,
+        turn_id="turn-child-complete",
+        assistant_text="I delegated verification.",
+        verifier=verifier,
+    )
+
+    dependencies = captured["dependencies"]
+    assert dependencies[0]["id"] == "child-complete"
+    assert dependencies[0]["status"] == "completed"
+    assert "delegated verification" in dependencies[0]["summary"]
+    assert decision.status == "completed"
+    assert goals.get_current_goal(thread_id, include_terminal=True)["status"] == "completed"
+
+
+def test_goal_verifier_sees_unfinished_or_failed_child_agents(tmp_path, monkeypatch):
+    threads, agent_runs, goals, _slash, _commands, _goal_tool = _fresh_goal_modules(
+        tmp_path,
+        monkeypatch,
+    )
+    thread_id = threads.create_thread("Goal child pending")
+    goals.start_goal(thread_id, "wait for delegated work")
+    agent_runs.create_agent_run(
+        run_id="child-running",
+        kind="subagent",
+        status="running",
+        parent_thread_id=thread_id,
+        thread_id="child-running-thread",
+        display_name="Running child",
+        status_message="Still working",
+    )
+    agent_runs.create_agent_run(
+        run_id="child-failed",
+        kind="subagent",
+        status="failed",
+        parent_thread_id=thread_id,
+        thread_id="child-failed-thread",
+        display_name="Failed child",
+        error="Could not finish",
+    )
+
+    def verifier(_goal, context):
+        statuses = {item["id"]: item["status"] for item in context.get("child_agent_dependencies") or []}
+        assert statuses["child-running"] == "running"
+        assert statuses["child-failed"] == "failed"
+        return {"verdict": "continue", "reason": "child agents are not complete"}
+
+    decision = goals.after_turn(
+        thread_id=thread_id,
+        turn_id="turn-child-running",
+        assistant_text="Children are still unresolved.",
+        verifier=verifier,
+    )
+
+    assert decision.should_continue is True
+    assert goals.get_current_goal(thread_id)["status"] == "active"
+
+
 def test_repeated_same_blocker_marks_goal_blocked(tmp_path, monkeypatch):
     threads, _agent_runs, goals, _slash, _commands, _goal_tool = _fresh_goal_modules(
         tmp_path,
@@ -226,6 +319,7 @@ def test_repeated_same_blocker_marks_goal_blocked(tmp_path, monkeypatch):
 def test_goal_streaming_and_ui_contracts_are_wired():
     streaming = Path("src/row_bot/ui/streaming.py").read_text(encoding="utf-8")
     chat = Path("src/row_bot/ui/chat.py").read_text(encoding="utf-8")
+    goal_ui = Path("src/row_bot/ui/goal_ui.py").read_text(encoding="utf-8")
     composer = Path("src/row_bot/ui/chat_composer_extras.py").read_text(encoding="utf-8")
     guide = Path("tool_guides/goal_guide/SKILL.md").read_text(encoding="utf-8")
 
@@ -233,7 +327,13 @@ def test_goal_streaming_and_ui_contracts_are_wired():
     assert "goals.build_initial_goal_prompt" in streaming
     assert "goals.after_turn" in streaming
     assert "goal_continuation_prompt" in streaming
-    assert "_render_goal_progress_row" in chat
+    assert "internal_goal_continuation" in streaming
+    assert "internal_goal_continuation=True" in streaming
+    assert "not queued_visible_user_msg and not internal_goal_continuation" in streaming
+    assert "build_goal_progress_panel" in chat
+    assert "def build_goal_progress_panel" in goal_ui
+    assert "goals.get_current_goal" in goal_ui
+    assert "internal_goal_continuation=True" in goal_ui
     assert 'spec.handler_key == "goal"' in composer
     assert "name: goal_guide" in guide
     assert "goal_update" in guide

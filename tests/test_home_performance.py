@@ -301,7 +301,9 @@ def test_home_lazily_builds_non_workflow_tabs_and_graph() -> None:
     assert '_tab_loaders["Developer"] = _build_developer_panel' in src
     assert '_tab_loaders["Designer"] = _build_designer_panel' in src
     assert '_tab_loaders["Knowledge"] = _build_knowledge_panel' in src
-    assert '_tab_loaders["Activity"] = _build_activity_panel' in src
+    assert '_tab_loaders["Monitor"] = _build_activity_panel' in src
+    assert 'if _initial_tab_name == "Activity":' in src
+    assert '_initial_tab_name = "Monitor"' in src
     assert 'if _initial_tab_name == "Knowledge":' in src
     assert "home.tab.build.knowledge" in src
     assert "build_graph_panel()" in src
@@ -324,6 +326,6 @@ def test_home_and_picker_perf_diagnostics_are_present() -> None:
     assert "home.tab.build.developer" in home_src
     assert "home.tab.build.designer" in home_src
     assert "home.tab.build.knowledge" in home_src
-    assert "home.tab.build.activity" in home_src
+    assert "home.tab.build.monitor" in home_src
     assert "chat.model_picker.options.load" in picker_src
     assert "chat.model_picker.options.apply" in picker_src

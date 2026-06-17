@@ -23,9 +23,9 @@ QUERYING STATUS (row_bot_status):
 - Use category='api_keys' only for legacy/API key storage status. It never shows key values.
 - Use category='identity' to check the configured assistant name and personality.
 - Use category='tasks' to summarise active scheduled tasks.
-- Use category='agents' to inspect durable Agent Runs, subagents, workflow mirrors, recent statuses, active writer locks, and V1 agent defaults.
+- Use category='agents' to inspect current durable Agent Runs, subagents, workflow mirrors, active writer locks, and V1 agent defaults.
 - Use category='agent_profiles' to inspect Agent Profile Library counts, enabled/disabled state, sources/scopes, the active thread profile, and active selected tools when a thread is in context.
-- Use category='goals' to inspect Goal Mode records, current-thread goal status, turn budgets, recent progress, blockers, and verifier failures.
+- Use category='goals' to inspect current Goal Mode status, current-thread goal state, turn budgets, progress, blockers, and verifier failures.
 - Use category='vision' to check the Vision model, provider/runtime model, enabled state, camera config, and provider/custom-endpoint readiness. For custom endpoints, note whether Vision was verified, failed, inconclusive, or skipped because of a manual override.
 - Use category='image_gen' to check the current image generation model.
 - Use category='video_gen' to check the current video generation model.

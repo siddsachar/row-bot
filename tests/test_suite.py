@@ -2317,15 +2317,18 @@ try:
     else:
         record("FAIL", "activity: app missing imports", str(_missing_imports))
 
-    # 22h-cc. Command Center imports the moved helpers
+    # 22h-cc. Activity Center imports current-work helpers and omits history
     _cc_src = _source_path("ui/command_center.py").read_text(encoding="utf-8")
-    for _cc_fn in ("get_recent_runs", "get_next_fire_times", "get_pending_approvals",
+    for _cc_fn in ("get_next_fire_times", "get_pending_approvals",
                    "respond_to_approval", "get_running_tasks", "get_task_logs"):
         if _cc_fn not in _cc_src:
             record("FAIL", f"command_center: missing import {_cc_fn}")
             break
     else:
-        record("PASS", "command_center: imports all workflow helpers")
+        if "get_recent_runs" in _cc_src or "Recent Workflows" in _cc_src:
+            record("FAIL", "activity_center: history should not render in right drawer")
+        else:
+            record("PASS", "activity_center: imports current workflow helpers without history")
 
     # 22i. _build_activity_content string exists in ui/home.py
     if "_build_activity_content" in _home_src:

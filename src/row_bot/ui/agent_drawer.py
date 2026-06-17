@@ -105,7 +105,7 @@ def build_parent_agent_drawer(
             stop_agent_run,
         )
 
-        runs = list_agent_runs(parent_thread_id=state.thread_id, limit=limit)
+        runs = list_agent_runs(parent_thread_id=state.thread_id, kind="subagent", limit=limit)
     except Exception:
         logger.debug("Could not load parent Agent Runs", exc_info=True)
         return

@@ -48,6 +48,7 @@ from row_bot.channels.auth_store import get_channel_secret
 from row_bot.channels import commands as ch_commands
 from row_bot.channels import auth as ch_auth
 from row_bot.channels import config as ch_config
+from row_bot.channels import runtime as ch_runtime
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.runtime_paths import app_root
 from row_bot.threads import _save_thread_meta
@@ -696,6 +697,26 @@ def _process_inbound(data: dict) -> None:
             if ch_commands.is_thread_scoped_command(body)
             else None
         )
+        goal_start = ch_runtime.prepare_channel_goal_start(body, _cmd_thread_id)
+        if goal_start is not None and _cmd_thread_id:
+            config = {"configurable": {"thread_id": _cmd_thread_id}}
+            result = ch_runtime.run_channel_goal_sync(
+                channel_name="whatsapp",
+                thread_id=_cmd_thread_id,
+                config=config,
+                first_prompt=goal_start.prompt,
+                run_turn=lambda prompt, cfg: _run_agent_sync(prompt, cfg),
+                send_text=lambda message: _send_message_sync(chat_id, message),
+            )
+            if result.interrupt_data:
+                with _pending_lock:
+                    _pending_interrupts[chat_id] = {
+                        "data": result.interrupt_data, "config": config
+                    }
+                from row_bot.channels import approval as approval_helpers
+                detail = approval_helpers.format_interrupt_text(result.interrupt_data)
+                _send_message_sync(chat_id, detail + "\n\nReply YES or NO.")
+            return
         cmd_response = ch_commands.dispatch("whatsapp", body, thread_id=_cmd_thread_id)
         if cmd_response is not None:
             _send_message_sync(chat_id, cmd_response)
@@ -748,6 +769,7 @@ def _process_inbound(data: dict) -> None:
         interrupt_ids = approval_helpers.extract_interrupt_ids(
             interrupt.get("data")
         )
+        ch_runtime.resolve_goal_approval_for_config(config, approved)
         answer, new_interrupt, captured, captured_video_paths = _resume_agent_sync(
             config, approved, interrupt_ids=interrupt_ids
         )
@@ -776,6 +798,26 @@ def _process_inbound(data: dict) -> None:
             detail = approval_helpers.format_interrupt_text(new_interrupt)
             _send_message_sync(chat_id,
                                detail + "\n\nReply YES or NO.")
+        elif answer:
+            thread_id = ch_runtime.thread_id_from_config(config)
+            if thread_id:
+                goal_result = ch_runtime.continue_channel_goal_after_turn_sync(
+                    channel_name="whatsapp",
+                    thread_id=thread_id,
+                    config=config,
+                    assistant_text=answer,
+                    interrupt_data=None,
+                    run_turn=lambda prompt, cfg: _run_agent_sync(prompt, cfg),
+                    send_text=lambda message: _send_message_sync(chat_id, message),
+                )
+                if goal_result.interrupt_data:
+                    with _pending_lock:
+                        _pending_interrupts[chat_id] = {
+                            "data": goal_result.interrupt_data, "config": config
+                        }
+                    detail = approval_helpers.format_interrupt_text(goal_result.interrupt_data)
+                    _send_message_sync(chat_id,
+                                       detail + "\n\nReply YES or NO.")
         return
 
     # Normal message

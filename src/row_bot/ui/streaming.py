@@ -2145,6 +2145,7 @@ async def consume_generation(
                 p=p,
                 cb=cb,
                 voice_mode=gen.voice_mode,
+                internal_goal_continuation=True,
             )
         )
         queued_voice_controls = []
@@ -2506,6 +2507,7 @@ async def send_message(
     cb: _Callbacks,
     voice_mode: bool = False,
     queued_message_ids: list[str] | None = None,
+    internal_goal_continuation: bool = False,
 ) -> None:
     """Send a message and stream the agent response."""
     from row_bot.agent import stream_agent, repair_orphaned_tool_calls, recursion_limit_for_mode
@@ -2522,7 +2524,7 @@ async def send_message(
         return
     direct_agent_request = None
     direct_agent_command_text = False
-    if not p.pending_files:
+    if not internal_goal_continuation and not p.pending_files:
         try:
             from row_bot.agent_commands import is_agent_spawn_command, parse_agent_spawn_text
 
@@ -2703,7 +2705,7 @@ async def send_message(
         )
         return
 
-    if text.strip().startswith("/") and not p.pending_files:
+    if not internal_goal_continuation and text.strip().startswith("/") and not p.pending_files:
         from row_bot.slash_commands import dispatch_text_command, resolve_command_text
 
         enabled_tool_names = [t.name for t in tool_registry.get_enabled_tools()]
@@ -2770,7 +2772,7 @@ async def send_message(
                     return
 
     # ── Snapshot & clear attached files immediately ──────────────────
-    _files_snapshot: list[dict] = list(p.pending_files)
+    _files_snapshot: list[dict] = [] if internal_goal_continuation else list(p.pending_files)
     file_names: list[str] = [f["name"] for f in _files_snapshot]
     if _files_snapshot:
         p.pending_files.clear()
@@ -2794,7 +2796,7 @@ async def send_message(
     user_msg: dict = {"role": "user", "content": display_content}
     if user_images:
         user_msg["images"] = user_images
-    if not queued_visible_user_msg:
+    if not queued_visible_user_msg and not internal_goal_continuation:
         state.messages.append(user_msg)
         persist_thread_media_state(state.thread_id, state.messages)
         state.cache_active_messages()
@@ -2817,7 +2819,11 @@ async def send_message(
         touch_thread(state.thread_id)
         return
 
-    if getattr(state, "active_developer_workspace_id", None) and not _files_snapshot:
+    if (
+        not internal_goal_continuation
+        and getattr(state, "active_developer_workspace_id", None)
+        and not _files_snapshot
+    ):
         try:
             from row_bot.developer.agent_context import maybe_answer_workspace_identity
 
@@ -2908,7 +2914,7 @@ async def send_message(
                 file_names, len(file_context), len(agent_input))
 
     # Auto-name thread
-    if should_auto_rename_thread(state.thread_id, state.thread_name):
+    if not internal_goal_continuation and should_auto_rename_thread(state.thread_id, state.thread_name):
         state.thread_name = rename_thread(
             state.thread_id,
             f"\U0001f4bb {display_content[:50]}",
@@ -2968,6 +2974,7 @@ async def send_message(
             "runtime_mode": runtime_mode,
             "generation_id": generation_id,
             "approval_mode": _thread_approval_mode,
+            **({"internal_goal_continuation": True} if internal_goal_continuation else {}),
             **({"model_override": _thread_mo} if _thread_mo else {}),
             **({"developer_workspace_id": state.active_developer_workspace_id} if getattr(state, "active_developer_workspace_id", None) else {}),
             **({"developer_context": developer_context} if developer_context else {}),
@@ -3005,7 +3012,7 @@ async def send_message(
         queued_message_ids=list(queued_message_ids or []),
         voice_mode=voice_mode,
         tts_active=voice_mode and (state.tts_service.enabled or state.voice_coordinator.transport == "realtime"),
-        tts_allow_long=voice_mode and user_requested_read_aloud(text),
+        tts_allow_long=voice_mode and not internal_goal_continuation and user_requested_read_aloud(text),
     )
     if voice_mode and state.voice_coordinator.transport == "realtime":
         realtime_call = state.voice_coordinator.consume_realtime_tool_call()
@@ -3152,6 +3159,29 @@ async def resume_after_interrupt(
         logger.debug("Developer approval container clear after resume failed", exc_info=True)
 
     gen_thread_id = state.thread_id
+    if gen_thread_id:
+        try:
+            from row_bot import goals
+
+            waiting_goal = await run.io_bound(
+                lambda: goals.get_current_goal(gen_thread_id, include_terminal=True)
+            )
+            if waiting_goal and str(waiting_goal.get("status") or "") == "waiting_approval":
+                if approved:
+                    await run.io_bound(lambda: goals.resume_goal(gen_thread_id))
+                else:
+                    await run.io_bound(
+                        lambda: goals.block_goal(
+                            gen_thread_id,
+                            reason="Approval was denied by the user.",
+                        )
+                    )
+                try:
+                    cb.rebuild_main()
+                except TypeError:
+                    pass
+        except Exception:
+            logger.debug("Goal approval state transition failed", exc_info=True)
     try:
         emit_buddy_event(
             BuddyEventType.APPROVAL_APPROVED if approved else BuddyEventType.APPROVAL_DENIED,

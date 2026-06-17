@@ -1,4 +1,4 @@
-"""Row-Bot UI — Home screen (Tasks / Knowledge Graph / Activity tabs).
+"""Row-Bot UI — Home screen (Tasks / Knowledge Graph / Monitor tabs).
 
 Extracted from the monolith's ``_build_home`` inner function.
 """
@@ -57,7 +57,7 @@ def build_home(
     load_thread_messages: Callable[[str], list[dict]] | None = None,
     open_settings: Callable | None = None,
 ) -> None:
-    """Render the home screen with Tasks / Knowledge Graph / Activity tabs."""
+    """Render the home screen with Tasks / Knowledge Graph / Monitor tabs."""
     from row_bot.models import is_cloud_model, get_current_model
     from row_bot.tools import registry as tool_registry
     from row_bot.tasks import (
@@ -81,13 +81,15 @@ def build_home(
         designer_tab = ui.tab("Designer", icon="design_services")
         developer_tab = ui.tab("Developer", icon="code")
         graph_tab = ui.tab("Knowledge", icon="psychology")
-        activity_tab = ui.tab("Activity", icon="assessment")
+        activity_tab = ui.tab("Monitor", icon="monitor_heart")
 
     # Choose initial tab (Designer after back / refresh, else Workflows)
     _tab_map = {"Workflows": tasks_tab, "Knowledge": graph_tab,
-                "Activity": activity_tab, "Designer": designer_tab,
+                "Monitor": activity_tab, "Activity": activity_tab, "Designer": designer_tab,
                 "Developer": developer_tab}
     _initial_tab_name = state.preferred_home_tab or "Workflows"
+    if _initial_tab_name == "Activity":
+        _initial_tab_name = "Monitor"
     _initial_tab = _tab_map.get(_initial_tab_name, tasks_tab)
     if _initial_tab_name not in _tab_map:
         _initial_tab_name = "Workflows"
@@ -778,31 +780,31 @@ def build_home(
                 with graph_container:
                     _render_lazy_placeholder("Knowledge")
 
-        # ── Activity panel ───────────────────────────────────────────
+        # ── Monitor panel ───────────────────────────────────────────
         with ui.tab_panel(activity_tab).classes("h-full").style("padding: 0;"):
             activity_container = ui.column().classes("w-full h-full")
 
             def _build_activity_panel() -> None:
-                if "Activity" in _loaded_tabs:
+                if "Monitor" in _loaded_tabs:
                     return
-                _loaded_tabs.add("Activity")
+                _loaded_tabs.add("Monitor")
                 started = time.perf_counter()
                 activity_container.clear()
                 with activity_container:
                     _build_activity_content(activity_container)
                 log_ui_perf(
-                    "home.tab.build.activity",
+                    "home.tab.build.monitor",
                     (time.perf_counter() - started) * 1000.0,
                     threshold_ms=500.0,
-                    initial=_initial_tab_name == "Activity",
+                    initial=_initial_tab_name == "Monitor",
                 )
 
-            _tab_loaders["Activity"] = _build_activity_panel
-            if _initial_tab_name == "Activity":
+            _tab_loaders["Monitor"] = _build_activity_panel
+            if _initial_tab_name == "Monitor":
                 _build_activity_panel()
             else:
                 with activity_container:
-                    _render_lazy_placeholder("Activity")
+                    _render_lazy_placeholder("Monitor")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -810,7 +812,7 @@ def build_home(
 # ══════════════════════════════════════════════════════════════════════
 
 def _build_activity_content(container) -> None:
-    """Render the Activity tab content inside *container*.
+    """Render the Monitor tab content inside *container*.
 
     Running tasks, approvals, upcoming schedule, and recent runs have
     moved to the Command Center (right drawer).  This tab now shows
@@ -822,7 +824,7 @@ def _build_activity_content(container) -> None:
         with ui.column().classes("w-full q-pa-sm gap-0"):
 
             with ui.row().classes("w-full items-center justify-between"):
-                ui.label("📋 Activity").classes("text-h5")
+                ui.label("System Monitor").classes("text-h5")
                 def _refresh_activity():
                     container.clear()
                     with container:

@@ -36,6 +36,7 @@ from row_bot.channels.base import Channel, ChannelCapabilities, ConfigField
 from row_bot.channels.auth_store import get_channel_secret
 from row_bot.channels import commands as ch_commands
 from row_bot.channels import auth as ch_auth
+from row_bot.channels import runtime as ch_runtime
 from row_bot.threads import _save_thread_meta
 
 log = logging.getLogger("row_bot.discord")
@@ -520,6 +521,36 @@ async def start_bot() -> bool:
                     if ch_commands.is_thread_scoped_command(text)
                     else None
                 )
+                goal_start = ch_runtime.prepare_channel_goal_start(text, _cmd_thread_id)
+                if goal_start is not None and _cmd_thread_id:
+                    config = {"configurable": {"thread_id": _cmd_thread_id}}
+                    loop = asyncio.get_event_loop()
+
+                    async def _goal_run_turn(prompt: str, cfg: dict):
+                        return await loop.run_in_executor(None, _run_agent_sync, prompt, cfg)
+
+                    async def _goal_send_text(reply: str) -> None:
+                        for part in _split_message(reply):
+                            await message.channel.send(part)
+
+                    result = await ch_runtime.run_channel_goal_async(
+                        channel_name="discord",
+                        thread_id=_cmd_thread_id,
+                        config=config,
+                        first_prompt=goal_start.prompt,
+                        run_turn=_goal_run_turn,
+                        send_text=_goal_send_text,
+                    )
+                    if result.interrupt_data:
+                        with _pending_lock:
+                            _pending_interrupts[channel_id] = {
+                                "data": result.interrupt_data, "config": config
+                            }
+                        from row_bot.channels import approval as approval_helpers
+                        detail = approval_helpers.format_interrupt_text(result.interrupt_data)
+                        await message.channel.send(
+                            detail + "\n\nReply **yes** or **no**.")
+                    return
                 cmd_response = ch_commands.dispatch(
                     "discord",
                     text,
@@ -576,8 +607,10 @@ async def start_bot() -> bool:
                 interrupt_ids = approval_helpers.extract_interrupt_ids(
                     interrupt.get("data")
                 )
+                ch_runtime.resolve_goal_approval_for_config(config, approved)
 
-                answer, new_interrupt, captured, vid_paths = await asyncio.get_event_loop().run_in_executor(
+                loop = asyncio.get_event_loop()
+                answer, new_interrupt, captured, vid_paths = await loop.run_in_executor(
                     None,
                     lambda: _resume_agent_sync(
                         config, approved, interrupt_ids=interrupt_ids
@@ -607,6 +640,33 @@ async def start_bot() -> bool:
                     detail = approval_helpers.format_interrupt_text(new_interrupt)
                     await message.channel.send(
                         detail + "\n\nReply **yes** or **no**.")
+                elif answer:
+                    thread_id = ch_runtime.thread_id_from_config(config)
+                    if thread_id:
+                        async def _goal_run_turn(prompt: str, cfg: dict):
+                            return await loop.run_in_executor(None, _run_agent_sync, prompt, cfg)
+
+                        async def _goal_send_text(reply: str) -> None:
+                            for part in _split_message(reply):
+                                await message.channel.send(part)
+
+                        goal_result = await ch_runtime.continue_channel_goal_after_turn_async(
+                            channel_name="discord",
+                            thread_id=thread_id,
+                            config=config,
+                            assistant_text=answer,
+                            interrupt_data=None,
+                            run_turn=_goal_run_turn,
+                            send_text=_goal_send_text,
+                        )
+                        if goal_result.interrupt_data:
+                            with _pending_lock:
+                                _pending_interrupts[channel_id] = {
+                                    "data": goal_result.interrupt_data, "config": config
+                                }
+                            detail = approval_helpers.format_interrupt_text(goal_result.interrupt_data)
+                            await message.channel.send(
+                                detail + "\n\nReply **yes** or **no**.")
                 return
 
             # Normal message

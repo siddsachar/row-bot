@@ -57,7 +57,7 @@ class _StatusQueryInput(BaseModel):
             "'tasks' (active scheduled tasks summary), "
             "'agents' (durable Agent Runs, subagents, workflow mirrors, writer locks, and V1 defaults), "
             "'agent_profiles' (Agent Profile Library counts, sources, active profile, and selected tools), "
-            "'goals' (Goal Mode status, turn budgets, recent progress, and blockers), "
+            "'goals' (current Goal Mode status, turn budgets, progress, and blockers), "
             "'vision' (vision/camera model and settings), "
             "'image_gen' (image generation model), "
             "'video_gen' (video generation model), "
@@ -841,17 +841,15 @@ def _query_agents() -> str:
             list_agent_write_locks,
         )
 
-        recent_runs = list_agent_runs(limit=12)
         sampled_runs = list_agent_runs(limit=200)
-        writer_locks = list_agent_write_locks()
-        active_count = sum(
-            1
-            for run in sampled_runs
+        current_runs = [
+            run for run in sampled_runs
             if str(run.get("status") or "") not in TERMINAL_STATUSES
-        )
+        ]
+        writer_locks = list_agent_write_locks()
         lines = [
             "**Agents**",
-            f"- Recent runs: {len(sampled_runs)} sampled ({active_count} active)",
+            f"- Current runs: {len(current_runs)} active/attention from {len(sampled_runs)} sampled",
             f"- By kind: {_counts_by(sampled_runs, 'kind')}",
             f"- By status: {_counts_by(sampled_runs, 'status')}",
             (
@@ -868,8 +866,11 @@ def _query_agents() -> str:
             lines.append("No durable Agent Runs recorded.")
             return "\n".join(lines)
 
-        lines.append("Recent runs:")
-        for run in recent_runs[:8]:
+        if not current_runs:
+            lines.append("No current Agent Runs.")
+        else:
+            lines.append("Current runs:")
+        for run in current_runs[:8]:
             label = _short_status_text(
                 run.get("display_name") or run.get("prompt") or run.get("id"),
                 72,
@@ -887,6 +888,8 @@ def _query_agents() -> str:
             )
             suffix = f" - {detail}" if detail else ""
             lines.append(f"- {label} [{kind}/{status}{profile_label}{progress}]{suffix}")
+        if len(current_runs) > 8:
+            lines.append(f"- ... and {len(current_runs) - 8} more current runs")
 
         if writer_locks:
             lines.append("Writer locks:")
@@ -1028,16 +1031,14 @@ def _query_goals() -> str:
             list_goals,
         )
 
-        recent_goals = list_goals(limit=12)
         sampled_goals = list_goals(limit=200)
-        active_count = sum(
-            1
-            for goal in sampled_goals
+        current_goals = [
+            goal for goal in sampled_goals
             if str(goal.get("status") or "") not in GOAL_TERMINAL_STATUSES
-        )
+        ]
         lines = [
             "**Goals**",
-            f"- Recent goals: {len(sampled_goals)} sampled ({active_count} active/paused)",
+            f"- Current goals: {len(current_goals)} active/attention from {len(sampled_goals)} sampled",
             f"- By status: {_counts_by(sampled_goals, 'status')}",
             f"- Default turn budget: {DEFAULT_GOAL_MAX_TURNS}",
         ]
@@ -1060,8 +1061,11 @@ def _query_goals() -> str:
             lines.append("No Goal Mode records yet.")
             return "\n".join(lines)
 
-        lines.append("Recent goals:")
-        for goal in recent_goals[:8]:
+        if not current_goals:
+            lines.append("No current goals.")
+        else:
+            lines.append("Current goals:")
+        for goal in current_goals[:8]:
             objective = _short_status_text(goal.get("objective"), 76)
             status = str(goal.get("status") or "active")
             progress = _short_status_text(
@@ -1076,8 +1080,8 @@ def _query_goals() -> str:
                 f"- {objective} [{status}, turns {goal.get('turns_used', 0)}/"
                 f"{goal.get('max_turns', DEFAULT_GOAL_MAX_TURNS)}{verifier}]{suffix}"
             )
-        if len(recent_goals) > 8:
-            lines.append(f"- ... and {len(recent_goals) - 8} more goals")
+        if len(current_goals) > 8:
+            lines.append(f"- ... and {len(current_goals) - 8} more current goals")
         return "\n".join(lines)
     except Exception as exc:
         return f"**Goals**\nError: {exc}"

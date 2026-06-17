@@ -10,22 +10,31 @@ def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def test_agent_console_uses_agent_runs_and_channel_monitor():
+def test_activity_center_uses_current_agent_goal_runs_and_channel_monitor():
     src = _read("ui/command_center.py")
 
-    assert "Agent Console" in src
+    assert "Activity Center" in src
+    assert "Current work, approvals, schedules" in src
+    assert "prepare_channel_goal_start" not in src
+    assert "list_goals" in src
+    assert "Needs Attention" in src
+    assert "Running Now" in src
     assert "list_agent_runs" in src
+    assert 'kind="subagent"' in src
     assert "stop_agent_run" in src
-    assert "Current Agents" in src
+    assert "Current Chat Agents" in src
     assert "No active Agents" in src
     assert "open_agent_peek_dialog" in src
     assert "_agent_preview_state" in src
     assert "_agent_preview_container" in src
     assert "_show_agent_preview" in src
     assert "list_agent_runs(limit=12)" not in src
+    assert "Recent Workflows" not in src
+    assert "get_recent_runs" not in src
+    assert "completed in this chat" not in src
+    assert "hidden_completed" not in src
     assert "build_channel_monitor" in src
     assert "Open Settings > Channels" in src
-    assert src.index("Recent Workflows") < src.index("build_channel_monitor")
     assert src.index("build_channel_monitor") < src.index('ui.expansion("Insights"')
     assert "list_agent_profiles" not in src
     assert "_library_container" not in src
@@ -142,6 +151,7 @@ def test_agent_drawer_contract_and_surface_usage():
     assert "load_thread_messages" in drawer
     assert "set_active_thread" in drawer
     assert "list_agent_runs" in drawer
+    assert 'kind="subagent"' in drawer
     assert "stop_agent_run" in drawer
     assert "get_agent_parent_messages" in drawer
     assert "Note queued:" in drawer
@@ -155,6 +165,33 @@ def test_agent_drawer_contract_and_surface_usage():
     assert "build_parent_agent_drawer" in developer
     assert "rebuild_main=lambda **kw: _rebuild_main(**kw)" in app
     assert "agent_child_open" not in chat
+
+
+def test_shared_goal_ui_is_used_by_all_chat_surfaces():
+    goal_ui = _read("ui/goal_ui.py")
+    chat = _read("ui/chat.py")
+    designer = Path("src/row_bot/designer/editor.py").read_text(encoding="utf-8")
+    developer = Path("src/row_bot/developer/ui.py").read_text(encoding="utf-8")
+
+    assert "def build_goal_progress_panel" in goal_ui
+    assert "def _open_goal_detail_dialog" in goal_ui
+    assert "goals.get_current_goal" in goal_ui
+    assert "goals.pause_goal" in goal_ui
+    assert "goals.resume_goal" in goal_ui
+    assert "goals.complete_goal" in goal_ui
+    assert "goals.clear_goal" in goal_ui
+    assert "build_continuation_prompt" in goal_ui
+    assert "Child-Agent Dependencies" in goal_ui
+    assert 'kind="subagent"' in goal_ui
+    assert "Pending Approvals" in goal_ui
+    assert "Current Goal Events" in goal_ui
+    assert "_render_goal_progress_row" not in chat
+    assert "build_goal_progress_panel" in chat
+    assert "build_goal_progress_panel" in developer
+    assert "build_goal_progress_panel" in designer
+    assert 'surface="main"' in chat
+    assert 'surface="developer"' in developer
+    assert 'surface="designer"' in designer
 
 
 def test_sidebar_hides_child_agent_threads_by_default():
