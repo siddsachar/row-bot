@@ -22,7 +22,7 @@ from nicegui import events, run, ui
 
 from row_bot.ui.state import AppState, P, _active_generations
 from row_bot.ui.constants import ALLOWED_UPLOAD_SUFFIXES, welcome_message, EXAMPLE_PROMPTS
-from row_bot.ui.render import render_image_with_save
+from row_bot.ui.render import render_agent_tool_results, render_image_with_save
 from row_bot.ui.performance import log_ui_perf
 from row_bot.ui.timer_utils import defer_ui
 from row_bot.ui.transcript import (
@@ -413,8 +413,24 @@ def build_chat(
                             sanitize=False,
                         )
                         _reattach_gen.tool_col = ui.column().classes("w-full gap-1")
-                        from row_bot.ui.tool_trace import display_tool_content, group_tool_results, tool_result_failed
-                        for _group in group_tool_results(_reattach_gen.tool_results):
+                        from row_bot.ui.tool_trace import (
+                            display_tool_content,
+                            group_tool_results,
+                            is_agent_tool_result,
+                            tool_result_failed,
+                        )
+                        _agent_tool_results = [
+                            _tr for _tr in _reattach_gen.tool_results
+                            if isinstance(_tr, dict) and is_agent_tool_result(_tr)
+                        ]
+                        _generic_tool_results = [
+                            _tr for _tr in _reattach_gen.tool_results
+                            if not (isinstance(_tr, dict) and is_agent_tool_result(_tr))
+                        ]
+                        if _agent_tool_results:
+                            with _reattach_gen.tool_col:
+                                render_agent_tool_results(_agent_tool_results, thread_id=state.thread_id)
+                        for _group in group_tool_results(_generic_tool_results):
                             _group_failed = any(tool_result_failed(_tr) for _tr in _group.results)
                             with _reattach_gen.tool_col:
                                 with ui.expansion(

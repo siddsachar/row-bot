@@ -14,7 +14,8 @@ def test_activity_center_uses_current_agent_goal_runs_and_channel_monitor():
     src = _read("ui/command_center.py")
 
     assert "Activity Center" in src
-    assert "Current work, approvals, schedules" in src
+    assert "Current goals and agents" in src
+    assert "Current work, approvals, schedules" not in src
     assert "prepare_channel_goal_start" not in src
     assert "list_goals" in src
     assert 'statuses=["waiting_approval", "blocked"]' in src
@@ -24,10 +25,34 @@ def test_activity_center_uses_current_agent_goal_runs_and_channel_monitor():
     assert 'status in {"active", "paused"}' in goal_section
     assert "Needs Attention" in src
     assert "Running Now" in src
+    assert "row-bot-approvals-card" in src
     assert "row-bot-workflows-card" in src
     assert 'ui.label("Workflows")' in src
+    assert src.index("Activity Center") < src.index("row-bot-approvals-card")
+    assert src.index("row-bot-approvals-card") < src.index("row-bot-workflows-card")
     assert src.index("row-bot-workflows-card") < src.index("build_channel_monitor")
     assert src.index("row-bot-workflows-card") < src.index('ui.expansion("Insights"')
+    activity_block = src.split("Activity Center", 1)[1].split("row-bot-approvals-card", 1)[0]
+    approvals_block = src.split("row-bot-approvals-card", 1)[1].split("row-bot-workflows-card", 1)[0]
+    workflows_block = src.split("row-bot-workflows-card", 1)[1].split("build_channel_monitor", 1)[0]
+    assert "_approvals_container" not in activity_block
+    assert "_upcoming_container" not in activity_block
+    assert "_task_select" not in activity_block
+    assert "_approvals_container" in approvals_block
+    assert "get_pending_approvals" in approvals_block
+    assert 'appr.get("source_label") or appr.get("task_name") or "Approval"' in approvals_block
+    assert "_upcoming_container" not in approvals_block
+    assert "_task_select" not in approvals_block
+    assert "Active Workflows" in workflows_block
+    assert "Upcoming" in workflows_block
+    assert "Launch" in workflows_block
+    assert workflows_block.index("Active Workflows") < workflows_block.index("Upcoming")
+    assert workflows_block.index("Upcoming") < workflows_block.index("Launch")
+    assert "get_running_tasks" in workflows_block
+    assert "get_next_fire_times" in workflows_block
+    assert "list_tasks" in workflows_block
+    assert "run_task_background" in workflows_block
+    assert "_approvals_container" not in workflows_block
     assert "list_agent_runs" in src
     assert 'kind="subagent"' in src
     assert "stop_agent_run" in src
@@ -198,6 +223,9 @@ def test_shared_goal_ui_is_used_by_all_chat_surfaces():
     assert "def build_goal_progress_panel" in goal_ui
     assert "-> str | None" in goal_ui
     assert "def _open_goal_detail_dialog" in goal_ui
+    assert "from nicegui import context, ui" in goal_ui
+    assert "with context.client.content:" in goal_ui
+    assert "Mount outside the Goal strip subtree" in goal_ui
     assert "goals.get_current_goal" in goal_ui
     assert "goals.pause_goal" in goal_ui
     assert "goals.resume_goal" in goal_ui
@@ -245,6 +273,27 @@ def test_shared_goal_ui_is_used_by_all_chat_surfaces():
     )[1].split("else:", 1)[0]
     assert "goals.start_goal" in goal_start_block
     assert "_schedule_goal_strip_refresh(cb)" in goal_start_block
+
+
+def test_main_shell_reserves_fixed_drawers_and_activity_center_width():
+    app = Path("src/row_bot/app.py").read_text(encoding="utf-8")
+    sidebar = _read("ui/sidebar.py")
+    command_center = _read("ui/command_center.py")
+
+    assert "--row-bot-left-drawer-width: 280px" in app
+    assert "--row-bot-command-center-width: 440px" in app
+    assert "row-bot-main-shell" in app
+    assert "row-bot-main-card" in app
+    assert "width: 100%;" in app
+    assert "max-width: 100%;" in app
+    assert "margin-left: var(--row-bot-left-drawer-width)" not in app
+    assert "margin-right: var(--row-bot-command-center-width)" not in app
+    assert "_main_shell = ui.element(\"div\").classes(\"row-bot-main-shell\")" in app
+    assert "with _main_shell:" in app
+    assert "width: var(--row-bot-left-drawer-width, 280px);" in sidebar
+    assert "def _sync_shell_width_var" in command_center
+    assert "--row-bot-command-center-width" in command_center
+    assert "_sync_shell_width_var(width)" in command_center
 
 
 def test_sidebar_hides_child_agent_threads_by_default():

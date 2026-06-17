@@ -162,6 +162,7 @@ class GenerationState:
     thinking_expansion: Any = None
     thinking_code: Any = None
     tool_col: Any = None
+    live_row: Any = None
     wrapper: Any = None
 
 

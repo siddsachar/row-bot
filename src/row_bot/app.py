@@ -801,6 +801,20 @@ async def index():
     # ── Global panel card style ──────────────────────────────────────────
     ui.add_head_html("""
     <style>
+    :root {
+        --row-bot-left-drawer-width: 280px;
+        --row-bot-command-center-width: 440px;
+    }
+    .row-bot-main-shell {
+        box-sizing: border-box;
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        overflow: hidden;
+    }
+    .row-bot-main-card {
+        box-sizing: border-box;
+    }
     .row-bot-panel-card {
         border: 1px solid rgba(255,255,255,0.07) !important;
         box-shadow: 4px 0 16px rgba(0,0,0,0.45),
@@ -822,6 +836,12 @@ async def index():
                     inset 0 -1px 0 rgba(0,0,0,0.12),
                     0 3px 10px rgba(0,0,0,0.35),
                     0 1px 3px rgba(0,0,0,0.2);
+    }
+    @media (max-width: 900px) {
+        .row-bot-main-shell {
+            width: 100%;
+            max-width: 100%;
+        }
     }
     </style>
     """)
@@ -1017,16 +1037,20 @@ async def index():
     from row_bot.ui.terminal_widget import build_terminal_panel
     from row_bot.tools import registry as _tool_registry
 
-    _outer = ui.column().classes("w-full max-w-7xl mx-auto px-4 no-wrap row-bot-panel-card").style(
-        "height: calc(100vh - 16px); overflow: hidden; padding-bottom: 12px;"
-        " border-radius: 12px; margin-top: 8px;"
-    )
-    with _outer:
-        p.main_col = ui.column().classes("w-full no-wrap flex-grow").style(
-            "overflow: hidden;"
+    _main_shell = ui.element("div").classes("row-bot-main-shell")
+    with _main_shell:
+        _outer = ui.column().classes(
+            "w-full max-w-7xl mx-auto px-4 no-wrap row-bot-panel-card row-bot-main-card"
+        ).style(
+            "height: calc(100vh - 16px); overflow: hidden; padding-bottom: 12px;"
+            " border-radius: 12px; margin-top: 8px;"
         )
+        with _outer:
+            p.main_col = ui.column().classes("w-full no-wrap flex-grow").style(
+                "overflow: hidden;"
+            )
         # Terminal panel — inline, pushes chat content up when expanded
-        build_terminal_panel(p, state, _tool_registry)
+            build_terminal_panel(p, state, _tool_registry)
 
     # ── Command Center (right drawer) ───────────────────────────────
     build_command_center(

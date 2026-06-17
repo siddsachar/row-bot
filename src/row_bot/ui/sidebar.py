@@ -190,7 +190,7 @@ def build_sidebar(
     _rebuild_thread_list_ref: list[Callable[[], None]] = [lambda: None]
 
     with ui.left_drawer(value=True, fixed=True).style(
-        "width: 280px;"
+        "width: var(--row-bot-left-drawer-width, 280px);"
     ).classes("row-bot-panel-card"):
         # Logo - always app branding, independent of identity settings
         ui.html(

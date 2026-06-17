@@ -1000,27 +1000,78 @@ def _render_agent_run_card(run: dict, *, payload_message: str = "") -> None:
                 ).tooltip("Stop Agent")
 
 
-def render_agent_tool_result(result: dict, *, thread_id: str | None = None) -> bool:
+def _current_agent_run_for_card(run: dict) -> dict:
+    run_id = str(run.get("id") or "").strip()
+    if not run_id:
+        return run
+    try:
+        from row_bot.agent_runs import get_agent_run
+
+        current = get_agent_run(run_id)
+        if current:
+            return current
+    except Exception:
+        logger.debug("Could not load current Agent Run %s for card", run_id, exc_info=True)
+    return run
+
+
+def _agent_card_runs_from_tool_results(tool_results: list[dict]) -> tuple[list[tuple[dict, str]], list[dict]]:
     from row_bot.ui.tool_trace import (
         agent_runs_from_payload,
-        display_tool_content,
         parse_agent_tool_payload,
     )
 
-    payload = parse_agent_tool_payload(result)
-    runs = agent_runs_from_payload(payload)
-    if not payload or not runs:
-        return False
-    message = str(payload.get("message") or "").strip()
-    with ui.column().classes("w-full gap-2"):
-        for run in runs:
-            _render_agent_run_card(run, payload_message=message)
-        with ui.expansion("Raw Agent tool output", icon="data_object").classes("w-full"):
-            raw = result.get("content", "")
-            display = display_tool_content(raw)
+    ordered_keys: list[str] = []
+    runs_by_key: dict[str, tuple[dict, str]] = {}
+    raw_results: list[dict] = []
+    for idx, result in enumerate(tool_results):
+        payload = parse_agent_tool_payload(result)
+        runs = agent_runs_from_payload(payload)
+        if not payload or not runs:
+            continue
+        raw_results.append(result)
+        message = str(payload.get("message") or "").strip()
+        for run_idx, run in enumerate(runs):
+            run_id = str(run.get("id") or "").strip()
+            key = run_id or f"payload-{idx}-{run_idx}"
+            if key not in runs_by_key:
+                ordered_keys.append(key)
+            runs_by_key[key] = (run, message)
+    return [runs_by_key[key] for key in ordered_keys], raw_results
+
+
+def _render_raw_agent_tool_outputs(results: list[dict]) -> None:
+    from row_bot.ui.tool_trace import display_tool_content
+
+    with ui.expansion("Raw Agent tool output", icon="data_object").classes("w-full"):
+        if len(results) == 1:
+            display = display_tool_content(results[0].get("content", ""))
             if display:
                 ui.code(display).classes("w-full text-xs")
+            return
+        for idx, result in enumerate(results, start=1):
+            with ui.expansion(f"#{idx}", icon="subdirectory_arrow_right").classes("w-full"):
+                display = display_tool_content(result.get("content", ""))
+                if display:
+                    ui.code(display).classes("w-full text-xs")
+
+
+def render_agent_tool_results(results: list[dict], *, thread_id: str | None = None) -> bool:
+    """Render Agent tool results as one durable card per Agent Run id."""
+
+    del thread_id
+    card_runs, raw_results = _agent_card_runs_from_tool_results(results)
+    if not card_runs:
+        return False
+    with ui.column().classes("w-full gap-2"):
+        for run, message in card_runs:
+            _render_agent_run_card(_current_agent_run_for_card(run), payload_message=message)
+        _render_raw_agent_tool_outputs(raw_results)
     return True
+
+
+def render_agent_tool_result(result: dict, *, thread_id: str | None = None) -> bool:
+    return render_agent_tool_results([result], thread_id=thread_id)
 
 
 def render_message_content(msg: dict, thread_id: str | None = None) -> None:
@@ -1091,12 +1142,15 @@ def render_message_content(msg: dict, thread_id: str | None = None) -> None:
     tool_results = msg.get("tool_results")
     tool_results_for_media = tool_results
     if tool_results:
+        agent_tool_results: list[dict] = []
         generic_tool_results: list[dict] = []
         for tr in tool_results:
             if isinstance(tr, dict) and is_agent_tool_result(tr):
-                render_agent_tool_result(tr, thread_id=thread_id)
+                agent_tool_results.append(tr)
             elif isinstance(tr, dict):
                 generic_tool_results.append(tr)
+        if agent_tool_results:
+            render_agent_tool_results(agent_tool_results, thread_id=thread_id)
         for group in group_tool_results(generic_tool_results):
             group_failed = any(tool_result_failed(item) for item in group.results)
             with ui.expansion(

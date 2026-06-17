@@ -9,7 +9,7 @@ import logging
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from nicegui import ui
+from nicegui import context, ui
 
 from row_bot.ui.state import AppState, P
 
@@ -166,96 +166,99 @@ def _open_goal_detail_dialog(
     evidence = list(goal.get("evidence_json") or [])
     blockers = list(goal.get("blockers_json") or [])
 
-    with ui.dialog() as dialog, ui.card().classes("q-pa-md").style(
-        "width: min(760px, 96vw); max-height: 86vh; overflow-y: auto;"
-    ):
-        with ui.row().classes("w-full items-center gap-2"):
-            ui.icon("flag").classes("text-primary")
-            with ui.column().classes("gap-0").style("flex: 1; min-width: 0;"):
-                ui.label("Goal").classes("text-h6")
-                ui.label(_shorten(objective, 180)).classes("text-sm text-grey-4").style(
-                    "white-space: normal;"
-                )
-            ui.badge(status, color=_goal_status_color(status)).props("outline")
-            ui.button(icon="close", on_click=dialog.close).props("flat dense round")
+    # Mount outside the Goal strip subtree. The strip is refreshed on a timer,
+    # and clearing that subtree would otherwise close the detail dialog.
+    with context.client.content:
+        with ui.dialog() as dialog, ui.card().classes("q-pa-md").style(
+            "width: min(760px, 96vw); max-height: 86vh; overflow-y: auto;"
+        ):
+            with ui.row().classes("w-full items-center gap-2"):
+                ui.icon("flag").classes("text-primary")
+                with ui.column().classes("gap-0").style("flex: 1; min-width: 0;"):
+                    ui.label("Goal").classes("text-h6")
+                    ui.label(_shorten(objective, 180)).classes("text-sm text-grey-4").style(
+                        "white-space: normal;"
+                    )
+                ui.badge(status, color=_goal_status_color(status)).props("outline")
+                ui.button(icon="close", on_click=dialog.close).props("flat dense round")
 
-        with ui.row().classes("w-full flex-wrap gap-2 q-mt-sm"):
-            ui.badge(f"{turns_used}/{max_turns} turns", color="grey-7").props("outline")
-            if active_run_id:
-                ui.badge(f"run {active_run_id[:8]}", color="grey-7").props("outline")
+            with ui.row().classes("w-full flex-wrap gap-2 q-mt-sm"):
+                ui.badge(f"{turns_used}/{max_turns} turns", color="grey-7").props("outline")
+                if active_run_id:
+                    ui.badge(f"run {active_run_id[:8]}", color="grey-7").props("outline")
 
-        progress = _shorten(goal.get("last_progress"), 260)
-        reason = _shorten(goal.get("last_reason"), 260)
-        if progress or reason:
-            with ui.column().classes("w-full gap-1 q-mt-sm"):
-                if progress:
-                    ui.label("Progress").classes("text-xs text-weight-bold text-grey-5")
-                    ui.label(progress).classes("text-sm").style("white-space: normal;")
-                if reason:
-                    ui.label("Verifier Reason").classes("text-xs text-weight-bold text-grey-5")
-                    ui.label(reason).classes("text-sm").style("white-space: normal;")
+            progress = _shorten(goal.get("last_progress"), 260)
+            reason = _shorten(goal.get("last_reason"), 260)
+            if progress or reason:
+                with ui.column().classes("w-full gap-1 q-mt-sm"):
+                    if progress:
+                        ui.label("Progress").classes("text-xs text-weight-bold text-grey-5")
+                        ui.label(progress).classes("text-sm").style("white-space: normal;")
+                    if reason:
+                        ui.label("Verifier Reason").classes("text-xs text-weight-bold text-grey-5")
+                        ui.label(reason).classes("text-sm").style("white-space: normal;")
 
-        with ui.expansion("Evidence", icon="fact_check").classes("w-full q-mt-sm").props("dense default-opened"):
-            _render_list(evidence[-8:], empty="No evidence recorded yet.")
+            with ui.expansion("Evidence", icon="fact_check").classes("w-full q-mt-sm").props("dense default-opened"):
+                _render_list(evidence[-8:], empty="No evidence recorded yet.")
 
-        with ui.expansion("Blockers", icon="report_problem").classes("w-full").props("dense"):
-            _render_list(blockers[-5:], empty="No blockers recorded.")
+            with ui.expansion("Blockers", icon="report_problem").classes("w-full").props("dense"):
+                _render_list(blockers[-5:], empty="No blockers recorded.")
 
-        with ui.expansion("Pending Approvals", icon="approval").classes("w-full").props("dense"):
-            if not pending_approvals:
-                ui.label("No pending approvals for this goal.").classes("text-xs text-grey-6")
-            for approval in pending_approvals:
-                label = str(approval.get("source_label") or approval.get("label") or "Approval")
-                message = str(approval.get("message") or "")
-                ui.label(_shorten(f"{label}: {message}", 220)).classes("text-xs text-grey-4")
+            with ui.expansion("Pending Approvals", icon="approval").classes("w-full").props("dense"):
+                if not pending_approvals:
+                    ui.label("No pending approvals for this goal.").classes("text-xs text-grey-6")
+                for approval in pending_approvals:
+                    label = str(approval.get("source_label") or approval.get("label") or "Approval")
+                    message = str(approval.get("message") or "")
+                    ui.label(_shorten(f"{label}: {message}", 220)).classes("text-xs text-grey-4")
 
-        with ui.expansion("Child-Agent Dependencies", icon="hub").classes("w-full").props("dense"):
-            if not child_runs:
-                ui.label("No child agents linked to this thread.").classes("text-xs text-grey-6")
-            for run in child_runs:
-                name = str(run.get("display_name") or run.get("id") or "Agent")
-                run_status = str(run.get("status") or "unknown")
-                summary = str(run.get("summary") or run.get("status_message") or "")
-                with ui.row().classes("w-full items-center gap-2 no-wrap"):
-                    ui.badge(run_status, color=_goal_status_color(run_status)).props("outline dense")
-                    ui.label(name).classes("text-xs ellipsis").style("flex: 1; min-width: 0;")
-                    if summary:
-                        ui.label(_shorten(summary, 80)).classes("text-xs text-grey-6 ellipsis")
+            with ui.expansion("Child-Agent Dependencies", icon="hub").classes("w-full").props("dense"):
+                if not child_runs:
+                    ui.label("No child agents linked to this thread.").classes("text-xs text-grey-6")
+                for run in child_runs:
+                    name = str(run.get("display_name") or run.get("id") or "Agent")
+                    run_status = str(run.get("status") or "unknown")
+                    summary = str(run.get("summary") or run.get("status_message") or "")
+                    with ui.row().classes("w-full items-center gap-2 no-wrap"):
+                        ui.badge(run_status, color=_goal_status_color(run_status)).props("outline dense")
+                        ui.label(name).classes("text-xs ellipsis").style("flex: 1; min-width: 0;")
+                        if summary:
+                            ui.label(_shorten(summary, 80)).classes("text-xs text-grey-6 ellipsis")
 
-        with ui.expansion("Current Goal Events", icon="timeline").classes("w-full").props("dense"):
-            if not goal_events:
-                ui.label("No goal events recorded yet.").classes("text-xs text-grey-6")
-            for event in goal_events[-8:]:
-                event_type = str(event.get("type") or "event")
-                payload = event.get("payload_json") or {}
-                ui.label(_shorten(f"{event_type}: {json.dumps(payload, sort_keys=True)}", 220)).classes(
-                    "text-xs text-grey-4"
-                )
+            with ui.expansion("Current Goal Events", icon="timeline").classes("w-full").props("dense"):
+                if not goal_events:
+                    ui.label("No goal events recorded yet.").classes("text-xs text-grey-6")
+                for event in goal_events[-8:]:
+                    event_type = str(event.get("type") or "event")
+                    payload = event.get("payload_json") or {}
+                    ui.label(_shorten(f"{event_type}: {json.dumps(payload, sort_keys=True)}", 220)).classes(
+                        "text-xs text-grey-4"
+                    )
 
-        with ui.row().classes("w-full justify-end gap-2 q-mt-md"):
-            if status in {"active", "waiting_approval"}:
+            with ui.row().classes("w-full justify-end gap-2 q-mt-md"):
+                if status in {"active", "waiting_approval"}:
+                    ui.button(
+                        "Pause",
+                        icon="pause",
+                        on_click=lambda: _refresh_after(lambda: goals.pause_goal(thread_id)),
+                    ).props("flat dense no-caps color=amber")
+                if status in {"paused", "blocked"}:
+                    ui.button("Resume", icon="play_arrow", on_click=_resume_from_detail).props(
+                        "flat dense no-caps color=positive"
+                    )
+                if status in {"active", "paused", "waiting_approval", "blocked"}:
+                    ui.button(
+                        "Mark Done",
+                        icon="done",
+                        on_click=lambda: _refresh_after(
+                            lambda: goals.complete_goal(thread_id, reason="Marked complete from Goal detail.")
+                        ),
+                    ).props("flat dense no-caps color=positive")
                 ui.button(
-                    "Pause",
-                    icon="pause",
-                    on_click=lambda: _refresh_after(lambda: goals.pause_goal(thread_id)),
-                ).props("flat dense no-caps color=amber")
-            if status in {"paused", "blocked"}:
-                ui.button("Resume", icon="play_arrow", on_click=_resume_from_detail).props(
-                    "flat dense no-caps color=positive"
-                )
-            if status in {"active", "paused", "waiting_approval", "blocked"}:
-                ui.button(
-                    "Mark Done",
-                    icon="done",
-                    on_click=lambda: _refresh_after(
-                        lambda: goals.complete_goal(thread_id, reason="Marked complete from Goal detail.")
-                    ),
-                ).props("flat dense no-caps color=positive")
-            ui.button(
-                "Clear",
-                icon="clear",
-                on_click=lambda: _refresh_after(lambda: goals.clear_goal(thread_id)),
-            ).props("flat dense no-caps color=negative")
+                    "Clear",
+                    icon="clear",
+                    on_click=lambda: _refresh_after(lambda: goals.clear_goal(thread_id)),
+                ).props("flat dense no-caps color=negative")
         dialog.open()
 
 

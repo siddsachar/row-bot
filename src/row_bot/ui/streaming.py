@@ -325,6 +325,7 @@ def _detach_generation(gen: GenerationState, state: AppState, reason: str) -> No
     gen.thinking_expansion = None
     gen.thinking_code = None
     gen.tool_col = None
+    gen.live_row = None
     gen.wrapper = None
     gen.pending_tools.clear()
 
@@ -336,6 +337,24 @@ def _detach_generation(gen: GenerationState, state: AppState, reason: str) -> No
         gen.tts_active = False
 
     logger.info("Detached generation for thread %s after %s", gen.thread_id, reason)
+
+
+def _delete_live_generation_row(gen: GenerationState) -> None:
+    row = getattr(gen, "live_row", None)
+    if row is None:
+        return
+    try:
+        row.delete()
+    except Exception:
+        logger.debug("Live assistant row delete failed", exc_info=True)
+    gen.live_row = None
+    gen.wrapper = None
+    gen.tool_col = None
+    gen.assistant_md = None
+    gen.thinking_label = None
+    gen.thinking_md = None
+    gen.thinking_expansion = None
+    gen.thinking_code = None
 
 
 def _handle_ui_runtime_error(
@@ -384,6 +403,7 @@ def _detach_if_ui_client_deleted(
         gen.thinking_expansion,
         gen.thinking_code,
         gen.tool_col,
+        gen.live_row,
     ):
         if handle is not None and _ui_handle_client_deleted(handle):
             _detach_generation(gen, state, reason)
@@ -2030,7 +2050,15 @@ async def consume_generation(
             persist_thread_media_state(state.thread_id, state.messages)
             state.cache_active_messages()
             inserted_at_tail = inserted_idx == len(state.messages) - 1
-            needs_transcript_reconcile = (not inserted_at_tail) or settled_queued_controls
+            has_agent_tool_results = any(
+                isinstance(item, dict) and is_agent_tool_result(item)
+                for item in (gen.tool_results or [])
+            )
+            needs_transcript_reconcile = (
+                (not inserted_at_tail)
+                or settled_queued_controls
+                or has_agent_tool_results
+            )
             if (
                 not gen.detached
                 and cb.mark_chat_message_rendered
@@ -2042,6 +2070,8 @@ async def consume_generation(
                     logger.debug("Final assistant render-state mark failed", exc_info=True)
             elif not gen.detached:
                 try:
+                    if has_agent_tool_results:
+                        _delete_live_generation_row(gen)
                     cb.refresh_chat_messages()
                 except Exception:
                     logger.debug("Final assistant queued-turn transcript refresh failed", exc_info=True)
@@ -3481,7 +3511,8 @@ def _build_assistant_placeholder(gen: GenerationState, p: P) -> None:
     _ph_avatar = get_bot_avatar_html()
     _ph_name = get_assistant_name()
     with p.chat_container:
-        with ui.element("div").classes("row-bot-msg-row"):
+        with ui.element("div").classes("row-bot-msg-row") as _live_row:
+            gen.live_row = _live_row
             ui.html(
                 f'<div class="row-bot-avatar row-bot-avatar-bot">{_ph_avatar}</div>',
                 sanitize=False,

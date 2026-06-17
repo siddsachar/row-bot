@@ -302,6 +302,15 @@ def build_command_center(
     def _drawer_width() -> int:
         return _COMMAND_CENTER_COLLAPSED_WIDTH if collapsed_state["value"] else _COMMAND_CENTER_EXPANDED_WIDTH
 
+    def _sync_shell_width_var(width: int) -> None:
+        try:
+            ui.run_javascript(
+                "document.documentElement.style.setProperty("
+                f"'--row-bot-command-center-width', '{int(width)}px');"
+            )
+        except Exception:
+            logger.debug("Could not sync Activity Center width CSS variable", exc_info=True)
+
     with ui.right_drawer(value=True, fixed=True).style(
         f"width: {_drawer_width()}px; padding: 0; position: relative;"
     ).classes("row-bot-panel-card row-bot-command-center-drawer").props(
@@ -331,6 +340,8 @@ def build_command_center(
 
         def _apply_drawer_state(*, persist: bool = False) -> None:
             width = _drawer_width()
+            _sync_shell_width_var(width)
+            defer_ui(lambda width=width: _sync_shell_width_var(width), delay=0.05)
             drawer._props["width"] = width
             drawer.style(replace=f"width: {width}px; padding: 0; position: relative;")
             if collapsed_state["value"]:
@@ -426,7 +437,7 @@ def build_command_center(
                             "text-subtitle1 font-bold"
                         ).style(f"color: {APP_BRAND_ACCENT}; letter-spacing: 0.5px;")
                         ui.label(
-                            "Current work, approvals, schedules"
+                            "Current goals and agents"
                         ).classes("text-xs text-grey-6").style(
                             "margin-top: -2px; letter-spacing: 0.3px;"
                         )
@@ -695,11 +706,9 @@ def build_command_center(
                 _rebuild_agent_runs()
                 safe_timer(5.0, _rebuild_agent_runs)
 
-
-                # ════════════════════════════════════════════════════
-                # §2  PENDING APPROVALS
-                # ════════════════════════════════════════════════════
-                ui.separator().classes("q-my-none")
+            with ui.column().classes("w-full gap-2 row-bot-inner-panel workflow-console-section row-bot-approvals-card").style(
+                "width: 100%; min-width: 100%; max-width: 100%; overflow-x: hidden;"
+            ):
                 _approvals_container = ui.column().classes("w-full gap-0")
 
                 def _rebuild_approvals() -> None:
@@ -734,7 +743,7 @@ def build_command_center(
                         ):
                             ui.label("🔔").style("font-size: 0.9rem;")
                             ui.label(
-                                appr.get("task_name", "Task")
+                                appr.get("source_label") or appr.get("task_name") or "Approval"
                             ).classes(
                                 "font-bold text-xs ellipsis"
                             ).style("flex: 1; min-width: 0;")
@@ -795,127 +804,6 @@ def build_command_center(
 
                 _rebuild_approvals()
                 safe_timer(5.0, _rebuild_approvals)
-
-                # ════════════════════════════════════════════════════
-                # §3  UPCOMING SCHEDULE
-                # ════════════════════════════════════════════════════
-                ui.separator().classes("q-my-none")
-                _upcoming_container = ui.column().classes("w-full gap-0")
-
-                def _rebuild_upcoming() -> None:
-                    _upcoming_container.clear()
-                    with _upcoming_container:
-                        ui.label("📅 Upcoming").classes(
-                            "text-xs font-bold text-grey-5"
-                        ).style(
-                            "letter-spacing: 0.8px; text-transform: uppercase;"
-                        )
-                        upcoming = _safe_workflow_read(
-                            "upcoming tasks", lambda: get_next_fire_times(5), None
-                        )
-                        if upcoming is None:
-                            _render_workflow_unavailable()
-                            return
-                        if not upcoming:
-                            ui.label("No scheduled tasks").classes(
-                                "text-xs text-grey-7 q-ml-sm"
-                            ).style("opacity: 0.5;")
-                            return
-                        for item in upcoming:
-                            with ui.row().classes(
-                                "w-full items-center no-wrap gap-1 q-py-xs"
-                            ).style("overflow: hidden;"):
-                                ui.label(
-                                    item.get("task_icon", "⚡")
-                                ).style("font-size: 0.85rem;")
-                                ui.label(
-                                    item.get("task_name", "?")
-                                ).classes(
-                                    "text-xs ellipsis"
-                                ).style("flex: 1; min-width: 0;")
-                                nr = item.get("next_run", "")
-                                ui.label(_relative_time(nr)).classes(
-                                    "text-xs text-grey-6"
-                                )
-
-                _rebuild_upcoming()
-                safe_timer(30.0, _rebuild_upcoming)
-
-                # ════════════════════════════════════════════════════
-                # §4  QUICK LAUNCH
-                # ════════════════════════════════════════════════════
-                ui.separator().classes("q-my-none")
-                ui.label("Launch").classes(
-                    "text-xs font-bold text-grey-5"
-                ).style(
-                    "letter-spacing: 0.8px; text-transform: uppercase;"
-                )
-
-                _task_select = ui.select(
-                    options=[], label="Workflow",
-                ).classes("w-full").props("dense outlined")
-
-                def _refresh_task_options() -> None:
-                    tasks = _safe_workflow_read(
-                        "quick launch tasks", list_tasks, None
-                    )
-                    if tasks is None:
-                        _task_select.options = {}
-                        _task_select.update()
-                        return
-                    opts = {
-                        t["id"]: f"{t.get('icon', '⚡')} {t['name']}"
-                        for t in tasks
-                        if t.get("enabled", True)
-                    }
-                    _task_select.options = opts
-                    _task_select.update()
-
-                _refresh_task_options()
-                safe_timer(3.0, _refresh_task_options)
-
-                with ui.row().classes("w-full gap-1"):
-                    def _run_selected():
-                        task_id = _task_select.value
-                        if not task_id:
-                            ui.notify("Select a workflow first", type="warning")
-                            return
-                        task = get_task(task_id)
-                        if not task:
-                            ui.notify("Workflow not found", type="negative")
-                            return
-                        tid = _prepare_task_thread(task)
-                        from row_bot.tools import registry as tool_registry
-                        bg_tools = [
-                            tl.name for tl in tool_registry.get_enabled_tools()
-                        ]
-                        run_task_background(
-                            task_id, tid, bg_tools,
-                            start_step=0, notification=True,
-                        )
-                        ui.notify(
-                            f"⚡ {task['name']} started",
-                            type="positive",
-                        )
-                        rebuild_thread_list()
-                        _refresh_task_options()
-                        defer_ui(_rebuild_live, delay=0.5)
-
-                    ui.button(
-                        "▶ Run", on_click=_run_selected
-                    ).props(
-                        "unelevated dense no-caps color=green"
-                    ).classes("flex-grow")
-
-                    def _new_workflow():
-                        show_task_dialog(None, lambda: (
-                            _refresh_task_options(),
-                            rebuild_main(),
-                        ))
-
-                    ui.button(
-                        "+ New", on_click=_new_workflow
-                    ).props("outline dense no-caps").classes("flex-grow")
 
             with ui.column().classes("w-full gap-2 row-bot-inner-panel workflow-console-section row-bot-workflows-card").style(
                 "width: 100%; min-width: 100%; max-width: 100%; overflow-x: hidden;"
@@ -1023,6 +911,125 @@ def build_command_center(
 
                 _rebuild_live()
                 safe_timer(3.0, _rebuild_live)
+
+                ui.separator().classes("q-my-none")
+                _upcoming_container = ui.column().classes("w-full gap-0")
+
+                def _rebuild_upcoming() -> None:
+                    _upcoming_container.clear()
+                    with _upcoming_container:
+                        with ui.row().classes("w-full items-center no-wrap gap-1"):
+                            ui.icon("event", size="xs").classes("text-primary")
+                            ui.label("Upcoming").classes(
+                                "text-xs font-bold text-grey-5"
+                            ).style(
+                                "letter-spacing: 0.8px; text-transform: uppercase;"
+                            )
+                        upcoming = _safe_workflow_read(
+                            "upcoming tasks", lambda: get_next_fire_times(5), None
+                        )
+                        if upcoming is None:
+                            _render_workflow_unavailable()
+                            return
+                        if not upcoming:
+                            ui.label("No scheduled tasks").classes(
+                                "text-xs text-grey-7 q-ml-sm"
+                            ).style("opacity: 0.5;")
+                            return
+                        for item in upcoming:
+                            with ui.row().classes(
+                                "w-full items-center no-wrap gap-1 q-py-xs"
+                            ).style("overflow: hidden;"):
+                                ui.label(
+                                    item.get("task_icon", "*")
+                                ).style("font-size: 0.85rem;")
+                                ui.label(
+                                    item.get("task_name", "?")
+                                ).classes(
+                                    "text-xs ellipsis"
+                                ).style("flex: 1; min-width: 0;")
+                                nr = item.get("next_run", "")
+                                ui.label(_relative_time(nr)).classes(
+                                    "text-xs text-grey-6"
+                                )
+
+                _rebuild_upcoming()
+                safe_timer(30.0, _rebuild_upcoming)
+
+                ui.separator().classes("q-my-none")
+                with ui.row().classes("w-full items-center no-wrap gap-1"):
+                    ui.icon("rocket_launch", size="xs").classes("text-primary")
+                    ui.label("Launch").classes(
+                        "text-xs font-bold text-grey-5"
+                    ).style(
+                        "letter-spacing: 0.8px; text-transform: uppercase;"
+                    )
+
+                _task_select = ui.select(
+                    options=[], label="Workflow",
+                ).classes("w-full").props("dense outlined")
+
+                def _refresh_task_options() -> None:
+                    tasks = _safe_workflow_read(
+                        "quick launch tasks", list_tasks, None
+                    )
+                    if tasks is None:
+                        _task_select.options = {}
+                        _task_select.update()
+                        return
+                    opts = {
+                        t["id"]: f"{t.get('icon', '*')} {t['name']}"
+                        for t in tasks
+                        if t.get("enabled", True)
+                    }
+                    _task_select.options = opts
+                    _task_select.update()
+
+                _refresh_task_options()
+                safe_timer(3.0, _refresh_task_options)
+
+                with ui.row().classes("w-full gap-1"):
+                    def _run_selected():
+                        task_id = _task_select.value
+                        if not task_id:
+                            ui.notify("Select a workflow first", type="warning")
+                            return
+                        task = get_task(task_id)
+                        if not task:
+                            ui.notify("Workflow not found", type="negative")
+                            return
+                        tid = _prepare_task_thread(task)
+                        from row_bot.tools import registry as tool_registry
+                        bg_tools = [
+                            tl.name for tl in tool_registry.get_enabled_tools()
+                        ]
+                        run_task_background(
+                            task_id, tid, bg_tools,
+                            start_step=0, notification=True,
+                        )
+                        ui.notify(
+                            f"{task['name']} started",
+                            type="positive",
+                        )
+                        rebuild_thread_list()
+                        _refresh_task_options()
+                        defer_ui(_rebuild_live, delay=0.5)
+
+                    ui.button(
+                        "Run", icon="play_arrow", on_click=_run_selected
+                    ).props(
+                        "unelevated dense no-caps color=green"
+                    ).classes("flex-grow")
+
+                    def _new_workflow():
+                        show_task_dialog(None, lambda: (
+                            _refresh_task_options(),
+                            rebuild_main(),
+                        ))
+
+                    ui.button(
+                        "New", icon="add", on_click=_new_workflow
+                    ).props("outline dense no-caps").classes("flex-grow")
 
             with ui.column().classes("w-full gap-2 row-bot-inner-panel workflow-console-section").style(
                 "width: 100%; min-width: 100%; max-width: 100%; overflow-x: hidden;"
