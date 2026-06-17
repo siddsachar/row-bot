@@ -15,8 +15,6 @@ from typing import Any, Callable
 
 from row_bot.brand import APP_BRAND_ACCENT, APP_DISPLAY_NAME
 from nicegui import run, ui
-from row_bot.ui.timer_utils import safe_timer
-
 from row_bot.ui.state import AppState, P, _active_generations
 from row_bot.ui.constants import SIDEBAR_MAX_THREADS
 from row_bot.data_paths import get_row_bot_data_dir
@@ -153,6 +151,7 @@ def _persist_sidebar_dev_expanded() -> None:
             except Exception:
                 logger.debug("Failed to merge existing sidebar state", exc_info=True)
         payload["developer_workspace_expanded"] = sorted(_SIDEBAR_DEV_EXPANDED)
+        payload.pop("agent_parent_expanded", None)
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         _SIDEBAR_DEV_EXPANDED_HAS_SAVED_STATE = True
     except Exception:
@@ -280,106 +279,16 @@ def build_sidebar(
             )
             p.thread_container = ui.column().classes("w-full gap-0")
 
-        # ── Channel monitor panel ────────────────────────────────────
-        _ch_icon_map = {
-            "telegram": "send",
-            "discord": "sports_esports",
-            "slack": "tag",
-            "sms": "textsms",
-            "whatsapp": "forum",
-        }
+        # Agent Profile library
+        with ui.column().classes("w-full gap-1 q-mt-sm row-bot-inner-panel"):
+            from row_bot.ui.profile_library import build_profile_library
 
-        def _fmt_ago(epoch: float | None) -> str:
-            """Format seconds-since-epoch as a relative string."""
-            if epoch is None:
-                return ""
-            import time as _t
-            delta = int(_t.time() - epoch)
-            if delta < 60:
-                return "just now"
-            if delta < 3600:
-                return f"{delta // 60}m ago"
-            if delta < 86400:
-                return f"{delta // 3600}h ago"
-            return f"{delta // 86400}d ago"
-
-        with ui.column().classes("w-full gap-0 q-mt-sm row-bot-inner-panel"):
-            _ch_monitor_container = ui.column().classes("w-full gap-0")
-
-        def _build_channel_monitor() -> None:
-            from row_bot.channels.registry import all_channels
-            from row_bot.channels.base import get_last_activity
-
-            _ch_monitor_container.clear()
-            channels = all_channels()
-            if not channels:
-                return
-
-            with _ch_monitor_container:
-                ui.label("Channels").classes("text-subtitle2")
-
-                for ch in channels:
-                    is_on = ch.is_running()
-                    is_cfg = ch.is_configured()
-                    if ch.name == "whatsapp" and is_cfg and not is_on:
-                        try:
-                            from row_bot.channels.auth import get_approved_users
-                            from row_bot.channels.whatsapp import SESSION_DIR, _get_user_phone
-
-                            has_session = SESSION_DIR.exists() and any(SESSION_DIR.iterdir())
-                            is_cfg = bool(has_session or _get_user_phone() or get_approved_users("whatsapp"))
-                        except Exception:
-                            is_cfg = False
-
-                    if is_on:
-                        dot_color = "#4caf50"
-                        status_text = _fmt_ago(get_last_activity(ch.name)) or "Running"
-                    elif is_cfg:
-                        dot_color = "#ff9800"
-                        status_text = "Stopped"
-                    else:
-                        dot_color = "#666"
-                        status_text = "Off"
-
-                    icon_name = _ch_icon_map.get(ch.name, "chat")
-
-                    def _ch_click(e, _ch=ch):
-                        open_settings("Channels")
-
-                    with ui.row().classes(
-                        "w-full items-center no-wrap cursor-pointer q-py-xs q-px-sm rounded"
-                    ).style(
-                        "min-height: 28px; gap: 6px;"
-                        "transition: background 0.15s;"
-                    ).on("click", _ch_click).on(
-                        "mouseenter",
-                        js_handler="(e) => e.currentTarget.style.background='rgba(255,255,255,0.06)'",
-                    ).on(
-                        "mouseleave",
-                        js_handler="(e) => e.currentTarget.style.background='transparent'",
-                    ):
-                        # Status dot
-                        ui.html(
-                            f'<span style="display:inline-block;width:8px;height:8px;'
-                            f'border-radius:50%;background:{dot_color};flex-shrink:0;"></span>',
-                            sanitize=False,
-                        )
-                        # Channel icon
-                        ui.icon(icon_name, size="xs").classes(
-                            "text-grey-5" if not is_on else "text-primary"
-                        ).style("font-size: 0.85rem;")
-                        # Name
-                        ui.label(ch.display_name).classes("ellipsis").style(
-                            "font-size: 0.8rem; flex-grow: 1;"
-                            + ("opacity: 0.45;" if not is_cfg else "")
-                        )
-                        # Activity / status
-                        ui.label(status_text).classes("text-grey-6").style(
-                            "font-size: 0.7rem; flex-shrink: 0;"
-                        )
-
-        _build_channel_monitor()
-        safe_timer(5.0, _build_channel_monitor)
+            build_profile_library(
+                state,
+                p,
+                rebuild_main=rebuild_main,
+                rebuild_thread_list=lambda: _rebuild_thread_list_ref[0](),
+            )
 
         # Spacer pushes bottom section down
         ui.space()
@@ -422,8 +331,21 @@ def build_sidebar(
         # Classify every thread once so pills + list share the same data.
         from row_bot.threads import get_workflow_thread_ids
         workflow_tids = get_workflow_thread_ids()
+        try:
+            from row_bot.agent_runs import list_agent_runs
 
+            _agent_run_rows = list_agent_runs(limit=500)
+        except Exception:
+            _agent_run_rows = []
+        child_thread_ids = {
+            str(agent_run.get("thread_id") or "")
+            for agent_run in _agent_run_rows
+            if str(agent_run.get("thread_id") or "")
+            and str(agent_run.get("thread_id") or "") != str(agent_run.get("parent_thread_id") or "")
+        }
         def _cat_of(pid: str, tid: str, thread_type: str = "", dev_ws: str = "") -> str:
+            if thread_type == "agent_child" or tid in child_thread_ids:
+                return "agents"
             if pid:
                 return "designer"
             if thread_type == "code" or dev_ws:
@@ -433,7 +355,7 @@ def build_sidebar(
             return "chat"
 
         classified: list[tuple] = []
-        counts = {"all": len(threads), "chat": 0, "designer": 0, "code": 0, "workflow": 0}
+        counts = {"all": 0, "chat": 0, "designer": 0, "code": 0, "workflow": 0, "agents": 0}
         for row in threads:
             tid = row[0]
             _pid = row[5] if len(row) > 5 else ""
@@ -441,10 +363,15 @@ def build_sidebar(
             _dev_ws = row[7] if len(row) > 7 else ""
             cat = _cat_of(_pid, tid, _thread_type, _dev_ws)
             counts[cat] += 1
+            if cat != "agents":
+                counts["all"] += 1
             classified.append((row, cat))
 
         # ── Filter pill row ─────────────────────────────────────────
         global _SIDEBAR_FILTER
+        valid_filter_keys = {descriptor["key"] for descriptor in THREAD_FILTER_DESCRIPTORS}
+        if _SIDEBAR_FILTER not in valid_filter_keys:
+            _SIDEBAR_FILTER = "all"
         if p.thread_filter_container is not None and counts["all"] > 0:
             with p.thread_filter_container:
                 for descriptor in THREAD_FILTER_DESCRIPTORS:
@@ -471,7 +398,9 @@ def build_sidebar(
                     )
 
         # Apply filter
-        if _SIDEBAR_FILTER != "all":
+        if _SIDEBAR_FILTER == "all":
+            classified = [c for c in classified if c[1] != "agents"]
+        else:
             classified = [c for c in classified if c[1] == _SIDEBAR_FILTER]
 
         def _workspace_display(dev_ws: str) -> tuple[str, str]:
@@ -726,7 +655,7 @@ def build_sidebar(
                 item_classes = "w-full rounded"
                 item_style = "min-height: 40px; padding: 4px 8px;"
                 if is_developer_child:
-                    item_classes += " developer-thread-child"
+                    item_classes += " developer-thread-child sidebar-thread-child"
                     item_style += " margin-left: 18px; width: calc(100% - 18px);"
 
                 with ui.item(on_click=_select).classes(item_classes).props(
@@ -844,6 +773,8 @@ def build_sidebar(
                         _wf_tids = _gwf()
 
                         def _cat_modal(pid: str, tid: str, thread_type: str = "", dev_ws: str = "") -> str:
+                            if thread_type == "agent_child" or tid in child_thread_ids:
+                                return "agents"
                             if pid:
                                 return "designer"
                             if thread_type == "code" or dev_ws:
@@ -852,13 +783,17 @@ def build_sidebar(
                                 return "workflow"
                             return "chat"
 
-                        _modal_counts = {"all": len(threads), "chat": 0,
-                                         "designer": 0, "code": 0, "workflow": 0}
+                        _modal_counts = {"all": 0, "chat": 0,
+                                         "designer": 0, "code": 0, "workflow": 0,
+                                         "agents": 0}
                         for _r in threads:
                             _pid = _r[5] if len(_r) > 5 else ""
                             _tt = _r[6] if len(_r) > 6 else ""
                             _dw = _r[7] if len(_r) > 7 else ""
-                            _modal_counts[_cat_modal(_pid, _r[0], _tt, _dw)] += 1
+                            _cat_key = _cat_modal(_pid, _r[0], _tt, _dw)
+                            _modal_counts[_cat_key] += 1
+                            if _cat_key != "agents":
+                                _modal_counts["all"] += 1
 
                         filter_row = ui.row().classes(
                             "w-full gap-1 items-center q-mb-xs"
@@ -870,6 +805,9 @@ def build_sidebar(
                         def _render_modal_pills():
                             filter_row.clear()
                             global _MODAL_FILTER
+                            valid_modal_keys = {descriptor["key"] for descriptor in THREAD_FILTER_DESCRIPTORS}
+                            if _MODAL_FILTER not in valid_modal_keys:
+                                _MODAL_FILTER = "all"
                             with filter_row:
                                 for descriptor in THREAD_FILTER_DESCRIPTORS:
                                     key = descriptor["key"]
@@ -909,7 +847,10 @@ def build_sidebar(
                                     r[6] if len(r) > 6 else "",
                                     r[7] if len(r) > 7 else "",
                                 )
-                                if _MODAL_FILTER == "all" or _cat == _MODAL_FILTER:
+                                if (
+                                    (_MODAL_FILTER == "all" and _cat != "agents")
+                                    or _cat == _MODAL_FILTER
+                                ):
                                     _filtered.append((r, _cat))
                             with list_container:
                                 if not _filtered:
@@ -1103,14 +1044,16 @@ def build_sidebar(
                         with ui.row().classes("w-full gap-2"):
                             def _delete_all():
                                 # Respect current filter: only nuke what's visible.
-                                all_ids = [
-                                    r[0] for r in threads
-                                    if (_MODAL_FILTER == "all"
-                                        or _cat_modal(r[5] if len(r) > 5 else "",
-                                                      r[0],
-                                                      r[6] if len(r) > 6 else "",
-                                                      r[7] if len(r) > 7 else "") == _MODAL_FILTER)
-                                ]
+                                all_ids = []
+                                for r in threads:
+                                    cat = _cat_modal(
+                                        r[5] if len(r) > 5 else "",
+                                        r[0],
+                                        r[6] if len(r) > 6 else "",
+                                        r[7] if len(r) > 7 else "",
+                                    )
+                                    if (_MODAL_FILTER == "all" and cat != "agents") or cat == _MODAL_FILTER:
+                                        all_ids.append(r[0])
                                 if not all_ids:
                                     ui.notify("Nothing to delete in this filter.",
                                               type="warning")

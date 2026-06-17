@@ -1,7 +1,7 @@
 """Row-Bot UI — Command Center (right drawer).
 
-Fixed right-side panel with live workflow monitoring, approvals,
-quick launch, and recent run history.
+Fixed right-side panel with live agent/workflow monitoring, approvals,
+quick launch, profile library, and compact workflow history.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from nicegui import ui
 from row_bot.ui.timer_utils import defer_ui, safe_timer
 
 from row_bot.ui.state import AppState, P, _active_generations
+from row_bot.ui.render import open_agent_peek_dialog
 
 logger = logging.getLogger(__name__)
 
@@ -265,6 +266,7 @@ def build_command_center(
     rebuild_thread_list: Callable[[], None],
     show_task_dialog: Callable,
     load_thread_messages: Callable[[str], list[dict]],
+    open_settings: Callable[..., None] | None = None,
 ) -> None:
     """Build the always-open right drawer with 5 workflow sections."""
     from row_bot.tasks import (
@@ -311,11 +313,11 @@ def build_command_center(
             rail_shell._props["data-workflow-console-rail"] = "1"
             toggle_btn = ui.button(icon="chevron_right").classes(
                 "workflow-console-toggle"
-            ).props("round flat dense").tooltip("Toggle workflow console")
-            ui.html('<div class="workflow-console-rail-label">Workflows</div>', sanitize=False)
+            ).props("round flat dense").tooltip("Toggle Agent Console")
+            ui.html('<div class="workflow-console-rail-label">Agents</div>', sanitize=False)
             with ui.element("div").classes("workflow-console-rail-badges"):
                 running_badge = ui.html(
-                    '<div class="workflow-console-rail-badge running" title="Running workflows">0</div>',
+                    '<div class="workflow-console-rail-badge running" title="Running agents and workflows">0</div>',
                     sanitize=False,
                 )
                 approval_badge = ui.html(
@@ -357,6 +359,15 @@ def build_command_center(
             except Exception:
                 running_count = 0
             try:
+                from row_bot.agent_runs import list_agent_runs
+
+                running_count += len(list_agent_runs(
+                    statuses=["queued", "running", "waiting_approval", "waiting_user", "paused"],
+                    limit=100,
+                ))
+            except Exception:
+                pass
+            try:
                 pending_count = len(get_pending_approvals())
             except Exception:
                 pending_count = 0
@@ -367,7 +378,7 @@ def build_command_center(
                 insights_count = 0
 
             running_badge.set_content(
-                f'<div class="workflow-console-rail-badge running" title="Running workflows">{running_count}</div>'
+                f'<div class="workflow-console-rail-badge running" title="Running agents and workflows">{running_count}</div>'
             )
             approval_badge.set_content(
                 f'<div class="workflow-console-rail-badge approval" title="Pending approvals">{pending_count}</div>'
@@ -401,19 +412,213 @@ def build_command_center(
             ):
                 with ui.row().classes("w-full items-start justify-between no-wrap"):
                     with ui.column().classes("gap-0"):
-                        ui.label("Workflow Console").classes(
+                        ui.label("Agent Console").classes(
                             "text-subtitle1 font-bold"
                         ).style(f"color: {APP_BRAND_ACCENT}; letter-spacing: 0.5px;")
                         ui.label(
-                            "Background Agents"
+                            "Current activity, approvals, launch"
                         ).classes("text-xs text-grey-6").style(
                             "margin-top: -2px; letter-spacing: 0.3px;"
                         )
                     ui.button(icon="chevron_right", on_click=_toggle_drawer).props(
                         "round flat dense"
-                    ).tooltip("Collapse workflow console").style(
+                    ).tooltip("Collapse Agent Console").style(
                         f"color: {APP_BRAND_ACCENT}; margin-top: -2px;"
                     )
+
+                ui.separator().classes("q-my-none")
+                _agent_runs_container = ui.column().classes("w-full gap-0")
+                _agent_preview_state = {"run_id": ""}
+                _agent_preview_container = ui.column().classes("w-full gap-0")
+
+                def _agent_status_color(status: str) -> str:
+                    return {
+                        "queued": "grey-6",
+                        "running": "primary",
+                        "waiting_approval": "warning",
+                        "waiting_user": "warning",
+                        "paused": "amber",
+                        "completed": "positive",
+                        "failed": "negative",
+                        "blocked": "negative",
+                        "stopped": "orange",
+                    }.get(str(status or ""), "grey-6")
+
+                def _rebuild_agent_preview() -> None:
+                    _agent_preview_container.clear()
+                    run_id = str(_agent_preview_state.get("run_id") or "").strip()
+                    if not run_id:
+                        return
+                    try:
+                        from row_bot.agent_runs import get_agent_events, get_agent_run
+
+                        run_row = get_agent_run(run_id)
+                        events = get_agent_events(run_id, limit=8)
+                    except Exception:
+                        logger.debug("Could not load Agent preview", exc_info=True)
+                        run_row = None
+                        events = []
+                    with _agent_preview_container:
+                        if not run_row:
+                            _agent_preview_state["run_id"] = ""
+                            return
+                        status = str(run_row.get("status") or "unknown")
+                        title = str(run_row.get("display_name") or run_row.get("id") or "Agent")
+                        summary = str(
+                            run_row.get("summary")
+                            or run_row.get("status_message")
+                            or run_row.get("error")
+                            or ""
+                        )
+                        with ui.card().classes("w-full q-my-xs").style(
+                            "padding: 0.45rem 0.55rem; "
+                            "border-left: 3px solid rgba(96,165,250,0.8); "
+                            "overflow: hidden; box-sizing: border-box;"
+                        ):
+                            with ui.row().classes("w-full items-center no-wrap gap-1").style("overflow: hidden;"):
+                                ui.badge(status, color=_agent_status_color(status)).props("outline dense")
+                                ui.label(title).classes("text-xs font-bold ellipsis").style("flex: 1; min-width: 0;")
+                                ui.button(
+                                    icon="open_in_new",
+                                    on_click=lambda rid=run_id: open_agent_peek_dialog(rid),
+                                ).props("round flat dense size=xs").tooltip("Open preview dialog")
+                                ui.button(
+                                    icon="close",
+                                    on_click=lambda: (
+                                        _agent_preview_state.update({"run_id": ""}),
+                                        _rebuild_agent_preview(),
+                                    ),
+                                ).props("round flat dense size=xs").tooltip("Close preview")
+                            if summary:
+                                ui.label(summary).classes("text-xs text-grey-5").style(
+                                    "white-space: normal; display: -webkit-box; "
+                                    "-webkit-line-clamp: 4; -webkit-box-orient: vertical; "
+                                    "overflow: hidden;"
+                                )
+                            if events:
+                                with ui.column().classes("w-full gap-1 q-mt-xs"):
+                                    for event in events[-4:]:
+                                        event_type = str(event.get("event_type") or "event").replace("_", " ")
+                                        message = str(event.get("message") or event.get("payload_json") or "")
+                                        if len(message) > 96:
+                                            message = message[:93].rstrip() + "..."
+                                        ui.label(f"{event_type}: {message}").classes("text-xs text-grey-7 ellipsis")
+
+                def _show_agent_preview(run_id: str) -> None:
+                    _agent_preview_state["run_id"] = str(run_id or "")
+                    _rebuild_agent_preview()
+
+                def _rebuild_agent_runs() -> None:
+                    _agent_runs_container.clear()
+                    try:
+                        from row_bot.agent_runs import list_agent_runs, stop_agent_run
+
+                        attention = list_agent_runs(
+                            statuses=["waiting_approval", "waiting_user", "blocked", "failed", "timed_out"],
+                            kind="subagent",
+                            limit=6,
+                        )
+                        active = list_agent_runs(
+                            statuses=["queued", "running", "paused"],
+                            kind="subagent",
+                            limit=6,
+                        )
+                        current_recent = (
+                            list_agent_runs(
+                                parent_thread_id=str(state.thread_id or ""),
+                                kind="subagent",
+                                limit=6,
+                            )
+                            if state.thread_id
+                            else []
+                        )
+                    except Exception as exc:
+                        logger.warning("Agent Console runs unavailable: %s", exc)
+                        attention = []
+                        active = []
+                        current_recent = []
+                    with _agent_runs_container:
+                        seen: set[str] = set()
+                        ordered: list[dict] = []
+                        for bucket in (attention, active):
+                            for run_row in bucket:
+                                run_id = str(run_row.get("id") or "")
+                                if run_id and run_id not in seen:
+                                    seen.add(run_id)
+                                    ordered.append(run_row)
+                        completed_current: list[dict] = []
+                        for run_row in current_recent:
+                            run_id = str(run_row.get("id") or "")
+                            if not run_id or run_id in seen:
+                                continue
+                            status = str(run_row.get("status") or "")
+                            if status in {"completed", "completed_delivery_failed", "stopped", "cancelled"}:
+                                completed_current.append(run_row)
+                                continue
+                            seen.add(run_id)
+                            ordered.append(run_row)
+                        for run_row in completed_current[:2]:
+                            run_id = str(run_row.get("id") or "")
+                            if run_id and run_id not in seen:
+                                seen.add(run_id)
+                                ordered.append(run_row)
+                        hidden_completed = max(0, len(completed_current) - 2)
+                        label = "Current Agents"
+                        if attention:
+                            label += f" ({len(attention)} need attention)"
+                        ui.label(label).classes(
+                            "text-xs font-bold text-grey-5"
+                        ).style("letter-spacing: 0.8px; text-transform: uppercase;")
+                        if not ordered:
+                            ui.label("No active Agents").classes(
+                                "text-xs text-grey-7 q-ml-sm"
+                            ).style("opacity: 0.5;")
+                            return
+                        for agent_run in ordered[:8]:
+                            run_id = str(agent_run.get("id") or "")
+                            status = str(agent_run.get("status") or "unknown")
+                            title = str(agent_run.get("display_name") or agent_run.get("id") or "Agent")
+                            profile = str(
+                                agent_run.get("profile_display_name")
+                                or agent_run.get("profile_slug")
+                                or agent_run.get("kind")
+                                or "Agent"
+                            )
+                            message = str(
+                                agent_run.get("status_message")
+                                or agent_run.get("summary")
+                                or agent_run.get("error")
+                                or ""
+                            )
+                            with ui.row().classes(
+                                "w-full items-center no-wrap gap-1 q-py-xs"
+                            ).style("overflow: hidden;"):
+                                ui.badge(status, color=_agent_status_color(status)).props("outline dense")
+                                ui.label(title).classes("text-xs ellipsis").style("flex: 1; min-width: 0;")
+                                ui.label(profile).classes("text-xs text-grey-6 ellipsis").style("max-width: 110px;")
+                                if message:
+                                    ui.label(message).classes("text-xs text-grey-7 ellipsis").style("max-width: 120px;")
+                                if run_id:
+                                    ui.button(
+                                        icon="visibility",
+                                        on_click=lambda rid=run_id: _show_agent_preview(rid),
+                                    ).props("round flat dense size=xs").tooltip("Peek Agent activity")
+                                if status not in {"completed", "failed", "stopped", "blocked", "cancelled", "timed_out"}:
+                                    ui.button(
+                                        icon="stop",
+                                        on_click=lambda rid=run_id: (
+                                            stop_agent_run(rid),
+                                            _rebuild_agent_runs(),
+                                            _refresh_rail_counts(),
+                                        ),
+                                    ).props("round flat dense size=xs color=orange").tooltip("Stop Agent")
+                        if hidden_completed:
+                            ui.label(f"{hidden_completed} more completed in this chat").classes(
+                                "text-xs text-grey-7 q-ml-sm"
+                            ).style("opacity: 0.6;")
+
+                _rebuild_agent_runs()
+                safe_timer(5.0, _rebuild_agent_runs)
 
                 # ════════════════════════════════════════════════════
                 # §1  RUNNING
@@ -790,10 +995,10 @@ def build_command_center(
                 def _rebuild_recent() -> None:
                     _recent_container.clear()
                     recent = _safe_workflow_read(
-                        "recent runs", lambda: get_recent_runs(8), None
+                        "recent runs", lambda: get_recent_runs(4), None
                     )
                     with _recent_container:
-                        ui.label("🕐 Recent Runs").classes(
+                        ui.label("Recent Workflows").classes(
                             "text-xs font-bold text-grey-5"
                         ).style(
                             "letter-spacing: 0.8px; text-transform: uppercase;"
@@ -889,6 +1094,16 @@ def build_command_center(
 
                 _rebuild_recent()
                 safe_timer(10.0, _rebuild_recent)
+
+            with ui.column().classes("w-full gap-2 row-bot-inner-panel workflow-console-section").style(
+                "width: 100%; min-width: 100%; max-width: 100%; overflow-x: hidden;"
+            ):
+                from row_bot.ui.channel_monitor import build_channel_monitor
+
+                build_channel_monitor(
+                    open_settings
+                    or (lambda *_args, **_kwargs: ui.notify("Open Settings > Channels", type="info"))
+                )
 
             # ════════════════════════════════════════════════════
             # §6  INSIGHTS  (separate inner panel)

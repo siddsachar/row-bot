@@ -122,7 +122,7 @@ Source: "..\requirements.txt";       DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\row-bot.ico";            DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\scripts\verify_runtime_dependencies.py"; DestDir: "{app}\app\scripts"; Flags: ignoreversion
 Source: "..\src\row_bot\*";        DestDir: "{app}\app\src\row_bot"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "__pycache__\*,*.pyc,node_modules\*,.pytest_cache\*,tests\*,test\*,test-results\*,*.test.js,*.spec.js,*.bak,*.bak[0-9]*"
-; Source-layout coverage: recursive src\row_bot include covers embedding_config.py, embedding_providers.py, providers, provider transports, model catalog, Developer, Skills Hub, self-evolution, channels\telegram.py, and channels\whatsapp.py.
+; Source-layout coverage: recursive src\row_bot include covers stability.py, embedding_config.py, embedding_providers.py, providers, provider transports, model catalog, Developer, Skills Hub, self-evolution, channels\telegram.py, and channels\whatsapp.py.
 Source: "..\static\*";              DestDir: "{app}\app\static"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\sounds\*";              DestDir: "{app}\app\sounds"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\bundled_skills\*";      DestDir: "{app}\app\bundled_skills"; Flags: ignoreversion recursesubdirs createallsubdirs

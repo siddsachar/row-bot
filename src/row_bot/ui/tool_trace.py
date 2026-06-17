@@ -7,9 +7,13 @@ individual call results remain available.
 
 from __future__ import annotations
 
+import json
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any
+
+
+AGENT_TOOL_NAMES = {"agents", "delegate_work", "agent_status", "agent_wait", "agent_stop"}
 
 
 @dataclass
@@ -61,6 +65,59 @@ def group_tool_results(tool_results: list[dict[str, Any]] | None) -> list[ToolRe
             grouped[key] = ToolResultGroup(name=key)
         grouped[key].results.append(result if isinstance(result, dict) else {"name": name, "content": str(result)})
     return list(grouped.values())
+
+
+def parse_agent_tool_payload(result: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return parsed Agents tool JSON when a tool result contains Agent Runs."""
+
+    if not isinstance(result, dict):
+        return None
+    name = str(result.get("name") or "").strip().lower()
+    content = result.get("content")
+    payload: Any = None
+    if isinstance(content, dict):
+        payload = content
+    elif isinstance(content, str):
+        text = content.strip()
+        if text.startswith("```"):
+            lines = text.splitlines()
+            if lines and lines[0].strip().startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+        try:
+            payload = json.loads(text)
+        except Exception:
+            return None
+    if not isinstance(payload, dict):
+        return None
+    if name not in AGENT_TOOL_NAMES and not (
+        isinstance(payload.get("run"), dict) or isinstance(payload.get("runs"), list)
+    ):
+        return None
+    if not isinstance(payload.get("run"), dict) and not isinstance(payload.get("runs"), list):
+        return None
+    return payload
+
+
+def agent_runs_from_payload(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Extract public Agent Run dictionaries from an Agents tool payload."""
+
+    if not isinstance(payload, dict):
+        return []
+    runs: list[dict[str, Any]] = []
+    run = payload.get("run")
+    if isinstance(run, dict) and run:
+        runs.append(run)
+    raw_runs = payload.get("runs")
+    if isinstance(raw_runs, list):
+        runs.extend(item for item in raw_runs if isinstance(item, dict) and item)
+    return runs
+
+
+def is_agent_tool_result(result: dict[str, Any] | None) -> bool:
+    return parse_agent_tool_payload(result) is not None
 
 
 def display_tool_content(content: Any, *, limit: int = 5_000) -> str:

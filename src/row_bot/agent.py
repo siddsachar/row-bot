@@ -1468,6 +1468,10 @@ def _pre_model_trim(state: dict) -> dict:
     # from a previous turn from overriding the active Agent/tool contract.
     _injections.append(SystemMessage(content=_agent_runtime_system_context()))
 
+    profile_context = _agent_profile_system_context(_current_thread_id_var.get() or "")
+    if profile_context:
+        _injections.append(SystemMessage(content=profile_context))
+
     # Platform / shell context
     try:
         from row_bot.prompts import get_platform_context
@@ -1945,6 +1949,15 @@ _current_generation_id_var: _contextvars.ContextVar[str] = _contextvars.ContextV
 _developer_context_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
     "developer_context", default=""
 )
+_current_agent_profile_id_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
+    "current_agent_profile_id", default=""
+)
+_current_agent_profile_snapshot_var: _contextvars.ContextVar[dict] = _contextvars.ContextVar(
+    "current_agent_profile_snapshot", default={}
+)
+_current_tool_allowlist_var: _contextvars.ContextVar[tuple[str, ...]] = _contextvars.ContextVar(
+    "current_tool_allowlist", default=()
+)
 
 
 def get_current_thread_id() -> str:
@@ -1966,6 +1979,8 @@ def get_active_runtime_context() -> dict:
         "generation_id": _current_generation_id_var.get(""),
         "model_override": _model_override_var.get(""),
         "enabled_tool_names": tuple(_current_enabled_tool_names_var.get(()) or ()),
+        "tool_allowlist": tuple(_current_tool_allowlist_var.get(()) or ()),
+        "agent_profile_id": _current_agent_profile_id_var.get(""),
     }
 
 
@@ -1980,6 +1995,9 @@ def _set_active_runtime_context(
     generation_id: str = "",
     model_override: str = "",
     enabled_tool_names: list[str] | tuple[str, ...] | None = None,
+    tool_allowlist: list[str] | tuple[str, ...] | None = None,
+    agent_profile_id: str = "",
+    agent_profile_snapshot: dict | None = None,
 ) -> None:
     _current_thread_id_var.set(thread_id or "")
     _current_runtime_surface_var.set(runtime_surface or "")
@@ -1990,6 +2008,87 @@ def _set_active_runtime_context(
     _current_generation_id_var.set(generation_id or "")
     _model_override_var.set(model_override or "")
     _current_enabled_tool_names_var.set(tuple(enabled_tool_names or ()))
+    _current_tool_allowlist_var.set(tuple(tool_allowlist or ()))
+    _current_agent_profile_id_var.set(agent_profile_id or "")
+    _current_agent_profile_snapshot_var.set(dict(agent_profile_snapshot or {}))
+
+
+def _agent_profile_system_context(thread_id: str = "") -> str:
+    """Return the active Agent Profile runtime prompt for this invocation."""
+    snapshot = dict(_current_agent_profile_snapshot_var.get({}) or {})
+    ref = str(_current_agent_profile_id_var.get("") or snapshot.get("id") or "").strip()
+    profile = snapshot if snapshot else None
+    if profile is None and not ref and thread_id:
+        try:
+            from row_bot.threads import _get_thread_agent_profile
+
+            pointer = _get_thread_agent_profile(thread_id)
+            ref = str(pointer.get("id") or pointer.get("slug") or "").strip()
+        except Exception:
+            ref = ""
+    if profile is None and ref:
+        try:
+            from row_bot.agent_profiles import get_agent_profile
+
+            profile = get_agent_profile(ref, enabled_only=False)
+        except Exception:
+            profile = None
+    if not ref and not profile:
+        return ""
+    if not profile:
+        return (
+            "THREAD AGENT PROFILE WARNING:\n"
+            f"The selected Agent Profile `{ref}` could not be found. Use normal Row-Bot behavior "
+            "and tell the user they can run `/profile clear` or choose another profile."
+        )
+    if not profile.get("enabled", True):
+        return (
+            "THREAD AGENT PROFILE WARNING:\n"
+            f"The selected Agent Profile `{profile.get('slug') or ref}` is disabled. Use normal Row-Bot behavior "
+            "and tell the user they can run `/profile clear` or choose another profile."
+        )
+
+    instructions = str(profile.get("instructions") or "").strip()
+    handoff = str(profile.get("handoff_contract") or "").strip()
+    description = str(profile.get("description") or "").strip()
+    when_to_use = str(profile.get("when_to_use") or "").strip()
+    tool_policy = profile.get("tool_policy_json") or {}
+    skill_policy = profile.get("skill_policy_json") or {}
+    context_policy = profile.get("context_policy_json") or {}
+    workspace_policy = profile.get("workspace_policy_json") or {}
+    if not isinstance(tool_policy, dict):
+        tool_policy = {}
+    if not isinstance(skill_policy, dict):
+        skill_policy = {}
+    if not isinstance(context_policy, dict):
+        context_policy = {}
+    if not isinstance(workspace_policy, dict):
+        workspace_policy = {}
+    parts = [
+        f"AGENT PROFILE: {profile.get('display_name') or profile.get('slug')}",
+        f"Slug: {profile.get('slug')}",
+    ]
+    if description:
+        parts.extend(["", "Description:", description])
+    if when_to_use:
+        parts.extend(["", "When to use:", when_to_use])
+    if instructions:
+        parts.extend(["", "Profile instructions:", instructions])
+    if handoff:
+        parts.extend(["", "Handoff contract:", handoff])
+    policy_bits = [
+        f"capability={tool_policy.get('capability', 'read_only')}",
+        f"context={context_policy.get('default_context_mode', 'auto')}",
+        f"workspace={workspace_policy.get('workspace_mode_default', 'auto')}",
+    ]
+    allow_tools = tool_policy.get("allow_tools") or []
+    profile_skills = skill_policy.get("skills_override") or []
+    if allow_tools:
+        policy_bits.append(f"allow_tools={', '.join(str(name) for name in allow_tools)}")
+    if profile_skills:
+        policy_bits.append(f"profile_skills={', '.join(profile_skills)}")
+    parts.extend(["", "Profile policy summary:", ", ".join(policy_bits)])
+    return "\n".join(parts).strip()
 
 
 def _log_runtime_decision(
@@ -2585,12 +2684,41 @@ def _install_custom_tool_validation_repair(lc_tools: list, provider_id: str | No
             )
 
 
+def _normalize_tool_allowlist(
+    tool_allowlist: list[str] | tuple[str, ...] | set[str] | None,
+) -> tuple[str, ...] | None:
+    if tool_allowlist is None:
+        return None
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in tool_allowlist:
+        text = str(item or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            result.append(text)
+    return tuple(result)
+
+
+def _runtime_tool_allowlist(configurable: dict | None) -> tuple[str, ...] | None:
+    if not isinstance(configurable, dict) or "tool_allowlist" not in configurable:
+        return None
+    raw = configurable.get("tool_allowlist")
+    if isinstance(raw, (list, tuple, set)):
+        return _normalize_tool_allowlist(raw)
+    if raw:
+        return _normalize_tool_allowlist([str(raw)])
+    return tuple()
+
+
 def get_agent_graph(enabled_tool_names: list[str] | None = None,
-                    model_override: str | None = None):
+                    model_override: str | None = None,
+                    tool_allowlist: list[str] | tuple[str, ...] | set[str] | None = None):
     """Build (or return cached) a ReAct agent graph for the given set of
     enabled tools.  The agent is rebuilt only when the tool set changes."""
     if enabled_tool_names is None:
         enabled_tool_names = [t.name for t in tool_registry.get_enabled_tools()]
+    normalized_allowlist = _normalize_tool_allowlist(tool_allowlist)
+    allow_set = set(normalized_allowlist or ()) if normalized_allowlist is not None else None
 
     # Resolve and preflight the model before building tools or graph state.
     use_override = False
@@ -2631,7 +2759,12 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
         f"ready:{readiness.capability_source}:{readiness.confidence}",
         f"bg:{is_background}",
         f"approval:{approval_mode}",
+        f"tool_allowlist:{'none' if normalized_allowlist is None else 'active'}",
     })
+    if normalized_allowlist is not None:
+        cache_key = cache_key | frozenset(
+            f"tool_allow:{name}" for name in sorted(normalized_allowlist)
+        )
 
     if cache_key not in _agent_cache:
         with _agent_cache_lock:
@@ -2643,32 +2776,59 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
             for name in enabled_tool_names:
                 tool_obj = tool_registry.get_tool(name)
                 if tool_obj is not None:
+                    if allow_set is not None:
+                        if name == "mcp":
+                            mcp_selected = "mcp" in allow_set or any(
+                                item.startswith("mcp_") for item in allow_set
+                            )
+                            if not mcp_selected:
+                                continue
+                            try:
+                                from row_bot.mcp_client import runtime as mcp_runtime
+
+                                lc_tools.extend(mcp_runtime.get_langchain_tools(allow_names=allow_set))
+                                destructive_names.update(
+                                    mcp_runtime.get_destructive_tool_names(allow_names=allow_set)
+                                )
+                            except Exception as exc:
+                                logger.debug("MCP allow-list injection skipped: %s", exc, exc_info=True)
+                                if "mcp" in allow_set:
+                                    lc_tools.extend(tool_obj.as_langchain_tools())
+                                    destructive_names.update(tool_obj.destructive_tool_names)
+                            continue
+                        if name not in allow_set:
+                            continue
                     lc_tools.extend(tool_obj.as_langchain_tools())
                     destructive_names.update(tool_obj.destructive_tool_names)
 
             # Append tools from enabled plugins (totally separate registry)
             try:
                 from row_bot.plugins import registry as plugin_registry_mod
-                lc_tools.extend(plugin_registry_mod.get_langchain_tools())
-                destructive_names.update(plugin_registry_mod.get_destructive_names())
+                if allow_set is None:
+                    lc_tools.extend(plugin_registry_mod.get_langchain_tools())
+                    destructive_names.update(plugin_registry_mod.get_destructive_names())
+                else:
+                    lc_tools.extend(plugin_registry_mod.get_langchain_tools(allow_names=allow_set))
+                    destructive_names.update(plugin_registry_mod.get_destructive_names(allow_names=allow_set))
             except Exception as exc:
                 logger.debug("Plugin tool injection skipped: %s", exc)
 
             # Append auto-generated tools for running channels (tool_factory)
-            try:
-                from row_bot.channels.registry import running_channels as _running_channels
-                from row_bot.channels.tool_factory import create_channel_tools as _create_ch_tools
-                for _ch in _running_channels():
-                    try:
-                        _ch_tools = _create_ch_tools(_ch)
-                        lc_tools.extend(_ch_tools)
-                        logger.debug("Injected %d tools for channel %s",
-                                     len(_ch_tools), _ch.name)
-                    except Exception as exc:
-                        logger.debug("Channel tool injection for %s skipped: %s",
-                                     _ch.name, exc)
-            except Exception as exc:
-                logger.debug("Channel tool injection skipped: %s", exc)
+            if allow_set is None:
+                try:
+                    from row_bot.channels.registry import running_channels as _running_channels
+                    from row_bot.channels.tool_factory import create_channel_tools as _create_ch_tools
+                    for _ch in _running_channels():
+                        try:
+                            _ch_tools = _create_ch_tools(_ch)
+                            lc_tools.extend(_ch_tools)
+                            logger.debug("Injected %d tools for channel %s",
+                                         len(_ch_tools), _ch.name)
+                        except Exception as exc:
+                            logger.debug("Channel tool injection for %s skipped: %s",
+                                         _ch.name, exc)
+                except Exception as exc:
+                    logger.debug("Channel tool injection skipped: %s", exc)
 
             if is_background:
                 if approval_mode in {"block", "approve"}:
@@ -2787,6 +2947,7 @@ def invoke_agent(user_input: str, enabled_tool_names: list[str], config: dict,
     # Set thread-local before graph construction so readiness/provider errors
     # are attributed to the explicit thread selection.
     configurable = config.get("configurable") or {}
+    _tool_allowlist = _runtime_tool_allowlist(configurable)
     runtime_surface = str(configurable.get("runtime_surface") or "agent")
     runtime_mode = str(configurable.get("runtime_mode") or "agent")
     model_label, _ = _selected_model_label_from_config(config)
@@ -2800,6 +2961,9 @@ def invoke_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         generation_id=str(configurable.get("generation_id") or ""),
         model_override=_model_ov or "",
         enabled_tool_names=enabled_tool_names,
+        tool_allowlist=_tool_allowlist,
+        agent_profile_id=str(configurable.get("agent_profile_id") or ""),
+        agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
     )
     _developer_context_var.set(
         configurable.get("developer_context", "") or ""
@@ -2817,7 +2981,11 @@ def invoke_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         reason="invoke_agent",
         context_window=get_context_size(model_label),
     )
-    agent = get_agent_graph(enabled_tool_names, model_override=_model_ov)
+    agent = get_agent_graph(
+        enabled_tool_names,
+        model_override=_model_ov,
+        tool_allowlist=_tool_allowlist,
+    )
 
     # Summarize if context is above threshold
     if stop_event and stop_event.is_set():
@@ -3049,6 +3217,9 @@ def _build_chat_only_messages(thread_id: str, user_input: str, *, context_window
     raw_messages = get_latest_checkpoint_messages(thread_id)
     ui_messages = langchain_messages_to_ui_messages(raw_messages)
     messages = [SystemMessage(content=get_chat_only_system_prompt())]
+    profile_context = _agent_profile_system_context(thread_id)
+    if profile_context:
+        messages.append(SystemMessage(content=profile_context))
     for msg in ui_messages:
         role = str(msg.get("role") or "")
         content = _chat_only_content_from_ui_message(msg)
@@ -3059,6 +3230,7 @@ def _build_chat_only_messages(thread_id: str, user_input: str, *, context_window
         elif role == "assistant":
             messages.append(AIMessage(content=content))
     messages.append(HumanMessage(content=user_input))
+    messages = _consolidate_system_messages(messages)
 
     budget = int((context_window or 16_384) * 0.85)
     return trim_messages(
@@ -3107,6 +3279,8 @@ def stream_chat_only(
         generation_id=str(configurable.get("generation_id") or ""),
         model_override=model_label,
         enabled_tool_names=(),
+        agent_profile_id=str(configurable.get("agent_profile_id") or ""),
+        agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
     )
     set_active_model_override(model_label)
     _readiness_started = time.perf_counter()
@@ -3304,6 +3478,7 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
     runtime_surface = str(configurable.get("runtime_surface") or "agent")
     runtime_mode = str(configurable.get("runtime_mode") or "agent")
     _model_ov = configurable.get("model_override")
+    _tool_allowlist = _runtime_tool_allowlist(configurable)
     model_label, _ = _selected_model_label_from_config(config)
     phase_timings: dict[str, Any] = {
         "generation.generation_id": str(configurable.get("generation_id") or ""),
@@ -3320,6 +3495,9 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         generation_id=str(configurable.get("generation_id") or ""),
         model_override=_model_ov or "",
         enabled_tool_names=enabled_tool_names,
+        tool_allowlist=_tool_allowlist,
+        agent_profile_id=str(configurable.get("agent_profile_id") or ""),
+        agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
     )
     auto_allowed = runtime_mode == "auto" and runtime_surface in {"normal_chat", "channel"}
     if runtime_mode == "chat_only" or auto_allowed:
@@ -3411,13 +3589,20 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         generation_id=str(configurable.get("generation_id") or ""),
         model_override=_model_ov or "",
         enabled_tool_names=enabled_tool_names,
+        tool_allowlist=_tool_allowlist,
+        agent_profile_id=str(configurable.get("agent_profile_id") or ""),
+        agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
     )
     _developer_context_var.set(
         (config.get("configurable") or {}).get("developer_context", "") or ""
     )
     set_active_model_override(_model_ov or "")
     _graph_build_started = time.perf_counter()
-    agent = get_agent_graph(enabled_tool_names, model_override=_model_ov)
+    agent = get_agent_graph(
+        enabled_tool_names,
+        model_override=_model_ov,
+        tool_allowlist=_tool_allowlist,
+    )
     phase_timings["generation.graph_build_ms"] = (
         time.perf_counter() - _graph_build_started
     ) * 1000.0
@@ -3515,6 +3700,7 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
     config = _normalize_agent_config(config)
     configurable = config.get("configurable") or {}
     _model_ov = (config.get("configurable") or {}).get("model_override")
+    _tool_allowlist = _runtime_tool_allowlist(configurable)
     _set_active_runtime_context(
         thread_id=configurable.get("thread_id", ""),
         runtime_surface=str(configurable.get("runtime_surface") or "agent"),
@@ -3525,12 +3711,19 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
         generation_id=str(configurable.get("generation_id") or ""),
         model_override=_model_ov or "",
         enabled_tool_names=enabled_tool_names,
+        tool_allowlist=_tool_allowlist,
+        agent_profile_id=str(configurable.get("agent_profile_id") or ""),
+        agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
     )
     _developer_context_var.set(
         configurable.get("developer_context", "") or ""
     )
     set_active_model_override(_model_ov or "")
-    agent = get_agent_graph(enabled_tool_names, model_override=_model_ov)
+    agent = get_agent_graph(
+        enabled_tool_names,
+        model_override=_model_ov,
+        tool_allowlist=_tool_allowlist,
+    )
     if interrupt_ids and len(interrupt_ids) > 1:
         resume_val = {iid: approved for iid in interrupt_ids}
     else:
@@ -3547,10 +3740,14 @@ def resume_invoke_agent(enabled_tool_names: list[str], config: dict, approved: b
     Returns the final answer text, or an interrupt dict if the graph
     pauses again (e.g. {"type": "interrupt"} for a second tool call needing
     approval).
+
+    Chained interrupts are handled after ``Command(resume=...)`` by checking
+    ``state.next`` and returning ``{"type": "interrupt", ...}``.
     """
     config = _normalize_agent_config(config)
     configurable = config.get("configurable") or {}
     _model_ov = (config.get("configurable") or {}).get("model_override")
+    _tool_allowlist = _runtime_tool_allowlist(configurable)
 
     _set_active_runtime_context(
         thread_id=configurable.get("thread_id", ""),
@@ -3562,12 +3759,19 @@ def resume_invoke_agent(enabled_tool_names: list[str], config: dict, approved: b
         generation_id=str(configurable.get("generation_id") or ""),
         model_override=_model_ov or "",
         enabled_tool_names=enabled_tool_names,
+        tool_allowlist=_tool_allowlist,
+        agent_profile_id=str(configurable.get("agent_profile_id") or ""),
+        agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
     )
     _developer_context_var.set(
         configurable.get("developer_context", "") or ""
     )
     set_active_model_override(_model_ov or "")
-    agent = get_agent_graph(enabled_tool_names, model_override=_model_ov)
+    agent = get_agent_graph(
+        enabled_tool_names,
+        model_override=_model_ov,
+        tool_allowlist=_tool_allowlist,
+    )
 
     if interrupt_ids and len(interrupt_ids) > 1:
         resume_val = {iid: approved for iid in interrupt_ids}

@@ -168,6 +168,10 @@ def test_stability_source_contracts_are_wired():
     assert '_ch_config.set("tunnel", "tunnel_main_app", _main_app_tunnel)' in app_src
     assert '_ch_config.set("tunnel", "tunnel_main_app", enabled)' in settings_src
     assert '_ch_config.set("tunnel", "tunnel_main_app", e.args)' not in settings_src
+    assert "Tunnel auto-start skipped:" in app_src
+    assert "Main-app tunnel requested but unavailable" in settings_src
+    assert "main_app_switch.value = False" in settings_src
+    assert "Tunnel cannot start: {status_detail}" in settings_src
     assert "install_asyncio_exception_handler(loop)" in discord_src
     assert "loop.run_until_complete(client.close())" in discord_src
     assert "loop.shutdown_asyncgens()" in discord_src

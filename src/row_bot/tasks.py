@@ -92,7 +92,8 @@ _CREATE_TABLE_SQL = {
             trigger             TEXT,
             tools_override      TEXT,
             channels            TEXT,
-            advanced_mode       INTEGER DEFAULT 0
+            advanced_mode       INTEGER DEFAULT 0,
+            agent_profile_id    TEXT DEFAULT ''
         )
     """,
     "task_runs": """
@@ -150,7 +151,11 @@ _CREATE_TABLE_SQL = {
             requested_at    TEXT DEFAULT (datetime('now')),
             responded_at    TEXT,
             timeout_at      TEXT,
-            response_note   TEXT
+            response_note   TEXT,
+            agent_run_id    TEXT DEFAULT '',
+            resume_kind     TEXT DEFAULT '',
+            source_label    TEXT DEFAULT '',
+            source_thread_id TEXT DEFAULT ''
         )
     """,
     "approval_channel_refs": """
@@ -192,6 +197,7 @@ _COLUMN_MIGRATIONS = {
         ("tools_override", "TEXT"),
         ("channels", "TEXT"),
         ("advanced_mode", "INTEGER DEFAULT 0"),
+        ("agent_profile_id", "TEXT DEFAULT ''"),
     ],
     "task_runs": [
         ("finished_at", "TEXT"),
@@ -214,6 +220,15 @@ _COLUMN_MIGRATIONS = {
         ("created_at", "TEXT DEFAULT ''"),
         ("updated_at", "TEXT DEFAULT ''"),
     ],
+    "approval_requests": [
+        ("responded_at", "TEXT"),
+        ("timeout_at", "TEXT"),
+        ("response_note", "TEXT"),
+        ("agent_run_id", "TEXT DEFAULT ''"),
+        ("resume_kind", "TEXT DEFAULT ''"),
+        ("source_label", "TEXT DEFAULT ''"),
+        ("source_thread_id", "TEXT DEFAULT ''"),
+    ],
 }
 
 _REQUIRED_COLUMNS = {
@@ -224,7 +239,7 @@ _REQUIRED_COLUMNS = {
         "persistent_thread_id", "delete_after_run", "allowed_commands",
         "allowed_recipients", "skills_override", "steps", "safety_mode",
         "concurrency_group", "trigger", "tools_override", "channels",
-        "advanced_mode",
+        "advanced_mode", "agent_profile_id",
     },
     "task_runs": {
         "id", "task_id", "thread_id", "started_at", "finished_at", "status",
@@ -240,7 +255,8 @@ _REQUIRED_COLUMNS = {
     "approval_requests": {
         "id", "run_id", "task_id", "step_id", "resume_token", "message",
         "channel", "status", "requested_at", "responded_at", "timeout_at",
-        "response_note",
+        "response_note", "agent_run_id", "resume_kind", "source_label",
+        "source_thread_id",
     },
     "approval_channel_refs": {"id", "approval_id", "channel", "message_ref"},
 }
@@ -548,7 +564,8 @@ def _init_db() -> None:
             trigger             TEXT,                   -- JSON trigger config (null = schedule/manual only)
             tools_override      TEXT,                    -- JSON list of tool names (null = all enabled)
             channels            TEXT,                    -- JSON list of channel names (null = workflow default)
-            advanced_mode       INTEGER DEFAULT 0        -- 1 = reopen in Advanced editor mode
+            advanced_mode       INTEGER DEFAULT 0,       -- 1 = reopen in Advanced editor mode
+            agent_profile_id    TEXT DEFAULT ''          -- optional Agent Profile id/slug
         )
     """)
     conn.execute("""
@@ -604,7 +621,11 @@ def _init_db() -> None:
             requested_at    TEXT DEFAULT (datetime('now')),
             responded_at    TEXT,
             timeout_at      TEXT,
-            response_note   TEXT
+            response_note   TEXT,
+            agent_run_id    TEXT DEFAULT '',
+            resume_kind     TEXT DEFAULT '',
+            source_label    TEXT DEFAULT '',
+            source_thread_id TEXT DEFAULT ''
         )
     """)
     conn.execute("""
@@ -630,6 +651,7 @@ def _init_db() -> None:
         ("tools_override", "TEXT"),
         ("channels", "TEXT"),
         ("advanced_mode", "INTEGER DEFAULT 0"),
+        ("agent_profile_id", "TEXT DEFAULT ''"),
     ]:
         try:
             conn.execute(f"ALTER TABLE tasks ADD COLUMN {col} {defn}")
@@ -661,6 +683,18 @@ def _init_db() -> None:
 
     # Existing tasks preserve current behavior — set safety_mode to 'allow_all'
     # where it's currently NULL (new tasks will default to 'block')
+    for col, defn in [
+        ("agent_run_id", "TEXT DEFAULT ''"),
+        ("resume_kind", "TEXT DEFAULT ''"),
+        ("source_label", "TEXT DEFAULT ''"),
+        ("source_thread_id", "TEXT DEFAULT ''"),
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE approval_requests ADD COLUMN {col} {defn}")
+            logger.info("Migrated approval_requests table: added '%s' column", col)
+        except Exception:
+            pass  # column already exists
+
     try:
         conn.execute(
             "UPDATE tasks SET safety_mode = 'allow_all' "
@@ -845,17 +879,36 @@ def _canonicalize_workflow_model_override(value: str | None) -> str | None:
     return canonical.ref or None
 
 
+def _canonicalize_agent_profile_reference(value: str | None) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    from row_bot.agent_profiles import require_agent_profile
+
+    profile = require_agent_profile(raw, enabled_only=True)
+    return str(profile["id"])
+
+
 def _canonicalize_workflow_steps(steps: list[dict] | None) -> list[dict] | None:
     if not steps:
         return steps
     for step in steps:
-        if not isinstance(step, dict) or "model_override" not in step:
+        if not isinstance(step, dict):
             continue
-        canonical = _canonicalize_workflow_model_override(step.get("model_override"))
-        if canonical:
-            step["model_override"] = canonical
-        else:
-            step.pop("model_override", None)
+        if "model_override" in step:
+            canonical = _canonicalize_workflow_model_override(step.get("model_override"))
+            if canonical:
+                step["model_override"] = canonical
+            else:
+                step.pop("model_override", None)
+        if "agent_profile_id" in step:
+            canonical_profile = _canonicalize_agent_profile_reference(
+                step.get("agent_profile_id")
+            )
+            if canonical_profile:
+                step["agent_profile_id"] = canonical_profile
+            else:
+                step.pop("agent_profile_id", None)
     return steps
 
 
@@ -983,6 +1036,7 @@ def create_task(
     tools_override: list[str] | None = None,
     channels: list[str] | None = None,
     advanced_mode: bool | None = None,
+    agent_profile_id: str | None = None,
     enabled: bool = True,
     apply_default_skills: bool = True,
 ) -> str:
@@ -1018,6 +1072,7 @@ def create_task(
     if advanced_mode is None:
         advanced_mode = bool(steps)
     model_override = _canonicalize_workflow_model_override(model_override)
+    agent_profile_id = _canonicalize_agent_profile_reference(agent_profile_id)
     safety_mode = legacy_safety_mode_to_approval_mode(safety_mode)
     if notify_only:
         skills_override = None
@@ -1040,8 +1095,9 @@ def create_task(
         "(id, name, description, icon, prompts, schedule, at, notify_only, "
         "notify_label, delivery_channel, delivery_target, model_override, "
         "persistent_thread_id, delete_after_run, created_at, enabled, skills_override, "
-        "steps, safety_mode, concurrency_group, trigger, tools_override, channels, advanced_mode) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "steps, safety_mode, concurrency_group, trigger, tools_override, channels, "
+        "advanced_mode, agent_profile_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             task_id, name, description, icon, json.dumps(prompts),
             schedule, at, int(notify_only), notify_label,
@@ -1055,6 +1111,7 @@ def create_task(
             json.dumps(tools_override) if tools_override else None,
             json.dumps(channels) if channels is not None else None,
             int(bool(advanced_mode)),
+            agent_profile_id,
         ),
     )
     conn.commit()
@@ -1109,7 +1166,7 @@ def update_task(task_id: str, **kwargs) -> None:
         "allowed_commands", "allowed_recipients",
         "skills_override",
         "steps", "safety_mode", "concurrency_group", "trigger",
-        "tools_override", "channels", "advanced_mode",
+        "tools_override", "channels", "advanced_mode", "agent_profile_id",
     }
 
     # ── Validate delivery if either field is being changed ───────────
@@ -1129,6 +1186,8 @@ def update_task(task_id: str, **kwargs) -> None:
             value = _canonicalize_workflow_model_override(value)
         if key == "safety_mode":
             value = legacy_safety_mode_to_approval_mode(value)
+        if key == "agent_profile_id":
+            value = _canonicalize_agent_profile_reference(value)
         if key == "steps" and isinstance(value, list):
             assign_step_ids(value)
             _canonicalize_workflow_steps(value)
@@ -1251,6 +1310,7 @@ def duplicate_task(task_id: str) -> str | None:
         concurrency_group=task.get("concurrency_group"),
         channels=task.get("channels"),
         advanced_mode=bool(task.get("advanced_mode")),
+        agent_profile_id=task.get("agent_profile_id"),
         apply_default_skills=False,
     )
 
@@ -1278,6 +1338,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     d["tools_override"] = json.loads(raw_tools) if raw_tools else None
     raw_channels = d.get("channels")
     d["channels"] = json.loads(raw_channels) if raw_channels else None
+    d["agent_profile_id"] = str(d.get("agent_profile_id") or "")
     if d.get("safety_mode"):
         d["safety_mode"] = legacy_safety_mode_to_approval_mode(d.get("safety_mode"))
     # Auto-convert: if steps is empty but prompts exist, synthesize steps
@@ -1315,6 +1376,79 @@ def _steps_to_prompts(steps: list[dict]) -> list[str]:
 
 # ── Run History ──────────────────────────────────────────────────────────────
 
+def _workflow_agent_profile_ref(task: dict | None) -> str:
+    if not task:
+        return ""
+    profile_ref = str(task.get("agent_profile_id") or "")
+    if profile_ref:
+        return profile_ref
+    for step in task.get("steps") or []:
+        if isinstance(step, dict) and step.get("agent_profile_id"):
+            return str(step.get("agent_profile_id") or "")
+    return ""
+
+
+def _mirror_workflow_agent_run_start(
+    run_id: str,
+    *,
+    task_id: str,
+    thread_id: str,
+    steps_total: int,
+    task_name: str = "",
+) -> None:
+    try:
+        task = get_task(task_id)
+        from row_bot.agent_runs import mirror_workflow_run_start
+
+        mirror_workflow_run_start(
+            run_id,
+            task_id=task_id,
+            thread_id=thread_id,
+            display_name=task_name or (task or {}).get("name", ""),
+            steps_total=steps_total,
+            profile_id=_workflow_agent_profile_ref(task),
+            approval_mode=get_task_approval_mode(task) if task else DEFAULT_APPROVAL_MODE,
+            model_override=str((task or {}).get("model_override") or ""),
+            tools_override=(task or {}).get("tools_override"),
+            skills_override=(task or {}).get("skills_override"),
+        )
+    except Exception:
+        logger.debug("Workflow agent-run mirror start failed for %s", run_id, exc_info=True)
+
+
+def _mirror_workflow_agent_run_progress(
+    run_id: str,
+    steps_done: int,
+    *,
+    steps_total: int = 0,
+    label: str = "",
+) -> None:
+    try:
+        from row_bot.agent_runs import mirror_workflow_progress
+
+        mirror_workflow_progress(
+            run_id,
+            steps_done,
+            steps_total=steps_total,
+            label=label,
+        )
+    except Exception:
+        logger.debug("Workflow agent-run mirror progress failed for %s", run_id, exc_info=True)
+
+
+def _mirror_workflow_agent_run_finish(
+    run_id: str,
+    status: str,
+    status_message: str = "",
+) -> None:
+    try:
+        from row_bot.agent_runs import mirror_workflow_finish
+
+        mirror_workflow_finish(run_id, status, status_message)
+    except Exception:
+        logger.debug("Workflow agent-run mirror finish failed for %s", run_id, exc_info=True)
+
+
 @_schema_retry
 def _record_run_start(task_id: str, thread_id: str, steps_total: int,
                       task_name: str = "", task_icon: str = "") -> str:
@@ -1329,6 +1463,13 @@ def _record_run_start(task_id: str, thread_id: str, steps_total: int,
     )
     conn.commit()
     conn.close()
+    _mirror_workflow_agent_run_start(
+        run_id,
+        task_id=task_id,
+        thread_id=thread_id,
+        steps_total=steps_total,
+        task_name=task_name,
+    )
     return run_id
 
 
@@ -1341,6 +1482,7 @@ def _update_run_progress(run_id: str, steps_done: int) -> None:
     )
     conn.commit()
     conn.close()
+    _mirror_workflow_agent_run_progress(run_id, steps_done)
 
 
 @_schema_retry
@@ -1357,6 +1499,7 @@ def _finish_run(run_id: str, status: str = "completed",
         conn.execute("DELETE FROM pipeline_state WHERE run_id = ?", (run_id,))
     conn.commit()
     conn.close()
+    _mirror_workflow_agent_run_finish(run_id, status, status_message)
 
 
 def _emit_buddy_workflow_event(
@@ -3368,6 +3511,10 @@ def create_approval_request(
     message: str,
     channel: str | None = None,
     timeout_minutes: int = 30,
+    agent_run_id: str = "",
+    resume_kind: str = "",
+    source_label: str = "",
+    source_thread_id: str = "",
 ) -> tuple[str, str]:
     """Create an approval request and return ``(resume_token, request_id)``."""
     req_id = uuid.uuid4().hex[:12]
@@ -3379,10 +3526,12 @@ def create_approval_request(
     conn.execute(
         "INSERT INTO approval_requests "
         "(id, run_id, task_id, step_id, resume_token, message, channel, "
-        "status, requested_at, timeout_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)",
+        "status, requested_at, timeout_at, agent_run_id, resume_kind, "
+        "source_label, source_thread_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)",
         (req_id, run_id, task_id, step_id, resume_token, message,
-         channel, datetime.now().isoformat(), timeout_at),
+         channel, datetime.now().isoformat(), timeout_at,
+         agent_run_id, resume_kind, source_label, source_thread_id),
     )
     conn.commit()
     conn.close()
@@ -3514,7 +3663,16 @@ def respond_to_approval(resume_token: str, approved: bool,
     # Resume the pipeline — for graph-interrupted steps, denial resumes
     # the graph with approved=False so the tool returns "cancelled" and
     # the step (and subsequent steps) can still complete.
-    resume_pipeline(resume_token, approved=approved)
+    if str(r.get("resume_kind") or "") == "agent_run":
+        from row_bot.agent_runner import resume_agent_run
+
+        resume_agent_run(
+            str(r.get("agent_run_id") or r.get("run_id") or ""),
+            resume_token=resume_token,
+            approved=approved,
+        )
+    else:
+        resume_pipeline(resume_token, approved=approved)
     return True
 
 
@@ -3549,7 +3707,16 @@ def _check_approval_timeouts() -> None:
             label="Approval timed out",
             message=str(r.get("message") or ""),
         )
-        _resume_pipeline(r["resume_token"], approved=False)
+        if str(r.get("resume_kind") or "") == "agent_run":
+            from row_bot.agent_runner import resume_agent_run
+
+            resume_agent_run(
+                str(r.get("agent_run_id") or r.get("run_id") or ""),
+                resume_token=str(r.get("resume_token") or ""),
+                approved=False,
+            )
+        else:
+            _resume_pipeline(r["resume_token"], approved=False)
         logger.info("Approval request %s timed out for task %s",
                      r["id"], r["task_id"])
     if expired:

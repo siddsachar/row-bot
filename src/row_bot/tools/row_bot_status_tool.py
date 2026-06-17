@@ -47,7 +47,7 @@ class _StatusQueryInput(BaseModel):
             "'channels' (messaging channel status), "
             "'memory' (knowledge graph stats), "
             "'skills' (Skill Library availability and pinned defaults), "
-            "'tools' (enabled/disabled tools), "
+            "'tools' (effective active profile tools plus global enabled/disabled tools), "
             "'mcp' (external MCP server/tool status), "
             "'providers' (provider connections, credential sources, and Quick Choices), "
             "'insights' (active dream-cycle insights and last analysis), "
@@ -55,6 +55,9 @@ class _StatusQueryInput(BaseModel):
             "'api_keys' (legacy/API key storage status — never returns key values), "
             "'identity' (configured name and personality), "
             "'tasks' (active scheduled tasks summary), "
+            "'agents' (durable Agent Runs, subagents, workflow mirrors, writer locks, and V1 defaults), "
+            "'agent_profiles' (Agent Profile Library counts, sources, active profile, and selected tools), "
+            "'goals' (Goal Mode status, turn budgets, recent progress, and blockers), "
             "'vision' (vision/camera model and settings), "
             "'image_gen' (image generation model), "
             "'video_gen' (video generation model), "
@@ -310,7 +313,8 @@ def _query_overview() -> str:
     from row_bot.version import __version__
     parts = [f"**Row-Bot v{__version__}**"]
     for cat in ("model", "providers", "vision", "image_gen", "video_gen", "voice", "api_keys", "memory",
-                "channels", "skills", "tools", "mcp", "identity", "tasks", "insights", "evolution", "config", "designer", "updates"):
+                "channels", "skills", "tools", "mcp", "identity", "tasks", "agents", "agent_profiles", "goals",
+                "insights", "evolution", "config", "designer", "updates"):
         try:
             parts.append(_QUERY_HANDLERS[cat]())
         except Exception as exc:
@@ -475,7 +479,33 @@ def _query_tools() -> str:
             if not is_enabled(t.name) and not (t.name == "developer" and active_developer)
         ]
         suffix = f", {len(contextual)} contextual" if contextual else ""
-        lines = [f"**Tools** ({len(enabled)} enabled{suffix}, {len(disabled)} disabled)"]
+        lines = [
+            "**Tools**",
+            f"- Global catalog: {len(enabled)} enabled{suffix}, {len(disabled)} disabled",
+        ]
+        profile_scope = _active_thread_profile_scope()
+        profile = profile_scope.get("profile") if isinstance(profile_scope, dict) else None
+        allow_tools = profile_scope.get("allow_tools") if isinstance(profile_scope, dict) else []
+        if isinstance(profile, dict) and allow_tools:
+            active_label = profile.get("display_name") or profile.get("slug") or "active profile"
+            state = "enabled" if profile.get("enabled", True) else "disabled"
+            lines.extend([
+                "",
+                "**Effective Thread Tool Scope**",
+                f"- Active profile: {active_label} ({profile.get('slug')}, {state})",
+                (
+                    "- Runtime enforcement: selected tools are runtime-bound for this thread; "
+                    "other global tools are not bound while this profile is active."
+                ),
+                f"- Effective tools: {_format_selected_tool_ids(allow_tools)}",
+            ])
+            runtime_allowlist = profile_scope.get("runtime_allowlist") or []
+            if runtime_allowlist and list(runtime_allowlist) != list(allow_tools):
+                lines.append(
+                    f"- Runtime allow-list: {_format_selected_tool_ids(runtime_allowlist)}"
+                )
+            lines.append("")
+            lines.append("Global tools:")
         for t in enabled:
             lines.append(f"- ✅ {t.display_name}")
         for t in contextual:
@@ -651,6 +681,406 @@ def _query_tasks() -> str:
         return "\n".join(schema_lines + [""] + lines)
     except Exception as exc:
         return f"**Scheduled Tasks**\nError: {exc}"
+
+
+def _short_status_text(value: object, limit: int = 96) -> str:
+    text = str(value or "").replace("\n", " ").strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "..."
+
+
+def _counts_by(items: list[dict], key: str) -> str:
+    counts: dict[str, int] = {}
+    for item in items:
+        value = str(item.get(key) or "unset").strip() or "unset"
+        counts[value] = counts.get(value, 0) + 1
+    if not counts:
+        return "none"
+    return ", ".join(
+        f"{name} {count}"
+        for name, count in sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))
+    )
+
+
+def _clean_tool_ids(items: object) -> list[str]:
+    if isinstance(items, str):
+        raw_items = [items]
+    elif isinstance(items, dict):
+        raw_items = []
+    else:
+        try:
+            raw_items = list(items or [])
+        except TypeError:
+            raw_items = [items]
+    return [
+        str(item).strip()
+        for item in raw_items
+        if str(item or "").strip()
+    ]
+
+
+def _profile_allow_tools(profile: dict | None) -> list[str]:
+    if not isinstance(profile, dict):
+        return []
+    tool_policy = profile.get("tool_policy_json") if isinstance(profile.get("tool_policy_json"), dict) else {}
+    return _clean_tool_ids(tool_policy.get("allow_tools") or [])
+
+
+def _active_runtime_context() -> dict:
+    try:
+        from row_bot.agent import get_active_runtime_context
+
+        context = get_active_runtime_context()
+    except Exception:
+        return {}
+    return dict(context) if isinstance(context, dict) else {}
+
+
+def _active_runtime_thread_id() -> str:
+    context = _active_runtime_context()
+    return str((context or {}).get("thread_id") or "").strip()
+
+
+def _tool_catalog_lookup() -> dict[str, dict]:
+    try:
+        from row_bot.agent_tool_catalog import list_agent_tool_catalog
+
+        catalog = list_agent_tool_catalog(include_unavailable=True)
+    except Exception:
+        catalog = []
+    lookup: dict[str, dict] = {}
+    for record in catalog:
+        if not isinstance(record, dict):
+            continue
+        for key in ("id", "runtime_name"):
+            value = str(record.get(key) or "").strip()
+            if value:
+                lookup.setdefault(value, record)
+    return lookup
+
+
+def _tool_label_for_id(tool_id: str, catalog_lookup: dict[str, dict] | None = None) -> str:
+    clean_id = str(tool_id or "").strip()
+    if not clean_id:
+        return ""
+    lookup = catalog_lookup if isinstance(catalog_lookup, dict) else _tool_catalog_lookup()
+    record = lookup.get(clean_id)
+    if isinstance(record, dict):
+        label = str(record.get("label") or record.get("runtime_name") or clean_id).strip()
+        label = re.sub(r"^[^A-Za-z0-9]+", "", label).strip()
+        if label:
+            return label
+    try:
+        tool = registry.get_tool(clean_id)
+    except Exception:
+        tool = None
+    if tool is not None:
+        return _tool_display_label(tool)
+    return clean_id
+
+
+def _format_selected_tool_ids(tool_ids: object, *, limit: int = 12) -> str:
+    clean_ids = _clean_tool_ids(tool_ids)
+    if not clean_ids:
+        return "none"
+    lookup = _tool_catalog_lookup()
+    labels: list[str] = []
+    for tool_id in clean_ids[:limit]:
+        label = _tool_label_for_id(tool_id, lookup)
+        labels.append(f"{label} ({tool_id})" if label and label != tool_id else tool_id)
+    if len(clean_ids) > limit:
+        labels.append(f"... and {len(clean_ids) - limit} more")
+    return ", ".join(labels)
+
+
+def _active_thread_profile_scope() -> dict:
+    context = _active_runtime_context()
+    thread_id = str(context.get("thread_id") or "").strip()
+    runtime_profile_ref = str(context.get("agent_profile_id") or "").strip()
+    runtime_allowlist = _clean_tool_ids(context.get("tool_allowlist") or [])
+    thread_profile_ref = ""
+    if thread_id:
+        try:
+            from row_bot.threads import _get_thread_agent_profile
+
+            pointer = _get_thread_agent_profile(thread_id)
+        except Exception:
+            pointer = {"id": "", "slug": ""}
+        if isinstance(pointer, dict):
+            thread_profile_ref = str(pointer.get("id") or pointer.get("slug") or "").strip()
+
+    profile_ref = runtime_profile_ref or thread_profile_ref
+    profile = None
+    if profile_ref:
+        try:
+            from row_bot.agent_profiles import get_agent_profile
+
+            profile = get_agent_profile(profile_ref, enabled_only=False)
+        except Exception:
+            profile = None
+
+    allow_tools = _profile_allow_tools(profile)
+    if not allow_tools and profile is None and runtime_allowlist:
+        allow_tools = list(runtime_allowlist)
+    return {
+        "thread_id": thread_id,
+        "profile_ref": profile_ref,
+        "profile": profile,
+        "allow_tools": allow_tools,
+        "runtime_allowlist": runtime_allowlist,
+    }
+
+
+def _query_agents() -> str:
+    try:
+        from row_bot.agent_runs import (
+            DEFAULT_AGENT_SETTINGS,
+            TERMINAL_STATUSES,
+            list_agent_runs,
+            list_agent_write_locks,
+        )
+
+        recent_runs = list_agent_runs(limit=12)
+        sampled_runs = list_agent_runs(limit=200)
+        writer_locks = list_agent_write_locks()
+        active_count = sum(
+            1
+            for run in sampled_runs
+            if str(run.get("status") or "") not in TERMINAL_STATUSES
+        )
+        lines = [
+            "**Agents**",
+            f"- Recent runs: {len(sampled_runs)} sampled ({active_count} active)",
+            f"- By kind: {_counts_by(sampled_runs, 'kind')}",
+            f"- By status: {_counts_by(sampled_runs, 'status')}",
+            (
+                "- Defaults: "
+                f"max concurrent {DEFAULT_AGENT_SETTINGS.get('max_concurrent_agents')}; "
+                f"max depth {DEFAULT_AGENT_SETTINGS.get('max_depth')}; "
+                f"context {DEFAULT_AGENT_SETTINGS.get('default_context_mode')}; "
+                f"workspace {DEFAULT_AGENT_SETTINGS.get('default_workspace_mode')}; "
+                f"goal max turns {DEFAULT_AGENT_SETTINGS.get('goal_max_turns')}"
+            ),
+            f"- Writer locks: {len(writer_locks)} active",
+        ]
+        if not sampled_runs:
+            lines.append("No durable Agent Runs recorded.")
+            return "\n".join(lines)
+
+        lines.append("Recent runs:")
+        for run in recent_runs[:8]:
+            label = _short_status_text(
+                run.get("display_name") or run.get("prompt") or run.get("id"),
+                72,
+            )
+            status = str(run.get("status") or "queued")
+            kind = str(run.get("kind") or "subagent")
+            profile = str(run.get("profile_display_name") or run.get("profile_slug") or "").strip()
+            profile_label = f", profile {profile}" if profile else ""
+            progress = ""
+            if int(run.get("max_turns") or 0):
+                progress = f", turns {run.get('turns_used', 0)}/{run.get('max_turns', 0)}"
+            detail = _short_status_text(
+                run.get("status_message") or run.get("summary") or run.get("error"),
+                90,
+            )
+            suffix = f" - {detail}" if detail else ""
+            lines.append(f"- {label} [{kind}/{status}{profile_label}{progress}]{suffix}")
+
+        if writer_locks:
+            lines.append("Writer locks:")
+            for lock in writer_locks[:5]:
+                key = _short_status_text(lock.get("lock_key"), 64)
+                run_id = str(lock.get("run_id") or "")
+                workspace = _short_status_text(lock.get("workspace_path") or lock.get("workspace_id"), 72)
+                workspace_label = f" ({workspace})" if workspace else ""
+                lines.append(f"- {key}: run {run_id}{workspace_label}")
+            if len(writer_locks) > 5:
+                lines.append(f"- ... and {len(writer_locks) - 5} more locks")
+        return "\n".join(lines)
+    except Exception as exc:
+        return f"**Agents**\nError: {exc}"
+
+
+def _query_agent_profiles() -> str:
+    try:
+        from row_bot.agent_profiles import list_agent_profiles
+        from row_bot.agent_tool_catalog import (
+            count_tool_ids_by_source,
+            format_tool_source_counts,
+        )
+
+        profiles = list_agent_profiles(enabled_only=False)
+        enabled = [profile for profile in profiles if profile.get("enabled", True)]
+        selected_profiles = []
+        aggregate_tool_counts: dict[str, int] = {}
+        for profile in profiles:
+            tool_policy = profile.get("tool_policy_json") if isinstance(profile.get("tool_policy_json"), dict) else {}
+            allow_tools = [
+                str(name)
+                for name in tool_policy.get("allow_tools") or []
+                if str(name or "").strip()
+            ]
+            if not allow_tools:
+                continue
+            selected_profiles.append(profile)
+            for source, count in count_tool_ids_by_source(allow_tools).items():
+                aggregate_tool_counts[source] = aggregate_tool_counts.get(source, 0) + count
+        lines = [
+            "**Agent Profiles**",
+            f"- Profiles: {len(enabled)} enabled / {len(profiles)} total",
+            f"- Sources: {_counts_by(profiles, 'source')}",
+            f"- Scopes: {_counts_by(profiles, 'scope')}",
+            f"- Tool modes: {len(profiles) - len(selected_profiles)} enabled tools / "
+            f"{len(selected_profiles)} selected tools",
+        ]
+        aggregate_text = format_tool_source_counts(aggregate_tool_counts)
+        if aggregate_text:
+            lines.append(f"- Selected tool sources: {aggregate_text}")
+        profile_scope = _active_thread_profile_scope()
+        thread_id = str(profile_scope.get("thread_id") or "").strip()
+        active = profile_scope.get("profile")
+        active_ref = str(profile_scope.get("profile_ref") or "").strip()
+        if isinstance(active, dict):
+            state = "enabled" if active.get("enabled", True) else "disabled"
+            lines.append(
+                "- Active thread profile: "
+                f"{active.get('display_name') or active.get('slug')} "
+                f"({active.get('slug')}, {state})"
+            )
+            active_allow_tools = _clean_tool_ids(profile_scope.get("allow_tools") or [])
+            if active_allow_tools:
+                source_counts = format_tool_source_counts(count_tool_ids_by_source(active_allow_tools))
+                source_suffix = f"; {source_counts}" if source_counts else ""
+                lines.append(
+                    "- Active profile tool mode: "
+                    f"selected tools ({len(active_allow_tools)} selected{source_suffix})"
+                )
+                lines.append(
+                    f"- Active profile selected tools: {_format_selected_tool_ids(active_allow_tools)}"
+                )
+                lines.append(
+                    "- Active profile enforcement: selected tools are runtime-bound; "
+                    "other global tools are not bound for this profile."
+                )
+                runtime_allowlist = _clean_tool_ids(profile_scope.get("runtime_allowlist") or [])
+                if runtime_allowlist and runtime_allowlist != active_allow_tools:
+                    lines.append(
+                        f"- Active runtime allow-list: {_format_selected_tool_ids(runtime_allowlist)}"
+                    )
+            else:
+                lines.append("- Active profile tool mode: enabled tools (no profile allow-list)")
+        elif active_ref:
+            lines.append(f"- Active thread profile: {active_ref} (not found)")
+        elif thread_id:
+            lines.append("- Active thread profile: implicit default")
+        else:
+            lines.append("- Active thread profile: no active runtime thread")
+
+        if not profiles:
+            lines.append("No Agent Profiles are available.")
+            return "\n".join(lines)
+
+        lines.append("Available profiles:")
+        for profile in profiles[:10]:
+            state = "enabled" if profile.get("enabled", True) else "disabled"
+            tool_policy = profile.get("tool_policy_json") if isinstance(profile.get("tool_policy_json"), dict) else {}
+            skill_policy = profile.get("skill_policy_json") if isinstance(profile.get("skill_policy_json"), dict) else {}
+            allow_tools = [
+                str(name)
+                for name in tool_policy.get("allow_tools") or []
+                if str(name or "").strip()
+            ]
+            tool_mode = "selected tools" if allow_tools else "enabled tools"
+            policy_bits = [
+                str(tool_policy.get("capability") or "read_only"),
+                f"tools={tool_mode}",
+                f"selected={len(allow_tools)}",
+                f"skills={len(skill_policy.get('skills_override') or [])}",
+            ]
+            source_counts = format_tool_source_counts(count_tool_ids_by_source(allow_tools)) if allow_tools else ""
+            if source_counts:
+                policy_bits.append(f"sources {source_counts}")
+            description = _short_status_text(
+                profile.get("when_to_use") or profile.get("description"),
+                90,
+            )
+            suffix = f" - {description}" if description else ""
+            lines.append(
+                f"- {profile.get('display_name') or profile.get('slug')} "
+                f"[{profile.get('slug')}, {profile.get('source')}, {state}, "
+                f"{', '.join(policy_bits)}]{suffix}"
+            )
+        if len(profiles) > 10:
+            lines.append(f"- ... and {len(profiles) - 10} more profiles")
+        return "\n".join(lines)
+    except Exception as exc:
+        return f"**Agent Profiles**\nError: {exc}"
+
+
+def _query_goals() -> str:
+    try:
+        from row_bot.goals import (
+            DEFAULT_GOAL_MAX_TURNS,
+            GOAL_TERMINAL_STATUSES,
+            get_current_goal,
+            list_goals,
+        )
+
+        recent_goals = list_goals(limit=12)
+        sampled_goals = list_goals(limit=200)
+        active_count = sum(
+            1
+            for goal in sampled_goals
+            if str(goal.get("status") or "") not in GOAL_TERMINAL_STATUSES
+        )
+        lines = [
+            "**Goals**",
+            f"- Recent goals: {len(sampled_goals)} sampled ({active_count} active/paused)",
+            f"- By status: {_counts_by(sampled_goals, 'status')}",
+            f"- Default turn budget: {DEFAULT_GOAL_MAX_TURNS}",
+        ]
+        thread_id = _active_runtime_thread_id()
+        if thread_id:
+            current = get_current_goal(thread_id, include_terminal=True)
+            if current:
+                objective = _short_status_text(current.get("objective"), 90)
+                lines.append(
+                    "- Current thread: "
+                    f"{current.get('status')} - {objective} "
+                    f"({current.get('turns_used', 0)}/{current.get('max_turns', DEFAULT_GOAL_MAX_TURNS)} turns)"
+                )
+            else:
+                lines.append("- Current thread: no visible goal")
+        else:
+            lines.append("- Current thread: no active runtime thread")
+
+        if not sampled_goals:
+            lines.append("No Goal Mode records yet.")
+            return "\n".join(lines)
+
+        lines.append("Recent goals:")
+        for goal in recent_goals[:8]:
+            objective = _short_status_text(goal.get("objective"), 76)
+            status = str(goal.get("status") or "active")
+            progress = _short_status_text(
+                goal.get("last_progress") or goal.get("last_blocker") or goal.get("status_reason"),
+                90,
+            )
+            verifier = ""
+            if int(goal.get("verifier_failures") or 0):
+                verifier = f", verifier failures {goal.get('verifier_failures')}"
+            suffix = f" - {progress}" if progress else ""
+            lines.append(
+                f"- {objective} [{status}, turns {goal.get('turns_used', 0)}/"
+                f"{goal.get('max_turns', DEFAULT_GOAL_MAX_TURNS)}{verifier}]{suffix}"
+            )
+        if len(recent_goals) > 8:
+            lines.append(f"- ... and {len(recent_goals) - 8} more goals")
+        return "\n".join(lines)
+    except Exception as exc:
+        return f"**Goals**\nError: {exc}"
 
 
 def _query_logs() -> str:
@@ -1039,6 +1469,9 @@ _QUERY_HANDLERS = {
     "api_keys": _query_api_keys,
     "identity": _query_identity,
     "tasks": _query_tasks,
+    "agents": _query_agents,
+    "agent_profiles": _query_agent_profiles,
+    "goals": _query_goals,
     "vision": _query_vision,
     "image_gen": _query_image_gen,
     "video_gen": _query_video_gen,
@@ -1748,7 +2181,8 @@ class RowBotStatusTool(BaseTool):
                 description=(
                     "Query Row-Bot's current status and configuration. "
                     "Categories: overview, version, model, channels, memory, skills, "
-                    "tools, mcp, providers, insights, evolution, api_keys, identity, tasks, vision, "
+                    "tools, mcp, providers, insights, evolution, api_keys, identity, tasks, "
+                    "agents, agent_profiles, goals, vision, "
                     "image_gen, video_gen, voice, config, designer, updates, logs, errors."
                 ),
                 args_schema=_StatusQueryInput,

@@ -60,6 +60,31 @@ BUILTIN_COMMANDS: tuple[SlashCommandSpec, ...] = (
         "Chat", "none", "stop_generation",
     ),
     SlashCommandSpec(
+        "profiles", "/profiles", ("/agent-profiles",), "Agent Profiles",
+        "List Agent Profiles available for this chat.", "badge",
+        "Agents", "optional", "profiles",
+    ),
+    SlashCommandSpec(
+        "profile", "/profile", ("/agent-profile",), "Agent Profile",
+        "Show or set the Agent Profile for this chat.", "person_pin",
+        "Agents", "prefix", "profile",
+    ),
+    SlashCommandSpec(
+        "agents", "/agents", (), "Agents",
+        "Show Agent Runs for this chat.", "hub",
+        "Agents", "optional", "agents",
+    ),
+    SlashCommandSpec(
+        "agent", "/agent", ("/subagent",), "Start Agent",
+        "Start a child Agent with an optional explicit profile.", "hub",
+        "Agents", "prefix", "agent",
+    ),
+    SlashCommandSpec(
+        "goal", "/goal", (), "Goal",
+        "Start or control a durable thread goal.", "flag",
+        "Agents", "prefix", "goal",
+    ),
+    SlashCommandSpec(
         "status", "/status", (), "Status",
         "Show a lightweight local status summary.", "monitor_heart",
         "Info", "none", "status",
@@ -268,7 +293,7 @@ def help_text(*, include_skills: bool = True) -> str:
     grouped: dict[str, list[SlashCommandSpec]] = {}
     for spec in get_command_specs(include_skills=include_skills):
         grouped.setdefault(spec.category, []).append(spec)
-    category_order = ["Chat", "Skills", "Info", "App"]
+    category_order = ["Chat", "Skills", "Agents", "Info", "App"]
     lines = ["Available slash commands"]
     for category in category_order:
         specs = grouped.pop(category, [])
@@ -336,6 +361,40 @@ def dispatch_text_command(
         from row_bot.tools.row_bot_status_tool import _row_bot_status
 
         return _row_bot_status("tools")
+    if spec.id == "profiles":
+        from row_bot.agent_commands import format_agent_profiles
+
+        return format_agent_profiles(arg)
+    if spec.id == "profile":
+        from row_bot.agent_commands import handle_thread_profile_command
+
+        return handle_thread_profile_command(thread_id, arg)
+    if spec.id == "agents":
+        from row_bot.agent_commands import format_agents_status
+
+        include_all = arg.strip().lower() in {"all", "global"}
+        return format_agents_status(parent_thread_id=thread_id, include_all=include_all)
+    if spec.id == "agent":
+        from row_bot.agent_commands import (
+            format_agent_spawn_started,
+            format_agent_spawn_usage,
+            parse_agent_spawn_text,
+            spawn_agent_from_request,
+        )
+
+        request = parse_agent_spawn_text(text)
+        if request is None:
+            return format_agent_spawn_usage()
+        run = spawn_agent_from_request(
+            thread_id,
+            request,
+            enabled_tool_names=enabled_tool_names,
+        )
+        return format_agent_spawn_started(run, request)
+    if spec.id == "goal":
+        from row_bot.goals import handle_goal_command
+
+        return handle_goal_command(thread_id, arg)
     if spec.id == "help":
         return help_text(include_skills=True)
     if spec.id == "new":

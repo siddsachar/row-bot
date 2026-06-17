@@ -687,11 +687,370 @@ def render_text_with_embeds(text: str) -> None:
         ).classes("self-start text-grey-5")
 
 
+def _agent_status_color(status: str) -> str:
+    return {
+        "queued": "amber",
+        "running": "primary",
+        "waiting_approval": "warning",
+        "waiting_user": "warning",
+        "paused": "amber",
+        "completed": "positive",
+        "failed": "negative",
+        "blocked": "negative",
+        "stopped": "orange",
+        "cancelled": "orange",
+        "timed_out": "negative",
+    }.get(str(status or "").lower(), "grey-6")
+
+
+def _short_text(value: object, limit: int = 180) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def _agent_event_slug(event: dict) -> str:
+    payload = event.get("payload_json") if isinstance(event, dict) else {}
+    payload = payload if isinstance(payload, dict) else {}
+    event_type = str(event.get("type") or "event").strip()
+    detail = ""
+    for key in (
+        "summary",
+        "status_message",
+        "message",
+        "objective",
+        "tool",
+        "path",
+        "file",
+        "error",
+    ):
+        value = payload.get(key)
+        if value:
+            detail = str(value)
+            break
+    if not detail and payload:
+        detail = ", ".join(f"{k}={v}" for k, v in list(payload.items())[:3])
+    ts = str(event.get("ts") or "").strip()
+    stamp = ts[11:16] if len(ts) >= 16 else ""
+    prefix = f"{stamp} " if stamp else ""
+    if detail:
+        return _short_text(f"{prefix}{event_type}: {detail}", 140)
+    return _short_text(f"{prefix}{event_type}", 140)
+
+
+def _extract_agent_artifacts(text: str) -> list[str]:
+    if not text:
+        return []
+    candidates = re.findall(
+        r"(?:[A-Za-z]:\\[^\n\r`'\"]+\.(?:pdf|docx|txt|md|csv|xlsx|png|jpg|jpeg|webp)|[A-Za-z0-9_. -]+\.(?:pdf|docx|txt|md|csv|xlsx|png|jpg|jpeg|webp))",
+        text,
+    )
+    seen: set[str] = set()
+    artifacts: list[str] = []
+    for item in candidates:
+        clean = item.strip().rstrip(".,;)")
+        if clean and clean not in seen:
+            seen.add(clean)
+            artifacts.append(clean)
+    return artifacts[:6]
+
+
+def open_agent_peek_dialog(run_or_id: dict | str) -> None:
+    """Open a compact read-only Agent detail dialog without leaving chat."""
+    try:
+        from row_bot.agent_runs import get_agent_events, get_agent_parent_messages, get_agent_run, stop_agent_run
+        from row_bot.ui.helpers import load_thread_messages
+
+        if isinstance(run_or_id, dict):
+            run_row = run_or_id
+            run_id = str(run_row.get("id") or "").strip()
+            if run_id:
+                run_row = get_agent_run(run_id) or run_row
+        else:
+            run_id = str(run_or_id or "").strip()
+            run_row = get_agent_run(run_id) if run_id else None
+        if not run_row:
+            ui.notify("Agent Run not found.", type="warning", close_button=True)
+            return
+        run_id = str(run_row.get("id") or run_id or "").strip()
+        status = str(run_row.get("status") or "unknown").strip()
+        name = str(run_row.get("display_name") or run_id or "Agent").strip()
+        profile = str(
+            run_row.get("profile_display_name")
+            or run_row.get("profile_slug")
+            or run_row.get("kind")
+            or "Agent"
+        ).strip()
+        thread_id = str(run_row.get("thread_id") or "").strip()
+        summary = str(
+            run_row.get("summary")
+            or run_row.get("status_message")
+            or run_row.get("error")
+            or ""
+        ).strip()
+        events = get_agent_events(run_id, limit=24) if run_id else []
+        parent_notes = get_agent_parent_messages(run_id, limit=6) if run_id else []
+        child_messages: list[dict] = []
+        if thread_id:
+            try:
+                child_messages = load_thread_messages(thread_id)[-6:]
+            except Exception:
+                logger.debug("Could not load child Agent messages for peek", exc_info=True)
+        artifacts = _extract_agent_artifacts(summary)
+        terminal = status.lower() in {
+            "completed",
+            "completed_delivery_failed",
+            "failed",
+            "blocked",
+            "stopped",
+            "cancelled",
+            "timed_out",
+        }
+
+        with ui.dialog() as dlg, ui.card().classes("q-pa-md").style(
+            "width: min(760px, 94vw); max-height: min(760px, 88vh); "
+            "border-radius: 10px; border: 1px solid rgba(96, 165, 250, 0.28);"
+        ):
+            with ui.row().classes("w-full items-start no-wrap gap-2"):
+                ui.icon("hub", size="20px").classes("text-primary q-mt-xs")
+                with ui.column().classes("gap-0").style("flex: 1; min-width: 0;"):
+                    with ui.row().classes("w-full items-center no-wrap gap-2"):
+                        ui.badge(status or "unknown", color=_agent_status_color(status)).props("outline dense")
+                        ui.label(name).classes("text-sm font-bold ellipsis").style("flex: 1; min-width: 0;")
+                        ui.label(profile).classes("text-xs text-grey-6 ellipsis").style("max-width: 160px;")
+                    if run_id:
+                        ui.label(f"Run {run_id}").classes("text-xs text-grey-7 ellipsis")
+                ui.button(icon="close", on_click=dlg.close).props("round flat dense").tooltip("Close")
+
+            with ui.scroll_area().classes("w-full").style("max-height: 62vh;"):
+                if summary:
+                    ui.label("Summary").classes("text-xs font-bold text-grey-5 q-mt-sm")
+                    ui.label(summary).classes("text-sm text-grey-3").style(
+                        "white-space: pre-wrap; line-height: 1.4;"
+                    )
+                if artifacts:
+                    ui.label("Artifacts").classes("text-xs font-bold text-grey-5 q-mt-sm")
+                    with ui.column().classes("w-full gap-1"):
+                        for artifact in artifacts:
+                            with ui.row().classes("w-full items-center no-wrap gap-1"):
+                                ui.icon("attach_file", size="xs").classes("text-grey-5")
+                                ui.label(artifact).classes("text-xs ellipsis").style("flex: 1; min-width: 0;")
+                if parent_notes:
+                    ui.label("Parent Notes").classes("text-xs font-bold text-grey-5 q-mt-sm")
+                    for note in parent_notes[-4:]:
+                        ui.label(_short_text(note, 180)).classes("text-xs text-amber-3").style(
+                            "border-left: 2px solid rgba(251, 191, 36, 0.55); padding-left: 8px;"
+                        )
+                if events:
+                    ui.label("Activity").classes("text-xs font-bold text-grey-5 q-mt-sm")
+                    with ui.column().classes("w-full gap-1"):
+                        for event in events[-12:]:
+                            ui.label(_agent_event_slug(event)).classes("text-xs text-grey-5").style(
+                                "border-left: 2px solid rgba(96, 165, 250, 0.35); padding-left: 8px;"
+                            )
+                if child_messages:
+                    ui.label("Child Thread Snippets").classes("text-xs font-bold text-grey-5 q-mt-sm")
+                    for child_msg in child_messages:
+                        role = str(child_msg.get("role") or "message")
+                        content = child_msg.get("content", "")
+                        if isinstance(content, list):
+                            content = " ".join(str(item) for item in content)
+                        ui.label(f"{role}: {_short_text(content, 180)}").classes("text-xs text-grey-5").style(
+                            "white-space: normal;"
+                        )
+                if thread_id:
+                    ui.label(
+                        "Open the full child thread from the Agents drawer if you need the complete transcript."
+                    ).classes("text-xs text-grey-7 q-mt-sm")
+
+            with ui.row().classes("w-full justify-between items-center q-mt-sm"):
+                with ui.row().classes("gap-1"):
+                    if run_id:
+                        def _copy_summary(rid=run_id, text=summary) -> None:
+                            payload = text or rid
+                            try:
+                                ui.run_javascript(
+                                    f"navigator.clipboard && navigator.clipboard.writeText({_json.dumps(payload)});"
+                                )
+                            except Exception:
+                                logger.debug("Could not copy Agent summary", exc_info=True)
+                            ui.notify("Agent summary copied.", type="info", close_button=True)
+
+                        ui.button(icon="content_copy", on_click=_copy_summary).props(
+                            "flat dense round size=sm"
+                        ).tooltip("Copy summary")
+                    if run_id and not terminal:
+                        def _stop_agent(rid=run_id) -> None:
+                            stopped = stop_agent_run(rid)
+                            ui.notify(
+                                "Agent stop requested." if stopped else "Agent Run not found.",
+                                type="warning",
+                                close_button=True,
+                            )
+                            dlg.close()
+
+                        ui.button(icon="stop", on_click=_stop_agent).props(
+                            "flat dense round size=sm color=orange"
+                        ).tooltip("Stop Agent")
+                ui.button("Close", on_click=dlg.close).props("flat dense no-caps")
+        dlg.open()
+    except Exception as exc:
+        logger.debug("Agent peek dialog failed", exc_info=True)
+        ui.notify(f"Could not open Agent details: {exc}", type="negative", close_button=True)
+
+
+def _render_agent_run_card(run: dict, *, payload_message: str = "") -> None:
+    run_id = str(run.get("id") or "").strip()
+    status = str(run.get("status") or "unknown").strip()
+    name = str(run.get("display_name") or run_id or "Agent").strip()
+    profile = run.get("profile") if isinstance(run.get("profile"), dict) else {}
+    profile_label = str(
+        profile.get("display_name")
+        or profile.get("slug")
+        or run.get("profile_display_name")
+        or run.get("profile_slug")
+        or run.get("kind")
+        or "Agent"
+    ).strip()
+    thread_id = str(run.get("thread_id") or "").strip()
+    activity = _short_text(
+        run.get("status_message")
+        or run.get("summary")
+        or run.get("error")
+        or payload_message,
+        190,
+    )
+    parent_note_count = int(run.get("parent_message_count") or 0)
+    latest_parent_note = _short_text(run.get("latest_parent_message") or "", 110)
+    turns_used = int(run.get("turns_used") or 0)
+    max_turns = int(run.get("max_turns") or 0)
+    terminal = status.lower() in {
+        "completed",
+        "failed",
+        "blocked",
+        "stopped",
+        "cancelled",
+        "timed_out",
+    }
+
+    with ui.column().classes("w-full gap-1 q-pa-sm").style(
+        "border: 1px solid rgba(96, 165, 250, 0.22); "
+        "border-radius: 8px; background: rgba(15, 23, 42, 0.30); "
+        "box-shadow: inset 0 1px 0 rgba(255,255,255,0.035); "
+        "min-height: 74px;"
+    ):
+        with ui.row().classes("w-full items-center no-wrap gap-2"):
+            ui.icon("hub", size="16px").classes("text-primary")
+            ui.badge(status or "unknown", color=_agent_status_color(status)).props("outline dense")
+            ui.label(name).classes("text-sm font-semibold ellipsis").style("flex: 1; min-width: 0;")
+            if profile_label:
+                ui.label(profile_label).classes("text-xs text-grey-6 ellipsis").style("max-width: 130px;")
+            if turns_used or max_turns:
+                ui.label(f"{turns_used}/{max_turns} turns").classes("text-xs text-grey-6 no-wrap")
+
+        detail_bits = []
+        if activity:
+            detail_bits.append(activity)
+        if parent_note_count:
+            note_label = f"{parent_note_count} parent note"
+            if parent_note_count != 1:
+                note_label += "s"
+            if latest_parent_note:
+                note_label += f": {latest_parent_note}"
+            detail_bits.append(note_label)
+        if detail_bits:
+            ui.label(" | ".join(detail_bits)).classes("text-xs text-grey-5").style(
+                "display: -webkit-box; -webkit-line-clamp: 2; "
+                "-webkit-box-orient: vertical; overflow: hidden; line-height: 1.32;"
+            )
+
+        with ui.row().classes("w-full items-center gap-1"):
+            if run_id:
+                ui.button(
+                    icon="visibility",
+                    on_click=lambda rid=run_id: open_agent_peek_dialog(rid),
+                ).props("flat dense round size=sm").tooltip("Peek Agent activity")
+            if run_id:
+                def _copy_run_id(rid=run_id) -> None:
+                    try:
+                        ui.run_javascript(f"navigator.clipboard && navigator.clipboard.writeText({_json.dumps(rid)});")
+                    except Exception:
+                        logger.debug("Could not copy Agent Run id", exc_info=True)
+                    ui.notify("Agent Run id copied.", type="info", close_button=True)
+
+                ui.button(icon="content_copy", on_click=_copy_run_id).props("flat dense round size=sm").tooltip(
+                    f"Agent Run id: {run_id}"
+                )
+            if run_id and not terminal:
+                def _stop_agent(rid=run_id) -> None:
+                    try:
+                        from row_bot.agent_runs import stop_agent_run
+
+                        stopped = stop_agent_run(rid)
+                        if stopped:
+                            ui.notify("Agent stop requested.", type="warning", close_button=True)
+                        else:
+                            ui.notify("Agent Run not found.", type="warning", close_button=True)
+                    except Exception as exc:
+                        ui.notify(f"Could not stop Agent: {exc}", type="negative", close_button=True)
+
+                ui.button(icon="stop", on_click=_stop_agent).props(
+                    "flat dense round size=sm color=orange"
+                ).tooltip("Stop Agent")
+
+
+def render_agent_tool_result(result: dict, *, thread_id: str | None = None) -> bool:
+    from row_bot.ui.tool_trace import (
+        agent_runs_from_payload,
+        display_tool_content,
+        parse_agent_tool_payload,
+    )
+
+    payload = parse_agent_tool_payload(result)
+    runs = agent_runs_from_payload(payload)
+    if not payload or not runs:
+        return False
+    message = str(payload.get("message") or "").strip()
+    with ui.column().classes("w-full gap-2"):
+        for run in runs:
+            _render_agent_run_card(run, payload_message=message)
+        with ui.expansion("Raw Agent tool output", icon="data_object").classes("w-full"):
+            raw = result.get("content", "")
+            display = display_tool_content(raw)
+            if display:
+                ui.code(display).classes("w-full text-xs")
+    return True
+
+
 def render_message_content(msg: dict, thread_id: str | None = None) -> None:
     """Render a single message's content inside the current parent element."""
-    from row_bot.ui.tool_trace import display_tool_content, group_tool_results, tool_result_failed
+    from row_bot.ui.tool_trace import (
+        display_tool_content,
+        group_tool_results,
+        is_agent_tool_result,
+        tool_result_failed,
+    )
 
     role = msg.get("role", "assistant")
+    lifecycle_text_rendered = False
+
+    queued = msg.get("queued_control") if role == "user" else None
+    if isinstance(queued, dict):
+        status = str(queued.get("status") or "queued")
+        label = str(queued.get("label") or "Queued").strip() or "Queued"
+        color = {
+            "queued_parent_turn": "amber-3",
+            "dispatching": "blue-3",
+            "queued_agent_message": "amber-3",
+            "running_agent_message": "blue-3",
+            "recorded_agent_message": "blue-3",
+        }.get(status, "grey-4")
+        with ui.row().classes("items-center gap-1").style(
+            "font-size: 0.72rem; opacity: 0.82;"
+        ):
+            ui.icon("schedule", size="14px").classes(f"text-{color}")
+            ui.label(label).classes("text-grey-5")
 
     # Thinking / reasoning (collapsed by default)
     thinking = msg.get("thinking")
@@ -701,11 +1060,44 @@ def render_message_content(msg: dict, thread_id: str | None = None) -> None:
         ).classes("w-full"):
             ui.code(thinking.strip()[:8_000]).classes("w-full text-xs")
 
+    if role == "assistant" and isinstance(msg.get("agent_lifecycle"), dict):
+        lifecycle_text = msg.get("content", "")
+        if isinstance(lifecycle_text, list):
+            lifecycle_text = " ".join(str(t) for t in lifecycle_text)
+        if not isinstance(lifecycle_text, str):
+            lifecycle_text = str(lifecycle_text) if lifecycle_text else ""
+        if lifecycle_text:
+            render_text_with_embeds(lifecycle_text)
+            lifecycle_text_rendered = True
+
+    # Direct Agent runs started by the chat UI store durable run ids before
+    # any Agent tool result exists. Render those as the same first-class card.
+    agent_run_ids = msg.get("agent_run_ids") if role == "assistant" else None
+    if isinstance(agent_run_ids, list) and agent_run_ids:
+        try:
+            from row_bot.agent_runs import get_agent_run
+
+            with ui.column().classes("w-full gap-2"):
+                for run_id in agent_run_ids:
+                    run = get_agent_run(str(run_id))
+                    if run:
+                        _render_agent_run_card(run)
+                    else:
+                        ui.label(f"Agent Run not found: {run_id}").classes("text-xs text-grey-6")
+        except Exception:
+            logger.debug("Direct Agent Run card rendering failed", exc_info=True)
+
     # Tool results
     tool_results = msg.get("tool_results")
     tool_results_for_media = tool_results
     if tool_results:
-        for group in group_tool_results(tool_results):
+        generic_tool_results: list[dict] = []
+        for tr in tool_results:
+            if isinstance(tr, dict) and is_agent_tool_result(tr):
+                render_agent_tool_result(tr, thread_id=thread_id)
+            elif isinstance(tr, dict):
+                generic_tool_results.append(tr)
+        for group in group_tool_results(generic_tool_results):
             group_failed = any(tool_result_failed(item) for item in group.results)
             with ui.expansion(
                 f"{'❌' if group_failed else '✅'} {group.label}",
@@ -797,7 +1189,7 @@ def render_message_content(msg: dict, thread_id: str | None = None) -> None:
         text = " ".join(str(t) for t in text)
     if not isinstance(text, str):
         text = str(text) if text else ""
-    if text:
+    if text and not lifecycle_text_rendered:
         render_text_with_embeds(text)
 
     # Trigger highlight.js on new code blocks + render mermaid diagrams

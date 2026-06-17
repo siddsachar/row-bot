@@ -788,6 +788,28 @@ class ComposerExtrasController:
 
             self._show_text_dialog("Tools", _row_bot_status("tools"))
             return
+        if spec.handler_key == "profiles":
+            self._remove_token_and_close()
+            from row_bot.agent_commands import format_agent_profiles
+
+            self._show_text_dialog("Agent Profiles", format_agent_profiles(), icon="badge")
+            return
+        if spec.handler_key == "profile":
+            self._replace_token_with_prefix("/profile ")
+            return
+        if spec.handler_key == "agents":
+            self._remove_token_and_close()
+            from row_bot.agent_commands import format_agents_status
+
+            self._show_text_dialog(
+                "Agents",
+                format_agents_status(parent_thread_id=self._thread_id()),
+                icon="hub",
+            )
+            return
+        if spec.handler_key == "goal":
+            self._replace_token_with_prefix("/goal ")
+            return
         if spec.handler_key == "help":
             self._remove_token_and_close()
             from row_bot.slash_commands import help_text

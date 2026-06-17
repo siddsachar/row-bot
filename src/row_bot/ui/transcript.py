@@ -48,6 +48,10 @@ def message_key(index: int, msg: dict) -> str:
             str(len(msg.get("videos") or [])),
             str(len(msg.get("charts") or [])),
             str(len(str(msg.get("thinking") or ""))),
+            str(len(msg.get("agent_run_ids") or [])),
+            str(msg.get("agent_run_refresh_key") or ""),
+            str((msg.get("queued_control") or {}).get("status") or ""),
+            str((msg.get("queued_control") or {}).get("label") or ""),
         ]
     )
     digest = hashlib.sha1(shape.encode("utf-8", errors="replace")).hexdigest()[:12]

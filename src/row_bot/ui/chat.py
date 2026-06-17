@@ -72,6 +72,115 @@ def build_chat(
     from row_bot.ui.helpers import attach_thinking_to_message, persist_thread_media_state
     from row_bot.ui.thread_actions import show_rename_thread_dialog
 
+    def _agent_status_color(status: str) -> str:
+        return {
+            "active": "primary",
+            "queued": "grey-6",
+            "running": "primary",
+            "waiting_approval": "warning",
+            "waiting_user": "warning",
+            "paused": "amber",
+            "completed": "positive",
+            "failed": "negative",
+            "blocked": "negative",
+            "stopped": "orange",
+            "cleared": "grey-7",
+        }.get(str(status or ""), "grey-6")
+
+    def _render_parent_agent_strip() -> None:
+        from row_bot.ui.agent_drawer import build_parent_agent_drawer
+
+        build_parent_agent_drawer(
+            state,
+            p,
+            rebuild_main=rebuild_main,
+            rebuild_thread_list=rebuild_thread_list,
+        )
+
+    def _render_goal_progress_row() -> None:
+        if not state.thread_id:
+            return
+        try:
+            from row_bot import goals
+
+            goal = goals.get_current_goal(state.thread_id, include_terminal=True)
+        except Exception:
+            logger.debug("Could not load Goal Mode status", exc_info=True)
+            return
+        if not goal:
+            return
+        status = str(goal.get("status") or "")
+        if status == "cleared":
+            return
+        objective = str(goal.get("objective") or "Goal")
+        turns_used = int(goal.get("turns_used") or 0)
+        max_turns = int(goal.get("max_turns") or 0)
+        detail = str(goal.get("last_progress") or goal.get("last_reason") or "").strip()
+        if len(detail) > 140:
+            detail = detail[:137].rstrip() + "..."
+
+        def _edit_goal() -> None:
+            value = f"/goal {objective}".strip()
+            if p.chat_input:
+                p.chat_input.value = value
+                p.chat_input.update()
+                try:
+                    p.chat_input.run_method("focus")
+                except Exception:
+                    pass
+            else:
+                ui.notify("Use /goal <objective> to replace the current goal.", type="info")
+
+        def _pause_goal() -> None:
+            try:
+                goals.pause_goal(str(state.thread_id or ""))
+                rebuild_main()
+            except Exception as exc:
+                ui.notify(f"Could not pause goal: {exc}", type="negative", close_button=True)
+
+        def _resume_goal() -> None:
+            try:
+                resumed = goals.resume_goal(str(state.thread_id or ""))
+                rebuild_main()
+                if resumed:
+                    asyncio.create_task(send_message(goals.build_continuation_prompt(resumed)))
+            except Exception as exc:
+                ui.notify(f"Could not resume goal: {exc}", type="negative", close_button=True)
+
+        def _clear_goal() -> None:
+            try:
+                goals.clear_goal(str(state.thread_id or ""))
+                rebuild_main()
+            except Exception as exc:
+                ui.notify(f"Could not clear goal: {exc}", type="negative", close_button=True)
+
+        with ui.column().classes("w-full gap-1 q-px-md q-pb-xs"):
+            with ui.row().classes("w-full items-center no-wrap gap-2").style(
+                "border: 1px solid rgba(59, 130, 246, 0.30); "
+                "border-radius: 8px; padding: 7px 8px; "
+                "background: rgba(59, 130, 246, 0.055);"
+            ):
+                ui.icon("flag", size="xs").classes("text-primary")
+                ui.badge(status, color=_agent_status_color(status)).props("outline dense")
+                ui.label(objective).classes("text-xs ellipsis").style("flex: 1; min-width: 0;")
+                ui.label(f"{turns_used}/{max_turns} turns").classes("text-xs text-grey-6 no-wrap")
+                if detail:
+                    ui.label(detail).classes("text-xs text-grey-7 ellipsis").style("max-width: 240px;")
+                if status in {"active", "waiting_approval"}:
+                    ui.button(icon="pause", on_click=_pause_goal).props(
+                        "flat dense round size=xs color=amber"
+                    ).tooltip("Pause goal")
+                if status in {"paused", "blocked"}:
+                    ui.button(icon="play_arrow", on_click=_resume_goal).props(
+                        "flat dense round size=xs color=positive"
+                    ).tooltip("Resume goal")
+                ui.button(icon="edit", on_click=_edit_goal).props(
+                    "flat dense round size=xs"
+                ).tooltip("Edit goal")
+                ui.button(icon="clear", on_click=_clear_goal).props(
+                    "flat dense round size=xs color=negative"
+                ).tooltip("Clear goal")
+
     # Header
     _header_started = time.perf_counter()
     running_wfs = get_running_tasks()
@@ -106,6 +215,16 @@ def build_chat(
                             rebuild_main=rebuild_main,
                         ),
                     ).props("flat dense round size=sm").tooltip("Rename")
+                    from row_bot.ui.profile_picker import build_profile_picker
+
+                    build_profile_picker(
+                        state,
+                        p=p,
+                        rebuild_main=rebuild_main,
+                        rebuild_thread_list=rebuild_thread_list,
+                        label="Profile",
+                        surface="chat",
+                    )
 
             # Model selection now lives in the composer, matching Designer.
 
@@ -264,6 +383,21 @@ def build_chat(
     p.model_banner_container = ui.column().classes("w-full gap-0")
     _render_model_banner(_surface)
     defer_ui(_resolve_and_render_model_surface, delay=0.05)
+    p.parent_agent_strip_container = ui.column().classes("w-full gap-0")
+
+    def _refresh_parent_agent_strip() -> None:
+        if p.parent_agent_strip_container is None:
+            return
+        try:
+            p.parent_agent_strip_container.clear()
+            with p.parent_agent_strip_container:
+                _render_parent_agent_strip()
+        except Exception:
+            logger.debug("Could not refresh parent Agent strip", exc_info=True)
+
+    p.refresh_parent_agent_strip = _refresh_parent_agent_strip
+    _refresh_parent_agent_strip()
+    _render_goal_progress_row()
 
     # Scrollable message area
     p.chat_scroll = ui.scroll_area().classes("w-full flex-grow").style(_surface["scroll_style"])
@@ -1174,6 +1308,28 @@ def build_chat(
                     from row_bot.tools.row_bot_status_tool import _row_bot_status
 
                     _append_system_result("Tools", _row_bot_status("tools"))
+                    return
+                if spec.handler_key == "profiles":
+                    _remove_token_and_close()
+                    from row_bot.agent_commands import format_agent_profiles
+
+                    _append_system_result("Agent Profiles", format_agent_profiles(), icon="badge")
+                    return
+                if spec.handler_key == "profile":
+                    _replace_token_with_prefix("/profile ")
+                    return
+                if spec.handler_key == "agents":
+                    _remove_token_and_close()
+                    from row_bot.agent_commands import format_agents_status
+
+                    _append_system_result(
+                        "Agents",
+                        format_agents_status(parent_thread_id=state.thread_id),
+                        icon="hub",
+                    )
+                    return
+                if spec.handler_key == "goal":
+                    _replace_token_with_prefix("/goal ")
                     return
                 if spec.handler_key == "help":
                     _remove_token_and_close()

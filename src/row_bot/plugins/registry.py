@@ -8,6 +8,7 @@ This registry is completely independent of the core tools/registry.py.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 import logging
 from typing import TYPE_CHECKING
 
@@ -73,15 +74,42 @@ def register_plugin(manifest: "PluginManifest",
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
-def get_langchain_tools() -> list:
+def _allow_set(allow_names: Iterable[str] | None) -> set[str] | None:
+    if allow_names is None:
+        return None
+    return {str(name) for name in allow_names if str(name or "").strip()}
+
+
+def _plugin_runtime_allowed(
+    *,
+    allow: set[str] | None,
+    runtime_name: str,
+    parent_name: str,
+    plugin_id: str,
+) -> bool:
+    if allow is None:
+        return True
+    return runtime_name in allow or parent_name in allow or plugin_id in allow
+
+
+def get_langchain_tools(allow_names: Iterable[str] | None = None) -> list:
     """Return LangChain tool wrappers for all tools from enabled plugins."""
     from row_bot.plugins import state
 
+    allow = _allow_set(allow_names)
     tools = []
     for tool_name, tool in _plugin_tools.items():
         plugin_id = _tool_to_plugin.get(tool_name)
         if plugin_id and state.is_plugin_enabled(plugin_id):
-            tools.extend(tool.as_langchain_tools())
+            for lc_tool in tool.as_langchain_tools():
+                runtime_name = str(getattr(lc_tool, "name", "") or tool_name)
+                if _plugin_runtime_allowed(
+                    allow=allow,
+                    runtime_name=runtime_name,
+                    parent_name=tool_name,
+                    plugin_id=plugin_id,
+                ):
+                    tools.append(lc_tool)
     return tools
 
 
@@ -114,15 +142,19 @@ def get_plugin_tool_names() -> list[str]:
     return list(_plugin_tools.keys())
 
 
-def get_destructive_names() -> set[str]:
+def get_destructive_names(allow_names: Iterable[str] | None = None) -> set[str]:
     """Return destructive sub-tool names from all enabled plugin tools."""
     from row_bot.plugins import state
 
+    allow = _allow_set(allow_names)
     names: set[str] = set()
     for tool_name, tool in _plugin_tools.items():
         plugin_id = _tool_to_plugin.get(tool_name)
         if plugin_id and state.is_plugin_enabled(plugin_id):
-            names.update(tool.destructive_tool_names)
+            if allow is None or tool_name in allow or plugin_id in allow:
+                names.update(tool.destructive_tool_names)
+            else:
+                names.update(name for name in tool.destructive_tool_names if name in allow)
     return names
 
 
@@ -145,6 +177,48 @@ def get_enabled_plugin_tool_names() -> list[str]:
         name for name, tool in _plugin_tools.items()
         if state.is_plugin_enabled(_tool_to_plugin.get(name, ""))
     ]
+
+
+def get_enabled_plugin_tool_records() -> list[dict]:
+    """Return enabled plugin runtime tool metadata for Agent Profile cataloging."""
+    from row_bot.plugins import state
+
+    records: list[dict] = []
+    for tool_name, tool in _plugin_tools.items():
+        plugin_id = _tool_to_plugin.get(tool_name, "")
+        if not plugin_id or not state.is_plugin_enabled(plugin_id):
+            continue
+        manifest = _loaded_manifests.get(plugin_id)
+        tags = list(getattr(manifest, "tags", []) or []) if manifest else []
+        plugin_name = str(getattr(manifest, "name", "") or plugin_id)
+        manifest_description = str(getattr(manifest, "description", "") or "")
+        try:
+            lc_tools = list(tool.as_langchain_tools())
+        except Exception as exc:
+            logger.debug("Plugin tool catalog skipped %s: %s", tool_name, exc, exc_info=True)
+            continue
+        destructive = set(getattr(tool, "destructive_tool_names", set()) or set())
+        for lc_tool in lc_tools:
+            runtime_name = str(getattr(lc_tool, "name", "") or tool_name)
+            label = str(getattr(tool, "display_name", "") or runtime_name)
+            if runtime_name != tool_name:
+                label = f"{label} / {runtime_name}"
+            records.append({
+                "runtime_name": runtime_name,
+                "parent_name": tool_name,
+                "plugin_id": plugin_id,
+                "plugin_name": plugin_name,
+                "tags": tags,
+                "label": label,
+                "description": str(
+                    getattr(lc_tool, "description", "")
+                    or getattr(tool, "description", "")
+                    or manifest_description
+                    or ""
+                ),
+                "destructive": runtime_name in destructive,
+            })
+    return records
 
 
 def get_loaded_manifests() -> list["PluginManifest"]:

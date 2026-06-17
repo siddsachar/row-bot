@@ -43,6 +43,8 @@ def build_designer_editor(
     add_chat_message: Callable | None = None,
     browse_file: Callable | None = None,
     open_settings: Callable | None = None,
+    rebuild_main: Callable[..., None] | None = None,
+    rebuild_thread_list: Callable[[], None] | None = None,
 ) -> None:
     """Render the full-screen designer editor.
 
@@ -562,6 +564,16 @@ def build_designer_editor(
         name_input.on("blur", _rename)
         name_input.on("keydown.enter", lambda e: name_input.run_method("blur"))
 
+        if state is not None:
+            from row_bot.ui.profile_picker import build_profile_picker
+
+            build_profile_picker(
+                state,
+                p=p,
+                label="Profile",
+                surface="designer",
+            )
+
         ui.element("div").style("flex: 1;")  # spacer
 
         # ── Mode-aware toolbar gating ──────────────────────────────
@@ -892,6 +904,16 @@ def build_designer_editor(
         style_primary_button(export_btn, compact=True)
 
     # ── Main content: splitter (chat left, preview+nav right) ─────────
+    if state is not None and p is not None and rebuild_main is not None:
+        from row_bot.ui.agent_drawer import build_parent_agent_drawer
+
+        build_parent_agent_drawer(
+            state,
+            p,
+            rebuild_main=rebuild_main,
+            rebuild_thread_list=rebuild_thread_list,
+        )
+
     with ui.splitter(value=35).classes("w-full flex-grow").style(
         "overflow: hidden;"
     ) as splitter:

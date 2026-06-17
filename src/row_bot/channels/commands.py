@@ -12,6 +12,7 @@ Supported commands
 ``/model``  — show or switch the active LLM model
 ``/help``   — list available commands
 ``/tools``  — list enabled tools
+``/goal``   — start or control Goal Mode
 ``/stop``   — stop the current generation (if supported)
 """
 
@@ -41,6 +42,11 @@ COMMANDS: list[ChannelCommand] = [
     ChannelCommand("/approval", "Show or switch approval mode",  "cmd_approval"),
     ChannelCommand("/help",   "List available commands",         "cmd_help"),
     ChannelCommand("/tools",  "List enabled tools",              "cmd_tools"),
+    ChannelCommand("/profiles", "List Agent Profiles",           "cmd_profiles"),
+    ChannelCommand("/profile", "Show or set Agent Profile",      "cmd_profile"),
+    ChannelCommand("/agents", "Show Agent Runs for this thread", "cmd_agents"),
+    ChannelCommand("/agent", "Start a child Agent",              "cmd_agent"),
+    ChannelCommand("/goal", "Start or control Goal Mode",        "cmd_goal"),
     ChannelCommand("/skill",  "Use a skill in this conversation", "cmd_skill"),
     ChannelCommand("/skills", "Show active and suggested skills", "cmd_skill"),
     ChannelCommand("/skill-reset", "Reset skills in this conversation", "cmd_skill"),
@@ -59,6 +65,11 @@ SKILL_COMMAND_TOKENS = {
 
 RESET_COMMAND_TOKENS = {"/skill-reset", "/skillreset", "/skill_reset"}
 APPROVAL_COMMAND_TOKENS = {"/approval", "/approvals"}
+PROFILE_COMMAND_TOKENS = {"/profile", "/agent-profile"}
+PROFILES_COMMAND_TOKENS = {"/profiles", "/agent-profiles"}
+AGENTS_COMMAND_TOKENS = {"/agents"}
+AGENT_COMMAND_TOKENS = {"/agent", "/subagent"}
+GOAL_COMMAND_TOKENS = {"/goal"}
 
 
 def command_token(text: str) -> str:
@@ -71,7 +82,15 @@ def command_token(text: str) -> str:
 
 def is_thread_scoped_command(text: str) -> bool:
     """Return True when a channel command needs the conversation thread id."""
-    return command_token(text) in SKILL_COMMAND_TOKENS | APPROVAL_COMMAND_TOKENS
+    return command_token(text) in (
+        SKILL_COMMAND_TOKENS
+        | APPROVAL_COMMAND_TOKENS
+        | PROFILE_COMMAND_TOKENS
+        | PROFILES_COMMAND_TOKENS
+        | AGENTS_COMMAND_TOKENS
+        | AGENT_COMMAND_TOKENS
+        | GOAL_COMMAND_TOKENS
+    )
 
 
 def normalize_skill_command_text(text: str) -> str:
@@ -211,6 +230,87 @@ def cmd_approval(channel_name: str, arg: str = "", *, thread_id: str | None = No
     _set_thread_approval_mode(thread_id, mode)
     clear_agent_cache()
     return f"Approval mode set to **{approval_label(mode)}** (`{mode}`)."
+
+
+def cmd_profiles(channel_name: str, arg: str = "") -> str:
+    """Handle ``/profiles [query]`` for channel conversations."""
+    try:
+        from row_bot.agent_commands import format_agent_profiles
+
+        return format_agent_profiles(arg)
+    except Exception as exc:
+        log.warning("/profiles failed: %s", exc)
+        return f"Could not list Agent Profiles: {exc}"
+
+
+def cmd_profile(channel_name: str, arg: str = "", *, thread_id: str | None = None) -> str:
+    """Handle ``/profile [slug|clear]`` for one channel conversation."""
+    try:
+        from row_bot.agent_commands import handle_thread_profile_command
+
+        return handle_thread_profile_command(thread_id, arg)
+    except Exception as exc:
+        log.warning("/profile failed: %s", exc)
+        return f"Could not update Agent Profile: {exc}"
+
+
+def cmd_agents(channel_name: str, arg: str = "", *, thread_id: str | None = None) -> str:
+    """Handle ``/agents`` for one channel conversation."""
+    if not thread_id:
+        return f"{channel_name} could not identify the current conversation thread."
+    try:
+        from row_bot.agent_commands import format_agents_status
+
+        include_all = str(arg or "").strip().lower() in {"all", "global"}
+        return format_agents_status(parent_thread_id=thread_id, include_all=include_all)
+    except Exception as exc:
+        log.warning("/agents failed: %s", exc)
+        return f"Could not inspect Agent Runs: {exc}"
+
+
+def cmd_agent(
+    channel_name: str,
+    text: str,
+    *,
+    thread_id: str | None = None,
+    enabled_tool_names: list[str] | None = None,
+) -> str:
+    """Handle ``/agent [profile] <task>`` for one channel conversation."""
+    if not thread_id:
+        return f"{channel_name} could not identify the current conversation thread."
+    try:
+        from row_bot.agent_commands import (
+            format_agent_spawn_started,
+            format_agent_spawn_usage,
+            parse_agent_spawn_text,
+            spawn_agent_from_request,
+        )
+
+        request = parse_agent_spawn_text(text)
+        if request is None:
+            return format_agent_spawn_usage()
+        run = spawn_agent_from_request(
+            thread_id,
+            request,
+            enabled_tool_names=enabled_tool_names,
+        )
+        return format_agent_spawn_started(run, request)
+    except Exception as exc:
+        log.warning("/agent failed: %s", exc)
+        return f"Could not start Agent: {exc}"
+
+
+def cmd_goal(channel_name: str, arg: str = "", *, thread_id: str | None = None) -> str:
+    """Handle ``/goal`` for one channel conversation."""
+    if not thread_id:
+        return f"{channel_name} could not identify the current conversation thread."
+    try:
+        from row_bot.goals import handle_goal_command
+
+        return handle_goal_command(thread_id, arg)
+    except Exception as exc:
+        log.warning("/goal failed: %s", exc)
+        return f"Could not update Goal Mode: {exc}"
 
 
 def cmd_help(channel_name: str) -> str:
@@ -362,6 +462,26 @@ def dispatch(
 
     if cmd in APPROVAL_COMMAND_TOKENS:
         return cmd_approval(channel_name, arg, thread_id=thread_id)
+
+    if cmd in PROFILES_COMMAND_TOKENS:
+        return cmd_profiles(channel_name, arg)
+
+    if cmd in PROFILE_COMMAND_TOKENS:
+        return cmd_profile(channel_name, arg, thread_id=thread_id)
+
+    if cmd in AGENTS_COMMAND_TOKENS:
+        return cmd_agents(channel_name, arg, thread_id=thread_id)
+
+    if cmd in AGENT_COMMAND_TOKENS:
+        return cmd_agent(
+            channel_name,
+            text,
+            thread_id=thread_id,
+            enabled_tool_names=enabled_tool_names,
+        )
+
+    if cmd in GOAL_COMMAND_TOKENS:
+        return cmd_goal(channel_name, arg, thread_id=thread_id)
 
     handler = _HANDLER_MAP.get(cmd)
     if handler is None:

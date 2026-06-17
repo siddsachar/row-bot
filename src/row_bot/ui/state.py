@@ -143,6 +143,7 @@ class GenerationState:
     tts_in_code: bool = False
     tts_allow_long: bool = False
     voice_control_queue: list = field(default_factory=list)
+    queued_message_ids: list[str] = field(default_factory=list)
     realtime_tool_call_id: str = ""
     realtime_tool_name: str = ""
     realtime_consult_request: str = ""
@@ -213,6 +214,8 @@ class P:
     chat_input: ui.textarea = None      # type: ignore[assignment]
     chat_header_label: ui.label = None  # type: ignore[assignment]
     model_banner_container: Any = None
+    parent_agent_strip_container: Any = None
+    refresh_parent_agent_strip: Any = None
     settings_dlg: ui.dialog = None      # type: ignore[assignment]
     export_dlg: ui.dialog = None        # type: ignore[assignment]
     interrupt_dlg: ui.dialog = None     # type: ignore[assignment]

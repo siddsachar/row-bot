@@ -29,6 +29,44 @@ from abc import ABC, abstractmethod
 log = logging.getLogger(__name__)
 
 
+def _ngrok_authtoken() -> str:
+    """Return the ngrok token from Row-Bot's normal secret sources."""
+    try:
+        from row_bot.api_keys import get_key
+
+        return get_key("NGROK_AUTHTOKEN").strip()
+    except Exception as exc:
+        log.debug("Unable to read NGROK_AUTHTOKEN from key store: %s", exc)
+        return os.environ.get("NGROK_AUTHTOKEN", "").strip()
+
+
+def ngrok_configuration_status() -> tuple[str, str]:
+    """Return ``(status_code, detail)`` for ngrok readiness diagnostics."""
+    try:
+        import pyngrok  # noqa: F401
+    except ImportError:
+        return ("error", "pyngrok is not installed. Run: pip install pyngrok")
+
+    try:
+        from row_bot.api_keys import get_key, key_status
+
+        if get_key("NGROK_AUTHTOKEN").strip():
+            return ("ok", "ngrok available")
+        status = key_status("NGROK_AUTHTOKEN")
+        if status.get("configured"):
+            return (
+                "error",
+                "ngrok authtoken metadata exists, but the keyring secret is unreadable. "
+                "Clear and re-save the authtoken in Settings > System > Tunnel Settings.",
+            )
+    except Exception as exc:
+        log.debug("Unable to inspect NGROK_AUTHTOKEN status: %s", exc)
+
+    if os.environ.get("NGROK_AUTHTOKEN"):
+        return ("ok", "ngrok available")
+    return ("inactive", "NGROK_AUTHTOKEN is not set")
+
+
 # ── Exceptions ───────────────────────────────────────────────────────
 
 class TunnelError(Exception):
@@ -83,7 +121,7 @@ class NgrokProvider(TunnelProvider):
     def is_available(self) -> bool:
         try:
             import pyngrok  # noqa: F401
-            return bool(os.environ.get("NGROK_AUTHTOKEN"))
+            return bool(_ngrok_authtoken())
         except ImportError:
             return False
 
@@ -98,16 +136,17 @@ class NgrokProvider(TunnelProvider):
                 "pyngrok is not installed. Run: pip install pyngrok"
             )
 
-        token = os.environ.get("NGROK_AUTHTOKEN")
+        token = _ngrok_authtoken()
         if not token:
             raise TunnelError(
                 "NGROK_AUTHTOKEN not set — configure it in "
-                "Settings → Channels → Tunnel Settings"
+                "Settings → System → Tunnel Settings"
             )
 
         try:
             pyngrok_config = conf.get_default()
             pyngrok_config.auth_token = token
+            log.info("Starting ngrok tunnel: port %d%s", port, f" [{label}]" if label else "")
             tunnel = ngrok.connect(port, bind_tls=True)
             self._tunnels[port] = tunnel
             log.info("ngrok tunnel opened: port %d → %s%s",
@@ -227,8 +266,9 @@ class TunnelManager:
         try:
             with self._lock:
                 self._ensure_provider()
-                if not self._provider.is_available():
-                    return ("inactive", "Not configured")
+                config_status, config_detail = ngrok_configuration_status()
+                if config_status != "ok":
+                    return (config_status, config_detail)
                 active = self._provider.active_tunnels()
                 if active:
                     urls = ", ".join(f"{p}→{u}" for p, u in active.items())

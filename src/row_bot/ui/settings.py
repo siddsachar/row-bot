@@ -567,11 +567,13 @@ def open_settings(
             "Securely expose local webhook ports to the internet for channels and workflow webhooks.",
             icon="lan",
         ):
+            tunnel_status, tunnel_detail = tunnel_manager.status()
+            tunnel_ready = tunnel_manager.is_available()
             with ui.row().classes("items-center gap-2 q-mb-xs"):
                 _status_dot(
-                    "ngrok available" if tunnel_manager.is_available() else "Not configured",
-                    "ok" if tunnel_manager.is_available() else "warn",
-                    "The ngrok binary downloads automatically on first use.",
+                    "ngrok available" if tunnel_ready else tunnel_detail,
+                    "ok" if tunnel_ready else ("error" if tunnel_status == "error" else "warn"),
+                    tunnel_detail or "The ngrok binary downloads automatically on first use.",
                 )
                 active_count = len(tunnel_manager.active_tunnels())
                 _metric_chip("active tunnel" if active_count == 1 else "active tunnels", active_count, icon="hub")
@@ -606,10 +608,11 @@ def open_settings(
                                     ),
                                 ).props("flat dense round size=sm").tooltip("Copy URL")
                     else:
+                        status_code, status_detail = tunnel_manager.status()
                         ui.label(
                             "No active tunnels. Start a webhook channel or expose the task webhook endpoint to open one."
                             if tunnel_manager.is_available()
-                            else "Paste and save your authtoken to enable tunnels."
+                            else status_detail or "Paste and save your authtoken to enable tunnels."
                         ).classes("text-grey-6 text-sm")
 
             def _save_tunnel_settings():
@@ -620,7 +623,11 @@ def open_settings(
                     token_input.value = ""
                     token_input.update()
                     token_refresh()
-                ui.notify("Tunnel settings saved", type="positive")
+                status_code, status_detail = tunnel_manager.status()
+                if status_code == "error":
+                    ui.notify(f"Tunnel settings saved, but {status_detail}", type="warning")
+                else:
+                    ui.notify("Tunnel settings saved", type="positive")
                 _refresh_active_tunnels()
 
             with ui.row().classes("gap-2"):
@@ -666,7 +673,19 @@ def open_settings(
 
                 enabled = bool(getattr(e, "value", False))
                 _ch_config.set("tunnel", "tunnel_main_app", enabled)
-                if enabled and tunnel_manager.is_available():
+                if enabled and not tunnel_manager.is_available():
+                    status_code, status_detail = tunnel_manager.status()
+                    logger.warning("Main-app tunnel requested but unavailable: %s", status_detail)
+                    _ch_config.set("tunnel", "tunnel_main_app", False)
+                    main_app_switch.value = False
+                    main_app_switch.update()
+                    ui.notify(
+                        f"Tunnel cannot start: {status_detail}",
+                        type="negative",
+                    )
+                    _refresh_active_tunnels()
+                    return
+                if enabled:
                     try:
                         app_port = get_app_port()
                         url = tunnel_manager.start_tunnel(app_port, label="main_app")
@@ -684,6 +703,12 @@ def open_settings(
                                 ).props("flat dense round size=sm").tooltip("Copy webhook URL")
                         _refresh_active_tunnels()
                     except Exception as exc:
+                        logger.warning("Main-app tunnel failed to start: %s", exc)
+                        _ch_config.set("tunnel", "tunnel_main_app", False)
+                        main_app_switch.value = False
+                        main_app_switch.update()
+                        main_app_url_container.clear()
+                        _refresh_active_tunnels()
                         ui.notify(f"Tunnel error: {exc}", type="negative")
                 elif not enabled:
                     try:

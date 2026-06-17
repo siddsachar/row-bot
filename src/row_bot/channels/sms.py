@@ -564,12 +564,19 @@ async def start_bot() -> bool:
                 from row_bot.tunnel import tunnel_manager
                 # Use the main-app tunnel rather than a
                 # dedicated SMS port — avoids the ngrok one-tunnel limit.
-                public_url = tunnel_manager.get_url(get_app_port())
+                app_port = get_app_port()
+                public_url = tunnel_manager.get_url(app_port)
+                if not public_url and tunnel_manager.is_available():
+                    log.info("SMS starting shared main-app tunnel on port %s", app_port)
+                    public_url = tunnel_manager.start_tunnel(app_port, label="sms")
+                    ch_config.set("tunnel", "tunnel_main_app", True)
                 if public_url:
                     _webhook_public_url = public_url
                     log.info("SMS using main-app tunnel: %s/sms", public_url)
                     _auto_register_twilio_webhook(public_url)
                 else:
+                    _status_code, detail = tunnel_manager.status()
+                    log.warning("SMS tunnel enabled but unavailable: %s", detail)
                     log.info(
                         "Main-app tunnel not active — enable 'Expose task "
                         "webhook endpoint' in Settings → System → Tunnel "
@@ -577,6 +584,9 @@ async def start_bot() -> bool:
                     )
                     _webhook_public_url = None
             except ImportError:
+                _webhook_public_url = None
+            except Exception as exc:
+                log.error("SMS failed to open shared main-app tunnel: %s", exc)
                 _webhook_public_url = None
         else:
             _webhook_public_url = None

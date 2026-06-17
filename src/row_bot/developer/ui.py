@@ -1404,6 +1404,16 @@ def build_developer_workspace(
                             context="developer new thread",
                         ),
                     ).props("flat dense round").tooltip("New thread")
+                    from row_bot.ui.profile_picker import build_profile_picker
+
+                    build_profile_picker(
+                        state,
+                        p=p,
+                        rebuild_main=rebuild_main,
+                        rebuild_thread_list=rebuild_thread_list,
+                        label="Profile",
+                        surface="developer",
+                    )
                     ui.select(
                         {
                             "local": "Local",
@@ -1434,6 +1444,15 @@ def build_developer_workspace(
                             context="developer quick action",
                         ),
                     ).props("flat dense outline no-caps").classes("text-grey-4")
+
+            from row_bot.ui.agent_drawer import build_parent_agent_drawer
+
+            build_parent_agent_drawer(
+                state,
+                p,
+                rebuild_main=rebuild_main,
+                rebuild_thread_list=rebuild_thread_list,
+            )
 
             hidden_upload = build_file_upload(p, state)
             build_chat_messages(

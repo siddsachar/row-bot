@@ -35,6 +35,8 @@ _THREAD_META_COLUMNS = {
     "developer_workspace_id": "TEXT DEFAULT ''",
     "approval_mode": "TEXT DEFAULT ''",
     "name_source": "TEXT DEFAULT ''",
+    "agent_profile_id": "TEXT DEFAULT ''",
+    "agent_profile_slug": "TEXT DEFAULT ''",
 }
 
 THREAD_NAME_SOURCE_AUTO = "auto"
@@ -76,7 +78,8 @@ def _list_threads(*, include_details: bool = False):
             "SELECT thread_id, name, created_at, updated_at, COALESCE(model_override, ''), "
             "COALESCE(project_id, ''), COALESCE(thread_type, ''), "
             "COALESCE(developer_workspace_id, ''), COALESCE(approval_mode, ''), "
-            "COALESCE(name_source, '') "
+            "COALESCE(name_source, ''), COALESCE(agent_profile_id, ''), "
+            "COALESCE(agent_profile_slug, '') "
             "FROM thread_meta ORDER BY updated_at DESC"
         ).fetchall()
     else:
@@ -277,6 +280,51 @@ def _set_thread_approval_mode(thread_id: str, mode: str) -> None:
     conn.close()
 
 
+def _get_thread_agent_profile(thread_id: str) -> dict[str, str]:
+    """Return the explicit Agent Profile pointer for a thread, if any."""
+    _ensure_thread_db()
+    conn = sqlite3.connect(DB_PATH)
+    row = conn.execute(
+        "SELECT COALESCE(agent_profile_id, ''), COALESCE(agent_profile_slug, '') "
+        "FROM thread_meta WHERE thread_id = ?",
+        (thread_id,),
+    ).fetchone()
+    conn.close()
+    if not row:
+        return {"id": "", "slug": ""}
+    return {"id": str(row[0] or ""), "slug": str(row[1] or "")}
+
+
+def _set_thread_agent_profile(thread_id: str, profile_id_or_slug: str) -> dict[str, str]:
+    """Persist an explicit Agent Profile pointer for a thread."""
+    _ensure_thread_db()
+    from row_bot.agent_profiles import require_agent_profile
+
+    profile = require_agent_profile(profile_id_or_slug, enabled_only=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "UPDATE thread_meta SET agent_profile_id = ?, agent_profile_slug = ? "
+        "WHERE thread_id = ?",
+        (profile["id"], profile["slug"], thread_id),
+    )
+    conn.commit()
+    conn.close()
+    return {"id": profile["id"], "slug": profile["slug"]}
+
+
+def _clear_thread_agent_profile(thread_id: str) -> None:
+    """Clear the explicit Agent Profile pointer for a thread."""
+    _ensure_thread_db()
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "UPDATE thread_meta SET agent_profile_id = '', agent_profile_slug = '' "
+        "WHERE thread_id = ?",
+        (thread_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
 def _get_thread_developer_workspace(thread_id: str) -> str:
     """Return the linked Developer workspace id, or an empty string."""
     _ensure_thread_db()
@@ -323,6 +371,8 @@ def create_thread(
     project_id: str = "",
     approval_mode: str = "",
     model_override: str = "",
+    agent_profile_id: str = "",
+    agent_profile_slug: str = "",
     name_source: str = THREAD_NAME_SOURCE_AUTO,
     seed_default_skills: bool = True,
 ) -> str:
@@ -345,14 +395,17 @@ def create_thread(
         conn.execute(
             "INSERT INTO thread_meta ("
             "thread_id, name, created_at, updated_at, model_override, project_id, "
-            "thread_type, developer_workspace_id, approval_mode, name_source"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "thread_type, developer_workspace_id, approval_mode, name_source, "
+            "agent_profile_id, agent_profile_slug"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(thread_id) DO UPDATE SET "
             "name = excluded.name, updated_at = excluded.updated_at, "
             "model_override = excluded.model_override, project_id = excluded.project_id, "
             "thread_type = excluded.thread_type, "
             "developer_workspace_id = excluded.developer_workspace_id, "
-            "approval_mode = excluded.approval_mode, name_source = excluded.name_source",
+            "approval_mode = excluded.approval_mode, name_source = excluded.name_source, "
+            "agent_profile_id = excluded.agent_profile_id, "
+            "agent_profile_slug = excluded.agent_profile_slug",
             (
                 tid,
                 safe_name,
@@ -364,6 +417,8 @@ def create_thread(
                 str(developer_workspace_id or ""),
                 safe_approval,
                 safe_source,
+                str(agent_profile_id or ""),
+                str(agent_profile_slug or ""),
             ),
         )
         conn.commit()
@@ -636,6 +691,12 @@ _init_thread_db()
 def _delete_thread(thread_id: str):
     """Remove a thread's metadata, checkpoints, and writes from the database."""
     _ensure_thread_db()
+    try:
+        from row_bot.agent_runs import cleanup_thread_agent_runs
+
+        cleanup_thread_agent_runs(thread_id)
+    except Exception:
+        logger.warning("Failed to clean up Agent Run state for thread %s", thread_id, exc_info=True)
     conn = sqlite3.connect(DB_PATH)
     conn.execute("DELETE FROM thread_meta WHERE thread_id = ?", (thread_id,))
     # Purge LangGraph checkpoint data to prevent zombie threads

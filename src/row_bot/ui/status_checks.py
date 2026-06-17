@@ -254,8 +254,9 @@ def check_tunnel() -> CheckResult:
     """Health check for the tunnel subsystem."""
     try:
         from row_bot.tunnel import tunnel_manager
+        status_code, detail = tunnel_manager.status()
         if not tunnel_manager.is_available():
-            return CheckResult("Tunnel", "inactive", "Not configured",
+            return CheckResult("Tunnel", status_code, detail,
                                settings_tab="System")
         active = tunnel_manager.active_tunnels()
         if active:

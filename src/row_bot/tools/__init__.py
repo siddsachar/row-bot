@@ -36,6 +36,8 @@ from row_bot.tools import video_gen_tool     # noqa: F401
 from row_bot.tools import wiki_tool          # noqa: F401
 from row_bot.tools import x_tool             # noqa: F401
 from row_bot.tools import row_bot_status_tool  # noqa: F401
+from row_bot.tools import agent_tool         # noqa: F401
+from row_bot.tools import goal_tool          # noqa: F401
 from row_bot.tools import updater_tool       # noqa: F401
 from row_bot.tools import mcp_tool           # noqa: F401
 from row_bot.tools import developer_tool     # noqa: F401

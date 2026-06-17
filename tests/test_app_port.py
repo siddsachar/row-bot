@@ -291,7 +291,9 @@ def test_port_consumers_no_longer_lookup_main_tunnel_on_literal_8080():
     settings_source = Path("src/row_bot/ui/settings.py").read_text(encoding="utf-8")
     app_source = Path("src/row_bot/app.py").read_text(encoding="utf-8")
 
-    assert "tunnel_manager.get_url(get_app_port())" in sms_source
+    assert "app_port = get_app_port()" in sms_source
+    assert "tunnel_manager.get_url(app_port)" in sms_source
+    assert "tunnel_manager.start_tunnel(app_port, label=\"sms\")" in sms_source
     assert "get_url(8080)" not in sms_source
     assert "app_port = get_app_port()" in settings_source
     assert "/api/launcher-ping" in app_source

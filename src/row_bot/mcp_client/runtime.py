@@ -13,7 +13,7 @@ import threading
 import traceback
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, ConfigDict, Field, create_model
@@ -619,15 +619,28 @@ def _make_prompt_get_func(server_name: str) -> Callable[..., str]:
     return _run
 
 
-def get_langchain_tools() -> list[StructuredTool]:
+def _allow_names_set(allow_names: Iterable[str] | None) -> set[str] | None:
+    if allow_names is None:
+        return None
+    return {str(name) for name in allow_names if str(name or "").strip()}
+
+
+def _mcp_runtime_name_allowed(name: str, allow: set[str] | None) -> bool:
+    return allow is None or "mcp" in allow or str(name or "") in allow
+
+
+def get_langchain_tools(allow_names: Iterable[str] | None = None) -> list[StructuredTool]:
     if not mcp_config.is_globally_enabled():
         return []
+    allow = _allow_names_set(allow_names)
     discover_enabled_servers()
     _sync_catalog_from_config()
     wrappers: list[StructuredTool] = []
     with _runtime_lock:
         infos = [info for tools in _catalog.values() for info in tools.values() if info.enabled]
     for info in infos:
+        if not _mcp_runtime_name_allowed(info.prefixed_name, allow):
+            continue
         try:
             wrappers.append(StructuredTool.from_function(
                 func=_make_tool_func(info.server_name, info.name),
@@ -644,40 +657,49 @@ def get_langchain_tools() -> list[StructuredTool]:
         tools_cfg = server_cfg.get("tools", {})
         safe_server = sanitize_name_component(server_name)
         if tools_cfg.get("resources_enabled"):
-            wrappers.append(StructuredTool.from_function(
-                func=_make_resource_list_func(server_name),
-                name=f"mcp_{safe_server}_list_resources",
-                description=f"List resources exposed by MCP server '{server_name}'.",
-            ))
-            wrappers.append(StructuredTool.from_function(
-                func=_make_resource_read_func(server_name),
-                name=f"mcp_{safe_server}_read_resource",
-                description=f"Read a resource URI from MCP server '{server_name}'.",
-                args_schema=_ResourceReadArgs,
-            ))
+            list_name = f"mcp_{safe_server}_list_resources"
+            read_name = f"mcp_{safe_server}_read_resource"
+            if _mcp_runtime_name_allowed(list_name, allow):
+                wrappers.append(StructuredTool.from_function(
+                    func=_make_resource_list_func(server_name),
+                    name=list_name,
+                    description=f"List resources exposed by MCP server '{server_name}'.",
+                ))
+            if _mcp_runtime_name_allowed(read_name, allow):
+                wrappers.append(StructuredTool.from_function(
+                    func=_make_resource_read_func(server_name),
+                    name=read_name,
+                    description=f"Read a resource URI from MCP server '{server_name}'.",
+                    args_schema=_ResourceReadArgs,
+                ))
         if tools_cfg.get("prompts_enabled"):
-            wrappers.append(StructuredTool.from_function(
-                func=_make_prompt_list_func(server_name),
-                name=f"mcp_{safe_server}_list_prompts",
-                description=f"List prompts exposed by MCP server '{server_name}'.",
-            ))
-            wrappers.append(StructuredTool.from_function(
-                func=_make_prompt_get_func(server_name),
-                name=f"mcp_{safe_server}_get_prompt",
-                description=f"Get a prompt from MCP server '{server_name}'.",
-                args_schema=_PromptGetArgs,
-            ))
+            list_name = f"mcp_{safe_server}_list_prompts"
+            get_name = f"mcp_{safe_server}_get_prompt"
+            if _mcp_runtime_name_allowed(list_name, allow):
+                wrappers.append(StructuredTool.from_function(
+                    func=_make_prompt_list_func(server_name),
+                    name=list_name,
+                    description=f"List prompts exposed by MCP server '{server_name}'.",
+                ))
+            if _mcp_runtime_name_allowed(get_name, allow):
+                wrappers.append(StructuredTool.from_function(
+                    func=_make_prompt_get_func(server_name),
+                    name=get_name,
+                    description=f"Get a prompt from MCP server '{server_name}'.",
+                    args_schema=_PromptGetArgs,
+                ))
     return wrappers
 
 
-def get_destructive_tool_names() -> set[str]:
+def get_destructive_tool_names(allow_names: Iterable[str] | None = None) -> set[str]:
+    allow = _allow_names_set(allow_names)
     _sync_catalog_from_config()
     with _runtime_lock:
         return {
             info.prefixed_name
             for tools in _catalog.values()
             for info in tools.values()
-            if info.enabled and info.requires_approval
+            if info.enabled and info.requires_approval and _mcp_runtime_name_allowed(info.prefixed_name, allow)
         }
 
 

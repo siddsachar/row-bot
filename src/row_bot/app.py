@@ -444,6 +444,16 @@ async def _run_startup_sequence():
             "Run launcher.py --reset-tasks-db if it does not recover after restart."
         )
 
+    _set("Recovering Agent runs...")
+    try:
+        from row_bot.agent_runs import recover_stale_agent_runs
+
+        recovery = await asyncio.to_thread(recover_stale_agent_runs)
+        if any(int(value or 0) for value in recovery.values()):
+            logger.info("Agent Run startup recovery: %s", recovery)
+    except Exception as exc:
+        logger.warning("Agent Run startup recovery skipped (non-fatal): %s", exc)
+
     try:
         from row_bot.providers.model_catalog_cache import schedule_model_catalog_refresh_jobs
         await asyncio.to_thread(schedule_model_catalog_refresh_jobs)
@@ -540,6 +550,11 @@ async def _run_startup_sequence():
             if tunnel_manager.is_available():
                 tunnel_manager.start_tunnel(_APP_PORT, label="main_app")
                 _safe_console_print(f"[startup] ✅ Main-app tunnel auto-started on port {_APP_PORT}")
+            else:
+                _status_code, status_detail = tunnel_manager.status()
+                warning = f"Tunnel auto-start skipped: {status_detail}"
+                logger.warning(warning)
+                _st.startup_warnings.append(f"⚠️ {warning}")
         except Exception as exc:
             _st.startup_warnings.append(f"⚠️ Tunnel failed to auto-start: {exc}")
 
@@ -1007,6 +1022,7 @@ async def index():
         rebuild_thread_list=rebuild_thread_list,
         show_task_dialog=_show_task_dialog,
         load_thread_messages=load_thread_messages,
+        open_settings=_open_settings,
     )
     from row_bot.ui.buddy import build_in_app_buddy
     build_in_app_buddy()
@@ -1073,6 +1089,8 @@ async def index():
                         add_chat_message=lambda msg: add_chat_message(msg, p, state.thread_id),
                         browse_file=browse_file,
                         open_settings=_open_settings,
+                        rebuild_main=lambda **kw: _rebuild_main(**kw),
+                        rebuild_thread_list=rebuild_thread_list,
                     )
                 elif state.active_developer_workspace_id is not None:
                     from row_bot.developer.ui import build_developer_workspace
@@ -1252,6 +1270,11 @@ async def index():
     cb.add_chat_message = _add_chat_message_and_track
     cb.mark_chat_message_rendered = _mark_chat_message_rendered
     cb.render_text_with_embeds = render_text_with_embeds
+    cb.refresh_parent_agent_strip = lambda: (
+        p.refresh_parent_agent_strip()
+        if callable(getattr(p, "refresh_parent_agent_strip", None))
+        else None
+    )
 
     def _refresh_chat_messages() -> None:
         """Synchronize the active transcript without a full visible rebuild."""
