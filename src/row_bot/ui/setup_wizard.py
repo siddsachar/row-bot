@@ -158,6 +158,7 @@ async def show_setup_wizard(
         refresh_custom_endpoint_models,
         save_custom_endpoint,
     )
+    from row_bot.providers.auth_store import get_storage_warning as get_provider_storage_warning
     from row_bot.providers.codex import (
         codex_runtime_available,
         exchange_codex_device_authorization,
@@ -720,7 +721,11 @@ async def show_setup_wizard(
                     first = next(iter(opts))
                     custom_model_select.set_value(first)
                     custom_model_select.visible = True
-                    custom_status.text = f"✅ Found {len(opts)} models"
+                    storage_warning = get_provider_storage_warning() if api_key else ""
+                    if storage_warning:
+                        custom_status.text = f"✅ Found {len(opts)} models. API key is saved for this session only."
+                    else:
+                        custom_status.text = f"✅ Found {len(opts)} models"
                     custom_done["value"] = True
                     _update_finish()
 

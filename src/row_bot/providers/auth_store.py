@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 import os
 from typing import Any
 
@@ -9,6 +10,8 @@ import row_bot.secret_store as secret_store
 
 from row_bot.providers.config import update_provider_config
 from row_bot.providers.models import AuthMethod, ProviderHealth
+
+logger = logging.getLogger(__name__)
 
 PROVIDER_API_KEY_ENV: dict[str, str] = {
     "openai": "OPENAI_API_KEY",
@@ -25,6 +28,8 @@ PROVIDER_API_KEY_ENV: dict[str, str] = {
 PROVIDER_SECRET_CHUNK_SIZE = 512
 CHUNK_MARKER_SUFFIX = "__chunks"
 CHUNK_VALUE_PREFIX = "v1:"
+_session_provider_secrets: dict[tuple[str, str], str] = {}
+_last_storage_warning = ""
 
 
 def _namespace(provider_id: str) -> str:
@@ -33,6 +38,22 @@ def _namespace(provider_id: str) -> str:
 
 def _credential_name(credential_name: str) -> str:
     return str(credential_name or "api_key").strip() or "api_key"
+
+
+def _session_key(provider_id: str, name: str) -> tuple[str, str]:
+    return (str(provider_id).strip(), _credential_name(name))
+
+
+def _get_session_provider_secret(provider_id: str, name: str) -> str:
+    return _session_provider_secrets.get(_session_key(provider_id, name), "")
+
+
+def _set_session_provider_secret(provider_id: str, name: str, value: str) -> None:
+    _session_provider_secrets[_session_key(provider_id, name)] = str(value)
+
+
+def _delete_session_provider_secret(provider_id: str, name: str) -> None:
+    _session_provider_secrets.pop(_session_key(provider_id, name), None)
 
 
 def _chunk_marker_name(name: str) -> str:
@@ -91,6 +112,9 @@ def _set_provider_secret_value(provider_id: str, name: str, value: str) -> None:
 
 
 def _get_provider_secret_value(provider_id: str, name: str) -> str:
+    session_value = _get_session_provider_secret(provider_id, name)
+    if session_value:
+        return session_value
     count = _chunk_count(provider_id, name)
     if count:
         parts: list[str] = []
@@ -117,7 +141,22 @@ def set_provider_secret(
 ) -> None:
     provider_id = str(provider_id).strip()
     name = _credential_name(credential_name)
-    _set_provider_secret_value(provider_id, name, value)
+    text = str(value)
+    storage_source = "keyring"
+    metadata_source = source
+    try:
+        _set_provider_secret_value(provider_id, name, text)
+        _delete_session_provider_secret(provider_id, name)
+        _clear_storage_warning()
+    except secret_store.SecretStoreError as exc:
+        _set_session_provider_secret(provider_id, name, text)
+        storage_source = "session"
+        if source == "keyring":
+            metadata_source = "session"
+        _set_storage_warning(
+            f"Secure provider secret storage is unavailable; {provider_id}/{name} is saved for this session only."
+        )
+        logger.warning("Using session-only provider secret storage for %s/%s: %s", provider_id, name, exc)
     fingerprint = secret_store.fingerprint(value)
     now = datetime.now(timezone.utc).isoformat()
     method = auth_method or (AuthMethod.API_KEY if name == "api_key" else AuthMethod.CUSTOM)
@@ -131,7 +170,8 @@ def set_provider_secret(
             "auth_method": method_value,
             "health": ProviderHealth.CONNECTED.value,
             "configured": True,
-            "source": source,
+            "source": metadata_source,
+            "secret_storage": storage_source,
             "fingerprint": fingerprint,
             "updated_at": now,
             "last_error": "",
@@ -149,15 +189,13 @@ def get_provider_secret(provider_id: str, credential_name: str = "api_key") -> s
             legacy_value = api_keys.get_key(env_var)
             if legacy_value:
                 return legacy_value
-    try:
-        return _get_provider_secret_value(provider_id, name)
-    except secret_store.SecretStoreError:
-        return ""
+    return _get_provider_secret_value(provider_id, name)
 
 
 def delete_provider_secret(provider_id: str, credential_name: str = "api_key") -> None:
     provider_id = str(provider_id).strip()
     name = _credential_name(credential_name)
+    _delete_session_provider_secret(provider_id, name)
     _delete_chunked_provider_secret(provider_id, name)
     try:
         secret_store.delete_secret(name, namespace=_namespace(provider_id))
@@ -211,6 +249,13 @@ def provider_secret_status(provider_id: str, credential_name: str = "api_key") -
                 "source": source or "api_keys",
                 "fingerprint": fingerprint,
             }
+    session_value = _get_session_provider_secret(provider_id, name)
+    if session_value:
+        return {
+            "configured": True,
+            "source": "session",
+            "fingerprint": secret_store.fingerprint(session_value),
+        }
     try:
         value = _get_provider_secret_value(provider_id, name)
         source = "keyring" if value else ""
@@ -221,3 +266,22 @@ def provider_secret_status(provider_id: str, credential_name: str = "api_key") -
         "source": source,
         "fingerprint": secret_store.fingerprint(value),
     }
+
+
+def get_storage_warning() -> str:
+    return _last_storage_warning
+
+
+def _set_storage_warning(message: str) -> None:
+    global _last_storage_warning
+    _last_storage_warning = message
+
+
+def _clear_storage_warning() -> None:
+    global _last_storage_warning
+    _last_storage_warning = ""
+
+
+def _clear_session_secrets_for_tests() -> None:
+    _session_provider_secrets.clear()
+    _clear_storage_warning()

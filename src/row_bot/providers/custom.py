@@ -353,6 +353,14 @@ def custom_endpoint_secret(endpoint_or_provider_id: str) -> str:
     return get_provider_secret(provider_id, "api_key")
 
 
+def custom_endpoint_auth_missing_message(endpoint: dict[str, Any]) -> str:
+    label = str(endpoint.get("display_name") or endpoint.get("id") or endpoint.get("provider_id") or "custom endpoint")
+    return (
+        f"Custom endpoint '{label}' requires an API key, but no key is available. "
+        "Re-enter the key for this session or configure a secure keyring backend for persistent storage."
+    )
+
+
 def custom_endpoint_models(endpoint_or_provider_id: str) -> list[dict[str, Any]]:
     endpoint = get_custom_endpoint(endpoint_or_provider_id)
     if not endpoint:
@@ -386,11 +394,7 @@ def refresh_custom_endpoint_models(endpoint_or_provider_id: str) -> list[ModelIn
 
     import httpx
 
-    headers = dict(endpoint.get("headers") or {})
-    secret = custom_endpoint_secret(str(endpoint["provider_id"])) if endpoint.get("auth_required") else ""
-    if secret:
-        header_name = str(endpoint.get("api_key_header") or "Authorization")
-        headers[header_name] = f"Bearer {secret}" if header_name.lower() == "authorization" else secret
+    headers = _custom_endpoint_headers(endpoint)
     url = f"{str(endpoint['base_url']).rstrip('/')}/models"
     response = httpx.get(url, headers=headers, timeout=15)
     response.raise_for_status()
@@ -1018,9 +1022,12 @@ def _stream_line_has_usable_delta(line: str) -> bool:
 def _custom_endpoint_headers(endpoint: dict[str, Any]) -> dict[str, str]:
     headers = dict(endpoint.get("headers") or {})
     secret = custom_endpoint_secret(str(endpoint["provider_id"])) if endpoint.get("auth_required") else ""
-    if secret:
-        header_name = str(endpoint.get("api_key_header") or "Authorization")
-        headers[header_name] = f"Bearer {secret}" if header_name.lower() == "authorization" else secret
+    if endpoint.get("auth_required") and not secret:
+        raise ValueError(custom_endpoint_auth_missing_message(endpoint))
+    if not secret:
+        return headers
+    header_name = str(endpoint.get("api_key_header") or "Authorization")
+    headers[header_name] = f"Bearer {secret}" if header_name.lower() == "authorization" else secret
     return headers
 
 

@@ -27,7 +27,8 @@ def test_streaming_final_message_persists_thinking_text():
     source = (root / "src" / "row_bot" / "ui" / "streaming.py").read_text(encoding="utf-8")
 
     assert "attach_thinking_to_message(a_msg, gen.thinking_text)" in source
-    assert "state.messages.append(a_msg)" in source
+    assert "_insert_assistant_before_future_queued_turns(" in source
+    assert "a_msg," in source
 
 
 def test_streaming_does_not_treat_reasoning_only_as_final_output():

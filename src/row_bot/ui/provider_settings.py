@@ -697,6 +697,11 @@ def build_custom_endpoints_section(on_change=None) -> None:
                                     context_window=context_input.value,
                                 )
                                 save_custom_endpoint(payload)
+                                storage_warning = ""
+                                if payload.get("api_key"):
+                                    from row_bot.providers.auth_store import get_storage_warning as get_provider_storage_warning
+
+                                    storage_warning = get_provider_storage_warning()
                                 notification = ui.notification("Endpoint saved; refreshing models...", type="ongoing", spinner=True, timeout=None)
                                 try:
                                     await run.io_bound(refresh_custom_endpoint_models, endpoint["id"])
@@ -708,7 +713,14 @@ def build_custom_endpoints_section(on_change=None) -> None:
                                         pass
                                     notification.dismiss()
                                     suffix = "; probe again to verify readiness" if stale else ""
-                                    ui.notify(f"Endpoint saved{suffix}", type="positive", close_button=True)
+                                    if storage_warning:
+                                        ui.notify(
+                                            "Endpoint saved for this session only; configure secure storage to persist it",
+                                            type="warning",
+                                            close_button=True,
+                                        )
+                                    else:
+                                        ui.notify(f"Endpoint saved{suffix}", type="positive", close_button=True)
                                 except Exception as exc:
                                     notification.dismiss()
                                     ui.notify(f"Endpoint saved, but model refresh failed: {exc}", type="warning", close_button=True)
@@ -876,7 +888,19 @@ def build_custom_endpoints_section(on_change=None) -> None:
             if manual_caps:
                 payload["manual_capabilities"] = manual_caps
             save_custom_endpoint(payload)
-            ui.notify("Custom endpoint saved", type="positive")
+            storage_warning = ""
+            if payload.get("api_key"):
+                from row_bot.providers.auth_store import get_storage_warning as get_provider_storage_warning
+
+                storage_warning = get_provider_storage_warning()
+            if storage_warning:
+                ui.notify(
+                    "Custom endpoint saved for this session only; configure secure storage to persist it",
+                    type="warning",
+                    close_button=True,
+                )
+            else:
+                ui.notify("Custom endpoint saved", type="positive")
             if on_change:
                 on_change()
 

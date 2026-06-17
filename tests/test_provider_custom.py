@@ -1,7 +1,9 @@
 import row_bot.api_keys as api_keys
 import base64
 import io
+import pytest
 import row_bot.models as models
+import row_bot.providers.auth_store as auth_store
 import row_bot.providers.config as provider_config
 from row_bot.providers.capabilities import model_supports_surface
 from row_bot.providers.custom import (
@@ -18,6 +20,18 @@ from row_bot.providers.custom import (
     save_custom_endpoint,
 )
 from row_bot.providers.selection import add_quick_choice_for_model, list_quick_choices, model_choice_value
+from row_bot.secret_store import _set_backend_for_tests
+
+
+class _FailingKeyring:
+    def get_password(self, service, account):
+        raise RuntimeError("No recommended backend was available")
+
+    def set_password(self, service, account, value):
+        raise RuntimeError("No recommended backend was available")
+
+    def delete_password(self, service, account):
+        raise RuntimeError("No recommended backend was available")
 
 
 def test_custom_endpoint_catalog_reads_models_payload_and_common_capability_fields(tmp_path, monkeypatch):
@@ -436,6 +450,63 @@ def test_custom_endpoint_refresh_persists_model_cache_entries(tmp_path, monkeypa
     assert [info.model_id for info in infos] == ["row-bot-dummy-chat"]
     assert entries["row-bot-dummy-chat"]["provider"] == custom_provider_id("dummy")
     assert entries["row-bot-dummy-chat"]["capabilities_snapshot"]["tasks"] == ["chat"]
+
+
+def test_custom_endpoint_refresh_uses_session_secret_when_keyring_unavailable(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    auth_store._clear_session_secrets_for_tests()
+    _set_backend_for_tests(_FailingKeyring())
+    try:
+        save_custom_endpoint({
+            "id": "headless",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "auth_required": True,
+            "api_key": "sk-local-session",
+        })
+
+        class _Response:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"data": [{"id": "row-bot-headless-chat", "context_length": 8192}]}
+
+        seen_headers = []
+
+        import httpx
+
+        def _get(url, *args, **kwargs):
+            seen_headers.append(dict(kwargs.get("headers") or {}))
+            return _Response()
+
+        monkeypatch.setattr(httpx, "get", _get)
+
+        infos = refresh_custom_endpoint_models("headless")
+
+        assert [info.model_id for info in infos] == ["row-bot-headless-chat"]
+        assert seen_headers[0]["Authorization"] == "Bearer sk-local-session"
+        assert auth_store.provider_secret_status(custom_provider_id("headless"))["source"] == "session"
+        assert "sk-local-session" not in (tmp_path / "providers.json").read_text(encoding="utf-8")
+    finally:
+        auth_store._clear_session_secrets_for_tests()
+        _set_backend_for_tests(None)
+
+
+def test_auth_required_custom_endpoint_refresh_fails_before_http_without_secret(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    auth_store._clear_session_secrets_for_tests()
+    save_custom_endpoint({
+        "id": "missing-key",
+        "base_url": "http://127.0.0.1:8000/v1",
+        "auth_required": True,
+    })
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("HTTP should not be called")))
+
+    with pytest.raises(ValueError, match="requires an API key"):
+        refresh_custom_endpoint_models("missing-key")
 
 
 def test_custom_endpoint_refresh_prunes_removed_model_quick_choices(tmp_path, monkeypatch):

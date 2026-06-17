@@ -1,7 +1,9 @@
+import json
 import os
 
 import row_bot.api_keys as api_keys
 import row_bot.providers.config as provider_config
+import row_bot.providers.auth_store as auth_store
 from row_bot.providers.auth_store import get_provider_secret, provider_secret_status, set_provider_secret
 from row_bot.secret_store import _set_backend_for_tests
 
@@ -29,6 +31,17 @@ class _LimitedMemoryKeyring(_MemoryKeyring):
         if len(str(value)) > self.max_value_length:
             raise RuntimeError("(1783, 'CredWrite', 'The stub received bad data')")
         super().set_password(service, account, value)
+
+
+class _FailingKeyring:
+    def get_password(self, service, account):
+        raise RuntimeError("No recommended backend was available")
+
+    def set_password(self, service, account, value):
+        raise RuntimeError("No recommended backend was available")
+
+    def delete_password(self, service, account):
+        raise RuntimeError("No recommended backend was available")
 
 
 def test_provider_auth_store_uses_keyring_namespace(tmp_path, monkeypatch):
@@ -121,4 +134,60 @@ def test_provider_auth_store_chunks_large_provider_secret(tmp_path, monkeypatch)
         assert status["configured"] is True
         assert status["fingerprint"] == "****xxxx"
     finally:
+        _set_backend_for_tests(None)
+
+
+def test_provider_auth_store_uses_session_when_keyring_unavailable(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    backend = _FailingKeyring()
+    auth_store._clear_session_secrets_for_tests()
+    _set_backend_for_tests(backend)
+    try:
+        set_provider_secret("custom_openai_llama", "api_key", "sk-session-secret")
+
+        assert get_provider_secret("custom_openai_llama") == "sk-session-secret"
+        assert provider_secret_status("custom_openai_llama") == {
+            "configured": True,
+            "source": "session",
+            "fingerprint": "****cret",
+        }
+        assert "session only" in auth_store.get_storage_warning()
+
+        raw_config = (tmp_path / "providers.json").read_text(encoding="utf-8")
+        assert "sk-session-secret" not in raw_config
+        provider_entry = json.loads(raw_config)["providers"]["custom_openai_llama"]
+        assert provider_entry["source"] == "session"
+        assert provider_entry["secret_storage"] == "session"
+        assert provider_entry["fingerprint"] == "****cret"
+
+        auth_store._clear_session_secrets_for_tests()
+        assert get_provider_secret("custom_openai_llama") == ""
+        assert provider_secret_status("custom_openai_llama")["configured"] is False
+    finally:
+        auth_store._clear_session_secrets_for_tests()
+        _set_backend_for_tests(None)
+
+
+def test_provider_auth_store_keyring_success_clears_session_fallback(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    auth_store._clear_session_secrets_for_tests()
+    _set_backend_for_tests(_FailingKeyring())
+    try:
+        set_provider_secret("custom_openai_llama", "api_key", "sk-session-secret")
+        assert provider_secret_status("custom_openai_llama")["source"] == "session"
+    finally:
+        _set_backend_for_tests(None)
+
+    backend = _MemoryKeyring()
+    _set_backend_for_tests(backend)
+    try:
+        set_provider_secret("custom_openai_llama", "api_key", "sk-keyring-secret")
+
+        assert get_provider_secret("custom_openai_llama") == "sk-keyring-secret"
+        assert provider_secret_status("custom_openai_llama")["source"] == "keyring"
+        raw_config = json.loads((tmp_path / "providers.json").read_text(encoding="utf-8"))
+        assert raw_config["providers"]["custom_openai_llama"]["source"] == "keyring"
+        assert raw_config["providers"]["custom_openai_llama"]["secret_storage"] == "keyring"
+    finally:
+        auth_store._clear_session_secrets_for_tests()
         _set_backend_for_tests(None)
