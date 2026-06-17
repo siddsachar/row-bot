@@ -6,7 +6,12 @@ from typing import Any
 from row_bot.providers.capabilities import snapshot_supports_surface
 from row_bot.providers.auth_store import get_provider_secret, provider_secret_status
 from row_bot.providers.catalog import get_provider_definition
-from row_bot.providers.custom import custom_endpoint_secret, get_custom_endpoint, is_custom_openai_provider
+from row_bot.providers.custom import (
+    custom_endpoint_auth_missing_message,
+    custom_endpoint_secret,
+    get_custom_endpoint,
+    is_custom_openai_provider,
+)
 
 
 def is_provider_available(provider_id: str) -> bool:
@@ -289,7 +294,10 @@ def create_chat_model(model_name: str, provider_id: str | None = None):
         endpoint = get_custom_endpoint(provider)
         if not endpoint or not endpoint.get("base_url"):
             raise ValueError("Custom OpenAI-compatible endpoint is missing a base URL.")
-        api_key = custom_endpoint_secret(provider) or "not-needed"
+        api_key = custom_endpoint_secret(provider)
+        if endpoint.get("auth_required") and not api_key:
+            raise ValueError(custom_endpoint_auth_missing_message(endpoint))
+        api_key = api_key or "not-needed"
         if endpoint.get("transport") == "openai_responses":
             from langchain_openai import ChatOpenAI
 

@@ -248,8 +248,8 @@ def test_onboarding_source_contracts_are_wired():
     assert "_missing_starter_workflow_count" in center_src
     assert "Add starters" not in center_src
     assert "SETUP_STEPS" in center_src
-    assert "onboarding_center.py" in installer_src
-    assert "onboarding_state.py" in installer_src
+    assert r'Source: "..\src\row_bot\*"' in installer_src
+    assert "recursesubdirs" in installer_src
 
 
 def test_welcome_message_and_example_prompts_are_current():

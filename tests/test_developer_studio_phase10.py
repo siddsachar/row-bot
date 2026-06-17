@@ -448,7 +448,8 @@ def test_active_detached_finalize_preserves_optimistic_user_messages():
     source = (root / "src" / "row_bot" / "ui" / "streaming.py").read_text(encoding="utf-8")
 
     assert "if state.thread_id == gen.thread_id:" in source
-    assert "state.messages.append(a_msg)" in source
+    assert "_insert_assistant_before_future_queued_turns(" in source
+    assert "current_queued_ids=gen.queued_message_ids" in source
     assert "Do not reload the active thread here" in source
     assert "active but UI-detached run may have newer optimistic user" in source
 
