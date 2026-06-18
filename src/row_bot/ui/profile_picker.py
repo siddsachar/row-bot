@@ -52,6 +52,42 @@ def _profile_options() -> tuple[dict[str, str], dict[str, dict]]:
     return options, by_value
 
 
+def _apply_profile_picker_selection(
+    thread_id: str,
+    value: str,
+    *,
+    profiles_by_value: dict[str, dict] | None = None,
+) -> dict:
+    from row_bot.agent import clear_agent_cache
+    from row_bot.agent_profiles import get_agent_profile
+    from row_bot.threads import (
+        _clear_thread_agent_profile,
+        _set_thread_agent_profile,
+        set_thread_skills_override,
+    )
+
+    thread_id = str(thread_id or "").strip()
+    value = str(value or "").strip()
+    if not thread_id:
+        raise ValueError("A thread id is required to set an Agent Profile.")
+    if not value:
+        _clear_thread_agent_profile(thread_id)
+        set_thread_skills_override(thread_id, None)
+        clear_agent_cache()
+        return {"cleared": True, "stored": {"id": "", "slug": ""}, "profile": None}
+
+    stored = _set_thread_agent_profile(thread_id, value)
+    profile_lookup = profiles_by_value if isinstance(profiles_by_value, dict) else {}
+    profile = profile_lookup.get(value) or get_agent_profile(
+        str(stored.get("id") or stored.get("slug") or value),
+        enabled_only=False,
+    )
+    profile_skills = _profile_skills(profile)
+    set_thread_skills_override(thread_id, profile_skills or None)
+    clear_agent_cache()
+    return {"cleared": False, "stored": stored, "profile": profile}
+
+
 def build_profile_picker(
     state: AppState,
     *,
@@ -137,28 +173,16 @@ def build_profile_picker(
         def _on_pick(e) -> None:
             value = str(e.value or "")
             try:
-                from row_bot.agent import clear_agent_cache
-                from row_bot.agent_profiles import get_agent_profile
-                from row_bot.threads import (
-                    _clear_thread_agent_profile,
-                    _set_thread_agent_profile,
-                    set_thread_skills_override,
+                result = _apply_profile_picker_selection(
+                    thread_id,
+                    value,
+                    profiles_by_value=profiles_by_value,
                 )
-
-                if not value:
-                    _clear_thread_agent_profile(thread_id)
-                    set_thread_skills_override(thread_id, None)
-                    clear_agent_cache()
+                if result.get("cleared"):
                     ui.notify("Agent Profile cleared", type="info")
                 else:
-                    stored = _set_thread_agent_profile(thread_id, value)
-                    profile = profiles_by_value.get(value) or get_agent_profile(
-                        str(stored.get("id") or stored.get("slug") or value),
-                        enabled_only=False,
-                    )
-                    profile_skills = _profile_skills(profile)
-                    set_thread_skills_override(thread_id, profile_skills or None)
-                    clear_agent_cache()
+                    stored = result.get("stored") or {}
+                    profile = result.get("profile")
                     display = (
                         str(profile.get("display_name") or profile.get("slug"))
                         if profile

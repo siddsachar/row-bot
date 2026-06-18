@@ -155,7 +155,7 @@ def test_read_only_agents_do_not_take_writer_lock(tmp_path, monkeypatch):
     run = agent_runner.spawn_agent_run(
         "Read only review",
         parent_thread_id=parent_thread_id,
-        profile="reviewer",
+        profile="review",
         enabled_tool_names=[],
         wait=True,
     )

@@ -506,6 +506,20 @@ def _query_tools() -> str:
                 )
             lines.append("")
             lines.append("Global tools:")
+        elif isinstance(profile, dict):
+            active_label = profile.get("display_name") or profile.get("slug") or "active profile"
+            state = "enabled" if profile.get("enabled", True) else "disabled"
+            lines.extend([
+                "",
+                "**Effective Thread Tool Scope**",
+                f"- Active profile: {active_label} ({profile.get('slug')}, {state})",
+                (
+                    "- Runtime enforcement: no profile allow-list is active; "
+                    "this profile inherits all globally enabled tools."
+                ),
+                "",
+                "Global tools:",
+            ])
         for t in enabled:
             lines.append(f"- ✅ {t.display_name}")
         for t in contextual:
@@ -935,7 +949,7 @@ def _query_agent_profiles() -> str:
             f"- Profiles: {len(enabled)} enabled / {len(profiles)} total",
             f"- Sources: {_counts_by(profiles, 'source')}",
             f"- Scopes: {_counts_by(profiles, 'scope')}",
-            f"- Tool modes: {len(profiles) - len(selected_profiles)} enabled tools / "
+            f"- Tool modes: {len(profiles) - len(selected_profiles)} inherited enabled tools / "
             f"{len(selected_profiles)} selected tools",
         ]
         aggregate_text = format_tool_source_counts(aggregate_tool_counts)
@@ -973,7 +987,10 @@ def _query_agent_profiles() -> str:
                         f"- Active runtime allow-list: {_format_selected_tool_ids(runtime_allowlist)}"
                     )
             else:
-                lines.append("- Active profile tool mode: enabled tools (no profile allow-list)")
+                lines.append(
+                    "- Active profile tool mode: inherited enabled tools "
+                    "(broad/default; no profile allow-list)"
+                )
         elif active_ref:
             lines.append(f"- Active thread profile: {active_ref} (not found)")
         elif thread_id:
@@ -995,7 +1012,7 @@ def _query_agent_profiles() -> str:
                 for name in tool_policy.get("allow_tools") or []
                 if str(name or "").strip()
             ]
-            tool_mode = "selected tools" if allow_tools else "enabled tools"
+            tool_mode = "selected tools" if allow_tools else "inherits enabled tools"
             policy_bits = [
                 str(tool_policy.get("capability") or "read_only"),
                 f"tools={tool_mode}",

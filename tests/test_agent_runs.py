@@ -93,7 +93,7 @@ def test_agent_run_event_edge_crud(tmp_path, monkeypatch):
         parent_thread_id="parent-thread",
         thread_id="parent-thread",
         display_name="Parent",
-        profile_id="planner",
+        profile_id="plan",
     )
     child = agent_runs.create_agent_run(
         run_id="child-run",
@@ -103,7 +103,7 @@ def test_agent_run_event_edge_crud(tmp_path, monkeypatch):
         parent_thread_id="parent-thread",
         thread_id="child-thread",
         display_name="Child",
-        profile_id="reviewer",
+        profile_id="quality_reviewer",
         tools_override=["shell"],
         skills_override=["tests"],
     )
@@ -126,8 +126,8 @@ def test_agent_run_event_edge_crud(tmp_path, monkeypatch):
     assert event["payload_json"]["tool"] == "pytest"
     assert started["status"] == "running"
     assert finished["status"] == "completed"
-    assert finished["profile_id"] == "builtin:reviewer"
-    assert finished["profile_snapshot_json"]["slug"] == "reviewer"
+    assert finished["profile_id"] == "builtin:review"
+    assert finished["profile_snapshot_json"]["slug"] == "review"
     assert finished["tools_override"] == ["shell"]
     assert finished["result_json"] == {"ok": True}
 
@@ -291,7 +291,7 @@ def test_workflow_run_is_mirrored_to_agent_runs(tmp_path, monkeypatch):
             {
                 "type": "prompt",
                 "prompt": "Review this change.",
-                "agent_profile_id": "reviewer",
+                "agent_profile_id": "quality_reviewer",
             }
         ],
     )
@@ -316,8 +316,8 @@ def test_workflow_run_is_mirrored_to_agent_runs(tmp_path, monkeypatch):
     assert mirrored["task_id"] == task_id
     assert mirrored["thread_id"] == "workflow-thread"
     assert mirrored["status"] == "running"
-    assert mirrored["profile_id"] == "builtin:reviewer"
-    assert mirrored["profile_snapshot_json"]["slug"] == "reviewer"
+    assert mirrored["profile_id"] == "builtin:review"
+    assert mirrored["profile_snapshot_json"]["slug"] == "review"
     assert mirrored["max_turns"] == 1
 
     tasks._update_run_progress(run_id, 1)

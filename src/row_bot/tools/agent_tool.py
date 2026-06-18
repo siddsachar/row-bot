@@ -93,6 +93,7 @@ def _public_profile(profile: dict[str, Any]) -> dict[str, Any]:
         workspace_policy = {}
     if not isinstance(approval_policy, dict):
         approval_policy = {}
+    allow_tools = tool_policy.get("allow_tools") or []
     return {
         "id": profile.get("id", ""),
         "slug": profile.get("slug", ""),
@@ -103,7 +104,8 @@ def _public_profile(profile: dict[str, Any]) -> dict[str, Any]:
         "source": profile.get("source", ""),
         "enabled": bool(profile.get("enabled", True)),
         "capability": tool_policy.get("capability", "read_only"),
-        "allow_tools": tool_policy.get("allow_tools") or [],
+        "tool_mode": "selected_tools" if allow_tools else "inherit_enabled_tools",
+        "allow_tools": allow_tools,
         "skills": skill_policy.get("skills_override") or [],
         "context_mode": context_policy.get("default_context_mode", "auto"),
         "workspace_mode": workspace_policy.get("workspace_mode_default", "auto"),
@@ -149,7 +151,7 @@ class _DelegateWorkInput(BaseModel):
     objective: str = Field(description="Specific objective for the child Agent.")
     profile: str = Field(
         default="",
-        description="Agent Profile slug or id, such as reviewer, researcher, explorer, tester, or worker.",
+        description="Agent Profile slug or id, such as research, review, develop, verify, or worker.",
     )
     context: str = Field(
         default="",

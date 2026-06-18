@@ -101,7 +101,10 @@ def test_profile_library_lives_in_left_sidebar():
     assert "ui.checkbox" in library
     assert "_TOOL_ACCESS_OPTIONS" in library
     assert "allow_tools" in library
-    assert "Selected tools" in library
+    assert "Selected tools only" in library
+    assert "hard runtime boundary" in library
+    assert "inherits enabled tools" in library
+    assert "_create_profile_chat_thread" in library
     assert "skills_override" in library
     assert "Pinned skills for this profile" in library
     assert "Smart skill suggestions still work normally" in library
@@ -139,6 +142,9 @@ def test_profile_library_lives_in_left_sidebar():
     assert "chevron_right" in library
     assert "chevron_left" in library
     assert "grid-template-columns: 22px minmax(0, 1fr) auto" in library
+    assert "deny_memory_write" not in library
+    assert "allow_tool_groups" not in library
+    assert "include_memory" not in library
 
 
 def test_channel_monitor_component_preserves_channel_contract():
@@ -166,6 +172,7 @@ def test_global_profile_picker_contract():
     assert "set_thread_skills_override" in picker
     assert "skills_override" in picker
     assert "clear_agent_cache" in picker
+    assert "_apply_profile_picker_selection" in picker
     assert "open_profile_view_dialog" in picker
     assert "Developer workspace permissions still apply" in picker
     assert "build_profile_picker" in chat

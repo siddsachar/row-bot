@@ -14,9 +14,9 @@ from row_bot.ui.state import AppState, P, _active_generations
 logger = logging.getLogger(__name__)
 
 _CAPABILITY_OPTIONS = {
-    "read_only": "Read only",
-    "write_capable": "Can write files",
-    "orchestrator": "Can coordinate agents",
+    "read_only": "Read-only behavior",
+    "write_capable": "Write-capable behavior",
+    "orchestrator": "Coordinator behavior",
 }
 
 _CONTEXT_OPTIONS = {
@@ -43,16 +43,16 @@ _APPROVAL_OPTIONS = {
 }
 
 _TOOL_ACCESS_OPTIONS = {
-    "inherit": "Use enabled tools",
-    "select": "Select tools",
+    "inherit": "Inherit enabled tools",
+    "select": "Selected tools only",
 }
 
 _TOOL_GROUP_NAMES = ("Core", "MCP", "Plugins", "Custom Tools", "Unavailable")
 
 _CAPABILITY_HELP = {
-    "read_only": "Can inspect and reason, but should not change files or state.",
-    "write_capable": "May change files, but still obeys approval and workspace write locks.",
-    "orchestrator": "May coordinate work and agents within the current safety limits.",
+    "read_only": "Behavioral instruction to inspect and reason. Selected tools are the hard boundary.",
+    "write_capable": "May change files or state when the selected or inherited tools allow it.",
+    "orchestrator": "May coordinate work and agents within approval, workspace, and tool limits.",
 }
 
 _CONTEXT_HELP = {
@@ -227,12 +227,15 @@ def _policy_summary(profile: dict) -> dict[str, Any]:
         "skills": _selected_list(skill_policy.get("skills_override")),
         "context": str(context_policy.get("default_context_mode") or "auto"),
         "workspace": str(workspace_policy.get("workspace_mode_default") or "auto"),
+        "tool_scope": "selected" if _selected_list(tool_policy.get("allow_tools")) else "inherit",
     }
 
 
 def _profile_group(profile: dict) -> str:
     if profile.get("source") == "builtin":
-        return "Built-in"
+        ui_json = _json_field(profile, "ui_json")
+        group = str(ui_json.get("group") or "").strip()
+        return group or "Everyday"
     scope = str(profile.get("scope") or "user")
     if scope == "workspace":
         return "Workspace Profiles"
@@ -247,6 +250,23 @@ def _profile_ref(profile: dict) -> str:
     return str(profile.get("id") or profile.get("slug") or "")
 
 
+def _create_profile_chat_thread(profile: dict) -> tuple[str, str]:
+    from row_bot.threads import create_thread, set_thread_skills_override
+
+    display = str(profile.get("display_name") or profile.get("slug") or "Agent")
+    title = f"{display} chat"
+    thread_id = create_thread(
+        title,
+        agent_profile_id=str(profile.get("id") or ""),
+        agent_profile_slug=str(profile.get("slug") or ""),
+    )
+    profile_skills = _selected_list(
+        _json_field(profile, "skill_policy_json").get("skills_override")
+    )
+    set_thread_skills_override(thread_id, profile_skills or None)
+    return thread_id, title
+
+
 def _start_profile_chat(
     profile: dict,
     *,
@@ -259,18 +279,9 @@ def _start_profile_chat(
         return
     try:
         from row_bot.memory_extraction import set_active_thread
-        from row_bot.threads import create_thread, set_thread_skills_override
 
+        thread_id, title = _create_profile_chat_thread(profile)
         display = str(profile.get("display_name") or profile.get("slug") or "Agent")
-        thread_id = create_thread(
-            f"{display} chat",
-            agent_profile_id=str(profile.get("id") or ""),
-            agent_profile_slug=str(profile.get("slug") or ""),
-        )
-        profile_skills = _selected_list(
-            _json_field(profile, "skill_policy_json").get("skills_override")
-        )
-        set_thread_skills_override(thread_id, profile_skills or None)
         prev = state.thread_id
         prev_gen = _active_generations.get(prev) if prev else None
         if prev_gen and prev_gen.status == "streaming":
@@ -281,7 +292,7 @@ def _start_profile_chat(
         state.active_designer_project = None
         state.active_developer_workspace_id = None
         state.thread_id = thread_id
-        state.thread_name = f"{display} chat"
+        state.thread_name = title
         state.thread_model_override = ""
         state.messages = []
         p.pending_files.clear()
@@ -339,7 +350,7 @@ def open_profile_editor_dialog(
             "text-subtitle1 font-bold"
         )
         ui.label(
-            "Profiles narrow behavior for a thread or child agent; they do not bypass approval or workspace limits."
+            "Profiles set behavior and optional tool boundaries; selected tools are enforced, inherited tools are broad/default."
         ).classes("text-xs text-grey-6")
 
         display_name = ui.input(
@@ -350,7 +361,7 @@ def open_profile_editor_dialog(
         shortcut = ui.input(
             "Profile command",
             value=str(existing.get("slug") or ""),
-            placeholder="Used by /profile reviewer and /agent reviewer <task>",
+            placeholder="Used by /profile review and /agent review <task>",
         ).classes("w-full").props("dense outlined")
         purpose = ui.textarea(
             "Purpose",
@@ -418,7 +429,7 @@ def open_profile_editor_dialog(
         with ui.column().classes("w-full gap-2 q-mt-md"):
             ui.label("Tools").classes("text-xs font-bold text-grey-5")
             ui.label(
-                "Use all globally enabled tools, or select exactly which enabled tools this profile may use."
+                "Inherit all globally enabled tools, or select exactly which tools this profile may use. Selected tools are the hard runtime boundary."
             ).classes("text-xs text-grey-6")
             tool_access = ui.toggle(
                 _TOOL_ACCESS_OPTIONS,
@@ -546,8 +557,6 @@ def open_profile_editor_dialog(
                         "tool_policy_json": {
                             "capability": selected_capability,
                             "allow_tools": allow_tools,
-                            "allow_tool_groups": [],
-                            "deny_memory_write": True,
                             "allow_delegation": bool(tool_policy.get("allow_delegation", False)),
                         },
                         "skill_policy_json": {"skills_override": selected_skills},
@@ -630,7 +639,7 @@ def open_profile_view_dialog(
             ui.label(instructions).classes("text-sm").style("white-space: pre-wrap;")
 
         with ui.grid(columns=2).classes("w-full gap-2 q-mt-sm"):
-            ui.label(f"Capability: {_CAPABILITY_OPTIONS.get(policy['capability'], policy['capability'])}").classes("text-xs")
+            ui.label(f"Behavior: {_CAPABILITY_OPTIONS.get(policy['capability'], policy['capability'])}").classes("text-xs")
             ui.label(f"Context: {_CONTEXT_OPTIONS.get(policy['context'], policy['context'])}").classes("text-xs")
             ui.label(f"Workspace: {_WORKSPACE_OPTIONS.get(policy['workspace'], policy['workspace'])}").classes("text-xs")
             ui.label(f"Scope: {profile.get('scope') or 'user'}").classes("text-xs")
@@ -640,7 +649,12 @@ def open_profile_view_dialog(
             ui.label(f"{label}: {text}").classes("text-xs text-grey-6").style("white-space: normal;")
 
         ui.separator().classes("q-my-sm")
-        _list_line("Selected tools", policy["allow_tools"])
+        if policy["allow_tools"]:
+            _list_line("Tool boundary", policy["allow_tools"])
+        else:
+            ui.label(
+                "Tool boundary: inherits all globally enabled tools (broad/default; no profile allow-list)."
+            ).classes("text-xs text-grey-6").style("white-space: normal;")
         _list_line("Pinned skills", policy["skills"])
 
         with ui.row().classes("w-full justify-end gap-2 q-mt-md"):
@@ -737,7 +751,11 @@ def build_profile_library(
         for profile in profiles:
             grouped.setdefault(_profile_group(profile), []).append(profile)
         for group_name in (
-            "Built-in",
+            "Everyday",
+            "Work",
+            "Creative",
+            "Developer",
+            "Advanced/Internal",
             "My Profiles",
             "Workspace Profiles",
             "Plugin Profiles",
@@ -746,7 +764,7 @@ def build_profile_library(
             rows = grouped.get(group_name) or []
             if not rows:
                 continue
-            with ui.expansion(group_name, icon="badge", value=(group_name == "Built-in")).classes("w-full"):
+            with ui.expansion(group_name, icon="badge", value=(group_name == "Everyday")).classes("w-full"):
                 for profile in rows:
                     is_builtin = profile.get("source") == "builtin"
                     enabled = bool(profile.get("enabled", True))
@@ -760,7 +778,9 @@ def build_profile_library(
                         _CONTEXT_OPTIONS.get(policy["context"], policy["context"]),
                     ]
                     if tool_count:
-                        chips.append(f"{tool_count} tools")
+                        chips.append(f"{tool_count} selected tools")
+                    else:
+                        chips.append("inherits enabled tools")
                     if skill_count:
                         chips.append(f"{skill_count} skills")
 

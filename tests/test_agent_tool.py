@@ -63,19 +63,19 @@ def test_delegate_work_uses_runner_and_returns_public_run(tmp_path, monkeypatch)
             "id": "run-1",
             "kind": "subagent",
             "status": "queued",
-            "display_name": "Reviewer",
+            "display_name": "Review",
             "thread_id": "child-thread",
             "parent_thread_id": kwargs["parent_thread_id"],
-            "profile_id": "builtin:reviewer",
-            "profile_slug": "reviewer",
-            "profile_display_name": "Reviewer",
+            "profile_id": "builtin:review",
+            "profile_slug": "review",
+            "profile_display_name": "Review",
         }
 
     monkeypatch.setattr(agent_tool.agent_runner, "spawn_agent_run", fake_spawn)
 
     payload = json.loads(agent_tool._delegate_work(
         objective="Review the diff.",
-        profile="reviewer",
+        profile="quality_reviewer",
         context="Changed files: app.py",
         parent_thread_id="parent-thread",
         wait=False,
@@ -83,9 +83,9 @@ def test_delegate_work_uses_runner_and_returns_public_run(tmp_path, monkeypatch)
 
     assert payload["ok"] is True
     assert payload["run"]["id"] == "run-1"
-    assert payload["run"]["profile"]["slug"] == "reviewer"
+    assert payload["run"]["profile"]["slug"] == "review"
     assert calls["objective"] == "Review the diff."
-    assert calls["kwargs"]["profile"] == "reviewer"
+    assert calls["kwargs"]["profile"] == "quality_reviewer"
     assert calls["kwargs"]["context"] == "Changed files: app.py"
     assert calls["kwargs"]["parent_thread_id"] == "parent-thread"
 
@@ -123,7 +123,7 @@ def test_agent_status_profiles_and_profile_save(tmp_path, monkeypatch):
         parent_thread_id="parent-thread",
         thread_id="child-thread",
         display_name="Status Run",
-        profile_id="reviewer",
+        profile_id="quality_reviewer",
         summary="Looks good.",
     )
     agent_runs.append_agent_event(run["id"], "summary.updated", {"summary": "Looks good."})
@@ -142,8 +142,14 @@ def test_agent_status_profiles_and_profile_save(tmp_path, monkeypatch):
     list_payload = json.loads(agent_tool._agent_status(parent_thread_id="parent-thread"))
     assert [item["id"] for item in list_payload["runs"]] == ["status-run"]
 
-    profiles_payload = json.loads(agent_tool._agent_profiles(query="reviewer"))
-    assert any(profile["slug"] == "reviewer" for profile in profiles_payload["profiles"])
+    profiles_payload = json.loads(agent_tool._agent_profiles(query="review"))
+    assert any(profile["slug"] == "review" for profile in profiles_payload["profiles"])
+    assert all(profile["slug"] != "quality_reviewer" for profile in profiles_payload["profiles"])
+    quality_profile = next(
+        profile for profile in profiles_payload["profiles"]
+        if profile["slug"] == "review"
+    )
+    assert quality_profile["tool_mode"] == "selected_tools"
 
     saved_payload = json.loads(agent_tool._agent_profile_save(
         slug="release_reviewer",
@@ -171,7 +177,7 @@ def test_agent_promote_creates_profile_and_disabled_workflow(tmp_path, monkeypat
         display_name="Release Check",
         prompt="Review the release checklist.",
         context_summary="Changed files: release.py",
-        profile_id="reviewer",
+        profile_id="quality_reviewer",
         model_override="",
         tools_override=["filesystem"],
         skills_override=["release_notes"],
@@ -191,7 +197,7 @@ def test_agent_promote_creates_profile_and_disabled_workflow(tmp_path, monkeypat
     assert workflow["enabled"] is False
     assert task["enabled"] is False
     assert task["advanced_mode"] is True
-    assert task["agent_profile_id"] == "builtin:reviewer"
+    assert task["agent_profile_id"] == "builtin:review"
     assert task["tools_override"] == ["filesystem"]
     assert task["skills_override"] == ["release_notes"]
     assert task["safety_mode"] == "approve"

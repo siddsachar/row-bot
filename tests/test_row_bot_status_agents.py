@@ -44,7 +44,7 @@ def test_row_bot_status_reports_agents_profiles_and_goals(tmp_path, monkeypatch)
         monkeypatch,
     )
     thread_id = threads.create_thread("Status thread")
-    threads._set_thread_agent_profile(thread_id, "reviewer")
+    threads._set_thread_agent_profile(thread_id, "quality_reviewer")
     profiles.save_agent_profile(
         slug="disabled_release_reviewer",
         display_name="Disabled Release Reviewer",
@@ -62,7 +62,7 @@ def test_row_bot_status_reports_agents_profiles_and_goals(tmp_path, monkeypatch)
         status_message="Working through a delegated task",
         parent_thread_id=thread_id,
         thread_id="child-thread",
-        profile_id="reviewer",
+        profile_id="quality_reviewer",
         display_name="Status child",
         max_turns=3,
         turns_used=1,
@@ -84,8 +84,16 @@ def test_row_bot_status_reports_agents_profiles_and_goals(tmp_path, monkeypatch)
     agent._set_active_runtime_context(
         thread_id=thread_id,
         enabled_tool_names=[],
-        tool_allowlist=["conversation_search", "filesystem", "memory", "row_bot_status", "system_info"],
-        agent_profile_id="reviewer",
+        tool_allowlist=[
+            "conversation_search",
+            "documents",
+            "filesystem",
+            "memory",
+            "row_bot_status",
+            "system_info",
+            "url_reader",
+        ],
+        agent_profile_id="review",
     )
 
     agents = status_tool._row_bot_status("agents")
@@ -99,12 +107,13 @@ def test_row_bot_status_reports_agents_profiles_and_goals(tmp_path, monkeypatch)
 
     agent_profiles = status_tool._row_bot_status("agent_profiles")
     assert "**Agent Profiles**" in agent_profiles
-    assert "Active thread profile: Reviewer" in agent_profiles
+    assert "Active thread profile: Review" in agent_profiles
     assert "builtin " in agent_profiles
     assert "user_created 1" in agent_profiles
     assert "enabled /" in agent_profiles
     assert "total" in agent_profiles
     assert "Tool modes:" in agent_profiles
+    assert "inherited enabled tools" in agent_profiles
     assert "selected tools" in agent_profiles
     assert "Selected tool sources:" in agent_profiles
     assert "core=" in agent_profiles
@@ -174,12 +183,12 @@ def test_row_bot_status_tools_distinguishes_global_and_effective_profile_scope(t
         monkeypatch,
     )
     thread_id = threads.create_thread("Browser status thread")
-    threads._set_thread_agent_profile(thread_id, "browser_debugger")
+    threads._set_thread_agent_profile(thread_id, "web_ui_checker")
     agent._set_active_runtime_context(
         thread_id=thread_id,
         enabled_tool_names=[],
         tool_allowlist=["browser", "filesystem", "row_bot_status", "system_info", "vision"],
-        agent_profile_id="browser_debugger",
+        agent_profile_id="ui_check",
     )
 
     tools = status_tool._row_bot_status("tools")
@@ -187,7 +196,7 @@ def test_row_bot_status_tools_distinguishes_global_and_effective_profile_scope(t
     assert "**Tools**" in tools
     assert "Global catalog:" in tools
     assert "**Effective Thread Tool Scope**" in tools
-    assert "Active profile: Browser Debugger" in tools
+    assert "Active profile: UI Check" in tools
     assert "selected tools are runtime-bound" in tools
     assert "other global tools are not bound" in tools
     assert "Effective tools:" in tools
@@ -204,3 +213,26 @@ def test_row_bot_status_tools_keeps_global_catalog_without_profile_allowlist(tmp
     assert "Global catalog:" in tools
     assert "**Effective Thread Tool Scope**" not in tools
     assert "runtime-bound" not in tools
+
+
+def test_row_bot_status_tools_reports_inherited_profile_scope(tmp_path, monkeypatch):
+    threads, _profiles, _agent_runs, _goals, agent, status_tool = _fresh_status_modules(
+        tmp_path,
+        monkeypatch,
+    )
+    thread_id = threads.create_thread("Worker status thread")
+    threads._set_thread_agent_profile(thread_id, "worker")
+    agent._set_active_runtime_context(
+        thread_id=thread_id,
+        enabled_tool_names=[],
+        agent_profile_id="worker",
+    )
+
+    tools = status_tool._row_bot_status("tools")
+    agent_profiles = status_tool._row_bot_status("agent_profiles")
+
+    assert "**Effective Thread Tool Scope**" in tools
+    assert "Active profile: Worker" in tools
+    assert "inherits all globally enabled tools" in tools
+    assert "selected tools are runtime-bound" not in tools
+    assert "Active profile tool mode: inherited enabled tools" in agent_profiles

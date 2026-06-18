@@ -5,9 +5,9 @@ import importlib
 
 def _profile(max_context_tokens: int = 0, default_context_mode: str = "focused") -> dict:
     return {
-        "id": "builtin:reviewer",
-        "slug": "reviewer",
-        "display_name": "Reviewer",
+        "id": "builtin:review",
+        "slug": "review",
+        "display_name": "Review",
         "instructions": "Review carefully.",
         "handoff_contract": "Return findings first.",
         "context_policy_json": {

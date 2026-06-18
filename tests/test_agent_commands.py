@@ -16,6 +16,7 @@ def _fresh_command_modules(tmp_path, monkeypatch):
         "row_bot.agent_commands",
         "row_bot.slash_commands",
         "row_bot.channels.commands",
+        "row_bot.ui.streaming",
     ):
         sys.modules.pop(name, None)
 
@@ -55,20 +56,55 @@ def test_app_slash_profile_commands_set_clear_and_list(tmp_path, monkeypatch):
 
     specs = {spec.id: spec for spec in slash_commands.get_command_specs(include_skills=False)}
     assert {"profiles", "profile", "agents", "agent"} <= set(specs)
-    assert slash_commands.resolve_command_text("/profile reviewer")[0].id == "profile"
+    assert slash_commands.resolve_command_text("/profile quality_reviewer")[0].id == "profile"
 
-    response = slash_commands.dispatch_text_command(thread_id, "/profile reviewer")
-    assert response and "Reviewer" in response
+    canonical_response = slash_commands.dispatch_text_command(thread_id, "/profile research")
+    assert canonical_response and "Research" in canonical_response
     assert threads._get_thread_agent_profile(thread_id) == {
-        "id": "builtin:reviewer",
-        "slug": "reviewer",
+        "id": "builtin:research",
+        "slug": "research",
     }
+    assert threads.get_thread_skills_override(thread_id) == ["deep_research", "web_navigator"]
+
+    response = slash_commands.dispatch_text_command(thread_id, "/profile quality_reviewer")
+    assert response and "Review" in response
+    assert threads._get_thread_agent_profile(thread_id) == {
+        "id": "builtin:review",
+        "slug": "review",
+    }
+    assert threads.get_thread_skills_override(thread_id) is None
+    import row_bot.ui.streaming as streaming
+
+    config = streaming._profile_runtime_config_for_thread(thread_id)
+    assert config["tool_allowlist"] == [
+        "memory",
+        "row_bot_status",
+        "conversation_search",
+        "duckduckgo",
+        "web_search",
+        "url_reader",
+        "filesystem",
+        "shell",
+        "documents",
+        "calculator",
+    ]
 
     current = slash_commands.dispatch_text_command(thread_id, "/profile")
-    assert current and "reviewer" in current
+    assert current and "review" in current
 
     listing = slash_commands.dispatch_text_command(thread_id, "/profiles review")
-    assert listing and "`reviewer`" in listing
+    assert listing and "`review`" in listing
+
+    alias_listing = slash_commands.dispatch_text_command(thread_id, "/profiles quality")
+    assert alias_listing and "`review`" in alias_listing
+    assert "`quality_reviewer`" not in alias_listing
+
+    default_response = slash_commands.dispatch_text_command(thread_id, "/profile default")
+    assert default_response and "Default" in default_response
+    assert threads._get_thread_agent_profile(thread_id) == {
+        "id": "builtin:row_bot_default",
+        "slug": "row_bot_default",
+    }
 
     custom_response = slash_commands.dispatch_text_command(thread_id, f"/profile {custom['slug']}")
     assert custom_response and "Skillful Reviewer" in custom_response
@@ -95,32 +131,49 @@ def test_direct_agent_request_parser_is_explicit_about_profiles(tmp_path, monkey
     assert generic.objective.startswith("write a 600 word essay")
 
     explicit = agent_commands.parse_agent_spawn_text(
-        "Use a reviewer agent to review the latest diff"
+        "Use a quality reviewer agent to review the latest draft"
     )
     assert explicit is not None
-    assert explicit.profile == "reviewer"
+    assert explicit.profile == "review"
     assert explicit.explicit_profile is True
-    assert explicit.objective == "review the latest diff"
+    assert explicit.objective == "review the latest draft"
 
     natural_without_agent_noun = agent_commands.parse_agent_spawn_text(
-        "Use reviewer to review the release notes"
+        "Use quality reviewer to review the release notes"
     )
     assert natural_without_agent_noun is not None
-    assert natural_without_agent_noun.profile == "reviewer"
+    assert natural_without_agent_noun.profile == "review"
 
     slash_profile = agent_commands.parse_agent_spawn_text("/agent researcher research Row-Bot history")
     assert slash_profile is not None
-    assert slash_profile.profile == "researcher"
+    assert slash_profile.profile == "research"
     assert slash_profile.source == "slash"
+
+    slash_review = agent_commands.parse_agent_spawn_text("/agent review check this")
+    assert slash_review is not None
+    assert slash_review.profile == "review"
 
     slash_generic = agent_commands.parse_agent_spawn_text("/agent write a PDF")
     assert slash_generic is not None
-    assert slash_generic.profile == "worker"
-    assert slash_generic.explicit_profile is False
+    assert slash_generic.profile == "write"
+    assert slash_generic.explicit_profile is True
+    assert slash_generic.objective == "a PDF"
 
     assert agent_commands.parse_agent_spawn_text("Use a quantum specialist agent to explain qubits") is None
-    assert slash_commands.resolve_command_text("/agent reviewer review this")[0].id == "agent"
-    assert commands.is_thread_scoped_command("/agent reviewer review this")
+    assert slash_commands.resolve_command_text("/agent quality_reviewer review this")[0].id == "agent"
+    assert commands.is_thread_scoped_command("/agent quality_reviewer review this")
+
+    code_review = agent_commands.parse_agent_spawn_text("/agent code_reviewer check this")
+    assert code_review is not None
+    assert code_review.profile == "code_review"
+
+    ui_check = agent_commands.parse_agent_spawn_text("/agent web_ui_checker check this")
+    assert ui_check is not None
+    assert ui_check.profile == "ui_check"
+
+    develop = agent_commands.parse_agent_spawn_text("/agent develop implement this")
+    assert develop is not None
+    assert develop.profile == "develop"
 
 
 def test_direct_agent_commands_spawn_with_explicit_or_worker_profile(tmp_path, monkeypatch):
@@ -148,11 +201,11 @@ def test_direct_agent_commands_spawn_with_explicit_or_worker_profile(tmp_path, m
 
     app_response = slash_commands.dispatch_text_command(
         thread_id,
-        "/agent reviewer review this patch",
+        "/agent quality_reviewer review this patch",
         enabled_tool_names=["filesystem", "row_bot_status"],
     )
     assert app_response and "Started Agent" in app_response
-    assert captured[-1]["profile"] == "reviewer"
+    assert captured[-1]["profile"] == "review"
     assert captured[-1]["objective"] == "review this patch"
     assert captured[-1]["wait"] is False
 
@@ -162,9 +215,9 @@ def test_direct_agent_commands_spawn_with_explicit_or_worker_profile(tmp_path, m
         thread_id=thread_id,
         enabled_tool_names=["filesystem"],
     )
-    assert channel_response and "`worker`" in channel_response
-    assert captured[-1]["profile"] == "worker"
-    assert captured[-1]["objective"] == "write a smoke report"
+    assert channel_response and "`write`" in channel_response
+    assert captured[-1]["profile"] == "write"
+    assert captured[-1]["objective"] == "a smoke report"
 
 
 def test_channel_profile_commands_are_thread_scoped(tmp_path, monkeypatch):
@@ -175,19 +228,19 @@ def test_channel_profile_commands_are_thread_scoped(tmp_path, monkeypatch):
     first = threads.create_thread("Channel one")
     second = threads.create_thread("Channel two")
 
-    assert commands.is_thread_scoped_command("/profile reviewer")
+    assert commands.is_thread_scoped_command("/profile quality_reviewer")
     assert commands.is_thread_scoped_command("/profiles")
-    assert commands.dispatch("sms", "/profile reviewer") == (
+    assert commands.dispatch("sms", "/profile quality_reviewer") == (
         "Could not identify the current conversation thread."
     )
 
-    response = commands.dispatch("sms", "/profile reviewer", thread_id=first)
-    assert response and "Reviewer" in response
-    assert threads._get_thread_agent_profile(first)["slug"] == "reviewer"
+    response = commands.dispatch("sms", "/profile quality_reviewer", thread_id=first)
+    assert response and "Review" in response
+    assert threads._get_thread_agent_profile(first)["slug"] == "review"
     assert threads._get_thread_agent_profile(second) == {"id": "", "slug": ""}
 
     listing = commands.dispatch("sms", "/profiles research", thread_id=first)
-    assert listing and "`researcher`" in listing
+    assert listing and "`research`" in listing
 
     cleared = commands.dispatch("sms", "/profile clear", thread_id=first)
     assert cleared and "cleared" in cleared.lower()
@@ -209,7 +262,7 @@ def test_agents_command_lists_current_thread_runs(tmp_path, monkeypatch):
         parent_thread_id=first,
         thread_id="child-one",
         display_name="Review Run",
-        profile_id="reviewer",
+        profile_id="review",
         status_message="Reviewing",
     )
     agent_runs.create_agent_run(

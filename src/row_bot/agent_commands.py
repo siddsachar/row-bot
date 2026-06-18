@@ -8,7 +8,7 @@ import re
 from typing import Iterable
 
 
-PROFILE_CLEAR_TOKENS = {"clear", "default", "none", "off", "reset"}
+PROFILE_CLEAR_TOKENS = {"clear", "none", "off", "reset"}
 ACTIVE_AGENT_STATUSES = {"queued", "running", "waiting_approval", "waiting_user", "paused"}
 DEFAULT_DIRECT_AGENT_PROFILE = "worker"
 
@@ -50,8 +50,19 @@ def _normalize_words(value: str) -> str:
     return " ".join(text.split())
 
 
+def _drop_normalized_prefix(text: str, normalized_prefix: str) -> str:
+    raw_words = str(text or "").strip().split()
+    if not raw_words:
+        return ""
+    for index in range(1, len(raw_words) + 1):
+        if _normalize_words(" ".join(raw_words[:index])) == normalized_prefix:
+            return " ".join(raw_words[index:]).strip()
+    words_to_drop = len(normalized_prefix.split())
+    return " ".join(raw_words[words_to_drop:]).strip()
+
+
 def _profile_match_candidates() -> list[tuple[str, str]]:
-    from row_bot.agent_profiles import list_agent_profiles
+    from row_bot.agent_profiles import builtin_profile_aliases, list_agent_profiles
 
     candidates: list[tuple[str, str]] = []
     for profile in list_agent_profiles(enabled_only=True, include_builtins=True):
@@ -68,6 +79,10 @@ def _profile_match_candidates() -> list[tuple[str, str]]:
             normalized = _normalize_words(name)
             if normalized:
                 candidates.append((normalized, slug))
+    for alias, slug in builtin_profile_aliases().items():
+        normalized = _normalize_words(alias)
+        if normalized:
+            candidates.append((normalized, slug))
     candidates.sort(key=lambda item: len(item[0]), reverse=True)
     seen: set[tuple[str, str]] = set()
     result: list[tuple[str, str]] = []
@@ -85,9 +100,7 @@ def _consume_leading_profile(text: str) -> tuple[str, str] | None:
         return None
     for normalized_name, slug in _profile_match_candidates():
         if normalized_text == normalized_name or normalized_text.startswith(normalized_name + " "):
-            words_to_drop = len(normalized_name.split())
-            raw_words = str(text or "").strip().split()
-            return slug, " ".join(raw_words[words_to_drop:]).strip()
+            return slug, _drop_normalized_prefix(text, normalized_name)
     return None
 
 
@@ -200,8 +213,8 @@ def format_agent_spawn_usage() -> str:
     return (
         "Usage: `/agent [profile] <task>`.\n\n"
         "Examples:\n"
-        "- `/agent write a 600 word essay and save it as ai_agent_smoke.pdf`\n"
-        "- `/agent reviewer review the latest diff for regressions`\n\n"
+        "- `/agent review check this plan for risk`\n"
+        "- `/agent develop implement the focused fix`\n\n"
         "Generic Agent requests use `worker`. A specialized profile is used only "
         "when you explicitly name an enabled Agent Profile."
     )
@@ -252,11 +265,19 @@ def format_agent_spawn_started(run: dict, request: AgentSpawnRequest) -> str:
 
 
 def _profile_lines(query: str = "", *, limit: int = 18) -> list[str]:
-    from row_bot.agent_profiles import list_agent_profiles, normalize_profile_slug, profile_summary
+    from row_bot.agent_profiles import (
+        builtin_profile_aliases,
+        list_agent_profiles,
+        normalize_profile_slug,
+        profile_summary,
+    )
 
     q = normalize_profile_slug(query)
     profiles = list_agent_profiles(enabled_only=True, include_builtins=True)
     if q:
+        aliases_by_slug: dict[str, list[str]] = {}
+        for alias, slug in builtin_profile_aliases().items():
+            aliases_by_slug.setdefault(slug, []).append(alias)
         profiles = [
             profile for profile in profiles
             if q in normalize_profile_slug(
@@ -266,6 +287,7 @@ def _profile_lines(query: str = "", *, limit: int = 18) -> list[str]:
                         str(profile.get("display_name") or ""),
                         str(profile.get("description") or ""),
                         str(profile.get("when_to_use") or ""),
+                        " ".join(aliases_by_slug.get(str(profile.get("slug") or ""), [])),
                     ]
                 )
             )

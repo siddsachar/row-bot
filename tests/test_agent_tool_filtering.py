@@ -144,6 +144,28 @@ def test_get_agent_graph_with_allowlist_filters_individual_mcp_tools(monkeypatch
     assert allow_args == [{"mcp_local_echo"}]
 
 
+def test_get_agent_graph_memory_allowlist_exposes_normal_memory_tools(monkeypatch):
+    agent = _prepare_graph(monkeypatch)
+
+    from row_bot.plugins import registry as plugin_registry
+
+    monkeypatch.setattr(plugin_registry, "get_langchain_tools", lambda allow_names=None: [])
+    monkeypatch.setattr(plugin_registry, "get_destructive_names", lambda allow_names=None: set())
+
+    graph = agent.get_agent_graph(["memory"], tool_allowlist=["memory"])
+    names = {tool.name for tool in graph.tools}
+
+    assert {
+        "save_memory",
+        "search_memory",
+        "list_memories",
+        "update_memory",
+        "delete_memory",
+        "link_memories",
+        "explore_connections",
+    } <= names
+
+
 def test_get_agent_graph_parent_mcp_allowlist_includes_all_mcp_tools(monkeypatch):
     agent = _prepare_graph(monkeypatch)
     mcp_tools = [_lc_tool("mcp_local_echo"), _lc_tool("mcp_other_list")]

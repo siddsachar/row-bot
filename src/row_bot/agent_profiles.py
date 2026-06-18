@@ -46,7 +46,6 @@ _JSON_FIELDS = {
     "context_policy_json",
     "workspace_policy_json",
     "approval_policy_json",
-    "memory_policy_json",
     "runtime_limits_json",
     "ui_json",
     "provenance_json",
@@ -95,7 +94,6 @@ _PROFILE_COLUMNS: dict[str, str] = {
     "context_policy_json": "TEXT DEFAULT '{}'",
     "workspace_policy_json": "TEXT DEFAULT '{}'",
     "approval_policy_json": "TEXT DEFAULT '{}'",
-    "memory_policy_json": "TEXT DEFAULT '{}'",
     "runtime_limits_json": "TEXT DEFAULT '{}'",
     "ui_json": "TEXT DEFAULT '{}'",
     "provenance_json": "TEXT DEFAULT '{}'",
@@ -148,6 +146,41 @@ def _json_text(value: Any, *, field: str) -> str:
     return json.dumps(_json_obj(value, field=field), sort_keys=True)
 
 
+def _dedup_text_list(value: Any) -> list[str]:
+    if isinstance(value, (list, tuple, set)):
+        items = value
+    elif value:
+        items = [value]
+    else:
+        items = []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        text = str(item or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            result.append(text)
+    return result
+
+
+def _normalize_tool_policy(policy: Mapping[str, Any] | None) -> dict[str, Any]:
+    result = copy.deepcopy(dict(policy or {}))
+    result.pop("deny_memory_write", None)
+    result.pop("allow_tool_groups", None)
+    result["capability"] = str(result.get("capability") or "read_only")
+    result["allow_tools"] = _dedup_text_list(result.get("allow_tools"))
+    if "allow_delegation" in result:
+        result["allow_delegation"] = bool(result.get("allow_delegation"))
+    return result
+
+
+def _normalize_context_policy(policy: Mapping[str, Any] | None) -> dict[str, Any]:
+    result = copy.deepcopy(dict(policy or {}))
+    result.pop("include_memory", None)
+    result["default_context_mode"] = str(result.get("default_context_mode") or "auto")
+    return result
+
+
 def _default_output_contract(*, summary: bool = True, tests: bool = False) -> dict[str, Any]:
     return {
         "summary_required": summary,
@@ -165,45 +198,123 @@ def _default_approval_policy() -> dict[str, Any]:
     return {"mode": "inherit"}
 
 
-def _default_memory_policy() -> dict[str, Any]:
-    return {"mode": "none", "deny_memory_write": True}
-
-
-_READ_ONLY_DENY_TOOLS = [
-    "agents",
-    "calendar",
-    "custom_tool_builder",
-    "designer",
-    "gmail",
-    "goal",
-    "image_gen",
-    "row_bot_updater",
-    "task",
-    "tracker",
-    "video_gen",
-    "x",
-]
-
-_LOCAL_INSPECTION_TOOLS = [
-    "conversation_search",
-    "filesystem",
+_COMMON_PROFILE_TOOLS = [
     "memory",
     "row_bot_status",
-    "system_info",
+    "conversation_search",
+    "duckduckgo",
+    "web_search",
+    "url_reader",
+    "filesystem",
+    "shell",
 ]
 
-_RESEARCH_TOOLS = [
+
+def _profile_tools(*items: str) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in [*_COMMON_PROFILE_TOOLS, *items]:
+        text = str(item or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            result.append(text)
+    return result
+
+
+_PLAN_TOOLS = _profile_tools(
+    "calendar",
+    "documents",
+    "gmail",
+    "task",
+    "tracker",
+    "weather",
+    "calculator",
+)
+
+_RESEARCH_TOOLS = _profile_tools(
     "arxiv",
     "browser",
     "documents",
-    "duckduckgo",
-    "row_bot_status",
-    "url_reader",
-    "web_search",
     "wiki",
     "wikipedia",
     "youtube",
-]
+)
+
+_WRITE_TOOLS = _profile_tools(
+    "calendar",
+    "documents",
+    "gmail",
+    "task",
+)
+
+_IDEAS_TOOLS = _profile_tools(
+    "image_gen",
+)
+
+_KNOWLEDGE_TOOLS = _profile_tools(
+    "documents",
+    "wiki",
+    "wikipedia",
+)
+
+_DATA_TOOLS = _profile_tools(
+    "calculator",
+    "chart",
+    "documents",
+    "wolfram_alpha",
+)
+
+_CREATIVE_TOOLS = _profile_tools(
+    "designer",
+    "documents",
+    "image_gen",
+    "video_gen",
+    "vision",
+)
+
+_AUTOMATE_TOOLS = _profile_tools(
+    "calendar",
+    "gmail",
+    "task",
+    "tracker",
+    "weather",
+)
+
+_QUALITY_REVIEW_TOOLS = _profile_tools(
+    "documents",
+    "calculator",
+)
+
+_DEVELOP_TOOLS = _profile_tools(
+    "browser",
+    "custom_tool_builder",
+    "developer",
+    "system_info",
+    "vision",
+)
+
+_SYNTHESIS_TOOLS = _profile_tools(
+    "documents",
+)
+
+_VERIFIER_TOOLS = _profile_tools(
+    "browser",
+    "system_info",
+    "vision",
+)
+
+_CODE_REVIEW_TOOLS = _profile_tools(
+    "browser",
+    "developer",
+    "documents",
+    "system_info",
+)
+
+_WEB_UI_CHECKER_TOOLS = _profile_tools(
+    "browser",
+    "system_info",
+    "vision",
+)
 
 
 def _tool_policy(
@@ -215,8 +326,6 @@ def _tool_policy(
     return {
         "capability": capability,
         "allow_tools": list(allow_tools or []),
-        "allow_tool_groups": [],
-        "deny_memory_write": True,
         "allow_delegation": allow_delegation,
     }
 
@@ -228,13 +337,12 @@ def _skill_policy(
     return {"skills_override": list(skills_override or [])}
 
 
-def _context_policy(mode: str, *, include_memory: bool = False) -> dict[str, Any]:
+def _context_policy(mode: str) -> dict[str, Any]:
     return {
         "default_context_mode": mode,
         "include_parent_summary": True,
         "include_selected_messages": False,
         "include_workspace_context": True,
-        "include_memory": include_memory,
         "max_context_tokens": 0,
     }
 
@@ -267,6 +375,7 @@ def _builtin(
     tests_required: bool = False,
     ui_icon: str = "smart_toy",
     ui_color: str = "blue",
+    ui_group: str = "Everyday",
     allow_tools: list[str] | None = None,
     skills_override: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -304,9 +413,8 @@ def _builtin(
             lock=capability == "write_capable",
         ),
         "approval_policy_json": _default_approval_policy(),
-        "memory_policy_json": _default_memory_policy(),
         "runtime_limits_json": _limits(max_turns, timeout_seconds),
-        "ui_json": {"icon": ui_icon, "color": ui_color},
+        "ui_json": {"icon": ui_icon, "color": ui_color, "group": ui_group},
         "provenance_json": {"builtin": True},
         "last_used_at": "",
         "usage_count": 0,
@@ -317,7 +425,7 @@ def _builtin(
 BUILTIN_AGENT_PROFILES: tuple[dict[str, Any], ...] = (
     _builtin(
         "row_bot_default",
-        "Row-Bot Default",
+        "Default",
         "Normal Row-Bot behavior for ordinary chats and channel conversations.",
         "Use for default chats when no specialist Agent Profile is selected.",
         "Use Row-Bot's normal behavior for the active surface.",
@@ -328,43 +436,31 @@ BUILTIN_AGENT_PROFILES: tuple[dict[str, Any], ...] = (
         timeout_seconds=0,
         ui_icon="auto_awesome",
         ui_color="blue-grey",
+        ui_group="Everyday",
     ),
     _builtin(
-        "planner",
-        "Planner",
-        "Break down ambiguous work, dependencies, risks, and acceptance checks.",
-        "Use before implementation when requirements, scope, or sequencing are unclear.",
-        "Produce a compact plan with assumptions, blockers, suggested agents, and success checks.",
-        capability="read_only",
+        "plan",
+        "Plan",
+        "Plan projects, decisions, errands, travel, schedules, reminders, and career next steps.",
+        "Use when the user needs a clear plan, logistics, tradeoffs, sequencing, or career/job-search support.",
+        "Turn fuzzy goals into a concise plan with assumptions, options, risks, owners, and practical next actions.",
+        capability="write_capable",
         context_mode="focused",
-        workspace_mode="read_only",
-        max_turns=4,
-        timeout_seconds=600,
+        workspace_mode="auto",
+        max_turns=8,
+        timeout_seconds=900,
         ui_icon="route",
         ui_color="indigo",
-        allow_tools=["conversation_search", "row_bot_status", "system_info"],
+        ui_group="Everyday",
+        allow_tools=_PLAN_TOOLS,
+        skills_override=["brain_dump", "task_automation"],
     ),
     _builtin(
-        "explorer",
-        "Explorer",
-        "Map code, files, data, or processes without changing them.",
-        "Use for codebase search, symbol mapping, and evidence gathering.",
-        "Search and inspect. Do not edit. Return relevant paths, evidence, confidence, and next leads.",
-        capability="read_only",
-        context_mode="focused",
-        workspace_mode="read_only",
-        max_turns=6,
-        timeout_seconds=600,
-        ui_icon="travel_explore",
-        ui_color="cyan",
-        allow_tools=_LOCAL_INSPECTION_TOOLS,
-    ),
-    _builtin(
-        "researcher",
-        "Researcher",
-        "Research web, docs, and sources with citations and uncertainty.",
-        "Use when facts may have changed or source attribution matters.",
-        "Verify claims against source material. Include dates, links, uncertainty, and recommended next action.",
+        "research",
+        "Research",
+        "Research current facts, sources, documents, videos, references, and explain concepts clearly.",
+        "Use when facts may have changed, source attribution matters, or the user wants evidence-backed learning.",
+        "Verify claims against source material. Include dates, links, uncertainty, examples, and a useful synthesis.",
         capability="read_only",
         context_mode="focused",
         workspace_mode="read_only",
@@ -372,29 +468,100 @@ BUILTIN_AGENT_PROFILES: tuple[dict[str, Any], ...] = (
         timeout_seconds=900,
         ui_icon="manage_search",
         ui_color="teal",
+        ui_group="Everyday",
         allow_tools=_RESEARCH_TOOLS,
+        skills_override=["deep_research", "web_navigator"],
     ),
     _builtin(
-        "docs_researcher",
-        "Docs Researcher",
-        "Verify API, framework, or library behavior against official or primary docs.",
-        "Use when implementation depends on specific API behavior or current docs.",
-        "Prefer official or primary sources. Label verified facts separately from inferences.",
+        "write",
+        "Write",
+        "Draft, revise, summarize, polish, and turn notes or meetings into follow-ups.",
+        "Use for tone, structure, clarity, grammar, summaries, meeting outcomes, and follow-up drafts.",
+        "Improve writing while preserving intent. Extract decisions, owners, due dates, unanswered questions, and concise next drafts.",
+        capability="write_capable",
+        context_mode="focused",
+        workspace_mode="auto",
+        max_turns=8,
+        timeout_seconds=900,
+        ui_icon="edit_note",
+        ui_color="green",
+        ui_group="Everyday",
+        allow_tools=_WRITE_TOOLS,
+        skills_override=["humanizer", "meeting_notes"],
+    ),
+    _builtin(
+        "ideas",
+        "Ideas",
+        "Generate ideas, names, alternatives, creative directions, gifts, events, and angles.",
+        "Use when the user wants divergent options before choosing or refining a direction.",
+        "Offer varied options, explain the strongest candidates, and avoid converging too early.",
         capability="read_only",
         context_mode="focused",
         workspace_mode="read_only",
-        max_turns=6,
+        max_turns=8,
         timeout_seconds=600,
-        ui_icon="article",
-        ui_color="green",
-        allow_tools=_RESEARCH_TOOLS,
+        ui_icon="psychology",
+        ui_color="amber",
+        ui_group="Everyday",
+        allow_tools=_IDEAS_TOOLS,
     ),
     _builtin(
-        "reviewer",
-        "Reviewer",
-        "Review correctness, security, behavior regressions, and missing tests.",
-        "Use after a change, plan, workflow, or artifact needs critical review.",
-        "Findings first. Include severity, file or evidence refs, reproduction notes, and residual test gaps.",
+        "knowledge",
+        "Knowledge",
+        "Organize memories, documents, project notes, and relationships between saved facts.",
+        "Use when the user asks what Row-Bot knows, wants notes organized, or needs durable context cleaned up.",
+        "Use memory deliberately. Surface what is known, what is uncertain, and what should be saved or updated.",
+        capability="write_capable",
+        context_mode="focused",
+        workspace_mode="read_only",
+        max_turns=8,
+        timeout_seconds=900,
+        ui_icon="library_books",
+        ui_color="brown",
+        ui_group="Work",
+        allow_tools=_KNOWLEDGE_TOOLS,
+        skills_override=["knowledge_base", "self_reflection", "brain_dump"],
+    ),
+    _builtin(
+        "data",
+        "Data",
+        "Analyze spreadsheets, CSVs, tables, charts, metrics, and lightweight forecasts.",
+        "Use when the user has data to compare, summarize, visualize, or sanity-check.",
+        "Inspect the data, state assumptions, show calculations, and separate observations from recommendations.",
+        capability="write_capable",
+        context_mode="focused",
+        workspace_mode="auto",
+        max_turns=8,
+        timeout_seconds=1200,
+        ui_icon="query_stats",
+        ui_color="deep-purple",
+        ui_group="Work",
+        allow_tools=_DATA_TOOLS,
+        skills_override=["data_analyst"],
+    ),
+    _builtin(
+        "automate",
+        "Automate",
+        "Design reminders, monitors, recurring tasks, and multi-step workflows.",
+        "Use when the user wants Row-Bot to remember, watch, schedule, or repeat work later.",
+        "Keep automations reviewable. Explain triggers, actions, approval points, and how to adjust them.",
+        capability="write_capable",
+        context_mode="focused",
+        workspace_mode="auto",
+        max_turns=8,
+        timeout_seconds=1200,
+        ui_icon="precision_manufacturing",
+        ui_color="orange",
+        ui_group="Work",
+        allow_tools=_AUTOMATE_TOOLS,
+        skills_override=["task_automation"],
+    ),
+    _builtin(
+        "review",
+        "Review",
+        "Review plans, writing, data analysis, workflows, artifacts, and code changes for risk.",
+        "Use after a draft, plan, workflow, or artifact needs a careful second pass.",
+        "Findings first. Include severity, evidence, reproduction notes when relevant, and residual test gaps.",
         capability="read_only",
         context_mode="focused",
         workspace_mode="read_only",
@@ -402,29 +569,81 @@ BUILTIN_AGENT_PROFILES: tuple[dict[str, Any], ...] = (
         timeout_seconds=900,
         ui_icon="fact_check",
         ui_color="purple",
-        allow_tools=_LOCAL_INSPECTION_TOOLS,
+        ui_group="Work",
+        allow_tools=_QUALITY_REVIEW_TOOLS,
     ),
     _builtin(
-        "tester",
-        "Tester",
-        "Run focused checks and summarize failures, artifacts, and likely causes.",
-        "Use when tests, lint, build, or verification commands need to run.",
-        "Run scoped checks under the active policy. Report commands, exits, failures, artifacts, and next fix owner.",
+        "design",
+        "Design",
+        "Create visual directions, images, layouts, brand assets, and presentation-ready concepts.",
+        "Use for visual ideation, mockups, generated images, design critique, and creative production.",
+        "Make concrete visual choices and preserve user brand or taste preferences when memory is available.",
+        capability="write_capable",
+        context_mode="focused",
+        workspace_mode="auto",
+        max_turns=8,
+        timeout_seconds=1200,
+        ui_icon="palette",
+        ui_color="pink",
+        ui_group="Creative",
+        allow_tools=_CREATIVE_TOOLS,
+        skills_override=["design_creator"],
+    ),
+    _builtin(
+        "develop",
+        "Develop",
+        "Implement, debug, inspect repository context, make focused code changes, and run checks.",
+        "Use for normal developer work when the user wants code inspected, changed, debugged, or verified.",
+        "Ground changes in the current repository. Keep edits focused, run relevant checks, and report files, tests, risks, and follow-ups.",
         capability="write_capable",
         context_mode="focused",
         workspace_mode="single_writer",
+        max_turns=12,
+        timeout_seconds=1800,
+        tests_required=True,
+        ui_icon="terminal",
+        ui_color="blue-grey",
+        ui_group="Developer",
+        allow_tools=_DEVELOP_TOOLS,
+    ),
+    _builtin(
+        "code_review",
+        "Code Review",
+        "Review implementation correctness, regressions, and test coverage.",
+        "Use when code-specific review is needed instead of general quality review.",
+        "Find bugs first. Include file references, severity, reproduction notes, and missing tests.",
+        capability="read_only",
+        context_mode="focused",
+        workspace_mode="read_only",
+        max_turns=8,
+        timeout_seconds=900,
+        ui_icon="code",
+        ui_color="blue-grey",
+        ui_group="Developer",
+        allow_tools=_CODE_REVIEW_TOOLS,
+    ),
+    _builtin(
+        "ui_check",
+        "UI Check",
+        "Reproduce browser UI behavior with snapshots, screenshots, console clues, and visual evidence.",
+        "Use for visible UI bugs, browser automation, screenshots, console clues, and reproduction steps.",
+        "Reproduce first. Capture observed vs expected behavior, evidence, likely owner files, and next action.",
+        capability="write_capable",
+        context_mode="focused",
+        workspace_mode="read_only",
         max_turns=8,
         timeout_seconds=1200,
-        tests_required=True,
-        ui_icon="science",
-        ui_color="orange",
-        allow_tools=["filesystem", "row_bot_status", "shell", "system_info"],
+        ui_icon="bug_report",
+        ui_color="red",
+        ui_group="Developer",
+        allow_tools=_WEB_UI_CHECKER_TOOLS,
+        skills_override=["web_navigator"],
     ),
     _builtin(
         "worker",
         "Worker",
-        "Implement scoped fixes or changes after requirements are clear.",
-        "Use for write-capable implementation work with one writer lock.",
+        "Advanced internal helper for scoped implementation work after requirements are clear.",
+        "Use for child-agent implementation work that should inherit the normal enabled tool set.",
         "Make the requested change narrowly. Report changed files, tests, risks, and follow-ups.",
         capability="write_capable",
         context_mode="focused",
@@ -433,26 +652,12 @@ BUILTIN_AGENT_PROFILES: tuple[dict[str, Any], ...] = (
         timeout_seconds=1800,
         ui_icon="construction",
         ui_color="deep-orange",
+        ui_group="Advanced/Internal",
     ),
     _builtin(
-        "browser_debugger",
-        "Browser Debugger",
-        "Reproduce UI/browser behavior and capture logs, screenshots, and clues.",
-        "Use for visible UI bugs, browser automation, console/network evidence, and reproduction steps.",
-        "Reproduce first. Capture observed vs expected behavior, evidence, likely owner files, and next agent.",
-        capability="write_capable",
-        context_mode="focused",
-        workspace_mode="read_only",
-        max_turns=8,
-        timeout_seconds=1200,
-        ui_icon="bug_report",
-        ui_color="pink",
-        allow_tools=["browser", "filesystem", "row_bot_status", "system_info", "vision"],
-    ),
-    _builtin(
-        "synthesizer",
-        "Synthesizer",
-        "Combine child results, resolve conflicts, and produce a final handoff.",
+        "synthesize",
+        "Synthesize",
+        "Advanced internal helper for combining child results and resolving conflicts.",
         "Use after multiple agents finish or when partial results need consolidation.",
         "Summarize each result, resolve conflicts, state the decision, and identify next steps.",
         capability="read_only",
@@ -462,12 +667,55 @@ BUILTIN_AGENT_PROFILES: tuple[dict[str, Any], ...] = (
         timeout_seconds=600,
         ui_icon="hub",
         ui_color="blue",
-        allow_tools=["conversation_search", "memory", "row_bot_status"],
+        ui_group="Advanced/Internal",
+        allow_tools=_SYNTHESIS_TOOLS,
+    ),
+    _builtin(
+        "verify",
+        "Verify",
+        "Advanced helper for running focused checks and summarizing failures or artifacts.",
+        "Use when tests, lint, build, browser checks, or verification commands need to run.",
+        "Run scoped checks under the active policy. Report commands, exits, failures, artifacts, and likely owners.",
+        capability="write_capable",
+        context_mode="focused",
+        workspace_mode="single_writer",
+        max_turns=8,
+        timeout_seconds=1200,
+        tests_required=True,
+        ui_icon="science",
+        ui_color="orange",
+        ui_group="Advanced/Internal",
+        allow_tools=_VERIFIER_TOOLS,
     ),
 )
 
 _BUILTINS_BY_SLUG = {p["slug"]: p for p in BUILTIN_AGENT_PROFILES}
 _BUILTINS_BY_ID = {p["id"]: p for p in BUILTIN_AGENT_PROFILES}
+_BUILTIN_PROFILE_ALIASES = {
+    "default": "row_bot_default",
+    "planner": "plan",
+    "life_admin": "plan",
+    "career_guide": "plan",
+    "researcher": "research",
+    "learning_coach": "research",
+    "writer_editor": "write",
+    "meeting_followup": "write",
+    "brainstormer": "ideas",
+    "knowledge_librarian": "knowledge",
+    "data_analyst": "data",
+    "automation_builder": "automate",
+    "quality_reviewer": "review",
+    "creative_designer": "design",
+    "code_reviewer": "code_review",
+    "web_ui_checker": "ui_check",
+    "synthesizer": "synthesize",
+    "verifier": "verify",
+}
+
+
+def builtin_profile_aliases() -> dict[str, str]:
+    """Return folded built-in profile aliases mapped to canonical slugs."""
+    return dict(_BUILTIN_PROFILE_ALIASES)
 
 
 def ensure_agent_profiles_schema(*, force: bool = False) -> None:
@@ -507,7 +755,6 @@ def ensure_agent_profiles_schema(*, force: bool = False) -> None:
                     context_policy_json TEXT DEFAULT '{}',
                     workspace_policy_json TEXT DEFAULT '{}',
                     approval_policy_json TEXT DEFAULT '{}',
-                    memory_policy_json TEXT DEFAULT '{}',
                     runtime_limits_json TEXT DEFAULT '{}',
                     ui_json TEXT DEFAULT '{}',
                     provenance_json TEXT DEFAULT '{}',
@@ -544,6 +791,8 @@ def _normalize_profile_dict(profile: Mapping[str, Any]) -> dict[str, Any]:
         raise AgentProfileError(f"Invalid Agent Profile source: {result['source']}")
     for field in _JSON_FIELDS:
         result[field] = _json_obj(profile.get(field), field=field)
+    result["tool_policy_json"] = _normalize_tool_policy(result.get("tool_policy_json"))
+    result["context_policy_json"] = _normalize_context_policy(result.get("context_policy_json"))
     result["enabled"] = bool(profile.get("enabled", True))
     result["version"] = int(profile.get("version") or 1)
     result["revision"] = int(profile.get("revision") or 1)
@@ -613,7 +862,12 @@ def _db_profiles() -> list[dict[str, Any]]:
     return [_profile_from_row(row) for row in rows]
 
 
-def _builtin_profile_by_ref(ref: str) -> dict[str, Any] | None:
+def _builtin_profile_by_ref(
+    ref: str,
+    *,
+    include_aliases: bool = True,
+    include_display_names: bool = True,
+) -> dict[str, Any] | None:
     value = str(ref or "").strip()
     if not value:
         return None
@@ -621,9 +875,16 @@ def _builtin_profile_by_ref(ref: str) -> dict[str, Any] | None:
     profile = _BUILTINS_BY_ID.get(value) or _BUILTINS_BY_SLUG.get(slug)
     if profile is not None:
         return copy.deepcopy(profile)
-    for item in BUILTIN_AGENT_PROFILES:
-        if normalize_profile_slug(item["display_name"]) == slug:
-            return copy.deepcopy(item)
+    if include_aliases:
+        alias_slug = _BUILTIN_PROFILE_ALIASES.get(slug)
+        if alias_slug:
+            profile = _BUILTINS_BY_SLUG.get(alias_slug)
+            if profile is not None:
+                return copy.deepcopy(profile)
+    if include_display_names:
+        for item in BUILTIN_AGENT_PROFILES:
+            if normalize_profile_slug(item["display_name"]) == slug:
+                return copy.deepcopy(item)
     return None
 
 
@@ -652,11 +913,15 @@ def get_agent_profile(
     *,
     enabled_only: bool = False,
 ) -> dict[str, Any] | None:
-    """Resolve an Agent Profile by id, slug, or display name."""
+    """Resolve an Agent Profile by id, slug, folded built-in alias, or display name."""
     ref = str(profile_id_or_slug or "").strip()
     if not ref:
         return None
-    profile = _builtin_profile_by_ref(ref) or _db_profile_by_ref(ref)
+    profile = (
+        _builtin_profile_by_ref(ref, include_aliases=False, include_display_names=False)
+        or _db_profile_by_ref(ref)
+        or _builtin_profile_by_ref(ref, include_aliases=True, include_display_names=True)
+    )
     if profile is None:
         return None
     if enabled_only and not profile.get("enabled", True):
@@ -784,10 +1049,12 @@ def delete_agent_profile(profile_id: str) -> bool:
     ref = str(profile_id or "").strip()
     if not ref:
         return False
-    if _builtin_profile_by_ref(ref):
+    if _builtin_profile_by_ref(ref, include_aliases=False, include_display_names=False):
         raise AgentProfileError("Built-in Agent Profiles cannot be deleted.")
     profile = _db_profile_by_ref(ref)
     if profile is None:
+        if _builtin_profile_by_ref(ref):
+            raise AgentProfileError("Built-in Agent Profiles cannot be deleted.")
         return False
     from row_bot.tasks import _get_conn
 
@@ -921,7 +1188,8 @@ def profile_summary(profile: Mapping[str, Any]) -> str:
     context_policy = _json_obj(profile.get("context_policy_json"), field="context_policy_json")
     capability = str(tool_policy.get("capability") or "read_only")
     context = str(context_policy.get("default_context_mode") or "auto")
+    tool_scope = "selected tools" if tool_policy.get("allow_tools") else "inherits enabled tools"
     return (
         f"{profile.get('display_name') or profile.get('slug')} "
-        f"({capability}, context={context}) - {profile.get('description') or ''}"
+        f"({capability}, {tool_scope}, context={context}) - {profile.get('description') or ''}"
     ).strip()

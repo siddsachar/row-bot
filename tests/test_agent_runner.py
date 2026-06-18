@@ -60,7 +60,7 @@ def test_spawn_agent_run_creates_child_thread_and_completes(tmp_path, monkeypatc
     run = agent_runner.spawn_agent_run(
         "Review the auth change.",
         parent_thread_id=parent_thread_id,
-        profile="reviewer",
+        profile="quality_reviewer",
         context="Changed files: auth.py",
         enabled_tool_names=["shell", "agents", "filesystem"],
         wait=True,
@@ -68,8 +68,8 @@ def test_spawn_agent_run_creates_child_thread_and_completes(tmp_path, monkeypatc
 
     assert run["status"] == "completed"
     assert run["summary"] == "review complete"
-    assert run["profile_id"] == "builtin:reviewer"
-    assert run["profile_snapshot_json"]["slug"] == "reviewer"
+    assert run["profile_id"] == "builtin:review"
+    assert run["profile_snapshot_json"]["slug"] == "review"
     assert run["parent_thread_id"] == parent_thread_id
     assert run["context_mode"] == "focused"
     assert "Review the auth change." in captured["prompt"]
@@ -80,10 +80,64 @@ def test_spawn_agent_run_creates_child_thread_and_completes(tmp_path, monkeypatc
     assert captured["config"]["configurable"]["model_override"] == "model:test"
 
     child_profile = threads._get_thread_agent_profile(run["thread_id"])
-    assert child_profile == {"id": "builtin:reviewer", "slug": "reviewer"}
+    assert child_profile == {"id": "builtin:review", "slug": "review"}
     assert threads._get_thread_type(run["thread_id"]) == "agent_child"
     event_types = {event["type"] for event in agent_runs.get_agent_events(run["id"])}
     assert {"run.created", "run.started", "turn.started", "turn.completed", "run.completed"} <= event_types
+
+
+def test_builtin_profile_skills_flow_to_child_agent(tmp_path, monkeypatch):
+    agent_runner, agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
+        tmp_path,
+        monkeypatch,
+    )
+    parent_thread_id = threads.create_thread("Parent")
+    captured = {}
+
+    def fake_invoke(prompt, enabled_tool_names, config, *, stop_event):
+        captured["tools"] = enabled_tool_names
+        captured["config"] = config
+        return "research complete"
+
+    monkeypatch.setattr(agent_runner, "_invoke_agent", fake_invoke)
+
+    run = agent_runner.spawn_agent_run(
+        "Research profile skills.",
+        parent_thread_id=parent_thread_id,
+        profile="research",
+        enabled_tool_names=[
+            "agents",
+            "memory",
+            "row_bot_status",
+            "conversation_search",
+            "duckduckgo",
+            "web_search",
+            "url_reader",
+            "filesystem",
+            "shell",
+            "arxiv",
+            "browser",
+            "documents",
+            "wiki",
+            "wikipedia",
+            "youtube",
+        ],
+        wait=True,
+    )
+
+    assert run["status"] == "completed"
+    assert run["profile_snapshot_json"]["slug"] == "research"
+    assert run["skills_override"] == ["deep_research", "web_navigator"]
+    assert threads.get_thread_skills_override(run["thread_id"]) == [
+        "deep_research",
+        "web_navigator",
+    ]
+    assert "agents" not in captured["tools"]
+    assert "shell" in captured["tools"]
+    assert "browser" in captured["tools"]
+    assert captured["config"]["configurable"]["tool_allowlist"] == run["tools_override"]
+    event_types = {event["type"] for event in agent_runs.get_agent_events(run["id"])}
+    assert {"run.created", "run.started", "turn.completed", "run.completed"} <= event_types
 
 
 def test_profile_tool_and_skill_policy_filters_child_context(tmp_path, monkeypatch):
@@ -218,7 +272,7 @@ def test_builtin_read_only_profile_does_not_inherit_write_heavy_tools(tmp_path, 
     run = agent_runner.spawn_agent_run(
         "Review this.",
         parent_thread_id=parent_thread_id,
-        profile="reviewer",
+        profile="review",
         enabled_tool_names=["filesystem", "row_bot_status", "gmail", "image_gen", "agents"],
         wait=True,
     )

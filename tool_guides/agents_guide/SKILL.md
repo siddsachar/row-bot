@@ -10,8 +10,8 @@ tags: []
 AGENTS:
 - Use Agents when the user explicitly asks you to delegate, parallelize, spawn helpers, review independently, research separately, test separately, or keep exploratory work out of the parent thread.
 - Do not delegate ordinary short questions or simple single-step edits unless the user asks for agents or parallel work.
-- Prefer read-only profiles such as `explorer`, `researcher`, `docs_researcher`, and `reviewer` for parallel work.
-- Use write-capable profiles such as `worker` or `tester` only for scoped implementation or verification work, and respect the active approval/workspace policy.
+- Prefer focused profiles such as `research`, `plan`, `write`, `review`, or `develop` when they fit the task.
+- Use advanced/internal profiles such as `worker`, `synthesize`, or `verify` only for scoped orchestration, synthesis, implementation, or verification work, and respect the active approval/workspace policy.
 
 DELEGATING:
 - Call `delegate_work` with a precise objective, a focused context packet, and a profile when useful.
@@ -29,8 +29,8 @@ TRACKING:
 
 PROFILES:
 - Use `agent_profiles` to discover available built-in and user Agent Profiles.
-- Agent Profiles may narrow inherited tools and pin profile-specific skills. Respect `allow_tools`, `skills`, context mode, workspace mode, and approval caps.
-- Generic direct Agent requests use the `worker` profile. Select a specialized profile only when the user explicitly names it, such as "use a reviewer agent to..." or `/agent reviewer ...`, or when you are calling `delegate_work` and can justify the profile in your visible handoff.
+- Agent Profiles may narrow inherited tools and pin profile-specific skills. Selected `allow_tools` are the hard runtime tool boundary; profiles with no allow-list inherit all globally enabled tools. Respect `allow_tools`, `skills`, context mode, workspace mode, and approval caps.
+- Generic direct Agent requests use the `worker` profile. Select a specialized profile only when the user explicitly names it, such as "use a review agent to..." or `/agent review ...`, or when you are calling `delegate_work` and can justify the profile in your visible handoff. Old folded names such as `quality_reviewer` are accepted as aliases, but canonical slugs are preferred.
 - Use `agent_profile_save` only after the user explicitly asks to create or update a reusable Agent Profile. This action is approval-gated.
 - Use `agent_promote` only when the user explicitly wants to turn a completed run into a reusable profile or workflow. Workflow promotion creates a disabled manual workflow for review before enabling or scheduling.
 

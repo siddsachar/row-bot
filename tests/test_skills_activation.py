@@ -615,6 +615,14 @@ def test_tool_guide_prompt_injection_stays_tool_bound(tmp_path):
     assert "BROWSER AUTOMATION" in browser_guide
     assert "## Skills" not in browser_guide
 
+    manual_with_guide = skills.get_skills_prompt(
+        ["deep_research"],
+        active_tool_names=["browser"],
+    )
+    assert "BROWSER AUTOMATION" in manual_with_guide
+    assert "Deep Research" in manual_with_guide
+    assert "## Skills" in manual_with_guide
+
 
 def test_bundled_manual_skills_default_enabled_without_tool_guides(tmp_path):
     skills, _activation = _reload_skill_modules(tmp_path)
