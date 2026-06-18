@@ -3,15 +3,64 @@ title: Skills, Plugins, And MCP
 description: Extend Row-Bot with skills, plugins, custom tools, and external MCP servers.
 ---
 
+import Screenshot from '@site/src/components/Screenshot';
+
 # Skills, Plugins, And MCP
 
 Row-Bot has several extension layers:
 
 - Smart Skills provide reusable instructions and workflow patterns.
 - Skills Hub can browse, preview, scan, and install public skills.
-- Plugins add sandboxed extension bundles.
+- Plugins add extension bundles and settings.
 - Custom Tools turn reviewed repos or folders into reusable tools.
 - MCP connects external Model Context Protocol servers.
 
-Generated reference pages will describe installed/bundled skills, plugin
-manifest behavior, MCP safety rules, and recommended MCP server metadata.
+<Screenshot
+  id="skills-hub-browse"
+  alt="Row-Bot Skills Hub browsing demo public and bundled skills."
+/>
+
+## Skills
+
+Use bundled skills first when they fit the task. For public skills, preview the
+source and scan the instructions before installing. Pin only the skills you want
+Row-Bot to consider frequently.
+
+<Screenshot
+  id="settings-skills"
+  alt="Row-Bot Settings dialog open to Skills with enabled and available skills."
+/>
+
+## Plugins And Custom Tools
+
+Plugins and Custom Tools can add capabilities beyond the built-in tool set.
+Review the manifest, settings, tools, and secrets before enabling a plugin.
+
+<Screenshot
+  id="settings-plugins"
+  alt="Row-Bot Settings dialog open to Plugins with demo plugin cards."
+/>
+
+<Screenshot
+  id="plugin-marketplace"
+  alt="Row-Bot Plugin marketplace with safe demo plugin entries."
+/>
+
+## MCP
+
+MCP servers can expose external tools. Prefer recommended servers when possible,
+review native capability overlap, and keep destructive tools behind approvals.
+
+<Screenshot
+  id="settings-mcp"
+  alt="Row-Bot Settings dialog open to MCP with recommended demo servers."
+/>
+
+<Screenshot
+  id="mcp-add-server"
+  alt="Row-Bot MCP add server dialog with recommended server cards."
+/>
+
+See the generated [skills](/docs/reference/generated/skills),
+[plugins](/docs/reference/generated/plugins), and
+[MCP](/docs/reference/generated/mcp) references for source-derived details.

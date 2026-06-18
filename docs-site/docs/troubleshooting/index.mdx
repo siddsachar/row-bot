@@ -5,22 +5,58 @@ description: Troubleshoot Row-Bot installation, startup, models, providers, tool
 
 # Troubleshooting
 
-This section will combine curated troubleshooting guides with generated
-diagnostic reference from Row-Bot status checks and setup metadata.
+Start with the status bar, Settings diagnostics, and recent logs in the Row-Bot
+data directory. If a problem began after changing providers, channels, MCP
+servers, plugins, or Developer Studio settings, disable the new integration and
+try the minimal local chat path again.
 
-Initial categories:
+## Install And Startup
 
-- installation and startup;
-- model/provider readiness;
-- local Ollama;
-- custom endpoints;
-- documents and embeddings;
-- browser automation;
-- workflows;
-- channels;
-- voice;
-- MCP;
-- plugins;
-- updates.
+- Close duplicate Row-Bot processes if the port is already in use.
+- For source installs, activate the virtual environment and reinstall
+  `requirements.txt`.
+- If startup is slow, check whether model catalogs, browser dependencies,
+  document indexes, or native packages are missing.
 
-When in doubt, check the Row-Bot status bar and Settings diagnostics first.
+## Providers And Models
+
+- If local models fail, confirm Ollama is installed, running, and exposing the
+  selected model.
+- If hosted models fail, confirm the provider key or subscription sign-in is
+  current and the selected model supports the requested mode.
+- If tool use fails, switch from Chat Only to a model that supports Agent Mode.
+
+## Custom Endpoints
+
+Check the base URL, auth mode, model list endpoint, and OpenAI-compatible
+transport. For local endpoints, confirm the server is running before opening
+Row-Bot.
+
+## Documents And Embeddings
+
+If document search returns stale or missing results, rebuild the document index
+from Settings. For private documents, review provider/embedding settings before
+using hosted models.
+
+## Workflows
+
+Run a workflow manually before enabling a schedule. If a run is stuck, check
+pending approvals, channel delivery settings, and model availability.
+
+## Channels And Voice
+
+For channels, test credentials and delivery targets before enabling workflow
+delivery. For voice, confirm microphone permissions, selected provider models,
+and local TTS dependencies.
+
+## MCP And Plugins
+
+Disable a new MCP server or plugin if tool lists, startup, or approvals behave
+unexpectedly. Review manifests, commands, and destructive-tool classifications
+before re-enabling.
+
+## Updates
+
+If an update fails, close Row-Bot, rerun the installer, and keep the data
+directory intact. Source installs should pull the latest branch and reinstall
+dependencies in the active virtual environment.

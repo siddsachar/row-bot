@@ -3,20 +3,53 @@ title: UI Tour
 description: Tour the main Row-Bot surfaces and what each one is for.
 ---
 
+import Screenshot from '@site/src/components/Screenshot';
+
 # UI Tour
 
-Row-Bot is organized around a few durable work surfaces:
+Row-Bot is organized around durable work surfaces: Chat, Home tabs, Settings,
+Designer Studio, Developer Studio, Knowledge, Skills Hub, plugins, MCP,
+channels, voice, and Buddy.
 
-- Chat for everyday conversation, tools, model switching, files, and approvals.
-- Home for Workflows, Designer, Developer, Knowledge, and Activity.
-- Settings for providers, models, knowledge, Buddy, voice, accounts, channels,
-  utilities, MCP, plugins, and system preferences.
-- Designer Studio for visual documents, decks, landing pages, mockups, and
-  storyboards.
-- Developer Studio for repository work, reviews, diffs, tests, custom tools,
-  commits, pushes, and PR prep.
-- Knowledge for memory, graph review, document-derived knowledge, and recall
-  diagnostics.
+## Chat
 
-The automated screenshot phase will add live screenshots for each of these
-surfaces.
+Chat is the everyday surface for conversation, files, model switching, tool
+activity, approvals, and exports.
+
+<Screenshot
+  id="chat-main"
+  alt="Row-Bot chat surface with thread list, model strip, transcript, and composer."
+/>
+
+The composer accepts prompts and attachments. The model picker can override the
+thread model for a specific conversation. Tool traces show what Row-Bot tried,
+what was read-only, and when a sensitive action needs approval.
+
+<Screenshot
+  id="chat-tool-trace"
+  alt="Row-Bot grouped tool trace showing read-only steps and an approval request."
+/>
+
+## Home Tabs
+
+Home contains Workflows, Designer, Developer, Knowledge, and Monitor tabs. Use
+it for repeatable work, visual creation, coding sessions, memory review, and
+health/status views.
+
+<Screenshot
+  id="knowledge-graph"
+  alt="Row-Bot Knowledge graph panel with demo entities and indexed documents."
+/>
+
+## Settings
+
+Settings is the central place for providers, models, knowledge, Buddy, voice,
+accounts, channels, utilities, MCP, plugins, and system preferences. Many setup
+areas can be opened directly from Setup Center, the status bar, or relevant
+guide pages.
+
+## Approvals
+
+Approval dialogs appear when Row-Bot is about to do something sensitive, such
+as writing files, running shell commands, using destructive MCP tools, sending
+messages through channels, or making Developer Studio changes.

@@ -3,27 +3,58 @@ title: Models And Providers
 description: Configure local, hosted, subscription, and custom model providers in Row-Bot.
 ---
 
+import Screenshot from '@site/src/components/Screenshot';
+
 # Models And Providers
 
-Row-Bot keeps model provider identity explicit. A local model, an OpenRouter
+Row-Bot keeps provider identity explicit. A local Ollama model, an OpenRouter
 model, an Atlas Cloud model, and a custom endpoint model can have similar names
-without becoming interchangeable.
+without being interchangeable.
+
+<Screenshot
+  id="chat-model-picker"
+  alt="Row-Bot model picker showing provider-qualified model choices."
+  caption="The model picker shows provider-qualified Quick Choices before a run starts."
+/>
 
 ## Provider Types
 
 - Local: Ollama models running on your machine.
 - Direct API: OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, Atlas
   Cloud, Ollama Cloud, and other supported providers.
-- Subscription: ChatGPT / Codex and Claude Subscription through Row-Bot-owned
-  local sign-in.
+- Subscription: ChatGPT / Codex and Claude Subscription through supported local
+  sign-in or CLI paths.
 - Custom endpoint: OpenAI-compatible servers such as LM Studio, vLLM,
   llama.cpp, LocalAI, LiteLLM, SGLang, oMLX, or private gateways.
 
+<Screenshot
+  id="settings-providers-overview"
+  alt="Row-Bot Settings dialog open to Providers with demo connection cards."
+/>
+
 ## Agent Mode And Chat Only
 
-Some models can chat but cannot reliably call tools. Row-Bot routes those models
-through Chat Only mode and reserves Agent Mode for models that can handle tool
-schemas, tool results, and the required context window.
+Agent Mode is for models that can reliably use tool schemas, tool results, and
+the required context window. Chat Only is for models that can converse but
+should not be asked to call tools or take actions.
 
-Generated provider reference tables will be added from Row-Bot provider
-metadata in the next automation phase.
+<Screenshot
+  id="settings-models-catalog"
+  alt="Row-Bot Settings dialog open to Models and model catalog choices."
+/>
+
+Use smaller or cheaper models for short chat, summarization, and drafting. Use
+larger models with stronger tool-calling behavior for workflows, coding, and
+multi-step tool use. Review provider cost and privacy terms before selecting a
+hosted model for sensitive work.
+
+## Credentials And Privacy
+
+API keys and subscription sign-ins are opt-in. When a hosted provider model is
+selected, Row-Bot sends the prompt, relevant context, and needed tool results to
+that provider for the current turn. Local models and local-only tools keep more
+of the work on your machine, but any enabled external tool or channel can still
+send data outside the app.
+
+See the generated [providers reference](/docs/reference/generated/providers)
+for source-derived provider rows.

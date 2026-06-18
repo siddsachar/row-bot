@@ -30,3 +30,45 @@ guides:
       - src/row_bot/developer/
       - bundled_skills/developer_coding/SKILL.md
       - bundled_skills/developer_review/SKILL.md
+  configure-models:
+    title: Configure Models And Providers
+    route: /docs/configuration/models-and-providers
+    sources:
+      - src/row_bot/providers/
+      - src/row_bot/ui/settings.py
+      - src/row_bot/ui/model_catalog.py
+  use-chat:
+    title: Use Chat And Approvals
+    route: /docs/ui-tour/
+    sources:
+      - src/row_bot/ui/chat.py
+      - src/row_bot/ui/tool_trace.py
+      - src/row_bot/tools/approval_gate.py
+  use-skills-plugins-mcp:
+    title: Use Skills Plugins And MCP
+    route: /docs/guides/skills-plugins-mcp
+    sources:
+      - src/row_bot/skills_hub/
+      - src/row_bot/plugins/
+      - src/row_bot/mcp_client/
+  configure-channels-voice:
+    title: Configure Channels And Voice
+    route: /docs/guides/channels-and-voice
+    sources:
+      - src/row_bot/channels/
+      - src/row_bot/voice/
+      - src/row_bot/ui/buddy.py
+  review-privacy-safety:
+    title: Review Privacy And Safety
+    route: /docs/privacy-safety/
+    sources:
+      - src/row_bot/approval_policy.py
+      - src/row_bot/mcp_client/safety.py
+      - src/row_bot/plugins/sandbox.py
+  troubleshoot-row-bot:
+    title: Troubleshoot Row-Bot
+    route: /docs/troubleshooting/
+    sources:
+      - src/row_bot/ui/status_checks.py
+      - src/row_bot/startup_diagnostics.py
+      - scripts/smoke_app.py

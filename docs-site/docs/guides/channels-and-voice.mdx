@@ -3,6 +3,8 @@ title: Channels And Voice
 description: Connect messaging channels and configure Row-Bot voice features.
 ---
 
+import Screenshot from '@site/src/components/Screenshot';
+
 # Channels And Voice
 
 Channels let Row-Bot communicate through external messaging systems such as
@@ -10,11 +12,45 @@ Telegram, WhatsApp, Discord, Slack, and SMS. Voice features include dictation,
 read-aloud, realtime talk, transcription, local TTS, and provider-backed voice
 sessions.
 
-Automated docs will include:
+<Screenshot
+  id="settings-channels"
+  alt="Row-Bot Settings dialog open to Channels with channel readiness cards."
+/>
 
-- channel setup cards;
-- health and readiness states;
-- delivery defaults;
-- voice model settings;
-- realtime talk configuration;
-- diagnostics.
+## Channels
+
+Configure one channel at a time. Add credentials, save, test, and only then
+enable workflow delivery or auto-start. Use fake/test workspaces while testing
+message delivery, approvals, and slash commands.
+
+<Screenshot
+  id="channel-configuration-cards"
+  alt="Row-Bot channel configuration cards with safe demo messaging channel status."
+/>
+
+Channels can receive files or voice notes depending on the adapter. Treat
+channel messages as external input and require approvals before sending
+sensitive results back out.
+
+## Voice
+
+Voice settings cover dictation, realtime talk, read-aloud, local TTS, provider
+voice models, and diagnostics.
+
+<Screenshot
+  id="voice-settings"
+  alt="Row-Bot Voice settings showing dictation, realtime talk, and local TTS readiness."
+/>
+
+Realtime talk may use hosted provider audio models and can have ongoing cost
+while active. Dictation and local TTS keep more work local when configured that
+way.
+
+## Buddy
+
+Buddy controls the companion surface, look, overlay behavior, and motion state.
+
+<Screenshot
+  id="buddy-settings"
+  alt="Row-Bot Buddy settings for companion behavior, overlay, look, and motion."
+/>

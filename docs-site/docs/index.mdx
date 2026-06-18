@@ -4,17 +4,17 @@ description: Public end-user documentation for installing, configuring, and usin
 slug: /
 ---
 
+import PagefindSearch from '@site/src/components/PagefindSearch';
+
 # Row-Bot Documentation
 
 Row-Bot is a local-first desktop AI assistant for doing real work with models,
 memory, tools, workflows, Designer Studio, Developer Studio, Skills Hub,
 plugins, MCP, messaging channels, and voice.
 
-This documentation is being built as an automated public manual. The first
-implementation slice provides the site shell, navigation, generated-reference
-targets, and machine-readable docs pipeline. Subsequent slices will add
-deterministic app screenshots and generated reference tables from Row-Bot source
-metadata.
+This documentation is a review-ready V1 draft. It combines curated guide pages
+with generated reference pages, deterministic docs-mode screenshots, Pagefind
+search, and machine-readable `llms.txt` output.
 
 ## Fast Paths
 
@@ -36,15 +36,22 @@ metadata.
   </div>
 </div>
 
-## Automation Roadmap
+## Search
 
-The docs system is designed to automate the expensive, drift-prone parts:
+<PagefindSearch />
+
+## Generated Reference
+
+The docs system automates the expensive, drift-prone parts:
 
 - generated reference pages for tools, providers, settings, channels, skills,
-  MCP, and plugins;
+  MCP, plugins, data paths, screenshots, and safety approvals;
 - automated screenshots from a deterministic docs-mode app;
 - public `llms.txt` and `llms-full.txt` files for agents and assistants;
 - link, image, generated-docs, and secret validation in CI.
 
 The curated guide pages remain human-reviewable so public instructions stay
 clear and accurate.
+
+Start with the [generated reference index](/docs/reference/generated/) when
+reviewing source-derived tables.

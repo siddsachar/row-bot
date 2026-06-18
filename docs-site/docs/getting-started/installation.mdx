@@ -1,46 +1,55 @@
 ---
 title: Installation
-description: Install Row-Bot on Windows, macOS, or Linux.
+description: Install Row-Bot on Windows, macOS, Linux, or from source.
 ---
 
 # Installation
 
-Download the latest installer from the Row-Bot GitHub releases page:
+Download packaged builds from the latest GitHub release:
 
 https://github.com/siddsachar/row-bot/releases/latest
 
-## Windows
+Row-Bot upgrades replace the bundled application/runtime files while preserving
+your local Row-Bot data directory. Before a major upgrade, close Row-Bot and
+keep a normal backup of your user profile or chosen `ROW_BOT_DATA_DIR`.
 
-1. Download the latest Windows installer.
-2. Run the installer.
+## Windows Installer
+
+1. Download the latest Windows installer from Releases.
+2. Run the installer and allow Windows to create the app shortcut.
 3. Launch Row-Bot from the Start Menu or desktop shortcut.
+4. If Windows SmartScreen asks for confirmation, verify the file came from the
+   Row-Bot GitHub release page before continuing.
 
-Row-Bot preserves user data under the Row-Bot data directory while upgrades
-replace the bundled runtime and application files.
+If startup fails after an upgrade, close any existing Row-Bot windows, restart
+the machine if a previous process is stuck, then launch Row-Bot again.
 
-## macOS
+## macOS DMG
 
-1. Download the latest macOS DMG.
-2. Drag `Row-Bot.app` into Applications.
+1. Download the latest macOS DMG from Releases.
+2. Open the DMG and drag `Row-Bot.app` into Applications.
 3. Launch Row-Bot from Applications or Launchpad.
+4. If macOS blocks the first launch, use the normal Privacy & Security prompt
+   for downloaded apps after confirming the DMG source.
 
-The first launch may ask you to confirm the app because it was downloaded from
-the internet.
+Row-Bot stores app data outside the `.app` bundle, so replacing the app bundle
+does not delete conversations, settings, workflows, or indexed documents.
 
-## Linux
+## Linux Installer
 
-Run the one-line installer:
+Run the installer from a shell:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash
 ```
 
-The Linux installer places Row-Bot under your user account and creates the
-`row-bot` command when `~/.local/bin` is on your `PATH`.
+The installer places Row-Bot under your user account and creates the `row-bot`
+command in your user-local binary directory when that directory is on your
+`PATH`.
 
 ## From Source
 
-Source installs are useful for contributors and advanced users:
+Source installs are best for contributors and advanced users:
 
 ```bash
 git clone https://github.com/siddsachar/row-bot.git
@@ -51,8 +60,22 @@ pip install -r requirements.txt
 python app.py
 ```
 
-On Windows PowerShell, activate the virtual environment with:
+On Windows PowerShell:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python app.py
 ```
+
+## Common Install Failures
+
+- Python or native dependency errors in a source install usually mean the
+  virtual environment is not active or dependencies did not finish installing.
+- A port-in-use error means another Row-Bot process or local server is using
+  the configured port. Close the process or set `ROW_BOT_PORT`.
+- Browser automation and Designer export features require Playwright browser
+  dependencies. Packaged builds aim to include the runtime; source installs may
+  need `python -m playwright install chromium`.
+- Provider features that need API keys can still be configured after first
+  launch. You do not need credentials to install Row-Bot.

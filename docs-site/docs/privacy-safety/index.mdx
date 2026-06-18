@@ -3,25 +3,52 @@ title: Privacy And Safety
 description: Understand Row-Bot's local-first data model and safety controls.
 ---
 
+import Screenshot from '@site/src/components/Screenshot';
+
 # Privacy And Safety
 
 Row-Bot is local-first. Durable app data such as conversations, memories,
-documents, graph data, workflows, logs, settings, skills, plugins, and local
-workspace references stays on your machine by default.
+documents, graph data, workflows, logs, settings, skills, plugins, local
+workspace references, and generated artifacts stays on your machine by default.
 
-Provider and custom-model calls are opt-in. When a provider model is selected,
-the active conversation, model-visible context, and tool results needed for
-that turn are sent to the selected provider or endpoint.
+Hosted provider calls, channels, MCP servers, plugins, browser automation, and
+Developer Studio actions can still send data outside the app when you enable
+and use them.
 
-Safety controls include:
+## Provider Calls
 
-- approval prompts for destructive actions;
-- filesystem boundaries;
-- shell command classification;
-- workflow safety modes;
-- MCP destructive-tool classification;
-- plugin sandboxing;
-- Developer Studio approval modes and optional Docker shadow workspace.
+When a hosted provider model is selected, Row-Bot sends the active prompt,
+model-visible context, and needed tool results to that provider or endpoint for
+the current turn. Local models reduce provider exposure, but external tools can
+still transmit data.
 
-This page should be reviewed carefully whenever generated privacy or provider
-reference content changes.
+## Memory And Documents
+
+Memory, document records, embeddings, and graph data are local app data unless
+you choose a hosted embedding/model path or export/share content. Review
+documents before indexing private or regulated material.
+
+## Filesystem, Shell, Browser, MCP, And Plugins
+
+Sensitive actions should remain behind approvals. Filesystem writes, shell
+commands, browser actions, destructive MCP tools, plugin behavior, and
+Developer Studio edits can change local or external state.
+
+<Screenshot
+  id="chat-approval"
+  alt="Row-Bot approval dialog for a sensitive file write action."
+/>
+
+<Screenshot
+  id="privacy-safety-approval-example"
+  alt="Row-Bot privacy and safety approval example with sensitive demo fields redacted."
+/>
+
+## Human Review Areas
+
+Review provider/model recommendations, privacy copy, screenshots of setup
+surfaces, troubleshooting steps that alter data or credentials, MCP/plugin
+instructions, and any LLM-assisted explanatory prose before public cutover.
+
+See [safety and approvals](/docs/reference/generated/safety-approvals) for the
+generated approval-mode reference.

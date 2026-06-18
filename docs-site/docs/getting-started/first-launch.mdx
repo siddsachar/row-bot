@@ -3,27 +3,45 @@ title: First Launch Setup
 description: Understand Row-Bot's first launch wizard and model setup paths.
 ---
 
+import Screenshot from '@site/src/components/Screenshot';
+
 # First Launch Setup
 
-On first launch, Row-Bot opens a setup wizard. The wizard helps you choose how
-the assistant should run models and which setup areas you want to finish next.
+On first launch, Row-Bot asks for one working model path. Everything else can
+be finished later from Setup Center or Settings.
 
-## Model Paths
+<Screenshot
+  id="first-launch-setup-wizard"
+  alt="Row-Bot first launch setup wizard with local, API provider, and custom endpoint paths."
+  caption="The setup wizard keeps local, hosted, subscription, and custom endpoint paths separate."
+/>
 
-Row-Bot supports several model paths:
+## Choose A Model Path
 
-- local models through Ollama;
-- hosted provider API keys;
-- subscription-backed providers such as ChatGPT / Codex and Claude
-  Subscription;
-- custom OpenAI-compatible endpoints such as LM Studio, vLLM, llama.cpp,
-  LocalAI, LiteLLM, and SGLang.
+- Local/Ollama keeps inference on your machine when the selected model and tools
+  are local. Install Ollama, start it, and choose an exposed local model.
+- Provider/API-key paths connect hosted providers such as OpenAI, Anthropic,
+  Google AI, xAI, MiniMax, OpenRouter, Atlas Cloud, and Ollama Cloud.
+- ChatGPT / Codex and Claude Subscription use local sign-in or external CLI
+  flows where supported instead of a traditional provider API key.
+- Custom/self-hosted endpoints support OpenAI-compatible servers such as LM
+  Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, oMLX, or private gateways.
 
-## Setup Center
+Row-Bot stores provider identity with the model choice, so two models with the
+same display name are not treated as interchangeable.
 
-After model setup, the setup center can guide you through documents, workflows,
+## Continue Setup
+
+After model setup, Setup Center can guide you through documents, workflows,
 Designer Studio, Developer Studio, channels, accounts, tools, plugins, MCP, and
 voice.
 
-The public docs screenshot pipeline will capture this flow from a deterministic
-demo app state so users can preview it before installing.
+<Screenshot
+  id="setup-center"
+  alt="Row-Bot Setup Center showing resumable setup checklist cards."
+  caption="Setup Center is optional after the first working model is configured."
+/>
+
+You can skip any setup area and return later. For privacy-sensitive areas such
+as channels, provider credentials, MCP servers, plugins, and Developer Studio,
+review the relevant settings before enabling background behavior.
