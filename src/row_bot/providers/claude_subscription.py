@@ -1521,7 +1521,7 @@ def list_claude_subscription_model_infos(
     force_refresh: bool = False,
     http_client: Any | None = None,
 ) -> list[ModelInfo]:
-    if force_refresh or (http_client is not None) or not _is_pytest_running():
+    if force_refresh or (http_client is not None):
         try:
             live_infos = fetch_claude_subscription_model_infos(http_client=http_client)
         except Exception:
@@ -1558,6 +1558,8 @@ def seed_recommended_claude_subscription_quick_choices(*, max_choices: int = 1) 
         if model.get("recommended")
     }
     infos = list_claude_subscription_model_infos()
+    if not infos:
+        infos = list_claude_subscription_model_infos(force_refresh=True)
     candidates = [info for info in infos if info.model_id in recommended_ids] or infos
     for model_info in candidates[:max(0, max_choices)]:
         add_quick_choice_for_model(

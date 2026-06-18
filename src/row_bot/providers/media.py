@@ -32,6 +32,7 @@ CURATED_IMAGE_MODELS: dict[str, list[dict[str, str]]] = {
     ],
     "xai": [
         {"id": "grok-imagine-image", "label": "Grok Imagine"},
+        {"id": "grok-imagine-image-quality", "label": "Grok Imagine Quality"},
     ],
 }
 

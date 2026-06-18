@@ -921,6 +921,7 @@ _PROVIDER_EMOJI: dict[str | None, str] = {
     "ollama_cloud": "☁️",
     "codex": "C",
     "claude_subscription": "C",
+    "xai_oauth": "X",
     "opencode_zen": "OZ",
     "opencode_go": "OG",
     "atlascloud": "AC",
@@ -1004,9 +1005,9 @@ def list_cloud_models(provider: str | None = None) -> list[str]:
         models = [m for m, info in _cloud_model_cache.items() if info["provider"] == provider]
         if provider == "codex":
             try:
-                from row_bot.providers.codex import list_codex_model_infos
+                from row_bot.providers.codex import list_codex_model_infos_for_status
                 seen = set(models)
-                for model_info in list_codex_model_infos():
+                for model_info in list_codex_model_infos_for_status():
                     if model_info.model_id not in seen:
                         models.append(model_info.model_id)
                         seen.add(model_info.model_id)
@@ -1014,9 +1015,19 @@ def list_cloud_models(provider: str | None = None) -> list[str]:
                 pass
         if provider == "claude_subscription":
             try:
-                from row_bot.providers.claude_subscription import list_claude_subscription_model_infos
+                from row_bot.providers.claude_subscription import list_claude_subscription_model_infos_for_status
                 seen = set(models)
-                for model_info in list_claude_subscription_model_infos():
+                for model_info in list_claude_subscription_model_infos_for_status():
+                    if model_info.model_id not in seen:
+                        models.append(model_info.model_id)
+                        seen.add(model_info.model_id)
+            except Exception:
+                pass
+        if provider == "xai_oauth":
+            try:
+                from row_bot.providers.xai_oauth import list_xai_oauth_model_infos_for_status
+                seen = set(models)
+                for model_info in list_xai_oauth_model_infos_for_status():
                     if model_info.model_id not in seen:
                         models.append(model_info.model_id)
                         seen.add(model_info.model_id)
@@ -1157,18 +1168,27 @@ def get_cloud_model_context(model_name: str) -> int:
             return cached_ctx
     if provider_id == "codex":
         try:
-            from row_bot.providers.codex import list_codex_model_infos
+            from row_bot.providers.codex import list_codex_model_infos_for_status
 
-            for model_info in list_codex_model_infos():
+            for model_info in list_codex_model_infos_for_status():
                 if model_info.model_id == runtime_model and model_info.context_window:
                     return int(model_info.context_window)
         except Exception:
             pass
     if provider_id == "claude_subscription":
         try:
-            from row_bot.providers.claude_subscription import list_claude_subscription_model_infos
+            from row_bot.providers.claude_subscription import list_claude_subscription_model_infos_for_status
 
-            for model_info in list_claude_subscription_model_infos():
+            for model_info in list_claude_subscription_model_infos_for_status():
+                if model_info.model_id == runtime_model and model_info.context_window:
+                    return int(model_info.context_window)
+        except Exception:
+            pass
+    if provider_id == "xai_oauth":
+        try:
+            from row_bot.providers.xai_oauth import list_xai_oauth_model_infos_for_status
+
+            for model_info in list_xai_oauth_model_infos_for_status():
                 if model_info.model_id == runtime_model and model_info.context_window:
                     return int(model_info.context_window)
         except Exception:
@@ -1186,21 +1206,31 @@ def list_cloud_vision_models() -> list[str]:
             and snapshot_supports_surface(info.get("capabilities_snapshot"), "vision"))
     ]
     try:
-        from row_bot.providers.codex import list_codex_model_infos
+        from row_bot.providers.codex import list_codex_model_infos_for_status
         seen = set(vision_models)
-        for model_info in list_codex_model_infos():
+        for model_info in list_codex_model_infos_for_status():
             if model_info.model_id not in seen and snapshot_supports_surface(model_info.capability_snapshot(), "vision"):
                 vision_models.append(model_info.model_id)
                 seen.add(model_info.model_id)
     except Exception:
         pass
     try:
-        from row_bot.providers.claude_subscription import list_claude_subscription_model_infos
+        from row_bot.providers.claude_subscription import list_claude_subscription_model_infos_for_status
         seen = set(vision_models)
-        for model_info in list_claude_subscription_model_infos():
+        for model_info in list_claude_subscription_model_infos_for_status():
             if model_info.model_id not in seen and snapshot_supports_surface(model_info.capability_snapshot(), "vision"):
                 vision_models.append(model_info.model_id)
                 seen.add(model_info.model_id)
+    except Exception:
+        pass
+    try:
+        from row_bot.providers.xai_oauth import list_xai_oauth_model_infos_for_status
+        seen = set(vision_models)
+        for model_info in list_xai_oauth_model_infos_for_status():
+            ref = model_info.selection_ref
+            if ref not in seen and snapshot_supports_surface(model_info.capability_snapshot(), "vision"):
+                vision_models.append(ref)
+                seen.add(ref)
     except Exception:
         pass
     return vision_models
@@ -1213,22 +1243,33 @@ def is_cloud_vision_model(model_name: str) -> bool:
     if parsed and parsed[0] == "codex":
         try:
             from row_bot.providers.capabilities import snapshot_supports_surface
-            from row_bot.providers.codex import list_codex_model_infos
+            from row_bot.providers.codex import list_codex_model_infos_for_status
             return any(
                 model_info.model_id == runtime_model
                 and snapshot_supports_surface(model_info.capability_snapshot(), "vision")
-                for model_info in list_codex_model_infos()
+                for model_info in list_codex_model_infos_for_status()
             )
         except Exception:
             return False
     if parsed and parsed[0] == "claude_subscription":
         try:
             from row_bot.providers.capabilities import snapshot_supports_surface
-            from row_bot.providers.claude_subscription import list_claude_subscription_model_infos
+            from row_bot.providers.claude_subscription import list_claude_subscription_model_infos_for_status
             return any(
                 model_info.model_id == runtime_model
                 and snapshot_supports_surface(model_info.capability_snapshot(), "vision")
-                for model_info in list_claude_subscription_model_infos()
+                for model_info in list_claude_subscription_model_infos_for_status()
+            )
+        except Exception:
+            return False
+    if parsed and parsed[0] == "xai_oauth":
+        try:
+            from row_bot.providers.capabilities import snapshot_supports_surface
+            from row_bot.providers.xai_oauth import list_xai_oauth_model_infos_for_status
+            return any(
+                model_info.model_id == runtime_model
+                and snapshot_supports_surface(model_info.capability_snapshot(), "vision")
+                for model_info in list_xai_oauth_model_infos_for_status()
             )
         except Exception:
             return False
@@ -1562,7 +1603,7 @@ def fetch_cloud_models(provider: str) -> int:
     """Fetch available models from *provider*.
 
     Supported providers: ``'openai'``, ``'ollama_cloud'``, ``'openrouter'``, ``'anthropic'``,
-    ``'google'``, ``'xai'``, and ``'minimax'``.  Populates ``_cloud_model_cache``.  Returns the number
+    ``'google'``, ``'xai'``, ``'xai_oauth'``, and ``'minimax'``.  Populates ``_cloud_model_cache``.  Returns the number
     of models found.  Safe to call from background threads.
     """
     import httpx
@@ -1602,6 +1643,8 @@ def fetch_cloud_models(provider: str) -> int:
         if not api_key:
             return 0
         return _fetch_xai_models(api_key)
+    elif provider == "xai_oauth":
+        return _fetch_xai_oauth_models()
     elif provider == "minimax":
         api_key = get_key("MINIMAX_API_KEY")
         if not api_key:
@@ -1966,50 +2009,103 @@ def _is_minimax_cache_entry(model_id: str, info: dict) -> bool:
 
 
 def _fetch_xai_models(api_key: str) -> int:
-    """Fetch language models from the xAI ``/v1/language-models`` endpoint.
+    """Fetch xAI models and populate API-key provider cache rows.
 
-    Uses ``input_modalities`` for vision detection.  Context size is resolved
-    via the OpenRouter catalog / prefix heuristic (the xAI API does not expose
-    context window sizes).
+    xAI exposes different slices of metadata from ``/models`` and
+    ``/language-models``. Merge both so new chat rows and Grok Imagine media
+    rows appear automatically when the provider lists them.
     """
     import httpx
     from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
+    from row_bot.providers.capabilities import model_supports_surface
+    from row_bot.providers.models import TransportMode
+    from row_bot.providers.xai_catalog import (
+        is_hidden_xai_model,
+        merge_xai_curated_chat_extras,
+        merged_xai_model_entries,
+        xai_model_id_from_item,
+    )
 
-    try:
-        resp = httpx.get(
-            f"{XAI_BASE_URL}/language-models",
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        body = resp.json()
-        models = body.get("models", [])
-    except Exception as exc:
-        logger.warning("Failed to fetch xai models: %s", exc)
+    pages: list[list] = []
+    errors: list[str] = []
+    for path in ("/models", "/language-models"):
+        try:
+            resp = httpx.get(
+                f"{XAI_BASE_URL}{path}",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=15,
+            )
+            if int(getattr(resp, "status_code", 0) or 0) == 404:
+                continue
+            resp.raise_for_status()
+            body = resp.json()
+            entries = body.get("data") or body.get("models")
+            if isinstance(entries, list):
+                pages.append(entries)
+        except Exception as exc:
+            errors.append(f"{path}: {exc}")
+            continue
+    if not pages:
+        logger.warning("Failed to fetch xai models: %s", "; ".join(errors) if errors else "no model list returned")
         return 0
 
-    count = 0
-    with _cloud_cache_lock:
-        for m in models:
-            mid = m.get("id", "")
-            if not mid:
-                continue
-            if any(s in mid for s in _XAI_SKIP_SUBSTRINGS):
-                continue
-            display = mid  # xAI doesn't return a display name
+    model_infos = []
+    verified_at = _utc_now_iso()
+    seen: set[str] = set()
+    for m in merged_xai_model_entries(pages):
+        mid = xai_model_id_from_item(m)
+        if not mid or mid in seen:
+            continue
+        seen.add(mid)
+        if any(s in mid for s in _XAI_SKIP_SUBSTRINGS) or is_hidden_xai_model(m, mid):
+            continue
+        display = str(m.get("display_name") or m.get("displayName") or m.get("label") or mid)
+        try:
+            ctx = int(m.get("context_window") or m.get("contextWindow") or m.get("context_length") or m.get("contextLength") or 0)
+        except (TypeError, ValueError):
+            ctx = 0
+        if ctx <= 0:
             ctx = _catalog_or_heuristic(mid)
-            has_vision = "image" in m.get("input_modalities", [])
-            metadata = dict(m)
-            metadata["vision"] = has_vision
-            _cloud_model_cache[mid] = model_info_to_cache_entry(model_info_from_metadata(
-                "xai", mid, metadata,
-                display_name=display,
-                context_window=ctx,
-            ))
-            count += 1
+        metadata = dict(m)
+        modalities = metadata.get("input_modalities") or metadata.get("inputModalities") or metadata.get("modalities")
+        if isinstance(modalities, str):
+            modalities = [modalities]
+        metadata["input_modalities"] = modalities if isinstance(modalities, list) else metadata.get("input_modalities", [])
+        metadata["vision"] = any(str(item).lower() == "image" for item in metadata.get("input_modalities", []))
+        model_info = model_info_from_metadata(
+            "xai", mid, metadata,
+            display_name=display,
+            context_window=ctx,
+        )
+        if not any(model_supports_surface(model_info, surface) for surface in ("chat", "image", "video")):
+            continue
+        model_infos.append(model_info)
 
-    logger.info("Fetched %d xai models", count)
-    return count
+    model_infos = merge_xai_curated_chat_extras(
+        model_infos,
+        "xai",
+        transport=TransportMode.OPENAI_CHAT,
+        source="row_bot_xai_curated_catalog",
+        risk_label="api_key",
+        verified_at=verified_at,
+    )
+    if not model_infos:
+        logger.warning("xai model fetch returned no usable model rows; preserving previous cache")
+        return 0
+
+    with _cloud_cache_lock:
+        stale_keys = [
+            model_id
+            for model_id, info in _cloud_model_cache.items()
+            if isinstance(info, dict) and str(info.get("provider") or "") == "xai"
+        ]
+        for model_id in stale_keys:
+            _cloud_model_cache.pop(model_id, None)
+        for model_info in model_infos:
+            _cloud_model_cache[model_info.model_id] = model_info_to_cache_entry(model_info)
+
+    logger.info("Fetched %d xai models", len(model_infos))
+    return len(model_infos)
 
 
 def _fetch_atlascloud_models(api_key: str) -> int:
@@ -2297,6 +2393,50 @@ def _fetch_claude_subscription_models() -> int:
     return len(infos)
 
 
+def _fetch_xai_oauth_models() -> int:
+    """Populate xAI OAuth models from Row-Bot-owned OAuth catalog."""
+    from row_bot.providers.catalog import model_info_to_cache_entry
+    from row_bot.providers.xai_oauth import (
+        list_xai_oauth_model_infos,
+        run_xai_oauth_vision_probe,
+        xai_oauth_vision_probe_needed,
+    )
+
+    try:
+        infos = list_xai_oauth_model_infos(force_refresh=True)
+    except Exception as exc:
+        logger.warning("Failed to fetch xai_oauth models: %s", exc)
+        return 0
+    if not infos:
+        return 0
+    try:
+        if xai_oauth_vision_probe_needed():
+            logger.info("Running xai_oauth vision probe during model refresh")
+            probe = run_xai_oauth_vision_probe()
+            confirmed = probe.get("confirmed_model_ids") if isinstance(probe, dict) else []
+            failed = probe.get("failed_model_ids") if isinstance(probe, dict) else []
+            logger.info(
+                "Completed xai_oauth vision probe during model refresh: confirmed=%d failed=%d",
+                len(confirmed) if isinstance(confirmed, list) else 0,
+                len(failed) if isinstance(failed, list) else 0,
+            )
+            infos = list_xai_oauth_model_infos()
+    except Exception as exc:
+        logger.warning("Failed to probe xai_oauth vision during model refresh: %s", exc)
+    with _cloud_cache_lock:
+        stale_keys = [
+            model_id
+            for model_id, info in _cloud_model_cache.items()
+            if isinstance(info, dict) and str(info.get("provider") or "") == "xai_oauth"
+        ]
+        for model_id in stale_keys:
+            _cloud_model_cache.pop(model_id, None)
+        for model_info in infos:
+            _cloud_model_cache[model_info.selection_ref] = model_info_to_cache_entry(model_info)
+    logger.info("Fetched %d xai_oauth models", len(infos))
+    return len(infos)
+
+
 def refresh_cloud_models() -> int:
     """Clear cache and re-fetch from all configured providers.
 
@@ -2331,6 +2471,7 @@ def refresh_cloud_models() -> int:
     total += fetch_cloud_models("anthropic")
     total += fetch_cloud_models("google")
     total += fetch_cloud_models("xai")
+    total += fetch_cloud_models("xai_oauth")
     total += fetch_cloud_models("minimax")
     total += fetch_cloud_models("opencode_zen")
     total += fetch_cloud_models("opencode_go")
@@ -2376,24 +2517,34 @@ def _cloud_model_available_after_refresh(model_name: str) -> bool:
         return not provider_id or info.get("provider") == provider_id
     if provider_id == "codex":
         try:
-            from row_bot.providers.codex import list_codex_model_infos
+            from row_bot.providers.codex import list_codex_model_infos_for_status
 
             return any(
                 model_info.model_id == parsed_model
-                for model_info in list_codex_model_infos()
+                for model_info in list_codex_model_infos_for_status()
             )
         except Exception:
             logger.debug("Could not validate Codex default model after refresh", exc_info=True)
     if provider_id == "claude_subscription":
         try:
-            from row_bot.providers.claude_subscription import list_claude_subscription_model_infos
+            from row_bot.providers.claude_subscription import list_claude_subscription_model_infos_for_status
 
             return any(
                 model_info.model_id == parsed_model
-                for model_info in list_claude_subscription_model_infos()
+                for model_info in list_claude_subscription_model_infos_for_status()
             )
         except Exception:
             logger.debug("Could not validate Claude Subscription default model after refresh", exc_info=True)
+    if provider_id == "xai_oauth":
+        try:
+            from row_bot.providers.xai_oauth import list_xai_oauth_model_infos_for_status
+
+            return any(
+                model_info.model_id == parsed_model
+                for model_info in list_xai_oauth_model_infos_for_status()
+            )
+        except Exception:
+            logger.debug("Could not validate xAI OAuth default model after refresh", exc_info=True)
     return False
 
 

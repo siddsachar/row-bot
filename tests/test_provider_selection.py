@@ -108,7 +108,37 @@ def test_quick_choices_filter_by_capability_snapshot(tmp_path, monkeypatch):
     assert list_quick_choices("chat") == []
     assert [choice["model_id"] for choice in list_quick_choices("embeddings")] == ["text-embedding-3-large"]
     stored = provider_config.load_provider_config()["quick_choices"][0]
+    assert "chat" not in stored.get("inactive_surfaces", {})
+    inactive = list_quick_choices("chat", include_inactive=True)
+    assert inactive[0]["active"] is False
+    assert inactive[0]["inactive_reason"].startswith("Capability metadata")
+
+    validate_quick_choices_for_surface("chat")
+    stored = provider_config.load_provider_config()["quick_choices"][0]
     assert stored["inactive_surfaces"]["chat"].startswith("Capability metadata")
+
+
+def test_list_quick_choices_is_read_only_for_capability_validation(tmp_path, monkeypatch):
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+
+    add_quick_choice_for_model(
+        "gpt-image-1",
+        provider_id="openai",
+        capabilities_snapshot={
+            "tasks": ["image_generation"],
+            "input_modalities": ["text"],
+            "output_modalities": ["image"],
+        },
+    )
+    before = provider_config.CONFIG_PATH.read_text(encoding="utf-8")
+
+    inactive = list_quick_choices("chat", include_inactive=True)
+    after = provider_config.CONFIG_PATH.read_text(encoding="utf-8")
+
+    assert before == after
+    assert inactive[0]["active"] is False
+    assert "not compatible with chat" in inactive[0]["inactive_reason"]
 
 
 def test_surface_inactive_quick_choice_stays_available_for_other_surfaces(tmp_path, monkeypatch):
@@ -484,6 +514,7 @@ def test_grouped_quick_choices_refreshes_stale_capability_snapshots(tmp_path, mo
     )
     add_quick_choice_for_model("gpt-5.4", provider_id="openai", capabilities_snapshot={"tasks": ["chat"]})
 
+    refresh_quick_choice_capability_snapshots()
     groups = {group["id"]: group["choices"] for group in grouped_quick_choices(include_inactive=True, include_media_defaults=False)}
 
     assert [choice["model_id"] for choice in groups["vision"]] == ["gpt-5.4"]
@@ -508,6 +539,7 @@ def test_grouped_quick_choices_preserves_cached_ollama_vision_metadata(tmp_path,
         },
     )
 
+    refresh_quick_choice_capability_snapshots()
     groups = {group["id"]: group["choices"] for group in grouped_quick_choices(include_inactive=True, include_media_defaults=False)}
 
     assert [choice["model_id"] for choice in groups["vision"]] == [model_id]

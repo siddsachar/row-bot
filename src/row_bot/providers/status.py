@@ -74,6 +74,13 @@ def _provider_catalog_stats(provider_id: str) -> dict[str, object]:
                 list_claude_subscription_model_infos_for_status(),
                 fallback_source="claude_subscription_status_catalog",
             )
+        if provider_id == "xai_oauth":
+            from row_bot.providers.xai_oauth import list_xai_oauth_model_infos_for_status
+
+            return _model_infos_stats(
+                list_xai_oauth_model_infos_for_status(),
+                fallback_source="xai_oauth_status_catalog",
+            )
     except Exception:
         return {
             "model_count": None,
@@ -91,10 +98,13 @@ def _provider_catalog_stats(provider_id: str) -> dict[str, object]:
     }
 
 
-def provider_status_cards() -> list[dict]:
+def provider_status_cards(*, refresh_tokens: bool = False) -> list[dict]:
     cards: list[dict] = []
     for definition in list_provider_definitions():
-        status = provider_status(definition.id)
+        try:
+            status = provider_status(definition.id, refresh_tokens=refresh_tokens)
+        except TypeError:
+            status = provider_status(definition.id)
         cache_stats = _cached_model_stats(definition.id)
         catalog_stats = _provider_catalog_stats(definition.id)
         model_count = status.get("model_count")
@@ -147,6 +157,7 @@ def provider_status_cards() -> list[dict]:
             "token_health": status.get("token_health") or "",
             "token_health_detail": status.get("token_health_detail") or "",
             "last_runtime_probe": dict(status.get("last_runtime_probe") or {}),
+            "last_vision_probe": dict(status.get("last_vision_probe") or {}),
             "runtime_probes": {
                 str(model_id): dict(probe)
                 for model_id, probe in (status.get("runtime_probes") or {}).items()
@@ -158,6 +169,10 @@ def provider_status_cards() -> list[dict]:
             "model_count_source": model_count_source,
             "chat_count": chat_count,
             "media_count": media_count,
+            "oauth_client_id_configured": bool(status.get("oauth_client_id_configured")),
+            "oauth_client_id_source": status.get("oauth_client_id_source") or "",
+            "oauth_client_id_fingerprint": status.get("oauth_client_id_fingerprint") or "",
+            "oauth_client_id_detail": status.get("oauth_client_id_detail") or "",
             "risk_label": definition.risk_label,
             "icon": definition.icon,
             "group": _provider_group(definition.id, definition.risk_label),

@@ -12,10 +12,12 @@ The wizard is self-contained except for two callbacks:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import ipaddress
 import logging
 import sys
+import threading
 from typing import Any, Callable, TYPE_CHECKING
 from urllib.parse import urlparse
 
@@ -167,6 +169,19 @@ async def show_setup_wizard(
         save_codex_oauth_tokens,
         start_codex_device_flow,
     )
+    from row_bot.providers.xai_oauth import (
+        ROW_BOT_XAI_OAUTH_CLIENT_ID_ENV,
+        XAIOAuthError,
+        exchange_xai_oauth_authorization,
+        list_xai_oauth_model_infos,
+        run_xai_oauth_vision_probe,
+        save_xai_oauth_client_id,
+        save_xai_oauth_tokens,
+        seed_recommended_xai_oauth_quick_choices,
+        start_xai_oauth_flow,
+        wait_for_xai_oauth_loopback_authorization,
+        xai_oauth_runtime_available,
+    )
 
     def _open_first_run_migration_wizard() -> None:
         with ui.dialog().props("maximized") as migration_dlg:
@@ -258,9 +273,11 @@ async def show_setup_wizard(
             # ── Provider Setup Path ──────────────────────────────────
             cloud_done: dict[str, bool] = {"value": False}
             codex_models_by_ref: dict[str, object] = {}
+            xai_oauth_models_by_ref: dict[str, object] = {}
+            xai_oauth_vision_probe_task: asyncio.Task | None = None
             with _cloud_section:
                 ui.label(
-                    "Use ChatGPT / Codex, or save one API key and fetch available models."
+                    "Use ChatGPT / Codex, xAI Grok, or save one API key and fetch available models."
                 ).classes("text-grey-6 text-sm")
 
                 setup_openai_key = ui.input(
@@ -282,6 +299,9 @@ async def show_setup_wizard(
                 setup_xai_key = ui.input(
                     "xAI API Key (optional)",
                     password=True, password_toggle_button=True,
+                ).classes("w-full")
+                setup_xai_oauth_client_id = ui.input(
+                    "xAI OAuth Client ID (optional)",
                 ).classes("w-full")
                 setup_minimax_key = ui.input(
                     "MiniMax API Key (optional)",
@@ -318,6 +338,41 @@ async def show_setup_wizard(
                 ).classes("w-full").props("use-input input-debounce=300")
                 cloud_vision_select.visible = False
 
+                def _update_xai_oauth_vision_options(infos: list) -> bool:
+                    vision_opts = {
+                        info.selection_ref: f"X {info.display_name or info.model_id}"
+                        for info in infos
+                        if "image" in getattr(info, "input_modalities", frozenset())
+                    }
+                    if not vision_opts:
+                        cloud_vision_select.set_value(None)
+                        cloud_vision_select.visible = False
+                        return False
+                    cloud_vision_select.options = vision_opts
+                    cloud_vision_select.set_value(next(iter(vision_opts)))
+                    cloud_vision_select.visible = True
+                    return True
+
+                def _queue_xai_oauth_vision_probe_if_needed() -> None:
+                    nonlocal xai_oauth_vision_probe_task
+                    if xai_oauth_vision_probe_task is not None and not xai_oauth_vision_probe_task.done():
+                        return
+
+                    async def _probe() -> None:
+                        try:
+                            await run.io_bound(run_xai_oauth_vision_probe)
+                            infos = await run.io_bound(list_xai_oauth_model_infos)
+                        except Exception:
+                            return
+                        xai_oauth_models_by_ref.update({
+                            info.selection_ref: info
+                            for info in infos
+                            if getattr(info, "selection_ref", "")
+                        })
+                        _update_xai_oauth_vision_options(infos)
+
+                    xai_oauth_vision_probe_task = asyncio.create_task(_probe())
+
                 async def _load_codex_models() -> bool:
                     try:
                         infos = await run.io_bound(lambda: list_codex_model_infos(force_refresh=True))
@@ -338,6 +393,7 @@ async def show_setup_wizard(
                         _update_finish()
                         return False
                     codex_models_by_ref.clear()
+                    xai_oauth_models_by_ref.clear()
                     codex_models_by_ref.update({info.selection_ref: info for info in infos})
                     first = next(iter(opts))
                     cloud_model_select.options = opts
@@ -345,6 +401,48 @@ async def show_setup_wizard(
                     cloud_model_select.visible = True
                     cloud_status.text = f"Found {len(opts)} ChatGPT / Codex model(s)"
                     info = codex_models_by_ref.get(first)
+                    if info:
+                        add_quick_choice_for_model(
+                            info.model_id,
+                            provider_id=info.provider_id,
+                            display_name=info.display_name,
+                            source="setup_default",
+                            capabilities_snapshot=info.capability_snapshot(),
+                        )
+                    cloud_done["value"] = True
+                    _update_finish()
+                    return True
+
+                async def _load_xai_oauth_models() -> bool:
+                    try:
+                        infos = await run.io_bound(lambda: list_xai_oauth_model_infos(force_refresh=True))
+                    except Exception as exc:
+                        logger.warning("xAI Grok setup check failed", exc_info=True)
+                        cloud_status.text = f"Could not use xAI Grok: {exc}"
+                        cloud_done["value"] = False
+                        _update_finish()
+                        return False
+                    opts = {
+                        info.selection_ref: f"X {info.display_name or info.model_id}"
+                        for info in infos
+                        if getattr(info, "selection_ref", "")
+                    }
+                    if not opts:
+                        cloud_status.text = "No xAI Grok models were found."
+                        cloud_done["value"] = False
+                        _update_finish()
+                        return False
+                    codex_models_by_ref.clear()
+                    xai_oauth_models_by_ref.clear()
+                    xai_oauth_models_by_ref.update({info.selection_ref: info for info in infos})
+                    first = next(iter(opts))
+                    cloud_model_select.options = opts
+                    cloud_model_select.set_value(first)
+                    cloud_model_select.visible = True
+                    if not _update_xai_oauth_vision_options(infos):
+                        _queue_xai_oauth_vision_probe_if_needed()
+                    cloud_status.text = f"Found {len(opts)} xAI Grok model(s)"
+                    info = xai_oauth_models_by_ref.get(first)
                     if info:
                         add_quick_choice_for_model(
                             info.model_id,
@@ -464,6 +562,86 @@ async def show_setup_wizard(
                     on_click=_use_codex_provider,
                 ).props("outline color=blue-grey").classes("q-mb-sm")
 
+                async def _use_xai_oauth_provider():
+                    cloud_status.text = "Checking xAI Grok provider..."
+                    cloud_status.visible = True
+                    if xai_oauth_runtime_available():
+                        await _load_xai_oauth_models()
+                        return
+                    xai_oauth_client_id = str(setup_xai_oauth_client_id.value or "").strip()
+                    notification = ui.notification(
+                        "Starting xAI Grok sign-in...",
+                        type="ongoing",
+                        spinner=True,
+                        timeout=None,
+                    )
+                    try:
+                        if xai_oauth_client_id:
+                            await run.io_bound(save_xai_oauth_client_id, xai_oauth_client_id)
+                        flow = await run.io_bound(
+                            lambda: start_xai_oauth_flow(client_id=xai_oauth_client_id or None)
+                        )
+                        cloud_status.text = "Complete xAI Grok sign-in in the browser..."
+                        listener_ready = threading.Event()
+                        wait_task = asyncio.create_task(run.io_bound(
+                            lambda: wait_for_xai_oauth_loopback_authorization(
+                                flow,
+                                open_browser=False,
+                                ready_callback=listener_ready.set,
+                            )
+                        ))
+                        ready = await run.io_bound(lambda: listener_ready.wait(5))
+                        if not ready:
+                            wait_task.cancel()
+                            raise XAIOAuthError("xAI OAuth callback listener did not become ready.", kind="loopback_not_ready")
+                        with ui.dialog() as xai_login_dialog:
+                            with ui.card().classes("w-full").style("max-width: 32rem;"):
+                                ui.label("Connect xAI Grok").classes("text-h6")
+                                ui.label("Waiting for xAI approval in your browser.").classes("text-grey-6 text-sm")
+                                with ui.row().classes("items-center gap-2 no-wrap"):
+                                    ui.spinner(size="sm")
+                                    ui.link("Open xAI Login", flow.authorization_url, new_tab=True).classes("text-primary text-sm")
+                                ui.label("If the page did not open automatically, use the link above.").classes("text-grey-6 text-xs")
+                        xai_login_dialog.open()
+                        ui.run_javascript(f"window.open({json.dumps(flow.authorization_url)}, '_blank', 'noopener,noreferrer')")
+                        try:
+                            authorization = await wait_task
+                        finally:
+                            xai_login_dialog.close()
+                        token_set = await run.io_bound(exchange_xai_oauth_authorization, authorization)
+                        await run.io_bound(save_xai_oauth_tokens, token_set)
+                        await run.io_bound(seed_recommended_xai_oauth_quick_choices)
+                    except XAIOAuthError as exc:
+                        notification.dismiss()
+                        logger.warning("xAI Grok setup sign-in start failed", exc_info=True)
+                        if exc.kind == "missing_client_id":
+                            cloud_status.text = (
+                                f"Enter an xAI OAuth Client ID here or set {ROW_BOT_XAI_OAUTH_CLIENT_ID_ENV}, "
+                                "then start xAI Grok sign-in again."
+                            )
+                        else:
+                            cloud_status.text = f"Could not start xAI Grok sign-in: {exc}"
+                        cloud_done["value"] = False
+                        _update_finish()
+                        return
+                    except Exception as exc:
+                        notification.dismiss()
+                        logger.warning("xAI Grok setup sign-in start failed", exc_info=True)
+                        cloud_status.text = f"Could not start xAI Grok sign-in: {exc}"
+                        cloud_done["value"] = False
+                        _update_finish()
+                        return
+                    notification.dismiss()
+                    ui.notify("xAI Grok connected", type="positive")
+                    cloud_status.text = "xAI Grok connected. Fetching models..."
+                    await _load_xai_oauth_models()
+
+                ui.button(
+                    "Use xAI Grok",
+                    icon="login",
+                    on_click=_use_xai_oauth_provider,
+                ).props("outline color=blue-grey").classes("q-mb-sm")
+
                 async def _validate_cloud_keys():
                     oai_val = setup_openai_key.value.strip()
                     from row_bot.providers.transports.ollama_cloud import normalize_ollama_cloud_api_key
@@ -568,6 +746,7 @@ async def show_setup_wizard(
                         _update_finish()
                         return
                     codex_models_by_ref.clear()
+                    xai_oauth_models_by_ref.clear()
                     models = list_cloud_models()
                     model_options_by_key = {
                         m: cloud_model_setup_option(
@@ -968,7 +1147,7 @@ async def show_setup_wizard(
                     if sel:
                         set_model(sel)
                         state.current_model = sel
-                        info = codex_models_by_ref.get(sel)
+                        info = codex_models_by_ref.get(sel) or xai_oauth_models_by_ref.get(sel)
                         if info:
                             add_quick_choice_for_model(
                                 info.model_id,

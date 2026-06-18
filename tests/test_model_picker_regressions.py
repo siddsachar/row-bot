@@ -120,9 +120,44 @@ def test_model_picker_cache_invalidates_when_provider_config_changes(tmp_path, m
     assert cached[0][0]["value"] == "model:openrouter:test/model"
     assert cached[1] is False
 
-    config_path.write_text('{"quick_choices":[],"custom_endpoints":[]}', encoding="utf-8")
+    config_path.write_text(
+        '{"quick_choices":[{"id":"model:openai:gpt-4o","kind":"model","provider_id":"openai","model_id":"gpt-4o","display_name":"GPT-4o"}]}',
+        encoding="utf-8",
+    )
 
     assert chat_components._get_cached_model_picker_options() is None
+
+
+def test_model_picker_cache_ignores_provider_catalog_bookkeeping(tmp_path, monkeypatch):
+    import row_bot.ui.chat_components as chat_components
+
+    config_path = tmp_path / "providers.json"
+    config_path.write_text(
+        '{"providers":{"xai_oauth":{"catalog_cache":{"models":[]},"model_count":0}},"quick_choices":[]}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", config_path)
+    monkeypatch.setattr(chat_components, "_MODEL_PICKER_CACHE_TTL_SECONDS", 60.0, raising=False)
+    monkeypatch.setattr(
+        chat_components,
+        "_model_picker_options_cache",
+        {
+            "signature": chat_components._provider_config_signature(),
+            "loaded_at": time.monotonic(),
+            "options": [{"value": "model:xai_oauth:grok-4.3", "label": "Grok"}],
+        },
+        raising=False,
+    )
+
+    config_path.write_text(
+        '{"providers":{"xai_oauth":{"catalog_cache":{"models":[{"id":"grok-4.3"}]},"model_count":1,"last_error":""}},"quick_choices":[]}',
+        encoding="utf-8",
+    )
+
+    cached = chat_components._get_cached_model_picker_options()
+
+    assert cached is not None
+    assert cached[0][0]["value"] == "model:xai_oauth:grok-4.3"
 
 
 def test_chat_voice_status_literals_have_no_mojibake():
@@ -225,10 +260,12 @@ def test_runtime_readiness_reuses_provider_status_snapshot(monkeypatch):
 
 def test_picker_option_loading_uses_non_refreshing_status_and_no_live_catalog(tmp_path, monkeypatch):
     import row_bot.api_keys as api_keys
+    import row_bot.providers.claude_subscription as claude_subscription
     import row_bot.providers.codex as codex
     import row_bot.providers.model_catalog_cache as catalog_cache
     import row_bot.providers.runtime as provider_runtime
     import row_bot.providers.selection as selection
+    import row_bot.providers.xai_oauth as xai_oauth
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
@@ -238,6 +275,9 @@ def test_picker_option_loading_uses_non_refreshing_status_and_no_live_catalog(tm
 
     monkeypatch.setattr(catalog_cache, "refresh_model_catalog_cache", _boom)
     monkeypatch.setattr(codex, "list_codex_model_infos", _boom)
+    monkeypatch.setattr(claude_subscription, "list_claude_subscription_model_infos", _boom)
+    monkeypatch.setattr(xai_oauth, "list_xai_oauth_model_infos", _boom)
+    selection._provider_status_picker_cache.clear()
 
     refresh_flags: list[bool] = []
 
@@ -260,6 +300,85 @@ def test_picker_option_loading_uses_non_refreshing_status_and_no_live_catalog(tm
     assert refresh_flags == [False]
     assert diagnostics["quick_choices_provider_status_calls"] == 1
     assert diagnostics["quick_choices_provider_status_refresh_tokens"] is False
+
+
+def test_capability_resolution_uses_xai_oauth_cache_before_live_catalog(tmp_path, monkeypatch):
+    import row_bot.providers.xai_oauth as xai_oauth
+    from row_bot.providers.capability_resolution import resolve_capability_snapshot
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    provider_config.save_provider_config({
+        "providers": {
+            "xai_oauth": {
+                "catalog_cache": {
+                    "models": [{
+                        "id": "grok-4.3",
+                        "display_name": "grok-4.3",
+                        "context_window": 1_000_000,
+                        "capabilities": ["chat", "streaming", "text", "vision"],
+                        "input_modalities": ["text", "image"],
+                        "output_modalities": ["text"],
+                        "tasks": ["responses"],
+                        "tool_calling": True,
+                        "streaming": True,
+                        "transport": "openai_responses",
+                    }],
+                },
+            },
+        },
+    })
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("capability resolution must not call live xAI OAuth catalog reads")
+
+    monkeypatch.setattr(xai_oauth, "list_xai_oauth_model_infos", _boom)
+
+    snapshot = resolve_capability_snapshot("xai_oauth", "grok-4.3")
+
+    assert set(snapshot["input_modalities"]) == {"text", "image"}
+    assert snapshot["tool_calling"] is True
+
+
+def test_context_and_vision_helpers_use_xai_oauth_status_cache(tmp_path, monkeypatch):
+    import row_bot.models as models
+    import row_bot.providers.xai_oauth as xai_oauth
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    provider_config.save_provider_config({
+        "providers": {
+            "xai_oauth": {
+                "catalog_cache": {
+                    "models": [{
+                        "id": "grok-4.3",
+                        "display_name": "grok-4.3",
+                        "context_window": 1_000_000,
+                        "capabilities": ["chat", "streaming", "text", "vision"],
+                        "input_modalities": ["text", "image"],
+                        "output_modalities": ["text"],
+                        "tasks": ["responses"],
+                        "tool_calling": True,
+                        "streaming": True,
+                        "transport": "openai_responses",
+                    }],
+                },
+            },
+        },
+    })
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("context and vision helpers must not call live xAI OAuth catalog reads")
+
+    monkeypatch.setattr(xai_oauth, "list_xai_oauth_model_infos", _boom)
+    old_cache = dict(models._cloud_model_cache)
+    try:
+        models._cloud_model_cache.clear()
+
+        assert models.get_cloud_model_context("model:xai_oauth:grok-4.3") == 1_000_000
+        assert models.is_cloud_vision_model("model:xai_oauth:grok-4.3") is True
+        assert "model:xai_oauth:grok-4.3" in models.list_cloud_vision_models()
+    finally:
+        models._cloud_model_cache.clear()
+        models._cloud_model_cache.update(old_cache)
 
 
 def test_non_tool_custom_endpoint_is_blocked_for_agent_mode(tmp_path, monkeypatch):

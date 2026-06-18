@@ -25,6 +25,8 @@ QUICK_CHOICE_SURFACE_GROUPS = [
     {"id": "video", "display_name": "Video"},
     {"id": "voice", "display_name": "Voice"},
 ]
+_PROVIDER_STATUS_PICKER_CACHE_TTL_SECONDS = 5.0
+_provider_status_picker_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
 
 @dataclass(frozen=True)
@@ -270,7 +272,18 @@ def parse_model_ref(value: str | None) -> tuple[str, str] | None:
     parts = raw.split(":", 2)
     if len(parts) != 3 or not parts[1] or not parts[2]:
         return None
-    return parts[1], parts[2]
+    return _canonical_provider_id(parts[1]), parts[2]
+
+
+def _canonical_provider_id(provider_id: str) -> str:
+    provider = str(provider_id or "").strip()
+    try:
+        from row_bot.providers.xai_oauth import normalize_xai_oauth_provider_id
+
+        provider = normalize_xai_oauth_provider_id(provider)
+    except Exception:
+        pass
+    return "ollama" if provider == "local" else provider
 
 
 def provider_display_label(provider_id: str) -> str:
@@ -299,6 +312,7 @@ _PROVIDER_ICON_LABELS: dict[str, str] = {
     "anthropic": "Anthropic",
     "google": "Google",
     "xai": "xAI",
+    "xai_oauth": "xAI Grok",
     "minimax": "MiniMax",
 }
 
@@ -316,10 +330,9 @@ def model_choice_value(value: str | None, *, provider_id: str | None = None) -> 
     if parsed:
         provider, model_id = parsed
     else:
-        provider = provider_id or infer_provider_id(raw) or "local"
+        provider = _canonical_provider_id(provider_id) if provider_id else infer_provider_id(raw) or "local"
         model_id = raw
-    if provider == "local":
-        provider = "ollama"
+    provider = _canonical_provider_id(provider)
     return model_ref(provider, model_id)
 
 
@@ -335,7 +348,7 @@ def provider_id_from_choice_value(value: str | None) -> str:
     if parsed:
         return parsed[0]
     provider = infer_provider_id(raw) or "local"
-    return "ollama" if provider == "local" else provider
+    return _canonical_provider_id(provider)
 
 
 def format_model_choice_label(
@@ -534,7 +547,7 @@ def _quick_choice_for_model(
     capabilities_snapshot: dict[str, Any] | None = None,
     visibility: Iterable[str] | None = None,
 ) -> dict[str, Any] | None:
-    provider_id = provider_id or infer_provider_id(model_id)
+    provider_id = _canonical_provider_id(provider_id) if provider_id else infer_provider_id(model_id)
     if not provider_id:
         return None
     try:
@@ -570,6 +583,14 @@ def _provider_status_for_picker(provider_id: str, diagnostics: dict[str, Any] | 
         cache = diagnostics.setdefault("_provider_status_cache", {})
         if provider_id in cache:
             return dict(cache[provider_id])
+    global_cached = _provider_status_picker_cache.get(provider_id)
+    now = time.monotonic()
+    if global_cached is not None:
+        cached_at, cached_status = global_cached
+        if now - cached_at <= _PROVIDER_STATUS_PICKER_CACHE_TTL_SECONDS:
+            if cache is not None:
+                cache[provider_id] = dict(cached_status)
+            return dict(cached_status)
     started = time.perf_counter()
     try:
         from row_bot.providers.runtime import provider_status
@@ -587,6 +608,7 @@ def _provider_status_for_picker(provider_id: str, diagnostics: dict[str, Any] | 
             diagnostics["provider_status_refresh_tokens"] = False
     if cache is not None:
         cache[provider_id] = dict(status)
+    _provider_status_picker_cache[provider_id] = (now, dict(status))
     return status
 
 
@@ -603,6 +625,12 @@ def _surface_inactive_reason(choice: dict[str, Any], surface: str, diagnostics: 
                 return "Claude Subscription runtime needs a Row-Bot OAuth connection."
         except Exception:
             return "Claude Subscription runtime is not enabled yet."
+    if choice.get("provider_id") == "xai_oauth":
+        try:
+            if not _provider_status_for_picker("xai_oauth", diagnostics).get("runtime_enabled"):
+                return "xAI Grok runtime needs a Row-Bot OAuth connection."
+        except Exception:
+            return "xAI Grok runtime is not enabled yet."
     if choice.get("active") is False:
         return str(choice.get("inactive_reason") or choice.get("last_error") or "This Quick Choice is inactive.")
     inactive_surfaces = choice.get("inactive_surfaces")
@@ -614,6 +642,9 @@ def _surface_inactive_reason(choice: dict[str, Any], surface: str, diagnostics: 
 def _annotated_choice(choice: dict[str, Any], surface: str, diagnostics: dict[str, Any] | None = None) -> dict[str, Any]:
     annotated = dict(choice)
     reason = _surface_inactive_reason(choice, surface, diagnostics)
+    snapshot = choice.get("capabilities_snapshot") if isinstance(choice.get("capabilities_snapshot"), dict) else {}
+    if surface and snapshot and not snapshot_supports_surface(snapshot, surface) and not reason:
+        reason = _surface_unsupported_reason(surface)
     annotated["active"] = not bool(reason)
     annotated["inactive_reason"] = reason
     return annotated
@@ -834,8 +865,11 @@ def _choice_matches_surface(
     inactive_reason = _surface_inactive_reason(choice, surface, diagnostics)
     if inactive_reason and not include_inactive:
         return False
+    snapshot = choice.get("capabilities_snapshot") if isinstance(choice.get("capabilities_snapshot"), dict) else {}
     if surface and isinstance(visibility, list) and surface not in visibility:
         return supports_surface and bool(choice.get("capabilities_snapshot"))
+    if surface and snapshot and not supports_surface:
+        return include_inactive
     return supports_surface or (include_inactive and bool(inactive_reason))
 
 
@@ -911,6 +945,10 @@ def add_quick_choice_for_model(
 ) -> None:
     if surface and visibility is None:
         visibility = SURFACE_VISIBILITY.get(surface, [surface])
+    if capabilities_snapshot is None:
+        inferred_provider = _canonical_provider_id(provider_id) if provider_id else infer_provider_id(model_id)
+        if inferred_provider:
+            capabilities_snapshot = _selection_capability_snapshot(inferred_provider, model_id)
     choice = _quick_choice_for_model(
         model_id,
         provider_id=provider_id,
@@ -1054,14 +1092,14 @@ def list_quick_choices(
         "surface": surface,
         "include_routes": include_routes,
         "include_inactive": include_inactive,
+        "read_only": True,
         "provider_status_ms": 0.0,
         "provider_status_calls": 0,
     }
     migrate_started = time.perf_counter()
-    migrate_legacy_starred_models()
+    quick = [choice for choice in load_provider_config().get("quick_choices", []) if isinstance(choice, dict)]
     diagnostics["migrate_ms"] = (time.perf_counter() - migrate_started) * 1000.0
     validate_started = time.perf_counter()
-    quick = validate_quick_choices_for_surface(surface)
     diagnostics["validate_ms"] = (time.perf_counter() - validate_started) * 1000.0
     annotate_started = time.perf_counter()
     choices = [

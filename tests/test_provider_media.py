@@ -99,7 +99,32 @@ def test_xai_imagine_catalog_entry_appears_in_image_options(monkeypatch):
     options = get_available_image_models()
 
     assert "xai/grok-imagine-image" in options
+    assert "xai/grok-imagine-image-quality" in options
+    assert "Grok Imagine Quality" in options["xai/grok-imagine-image-quality"]
     assert options["xai/grok-imagine-image"] == "𝕏  Grok Imagine  (xAI)"
+
+
+def test_curated_media_catalog_does_not_overwrite_live_media_row():
+    from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
+    from row_bot.providers.model_catalog import build_model_catalog_rows
+
+    info = model_info_from_metadata(
+        "openai",
+        "gpt-image-1",
+        display_name="GPT Image 1 Live",
+        context_window=256000,
+        source="provider_catalog",
+    )
+
+    rows = build_model_catalog_rows(
+        cloud_cache={"gpt-image-1": model_info_to_cache_entry(info)},
+        quick_choices=[],
+    )
+    row = next(row for row in rows if row.selection_ref == "model:openai:gpt-image-1")
+
+    assert row.context_window == 256000
+    assert row.source == "provider_catalog"
+    assert row.supports("image")
 
 
 def test_grouped_quick_choices_seed_current_media_tool_defaults(tmp_path, monkeypatch):

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
 
 from row_bot.brand import APP_DISPLAY_NAME
 from nicegui import run, ui
 
 from row_bot.ui.timer_utils import defer_ui
+
+
+_xai_oauth_vision_probe_task: asyncio.Task | None = None
 
 
 def _probe_detail(last_probe: dict) -> str:
@@ -183,6 +188,22 @@ def _claude_subscription_action_state(card: dict) -> dict[str, bool]:
     }
 
 
+def _xai_oauth_action_state(card: dict) -> dict[str, bool]:
+    if card.get("provider_id") != "xai_oauth":
+        return {}
+    configured = bool(card.get("configured"))
+    source = str(card.get("source") or "")
+    client_id_configured = bool(card.get("oauth_client_id_configured"))
+    return {
+        "can_configure_client_id": True,
+        "client_id_configured": client_id_configured,
+        "can_connect": client_id_configured and (source != "oauth_pkce" or not configured),
+        "can_disconnect": configured,
+        "can_test_runtime": configured and bool(card.get("runtime_enabled")),
+        "runtime_enabled": bool(card.get("runtime_enabled")),
+    }
+
+
 def build_provider_summary_cards() -> None:
     from row_bot.providers.status import provider_status_cards
 
@@ -223,6 +244,38 @@ def build_provider_summary_cards() -> None:
         if media_count:
             parts.append(f"{media_count} media")
         return " · ".join(parts)
+
+    def _queue_xai_oauth_vision_probe_if_needed(card: dict) -> None:
+        global _xai_oauth_vision_probe_task
+        if card.get("provider_id") != "xai_oauth":
+            return
+        if not card.get("configured") or not card.get("runtime_enabled"):
+            return
+        last_probe = card.get("last_vision_probe") if isinstance(card.get("last_vision_probe"), dict) else {}
+        if last_probe:
+            try:
+                from row_bot.providers.xai_oauth import XAI_OAUTH_VISION_PROBE_VERSION
+
+                if last_probe.get("probe_version") == XAI_OAUTH_VISION_PROBE_VERSION:
+                    return
+            except Exception:
+                return
+        if _xai_oauth_vision_probe_task is not None and not _xai_oauth_vision_probe_task.done():
+            return
+
+        async def _probe() -> None:
+            global _xai_oauth_vision_probe_task
+            try:
+                from row_bot.providers.xai_oauth import run_xai_oauth_vision_probe
+
+                await run.io_bound(run_xai_oauth_vision_probe)
+            except Exception:
+                pass
+            finally:
+                _xai_oauth_vision_probe_task = None
+                defer_ui(_load)
+
+        _xai_oauth_vision_probe_task = asyncio.create_task(_probe())
 
     def _summary_chip(label: str, value: int | str, color: str = "blue-grey") -> None:
         with ui.row().classes("items-center gap-1 px-2 py-1 rounded-borders").style("border: 1px solid rgba(148, 163, 184, 0.24); background: rgba(148, 163, 184, 0.08);"):
@@ -456,12 +509,157 @@ def build_provider_summary_cards() -> None:
             ui.notify(f"Claude Subscription runtime test failed: {detail}", type="warning")
         defer_ui(_load)
 
+    def _configure_xai_oauth_client_id_dialog() -> None:
+        from row_bot.providers.xai_oauth import (
+            ROW_BOT_XAI_OAUTH_CLIENT_ID_ENV,
+            save_xai_oauth_client_id,
+            xai_oauth_client_id_status,
+        )
+
+        status = xai_oauth_client_id_status()
+        source = str(status.get("source") or "")
+        source_note = ""
+        if source == "environment":
+            source_note = f"Current client ID comes from {ROW_BOT_XAI_OAUTH_CLIENT_ID_ENV}."
+        elif status.get("configured"):
+            source_note = "Current client ID is saved in Row-Bot provider settings."
+
+        with ui.dialog() as dialog:
+            with ui.card().classes("w-full").style("max-width: 32rem;"):
+                ui.label("Configure xAI OAuth Client ID").classes("text-h6")
+                ui.label(
+                    "xAI OAuth sign-in needs a registered OAuth client ID. The xAI API-key provider stays separate."
+                ).classes("text-grey-6 text-sm")
+                if source_note:
+                    ui.label(source_note).classes("text-grey-6 text-xs")
+                client_id_input = ui.input(label="OAuth client ID").props("outlined dense").classes("w-full")
+                status_label = ui.label(str(status.get("detail") or "")).classes("text-grey-6 text-sm")
+
+                async def _save_client_id() -> None:
+                    client_id = str(client_id_input.value or "").strip()
+                    if not client_id:
+                        ui.notify("Enter the xAI OAuth client ID first", type="warning")
+                        return
+                    try:
+                        await run.io_bound(save_xai_oauth_client_id, client_id)
+                    except Exception as exc:
+                        status_label.text = f"Could not save client ID: {exc}"
+                        status_label.update()
+                        ui.notify(f"Could not save xAI OAuth client ID: {exc}", type="negative")
+                        return
+                    dialog.close()
+                    ui.notify("xAI OAuth client ID saved", type="positive")
+                    defer_ui(_load)
+
+                with ui.row().classes("w-full items-center justify-end gap-2"):
+                    ui.button("Cancel", icon="close", on_click=dialog.close).props("flat dense")
+                    ui.button("Save", icon="key", on_click=_save_client_id).props("flat dense color=primary")
+        dialog.open()
+
+    async def _connect_xai_oauth_login() -> None:
+        from row_bot.providers.xai_oauth import (
+            XAIOAuthError,
+            exchange_xai_oauth_authorization,
+            save_xai_oauth_tokens,
+            seed_recommended_xai_oauth_quick_choices,
+            start_xai_oauth_flow,
+            wait_for_xai_oauth_loopback_authorization,
+        )
+
+        notification = ui.notification("Opening xAI Grok sign-in...", type="ongoing", spinner=True, timeout=None)
+        try:
+            flow = await run.io_bound(start_xai_oauth_flow)
+            listener_ready = threading.Event()
+            wait_task = asyncio.create_task(run.io_bound(
+                lambda: wait_for_xai_oauth_loopback_authorization(
+                    flow,
+                    open_browser=False,
+                    ready_callback=listener_ready.set,
+                )
+            ))
+            ready = await run.io_bound(lambda: listener_ready.wait(5))
+            if not ready:
+                wait_task.cancel()
+                raise XAIOAuthError("xAI OAuth callback listener did not become ready.", kind="loopback_not_ready")
+            with ui.dialog() as login_dialog:
+                with ui.card().classes("w-full").style("max-width: 32rem;"):
+                    ui.label("Connect xAI Grok").classes("text-h6")
+                    ui.label("Waiting for xAI approval in your browser.").classes("text-grey-6 text-sm")
+                    with ui.row().classes("items-center gap-2 no-wrap"):
+                        ui.spinner(size="sm")
+                        ui.link("Open xAI Login", flow.authorization_url, new_tab=True).classes("text-primary text-sm")
+                    ui.label("If the page did not open automatically, use the link above.").classes("text-grey-6 text-xs")
+            login_dialog.open()
+            ui.run_javascript(f"window.open({json.dumps(flow.authorization_url)}, '_blank', 'noopener,noreferrer')")
+            try:
+                authorization = await wait_task
+            finally:
+                login_dialog.close()
+            token_set = await run.io_bound(exchange_xai_oauth_authorization, authorization)
+            await run.io_bound(save_xai_oauth_tokens, token_set)
+            try:
+                from row_bot.providers.model_catalog_cache import refresh_model_catalog_cache
+
+                await run.io_bound(
+                    lambda: refresh_model_catalog_cache(
+                        reason="xai_oauth_connected",
+                        provider_id="xai_oauth",
+                        force=True,
+                    )
+                )
+            except Exception:
+                pass
+            await run.io_bound(seed_recommended_xai_oauth_quick_choices)
+        except XAIOAuthError as exc:
+            notification.dismiss()
+            ui.notify(f"Could not start xAI Grok sign-in: {exc}", type="negative")
+            if exc.kind == "missing_client_id":
+                _configure_xai_oauth_client_id_dialog()
+            return
+        except Exception as exc:
+            notification.dismiss()
+            ui.notify(f"xAI Grok sign-in failed: {exc}", type="negative")
+            return
+        notification.dismiss()
+        ui.notify("xAI Grok connected", type="positive")
+        defer_ui(_load)
+
+    def _disconnect_xai_oauth() -> None:
+        from row_bot.providers.xai_oauth import disconnect_xai_oauth_metadata
+
+        disconnect_xai_oauth_metadata()
+        ui.notify("Disconnected xAI Grok metadata", type="info")
+        defer_ui(_load)
+
+    async def _test_xai_oauth_runtime() -> None:
+        from row_bot.providers.xai_oauth import run_xai_oauth_runtime_probe
+
+        notification = ui.notification("Testing xAI Grok runtime...", type="ongoing", spinner=True, timeout=None)
+        try:
+            probe = await run.io_bound(run_xai_oauth_runtime_probe)
+        except Exception as exc:
+            notification.dismiss()
+            ui.notify(f"xAI Grok runtime test failed: {exc}", type="negative")
+            defer_ui(_load)
+            return
+        notification.dismiss()
+        if probe.get("ok"):
+            ui.notify("xAI Grok runtime, tools, and available vision probes work", type="positive")
+        else:
+            errors = probe.get("errors") if isinstance(probe.get("errors"), list) else []
+            detail = str(errors[0]) if errors else "runtime test did not pass"
+            ui.notify(f"xAI Grok runtime test failed: {detail}", type="warning")
+        defer_ui(_load)
+
     def _render_row(card: dict) -> None:
+        _queue_xai_oauth_vision_probe_if_needed(card)
         source = str(card.get("source") or "")
         dot_color, state_label = _status_style(bool(card.get("configured")), source)
         if card.get("provider_id") == "codex" and card.get("configured") and not card.get("runtime_enabled"):
             dot_color, state_label = "#f59e0b", "Reconnect"
         if card.get("provider_id") == "claude_subscription" and card.get("configured") and not card.get("runtime_enabled"):
+            dot_color, state_label = "#f59e0b", "Reconnect"
+        if card.get("provider_id") == "xai_oauth" and card.get("configured") and not card.get("runtime_enabled"):
             dot_color, state_label = "#f59e0b", "Reconnect"
         metadata = _metadata_label(card)
         fingerprint = str(card.get("fingerprint") or "")
@@ -480,20 +678,41 @@ def build_provider_summary_cards() -> None:
                     sub = "Reconnect ChatGPT to use Codex models in chat"
                 if card.get("provider_id") == "claude_subscription" and card.get("configured") and not card.get("runtime_enabled"):
                     sub = "Claude Code login found, but Row-Bot runtime is not connected"
+                if card.get("provider_id") == "xai_oauth" and card.get("configured") and not card.get("runtime_enabled"):
+                    sub = str(card.get("token_health_detail") or "") or "Reconnect xAI Grok to use OAuth models in chat"
+                if card.get("provider_id") == "xai_oauth" and not card.get("configured"):
+                    if card.get("oauth_client_id_configured"):
+                        sub = "OAuth client ID configured; connect xAI Grok"
+                    else:
+                        sub = "Configure xAI OAuth client ID before connecting"
                 if metadata:
                     sub = f"{sub} · {metadata}"
                 ui.label(sub).classes("text-grey-6 text-xs").style("line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;")
             with ui.row().classes("items-center gap-1 no-wrap"):
                 if fingerprint:
                     ui.badge(fingerprint, color="blue-grey").props("outline dense").tooltip("Credential fingerprint")
+                if card.get("provider_id") == "xai_oauth" and card.get("oauth_client_id_configured"):
+                    client_fingerprint = str(card.get("oauth_client_id_fingerprint") or "")
+                    if client_fingerprint:
+                        ui.badge(client_fingerprint, color="blue-grey").props("outline dense").tooltip("OAuth client ID fingerprint")
                 if account_hash:
-                    ui.badge(account_hash, color="blue-grey").props("outline dense").tooltip("ChatGPT account fingerprint")
+                    account_tooltip = "Account fingerprint"
+                    if card.get("provider_id") == "codex":
+                        account_tooltip = "ChatGPT account fingerprint"
+                    elif card.get("provider_id") == "xai_oauth":
+                        account_tooltip = "xAI account fingerprint"
+                    ui.badge(account_hash, color="blue-grey").props("outline dense").tooltip(account_tooltip)
                 if user_hash and not account_hash:
                     ui.badge(user_hash, color="blue-grey").props("outline dense").tooltip("Account fingerprint")
                 if card.get("provider_id") == "claude_subscription" and runtime_probe:
                     probe_ok = bool(runtime_probe.get("ok"))
                     errors = runtime_probe.get("errors") if isinstance(runtime_probe.get("errors"), list) else []
                     tooltip = "Claude Subscription runtime test passed" if probe_ok else (str(errors[0]) if errors else "Claude Subscription runtime test failed")
+                    ui.badge("runtime ok" if probe_ok else "runtime failed", color="green" if probe_ok else "orange").props("outline dense").tooltip(tooltip)
+                if card.get("provider_id") == "xai_oauth" and runtime_probe:
+                    probe_ok = bool(runtime_probe.get("ok"))
+                    errors = runtime_probe.get("errors") if isinstance(runtime_probe.get("errors"), list) else []
+                    tooltip = "xAI Grok runtime test passed" if probe_ok else (str(errors[0]) if errors else "xAI Grok runtime test failed")
                     ui.badge("runtime ok" if probe_ok else "runtime failed", color="green" if probe_ok else "orange").props("outline dense").tooltip(tooltip)
                 ui.badge(str(card.get("risk_label") or "api_key"), color="grey").props("outline dense")
                 codex_actions = _codex_action_state(card)
@@ -514,6 +733,15 @@ def build_provider_summary_cards() -> None:
                     ui.button(icon="link", on_click=_reference_claude_subscription_login).props("flat dense round size=sm").tooltip("Check external Claude Code login")
                 if claude_actions.get("can_disconnect"):
                     ui.button(icon="link_off", on_click=_disconnect_claude_subscription).props("flat dense round size=sm color=negative").tooltip("Disconnect Row-Bot Claude Subscription metadata")
+                xai_oauth_actions = _xai_oauth_action_state(card)
+                if xai_oauth_actions.get("can_configure_client_id"):
+                    ui.button(icon="key", on_click=_configure_xai_oauth_client_id_dialog).props("flat dense round size=sm").tooltip("Configure xAI OAuth client ID")
+                if xai_oauth_actions.get("can_connect"):
+                    ui.button(icon="login", on_click=_connect_xai_oauth_login).props("flat dense round size=sm color=primary").tooltip("Connect xAI Grok")
+                if xai_oauth_actions.get("can_test_runtime"):
+                    ui.button(icon="science", on_click=_test_xai_oauth_runtime).props("flat dense round size=sm").tooltip("Test xAI Grok runtime")
+                if xai_oauth_actions.get("can_disconnect"):
+                    ui.button(icon="link_off", on_click=_disconnect_xai_oauth).props("flat dense round size=sm color=negative").tooltip("Disconnect xAI Grok metadata")
                 ui.button(icon="refresh", on_click=lambda: defer_ui(_load)).props("flat dense round size=sm").tooltip("Refresh status")
 
     def _render(cards: list[dict]) -> None:

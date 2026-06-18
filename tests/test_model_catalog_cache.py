@@ -152,3 +152,58 @@ def test_model_catalog_keeps_saved_minimax_default_visible():
     assert minimax
     assert minimax[0].supports("chat")
     assert "chat" in minimax[0].default_surfaces
+
+
+def test_cached_catalog_rows_do_not_call_live_subscription_catalogs(tmp_path, monkeypatch):
+    import row_bot.providers.config as provider_config
+    import row_bot.providers.model_catalog as model_catalog
+    import row_bot.providers.model_catalog_cache as cache
+    import row_bot.providers.xai_oauth as xai_oauth
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(cache, "CATALOG_CACHE_PATH", tmp_path / "model_catalog_cache.json")
+    monkeypatch.setattr(
+        model_catalog,
+        "_provider_status_by_id",
+        lambda: {"xai_oauth": {"configured": True, "runtime_enabled": True}},
+    )
+    provider_config.save_provider_config({
+        "providers": {
+            "xai_oauth": {
+                "catalog_cache": {
+                    "models": [{
+                        "id": "grok-4.3",
+                        "display_name": "grok-4.3",
+                        "context_window": 1_000_000,
+                        "capabilities": ["chat", "streaming", "text"],
+                        "input_modalities": ["text"],
+                        "output_modalities": ["text"],
+                        "tasks": ["responses"],
+                        "tool_calling": True,
+                        "streaming": True,
+                        "transport": "openai_responses",
+                    }],
+                },
+            },
+        },
+    })
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("cached catalog rendering must not call live subscription catalogs")
+
+    monkeypatch.setattr(xai_oauth, "list_xai_oauth_model_infos", _boom)
+
+    rows = cache.build_cached_model_catalog_rows(
+        snapshot=cache.CatalogCacheSnapshot(
+            version=cache.CACHE_VERSION,
+            generated_at=123.0,
+            cloud_cache={},
+            ollama_rows=[],
+            provider_status={},
+            warnings=(),
+            reason="test",
+        ),
+        quick_choices=[],
+    )
+
+    assert "model:xai_oauth:grok-4.3" in {row.selection_ref for row in rows}
