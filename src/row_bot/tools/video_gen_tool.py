@@ -38,7 +38,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
 
-import httpx
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
@@ -451,17 +450,21 @@ def _generate_video_xai(
     aspect_ratio: str,
     resolution: str,
     image_bytes: bytes | None = None,
+    *,
+    provider_id: str = "xai",
 ) -> str:
     """Generate a video via xAI.  Blocks until completion or timeout."""
     global _last_generated_video
 
-    api_key = _get_xai_key()
+    from row_bot.providers.xai_media import xai_media_get, xai_media_json_request, xai_media_label
+
     model = _get_configured_model()
+    provider_label = xai_media_label(provider_id)
     dur, ar, res = _normalize_xai_params(duration, aspect_ratio, resolution)
 
     logger.info(
-        "generate_video (xAI): model=%s, duration=%ds, aspect=%s, res=%s",
-        model, dur, ar, res,
+        "generate_video (%s): model=%s, duration=%ds, aspect=%s, res=%s",
+        provider_label, model, dur, ar, res,
     )
 
     body: dict = {
@@ -475,30 +478,25 @@ def _generate_video_xai(
     if image_bytes is not None:
         mime = _detect_mime(image_bytes)
         b64_src = base64.b64encode(image_bytes).decode("ascii")
-        body["image_url"] = f"data:{mime};base64,{b64_src}"
-
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
+        body["image"] = {"url": f"data:{mime};base64,{b64_src}"}
 
     # Step 1: Start generation
     try:
-        resp = httpx.post(
-            "https://api.x.ai/v1/videos/generations",
-            headers=headers,
+        start_data = xai_media_json_request(
+            provider_id,
+            "POST",
+            "/videos/generations",
             json=body,
             timeout=30,
         )
-        resp.raise_for_status()
-        request_id = resp.json().get("request_id")
+        request_id = start_data.get("request_id")
         if not request_id:
             return "xAI video generation returned no request_id."
     except Exception as e:
-        logger.error("xAI video generation request failed: %s", e, exc_info=True)
+        logger.error("%s video generation request failed: %s", provider_label, e, exc_info=True)
         return f"Video generation failed: {e}"
 
-    logger.info("xAI video generation started: request_id=%s", request_id)
+    logger.info("%s video generation started: request_id=%s", provider_label, request_id)
 
     # Step 2: Poll for result
     elapsed = 0
@@ -512,15 +510,14 @@ def _generate_video_xai(
         elapsed += _XAI_POLL_INTERVAL
 
         try:
-            poll_resp = httpx.get(
-                f"https://api.x.ai/v1/videos/{request_id}",
-                headers={"Authorization": f"Bearer {api_key}"},
+            data = xai_media_json_request(
+                provider_id,
+                "GET",
+                f"/videos/{request_id}",
                 timeout=30,
             )
-            poll_resp.raise_for_status()
-            data = poll_resp.json()
         except Exception as e:
-            logger.error("xAI polling failed: %s", e, exc_info=True)
+            logger.error("%s polling failed: %s", provider_label, e, exc_info=True)
             return f"Video generation polling failed: {e}"
 
         status = data.get("status", "")
@@ -538,11 +535,10 @@ def _generate_video_xai(
         return f"Video generation completed but no URL returned. Request ID: {request_id}"
 
     try:
-        dl_resp = httpx.get(video_url, timeout=120, follow_redirects=True)
-        dl_resp.raise_for_status()
+        dl_resp = xai_media_get(provider_id, video_url, timeout=120, follow_redirects=True)
         video_bytes = dl_resp.content
     except Exception as e:
-        logger.error("xAI video download failed: %s", e, exc_info=True)
+        logger.error("%s video download failed: %s", provider_label, e, exc_info=True)
         return f"Video generated but download failed: {e}"
 
     if not video_bytes:
@@ -554,7 +550,7 @@ def _generate_video_xai(
     _last_generated_video = {
         "path": saved,
         "filename": Path(saved).name if saved else None,
-        "provider": "xAI",
+        "provider": provider_label,
         "model": model,
         "duration": dur,
         "mode": mode,
@@ -563,7 +559,7 @@ def _generate_video_xai(
     result = (
         f"Video generated successfully. Model: {model} | "
         f"Duration: {dur}s | Aspect ratio: {ar} | Resolution: {res} | "
-        f"Mode: {mode} | Provider: xAI"
+        f"Mode: {mode} | Provider: {provider_label}"
     )
     if saved:
         result += f"\nSaved to: {saved}"
@@ -583,8 +579,8 @@ def _generate_video(
 
     if provider == "google":
         return _generate_video_google(prompt, duration_seconds, aspect_ratio, resolution)
-    if provider == "xai":
-        return _generate_video_xai(prompt, duration_seconds, aspect_ratio, resolution)
+    if provider in {"xai", "xai_oauth"}:
+        return _generate_video_xai(prompt, duration_seconds, aspect_ratio, resolution, provider_id=provider)
 
     return f"Unknown video generation provider '{provider}'. Please select a valid model in Settings."
 
@@ -606,8 +602,8 @@ def _animate_image(
 
     if provider == "google":
         return _generate_video_google(prompt, duration_seconds, aspect_ratio, resolution, image_bytes)
-    if provider == "xai":
-        return _generate_video_xai(prompt, duration_seconds, aspect_ratio, resolution, image_bytes)
+    if provider in {"xai", "xai_oauth"}:
+        return _generate_video_xai(prompt, duration_seconds, aspect_ratio, resolution, image_bytes, provider_id=provider)
 
     return f"Unknown video generation provider '{provider}'. Please select a valid model in Settings."
 

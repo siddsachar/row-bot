@@ -114,15 +114,24 @@ def _normalize_provider_model_value(setting: str, value: str) -> str:
         return normalized
 
     def _media_lookup_tokens(text: str) -> set[str]:
-        stripped = re.sub(r"^[^A-Za-z0-9]+", "", str(text or "")).strip()
-        stripped = re.sub(r"\s*\([^)]*\)\s*$", "", stripped).strip()
-        tokens = {_normalize_lookup_token(stripped)}
+        raw = re.sub(r"^[^A-Za-z0-9]+", "", str(text or "")).strip()
+        tokens = {_normalize_lookup_token(raw)}
+        raw_without_icon = re.sub(r"^[A-Za-z]{1,3}\s{2,}", "", raw).strip()
+        if raw_without_icon and raw_without_icon != raw:
+            tokens.add(_normalize_lookup_token(raw_without_icon))
+        stripped = re.sub(r"\s*\([^)]*\)\s*$", "", raw).strip()
+        tokens.add(_normalize_lookup_token(stripped))
+        without_icon_prefix = re.sub(r"^[A-Za-z]{1,3}\s{2,}", "", stripped).strip()
+        if without_icon_prefix and without_icon_prefix != stripped:
+            tokens.add(_normalize_lookup_token(without_icon_prefix))
         if "/" in stripped:
             tokens.add(_normalize_lookup_token(stripped.split("/", 1)[1]))
         return {token for token in tokens if token}
 
     desired = _normalize_lookup_token(normalized)
-    matches: list[str] = []
+    desired_tokens = _media_lookup_tokens(normalized)
+    exact_matches: list[str] = []
+    fuzzy_matches: list[str] = []
     for config_value, label in options.items():
         provider, _, model_id = config_value.partition("/")
         candidates = {
@@ -134,9 +143,15 @@ def _normalize_provider_model_value(setting: str, value: str) -> str:
         }
         tokens = set().union(*(_media_lookup_tokens(candidate) for candidate in candidates))
         if desired in tokens:
-            matches.append(config_value)
+            exact_matches.append(config_value)
+        elif desired_tokens & tokens:
+            fuzzy_matches.append(config_value)
 
-    return matches[0] if len(matches) == 1 else normalized
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+    if not exact_matches and len(fuzzy_matches) == 1:
+        return fuzzy_matches[0]
+    return normalized
 
 
 def _normalize_lookup_token(value: str) -> str:

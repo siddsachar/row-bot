@@ -9,11 +9,13 @@ IMAGE_PROVIDER_META: dict[str, dict[str, str]] = {
     "openai": {"key": "OPENAI_API_KEY", "label": "OpenAI", "emoji": "⬡"},
     "google": {"key": "GOOGLE_API_KEY", "label": "Google", "emoji": "💎"},
     "xai": {"key": "XAI_API_KEY", "label": "xAI", "emoji": "𝕏"},
+    "xai_oauth": {"auth": "oauth", "label": "xAI Grok", "emoji": "X", "risk_label": "subscription"},
 }
 
 VIDEO_PROVIDER_META: dict[str, dict[str, str]] = {
     "google": {"key": "GOOGLE_API_KEY", "label": "Google", "emoji": "💎"},
     "xai": {"key": "XAI_API_KEY", "label": "xAI", "emoji": "𝕏"},
+    "xai_oauth": {"auth": "oauth", "label": "xAI Grok", "emoji": "X", "risk_label": "subscription"},
 }
 
 CURATED_IMAGE_MODELS: dict[str, list[dict[str, str]]] = {
@@ -34,6 +36,10 @@ CURATED_IMAGE_MODELS: dict[str, list[dict[str, str]]] = {
         {"id": "grok-imagine-image", "label": "Grok Imagine"},
         {"id": "grok-imagine-image-quality", "label": "Grok Imagine Quality"},
     ],
+    "xai_oauth": [
+        {"id": "grok-imagine-image", "label": "Grok Imagine"},
+        {"id": "grok-imagine-image-quality", "label": "Grok Imagine Quality"},
+    ],
 }
 
 CURATED_VIDEO_MODELS: dict[str, list[dict[str, str]]] = {
@@ -44,7 +50,29 @@ CURATED_VIDEO_MODELS: dict[str, list[dict[str, str]]] = {
     "xai": [
         {"id": "grok-imagine-video", "label": "Grok Imagine Video"},
     ],
+    "xai_oauth": [
+        {"id": "grok-imagine-video", "label": "Grok Imagine Video"},
+    ],
 }
+
+
+def _media_provider_available(provider_id: str, meta: dict[str, str]) -> bool:
+    if meta.get("auth") == "oauth":
+        if provider_id == "xai_oauth":
+            try:
+                from row_bot.providers.xai_oauth import xai_oauth_runtime_available
+
+                return bool(xai_oauth_runtime_available(refresh_if_needed=False))
+            except Exception:
+                return False
+        return False
+
+    key_name = str(meta.get("key") or "")
+    if not key_name:
+        return False
+    from row_bot.api_keys import get_key
+
+    return bool(get_key(key_name))
 
 
 def curated_media_cache_entries(surface: str) -> dict[str, dict[str, Any]]:
@@ -75,12 +103,20 @@ def curated_media_cache_entries(surface: str) -> dict[str, dict[str, Any]]:
 
 
 def media_model_options(surface: str, cloud_cache: dict[str, dict[str, Any]]) -> dict[str, str]:
-    from row_bot.api_keys import get_key
+    from row_bot.providers.selection import parse_model_ref
 
     provider_meta = IMAGE_PROVIDER_META if surface == "image" else VIDEO_PROVIDER_META if surface == "video" else {}
     entries = curated_media_cache_entries(surface)
-    for model_id, info in cloud_cache.items():
+    for cache_key, info in cloud_cache.items():
         provider_id = str(info.get("provider") or "")
+        model_id = str(cache_key or "")
+        parsed = parse_model_ref(model_id)
+        if parsed:
+            ref_provider_id, ref_model_id = parsed
+            if provider_id and provider_id != ref_provider_id:
+                continue
+            provider_id = provider_id or ref_provider_id
+            model_id = ref_model_id
         if provider_id not in provider_meta:
             continue
         snapshot = info.get("capabilities_snapshot") if isinstance(info.get("capabilities_snapshot"), dict) else {}
@@ -94,7 +130,7 @@ def media_model_options(surface: str, cloud_cache: dict[str, dict[str, Any]]) ->
     for config_value, info in sorted(entries.items(), key=lambda item: item[0]):
         provider_id = str(info.get("provider") or config_value.split("/", 1)[0])
         meta = provider_meta.get(provider_id)
-        if not meta or not get_key(meta["key"]):
+        if not meta or not _media_provider_available(provider_id, meta):
             continue
         model_id = config_value.split("/", 1)[1] if "/" in config_value else config_value
         label = str(info.get("label") or model_id)
