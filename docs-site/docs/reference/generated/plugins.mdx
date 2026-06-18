@@ -1,0 +1,20 @@
+---
+title: Plugins
+description: Generated reference for plugin manifest behavior.
+---
+
+import GeneratedNotice from '@site/src/components/GeneratedNotice';
+
+# Plugins
+
+<!-- generated-from: src/row_bot/plugins/manifest.py -->
+<!-- inventory-hash: 009e074f4a92ee32 -->
+
+<GeneratedNotice source="src/row_bot/plugins/manifest.py" />
+
+## Plugin Surfaces
+
+| ID | Area | Description | Required fields | Known fields |
+| --- | --- | --- | --- | --- |
+| plugin-manifest | Plugin manifest | Schema and validation behavior for plugin.json files. | id, name, version, min_row_bot_version, author, description | name, github, tools, skills, id, name, version, min_row_bot_version, author, description, long_description, icon, license, tags, homepage, repository, provides, settings, python_dependencies, path, try, errors, else |
+| custom-tools | Custom Tools | Reviewed Developer Studio tools can be promoted into the plugin-style tool surface. |  | name, description, tools, source_url, installed_path |

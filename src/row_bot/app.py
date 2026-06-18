@@ -45,6 +45,7 @@ for _discord_noisy in _DISCORD_BENIGN_VOICE_LOGGERS:
 os.environ.setdefault("OPENCV_LOG_LEVEL", "ERROR")
 from row_bot.brand import APP_BRAND_ACCENT, APP_DISPLAY_NAME, APP_HOST_ENV, APP_PING_ID, APP_USER_AGENT
 from row_bot.data_paths import get_row_bot_data_dir
+from row_bot.docs_mode import docs_disable_autostart, is_docs_mode, render_docs_surface
 from row_bot.runtime_paths import static_dir
 from row_bot.version import __version__ as _app_version
 os.environ.setdefault("USER_AGENT", APP_USER_AGENT)
@@ -374,6 +375,15 @@ async def _run_startup_sequence():
     # Attach persistent file logging (daily JSONL to the Row-Bot data dir).
     from row_bot.logging_config import setup_file_logging
     setup_file_logging()
+
+    if docs_disable_autostart():
+        import row_bot.ui.state as _st
+
+        _st.startup_status = "Docs mode ready"
+        _st.startup_ready = True
+        _safe_console_print("[startup] Docs mode enabled - background autostart skipped")
+        _app_boot_event("startup_docs_mode_ready")
+        return
 
     try:
         from row_bot.startup_diagnostics import preflight_required_runtime_packages
@@ -1706,6 +1716,15 @@ async def index():
     except Exception:
         logger.exception("Failed to render post-migration report")
     _update_token_counter()
+
+
+@ui.page("/docs-mode/surface/{surface_id}")
+async def docs_mode_surface(surface_id: str):
+    ui.dark_mode(True)
+    if not is_docs_mode():
+        ui.label("Docs mode is not enabled.").classes("q-pa-md text-warning")
+        return
+    ui.add_body_html(render_docs_surface(surface_id))
 
 
 @ui.page("/buddy-overlay")

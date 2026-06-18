@@ -1,4 +1,13 @@
 surfaces:
+  onboarding:
+    title: Onboarding
+    description: First launch wizard and resumable Setup Center for model setup and optional next steps.
+    source_files:
+      - src/row_bot/ui/setup_wizard.py
+      - src/row_bot/ui/onboarding_center.py
+    screenshot_ids:
+      - first-launch-setup-wizard
+      - setup-center
   chat:
     title: Chat
     description: Main conversation surface with model picker, composer, attachments, tool traces, and approvals.
@@ -78,3 +87,43 @@ surfaces:
       - src/row_bot/buddy/
     screenshot_ids:
       - buddy-settings
+  plugin_marketplace:
+    title: Plugin Marketplace
+    description: Public plugin discovery and plugin install preview surface.
+    source_files:
+      - src/row_bot/plugins/ui_marketplace.py
+      - src/row_bot/plugins/marketplace.py
+    screenshot_ids:
+      - plugin-marketplace
+  mcp:
+    title: MCP
+    description: External Model Context Protocol server configuration and recommendation surfaces.
+    source_files:
+      - src/row_bot/ui/mcp_settings.py
+      - src/row_bot/mcp_client/recommended_servers.json
+    screenshot_ids:
+      - mcp-add-server
+  channels:
+    title: Channel Configuration
+    description: Channel setup cards for Telegram, WhatsApp, Discord, Slack, SMS, and delivery defaults.
+    source_files:
+      - src/row_bot/channels/
+      - src/row_bot/ui/settings.py
+    screenshot_ids:
+      - channel-configuration-cards
+  voice:
+    title: Voice
+    description: Dictation, realtime talk, read-aloud, voice models, and voice diagnostics.
+    source_files:
+      - src/row_bot/voice/
+      - src/row_bot/ui/settings.py
+    screenshot_ids:
+      - voice-settings
+  privacy_safety:
+    title: Privacy And Safety
+    description: Approval examples, redaction behavior, and privacy-sensitive action review.
+    source_files:
+      - src/row_bot/approval_policy.py
+      - src/row_bot/tools/approval_gate.py
+    screenshot_ids:
+      - privacy-safety-approval-example

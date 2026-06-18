@@ -63,6 +63,7 @@ const config: Config = {
         {to: '/docs/getting-started/installation', label: 'Install', position: 'left'},
         {to: '/docs/guides/designer-studio', label: 'Designer', position: 'left'},
         {to: '/docs/guides/developer-studio', label: 'Developer', position: 'left'},
+        {to: '/search', label: 'Search', position: 'left'},
         {
           href: 'https://github.com/siddsachar/row-bot',
           label: 'GitHub',

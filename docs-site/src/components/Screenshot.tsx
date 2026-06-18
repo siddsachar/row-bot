@@ -1,4 +1,5 @@
 import React from 'react';
+import {useState} from 'react';
 
 type ScreenshotProps = {
   id: string;
@@ -8,9 +9,20 @@ type ScreenshotProps = {
 
 export default function Screenshot({id, alt, caption}: ScreenshotProps): JSX.Element {
   const src = `/img/screenshots/generated/${id}.png`;
+  const [missing, setMissing] = useState(false);
+  if (missing) {
+    if (process.env.NODE_ENV !== 'production') {
+      return (
+        <figure className="rowBotScreenshot rowBotScreenshotMissing">
+          <figcaption>Missing screenshot: {id}</figcaption>
+        </figure>
+      );
+    }
+    return <></>;
+  }
   return (
     <figure className="rowBotScreenshot">
-      <img src={src} alt={alt} loading="lazy" />
+      <img src={src} alt={alt} loading="lazy" onError={() => setMissing(true)} />
       {caption ? <figcaption>{caption}</figcaption> : null}
     </figure>
   );

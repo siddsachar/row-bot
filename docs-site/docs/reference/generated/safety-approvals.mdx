@@ -1,0 +1,22 @@
+---
+title: Safety And Approvals
+description: Generated reference for approval policy and safety modes.
+---
+
+import GeneratedNotice from '@site/src/components/GeneratedNotice';
+
+# Safety And Approvals
+
+<!-- generated-from: src/row_bot/approval_policy.py -->
+<!-- inventory-hash: 009e074f4a92ee32 -->
+
+<GeneratedNotice source="src/row_bot/approval_policy.py" />
+
+## Approval Decisions
+
+| ID | Label | Decision | Description | Source |
+| --- | --- | --- | --- | --- |
+| allow_all | Auto | allow | Automatically allows actions in trusted contexts. | `src/row_bot/approval_policy.py` |
+| approve | Ask | ask | Prompts the user before a sensitive action continues. | `src/row_bot/approval_policy.py` |
+| block | Block | block | Read-only or blocked mode for actions that would change external state. | `src/row_bot/approval_policy.py` |
+| mcp-destructive-tools | MCP destructive tool classification | ask | External MCP tools that look destructive require approval by default. | `src/row_bot/mcp_client/safety.py` |

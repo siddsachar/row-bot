@@ -70,11 +70,20 @@ jobs:
       - name: Collect docs inventory
         run: python scripts/docs/collect_inventory.py --out docs-build/inventory
 
-      - name: Validate docs metadata
-        run: python scripts/docs/validate_public_docs.py
+      - name: Check generated reference pages
+        run: python scripts/docs/generate_mdx.py --inventory docs-build/inventory --check
 
       - name: Generate LLM docs files
         run: python scripts/docs/generate_llms_txt.py --docs-root docs-site/docs --out-dir docs-site/static
+
+      - name: Validate committed screenshots
+        run: python scripts/docs/capture_screenshots.py --validate-only
+
+      - name: Validate docs source
+        run: python scripts/docs/validate_public_docs.py
+
+      - name: Build docs review report
+        run: python scripts/docs/build_review_report.py
 
       - name: Run docs automation tests
         run: pytest tests/docs -q

@@ -72,3 +72,72 @@
   padding: 0.85rem 1rem;
   background: rgba(79, 120, 164, 0.08);
 }
+.rowBotSearch {
+  margin: 1.5rem 0;
+}
+
+.rowBotSearchForm {
+  display: flex;
+  gap: 0.5rem;
+  max-width: 48rem;
+}
+
+.rowBotSearchForm input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 8px;
+  padding: 0.75rem 0.85rem;
+  font: inherit;
+}
+
+.rowBotSearchForm button {
+  border: 0;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  background: var(--ifm-color-primary);
+  color: #fff;
+  font-weight: 600;
+}
+
+.rowBotSearchForm button:disabled {
+  opacity: 0.55;
+}
+
+.rowBotSearchStatus {
+  color: var(--ifm-color-emphasis-700);
+  margin: 0.75rem 0 0;
+}
+
+.rowBotSearchResults {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.rowBotSearchResult {
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  color: inherit;
+}
+
+.rowBotSearchResult:hover {
+  text-decoration: none;
+  border-color: var(--ifm-color-primary);
+}
+
+.rowBotSearchResult strong,
+.rowBotSearchResult span,
+.rowBotSearchResult small {
+  display: block;
+}
+
+.rowBotSearchResult span {
+  color: var(--ifm-color-emphasis-700);
+  margin-top: 0.2rem;
+}
+
+.rowBotSearchResult small {
+  margin-top: 0.35rem;
+}
