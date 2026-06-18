@@ -1,0 +1,58 @@
+---
+title: Installation
+description: Install Row-Bot on Windows, macOS, or Linux.
+---
+
+# Installation
+
+Download the latest installer from the Row-Bot GitHub releases page:
+
+https://github.com/siddsachar/row-bot/releases/latest
+
+## Windows
+
+1. Download the latest Windows installer.
+2. Run the installer.
+3. Launch Row-Bot from the Start Menu or desktop shortcut.
+
+Row-Bot preserves user data under the Row-Bot data directory while upgrades
+replace the bundled runtime and application files.
+
+## macOS
+
+1. Download the latest macOS DMG.
+2. Drag `Row-Bot.app` into Applications.
+3. Launch Row-Bot from Applications or Launchpad.
+
+The first launch may ask you to confirm the app because it was downloaded from
+the internet.
+
+## Linux
+
+Run the one-line installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash
+```
+
+The Linux installer places Row-Bot under your user account and creates the
+`row-bot` command when `~/.local/bin` is on your `PATH`.
+
+## From Source
+
+Source installs are useful for contributors and advanced users:
+
+```bash
+git clone https://github.com/siddsachar/row-bot.git
+cd row-bot
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python app.py
+```
+
+On Windows PowerShell, activate the virtual environment with:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```

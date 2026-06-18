@@ -1,0 +1,74 @@
+:root {
+  --ifm-color-primary: #4f78a4;
+  --ifm-color-primary-dark: #466c94;
+  --ifm-color-primary-darker: #42668c;
+  --ifm-color-primary-darkest: #365473;
+  --ifm-color-primary-light: #6088b0;
+  --ifm-color-primary-lighter: #6a90b6;
+  --ifm-color-primary-lightest: #86a7c6;
+  --ifm-font-family-base: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --ifm-heading-font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --row-bot-panel-border: rgba(79, 120, 164, 0.22);
+}
+
+.hero--primary {
+  background:
+    linear-gradient(180deg, rgba(11, 13, 16, 0.72), rgba(11, 13, 16, 0.92)),
+    url('/img/brand/row_bot_hero.webp') center / cover no-repeat;
+  color: #f8fafc;
+}
+
+.rowBotHeroActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+.rowBotPanelGrid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin: 2rem 0;
+}
+
+.rowBotPanel {
+  border: 1px solid var(--row-bot-panel-border);
+  border-radius: 8px;
+  padding: 1rem;
+  background: var(--ifm-card-background-color);
+}
+
+.rowBotPanel h3 {
+  margin-top: 0;
+}
+
+.rowBotScreenshot {
+  border: 1px solid var(--row-bot-panel-border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 1.5rem 0;
+  background: var(--ifm-card-background-color);
+}
+
+.rowBotScreenshot img {
+  display: block;
+  width: 100%;
+}
+
+.rowBotScreenshot figcaption {
+  border-top: 1px solid var(--row-bot-panel-border);
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.875rem;
+  padding: 0.65rem 0.85rem;
+}
+
+.rowBotGeneratedNotice {
+  border: 1px solid var(--row-bot-panel-border);
+  border-left: 4px solid var(--ifm-color-primary);
+  border-radius: 8px;
+  margin: 1rem 0;
+  padding: 0.85rem 1rem;
+  background: rgba(79, 120, 164, 0.08);
+}

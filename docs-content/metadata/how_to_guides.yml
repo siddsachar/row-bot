@@ -1,0 +1,32 @@
+guides:
+  install-row-bot:
+    title: Install Row-Bot
+    route: /docs/getting-started/installation
+    sources:
+      - README.md
+      - installer/README.md
+  first-launch:
+    title: Complete First Launch Setup
+    route: /docs/getting-started/first-launch
+    sources:
+      - src/row_bot/ui/setup_wizard.py
+  create-workflow:
+    title: Create A Workflow
+    route: /docs/guides/workflows
+    sources:
+      - src/row_bot/ui/home.py
+      - src/row_bot/tasks.py
+      - bundled_skills/task_automation/SKILL.md
+  use-designer:
+    title: Use Designer Studio
+    route: /docs/guides/designer-studio
+    sources:
+      - src/row_bot/designer/
+      - bundled_skills/design_creator/SKILL.md
+  use-developer:
+    title: Use Developer Studio
+    route: /docs/guides/developer-studio
+    sources:
+      - src/row_bot/developer/
+      - bundled_skills/developer_coding/SKILL.md
+      - bundled_skills/developer_review/SKILL.md

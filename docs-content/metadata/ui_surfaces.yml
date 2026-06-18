@@ -1,0 +1,80 @@
+surfaces:
+  chat:
+    title: Chat
+    description: Main conversation surface with model picker, composer, attachments, tool traces, and approvals.
+    source_files:
+      - src/row_bot/ui/chat.py
+      - src/row_bot/ui/chat_composer_extras.py
+      - src/row_bot/ui/streaming.py
+    screenshot_ids:
+      - chat-main
+      - chat-model-picker
+      - chat-tool-trace
+      - chat-approval
+  home_workflows:
+    title: Workflows
+    description: Home tab for scheduled and background workflows.
+    source_files:
+      - src/row_bot/ui/home.py
+      - src/row_bot/tasks.py
+    screenshot_ids:
+      - home-workflows
+  designer:
+    title: Designer Studio
+    description: Visual creation workspace for decks, pages, documents, mockups, and storyboards.
+    source_files:
+      - src/row_bot/designer/home_tab.py
+      - src/row_bot/designer/editor.py
+    screenshot_ids:
+      - designer-gallery
+      - designer-new-project
+      - designer-editor
+  developer:
+    title: Developer Studio
+    description: Coding workspace for repos, tests, diffs, custom tools, commits, pushes, and PR prep.
+    source_files:
+      - src/row_bot/developer/ui.py
+    screenshot_ids:
+      - developer-home
+      - developer-workspace
+  knowledge:
+    title: Knowledge
+    description: Memory and knowledge graph review surface.
+    source_files:
+      - src/row_bot/ui/graph_panel.py
+      - src/row_bot/ui/knowledge_audit.py
+      - src/row_bot/knowledge_graph.py
+    screenshot_ids:
+      - knowledge-graph
+  settings:
+    title: Settings
+    description: Central configuration dialog for models, providers, tools, knowledge, accounts, channels, MCP, plugins, Buddy, voice, and system settings.
+    source_files:
+      - src/row_bot/ui/settings.py
+      - src/row_bot/ui/mcp_settings.py
+      - src/row_bot/ui/buddy.py
+      - src/row_bot/plugins/ui_settings.py
+    screenshot_ids:
+      - settings-providers-overview
+      - settings-models-catalog
+      - settings-knowledge
+      - settings-skills
+      - settings-channels
+      - settings-voice
+      - settings-mcp
+      - settings-plugins
+  skills_hub:
+    title: Skills Hub
+    description: Public skill browsing, preview, scanning, install, and update surface.
+    source_files:
+      - src/row_bot/skills_hub/ui.py
+    screenshot_ids:
+      - skills-hub-browse
+  buddy:
+    title: Buddy
+    description: Companion behavior, look, generated motion, and desktop overlay settings.
+    source_files:
+      - src/row_bot/ui/buddy.py
+      - src/row_bot/buddy/
+    screenshot_ids:
+      - buddy-settings

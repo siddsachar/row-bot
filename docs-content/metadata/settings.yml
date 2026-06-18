@@ -1,0 +1,55 @@
+tabs:
+  Providers:
+    description: Connect hosted, subscription, local, cloud, and custom model providers.
+    docs_route: /docs/configuration/models-and-providers
+    screenshot_id: settings-providers-overview
+  Models:
+    description: Pin model Quick Choices, choose defaults, and review catalog metadata.
+    docs_route: /docs/configuration/models-and-providers
+    screenshot_id: settings-models-catalog
+  Knowledge:
+    description: Configure memory, document knowledge, graph review, embeddings, and wiki export.
+    docs_route: /docs/ui-tour/
+    screenshot_id: settings-knowledge
+  Buddy:
+    description: Configure companion behavior, look, overlay mode, and generated motion.
+    docs_route: /docs/guides/channels-and-voice
+    screenshot_id: buddy-settings
+  Voice:
+    description: Configure dictation, realtime talk, read-aloud, voice models, and diagnostics.
+    docs_route: /docs/guides/channels-and-voice
+    screenshot_id: settings-voice
+  System:
+    description: Configure workspace paths, app preferences, startup behavior, tunnel settings, logging, and updates.
+    docs_route: /docs/reference/
+  Tracker:
+    description: Configure habit and health tracker views, charts, and logged data.
+    docs_route: /docs/reference/
+  Documents:
+    description: Manage uploaded documents, document search, extraction, and vector indexing.
+    docs_route: /docs/ui-tour/
+  Search:
+    description: Configure search providers, browser automation, and knowledge/search tools.
+    docs_route: /docs/reference/
+  Skills:
+    description: Enable, disable, pin, browse, and review Smart Skills.
+    docs_route: /docs/guides/skills-plugins-mcp
+    screenshot_id: settings-skills
+  Accounts:
+    description: Connect account-level integrations used by tools and setup flows.
+    docs_route: /docs/configuration/models-and-providers
+  Channels:
+    description: Configure Telegram, WhatsApp, Discord, Slack, SMS, delivery, and health checks.
+    docs_route: /docs/guides/channels-and-voice
+    screenshot_id: settings-channels
+  Utilities:
+    description: Configure built-in utility tools and system integrations.
+    docs_route: /docs/reference/
+  MCP:
+    description: Add, test, import, browse, enable, and troubleshoot external MCP servers.
+    docs_route: /docs/guides/skills-plugins-mcp
+    screenshot_id: settings-mcp
+  Plugins:
+    description: Manage installed plugins, marketplace installs, and promoted Custom Tools.
+    docs_route: /docs/guides/skills-plugins-mcp
+    screenshot_id: settings-plugins

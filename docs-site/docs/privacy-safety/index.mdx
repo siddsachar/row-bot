@@ -1,0 +1,27 @@
+---
+title: Privacy And Safety
+description: Understand Row-Bot's local-first data model and safety controls.
+---
+
+# Privacy And Safety
+
+Row-Bot is local-first. Durable app data such as conversations, memories,
+documents, graph data, workflows, logs, settings, skills, plugins, and local
+workspace references stays on your machine by default.
+
+Provider and custom-model calls are opt-in. When a provider model is selected,
+the active conversation, model-visible context, and tool results needed for
+that turn are sent to the selected provider or endpoint.
+
+Safety controls include:
+
+- approval prompts for destructive actions;
+- filesystem boundaries;
+- shell command classification;
+- workflow safety modes;
+- MCP destructive-tool classification;
+- plugin sandboxing;
+- Developer Studio approval modes and optional Docker shadow workspace.
+
+This page should be reviewed carefully whenever generated privacy or provider
+reference content changes.

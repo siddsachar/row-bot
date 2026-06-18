@@ -1,0 +1,115 @@
+import type {Config} from '@docusaurus/types';
+import type * as Preset from '@docusaurus/preset-classic';
+
+const config: Config = {
+  title: 'Row-Bot',
+  tagline: 'Reason. Orchestrate. Work.',
+  favicon: 'favicon.ico',
+
+  url: 'https://row-bot.ai',
+  baseUrl: '/',
+
+  organizationName: 'siddsachar',
+  projectName: 'row-bot',
+
+  onBrokenLinks: 'throw',
+  trailingSlash: false,
+  markdown: {
+    hooks: {
+      onBrokenMarkdownLinks: 'warn',
+    },
+  },
+
+  i18n: {
+    defaultLocale: 'en',
+    locales: ['en'],
+  },
+
+  presets: [
+    [
+      'classic',
+      {
+        docs: {
+          path: 'docs',
+          routeBasePath: 'docs',
+          sidebarPath: './sidebars.ts',
+          editUrl: 'https://github.com/siddsachar/row-bot/edit/main/docs-site/',
+        },
+        blog: false,
+        theme: {
+          customCss: './src/css/custom.css',
+        },
+      } satisfies Preset.Options,
+    ],
+  ],
+
+  themeConfig: {
+    image: 'img/brand/row_bot_preview.png',
+    metadata: [
+      {
+        name: 'description',
+        content:
+          'Public documentation for Row-Bot, a local-first desktop AI assistant with models, memory, tools, workflows, Designer Studio, Developer Studio, Skills Hub, plugins, MCP, channels, and voice.',
+      },
+    ],
+    navbar: {
+      title: 'Row-Bot',
+      logo: {
+        alt: 'Row-Bot',
+        src: 'img/brand/row_bot_glyph_256.png',
+      },
+      items: [
+        {to: '/docs/', label: 'Docs', position: 'left'},
+        {to: '/docs/getting-started/installation', label: 'Install', position: 'left'},
+        {to: '/docs/guides/designer-studio', label: 'Designer', position: 'left'},
+        {to: '/docs/guides/developer-studio', label: 'Developer', position: 'left'},
+        {
+          href: 'https://github.com/siddsachar/row-bot',
+          label: 'GitHub',
+          position: 'right',
+        },
+        {
+          href: 'https://github.com/siddsachar/row-bot/releases/latest',
+          label: 'Download',
+          position: 'right',
+        },
+      ],
+    },
+    footer: {
+      style: 'dark',
+      links: [
+        {
+          title: 'Docs',
+          items: [
+            {label: 'Getting Started', to: '/docs/getting-started/'},
+            {label: 'UI Tour', to: '/docs/ui-tour/'},
+            {label: 'Configuration', to: '/docs/configuration/models-and-providers'},
+            {label: 'Troubleshooting', to: '/docs/troubleshooting/'},
+          ],
+        },
+        {
+          title: 'Project',
+          items: [
+            {label: 'GitHub', href: 'https://github.com/siddsachar/row-bot'},
+            {label: 'Releases', href: 'https://github.com/siddsachar/row-bot/releases'},
+            {label: 'Security', href: 'https://github.com/siddsachar/row-bot/blob/main/SECURITY.md'},
+          ],
+        },
+        {
+          title: 'Machine-readable',
+          items: [
+            {label: 'llms.txt', href: 'https://row-bot.ai/llms.txt'},
+            {label: 'llms-full.txt', href: 'https://row-bot.ai/llms-full.txt'},
+          ],
+        },
+      ],
+      copyright: `Copyright © ${new Date().getFullYear()} Row-Bot contributors. Built with Docusaurus.`,
+    },
+    prism: {
+      theme: require('prism-react-renderer').themes.github,
+      darkTheme: require('prism-react-renderer').themes.dracula,
+    },
+  } satisfies Preset.ThemeConfig,
+};
+
+export default config;

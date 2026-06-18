@@ -39,6 +39,10 @@ test-results/
 .backups/
 .copilot_backups/
 .local/
+docs-build/
+docs-site/.docusaurus/
+docs-site/build/
+docs-site/node_modules/
 
 # Dev/test scripts
 seed_knowledge_graph.py

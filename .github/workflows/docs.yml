@@ -1,0 +1,95 @@
+name: Docs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/docs.yml"
+      - "docs-site/**"
+      - "docs-content/**"
+      - "scripts/docs/**"
+      - "tests/docs/**"
+      - "README.md"
+      - "RELEASE_NOTES.md"
+      - "src/row_bot/ui/**"
+      - "src/row_bot/designer/**"
+      - "src/row_bot/developer/**"
+      - "src/row_bot/tools/**"
+      - "src/row_bot/providers/**"
+      - "src/row_bot/channels/**"
+      - "src/row_bot/plugins/**"
+      - "src/row_bot/mcp_client/**"
+      - "bundled_skills/**"
+      - "tool_guides/**"
+  pull_request:
+    paths:
+      - ".github/workflows/docs.yml"
+      - "docs-site/**"
+      - "docs-content/**"
+      - "scripts/docs/**"
+      - "tests/docs/**"
+      - "README.md"
+      - "RELEASE_NOTES.md"
+      - "src/row_bot/ui/**"
+      - "src/row_bot/designer/**"
+      - "src/row_bot/developer/**"
+      - "src/row_bot/tools/**"
+      - "src/row_bot/providers/**"
+      - "src/row_bot/channels/**"
+      - "src/row_bot/plugins/**"
+      - "src/row_bot/mcp_client/**"
+      - "bundled_skills/**"
+      - "tool_guides/**"
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build docs
+    runs-on: ubuntu-latest
+    env:
+      NO_UPDATE_NOTIFIER: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python docs dependencies
+        run: python -m pip install pyyaml pytest
+
+      - name: Collect docs inventory
+        run: python scripts/docs/collect_inventory.py --out docs-build/inventory
+
+      - name: Validate docs metadata
+        run: python scripts/docs/validate_public_docs.py
+
+      - name: Generate LLM docs files
+        run: python scripts/docs/generate_llms_txt.py --docs-root docs-site/docs --out-dir docs-site/static
+
+      - name: Run docs automation tests
+        run: pytest tests/docs -q
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: docs-site/package.json
+
+      - name: Install docs dependencies
+        working-directory: docs-site
+        run: npm ci
+
+      - name: Build docs site
+        working-directory: docs-site
+        run: npm run build:ci

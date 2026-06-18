@@ -1,0 +1,29 @@
+---
+title: Models And Providers
+description: Configure local, hosted, subscription, and custom model providers in Row-Bot.
+---
+
+# Models And Providers
+
+Row-Bot keeps model provider identity explicit. A local model, an OpenRouter
+model, an Atlas Cloud model, and a custom endpoint model can have similar names
+without becoming interchangeable.
+
+## Provider Types
+
+- Local: Ollama models running on your machine.
+- Direct API: OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, Atlas
+  Cloud, Ollama Cloud, and other supported providers.
+- Subscription: ChatGPT / Codex and Claude Subscription through Row-Bot-owned
+  local sign-in.
+- Custom endpoint: OpenAI-compatible servers such as LM Studio, vLLM,
+  llama.cpp, LocalAI, LiteLLM, SGLang, oMLX, or private gateways.
+
+## Agent Mode And Chat Only
+
+Some models can chat but cannot reliably call tools. Row-Bot routes those models
+through Chat Only mode and reserves Agent Mode for models that can handle tool
+schemas, tool results, and the required context window.
+
+Generated provider reference tables will be added from Row-Bot provider
+metadata in the next automation phase.

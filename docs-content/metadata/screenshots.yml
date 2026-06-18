@@ -1,0 +1,127 @@
+screenshots:
+  chat-main:
+    title: Chat Main
+    surface: chat
+    status: planned
+    output: chat-main.png
+    alt: Row-Bot chat surface with sidebar, model picker, composer, and conversation area.
+  chat-model-picker:
+    title: Chat Model Picker
+    surface: chat
+    status: planned
+    output: chat-model-picker.png
+    alt: Row-Bot chat model picker showing provider-qualified model choices.
+  chat-tool-trace:
+    title: Chat Tool Trace
+    surface: chat
+    status: planned
+    output: chat-tool-trace.png
+    alt: Row-Bot chat transcript showing grouped tool activity.
+  chat-approval:
+    title: Chat Approval
+    surface: chat
+    status: planned
+    output: chat-approval.png
+    alt: Row-Bot approval dialog for a sensitive action.
+  home-workflows:
+    title: Workflows Home
+    surface: home_workflows
+    status: planned
+    output: home-workflows.png
+    alt: Row-Bot Home view open to the Workflows tab.
+  designer-gallery:
+    title: Designer Gallery
+    surface: designer
+    status: planned
+    output: designer-gallery.png
+    alt: Row-Bot Designer Studio gallery with design project cards.
+  designer-new-project:
+    title: Designer New Project
+    surface: designer
+    status: planned
+    output: designer-new-project.png
+    alt: Row-Bot Designer Studio new project dialog.
+  designer-editor:
+    title: Designer Editor
+    surface: designer
+    status: planned
+    output: designer-editor.png
+    alt: Row-Bot Designer Studio editor with chat, preview, and page controls.
+  developer-home:
+    title: Developer Home
+    surface: developer
+    status: planned
+    output: developer-home.png
+    alt: Row-Bot Developer Studio home showing workspaces and Custom Tools.
+  developer-workspace:
+    title: Developer Workspace
+    surface: developer
+    status: planned
+    output: developer-workspace.png
+    alt: Row-Bot Developer Studio workspace inspector.
+  knowledge-graph:
+    title: Knowledge Graph
+    surface: knowledge
+    status: planned
+    output: knowledge-graph.png
+    alt: Row-Bot Knowledge graph visualization and memory controls.
+  settings-providers-overview:
+    title: Settings Providers
+    surface: settings
+    status: planned
+    output: settings-providers-overview.png
+    alt: Row-Bot Settings dialog open to Providers.
+  settings-models-catalog:
+    title: Settings Models
+    surface: settings
+    status: planned
+    output: settings-models-catalog.png
+    alt: Row-Bot Settings dialog open to Models and Model Catalog.
+  settings-knowledge:
+    title: Settings Knowledge
+    surface: settings
+    status: planned
+    output: settings-knowledge.png
+    alt: Row-Bot Settings dialog open to Knowledge.
+  settings-skills:
+    title: Settings Skills
+    surface: settings
+    status: planned
+    output: settings-skills.png
+    alt: Row-Bot Settings dialog open to Skills.
+  settings-channels:
+    title: Settings Channels
+    surface: settings
+    status: planned
+    output: settings-channels.png
+    alt: Row-Bot Settings dialog open to Channels.
+  settings-voice:
+    title: Settings Voice
+    surface: settings
+    status: planned
+    output: settings-voice.png
+    alt: Row-Bot Settings dialog open to Voice.
+  settings-mcp:
+    title: Settings MCP
+    surface: settings
+    status: planned
+    output: settings-mcp.png
+    alt: Row-Bot Settings dialog open to MCP.
+  settings-plugins:
+    title: Settings Plugins
+    surface: settings
+    status: planned
+    output: settings-plugins.png
+    alt: Row-Bot Settings dialog open to Plugins.
+  skills-hub-browse:
+    title: Skills Hub Browse
+    surface: skills_hub
+    status: planned
+    output: skills-hub-browse.png
+    alt: Row-Bot Skills Hub browsing public skills.
+  buddy-settings:
+    title: Buddy Settings
+    surface: buddy
+    status: planned
+    output: buddy-settings.png
+    alt: Row-Bot Buddy settings for companion behavior and appearance.
