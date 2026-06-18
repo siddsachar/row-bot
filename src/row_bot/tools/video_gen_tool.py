@@ -478,7 +478,7 @@ def _generate_video_xai(
     if image_bytes is not None:
         mime = _detect_mime(image_bytes)
         b64_src = base64.b64encode(image_bytes).decode("ascii")
-        body["image_url"] = f"data:{mime};base64,{b64_src}"
+        body["image"] = {"url": f"data:{mime};base64,{b64_src}"}
 
     # Step 1: Start generation
     try:

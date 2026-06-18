@@ -274,7 +274,7 @@ def test_xai_oauth_image_to_video_includes_image_data_url(oauth_store, monkeypat
     monkeypatch.setattr(xai_media, "_new_http_client", lambda timeout: client)
     monkeypatch.setattr(video_tool.time, "sleep", lambda seconds: None)
     monkeypatch.setattr(video_tool, "_save_video_to_disk", lambda data, prefix="vid": str(Path("video.mp4")))
-    registry.set_tool_config("video_gen", "model", "xai_oauth/grok-imagine-video")
+    registry.set_tool_config("video_gen", "model", "xai_oauth/grok-imagine-video-1.5")
     image_tool._image_cache.clear()
     image_tool._image_cache["__last_generated__"] = b"\x89PNG original"
 
@@ -282,5 +282,7 @@ def test_xai_oauth_image_to_video_includes_image_data_url(oauth_store, monkeypat
 
     assert "Video generated successfully" in result
     assert video_tool._last_generated_video["mode"] == "image-to-video"
-    image_url = client.calls[0][2]["json"]["image_url"]
+    body = client.calls[0][2]["json"]
+    assert body["model"] == "grok-imagine-video-1.5"
+    image_url = body["image"]["url"]
     assert image_url.startswith("data:image/png;base64,")
