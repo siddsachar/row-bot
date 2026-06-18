@@ -1176,7 +1176,7 @@ def open_settings(
             return any(str(option.get("source") or "") != "included_value" for option in options)
 
         from row_bot.tools.image_gen_tool import DEFAULT_MODEL
-        from row_bot.providers.selection import list_quick_choices, seed_configured_media_quick_choices
+        from row_bot.providers.selection import seed_configured_media_quick_choices
         _ig_tool = tool_registry.get_tool("image_gen")
         _ig_enabled = tool_registry.is_enabled("image_gen") if _ig_tool else False
         _ig_model = str(snapshot.get("image_model") or (_ig_tool.get_config("model", DEFAULT_MODEL) if _ig_tool else DEFAULT_MODEL))
@@ -1187,17 +1187,6 @@ def open_settings(
             if _ig_tool and value:
                 _ig_tool.set_config("model", value)
                 seed_configured_media_quick_choices()
-
-        def _pinned_media_options(surface: str, available: dict[str, str], current_value: str) -> dict[str, str]:
-            allowed = {
-                f"{choice.get('provider_id')}/{choice.get('model_id')}"
-                for choice in list_quick_choices(surface)
-                if choice.get("kind") == "model" and choice.get("provider_id") and choice.get("model_id")
-            }
-            options = {key: label for key, label in available.items() if key in allowed}
-            if current_value in available:
-                options[current_value] = available[current_value]
-            return options
 
         _ig_model_opts = dict(snapshot.get("image_options") or {})
         if _ig_model_opts and _ig_model not in _ig_model_opts:
@@ -1798,9 +1787,13 @@ def open_settings(
         _render_catalog_status()
 
     def _collect_models_tab_data() -> dict:
+        from row_bot.providers.capabilities import snapshot_supports_surface
         from row_bot.providers.selection import list_model_choice_options, list_quick_choices
 
         started = time.perf_counter()
+        quick_started = time.perf_counter()
+        quick_choices = list_quick_choices("", include_inactive=True)
+        quick_elapsed = time.perf_counter() - quick_started
         ollama_up = _ollama_reachable()
         ollama_elapsed = time.perf_counter() - started
         local_started = time.perf_counter()
@@ -1824,30 +1817,25 @@ def open_settings(
         except Exception:
             video_model = ""
             available_video = {}
-        try:
-            allowed_image = {
+        def _pinned_media_options(surface: str, available: dict[str, str], current_value: str) -> dict[str, str]:
+            allowed = {
                 f"{choice.get('provider_id')}/{choice.get('model_id')}"
-                for choice in list_quick_choices("image")
-                if choice.get("kind") == "model" and choice.get("provider_id") and choice.get("model_id")
+                for choice in quick_choices
+                if choice.get("kind") == "model"
+                and choice.get("provider_id")
+                and choice.get("model_id")
+                and (
+                    surface in (choice.get("visibility") or [])
+                    or snapshot_supports_surface(choice.get("capabilities_snapshot"), surface)
+                )
             }
-            image_options = {key: label for key, label in available_image.items() if key in allowed_image}
-            if image_model in available_image:
-                image_options[image_model] = available_image[image_model]
-        except Exception:
-            logger.debug("Could not collect image model options", exc_info=True)
-            image_options = {}
-        try:
-            allowed_video = {
-                f"{choice.get('provider_id')}/{choice.get('model_id')}"
-                for choice in list_quick_choices("video")
-                if choice.get("kind") == "model" and choice.get("provider_id") and choice.get("model_id")
-            }
-            video_options = {key: label for key, label in available_video.items() if key in allowed_video}
-            if video_model in available_video:
-                video_options[video_model] = available_video[video_model]
-        except Exception:
-            logger.debug("Could not collect video model options", exc_info=True)
-            video_options = {}
+            options = {key: label for key, label in available.items() if key in allowed}
+            if current_value in available:
+                options[current_value] = available[current_value]
+            return options
+
+        image_options = _pinned_media_options("image", available_image, image_model)
+        video_options = _pinned_media_options("video", available_video, video_model)
         options_started = time.perf_counter()
         chat_options = list_model_choice_options("chat", include_values=[current_model])
         vision_options = list_model_choice_options("vision", include_values=[vision_model])
@@ -1862,8 +1850,9 @@ def open_settings(
         total_elapsed = time.perf_counter() - started
         logger.info(
             "perf: models settings collect took %.3fs "
-            "(ollama=%.3fs local=%.3fs options=%.3fs context=%.3fs local_count=%d chat_options=%d vision_options=%d)",
+            "(quick=%.3fs ollama=%.3fs local=%.3fs options=%.3fs context=%.3fs local_count=%d chat_options=%d vision_options=%d)",
             total_elapsed,
+            quick_elapsed,
             ollama_elapsed,
             local_elapsed,
             options_elapsed,

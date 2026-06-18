@@ -62,23 +62,37 @@ def resolve_capability_metadata(
         except Exception:
             return ResolvedCapabilitySnapshot({}, "")
 
+    cached = cached_provider_capability_snapshot(provider, model)
+    if cached:
+        return ResolvedCapabilitySnapshot(cached, "provider_cache")
+
     if provider == "codex":
         try:
-            from row_bot.providers.codex import list_codex_model_infos
+            from row_bot.providers.codex import list_codex_model_infos_for_status
 
-            for model_info in list_codex_model_infos():
+            for model_info in list_codex_model_infos_for_status():
                 if model_info.model_id == model:
-                    return ResolvedCapabilitySnapshot(model_info.capability_snapshot(), "codex_catalog")
+                    return ResolvedCapabilitySnapshot(model_info.capability_snapshot(), "codex_status_catalog")
         except Exception:
             pass
 
     if provider == "claude_subscription":
         try:
-            from row_bot.providers.claude_subscription import list_claude_subscription_model_infos
+            from row_bot.providers.claude_subscription import list_claude_subscription_model_infos_for_status
 
-            for model_info in list_claude_subscription_model_infos():
+            for model_info in list_claude_subscription_model_infos_for_status():
                 if model_info.model_id == model:
-                    return ResolvedCapabilitySnapshot(model_info.capability_snapshot(), "claude_subscription_catalog")
+                    return ResolvedCapabilitySnapshot(model_info.capability_snapshot(), "claude_subscription_status_catalog")
+        except Exception:
+            pass
+
+    if provider == "xai_oauth":
+        try:
+            from row_bot.providers.xai_oauth import list_xai_oauth_model_infos_for_status
+
+            for model_info in list_xai_oauth_model_infos_for_status():
+                if model_info.model_id == model:
+                    return ResolvedCapabilitySnapshot(model_info.capability_snapshot(), "xai_oauth_status_catalog")
         except Exception:
             pass
 
@@ -91,10 +105,6 @@ def resolve_capability_metadata(
                 return ResolvedCapabilitySnapshot(opencode_model_info(route).capability_snapshot(), "opencode_catalog")
         except Exception:
             pass
-
-    cached = cached_provider_capability_snapshot(provider, model)
-    if cached:
-        return ResolvedCapabilitySnapshot(cached, "provider_cache")
 
     if not include_static_fallback:
         return ResolvedCapabilitySnapshot({}, "")
@@ -141,6 +151,19 @@ def cached_ollama_capability_snapshot(
 def cached_provider_capability_snapshot(provider_id: str, model_id: str) -> dict[str, Any]:
     provider = str(provider_id or "")
     model = str(model_id or "")
+    cached = _cloud_cache_capability_snapshot(provider, model)
+    if cached:
+        return cached
+    cached = _catalog_cache_capability_snapshot(provider, model)
+    if cached:
+        return cached
+    cached = _subscription_status_capability_snapshot(provider, model)
+    if cached:
+        return cached
+    return {}
+
+
+def _cloud_cache_capability_snapshot(provider: str, model: str) -> dict[str, Any]:
     try:
         from row_bot.models import _cloud_model_cache
 
@@ -155,6 +178,57 @@ def cached_provider_capability_snapshot(provider_id: str, model_id: str) -> dict
     snapshot = cached.get("capabilities_snapshot")
     if isinstance(snapshot, Mapping) and snapshot:
         return dict(snapshot)
+    return {}
+
+
+def _catalog_cache_capability_snapshot(provider: str, model: str) -> dict[str, Any]:
+    try:
+        from row_bot.providers.model_catalog_cache import read_model_catalog_cache
+
+        snap = read_model_catalog_cache()
+    except Exception:
+        return {}
+    if provider == "ollama":
+        return cached_ollama_capability_snapshot(model, snapshot=snap)
+    for key, cached in (getattr(snap, "cloud_cache", {}) or {}).items():
+        if not isinstance(cached, Mapping):
+            continue
+        cached_provider = str(cached.get("provider") or "")
+        cached_model = str(cached.get("model_id") or cached.get("id") or key or "")
+        if str(key or "") == f"model:{provider}:{model}":
+            cached_model = model
+            cached_provider = cached_provider or provider
+        if cached_provider and cached_provider != provider:
+            continue
+        if cached_model != model:
+            continue
+        snapshot = cached.get("capabilities_snapshot")
+        if isinstance(snapshot, Mapping) and snapshot:
+            return dict(snapshot)
+    return {}
+
+
+def _subscription_status_capability_snapshot(provider: str, model: str) -> dict[str, Any]:
+    try:
+        if provider == "codex":
+            from row_bot.providers.codex import list_codex_model_infos_for_status
+
+            infos = list_codex_model_infos_for_status()
+        elif provider == "claude_subscription":
+            from row_bot.providers.claude_subscription import list_claude_subscription_model_infos_for_status
+
+            infos = list_claude_subscription_model_infos_for_status()
+        elif provider == "xai_oauth":
+            from row_bot.providers.xai_oauth import list_xai_oauth_model_infos_for_status
+
+            infos = list_xai_oauth_model_infos_for_status()
+        else:
+            return {}
+        for model_info in infos:
+            if model_info.model_id == model:
+                return model_info.capability_snapshot()
+    except Exception:
+        return {}
     return {}
 
 

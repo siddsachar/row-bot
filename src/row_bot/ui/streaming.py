@@ -153,6 +153,29 @@ def _codex_auth_block_message(model_ref: str) -> str | None:
         )
 
 
+def _subscription_auth_block_message(model_ref: str) -> str | None:
+    codex_message = _codex_auth_block_message(model_ref)
+    if codex_message:
+        return codex_message
+    try:
+        from row_bot.providers.selection import provider_id_from_choice_value
+
+        if provider_id_from_choice_value(model_ref) != "xai_oauth":
+            return None
+    except Exception:
+        return None
+    try:
+        from row_bot.providers.xai_oauth import xai_oauth_runtime_block_message
+
+        return xai_oauth_runtime_block_message(refresh_if_needed=True)
+    except Exception as exc:
+        return (
+            "xAI Grok needs to be reconnected before using this OAuth model. "
+            "Open Settings -> Providers -> xAI Grok, reconnect, then try again. "
+            f"Could not verify xAI Grok sign-in: {exc}"
+        )
+
+
 async def _agent_ready_forced_surface(model_ref: str, surface: str) -> bool:
     """Return whether a forced-Agent surface can run the selected model."""
     try:
@@ -2920,9 +2943,9 @@ async def send_message(
         from row_bot.models import get_current_model
 
         selected_model = state.thread_model_override or get_current_model()
-        auth_block_message = await run.io_bound(lambda: _codex_auth_block_message(selected_model))
+        auth_block_message = await run.io_bound(lambda: _subscription_auth_block_message(selected_model))
     except Exception:
-        logger.debug("Codex auth preflight skipped unexpectedly", exc_info=True)
+        logger.debug("Subscription auth preflight skipped unexpectedly", exc_info=True)
     if auth_block_message:
         assistant_msg = {"role": "assistant", "content": auth_block_message}
         state.messages.append(assistant_msg)

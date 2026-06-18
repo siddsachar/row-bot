@@ -45,6 +45,11 @@ def list_configured_provider_ids() -> list[str]:
     except Exception:
         pass
     try:
+        if provider_status("xai_oauth").get("configured"):
+            configured.append("xai_oauth")
+    except Exception:
+        pass
+    try:
         from row_bot.providers.custom import list_custom_endpoints
         configured.extend(str(endpoint["provider_id"]) for endpoint in list_custom_endpoints() if endpoint.get("enabled", True))
     except Exception:
@@ -153,6 +158,51 @@ def provider_status(provider_id: str, *, refresh_tokens: bool = True) -> dict:
             "token_health_ms": round(token_health_ms, 3),
             "last_runtime_probe": dict(provider_cfg.get("last_runtime_probe") or {}),
             "last_error": provider_cfg.get("last_error") or "",
+        }
+    if provider_id == "xai_oauth":
+        from row_bot.providers.config import load_provider_config
+        from row_bot.providers.xai_oauth import (
+            XAI_OAUTH_PROVIDER_ID,
+            check_xai_oauth_token_health,
+            xai_oauth_client_id_status,
+        )
+
+        token_health_started = time.perf_counter()
+        token_health = check_xai_oauth_token_health(refresh_if_needed=refresh_tokens)
+        token_health_ms = (time.perf_counter() - token_health_started) * 1000.0
+        token_status = provider_secret_status(XAI_OAUTH_PROVIDER_ID, "access_token")
+        refresh_status = provider_secret_status(XAI_OAUTH_PROVIDER_ID, "refresh_token")
+        provider_cfg = load_provider_config().get("providers", {}).get(XAI_OAUTH_PROVIDER_ID, {})
+        client_id_status = xai_oauth_client_id_status()
+        configured = bool(token_status.get("configured") or refresh_status.get("configured"))
+        return {
+            "provider_id": XAI_OAUTH_PROVIDER_ID,
+            "configured": configured,
+            "source": str(token_status.get("source") or refresh_status.get("source") or provider_cfg.get("source") or ""),
+            "fingerprint": token_status.get("fingerprint") or refresh_status.get("fingerprint") or provider_cfg.get("fingerprint") or "",
+            "auth_method": provider_cfg.get("auth_method") or "",
+            "expires_at": provider_cfg.get("expires_at") or "",
+            "account_id_hash": provider_cfg.get("account_id_hash") or "",
+            "user_hash": provider_cfg.get("user_hash") or "",
+            "email_hash": provider_cfg.get("email_hash") or "",
+            "scope": provider_cfg.get("scope") or "",
+            "base_url": provider_cfg.get("base_url") or "",
+            "runtime_enabled": token_health.runnable,
+            "token_health": token_health.status,
+            "token_health_detail": token_health.detail,
+            "token_refresh_allowed": bool(refresh_tokens),
+            "token_health_refreshed": token_health.status == "refreshed",
+            "token_health_ms": round(token_health_ms, 3),
+            "last_runtime_probe": dict(provider_cfg.get("last_runtime_probe") or {}),
+            "last_vision_probe": dict(provider_cfg.get("last_vision_probe") or {}),
+            "last_error": provider_cfg.get("last_error") or "",
+            "model_count": provider_cfg.get("model_count"),
+            "model_count_source": provider_cfg.get("model_count_source") or "",
+            "model_count_status": provider_cfg.get("model_count_status") or "",
+            "oauth_client_id_configured": bool(client_id_status.get("configured")),
+            "oauth_client_id_source": str(client_id_status.get("source") or ""),
+            "oauth_client_id_fingerprint": str(client_id_status.get("fingerprint") or ""),
+            "oauth_client_id_detail": str(client_id_status.get("detail") or ""),
         }
     if provider_id == "ollama":
         try:
@@ -337,6 +387,16 @@ def create_chat_model(model_name: str, provider_id: str | None = None):
                 "Connect Claude Subscription in Settings -> Providers, then try the provider-qualified model again."
             )
         return ChatClaudeSubscriptionMessages(model_name=model_name)
+    if provider == "xai_oauth":
+        from row_bot.providers.transports.xai_oauth_responses import ChatXAIOAuthResponses
+        from row_bot.providers.xai_oauth import xai_oauth_runtime_available
+
+        if not xai_oauth_runtime_available():
+            raise ValueError(
+                "xAI Grok runtime needs Row-Bot-owned OAuth tokens. "
+                "Connect xAI Grok in Settings -> Providers, then try the provider-qualified model again."
+            )
+        return ChatXAIOAuthResponses(model_name=model_name)
     if provider == "openai":
         from langchain_openai import ChatOpenAI
         api_key = get_provider_secret("openai")

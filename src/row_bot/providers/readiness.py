@@ -27,6 +27,7 @@ TRUSTED_AGENT_PROVIDERS = {
     "opencode_go",
     "codex",
     "claude_subscription",
+    "xai_oauth",
     "ollama_cloud",
 }
 
@@ -259,7 +260,8 @@ def evaluate_agent_readiness(
             tool_round_trip = None
             errors.append("OpenRouter tool metadata is missing or inconclusive")
             actions.append("Choose a model with explicit OpenRouter tool support metadata.")
-    elif resolved.provider_id == "claude_subscription":
+    elif resolved.provider_id in {"claude_subscription", "xai_oauth"}:
+        provider_label = "Claude Subscription" if resolved.provider_id == "claude_subscription" else "xAI Grok"
         probe = status_info.get("last_runtime_probe") if isinstance(status_info.get("last_runtime_probe"), dict) else {}
         if probe and probe.get("ok") is False:
             tool_calling = probe.get("tool_calling") if probe.get("tool_calling") in (True, False) else None
@@ -268,11 +270,11 @@ def evaluate_agent_readiness(
             tool_calling_source = "runtime_probe"
             source = "runtime_probe"
             confidence = "low"
-            errors.append("Claude Subscription native OAuth runtime probe failed")
+            errors.append(f"{provider_label} native OAuth runtime probe failed")
             probe_errors = probe.get("errors") if isinstance(probe.get("errors"), list) else []
             if probe_errors:
                 errors.append(str(probe_errors[0]))
-            actions.append("Reconnect Claude Subscription, re-run the runtime test, or use Chat Only until the account/runtime succeeds.")
+            actions.append(f"Reconnect {provider_label}, re-run the runtime test, or use Chat Only until the account/runtime succeeds.")
         elif probe and probe.get("ok") is True:
             tool_calling = True
             tool_round_trip = True
@@ -497,16 +499,17 @@ def evaluate_chat_readiness(
             actions.append("Run the custom endpoint probe for this model.")
         if context_policy and getattr(context_policy, "cap_source", "") in {"profile_default", "heuristic"}:
             warnings.append("custom endpoint context is inferred; provider metadata or a manual context setting is safer")
-    elif resolved.provider_id == "claude_subscription":
+    elif resolved.provider_id in {"claude_subscription", "xai_oauth"}:
+        provider_label = "Claude Subscription" if resolved.provider_id == "claude_subscription" else "xAI Grok"
         probe = status_info.get("last_runtime_probe") if isinstance(status_info.get("last_runtime_probe"), dict) else {}
         if probe and probe.get("ok") is False and probe.get("chat_ok") is not True:
             source = "runtime_probe"
             confidence = "low"
-            errors.append("Claude Subscription native OAuth chat probe failed")
+            errors.append(f"{provider_label} native OAuth chat probe failed")
             probe_errors = probe.get("errors") if isinstance(probe.get("errors"), list) else []
             if probe_errors:
                 errors.append(str(probe_errors[0]))
-            actions.append("Reconnect Claude Subscription or re-run the runtime test after account access is fixed.")
+            actions.append(f"Reconnect {provider_label} or re-run the runtime test after account access is fixed.")
         elif probe and probe.get("ok") is True:
             source = "runtime_probe"
             confidence = "high"

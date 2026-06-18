@@ -9143,7 +9143,10 @@ try:
     assert set(_PROVIDER_MODELS.keys()) == set(_PROVIDERS.keys())
     assert len(_PROVIDER_MODELS["openai"]) == 3
     assert len(_PROVIDER_MODELS["google"]) == 6
-    assert len(_PROVIDER_MODELS["xai"]) == 1
+    assert {m["id"] for m in _PROVIDER_MODELS["xai"]} == {
+        "grok-imagine-image",
+        "grok-imagine-image-quality",
+    }
     record("PASS", "image_gen: _PROVIDER_MODELS matches _PROVIDERS keys")
 
     # ── 52pf. get_available_image_models with Google key ─────────────
@@ -9281,12 +9284,13 @@ try:
     record("PASS", "image_gen: Google Nano Banana handles API error gracefully")
 
     # ── 52pn. IMAGE_GEN_MODELS total count  ──────────────────────────
-    assert len(IMAGE_GEN_MODELS) == 10, f"expected 10 total models (3 OpenAI + 6 Google + 1 xAI), got {len(IMAGE_GEN_MODELS)}"
+    assert len(IMAGE_GEN_MODELS) == 11, f"expected 11 total models (3 OpenAI + 6 Google + 2 xAI), got {len(IMAGE_GEN_MODELS)}"
     assert len(_OPENAI_MODELS) == 3
     assert len(_GOOGLE_MODELS) == 6
     assert len(_GOOGLE_NANO_BANANA_MODELS) == 3
     assert len(_GOOGLE_IMAGEN_MODELS) == 3
-    record("PASS", "image_gen: IMAGE_GEN_MODELS has 10 models (3+6+1)")
+    assert len(_XAI_MODELS) == 2
+    record("PASS", "image_gen: IMAGE_GEN_MODELS has 11 models (3+6+2)")
 
     # ── 52q. Constants are well-formed ───────────────────────────────
     assert len(IMAGE_GEN_MODELS) >= 1

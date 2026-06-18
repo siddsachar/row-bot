@@ -7,11 +7,34 @@ from typing import Any, Iterable
 
 from row_bot.providers.capabilities import SURFACE_REQUIREMENTS, normalize_snapshot, snapshot_supports_surface
 from row_bot.providers.catalog import get_provider_definition, model_info_from_legacy, model_info_from_metadata
-from row_bot.providers.models import ModelInfo
+from row_bot.providers.models import ModelInfo, TransportMode
 from row_bot.providers.selection import model_ref
 
 CATALOG_SURFACES = ("chat", "vision", "image", "video", "voice")
 logger = logging.getLogger(__name__)
+_AGENT_MODE_MIN_CONTEXT = 32_000
+_CHAT_ONLY_MIN_CONTEXT = 16_384
+_CATALOG_AGENT_TRANSPORTS = {
+    TransportMode.OPENAI_CHAT.value,
+    TransportMode.OPENAI_RESPONSES.value,
+    TransportMode.OLLAMA_CHAT.value,
+    TransportMode.OLLAMA_CLOUD_CHAT.value,
+    TransportMode.ANTHROPIC_MESSAGES.value,
+    TransportMode.GOOGLE_GENAI.value,
+}
+_CATALOG_TRUSTED_AGENT_PROVIDERS = {
+    "openai",
+    "anthropic",
+    "google",
+    "xai",
+    "minimax",
+    "opencode_zen",
+    "opencode_go",
+    "codex",
+    "claude_subscription",
+    "xai_oauth",
+    "ollama_cloud",
+}
 
 
 def _positive_int(value: Any, default: int = 0) -> int:
@@ -201,6 +224,10 @@ def build_model_catalog_rows(
             provider_id, model_id = config_value.split("/", 1) if "/" in config_value else (str(info.get("provider") or ""), config_value)
             if not provider_id or not model_id:
                 continue
+            ref = model_ref(provider_id, model_id)
+            existing = rows.get(ref)
+            if existing and existing.supports(surface):
+                continue
             model_info = model_info_from_metadata(
                 provider_id,
                 model_id,
@@ -220,6 +247,10 @@ def build_model_catalog_rows(
 
     if provider_status.get("claude_subscription", {}).get("configured"):
         for model_info in _claude_subscription_model_infos():
+            _add_model_info_row(rows, model_info, provider_status, pinned_by_ref, default_refs, installed=True)
+
+    if provider_status.get("xai_oauth", {}).get("configured"):
+        for model_info in _xai_oauth_model_infos():
             _add_model_info_row(rows, model_info, provider_status, pinned_by_ref, default_refs, installed=True)
 
     for surface, ref in default_refs.items():
@@ -341,30 +372,17 @@ def _catalog_row(
     if provider_id == "claude_subscription" and not bool(status.get("runtime_enabled")):
         runtime_ready = False
         status_reason = "Claude Subscription runtime needs a Row-Bot OAuth connection."
+    if provider_id == "xai_oauth" and not bool(status.get("runtime_enabled")):
+        runtime_ready = False
+        status_reason = "xAI Grok runtime needs a Row-Bot OAuth connection."
     if "chat" in categories and runtime_ready:
-        try:
-            from row_bot.providers.readiness import evaluate_runtime_readiness
-
-            readiness = evaluate_runtime_readiness(
-                ref,
-                capability_snapshot=capabilities_snapshot,
-                status=status,
-                context_window_override=context_window,
-                probe_ollama_tools=False,
-            )
-            runtime_ready = readiness.selected_mode != "blocked"
-            availability = availability or readiness.selected_mode
-            if readiness.selected_mode == "chat_only":
-                details = "; ".join(readiness.agent.errors).lower()
-                if provider_id == "ollama" and "tool" in details:
-                    status_reason = "Tools unverified: Agent Mode will probe this Ollama model when selected."
-                else:
-                    status_reason = "Chat Only: tools and actions are off."
-            elif readiness.selected_mode == "blocked":
-                status_reason = readiness.selection_reason or "No supported runtime is available."
-                availability = availability or "blocked_agent_mode"
-        except Exception:
-            logger.debug("Could not evaluate runtime readiness for %s", ref, exc_info=True)
+        runtime_ready, availability, status_reason = _catalog_runtime_summary(
+            provider_id=provider_id,
+            snapshot=capabilities_snapshot,
+            context_window=context_window,
+            availability=availability,
+            status_reason=status_reason,
+        )
     return CatalogModelRow(
         provider_id=provider_id,
         model_id=model_id,
@@ -387,6 +405,35 @@ def _catalog_row(
         availability=availability,
         runtime_mode=availability if availability in {"agent", "chat_only", "blocked"} else "",
     )
+
+
+def _catalog_runtime_summary(
+    *,
+    provider_id: str,
+    snapshot: dict[str, Any],
+    context_window: int,
+    availability: str,
+    status_reason: str,
+) -> tuple[bool, str, str]:
+    normalized = normalize_snapshot(snapshot)
+    transport = normalized.get("transport") or ""
+    output_modalities = normalized.get("output_modalities") or set()
+    tool_calling = normalized.get("tool_calling")
+    if output_modalities and "text" not in output_modalities:
+        return False, availability or "blocked", "Model does not produce text output."
+    if transport and transport not in _CATALOG_AGENT_TRANSPORTS:
+        return False, availability or "blocked", f"Transport {transport} is not supported for chat."
+    if context_window and context_window < _CHAT_ONLY_MIN_CONTEXT:
+        return False, availability or "blocked", "Context window is too small for chat."
+    if context_window and context_window < _AGENT_MODE_MIN_CONTEXT:
+        return True, availability or "chat_only", "Chat Only: tools and actions are off."
+    if provider_id == "openrouter" and tool_calling is not True:
+        return True, availability or "chat_only", "Chat Only: tools and actions are off."
+    if tool_calling is False:
+        return True, availability or "chat_only", "Chat Only: tools and actions are off."
+    if provider_id in _CATALOG_TRUSTED_AGENT_PROVIDERS or tool_calling is True:
+        return True, availability or "agent", status_reason
+    return True, availability or "chat_only", "Chat Only: tools and actions are off."
 
 
 def _safe_cloud_cache() -> dict[str, dict[str, Any]]:
@@ -452,12 +499,54 @@ def _default_refs(defaults: dict[str, str]) -> dict[str, str]:
 
 
 def _provider_status_by_id() -> dict[str, dict[str, Any]]:
+    statuses: dict[str, dict[str, Any]] = {}
     try:
-        from row_bot.providers.status import provider_status_cards
+        from row_bot.providers.auth_store import provider_secret_status
+        from row_bot.providers.catalog import list_provider_definitions
+        from row_bot.providers.runtime import provider_status
 
-        return {str(card.get("provider_id")): dict(card) for card in provider_status_cards() if isinstance(card, dict)}
+        for definition in list_provider_definitions():
+            provider_id = str(definition.id)
+            if provider_id == "ollama":
+                statuses[provider_id] = {
+                    "provider_id": provider_id,
+                    "configured": True,
+                    "runtime_enabled": True,
+                    "source": "catalog_cache",
+                }
+                continue
+            if provider_id in {"codex", "claude_subscription", "xai_oauth"}:
+                try:
+                    statuses[provider_id] = dict(provider_status(provider_id, refresh_tokens=False) or {})
+                except TypeError:
+                    statuses[provider_id] = dict(provider_status(provider_id) or {})
+                except Exception:
+                    statuses[provider_id] = {"provider_id": provider_id, "configured": False, "runtime_enabled": False}
+                continue
+            status = dict(provider_secret_status(provider_id, "api_key") or {})
+            status["provider_id"] = provider_id
+            status["runtime_enabled"] = bool(status.get("configured"))
+            statuses[provider_id] = status
     except Exception:
-        return {}
+        logger.debug("Could not build lightweight provider status map for catalog", exc_info=True)
+    try:
+        from row_bot.providers.custom import list_custom_endpoints
+
+        for endpoint in list_custom_endpoints():
+            if not isinstance(endpoint, dict):
+                continue
+            provider_id = str(endpoint.get("provider_id") or "")
+            if not provider_id:
+                continue
+            statuses[provider_id] = {
+                "provider_id": provider_id,
+                "configured": bool(endpoint.get("enabled", True)),
+                "runtime_enabled": bool(endpoint.get("enabled", True)),
+                "source": "custom_endpoint",
+            }
+    except Exception:
+        pass
+    return statuses
 
 
 def _curated_media_entries(surface: str) -> dict[str, dict[str, Any]]:
@@ -533,18 +622,27 @@ def _parse_model_ref(ref: str) -> tuple[str, str] | None:
 
 def _codex_model_infos() -> list[ModelInfo]:
     try:
-        from row_bot.providers.codex import list_codex_model_infos
+        from row_bot.providers.codex import list_codex_model_infos_for_status
 
-        return list_codex_model_infos()
+        return list_codex_model_infos_for_status()
     except Exception:
         return []
 
 
 def _claude_subscription_model_infos() -> list[ModelInfo]:
     try:
-        from row_bot.providers.claude_subscription import list_claude_subscription_model_infos
+        from row_bot.providers.claude_subscription import list_claude_subscription_model_infos_for_status
 
-        return list_claude_subscription_model_infos()
+        return list_claude_subscription_model_infos_for_status()
+    except Exception:
+        return []
+
+
+def _xai_oauth_model_infos() -> list[ModelInfo]:
+    try:
+        from row_bot.providers.xai_oauth import list_xai_oauth_model_infos_for_status
+
+        return list_xai_oauth_model_infos_for_status()
     except Exception:
         return []
 

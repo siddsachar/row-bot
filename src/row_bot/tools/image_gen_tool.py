@@ -56,6 +56,7 @@ _GOOGLE_MODELS = _GOOGLE_NANO_BANANA_MODELS + _GOOGLE_IMAGEN_MODELS
 
 _XAI_MODELS = [
     {"id": "grok-imagine-image", "label": "Grok Imagine"},
+    {"id": "grok-imagine-image-quality", "label": "Grok Imagine Quality"},
 ]
 
 # Flat list for backward compat (used by existing tests).

@@ -7,6 +7,8 @@ editor can use the same input bar, file upload, and message area.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import os
 import pathlib
@@ -180,23 +182,106 @@ def _voice_surface_for_state(state: AppState) -> str:
     return "normal_chat"
 
 
-def _provider_config_signature() -> tuple[str, int, int]:
+def _provider_config_signature() -> tuple[str, str]:
     try:
         from row_bot.providers import config as provider_config
 
-        path = pathlib.Path(provider_config.CONFIG_PATH)
-        stat = path.stat()
-        return (str(path), int(stat.st_mtime_ns), int(stat.st_size))
+        cfg = provider_config.load_provider_config()
+        payload = {
+            "quick_choices": [
+                {
+                    key: choice.get(key)
+                    for key in (
+                        "id",
+                        "kind",
+                        "provider_id",
+                        "model_id",
+                        "display_name",
+                        "visibility",
+                        "pinned",
+                        "order",
+                        "active",
+                        "inactive_reason",
+                        "inactive_surfaces",
+                        "capabilities_snapshot",
+                        "risk_label",
+                    )
+                    if key in choice
+                }
+                for choice in cfg.get("quick_choices", [])
+                if isinstance(choice, dict)
+            ],
+            "routes": [
+                {
+                    key: route.get(key)
+                    for key in ("id", "display_name", "enabled", "primary", "fallbacks", "data_policy")
+                    if key in route
+                }
+                for route in cfg.get("routes", [])
+                if isinstance(route, dict)
+            ],
+            "providers": {
+                str(provider_id): {
+                    key: entry.get(key)
+                    for key in (
+                        "configured",
+                        "source",
+                        "auth_method",
+                        "fingerprint",
+                        "external_reference_exists",
+                        "external_reference_path_hash",
+                        "runtime_enabled",
+                        "base_url",
+                        "enabled",
+                    )
+                    if key in entry
+                }
+                for provider_id, entry in (cfg.get("providers") or {}).items()
+                if isinstance(entry, dict)
+            },
+            "custom_endpoints": [
+                {
+                    "id": endpoint.get("id"),
+                    "provider_id": endpoint.get("provider_id"),
+                    "enabled": endpoint.get("enabled", True),
+                    "display_name": endpoint.get("display_name") or endpoint.get("name"),
+                    "base_url": endpoint.get("base_url"),
+                    "auth_required": endpoint.get("auth_required"),
+                    "models": [
+                        {
+                            key: model.get(key)
+                            for key in (
+                                "id",
+                                "model_id",
+                                "display_name",
+                                "label",
+                                "context_window",
+                                "ctx",
+                                "capabilities_snapshot",
+                                "vision",
+                            )
+                            if key in model
+                        }
+                        for model in (endpoint.get("models") or [])
+                        if isinstance(model, dict)
+                    ],
+                }
+                for endpoint in cfg.get("custom_endpoints", [])
+                if isinstance(endpoint, dict)
+            ],
+        }
+        digest = hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+        return (str(pathlib.Path(provider_config.CONFIG_PATH)), digest)
     except FileNotFoundError:
         try:
             from row_bot.providers import config as provider_config
 
-            return (str(pathlib.Path(provider_config.CONFIG_PATH)), 0, 0)
+            return (str(pathlib.Path(provider_config.CONFIG_PATH)), "")
         except Exception:
-            return ("", 0, 0)
+            return ("", "")
     except Exception:
         logger.debug("Could not stat provider config for model picker cache", exc_info=True)
-        return ("", 0, 0)
+        return ("", "")
 
 
 def _copy_model_picker_options(options: list[dict[str, Any]]) -> list[dict[str, Any]]:

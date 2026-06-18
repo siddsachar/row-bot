@@ -1006,7 +1006,7 @@ def disconnect_codex_metadata(*, remove_row_bot_tokens: bool = True) -> None:
 
 
 def list_codex_model_infos(*, force_refresh: bool = False, http_client: Any | None = None) -> list[ModelInfo]:
-    if force_refresh or (http_client is not None) or not _is_pytest_running():
+    if force_refresh or (http_client is not None):
         try:
             live_infos = fetch_codex_model_infos(http_client=http_client)
         except Exception:
@@ -1042,8 +1042,11 @@ def seed_recommended_codex_quick_choices(*, max_choices: int = 1) -> list[dict[s
         for model in FALLBACK_CODEX_MODELS
         if model.get("recommended")
     }
+    infos = list_codex_model_infos()
+    if not infos:
+        infos = list_codex_model_infos(force_refresh=True)
     candidates = [
-        model_info for model_info in list_codex_model_infos()
+        model_info for model_info in infos
         if not recommended_ids or model_info.model_id in recommended_ids
     ]
     for model_info in candidates[:max(0, max_choices)]:

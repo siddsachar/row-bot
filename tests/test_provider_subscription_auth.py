@@ -719,6 +719,7 @@ def test_codex_quick_choice_seed_requires_configured_provider(tmp_path, monkeypa
 
 def test_codex_quick_choices_are_hidden_until_runtime_enabled(tmp_path, monkeypatch):
     import row_bot.api_keys as api_keys
+    import row_bot.providers.selection as selection
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
@@ -726,6 +727,7 @@ def test_codex_quick_choices_are_hidden_until_runtime_enabled(tmp_path, monkeypa
         "configured": True,
         "runtime_enabled": False,
     })
+    selection._provider_status_picker_cache.clear()
 
     add_quick_choice_for_model(
         "gpt-5.4",

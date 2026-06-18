@@ -110,6 +110,16 @@ PROVIDER_DEFINITIONS: dict[str, ProviderDefinition] = {
         base_url="https://api.x.ai/v1",
         icon="X",
     ),
+    "xai_oauth": ProviderDefinition(
+        id="xai_oauth",
+        display_name="xAI Grok",
+        auth_methods=(AuthMethod.OAUTH_PKCE,),
+        default_transport=TransportMode.OPENAI_RESPONSES,
+        base_url="https://api.x.ai/v1",
+        risk_label="subscription",
+        experimental=True,
+        icon="X",
+    ),
     "minimax": ProviderDefinition(
         id="minimax",
         display_name="MiniMax API",
@@ -449,6 +459,34 @@ def classify_model_capabilities(
         default_transport = TransportMode.OPENAI_RESPONSES
         tasks = {ModelTask.RESPONSES.value}
         endpoint_compatibility = {TransportMode.OPENAI_RESPONSES}
+    if provider_id == "xai_oauth":
+        default_transport = TransportMode.OPENAI_RESPONSES
+        tasks = {ModelTask.RESPONSES.value}
+        endpoint_compatibility = {TransportMode.OPENAI_RESPONSES}
+        tool_calling = metadata.get("tool_calling") if isinstance(metadata.get("tool_calling"), bool) else True
+        streaming = metadata.get("streaming") if isinstance(metadata.get("streaming"), bool) else True
+        for key in ("input_modalities", "input", "modalities"):
+            modalities = metadata.get(key)
+            if isinstance(modalities, str):
+                modalities = [modalities]
+            if isinstance(modalities, (list, tuple, set, frozenset)):
+                normalized = {str(item).strip().lower() for item in modalities}
+                if "image" in normalized:
+                    input_modalities.add(ModelModality.IMAGE.value)
+                    capabilities.add("vision")
+        capabilities_payload = metadata.get("capabilities")
+        if isinstance(capabilities_payload, dict):
+            for key in ("image_input", "vision", "image"):
+                value = capabilities_payload.get(key)
+                if value is True or (isinstance(value, dict) and value.get("supported")):
+                    input_modalities.add(ModelModality.IMAGE.value)
+                    capabilities.add("vision")
+        elif isinstance(capabilities_payload, list):
+            if any(str(value).strip().lower() in {"image", "vision", "image_input"} for value in capabilities_payload):
+                input_modalities.add(ModelModality.IMAGE.value)
+                capabilities.add("vision")
+        if "reasoning" in lower or lower.startswith("grok-4"):
+            capabilities.add("reasoning")
     if provider_id == "claude_subscription":
         default_transport = TransportMode.ANTHROPIC_MESSAGES
         endpoint_compatibility = {TransportMode.ANTHROPIC_MESSAGES}

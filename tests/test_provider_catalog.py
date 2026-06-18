@@ -407,6 +407,13 @@ def test_xai_imagine_image_model_is_image_generation_surface():
     assert classified["output_modalities"] == {"image"}
 
 
+def test_xai_imagine_quality_model_is_image_generation_surface():
+    classified = classify_model_capabilities("xai", "grok-imagine-image-quality")
+
+    assert classified["tasks"] == {"image_generation"}
+    assert classified["output_modalities"] == {"image"}
+
+
 def test_model_catalog_splits_media_from_chat_and_preserves_pins(monkeypatch):
     import row_bot.providers.model_catalog as catalog_view
 
