@@ -106,6 +106,56 @@ def _agent_mode_badge_state(
     return {"visible": True, "label": label, "color": "orange", "tooltip": details}
 
 
+def _quick_choice_media_config_value(choice: dict[str, Any]) -> str:
+    provider_id = str(choice.get("provider_id") or "")
+    model_id = str(choice.get("model_id") or "")
+    if not (provider_id and model_id):
+        try:
+            from row_bot.providers.selection import parse_model_ref
+
+            parsed = parse_model_ref(str(choice.get("id") or ""))
+        except Exception:
+            parsed = None
+        if parsed:
+            provider_id, model_id = parsed
+    if provider_id and model_id:
+        return f"{provider_id}/{model_id}"
+    return ""
+
+
+def _quick_choice_matches_media_surface(choice: dict[str, Any], surface: str) -> bool:
+    if choice.get("kind") != "model":
+        return False
+    visibility = choice.get("visibility")
+    if isinstance(visibility, (list, tuple, set)) and surface in {str(item) for item in visibility}:
+        return True
+    try:
+        from row_bot.providers.capabilities import snapshot_supports_surface
+
+        return snapshot_supports_surface(choice.get("capabilities_snapshot"), surface)
+    except Exception:
+        return False
+
+
+def _pinned_media_options(
+    surface: str,
+    available: dict[str, str],
+    current_value: str,
+    quick_choices: list[dict[str, Any]],
+) -> dict[str, str]:
+    allowed = {
+        value
+        for choice in quick_choices
+        if _quick_choice_matches_media_surface(choice, surface)
+        for value in [_quick_choice_media_config_value(choice)]
+        if value
+    }
+    options = {key: label for key, label in available.items() if key in allowed}
+    if current_value in available:
+        options[current_value] = available[current_value]
+    return options
+
+
 def open_settings(
     state: AppState,
     p: P,
@@ -957,6 +1007,7 @@ def open_settings(
     def _render_models_tab_content(preloaded: dict | None = None) -> None:
         from row_bot.providers.selection import (
             list_model_choice_options,
+            list_quick_choices,
             model_choice_options_map,
             model_choice_value,
             model_id_from_choice_value,
@@ -1538,6 +1589,7 @@ def open_settings(
             refreshed_chat_options = list_model_choice_options("chat", include_values=[current_chat])
             current_vision = vsvc.model
             refreshed_vision_options = list_model_choice_options("vision", include_values=[current_vision])
+            quick_choices = list_quick_choices("", include_inactive=True)
 
             image_options = {}
             current_image = DEFAULT_MODEL
@@ -1546,7 +1598,7 @@ def open_settings(
 
                 available_image = get_available_image_models()
                 current_image = _ig_tool.get_config("model", DEFAULT_MODEL) if _ig_tool else DEFAULT_MODEL
-                image_options = _pinned_media_options("image", available_image, current_image)
+                image_options = _pinned_media_options("image", available_image, current_image, quick_choices)
             except Exception:
                 logger.debug("Could not refresh image picker options", exc_info=True)
 
@@ -1557,7 +1609,7 @@ def open_settings(
 
                 available_video = get_available_video_models()
                 current_video = _vg_tool.get_config("model", _VG_DEFAULT) if _vg_tool else _VG_DEFAULT
-                video_options = _pinned_media_options("video", available_video, current_video)
+                video_options = _pinned_media_options("video", available_video, current_video, quick_choices)
             except Exception:
                 logger.debug("Could not refresh video picker options", exc_info=True)
 
@@ -1787,7 +1839,6 @@ def open_settings(
         _render_catalog_status()
 
     def _collect_models_tab_data() -> dict:
-        from row_bot.providers.capabilities import snapshot_supports_surface
         from row_bot.providers.selection import list_model_choice_options, list_quick_choices
 
         started = time.perf_counter()
@@ -1817,25 +1868,8 @@ def open_settings(
         except Exception:
             video_model = ""
             available_video = {}
-        def _pinned_media_options(surface: str, available: dict[str, str], current_value: str) -> dict[str, str]:
-            allowed = {
-                f"{choice.get('provider_id')}/{choice.get('model_id')}"
-                for choice in quick_choices
-                if choice.get("kind") == "model"
-                and choice.get("provider_id")
-                and choice.get("model_id")
-                and (
-                    surface in (choice.get("visibility") or [])
-                    or snapshot_supports_surface(choice.get("capabilities_snapshot"), surface)
-                )
-            }
-            options = {key: label for key, label in available.items() if key in allowed}
-            if current_value in available:
-                options[current_value] = available[current_value]
-            return options
-
-        image_options = _pinned_media_options("image", available_image, image_model)
-        video_options = _pinned_media_options("video", available_video, video_model)
+        image_options = _pinned_media_options("image", available_image, image_model, quick_choices)
+        video_options = _pinned_media_options("video", available_video, video_model, quick_choices)
         options_started = time.perf_counter()
         chat_options = list_model_choice_options("chat", include_values=[current_model])
         vision_options = list_model_choice_options("vision", include_values=[vision_model])

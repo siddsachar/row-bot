@@ -68,6 +68,26 @@ def test_row_bot_status_leaves_ambiguous_media_bare_id_unchanged(monkeypatch):
     assert _normalize_provider_model_value("image_gen_model", "shared-image") == "shared-image"
 
 
+def test_row_bot_status_resolves_explicit_xai_oauth_media_label(monkeypatch):
+    import row_bot.tools.image_gen_tool as image_gen_tool
+    import row_bot.tools.video_gen_tool as video_gen_tool
+    from row_bot.tools.row_bot_status_tool import _normalize_provider_model_value
+
+    monkeypatch.setattr(image_gen_tool, "get_available_image_models", lambda: {
+        "xai/grok-imagine-image": "ð•  Grok Imagine  (xAI)",
+        "xai_oauth/grok-imagine-image": "X  Grok Imagine  (xAI Grok)",
+    })
+    monkeypatch.setattr(video_gen_tool, "get_available_video_models", lambda: {
+        "xai/grok-imagine-video": "ð•  Grok Imagine Video  (xAI)",
+        "xai_oauth/grok-imagine-video": "X  Grok Imagine Video  (xAI Grok)",
+    })
+
+    assert _normalize_provider_model_value("image_gen_model", "Grok Imagine (xAI Grok)") == "xai_oauth/grok-imagine-image"
+    assert _normalize_provider_model_value("image_gen_model", "grok-imagine-image") == "grok-imagine-image"
+    assert _normalize_provider_model_value("video_gen_model", "Grok Imagine Video (xAI Grok)") == "xai_oauth/grok-imagine-video"
+    assert _normalize_provider_model_value("video_gen_model", "grok-imagine-video") == "grok-imagine-video"
+
+
 def test_row_bot_status_voice_reports_runtime_and_realtime(monkeypatch):
     from row_bot.tools.row_bot_status_tool import _query_voice
 

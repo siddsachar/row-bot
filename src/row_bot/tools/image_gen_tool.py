@@ -228,6 +228,12 @@ def _get_client() -> tuple:
     from row_bot.api_keys import get_key
 
     provider, _ = _parse_model_config(_get_configured_selection())
+    if provider in {"xai", "xai_oauth"}:
+        from row_bot.providers.xai_media import xai_media_auth_context
+
+        ctx = xai_media_auth_context(provider)
+        return None, ctx.label, provider
+
     prov_info = _PROVIDERS.get(provider)
     if not prov_info:
         raise RuntimeError(
@@ -339,7 +345,11 @@ def _generate_image(
     """Generate an image from a text prompt."""
     global _last_generated_image
 
-    client, provider_label, provider_id = _get_client()
+    try:
+        client, provider_label, provider_id = _get_client()
+    except Exception as e:
+        logger.error("Image generation failed: %s", e, exc_info=True)
+        return f"Image generation failed: {e}"
     model = _get_configured_model()
 
     logger.info("generate_image: model=%s, size=%s, quality=%s, provider=%s",
@@ -403,36 +413,49 @@ def _generate_image(
     # ── xAI provider ──────────────────────────────────────────────────────
     # xAI does NOT support 'size' or 'style'. Uses 'aspect_ratio' & 'resolution'.
     # These are xAI-specific params so must go via extra_body.
-    if provider_id == "xai":
+    if provider_id in {"xai", "xai_oauth"}:
+        from row_bot.providers.xai_media import xai_media_get, xai_media_json_request
+
         aspect = _OPENAI_SIZE_TO_ASPECT.get(size, "1:1") if size != "auto" else "auto"
-        extra: dict = {}
+        body: dict = {
+            "model": model,
+            "prompt": prompt,
+            "n": 1,
+            "response_format": "b64_json",
+        }
         if aspect != "auto":
-            extra["aspect_ratio"] = aspect
+            body["aspect_ratio"] = aspect
         res = _XAI_QUALITY_TO_RESOLUTION.get(quality)
         if res:
-            extra["resolution"] = res
+            body["resolution"] = res
         if quality != "auto":
-            extra["quality"] = quality
+            body["quality"] = quality
 
         try:
-            response = client.images.generate(
-                model=model,
-                prompt=prompt,
-                n=1,
-                response_format="b64_json",
-                extra_body=extra if extra else None,
+            data = xai_media_json_request(
+                provider_id,
+                "POST",
+                "/images/generations",
+                json=body,
+                timeout=120,
             )
         except Exception as e:
             logger.error("Image generation failed: %s", e, exc_info=True)
             return f"Image generation failed: {e}"
 
-        image_data = response.data[0]
-        if hasattr(image_data, "b64_json") and image_data.b64_json:
-            b64_str = image_data.b64_json
-        elif hasattr(image_data, "url") and image_data.url:
-            import urllib.request
-            with urllib.request.urlopen(image_data.url) as resp:
-                b64_str = base64.b64encode(resp.read()).decode("ascii")
+        items = data.get("data") if isinstance(data.get("data"), list) else []
+        if not items:
+            return "Image generation returned no image data."
+        image_data = items[0] if isinstance(items[0], dict) else {}
+        if image_data.get("b64_json"):
+            b64_str = str(image_data["b64_json"])
+        elif image_data.get("url"):
+            try:
+                resp = xai_media_get(provider_id, str(image_data["url"]), timeout=120, follow_redirects=True)
+                b64_str = base64.b64encode(resp.content).decode("ascii")
+            except Exception as e:
+                logger.error("Image download failed: %s", e, exc_info=True)
+                return f"Image generated but download failed: {e}"
         else:
             return "Image generation returned no image data."
 
@@ -500,7 +523,11 @@ def _edit_image(
     """Edit an existing image using a text prompt."""
     global _last_generated_image
 
-    client, provider_label, provider_id = _get_client()
+    try:
+        client, provider_label, provider_id = _get_client()
+    except Exception as e:
+        logger.error("Image edit failed: %s", e, exc_info=True)
+        return f"Image edit failed: {e}"
     model = _get_configured_model()
 
     # Imagen 4 does not support editing
@@ -558,8 +585,8 @@ def _edit_image(
         return result
 
     # ── xAI provider — uses JSON body with image URL, not multipart ─────
-    if provider_id == "xai":
-        import httpx
+    if provider_id in {"xai", "xai_oauth"}:
+        from row_bot.providers.xai_media import xai_media_get, xai_media_json_request
 
         b64_src = base64.b64encode(image_bytes).decode("ascii")
         mime = _detect_mime(image_bytes)
@@ -581,18 +608,14 @@ def _edit_image(
         if res:
             body["resolution"] = res
 
-        from row_bot.api_keys import get_key
-        api_key = get_key("XAI_API_KEY")
         try:
-            resp = httpx.post(
-                "https://api.x.ai/v1/images/edits",
-                headers={"Authorization": f"Bearer {api_key}",
-                         "Content-Type": "application/json"},
+            data = xai_media_json_request(
+                provider_id,
+                "POST",
+                "/images/edits",
                 json=body,
                 timeout=120,
             )
-            resp.raise_for_status()
-            data = resp.json()
         except Exception as e:
             logger.error("Image edit failed: %s", e, exc_info=True)
             return f"Image edit failed: {e}"
@@ -603,9 +626,12 @@ def _edit_image(
         item = items[0]
         b64_str = item.get("b64_json") or ""
         if not b64_str and item.get("url"):
-            import urllib.request
-            with urllib.request.urlopen(item["url"]) as dl:
-                b64_str = base64.b64encode(dl.read()).decode("ascii")
+            try:
+                resp = xai_media_get(provider_id, str(item["url"]), timeout=120, follow_redirects=True)
+                b64_str = base64.b64encode(resp.content).decode("ascii")
+            except Exception as e:
+                logger.error("Image edit download failed: %s", e, exc_info=True)
+                return f"Image edited but download failed: {e}"
         if not b64_str:
             return "Image edit returned no image data."
 

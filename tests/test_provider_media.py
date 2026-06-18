@@ -104,6 +104,50 @@ def test_xai_imagine_catalog_entry_appears_in_image_options(monkeypatch):
     assert options["xai/grok-imagine-image"] == "𝕏  Grok Imagine  (xAI)"
 
 
+def test_xai_oauth_media_options_require_oauth_runtime(monkeypatch):
+    import row_bot.api_keys as api_keys
+    import row_bot.models as models
+    import row_bot.providers.xai_oauth as xai_oauth
+    from row_bot.tools.image_gen_tool import get_available_image_models
+    from row_bot.tools.video_gen_tool import get_available_video_models
+
+    monkeypatch.setattr(api_keys, "get_key", lambda key: "")
+    monkeypatch.setattr(xai_oauth, "xai_oauth_runtime_available", lambda *, refresh_if_needed=False: False)
+    models._cloud_model_cache.clear()
+
+    assert "xai_oauth/grok-imagine-image" not in get_available_image_models()
+    assert "xai_oauth/grok-imagine-video" not in get_available_video_models()
+
+    monkeypatch.setattr(xai_oauth, "xai_oauth_runtime_available", lambda *, refresh_if_needed=False: True)
+
+    image_options = get_available_image_models()
+    video_options = get_available_video_models()
+
+    assert "xai_oauth/grok-imagine-image" in image_options
+    assert "xai_oauth/grok-imagine-image-quality" in image_options
+    assert image_options["xai_oauth/grok-imagine-image"] == "X  Grok Imagine  (xAI Grok)"
+    assert "xai_oauth/grok-imagine-video" in video_options
+    assert video_options["xai_oauth/grok-imagine-video"] == "X  Grok Imagine Video  (xAI Grok)"
+    assert "xai/grok-imagine-image" not in image_options
+    assert "xai/grok-imagine-video" not in video_options
+
+
+def test_xai_api_key_media_options_stay_separate_from_oauth(monkeypatch):
+    import row_bot.api_keys as api_keys
+    import row_bot.models as models
+    import row_bot.providers.xai_oauth as xai_oauth
+    from row_bot.tools.image_gen_tool import get_available_image_models
+
+    monkeypatch.setattr(api_keys, "get_key", lambda key: "xai-api-key" if key == "XAI_API_KEY" else "")
+    monkeypatch.setattr(xai_oauth, "xai_oauth_runtime_available", lambda *, refresh_if_needed=False: False)
+    models._cloud_model_cache.clear()
+
+    options = get_available_image_models()
+
+    assert "xai/grok-imagine-image" in options
+    assert "xai_oauth/grok-imagine-image" not in options
+
+
 def test_curated_media_catalog_does_not_overwrite_live_media_row():
     from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
     from row_bot.providers.model_catalog import build_model_catalog_rows
@@ -151,3 +195,26 @@ def test_grouped_quick_choices_seed_current_media_tool_defaults(tmp_path, monkey
     assert [choice["model_id"] for choice in groups["image"]] == ["gpt-image-2"]
     assert [choice["model_id"] for choice in groups["video"]] == ["veo-4.0-generate-preview"]
     assert groups["chat"] == []
+
+
+def test_seed_configured_media_quick_choices_supports_xai_oauth(tmp_path, monkeypatch):
+    import row_bot.api_keys as api_keys
+    import row_bot.providers.config as provider_config
+    import row_bot.providers.xai_oauth as xai_oauth
+    from row_bot.providers.selection import seed_configured_media_quick_choices
+    from row_bot.tools import registry
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+    monkeypatch.setattr(xai_oauth, "xai_oauth_runtime_available", lambda *, refresh_if_needed=False: True)
+    registry.set_tool_config("image_gen", "model", "xai_oauth/grok-imagine-image")
+    registry.set_tool_config("video_gen", "model", "xai_oauth/grok-imagine-video")
+
+    quick = seed_configured_media_quick_choices()
+    by_id = {choice["id"]: choice for choice in quick}
+
+    assert by_id["model:xai_oauth:grok-imagine-image"]["provider_id"] == "xai_oauth"
+    assert by_id["model:xai_oauth:grok-imagine-image"]["visibility"] == ["image"]
+    assert by_id["model:xai_oauth:grok-imagine-video"]["provider_id"] == "xai_oauth"
+    assert by_id["model:xai_oauth:grok-imagine-video"]["visibility"] == ["video"]

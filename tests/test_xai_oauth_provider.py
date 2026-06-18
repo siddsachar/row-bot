@@ -545,14 +545,20 @@ def test_xai_oauth_model_catalog_live_discovery_and_cache(tmp_path, monkeypatch)
 
     assert client.calls[0][1] == "https://api.x.ai/v1/models"
     assert client.calls[0][2]["headers"]["Authorization"] == "Bearer access-token"
-    assert {info.model_id for info in infos} == {"grok-4", "grok-4-vision", XAI_COMPOSER_MODEL_ID}
+    assert {info.model_id for info in infos} == {"grok-4", "grok-4-vision", "grok-imagine-image", XAI_COMPOSER_MODEL_ID}
     vision = next(info for info in infos if info.model_id == "grok-4-vision")
+    media = next(info for info in infos if info.model_id == "grok-imagine-image")
     composer = next(info for info in infos if info.model_id == XAI_COMPOSER_MODEL_ID)
     assert vision.provider_id == "xai_oauth"
     assert vision.transport == TransportMode.OPENAI_RESPONSES
     assert vision.tasks == frozenset({ModelTask.RESPONSES.value})
     assert "image" in vision.input_modalities
     assert vision.selection_ref == "model:xai_oauth:grok-4-vision"
+    assert media.provider_id == "xai_oauth"
+    assert media.tasks == frozenset({ModelTask.IMAGE_GENERATION.value})
+    assert media.output_modalities == frozenset({"image"})
+    assert media.tool_calling is False
+    assert media.selection_ref == "model:xai_oauth:grok-imagine-image"
     assert composer.provider_id == "xai_oauth"
     assert composer.transport == TransportMode.OPENAI_RESPONSES
     assert composer.tasks == frozenset({ModelTask.RESPONSES.value})

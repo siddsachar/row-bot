@@ -508,6 +508,30 @@ def test_brain_badge_keeps_openrouter_unknown_tools_visible(monkeypatch):
     assert badge["label"] == "chat only"
 
 
+def test_settings_media_picker_accepts_canonical_pin_ids():
+    import row_bot.ui.settings as settings_ui
+
+    quick_choices = [{
+        "id": "model:xai_oauth:grok-imagine-image",
+        "kind": "model",
+        "visibility": ["image"],
+        "capabilities_snapshot": {
+            "tasks": ["image_generation"],
+            "input_modalities": ["text"],
+            "output_modalities": ["image"],
+        },
+    }]
+    available = {
+        "xai_oauth/grok-imagine-image": "X  Grok Imagine  (xAI Grok)",
+        "xai/grok-imagine-image": "X  Grok Imagine  (xAI)",
+    }
+
+    assert settings_ui._pinned_media_options("image", available, "", quick_choices) == {
+        "xai_oauth/grok-imagine-image": "X  Grok Imagine  (xAI Grok)",
+    }
+    assert settings_ui._pinned_media_options("video", available, "", quick_choices) == {}
+
+
 def test_brain_badge_marks_unprobed_custom_endpoint_probe_required(tmp_path, monkeypatch):
     import row_bot.models as models
     import row_bot.ui.settings as settings_ui

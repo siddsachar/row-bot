@@ -554,7 +554,7 @@ def classify_model_capabilities(
         tool_calling = False
     elif any(part in lower for part in ("dall-e", "gpt-image", "imagen", "image-generation")) or (
         provider_id == "google" and bare.startswith("gemini") and "image" in lower
-    ) or (provider_id == "xai" and "grok-imagine" in lower and "image" in lower):
+    ) or (provider_id in {"xai", "xai_oauth"} and "grok-imagine" in lower and "image" in lower):
         tasks = {ModelTask.IMAGE_GENERATION.value}
         if provider_id == "google" and bare.startswith("gemini"):
             tasks.add(ModelTask.IMAGE_EDIT.value)
@@ -564,11 +564,13 @@ def classify_model_capabilities(
         if ModelTask.IMAGE_EDIT.value in tasks:
             capabilities.add("image_edit")
         tool_calling = False
+        streaming = False
     elif any(part in lower for part in ("veo", "video")):
         tasks = {ModelTask.VIDEO_GENERATION.value}
         output_modalities = {ModelModality.VIDEO.value}
         capabilities = {"video_generation"}
         tool_calling = False
+        streaming = False
     elif any(part in lower for part in ("whisper", "transcri", "transcribe", "transcription")):
         tasks = {ModelTask.TRANSCRIPTION.value}
         input_modalities = {ModelModality.AUDIO.value}

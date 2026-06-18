@@ -1141,7 +1141,16 @@ def run_xai_oauth_vision_probe(
     candidate_model_ids: list[str] = [model_id] if model_id else []
     if not candidate_model_ids:
         infos = list_xai_oauth_model_infos()
-        candidate_model_ids = [info.model_id for info in infos if info.model_id]
+        media_tasks = {
+            ModelTask.IMAGE_GENERATION.value,
+            ModelTask.IMAGE_EDIT.value,
+            ModelTask.VIDEO_GENERATION.value,
+        }
+        candidate_model_ids = [
+            info.model_id
+            for info in infos
+            if info.model_id and not (set(info.tasks) and set(info.tasks).issubset(media_tasks))
+        ]
     if not candidate_model_ids:
         candidate_model_ids = ["grok-4"]
 
@@ -1674,18 +1683,34 @@ def _xai_context_window(model_id: str, metadata: dict[str, Any]) -> int:
     return 131_072
 
 
-def _is_hidden_or_media_model(item: dict[str, Any], model_id: str) -> bool:
-    if is_hidden_xai_model(item, model_id):
-        return True
+def _is_xai_media_model_id(model_id: str) -> bool:
     lower = model_id.lower()
     return "grok-imagine" in lower or "image-generation" in lower or "video-generation" in lower
 
 
 def _model_info_from_live_item(item: dict[str, Any], *, verified_at: str) -> ModelInfo | None:
     model_id = str(item.get("id") or item.get("model") or item.get("name") or "").strip()
-    if not model_id or _is_hidden_or_media_model(item, model_id):
+    if not model_id or is_hidden_xai_model(item, model_id):
         return None
     display_name = str(item.get("display_name") or item.get("displayName") or item.get("label") or model_id)
+    if _is_xai_media_model_id(model_id):
+        from row_bot.providers.catalog import model_info_from_metadata
+
+        info = model_info_from_metadata(
+            XAI_OAUTH_PROVIDER_ID,
+            model_id,
+            item,
+            display_name=display_name,
+            context_window=0,
+            risk_label="subscription",
+            source="xai_oauth_live_media_catalog",
+        )
+        return replace(
+            info,
+            billing_label="subscription",
+            source_confidence="live_xai_oauth_media_catalog",
+            last_verified_at=verified_at,
+        )
     inputs = (
         _normalize_modalities(item.get("input_modalities"))
         or _normalize_modalities(item.get("inputModalities"))

@@ -774,11 +774,11 @@ def _quick_choice_for_media_selection(selection: str, surface: str) -> dict[str,
     if not provider_id or not model_id:
         return None
     try:
-        from row_bot.api_keys import get_key
-        from row_bot.providers.media import IMAGE_PROVIDER_META, VIDEO_PROVIDER_META
+        from row_bot.providers.media import IMAGE_PROVIDER_META, VIDEO_PROVIDER_META, _media_provider_available
+
         provider_meta = IMAGE_PROVIDER_META if surface == "image" else VIDEO_PROVIDER_META
         meta = provider_meta.get(provider_id)
-        if not meta or not get_key(meta["key"]):
+        if not meta or not _media_provider_available(provider_id, meta):
             return None
     except Exception:
         return None

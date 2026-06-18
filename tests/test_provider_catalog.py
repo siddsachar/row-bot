@@ -414,6 +414,20 @@ def test_xai_imagine_quality_model_is_image_generation_surface():
     assert classified["output_modalities"] == {"image"}
 
 
+def test_xai_oauth_imagine_models_are_media_surfaces():
+    image = classify_model_capabilities("xai_oauth", "grok-imagine-image")
+    video = classify_model_capabilities("xai_oauth", "grok-imagine-video")
+
+    assert image["tasks"] == {"image_generation"}
+    assert image["output_modalities"] == {"image"}
+    assert image["tool_calling"] is False
+    assert image["streaming"] is False
+    assert video["tasks"] == {"video_generation"}
+    assert video["output_modalities"] == {"video"}
+    assert video["tool_calling"] is False
+    assert video["streaming"] is False
+
+
 def test_model_catalog_splits_media_from_chat_and_preserves_pins(monkeypatch):
     import row_bot.providers.model_catalog as catalog_view
 
@@ -472,6 +486,32 @@ def test_model_catalog_splits_media_from_chat_and_preserves_pins(monkeypatch):
     assert "image" in by_id["gpt-image-1"].pinned_surfaces
     assert "chat" in by_id["gpt-4o"].default_surfaces
     assert "image" in by_id["gpt-image-1"].default_surfaces
+
+
+def test_model_catalog_surfaces_connected_xai_oauth_media_as_media_only(monkeypatch):
+    import row_bot.providers.model_catalog as catalog_view
+
+    monkeypatch.setattr(
+        catalog_view,
+        "_provider_status_by_id",
+        lambda: {"xai_oauth": {"configured": True, "runtime_enabled": True}},
+    )
+    monkeypatch.setattr(catalog_view, "_custom_model_infos", lambda: [])
+    monkeypatch.setattr(catalog_view, "_codex_model_infos", lambda: [])
+    monkeypatch.setattr(catalog_view, "_opencode_model_infos", lambda provider_status=None: [])
+    monkeypatch.setattr(catalog_view, "_claude_subscription_model_infos", lambda: [])
+    monkeypatch.setattr(catalog_view, "_xai_oauth_model_infos", lambda: [])
+
+    rows = build_model_catalog_rows(cloud_cache={}, ollama_rows=[], quick_choices=[])
+    oauth_rows = [row for row in rows if row.provider_id == "xai_oauth"]
+    by_model = {row.model_id: row for row in oauth_rows}
+
+    assert by_model["grok-imagine-image"].supports("image")
+    assert not by_model["grok-imagine-image"].supports("chat")
+    assert by_model["grok-imagine-video"].supports("video")
+    assert not by_model["grok-imagine-video"].supports("chat")
+    assert by_model["grok-imagine-image"].runtime_ready is True
+    assert by_model["grok-imagine-video"].runtime_ready is True
 
 
 def test_model_catalog_lists_voice_models_on_voice_surface(monkeypatch):
