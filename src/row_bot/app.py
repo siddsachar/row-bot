@@ -829,6 +829,9 @@ async def index():
         max-width: 100%;
         min-width: 0;
         overflow: hidden;
+        padding-left: var(--row-bot-main-left-correction, 0px);
+        padding-right: var(--row-bot-main-right-correction, 0px);
+        transition: padding-left 120ms ease, padding-right 120ms ease;
     }
     .row-bot-main-card {
         box-sizing: border-box;
@@ -862,6 +865,57 @@ async def index():
         }
     }
     </style>
+    <script>
+    (() => {
+      if (window.__rowBotDrawerOverlapGuardInstalled) return;
+      window.__rowBotDrawerOverlapGuardInstalled = true;
+
+      const visibleRect = (element) => {
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return null;
+        const style = window.getComputedStyle(element);
+        if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') === 0) return null;
+        return rect;
+      };
+
+      const drawerRoot = (selector, fallbackSelector) => {
+        const marker = document.querySelector(selector);
+        if (marker) {
+          return marker.closest('.q-drawer') || marker;
+        }
+        return document.querySelector(fallbackSelector);
+      };
+
+      const apply = () => {
+        const shell = document.querySelector('.row-bot-main-shell');
+        if (!shell) return;
+        const shellRect = shell.getBoundingClientRect();
+        const leftRect = visibleRect(drawerRoot('[data-row-bot-left-drawer="1"]', '.q-drawer--left'));
+        const rightRect = visibleRect(drawerRoot('[data-workflow-console-drawer="1"]', '.q-drawer--right'));
+        const leftOverlap = leftRect ? Math.max(0, Math.ceil(leftRect.right - shellRect.left)) : 0;
+        const rightOverlap = rightRect ? Math.max(0, Math.ceil(shellRect.right - rightRect.left)) : 0;
+        shell.style.setProperty('--row-bot-main-left-correction', `${leftOverlap}px`);
+        shell.style.setProperty('--row-bot-main-right-correction', `${rightOverlap}px`);
+      };
+
+      const schedule = () => {
+        window.requestAnimationFrame(apply);
+        window.setTimeout(apply, 75);
+        window.setTimeout(apply, 250);
+      };
+
+      window.__rowBotApplyDrawerOverlapGuard = schedule;
+      window.addEventListener('resize', schedule, {passive: true});
+      window.addEventListener('orientationchange', schedule, {passive: true});
+      document.addEventListener('visibilitychange', schedule);
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', schedule, {once: true});
+      } else {
+        schedule();
+      }
+    })();
+    </script>
     """)
     _docs_capture_css = docs_capture_reduce_motion_css()
     if _docs_capture_css:

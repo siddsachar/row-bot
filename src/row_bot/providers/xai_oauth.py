@@ -6,6 +6,7 @@ import json
 import os
 import re
 import secrets
+import time
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -365,6 +366,7 @@ def wait_for_xai_oauth_loopback_authorization(
     open_browser: bool = True,
     browser_open: Any | None = None,
     ready_callback: Any | None = None,
+    cancel_event: Any | None = None,
     timeout_seconds: float | None = None,
 ) -> XAIOAuthAuthorization:
     """Wait for one xAI OAuth loopback callback and return a validated authorization."""
@@ -425,7 +427,8 @@ def wait_for_xai_oauth_loopback_authorization(
             kind="loopback_port_unavailable",
         ) from exc
 
-    server.timeout = float(timeout_seconds or XAI_OAUTH_TIMEOUT_SECONDS)
+    timeout = float(timeout_seconds or XAI_OAUTH_TIMEOUT_SECONDS)
+    deadline = time.monotonic() + timeout
     try:
         if callable(ready_callback):
             ready_callback()
@@ -435,7 +438,14 @@ def wait_for_xai_oauth_loopback_authorization(
                 opener(flow.authorization_url)
             except Exception as exc:
                 raise XAIOAuthError(f"Could not open xAI Grok sign-in page: {exc}", kind="browser_open_failed") from exc
-        server.handle_request()
+        while time.monotonic() < deadline:
+            if cancel_event is not None and getattr(cancel_event, "is_set", lambda: False)():
+                raise XAIOAuthError("xAI OAuth loopback sign-in was cancelled.", kind="loopback_cancelled")
+            remaining = max(0.0, deadline - time.monotonic())
+            server.timeout = min(remaining, 0.25) if cancel_event is not None else remaining
+            server.handle_request()
+            if result.get("authorization") is not None or result.get("error") is not None:
+                break
     finally:
         server.server_close()
 

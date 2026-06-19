@@ -2100,9 +2100,8 @@ class RowBotTray:
 
     # ── Entry point ──────────────────────────────────────────────────────
 
-    def run(self) -> None:
-        """Start the tray icon, the NiceGUI server, and a native window."""
-        _launch_event("tray_run_start", port=self._preferred_port, mode=self._preferred_mode or "auto")
+    def _run_startup_sequence(self) -> None:
+        """Start server/window work once the tray backend is ready."""
         splash_proc: subprocess.Popen | None = _claim_early_splash()
         ollama_started = time.perf_counter()
         # Best-effort local runtime convenience. Provider-only and custom
@@ -2161,8 +2160,29 @@ class RowBotTray:
             logger.warning("Server did not start in time — opening browser as fallback")
             webbrowser.open(_url_for_port(self._port))
 
-        # Blocking — runs the tray icon's event loop on the main thread
-        logger.info("%s tray running  (Ctrl+C or Quit menu to exit)", APP_DISPLAY_NAME)
+        logger.info("%s tray startup complete", APP_DISPLAY_NAME)
+
+    def run(self) -> None:
+        """Start the tray icon, the NiceGUI server, and a native window."""
+        _launch_event("tray_run_start", port=self._preferred_port, mode=self._preferred_mode or "auto")
+
+        if sys.platform == "darwin":
+            logger.info("Starting macOS tray run loop before launcher startup")
+
+            def _setup(_icon) -> None:
+                try:
+                    self._run_startup_sequence()
+                except Exception:
+                    logger.exception("macOS tray startup failed")
+                    try:
+                        self._icon.stop()
+                    except Exception:
+                        logger.debug("Could not stop macOS tray after startup failure", exc_info=True)
+
+            self._icon.run(setup=_setup)
+            return
+
+        self._run_startup_sequence()
         self._icon.run()
 
 

@@ -350,6 +350,48 @@ def test_main_requests_early_splash_before_migration(monkeypatch):
     assert ("tray_run", True) in calls
 
 
+def test_macos_tray_run_loop_starts_before_launcher_startup(monkeypatch):
+    events = []
+
+    class FakeMenu:
+        SEPARATOR = object()
+
+        def __init__(self, *items):
+            self.items = items
+
+    class FakeMenuItem:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+    class FakeIcon:
+        def __init__(self, **kwargs):
+            events.append("icon_init")
+            self.kwargs = kwargs
+
+        def run(self, setup=None):
+            events.append("icon_run")
+            assert setup is not None
+            setup(self)
+
+        def stop(self):
+            events.append("icon_stop")
+
+    fake_pystray = SimpleNamespace(Menu=FakeMenu, MenuItem=FakeMenuItem, Icon=FakeIcon)
+    monkeypatch.setitem(sys.modules, "pystray", fake_pystray)
+    monkeypatch.setattr(launcher.sys, "platform", "darwin")
+    monkeypatch.setattr(launcher, "_get_icon", lambda state: object())
+    monkeypatch.setattr(launcher, "_launch_event", lambda *args, **kwargs: None)
+
+    tray = launcher.RowBotTray(no_ollama=True)
+    monkeypatch.setattr(tray, "_run_startup_sequence", lambda: events.append("startup"))
+
+    tray.run()
+
+    assert events[:2] == ["icon_init", "icon_run"]
+    assert events.index("icon_run") < events.index("startup")
+
+
 def test_update_handoff_helper_is_targeted_and_logged():
     source = Path("src/row_bot/update_handoff.py").read_text(encoding="utf-8")
 

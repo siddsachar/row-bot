@@ -293,14 +293,22 @@ def test_main_shell_reserves_fixed_drawers_and_activity_center_width():
     assert "row-bot-main-card" in app
     assert "width: 100%;" in app
     assert "max-width: 100%;" in app
+    assert "--row-bot-main-left-correction" in app
+    assert "--row-bot-main-right-correction" in app
+    assert "__rowBotDrawerOverlapGuardInstalled" in app
+    assert "__rowBotApplyDrawerOverlapGuard" in app
+    assert "leftOverlap" in app
+    assert "rightOverlap" in app
     assert "margin-left: var(--row-bot-left-drawer-width)" not in app
     assert "margin-right: var(--row-bot-command-center-width)" not in app
     assert "_main_shell = ui.element(\"div\").classes(\"row-bot-main-shell\")" in app
     assert "with _main_shell:" in app
     assert "width: var(--row-bot-left-drawer-width, 280px);" in sidebar
+    assert 'data-row-bot-left-drawer' in sidebar
     assert "def _sync_shell_width_var" in command_center
     assert "--row-bot-command-center-width" in command_center
     assert "_sync_shell_width_var(width)" in command_center
+    assert "__rowBotApplyDrawerOverlapGuard" in command_center
 
 
 def test_sidebar_hides_child_agent_threads_by_default():

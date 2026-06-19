@@ -307,6 +307,8 @@ def build_command_center(
             ui.run_javascript(
                 "document.documentElement.style.setProperty("
                 f"'--row-bot-command-center-width', '{int(width)}px');"
+                "if (window.__rowBotApplyDrawerOverlapGuard) "
+                "window.__rowBotApplyDrawerOverlapGuard();"
             )
         except Exception:
             logger.debug("Could not sync Activity Center width CSS variable", exc_info=True)

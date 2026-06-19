@@ -328,6 +328,41 @@ def test_xai_oauth_loopback_reports_occupied_port(monkeypatch):
             raise AssertionError("Expected occupied xAI OAuth callback port to fail")
 
 
+def test_xai_oauth_loopback_can_be_cancelled(monkeypatch):
+    monkeypatch.delenv("ROW_BOT_XAI_OAUTH_CLIENT_ID", raising=False)
+    port = _free_loopback_port()
+    flow = start_xai_oauth_flow(
+        http_client=_HttpClient([_Response(200, _discovery_payload())]),
+        client_id="client-123",
+        redirect_uri=f"http://127.0.0.1:{port}/callback",
+    )
+    ready = threading.Event()
+    cancel = threading.Event()
+    result = {}
+
+    def _run():
+        try:
+            wait_for_xai_oauth_loopback_authorization(
+                flow,
+                open_browser=False,
+                ready_callback=ready.set,
+                cancel_event=cancel,
+                timeout_seconds=3,
+            )
+        except Exception as exc:
+            result["error"] = exc
+
+    thread = threading.Thread(target=_run)
+    thread.start()
+    assert ready.wait(2)
+    cancel.set()
+    thread.join(2)
+
+    assert not thread.is_alive()
+    assert isinstance(result["error"], XAIOAuthError)
+    assert result["error"].kind == "loopback_cancelled"
+
+
 def test_xai_oauth_flow_uses_default_client_id_without_env_or_saved_config(tmp_path, monkeypatch):
     for env_var in (
         "ROW_BOT_XAI_OAUTH_CLIENT_ID",
@@ -1232,12 +1267,13 @@ def test_xai_oauth_status_settings_and_wizard_hooks_are_present(tmp_path, monkey
     assert "_connect_xai_oauth_login" in provider_settings
     assert "wait_for_xai_oauth_loopback_authorization" in provider_settings
     assert "open_browser=False" in provider_settings
+    assert "cancel_event=listener_cancel" in provider_settings
     assert "window.open" in provider_settings
     assert "Open xAI Login" in provider_settings
     assert "If the page did not open automatically" in provider_settings
-    assert "_show_xai_oauth_dialog" not in provider_settings
-    assert "Callback URL or authorization code" not in provider_settings
-    assert "Paste the xAI callback" not in provider_settings
+    assert "Callback URL or authorization code" in provider_settings
+    assert "Paste the xAI callback URL or authorization code" in provider_settings
+    assert "Connect with pasted code" in provider_settings
     assert "run_xai_oauth_runtime_probe" in provider_settings
     assert "run_xai_oauth_vision_probe" in provider_settings
     assert "_queue_xai_oauth_vision_probe_if_needed" in provider_settings
@@ -1255,11 +1291,13 @@ def test_xai_oauth_status_settings_and_wizard_hooks_are_present(tmp_path, monkey
     assert "validate_xai_key" in setup_wizard
     assert "wait_for_xai_oauth_loopback_authorization" in setup_wizard
     assert "open_browser=False" in setup_wizard
+    assert "cancel_event=listener_cancel" in setup_wizard
     assert "window.open" in setup_wizard
     assert "Open xAI Login" in setup_wizard
     assert "If the page did not open automatically" in setup_wizard
-    assert "Callback URL or authorization code" not in setup_wizard
-    assert "Paste the xAI callback" not in setup_wizard
+    assert "Callback URL or authorization code" in setup_wizard
+    assert "Paste the xAI callback URL or authorization code" in setup_wizard
+    assert "Connect with pasted code" in setup_wizard
     assert "xai_oauth_runtime_available" in setup_wizard
     assert "seed_recommended_xai_oauth_quick_choices" in setup_wizard
     assert "xai_oauth" not in x_tool

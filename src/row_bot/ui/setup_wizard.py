@@ -172,6 +172,7 @@ async def show_setup_wizard(
     )
     from row_bot.providers.xai_oauth import (
         XAIOAuthError,
+        authorization_from_xai_oauth_callback,
         exchange_xai_oauth_authorization,
         list_xai_oauth_model_infos,
         run_xai_oauth_vision_probe,
@@ -575,6 +576,29 @@ async def show_setup_wizard(
                         spinner=True,
                         timeout=None,
                     )
+                    wait_task: asyncio.Task | None = None
+                    listener_cancel = threading.Event()
+                    completed = {"value": False}
+                    cancelled = {"value": False}
+
+                    def _consume_wait_task(task: asyncio.Task) -> None:
+                        try:
+                            task.result()
+                        except BaseException:
+                            pass
+
+                    def _cancel_xai_login_dialog(dialog) -> None:
+                        cancelled["value"] = True
+                        listener_cancel.set()
+                        if wait_task is not None and not wait_task.done():
+                            wait_task.add_done_callback(_consume_wait_task)
+                        dialog.close()
+
+                    async def _complete_xai_authorization(authorization) -> None:
+                        token_set = await run.io_bound(exchange_xai_oauth_authorization, authorization)
+                        await run.io_bound(save_xai_oauth_tokens, token_set)
+                        await run.io_bound(seed_recommended_xai_oauth_quick_choices)
+
                     try:
                         if xai_oauth_client_id:
                             await run.io_bound(save_xai_oauth_client_id, xai_oauth_client_id)
@@ -588,10 +612,12 @@ async def show_setup_wizard(
                                 flow,
                                 open_browser=False,
                                 ready_callback=listener_ready.set,
+                                cancel_event=listener_cancel,
                             )
                         ))
                         ready = await run.io_bound(lambda: listener_ready.wait(5))
                         if not ready:
+                            listener_cancel.set()
                             wait_task.cancel()
                             raise XAIOAuthError("xAI OAuth callback listener did not become ready.", kind="loopback_not_ready")
                         with ui.dialog() as xai_login_dialog:
@@ -602,17 +628,77 @@ async def show_setup_wizard(
                                     ui.spinner(size="sm")
                                     ui.link("Open xAI Login", flow.authorization_url, new_tab=True).classes("text-primary text-sm")
                                 ui.label("If the page did not open automatically, use the link above.").classes("text-grey-6 text-xs")
+                                ui.label(
+                                    "If the browser shows a 127.0.0.1 error, paste the full callback URL or authorization code below."
+                                ).classes("text-grey-6 text-xs")
+                                callback_input = ui.input(label="Callback URL or authorization code").props("outlined dense").classes("w-full")
+                                status_label = ui.label("").classes("text-grey-6 text-sm")
+
+                                async def _finish_with_pasted_callback() -> None:
+                                    callback_value = str(callback_input.value or "").strip()
+                                    if not callback_value:
+                                        ui.notify("Paste the xAI callback URL or authorization code first", type="warning")
+                                        return
+                                    finish_note = ui.notification(
+                                        "Completing xAI Grok sign-in...",
+                                        type="ongoing",
+                                        spinner=True,
+                                        timeout=None,
+                                    )
+                                    try:
+                                        authorization = await run.io_bound(
+                                            authorization_from_xai_oauth_callback,
+                                            flow,
+                                            callback_value,
+                                        )
+                                        await _complete_xai_authorization(authorization)
+                                    except Exception as exc:
+                                        finish_note.dismiss()
+                                        logger.warning("xAI Grok setup pasted callback failed", exc_info=True)
+                                        status_label.text = f"Sign-in failed: {exc}"
+                                        status_label.update()
+                                        ui.notify(f"xAI Grok sign-in failed: {exc}", type="negative")
+                                        return
+                                    finish_note.dismiss()
+                                    completed["value"] = True
+                                    listener_cancel.set()
+                                    if wait_task is not None and not wait_task.done():
+                                        wait_task.add_done_callback(_consume_wait_task)
+                                    xai_login_dialog.close()
+                                    ui.notify("xAI Grok connected", type="positive")
+                                    cloud_status.text = "xAI Grok connected. Fetching models..."
+                                    await _load_xai_oauth_models()
+
+                                with ui.row().classes("w-full items-center justify-end gap-2"):
+                                    ui.button("Cancel", icon="close", on_click=lambda: _cancel_xai_login_dialog(xai_login_dialog)).props("flat dense")
+                                    ui.button("Connect with pasted code", icon="check", on_click=_finish_with_pasted_callback).props("flat dense color=primary")
                         xai_login_dialog.open()
+                        notification.dismiss()
                         ui.run_javascript(f"window.open({json.dumps(flow.authorization_url)}, '_blank', 'noopener,noreferrer')")
                         try:
                             authorization = await wait_task
-                        finally:
-                            xai_login_dialog.close()
-                        token_set = await run.io_bound(exchange_xai_oauth_authorization, authorization)
-                        await run.io_bound(save_xai_oauth_tokens, token_set)
-                        await run.io_bound(seed_recommended_xai_oauth_quick_choices)
+                        except XAIOAuthError as exc:
+                            if (completed["value"] or cancelled["value"]) and exc.kind == "loopback_cancelled":
+                                return
+                            logger.warning("xAI Grok setup automatic callback failed", exc_info=True)
+                            cloud_status.text = "Paste the xAI callback URL or authorization code to finish sign-in."
+                            status_label.text = f"Automatic browser callback failed: {exc}"
+                            status_label.update()
+                            ui.notify("Paste the xAI callback URL or authorization code to finish sign-in.", type="warning")
+                            cloud_done["value"] = False
+                            _update_finish()
+                            return
+                        if completed["value"]:
+                            return
+                        await _complete_xai_authorization(authorization)
+                        completed["value"] = True
+                        listener_cancel.set()
+                        xai_login_dialog.close()
                     except XAIOAuthError as exc:
                         notification.dismiss()
+                        listener_cancel.set()
+                        if wait_task is not None and not wait_task.done():
+                            wait_task.add_done_callback(_consume_wait_task)
                         logger.warning("xAI Grok setup sign-in start failed", exc_info=True)
                         if exc.kind == "missing_client_id":
                             cloud_status.text = (
@@ -626,12 +712,14 @@ async def show_setup_wizard(
                         return
                     except Exception as exc:
                         notification.dismiss()
+                        listener_cancel.set()
+                        if wait_task is not None and not wait_task.done():
+                            wait_task.add_done_callback(_consume_wait_task)
                         logger.warning("xAI Grok setup sign-in start failed", exc_info=True)
                         cloud_status.text = f"Could not start xAI Grok sign-in: {exc}"
                         cloud_done["value"] = False
                         _update_finish()
                         return
-                    notification.dismiss()
                     ui.notify("xAI Grok connected", type="positive")
                     cloud_status.text = "xAI Grok connected. Fetching models..."
                     await _load_xai_oauth_models()

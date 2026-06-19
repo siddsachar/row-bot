@@ -191,7 +191,8 @@ def build_sidebar(
 
     with ui.left_drawer(value=True, fixed=True).style(
         "width: var(--row-bot-left-drawer-width, 280px);"
-    ).classes("row-bot-panel-card"):
+    ).classes("row-bot-panel-card") as drawer:
+        drawer._props["data-row-bot-left-drawer"] = "1"
         # Logo - always app branding, independent of identity settings
         ui.html(
             f'<div style="display:flex; align-items:center; gap:8px; margin:0 0 8px 0;">'
