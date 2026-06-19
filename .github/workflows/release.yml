@@ -42,7 +42,7 @@ concurrency:
 # Tracks the version this workflow is currently shipping. Kept in sync with
 # `installer/row_bot_setup.iss` (#define MyAppVersion) and `src/row_bot/version.py`.
 env:
-  ROW_BOT_VERSION: "4.1.0"
+  ROW_BOT_VERSION: "4.2.0"
   WINDOWS_PYTHON_VERSION: "3.13.2"
 
 jobs:
@@ -78,8 +78,11 @@ jobs:
       - name: Run focused startup hardening tests
         run: python -m pytest tests/test_startup_hardening.py tests/test_app_port.py tests/test_linux_support.py
 
+      - name: Run focused agent orchestration tests
+        run: python -m pytest tests/test_agent_profiles.py tests/test_agent_context.py tests/test_agent_tool_catalog.py tests/test_agent_runs.py tests/test_agent_runner.py tests/test_agent_tool.py tests/test_agent_tool_filtering.py tests/test_agent_write_locks.py tests/test_goal_mode.py tests/test_channel_goal_runtime.py tests/test_row_bot_status_agents.py
+
       - name: Run focused provider model selection tests
-        run: python -m pytest tests/test_provider_catalog.py tests/test_provider_selection.py tests/test_provider_runtime.py tests/test_row_bot_status_media.py tests/test_provider_subscription_auth.py tests/test_atlascloud_first_class_provider.py tests/test_openai_compatible_transport.py tests/test_claude_subscription_auth.py tests/test_claude_subscription_transport.py
+        run: python -m pytest tests/test_provider_catalog.py tests/test_provider_selection.py tests/test_provider_runtime.py tests/test_provider_media.py tests/test_row_bot_status_media.py tests/test_provider_subscription_auth.py tests/test_atlascloud_first_class_provider.py tests/test_openai_compatible_transport.py tests/test_claude_subscription_auth.py tests/test_claude_subscription_transport.py tests/test_xai_oauth_provider.py tests/test_xai_oauth_transport.py tests/test_xai_media.py tests/test_model_picker_regressions.py
 
       - name: Run test suite
         run: python tests/test_suite.py

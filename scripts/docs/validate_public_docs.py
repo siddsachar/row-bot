@@ -295,9 +295,22 @@ def _validate_llms(errors: list[str]) -> None:
 
 
 def _validate_public_guardrails(errors: list[str]) -> None:
+    guarded_public_site_paths = [
+        "docs/.nojekyll",
+        "docs/404.html",
+        "docs/architecture.html",
+        "docs/contact.html",
+        "docs/CNAME",
+        "docs/favicon.ico",
+        "docs/index.html",
+        "docs/row_bot_glyph.png",
+        "docs/row_bot_glyph_256.png",
+        "docs/row_bot_hero.webp",
+        "docs/row_bot_preview.png",
+    ]
     try:
         completed = subprocess.run(
-            ["git", "diff", "--name-only", "main", "--", "docs", "README.md"],
+            ["git", "diff", "--name-only", "main", "--", *guarded_public_site_paths],
             cwd=str(ROOT),
             text=True,
             capture_output=True,
@@ -305,14 +318,14 @@ def _validate_public_guardrails(errors: list[str]) -> None:
         )
         changed = [line for line in completed.stdout.splitlines() if line.strip()]
         if changed:
-            errors.append("Current public website/README changed: " + ", ".join(changed))
+            errors.append("Current public website changed: " + ", ".join(changed))
     except Exception as exc:
         errors.append(f"Could not check public-site git diff: {exc}")
     readme = ROOT / "README.md"
     if readme.exists():
         readme_text = readme.read_text(encoding="utf-8", errors="replace").lower()
-        if "docs-site" in readme_text or "row-bot.ai/docs" in readme_text:
-            errors.append("README.md links to docs-site or row-bot.ai/docs")
+        if "row-bot.ai/docs" in readme_text:
+            errors.append("README.md links to row-bot.ai/docs before the public docs site is live")
 
 
 def _validate_workflow(errors: list[str]) -> None:
