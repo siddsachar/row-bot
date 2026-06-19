@@ -192,15 +192,18 @@ def _xai_oauth_action_state(card: dict) -> dict[str, bool]:
     if card.get("provider_id") != "xai_oauth":
         return {}
     configured = bool(card.get("configured"))
-    source = str(card.get("source") or "")
     client_id_configured = bool(card.get("oauth_client_id_configured"))
+    runtime_enabled = bool(card.get("runtime_enabled"))
+    token_health = str(card.get("token_health") or "")
+    needs_reconnect = (not configured) or (not runtime_enabled) or token_health in {"missing", "expired", "error", "revoked"}
     return {
         "can_configure_client_id": True,
         "client_id_configured": client_id_configured,
-        "can_connect": client_id_configured and (source != "oauth_pkce" or not configured),
+        "can_connect": client_id_configured and needs_reconnect,
         "can_disconnect": configured,
-        "can_test_runtime": configured and bool(card.get("runtime_enabled")),
-        "runtime_enabled": bool(card.get("runtime_enabled")),
+        "can_test_runtime": configured and runtime_enabled,
+        "runtime_enabled": runtime_enabled,
+        "needs_reconnect": needs_reconnect,
     }
 
 
@@ -511,34 +514,38 @@ def build_provider_summary_cards() -> None:
 
     def _configure_xai_oauth_client_id_dialog() -> None:
         from row_bot.providers.xai_oauth import (
-            ROW_BOT_XAI_OAUTH_CLIENT_ID_ENV,
+            clear_xai_oauth_client_id_override,
             save_xai_oauth_client_id,
             xai_oauth_client_id_status,
+            xai_oauth_configured_client_id,
         )
 
         status = xai_oauth_client_id_status()
         source = str(status.get("source") or "")
-        source_note = ""
-        if source == "environment":
-            source_note = f"Current client ID comes from {ROW_BOT_XAI_OAUTH_CLIENT_ID_ENV}."
-        elif status.get("configured"):
-            source_note = "Current client ID is saved in Row-Bot provider settings."
+        resolved_client_id = xai_oauth_configured_client_id()
+        if source == "override":
+            source_note = "Using saved OAuth client ID override."
+        elif source == "default":
+            source_note = "Using Row-Bot default OAuth client ID."
+        elif source == "environment":
+            source_note = "Using a development OAuth client ID override from the environment."
+        else:
+            source_note = "No OAuth client ID is available."
 
         with ui.dialog() as dialog:
             with ui.card().classes("w-full").style("max-width: 32rem;"):
-                ui.label("Configure xAI OAuth Client ID").classes("text-h6")
+                ui.label("xAI OAuth Client ID Override").classes("text-h6")
                 ui.label(
-                    "xAI OAuth sign-in needs a registered OAuth client ID. The xAI API-key provider stays separate."
+                    "Most users can use Row-Bot's default OAuth client ID. Save an override only if you have your own xAI OAuth app."
                 ).classes("text-grey-6 text-sm")
-                if source_note:
-                    ui.label(source_note).classes("text-grey-6 text-xs")
-                client_id_input = ui.input(label="OAuth client ID").props("outlined dense").classes("w-full")
+                ui.label(source_note).classes("text-grey-6 text-xs")
+                client_id_input = ui.input(label="OAuth client ID override", value=resolved_client_id).props("outlined dense").classes("w-full")
                 status_label = ui.label(str(status.get("detail") or "")).classes("text-grey-6 text-sm")
 
                 async def _save_client_id() -> None:
                     client_id = str(client_id_input.value or "").strip()
                     if not client_id:
-                        ui.notify("Enter the xAI OAuth client ID first", type="warning")
+                        ui.notify("Enter an xAI OAuth client ID override first, or reset to the default.", type="warning")
                         return
                     try:
                         await run.io_bound(save_xai_oauth_client_id, client_id)
@@ -551,9 +558,22 @@ def build_provider_summary_cards() -> None:
                     ui.notify("xAI OAuth client ID saved", type="positive")
                     defer_ui(_load)
 
+                async def _reset_client_id() -> None:
+                    try:
+                        await run.io_bound(clear_xai_oauth_client_id_override)
+                    except Exception as exc:
+                        status_label.text = f"Could not reset client ID override: {exc}"
+                        status_label.update()
+                        ui.notify(f"Could not reset xAI OAuth client ID override: {exc}", type="negative")
+                        return
+                    dialog.close()
+                    ui.notify("Using Row-Bot default OAuth client ID", type="positive")
+                    defer_ui(_load)
+
                 with ui.row().classes("w-full items-center justify-end gap-2"):
+                    ui.button("Reset to default", icon="restart_alt", on_click=_reset_client_id).props("flat dense")
                     ui.button("Cancel", icon="close", on_click=dialog.close).props("flat dense")
-                    ui.button("Save", icon="key", on_click=_save_client_id).props("flat dense color=primary")
+                    ui.button("Save override", icon="key", on_click=_save_client_id).props("flat dense color=primary")
         dialog.open()
 
     async def _connect_xai_oauth_login() -> None:
@@ -682,9 +702,17 @@ def build_provider_summary_cards() -> None:
                     sub = str(card.get("token_health_detail") or "") or "Reconnect xAI Grok to use OAuth models in chat"
                 if card.get("provider_id") == "xai_oauth" and not card.get("configured"):
                     if card.get("oauth_client_id_configured"):
-                        sub = "OAuth client ID configured; connect xAI Grok"
+                        client_source = str(card.get("oauth_client_id_source") or "")
+                        if client_source == "override":
+                            sub = "Using saved OAuth client ID override; connect xAI Grok"
+                        elif client_source == "default":
+                            sub = "Using Row-Bot default OAuth client ID; connect xAI Grok"
+                        elif client_source == "environment":
+                            sub = "Using development OAuth client ID override; connect xAI Grok"
+                        else:
+                            sub = "OAuth client ID available; connect xAI Grok"
                     else:
-                        sub = "Configure xAI OAuth client ID before connecting"
+                        sub = "Set an OAuth client ID override to connect xAI Grok"
                 if metadata:
                     sub = f"{sub} · {metadata}"
                 ui.label(sub).classes("text-grey-6 text-xs").style("line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;")
@@ -735,9 +763,10 @@ def build_provider_summary_cards() -> None:
                     ui.button(icon="link_off", on_click=_disconnect_claude_subscription).props("flat dense round size=sm color=negative").tooltip("Disconnect Row-Bot Claude Subscription metadata")
                 xai_oauth_actions = _xai_oauth_action_state(card)
                 if xai_oauth_actions.get("can_configure_client_id"):
-                    ui.button(icon="key", on_click=_configure_xai_oauth_client_id_dialog).props("flat dense round size=sm").tooltip("Configure xAI OAuth client ID")
+                    ui.button(icon="key", on_click=_configure_xai_oauth_client_id_dialog).props("flat dense round size=sm").tooltip("OAuth client ID override")
                 if xai_oauth_actions.get("can_connect"):
-                    ui.button(icon="login", on_click=_connect_xai_oauth_login).props("flat dense round size=sm color=primary").tooltip("Connect xAI Grok")
+                    connect_tip = "Reconnect xAI Grok" if xai_oauth_actions.get("needs_reconnect") and card.get("configured") else "Connect xAI Grok"
+                    ui.button(icon="login", on_click=_connect_xai_oauth_login).props("flat dense round size=sm color=primary").tooltip(connect_tip)
                 if xai_oauth_actions.get("can_test_runtime"):
                     ui.button(icon="science", on_click=_test_xai_oauth_runtime).props("flat dense round size=sm").tooltip("Test xAI Grok runtime")
                 if xai_oauth_actions.get("can_disconnect"):

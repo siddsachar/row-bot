@@ -33,7 +33,7 @@ XAI_OAUTH_TIMEOUT_SECONDS = 15 * 60
 ROW_BOT_XAI_OAUTH_CLIENT_ID_ENV = "ROW_BOT_XAI_OAUTH_CLIENT_ID"
 ROW_BOT_XAI_OAUTH_SCOPES_ENV = "ROW_BOT_XAI_OAUTH_SCOPES"
 ROW_BOT_XAI_OAUTH_REDIRECT_PORT_ENV = "ROW_BOT_XAI_OAUTH_REDIRECT_PORT"
-DEFAULT_XAI_OAUTH_CLIENT_ID = ""
+DEFAULT_XAI_OAUTH_CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828"
 DEFAULT_XAI_OAUTH_SCOPES = ("openid", "profile", "email", "offline_access", "grok-cli:access", "api:access")
 XAI_OAUTH_AUTHORIZE_PLAN = "generic"
 XAI_OAUTH_REFERRER = "row-bot"
@@ -171,14 +171,41 @@ def xai_oauth_configured_client_id(value: str | None = None) -> str:
     return _resolve_xai_oauth_client_id(value, require=False)[0]
 
 
+def xai_oauth_default_client_id() -> str:
+    """Return Row-Bot's built-in shared xAI OAuth client id, when available."""
+    default_value = str(DEFAULT_XAI_OAUTH_CLIENT_ID or "").strip()
+    if default_value and not _is_placeholder_xai_oauth_client_id(default_value):
+        return default_value
+    return ""
+
+
+def xai_oauth_saved_client_id_override() -> str:
+    """Return a saved user override for the xAI OAuth client id, if one exists."""
+    try:
+        from row_bot.providers.config import load_provider_config
+
+        entry = load_provider_config().get("providers", {}).get(XAI_OAUTH_PROVIDER_ID, {})
+    except Exception:
+        return ""
+    if not isinstance(entry, dict):
+        return ""
+    return _client_id_override_from_entry(entry)
+
+
 def xai_oauth_client_id_status(value: str | None = None) -> dict[str, Any]:
     client_id, source, detail = _resolve_xai_oauth_client_id(value, require=False)
+    override = xai_oauth_saved_client_id_override()
+    default_client_id = xai_oauth_default_client_id()
     return {
         "configured": bool(client_id),
         "source": source,
         "fingerprint": secret_store.fingerprint(client_id) if client_id else "",
         "detail": detail,
         "env_var": ROW_BOT_XAI_OAUTH_CLIENT_ID_ENV,
+        "default_configured": bool(default_client_id),
+        "default_fingerprint": secret_store.fingerprint(default_client_id) if default_client_id else "",
+        "override_configured": bool(override),
+        "override_fingerprint": secret_store.fingerprint(override) if override else "",
     }
 
 
@@ -197,11 +224,36 @@ def save_xai_oauth_client_id(client_id: str) -> dict[str, Any]:
             "auth_method": AuthMethod.OAUTH_PKCE.value,
             "oauth_client_id": resolved_client_id,
             "oauth_client_id_configured": True,
-            "oauth_client_id_source": "provider_config",
+            "oauth_client_id_source": "override",
             "oauth_client_id_fingerprint": fingerprint,
             "oauth_client_id_updated_at": now,
             "last_error": "",
         })
+        entry.setdefault("configured", False)
+
+    cfg = update_provider_config(_update)
+    return dict(cfg.get("providers", {}).get(XAI_OAUTH_PROVIDER_ID, {}))
+
+
+def clear_xai_oauth_client_id_override() -> dict[str, Any]:
+    """Clear the saved xAI OAuth client id override and return to the built-in default."""
+    from row_bot.providers.config import update_provider_config
+
+    now = _utcnow().isoformat()
+
+    def _update(cfg: dict[str, Any]) -> None:
+        entry = cfg.setdefault("providers", {}).setdefault(XAI_OAUTH_PROVIDER_ID, {})
+        entry["provider_id"] = XAI_OAUTH_PROVIDER_ID
+        entry["auth_method"] = AuthMethod.OAUTH_PKCE.value
+        for key in (
+            "oauth_client_id",
+            "client_id",
+            "oauth_client_id_source",
+            "oauth_client_id_fingerprint",
+            "oauth_client_id_updated_at",
+        ):
+            entry.pop(key, None)
+        entry["oauth_client_id_override_cleared_at"] = now
         entry.setdefault("configured", False)
 
     cfg = update_provider_config(_update)
@@ -546,7 +598,7 @@ def save_xai_oauth_tokens(token_set: XAIOAuthTokenSet) -> dict[str, Any]:
 
     token_metadata = xai_oauth_token_metadata(token_set.access_token, token_set.id_token)
     client_status = xai_oauth_client_id_status()
-    client_id = xai_oauth_configured_client_id()
+    client_override = xai_oauth_saved_client_id_override()
     fingerprint = secret_store.fingerprint(token_set.access_token)
     now = _utcnow().isoformat()
     scopes = token_set.scopes or tuple(token_metadata.get("scopes") or ())
@@ -573,8 +625,13 @@ def save_xai_oauth_tokens(token_set: XAIOAuthTokenSet) -> dict[str, Any]:
             "updated_at": now,
             "last_error": "",
         })
-        if client_id:
-            entry["oauth_client_id"] = client_id
+        if client_override:
+            entry["oauth_client_id"] = client_override
+            entry["oauth_client_id_source"] = "override"
+            entry["oauth_client_id_fingerprint"] = secret_store.fingerprint(client_override)
+        else:
+            entry.pop("oauth_client_id", None)
+            entry.pop("client_id", None)
         entry.pop("last_runtime_probe", None)
 
     cfg = update_provider_config(_update)
@@ -592,6 +649,7 @@ def disconnect_xai_oauth_metadata(*, remove_row_bot_tokens: bool = True) -> None
     def _update(cfg: dict[str, Any]) -> None:
         providers = cfg.setdefault("providers", {})
         existing = providers.get(XAI_OAUTH_PROVIDER_ID, {}) if isinstance(providers.get(XAI_OAUTH_PROVIDER_ID), dict) else {}
+        override = _client_id_override_from_entry(existing)
         preserved = {
             key: existing.get(key)
             for key in (
@@ -602,7 +660,14 @@ def disconnect_xai_oauth_metadata(*, remove_row_bot_tokens: bool = True) -> None
                 "oauth_client_id_updated_at",
             )
             if existing.get(key)
-        }
+        } if override else {}
+        if override:
+            preserved.update({
+                "oauth_client_id": override,
+                "oauth_client_id_configured": True,
+                "oauth_client_id_source": "override",
+                "oauth_client_id_fingerprint": secret_store.fingerprint(override),
+            })
         providers.pop(XAI_OAUTH_PROVIDER_ID, None)
         if preserved:
             providers[XAI_OAUTH_PROVIDER_ID] = {
@@ -1361,21 +1426,21 @@ def _resolve_xai_oauth_client_id(value: str | None = None, *, require: bool) -> 
         return "", "argument" if explicit else "", detail
 
     invalid_source = ""
+    override_value = xai_oauth_saved_client_id_override()
+    if override_value:
+        if not _is_placeholder_xai_oauth_client_id(override_value):
+            return override_value, "override", "xAI OAuth client ID is using a saved override from Settings -> Providers."
+        invalid_source = invalid_source or "provider_config"
+
+    default_value = xai_oauth_default_client_id()
+    if default_value:
+        return default_value, "default", "xAI OAuth client ID is configured by the Row-Bot default."
+
     env_value = str(os.environ.get(ROW_BOT_XAI_OAUTH_CLIENT_ID_ENV) or "").strip()
     if env_value:
         if not _is_placeholder_xai_oauth_client_id(env_value):
-            return env_value, "environment", f"xAI OAuth client ID is configured by {ROW_BOT_XAI_OAUTH_CLIENT_ID_ENV}."
-        invalid_source = "environment"
-
-    config_value = _saved_xai_oauth_client_id()
-    if config_value:
-        if not _is_placeholder_xai_oauth_client_id(config_value):
-            return config_value, "provider_config", "xAI OAuth client ID is configured in Settings -> Providers."
-        invalid_source = invalid_source or "provider_config"
-
-    default_value = str(DEFAULT_XAI_OAUTH_CLIENT_ID or "").strip()
-    if default_value and not _is_placeholder_xai_oauth_client_id(default_value):
-        return default_value, "default", "xAI OAuth client ID is configured by the Row-Bot default."
+            return env_value, "environment", f"xAI OAuth client ID is configured by the development environment variable {ROW_BOT_XAI_OAUTH_CLIENT_ID_ENV}."
+        invalid_source = invalid_source or "environment"
 
     reason = "The configured xAI OAuth client ID is empty or a placeholder." if invalid_source else "xAI OAuth client ID is not configured."
     detail = _xai_oauth_missing_client_id_detail(reason)
@@ -1384,14 +1449,17 @@ def _resolve_xai_oauth_client_id(value: str | None = None, *, require: bool) -> 
     return "", invalid_source, detail
 
 
-def _saved_xai_oauth_client_id() -> str:
-    try:
-        from row_bot.providers.config import load_provider_config
-
-        entry = load_provider_config().get("providers", {}).get(XAI_OAUTH_PROVIDER_ID, {})
-    except Exception:
-        return ""
-    return str(entry.get("oauth_client_id") or entry.get("client_id") or "").strip()
+def _client_id_override_from_entry(entry: dict[str, Any]) -> str:
+    source = str(entry.get("oauth_client_id_source") or "").strip().lower()
+    raw = str(entry.get("oauth_client_id") or "").strip()
+    if raw and source in {"override", "provider_config", "user_override"}:
+        return raw
+    legacy = str(entry.get("client_id") or "").strip()
+    if legacy and not source:
+        return legacy
+    if raw and not source and not entry.get("oauth_client_id_configured"):
+        return raw
+    return ""
 
 
 def _is_placeholder_xai_oauth_client_id(value: str) -> bool:
@@ -1402,8 +1470,8 @@ def _is_placeholder_xai_oauth_client_id(value: str) -> bool:
 def _xai_oauth_missing_client_id_detail(reason: str = "") -> str:
     prefix = f"{reason} " if reason else ""
     return (
-        f"{prefix}Configure a registered xAI OAuth client ID in Settings -> Providers -> xAI Grok, "
-        f"or set {ROW_BOT_XAI_OAUTH_CLIENT_ID_ENV}, then start xAI Grok sign-in again."
+        f"{prefix}Set an OAuth client ID override in Settings -> Providers -> xAI Grok, "
+        "then start xAI Grok sign-in again."
     )
 
 
