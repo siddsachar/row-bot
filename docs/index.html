@@ -1112,6 +1112,7 @@
         }
 
         @media (max-width: 480px) {
+            .hero { padding-bottom: 0.75rem; }
             .hero h1 { font-size: 2.2rem; }
             .hero-glyph {
                 top: 6rem;
@@ -1152,8 +1153,8 @@
         <p class="hero-eyebrow">Local-First AI Workbench &middot; formerly Thoth</p>
         <h1>Reason. Orchestrate. Work.<br>Your data stays <em>here.</em></h1>
         <p class="hero-body">
-            Row-Bot is a desktop AI workbench for agentic work you can direct, inspect, and keep.
-            Agent Profiles, Goal Mode, and multi-agent orchestration bring durable roles, evidence-backed progress, delegation, approvals, and write-lock safeguards into one local-first workspace.
+            Row-Bot is a local-first desktop AI workbench with Developer Studio, Skills Hub, Custom Tools, Buddy, memory, voice, workflows, design, messaging, MCP tools, and provider-aware routing across local, self-hosted, hosted, and subscription-backed models.
+            Agent Profiles, Goal Mode, and multi-agent delegation add durable roles, tracked objectives, and coordinated long-running work. Your durable data stays on your machine.
         </p>
         <div class="hero-actions">
             <a href="https://github.com/siddsachar/row-bot/releases/download/v4.2.0/Row-Bot-4.2.0-Windows-x64.exe" class="btn btn--primary" data-download="windows">Download for Windows <span class="btn-hint">.exe</span></a>
@@ -1192,6 +1193,21 @@
 
             <div class="feature-row">
                 <div class="feature-item">
+                    <span class="feature-icon">&#x26BF;</span>
+                    <h3>Provider Runtime &amp; Model Discovery</h3>
+                    <p>OpenAI, Anthropic, Google AI, xAI API keys, xAI Grok OAuth, OpenRouter, Atlas Cloud, MiniMax live discovery, OpenCode providers, custom endpoints, Ollama, Ollama Cloud, configurable embeddings, ChatGPT / Codex, and Claude Subscription all flow through provider-qualified catalogs, capability mapping, readiness routing, token health checks, context policies, and chat-only fallbacks.</p>
+                    <span class="feature-tag">Provider-ready</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-icon">&#x25C9;</span>
+                    <h3>Personal Knowledge Graph</h3>
+                    <p>Memories become connected entities and typed relationships, with bounded semantic, lexical, and graph-expanded recall, audit metadata, review states, trace output, document extraction, and Obsidian-compatible wiki export.</p>
+                    <span class="feature-tag">Auditable recall</span>
+                </div>
+            </div>
+
+            <div class="feature-row">
+                <div class="feature-item">
                     <span class="feature-icon">&#x25C6;</span>
                     <h3>Agent Profiles &amp; Goal Mode</h3>
                     <p>Give each thread a durable role with profile instructions, handoff contracts, usage guidance, tool and skill policy, workspace policy, approval policy, and enabled state. Goal Mode keeps the objective, progress, evidence, blockers, next step, and completion status beside the work.</p>
@@ -1207,31 +1223,16 @@
 
             <div class="feature-row">
                 <div class="feature-item">
-                    <span class="feature-icon">&#x25C9;</span>
-                    <h3>Personal Knowledge Graph</h3>
-                    <p>Memories become connected entities and typed relationships, with bounded semantic, lexical, and graph-expanded recall, audit metadata, review states, trace output, document extraction, and Obsidian-compatible wiki export.</p>
-                    <span class="feature-tag">Auditable recall</span>
+                    <span class="feature-icon">&#x25C8;</span>
+                    <h3>Real Computer Use</h3>
+                    <p>The agent can browse in Chromium, use the shell, manage files, search the web, read documents, send email, manage calendar events, inspect status, and create charts.</p>
+                    <span class="feature-tag">30 core tools</span>
                 </div>
                 <div class="feature-item">
-                    <span class="feature-icon">&#x263E;</span>
-                    <h3>Controlled Self-Evolution</h3>
-                    <p>Structured self-reflection produces bounded improvement proposals with reviewable execution boundaries, persistence, Dream Cycle integration, memory-policy hooks, and Command Center visibility.</p>
-                    <span class="feature-tag">Reviewable proposals</span>
-                </div>
-            </div>
-
-            <div class="feature-row">
-                <div class="feature-item">
-                    <span class="feature-icon">&#x2726;</span>
-                    <h3>Developer Studio</h3>
-                    <p>Connect local Git repositories, restore code threads from the sidebar, review diffs, run tests, manage todos, prepare PRs, and work through approval-gated coding tools inside a Codex-style workspace. Optional Docker Sandbox mode keeps command execution and edits in a shadow copy until you import them.</p>
-                    <span class="feature-tag">Code workspaces</span>
-                </div>
-                <div class="feature-item">
-                    <span class="feature-icon">&#x26BF;</span>
-                    <h3>Provider Runtime &amp; Model Discovery</h3>
-                    <p>OpenAI, Anthropic, Google AI, xAI API keys, xAI Grok OAuth, OpenRouter, Atlas Cloud, MiniMax live discovery, OpenCode providers, custom endpoints, Ollama, Ollama Cloud, configurable embeddings, ChatGPT / Codex, and Claude Subscription all flow through provider-qualified catalogs, capability mapping, readiness routing, token health checks, context policies, and chat-only fallbacks.</p>
-                    <span class="feature-tag">Provider-ready</span>
+                    <span class="feature-icon">&#x2B22;</span>
+                    <h3>Skills Hub, MCP &amp; Extensions</h3>
+                    <p>Install and pin Smart Skills from Skills Hub, use slash commands, activate channel skills more reliably, connect external MCP servers, load plugins, promote tested Custom Tools, and coordinate Claude Code CLI through an approval-gated skill. Profile policies can narrow the active surface when a run needs less power.</p>
+                    <span class="feature-tag">Pinned skills</span>
                 </div>
             </div>
 
@@ -1253,45 +1254,45 @@
             <div class="feature-row">
                 <div class="feature-item">
                     <span class="feature-icon">&#x2726;</span>
+                    <h3>Developer Studio</h3>
+                    <p>Connect local Git repositories, restore code threads from the sidebar, review diffs, run tests, manage todos, prepare PRs, and work through approval-gated coding tools inside a Codex-style workspace. Optional Docker Sandbox mode keeps command execution and edits in a shadow copy until you import them.</p>
+                    <span class="feature-tag">Code workspaces</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-icon">&#x2726;</span>
                     <h3>Designer Studio</h3>
                     <p>Create decks, documents, landing pages, app mockups, and storyboards with live preview, surgical AI edits, media generation, chart insertion, export, and shareable interactive links.</p>
                     <span class="feature-tag">Five modes</span>
                 </div>
-                <div class="feature-item">
-                    <span class="feature-icon">&#x25C8;</span>
-                    <h3>Real Computer Use</h3>
-                    <p>The agent can browse in Chromium, use the shell, manage files, search the web, read documents, send email, manage calendar events, inspect status, and create charts.</p>
-                    <span class="feature-tag">30 core tools</span>
-                </div>
             </div>
 
             <div class="feature-row">
-                <div class="feature-item">
-                    <span class="feature-icon">&#x2B22;</span>
-                    <h3>Skills Hub, MCP &amp; Extensions</h3>
-                    <p>Install and pin Smart Skills from Skills Hub, use slash commands, activate channel skills more reliably, connect external MCP servers, load plugins, promote tested Custom Tools, and coordinate Claude Code CLI through an approval-gated skill. Profile policies can narrow the active surface when a run needs less power.</p>
-                    <span class="feature-tag">Pinned skills</span>
-                </div>
                 <div class="feature-item">
                     <span class="feature-icon">&#x2B21;</span>
                     <h3>Channels, Voice &amp; Media</h3>
                     <p>Telegram, WhatsApp, Discord, Slack, and SMS share streaming, media intake, reactions, approvals, health checks, local speech-to-text, realtime voice options, Kokoro TTS, Buddy state updates, and the agent or goal context needed for channel-driven work.</p>
                     <span class="feature-tag">5 channels</span>
                 </div>
-            </div>
-
-            <div class="feature-row">
                 <div class="feature-item">
                     <span class="feature-icon">&#x25A1;</span>
                     <h3>Image &amp; Video Generation</h3>
                     <p>Generate or edit images through OpenAI, Google, xAI API-key models, or xAI Grok OAuth, then create video clips through Google Veo or Grok Imagine Video. Curated Grok Imagine image, quality, video, and image-to-video options stay scoped to compatible media surfaces.</p>
                     <span class="feature-tag">Provider media</span>
                 </div>
+            </div>
+
+            <div class="feature-row">
                 <div class="feature-item">
                     <span class="feature-icon">&#x2605;</span>
                     <h3>Status, Diagnostics &amp; Buddy</h3>
                     <p>Provider settings, setup guidance, OAuth status, session-only secret fallback, Row-Bot Status, Home performance, and the macOS tray path report readiness and runtime issues more clearly while Buddy and heavier app panels stay lighter during long sessions.</p>
                     <span class="feature-tag">More reliable</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-icon">&#x263E;</span>
+                    <h3>Controlled Self-Evolution</h3>
+                    <p>Structured self-reflection produces bounded improvement proposals with reviewable execution boundaries, persistence, Dream Cycle integration, memory-policy hooks, and Command Center visibility.</p>
+                    <span class="feature-tag">Reviewable proposals</span>
                 </div>
             </div>
         </div>
