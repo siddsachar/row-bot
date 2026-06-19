@@ -75,13 +75,13 @@ def build_home(
     # ── Tab toggle ───────────────────────────────────────────────────
     with ui.tabs().classes("w-full shrink-0").props(
         "no-caps inline-label active-color=primary indicator-color=primary "
-        "align=center"
+        "align=center data-docs-id=home-tabs"
     ).style("border-bottom: 1px solid rgba(255,255,255,0.08);") as home_tabs:
-        tasks_tab = ui.tab("Workflows", icon="bolt")
-        designer_tab = ui.tab("Designer", icon="design_services")
-        developer_tab = ui.tab("Developer", icon="code")
-        graph_tab = ui.tab("Knowledge", icon="psychology")
-        activity_tab = ui.tab("Monitor", icon="monitor_heart")
+        tasks_tab = ui.tab("Workflows", icon="bolt").props("data-docs-id=home-tab-workflows")
+        designer_tab = ui.tab("Designer", icon="design_services").props("data-docs-id=home-tab-designer")
+        developer_tab = ui.tab("Developer", icon="code").props("data-docs-id=home-tab-developer")
+        graph_tab = ui.tab("Knowledge", icon="psychology").props("data-docs-id=home-tab-knowledge")
+        activity_tab = ui.tab("Monitor", icon="monitor_heart").props("data-docs-id=home-tab-monitor")
 
     # Choose initial tab (Designer after back / refresh, else Workflows)
     _tab_map = {"Workflows": tasks_tab, "Knowledge": graph_tab,
@@ -122,7 +122,7 @@ def build_home(
     ).style("overflow: hidden;"):
 
         # ── Tasks panel ──────────────────────────────────────────────
-        with ui.tab_panel(tasks_tab).classes("h-full").style("padding: 0;"):
+        with ui.tab_panel(tasks_tab).classes("h-full").props("data-docs-id=home-panel-workflows").style("padding: 0;"):
             _wf_started = time.perf_counter()
             with ui.scroll_area().classes("w-full h-full"):
 
@@ -586,7 +586,7 @@ def build_home(
             )
 
         # ── Developer panel ──────────────────────────────────────────
-        with ui.tab_panel(developer_tab).classes("h-full").style("padding: 0;"):
+        with ui.tab_panel(developer_tab).classes("h-full").props("data-docs-id=home-panel-developer").style("padding: 0;"):
             developer_container = ui.column().classes("w-full h-full")
 
             def _build_developer_panel() -> None:
@@ -620,7 +620,7 @@ def build_home(
                     _render_lazy_placeholder("Developer")
 
         # ── Designer panel ───────────────────────────────────────────
-        with ui.tab_panel(designer_tab).classes("h-full").style("padding: 0;"):
+        with ui.tab_panel(designer_tab).classes("h-full").props("data-docs-id=home-panel-designer").style("padding: 0;"):
             designer_container = ui.column().classes("w-full h-full")
 
             def _open_designer_project(project, initial_prompt: str | None = None, staged_files=None):
@@ -753,7 +753,7 @@ def build_home(
                     _render_lazy_placeholder("Designer")
 
         # ── Graph panel ───────────────────────────────────────────
-        with ui.tab_panel(graph_tab).classes("h-full").style(
+        with ui.tab_panel(graph_tab).classes("h-full").props("data-docs-id=home-panel-knowledge").style(
             "padding: 0; overflow: hidden; display: flex; flex-direction: column;"
         ):
             graph_container = ui.column().classes("w-full h-full")
@@ -781,7 +781,7 @@ def build_home(
                     _render_lazy_placeholder("Knowledge")
 
         # ── Monitor panel ───────────────────────────────────────────
-        with ui.tab_panel(activity_tab).classes("h-full").style("padding: 0;"):
+        with ui.tab_panel(activity_tab).classes("h-full").props("data-docs-id=home-panel-monitor").style("padding: 0;"):
             activity_container = ui.column().classes("w-full h-full")
 
             def _build_activity_panel() -> None:

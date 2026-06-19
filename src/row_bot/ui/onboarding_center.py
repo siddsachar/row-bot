@@ -97,7 +97,7 @@ def show_setup_center(
         show_setup_center(open_settings=open_settings, rebuild_main=rebuild_main, state=state)
 
     with ui.dialog().props("maximized") as dialog:
-        with ui.card().classes("w-full h-full no-shadow").style(
+        with ui.card().classes("w-full h-full no-shadow").props("data-docs-id=setup-center").style(
             "max-width: 78rem; margin: 0 auto; background: #151515;"
         ):
             with ui.row().classes("w-full items-center justify-between px-5 pt-4 pb-2"):

@@ -1,0 +1,61 @@
+routes:
+  /docs/:
+    file: docs-site/docs/index.mdx
+    owner: docs
+  /docs/getting-started/installation:
+    file: docs-site/docs/getting-started/installation.mdx
+    owner: getting-started
+  /docs/getting-started/first-launch:
+    file: docs-site/docs/getting-started/first-launch.mdx
+    owner: getting-started
+  /docs/app-shell/navigation:
+    file: docs-site/docs/app-shell/navigation.mdx
+    owner: app-shell
+  /docs/chat/:
+    file: docs-site/docs/chat/index.mdx
+    owner: chat
+  /docs/chat/model-picker:
+    file: docs-site/docs/chat/model-picker.mdx
+    owner: chat
+  /docs/chat/tools-approvals-and-terminal:
+    file: docs-site/docs/chat/tools-approvals-and-terminal.mdx
+    owner: chat
+  /docs/home/workflows:
+    file: docs-site/docs/home/workflows.mdx
+    owner: home
+  /docs/home/designer:
+    file: docs-site/docs/home/designer.mdx
+    owner: home
+  /docs/home/developer:
+    file: docs-site/docs/home/developer.mdx
+    owner: home
+  /docs/home/knowledge:
+    file: docs-site/docs/home/knowledge.mdx
+    owner: home
+  /docs/home/monitor:
+    file: docs-site/docs/home/monitor.mdx
+    owner: home
+  /docs/settings/:
+    file: docs-site/docs/settings/index.mdx
+    owner: settings
+  /docs/integrations/channels:
+    file: docs-site/docs/integrations/channels.mdx
+    owner: integrations
+  /docs/integrations/mcp:
+    file: docs-site/docs/integrations/mcp.mdx
+    owner: integrations
+  /docs/integrations/plugins:
+    file: docs-site/docs/integrations/plugins.mdx
+    owner: integrations
+  /docs/skills/:
+    file: docs-site/docs/skills/index.mdx
+    owner: skills
+  /docs/voice-and-buddy/:
+    file: docs-site/docs/voice-and-buddy/index.mdx
+    owner: voice-and-buddy
+  /docs/privacy-safety/:
+    file: docs-site/docs/privacy-safety/index.mdx
+    owner: safety
+  /docs/troubleshooting/:
+    file: docs-site/docs/troubleshooting/index.mdx
+    owner: support

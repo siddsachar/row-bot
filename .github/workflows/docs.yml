@@ -65,7 +65,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install Python docs dependencies
-        run: python -m pip install pyyaml pytest
+        run: python -m pip install pyyaml pytest pillow
 
       - name: Collect docs inventory
         run: python scripts/docs/collect_inventory.py --out docs-build/inventory
@@ -77,7 +77,7 @@ jobs:
         run: python scripts/docs/generate_llms_txt.py --docs-root docs-site/docs --out-dir docs-site/static
 
       - name: Validate committed screenshots
-        run: python scripts/docs/capture_screenshots.py --validate-only
+        run: python scripts/docs/capture_real_ui_screenshots.py --validate-only
 
       - name: Validate docs source
         run: python scripts/docs/validate_public_docs.py

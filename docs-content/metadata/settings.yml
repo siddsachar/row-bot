@@ -1,55 +1,81 @@
 tabs:
   Providers:
     description: Connect hosted, subscription, local, cloud, and custom model providers.
-    docs_route: /docs/configuration/models-and-providers
-    screenshot_id: settings-providers-overview
+    docs_route: /docs/settings/providers
+    screenshot_id: settings-providers
+    source: src/row_bot/ui/settings.py
   Models:
     description: Pin model Quick Choices, choose defaults, and review catalog metadata.
-    docs_route: /docs/configuration/models-and-providers
-    screenshot_id: settings-models-catalog
-  Knowledge:
-    description: Configure memory, document knowledge, graph review, embeddings, and wiki export.
-    docs_route: /docs/ui-tour/
-    screenshot_id: settings-knowledge
-  Buddy:
-    description: Configure companion behavior, look, overlay mode, and generated motion.
-    docs_route: /docs/guides/channels-and-voice
-    screenshot_id: buddy-settings
-  Voice:
-    description: Configure dictation, realtime talk, read-aloud, voice models, and diagnostics.
-    docs_route: /docs/guides/channels-and-voice
-    screenshot_id: settings-voice
-  System:
-    description: Configure workspace paths, app preferences, startup behavior, tunnel settings, logging, and updates.
-    docs_route: /docs/reference/
-  Tracker:
-    description: Configure habit and health tracker views, charts, and logged data.
-    docs_route: /docs/reference/
+    docs_route: /docs/settings/models
+    screenshot_id: settings-models
+    source: src/row_bot/ui/settings.py
   Documents:
     description: Manage uploaded documents, document search, extraction, and vector indexing.
-    docs_route: /docs/ui-tour/
+    docs_route: /docs/settings/documents
+    screenshot_id: settings-documents
+    source: src/row_bot/ui/settings.py
   Search:
     description: Configure search providers, browser automation, and knowledge/search tools.
-    docs_route: /docs/reference/
+    docs_route: /docs/settings/search
+    screenshot_id: settings-search
+    source: src/row_bot/ui/settings.py
   Skills:
     description: Enable, disable, pin, browse, and review Smart Skills.
-    docs_route: /docs/guides/skills-plugins-mcp
+    docs_route: /docs/settings/skills
     screenshot_id: settings-skills
+    source: src/row_bot/ui/settings.py
+  System:
+    description: Configure workspace paths, local access, shell/browser automation, tunnels, logging, and updates.
+    docs_route: /docs/settings/system
+    screenshot_id: settings-system
+    source: src/row_bot/ui/settings.py
   Accounts:
     description: Connect account-level integrations used by tools and setup flows.
-    docs_route: /docs/configuration/models-and-providers
-  Channels:
-    description: Configure Telegram, WhatsApp, Discord, Slack, SMS, delivery, and health checks.
-    docs_route: /docs/guides/channels-and-voice
-    screenshot_id: settings-channels
+    docs_route: /docs/settings/accounts
+    screenshot_id: settings-accounts
+    source: src/row_bot/ui/settings.py
   Utilities:
     description: Configure built-in utility tools and system integrations.
-    docs_route: /docs/reference/
+    docs_route: /docs/settings/utilities
+    screenshot_id: settings-utilities
+    source: src/row_bot/ui/settings.py
+  Tracker:
+    description: Configure habit and health tracker views, charts, and logged data.
+    docs_route: /docs/settings/tracker
+    screenshot_id: settings-tracker
+    source: src/row_bot/ui/settings.py
+  Knowledge:
+    description: Configure memory, document knowledge, graph review, embeddings, and wiki export.
+    docs_route: /docs/settings/knowledge
+    screenshot_id: settings-knowledge
+    source: src/row_bot/ui/settings.py
+  Buddy:
+    description: Configure companion behavior, look, overlay mode, and generated motion.
+    docs_route: /docs/settings/buddy
+    screenshot_id: settings-buddy
+    source: src/row_bot/ui/buddy.py
+  Voice:
+    description: Configure dictation, realtime talk, read-aloud, voice models, and diagnostics.
+    docs_route: /docs/settings/voice
+    screenshot_id: settings-voice
+    source: src/row_bot/ui/settings.py
+  Channels:
+    description: Configure Telegram, WhatsApp, Discord, Slack, SMS, delivery, and health checks.
+    docs_route: /docs/settings/channels
+    screenshot_id: settings-channels
+    source: src/row_bot/ui/settings.py
   MCP:
     description: Add, test, import, browse, enable, and troubleshoot external MCP servers.
-    docs_route: /docs/guides/skills-plugins-mcp
+    docs_route: /docs/settings/mcp
     screenshot_id: settings-mcp
+    source: src/row_bot/ui/mcp_settings.py
   Plugins:
     description: Manage installed plugins, marketplace installs, and promoted Custom Tools.
-    docs_route: /docs/guides/skills-plugins-mcp
+    docs_route: /docs/settings/plugins
     screenshot_id: settings-plugins
+    source: src/row_bot/plugins/ui_settings.py
+  Preferences:
+    description: Customize assistant identity, launch behavior, background intelligence, updates, and migration.
+    docs_route: /docs/settings/preferences
+    screenshot_id: settings-preferences
+    source: src/row_bot/ui/settings.py

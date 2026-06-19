@@ -19,7 +19,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from scripts.docs.capture_screenshots import OUTPUT_ROOT, _validate_image
+from scripts.docs.capture_real_ui_screenshots import DOM_ROOT, OUTPUT_ROOT, _validate_image
 from scripts.docs.collect_inventory import build_inventory
 from scripts.docs.generate_mdx import check_pages, render_pages
 from scripts.docs.schemas import public_route_for_doc
@@ -88,6 +88,12 @@ def _scan_text(path: Path, text: str) -> list[str]:
     rel = _relative(path)
     if ".local/" in text.replace("\\", "/"):
         errors.append(f"{rel} references .local")
+    lowered = text.lower()
+    normalized = text.replace("\\", "/")
+    if "/docs-mode/" in lowered or "docs-mode screenshot" in lowered or "docs mode screenshot" in lowered:
+        errors.append(f"{rel} references forbidden docs-mode screenshot text")
+    if "img/screenshots/generated" in normalized or "screenshots/generated" in normalized:
+        errors.append(f"{rel} references the fake generated screenshot directory")
     for pattern in SECRET_PATTERNS:
         if pattern.search(text):
             errors.append(f"{rel} contains blocked secret/path pattern: {pattern.pattern}")
@@ -110,7 +116,12 @@ def _validate_required_files(errors: list[str]) -> None:
         DOCS_SITE / "static" / "CNAME",
         DOCS_ROOT / "index.mdx",
         METADATA_ROOT / "ui_surfaces.yml",
+        METADATA_ROOT / "real_ui_surfaces.yml",
         METADATA_ROOT / "settings.yml",
+        METADATA_ROOT / "settings_tabs.yml",
+        METADATA_ROOT / "home_tabs.yml",
+        METADATA_ROOT / "dialogs.yml",
+        METADATA_ROOT / "docs_routes.yml",
         METADATA_ROOT / "screenshots.yml",
         METADATA_ROOT / "how_to_guides.yml",
     ]
@@ -129,10 +140,11 @@ def _validate_generated_pages(errors: list[str]) -> None:
     errors.extend(check_pages(render_pages(inventory)))
 
 
-def _validate_metadata(errors: list[str]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+def _validate_metadata(errors: list[str]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
     surfaces = _load_yaml(METADATA_ROOT / "ui_surfaces.yml").get("surfaces", {})
     screenshots = _load_yaml(METADATA_ROOT / "screenshots.yml").get("screenshots", {})
     settings = _load_yaml(METADATA_ROOT / "settings.yml").get("tabs", {})
+    home_tabs = _load_yaml(METADATA_ROOT / "home_tabs.yml").get("tabs", {})
     guides = _load_yaml(METADATA_ROOT / "how_to_guides.yml").get("guides", {})
     if not isinstance(surfaces, dict):
         errors.append("ui_surfaces.yml surfaces must be a mapping")
@@ -143,13 +155,16 @@ def _validate_metadata(errors: list[str]) -> tuple[dict[str, Any], dict[str, Any
     if not isinstance(settings, dict):
         errors.append("settings.yml tabs must be a mapping")
         settings = {}
+    if not isinstance(home_tabs, dict):
+        errors.append("home_tabs.yml tabs must be a mapping")
+        home_tabs = {}
     if not isinstance(guides, dict):
         errors.append("how_to_guides.yml guides must be a mapping")
         guides = {}
-    return surfaces, screenshots, settings, guides
+    return surfaces, screenshots, settings, home_tabs, guides
 
 
-def _validate_routes(errors: list[str], settings: dict[str, Any], guides: dict[str, Any]) -> None:
+def _validate_routes(errors: list[str], settings: dict[str, Any], home_tabs: dict[str, Any], guides: dict[str, Any]) -> None:
     routes = _doc_routes()
     for guide_id, guide in guides.items():
         route = str((guide or {}).get("route") or "")
@@ -159,12 +174,35 @@ def _validate_routes(errors: list[str], settings: dict[str, Any], guides: dict[s
         route = str((meta or {}).get("docs_route") or "")
         if route and not _route_exists(route, routes):
             errors.append(f"Settings tab {tab} route does not exist: {route}")
+    for tab, meta in home_tabs.items():
+        route = str((meta or {}).get("docs_route") or "")
+        if route and not _route_exists(route, routes):
+            errors.append(f"Home tab {tab} route does not exist: {route}")
     for path in _doc_pages():
         meta, _body = _split_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
         if not meta.get("title"):
             errors.append(f"{_relative(path)} missing frontmatter title")
         if not meta.get("description"):
             errors.append(f"{_relative(path)} missing frontmatter description")
+
+
+def _source_and_dom_text() -> str:
+    parts: list[str] = []
+    source_roots = [
+        ROOT / "src" / "row_bot",
+        ROOT / "scripts" / "docs",
+        ROOT / "docs-content" / "metadata",
+    ]
+    for root in source_roots:
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob("*")):
+            if path.is_file() and path.suffix in {".py", ".yml", ".yaml", ".json"}:
+                parts.append(path.read_text(encoding="utf-8", errors="replace"))
+    if DOM_ROOT.exists():
+        for path in sorted(DOM_ROOT.glob("*.json")):
+            parts.append(path.read_text(encoding="utf-8", errors="replace"))
+    return "\n".join(parts)
 
 
 def _validate_screenshots(errors: list[str], surfaces: dict[str, Any], screenshots: dict[str, Any]) -> None:
@@ -178,17 +216,18 @@ def _validate_screenshots(errors: list[str], surfaces: dict[str, Any], screensho
     docs_text = "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in _doc_pages())
     component_ids = set(re.findall(r"<Screenshot\s+[^>]*id=\"([^\"]+)\"", docs_text, flags=re.DOTALL))
 
-    source_text = "\n".join(
-        path.read_text(encoding="utf-8", errors="replace")
-        for path in [ROOT / "src" / "row_bot" / "docs_mode.py"]
-        if path.exists()
-    )
+    source_text = _source_and_dom_text()
     for screenshot_id, screenshot in screenshots.items():
         if not isinstance(screenshot, dict):
             errors.append(f"Screenshot {screenshot_id} must be a mapping")
             continue
         if not screenshot.get("alt"):
             errors.append(f"Screenshot {screenshot_id} is missing alt text")
+        route = str(screenshot.get("route") or "")
+        if "/docs-mode/" in route or "/docs_mode/" in route:
+            errors.append(f"Screenshot {screenshot_id} uses forbidden fake docs route: {route}")
+        if "docs-site/static/img/screenshots/generated" in json.dumps(screenshot):
+            errors.append(f"Screenshot {screenshot_id} references fake generated screenshot directory")
         surface = screenshot.get("surface")
         if surface and surface not in surfaces:
             errors.append(f"Screenshot {screenshot_id} references unknown surface {surface}")
@@ -198,7 +237,9 @@ def _validate_screenshots(errors: list[str], surfaces: dict[str, Any], screensho
         selector = str(screenshot.get("capture_selector") or screenshot.get("wait_for") or "")
         for docs_id in re.findall(r'data-docs-id=\"([^\"]+)\"', selector):
             if docs_id not in source_text:
-                errors.append(f"Screenshot {screenshot_id} references data-docs-id {docs_id} not present in docs-mode source")
+                errors.append(f"Screenshot {screenshot_id} references data-docs-id {docs_id} not present in source or real DOM snapshots")
+        if status == "required" and not screenshot.get("expected_text"):
+            errors.append(f"Screenshot {screenshot_id} is missing expected_text")
         output = OUTPUT_ROOT / str(screenshot.get("output") or f"{screenshot_id}.png")
         if status == "deferred":
             if not screenshot.get("reason"):
@@ -225,6 +266,7 @@ def _validate_reference_links(errors: list[str]) -> None:
         "tools",
         "providers",
         "settings",
+        "home-tabs",
         "channels",
         "skills",
         "mcp",
@@ -299,7 +341,7 @@ def _validate_secret_scans(errors: list[str]) -> None:
     paths = _doc_pages()
     paths.extend([METADATA_ROOT / "screenshots.yml", ROOT / "docs-content" / "review-status.md"])
     paths.extend([DOCS_SITE / "static" / "llms.txt", DOCS_SITE / "static" / "llms-full.txt"])
-    report = ROOT / "docs-build" / "reports" / "docs-v1-review.md"
+    report = ROOT / "docs-build" / "reports" / "docs-real-ui-review.md"
     if report.exists():
         paths.append(report)
     errors.extend(_scan_files(paths))
@@ -312,7 +354,7 @@ def validate() -> list[str]:
         return errors
 
     try:
-        surfaces, screenshots, settings, guides = _validate_metadata(errors)
+        surfaces, screenshots, settings, home_tabs, guides = _validate_metadata(errors)
     except Exception as exc:
         errors.append(f"Could not parse docs metadata: {exc}")
         return errors
@@ -333,13 +375,18 @@ def validate() -> list[str]:
         "Utilities",
         "MCP",
         "Plugins",
+        "Preferences",
     }
     missing_tabs = sorted(expected_settings_tabs - set(settings))
     if missing_tabs:
         errors.append("settings.yml missing tabs: " + ", ".join(missing_tabs))
+    expected_home_tabs = {"Workflows", "Designer", "Developer", "Knowledge", "Monitor"}
+    missing_home = sorted(expected_home_tabs - set(home_tabs))
+    if missing_home:
+        errors.append("home_tabs.yml missing tabs: " + ", ".join(missing_home))
 
     _validate_generated_pages(errors)
-    _validate_routes(errors, settings, guides)
+    _validate_routes(errors, settings, home_tabs, guides)
     _validate_screenshots(errors, surfaces, screenshots)
     _validate_reference_links(errors)
     _validate_llms(errors)

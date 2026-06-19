@@ -120,6 +120,22 @@ def _settings(inv: dict[str, Any]) -> str:
     )
 
 
+def _home_tabs(inv: dict[str, Any]) -> str:
+    return _section(
+        "Home Tabs",
+        _record_table(
+            inv.get("home_tabs", []),
+            [
+                ("title", "Tab"),
+                ("docs_route", "Docs route"),
+                ("screenshot_id", "Screenshot"),
+                ("builder", "Builder"),
+                ("source", "Source"),
+            ],
+        ),
+    )
+
+
 def _channels(inv: dict[str, Any]) -> str:
     return _section(
         "Channels",
@@ -227,12 +243,12 @@ def _environment(inv: dict[str, Any]) -> str:
         ["ROW_BOT_DATA_DIR", "Overrides the active Row-Bot data directory for the app process."],
         ["ROW_BOT_PORT", "Selects the local HTTP port for the NiceGUI app."],
         ["ROW_BOT_HOST", "Selects the host interface for the local app server."],
-        ["ROW_BOT_DOCS_MODE", "Enables deterministic docs-only capture mode."],
-        ["ROW_BOT_DOCS_FIXED_NOW", "Freezes docs-mode time for deterministic screenshots."],
+        ["ROW_BOT_DOCS_CAPTURE", "Enables deterministic capture support while rendering the real app UI."],
+        ["ROW_BOT_DOCS_FIXED_NOW", "Freezes capture time for deterministic screenshots."],
         ["ROW_BOT_DOCS_DISABLE_NETWORK", "Instructs docs automation to avoid live network probes."],
-        ["ROW_BOT_DOCS_DISABLE_AUTOSTART", "Skips background autostart paths during docs capture."],
+        ["ROW_BOT_DOCS_DISABLE_AUTOSTART", "Skips background autostart paths during real UI docs capture."],
         ["ROW_BOT_DOCS_REDUCE_MOTION", "Injects reduced-motion CSS for screenshot stability."],
-        ["ROW_BOT_DOCS_FAKE_PROVIDERS", "Uses safe fake provider status in docs mode."],
+        ["ROW_BOT_DOCS_FAKE_PROVIDERS", "Uses safe fake provider readiness status without replacing UI."],
     ]
     return _section("Environment And Config", _table(["Variable", "Purpose"], rows))
 
@@ -275,6 +291,7 @@ PAGE_DEFS = [
     ("tools", "Tools", "Generated reference for Row-Bot tools and tool guides.", "scripts/docs/collect_inventory.py", _tools),
     ("providers", "Providers", "Generated reference for model providers and provider risk labels.", "scripts/docs/collect_inventory.py", _providers),
     ("settings", "Settings", "Generated reference for settings tabs.", "docs-content/metadata/settings.yml", _settings),
+    ("home-tabs", "Home Tabs", "Generated reference for Home tab coverage.", "docs-content/metadata/home_tabs.yml", _home_tabs),
     ("channels", "Channels", "Generated reference for messaging channels.", "scripts/docs/collect_inventory.py", _channels),
     ("skills", "Skills", "Generated reference for bundled skills and tool guides.", "scripts/docs/collect_inventory.py", _skills),
     ("mcp", "MCP", "Generated reference for recommended MCP servers.", "src/row_bot/mcp_client/recommended_servers.json", _mcp),

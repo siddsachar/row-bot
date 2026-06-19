@@ -1,4 +1,4 @@
-"""Build a concise public docs V1 review report."""
+"""Build a concise real UI public docs review report."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from scripts.docs.collect_inventory import build_inventory
 from scripts.docs.validate_public_docs import validate
 
 
-REPORT = ROOT / "docs-build" / "reports" / "docs-v1-review.md"
+REPORT = ROOT / "docs-build" / "reports" / "docs-real-ui-review.md"
 SCREENSHOT_REPORT = ROOT / "docs-build" / "reports" / "screenshots.json"
 
 
@@ -52,18 +52,20 @@ def build_report() -> str:
     ]
 
     lines = [
-        "# Row-Bot Public Docs V1 Review Report",
+        "# Row-Bot Public Docs Real UI Review Report",
         "",
-        "Generated: 2026-06-18 docs automation run.",
+        "Generated: 2026-06-19 real UI docs automation run.",
         "",
         "## Completion Summary",
         "",
-        "- Curated public docs V1 guide pages are in `docs-site/docs`.",
+        "- Curated public docs real-UI pages are in `docs-site/docs`.",
         "- Generated reference pages are in `docs-site/docs/reference/generated`.",
         "- Pagefind search UI is present on the docs homepage and `/search`.",
         "- LLM docs are generated under `docs-site/static`.",
-        "- Docs mode and deterministic demo screenshots are implemented.",
-        "- Current public website guardrails remain validation-only.",
+        "- Real UI capture mode seeds fake data, freezes time, reduces motion, and disables unsafe side effects.",
+        "- Screenshots are captured from the actual NiceGUI `/` route, not fake docs routes.",
+        "- Baseline validator previously passed the synthetic prototype; the hardened validator now rejects that approach.",
+        "- Current public website guardrails remain validation-only with no Pages deploy behavior.",
         "",
         "## Generated Inventory",
         "",
@@ -104,6 +106,8 @@ def build_report() -> str:
             "- Verify provider/model recommendation wording and cost/privacy implications.",
             "- Review privacy and safety claims against current app behavior.",
             "- Inspect screenshots for visual accuracy and absence of sensitive data.",
+            "- Verify the docs site visually matches the current public website.",
+            "- Confirm every Home tab and every Settings tab page is accurate.",
             "- Confirm troubleshooting steps do not risk data loss or credential exposure.",
             "- Review generated reference pages for overexposed implementation details.",
             "- Confirm no public-site cutover or deploy behavior is included.",

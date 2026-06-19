@@ -22,6 +22,7 @@ from typing import Any, Callable, TYPE_CHECKING
 from urllib.parse import urlparse
 
 from row_bot.brand import APP_DISPLAY_NAME
+from row_bot.docs_capture import docs_capture_fake_provider_status, is_docs_capture
 from nicegui import run, ui
 
 if TYPE_CHECKING:
@@ -207,7 +208,7 @@ async def show_setup_wizard(
     )
 
     with setup_dlg:
-        with ui.card().classes("w-full max-w-4xl mx-auto q-pa-lg").style(
+        with ui.card().classes("w-full max-w-4xl mx-auto q-pa-lg").props("data-docs-id=setup-wizard").style(
             "border-radius: 10px;"
         ):
             selected_intents: set[str] = set()
@@ -927,7 +928,10 @@ async def show_setup_wizard(
                     local = list_local_models() if up else []
                     return up, local
 
-                _wiz_ollama_up, local_now = await run.io_bound(_wiz_probe)
+                if docs_capture_fake_provider_status():
+                    _wiz_ollama_up, local_now = True, ["llama3.1:8b", "nomic-embed-text"]
+                else:
+                    _wiz_ollama_up, local_now = await run.io_bound(_wiz_probe)
 
                 if sys.platform == "win32":
                     _wiz_install = (
@@ -959,11 +963,12 @@ async def show_setup_wizard(
                     ui.label(_wiz_install).classes("text-grey-8 text-xs").style(
                         "white-space: pre-line"
                     )
-                    ui.link(
-                        "Download Ollama →",
-                        "https://ollama.com/download",
-                        new_tab=True,
-                    ).classes("text-sm text-weight-bold")
+                    if not is_docs_capture():
+                        ui.link(
+                            "Download Ollama →",
+                            "https://ollama.com/download",
+                            new_tab=True,
+                        ).classes("text-sm text-weight-bold")
                 wiz_ollama_notice.visible = not _wiz_ollama_up
 
                 ui.label("🧠 Brain Model").classes("text-h6")

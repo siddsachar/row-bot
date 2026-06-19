@@ -1,0 +1,26 @@
+tabs:
+  Workflows:
+    docs_route: /docs/home/workflows
+    screenshot_id: home-workflows
+    source: src/row_bot/ui/home.py
+    builder: build_home
+  Designer:
+    docs_route: /docs/home/designer
+    screenshot_id: home-designer
+    source: src/row_bot/ui/home.py
+    builder: build_home
+  Developer:
+    docs_route: /docs/home/developer
+    screenshot_id: home-developer
+    source: src/row_bot/ui/home.py
+    builder: build_home
+  Knowledge:
+    docs_route: /docs/home/knowledge
+    screenshot_id: home-knowledge
+    source: src/row_bot/ui/home.py
+    builder: build_home
+  Monitor:
+    docs_route: /docs/home/monitor
+    screenshot_id: home-monitor
+    source: src/row_bot/ui/home.py
+    builder: build_home

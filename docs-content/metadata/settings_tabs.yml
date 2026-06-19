@@ -1,0 +1,49 @@
+tabs:
+  Providers:
+    builder: _build_cloud_tab
+    source: src/row_bot/ui/settings.py
+  Models:
+    builder: _build_models_tab
+    source: src/row_bot/ui/settings.py
+  Documents:
+    builder: _build_documents_tab
+    source: src/row_bot/ui/settings.py
+  Search:
+    builder: _build_tools_tab
+    source: src/row_bot/ui/settings.py
+  Skills:
+    builder: _build_skills_tab
+    source: src/row_bot/ui/settings.py
+  System:
+    builder: _build_system_access_tab
+    source: src/row_bot/ui/settings.py
+  Accounts:
+    builder: _build_accounts_tab
+    source: src/row_bot/ui/settings.py
+  Utilities:
+    builder: _build_utilities_tab
+    source: src/row_bot/ui/settings.py
+  Tracker:
+    builder: _build_tracker_tab
+    source: src/row_bot/ui/settings.py
+  Knowledge:
+    builder: _build_knowledge_tab
+    source: src/row_bot/ui/settings.py
+  Buddy:
+    builder: build_buddy_settings_tab
+    source: src/row_bot/ui/buddy.py
+  Voice:
+    builder: _build_voice_tab
+    source: src/row_bot/ui/settings.py
+  Channels:
+    builder: _build_channels_tab
+    source: src/row_bot/ui/settings.py
+  MCP:
+    builder: build_mcp_settings_tab
+    source: src/row_bot/ui/mcp_settings.py
+  Plugins:
+    builder: _build_plugins_tab
+    source: src/row_bot/ui/settings.py
+  Preferences:
+    builder: _build_preferences_tab
+    source: src/row_bot/ui/settings.py

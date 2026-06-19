@@ -5,14 +5,14 @@ screenshots:
     status: required
     scenario: first-run
     viewport: desktop
-    route: /docs-mode/surface/first-launch-setup-wizard
+    route: /?docs_surface=first-launch-setup-wizard
     actions:
       - wait_for_selector: '[data-docs-id="setup-wizard"]'
     capture_selector: '[data-docs-id="setup-wizard"]'
     wait_for: '[data-docs-id="setup-wizard"]'
     expected_text:
       - Welcome to Row-Bot
-      - Local Ollama
+      - Connect your first model
     masks:
       - '[data-sensitive]'
     output: first-launch-setup-wizard.png
@@ -25,512 +25,563 @@ screenshots:
     status: required
     scenario: configured
     viewport: desktop
-    route: /docs-mode/surface/setup-center
+    route: /?dialog=setup-center
     actions:
       - wait_for_selector: '[data-docs-id="setup-center"]'
+      - wait_for_text: Setup Center
     capture_selector: '[data-docs-id="setup-center"]'
     wait_for: '[data-docs-id="setup-center"]'
     expected_text:
       - Setup Center
-      - Workflows
+      - Models
     masks: []
     output: setup-center.png
     alt: Row-Bot Setup Center showing resumable setup checklist cards.
     docs_pages:
       - /docs/getting-started/first-launch
+  app-shell-overview:
+    title: App Shell Overview
+    surface: app_shell
+    status: required
+    scenario: configured
+    viewport: desktop
+    route: /
+    actions:
+      - wait_for_selector: '[data-docs-id="app-main-shell"]'
+    capture_selector: '[data-docs-id="app-shell"]'
+    wait_for: '[data-docs-id="app-shell"]'
+    expected_text:
+      - Workflows
+      - Settings
+    masks: []
+    output: app-shell-overview.png
+    alt: Row-Bot app shell with sidebar, main content, and command/status surfaces.
+    docs_pages:
+      - /docs/app-shell/navigation
   chat-main:
     title: Chat Main
     surface: chat
     status: required
-    scenario: configured
+    scenario: chat
     viewport: desktop
-    route: /docs-mode/surface/chat-main
+    route: /?docs_surface=chat-main&thread_id=docs-demo-chat
     actions:
-      - wait_for_selector: '[data-docs-id="chat-shell"]'
-    capture_selector: '[data-docs-id="chat-shell"]'
-    wait_for: '[data-docs-id="chat-shell"]'
+      - wait_for_selector: '[data-docs-id="chat-surface"]'
+      - wait_for_text: Demo launch checklist
+    capture_selector: '[data-docs-id="chat-surface"]'
+    wait_for: '[data-docs-id="chat-surface"]'
     expected_text:
-      - Ask Row-Bot anything
-      - Agent Mode
+      - Demo launch checklist
+      - Summarize the launch checklist
     masks: []
     output: chat-main.png
-    alt: Row-Bot chat surface with thread list, model strip, transcript, and composer.
+    alt: Row-Bot chat surface with a seeded demo conversation and composer controls.
     docs_pages:
-      - /docs/ui-tour/
-  chat-model-picker:
-    title: Chat Model Picker
-    surface: chat
-    status: required
-    scenario: configured
-    viewport: desktop
-    route: /docs-mode/surface/chat-model-picker
-    actions:
-      - wait_for_selector: '[data-docs-id="model-picker"]'
-    capture_selector: '[data-docs-id="model-picker"]'
-    wait_for: '[data-docs-id="model-picker"]'
-    expected_text:
-      - Model picker
-      - Quick Choices
-    masks: []
-    output: chat-model-picker.png
-    alt: Row-Bot model picker showing provider-qualified model choices.
-    docs_pages:
-      - /docs/configuration/models-and-providers
-  chat-tool-trace:
-    title: Chat Tool Trace
-    surface: chat
-    status: required
-    scenario: configured
-    viewport: desktop
-    route: /docs-mode/surface/chat-tool-trace
-    actions:
-      - wait_for_selector: '[data-docs-id="tool-trace"]'
-    capture_selector: '[data-docs-id="tool-trace"]'
-    wait_for: '[data-docs-id="tool-trace"]'
-    expected_text:
-      - Tool trace
-      - approval.request
-    masks: []
-    output: chat-tool-trace.png
-    alt: Row-Bot grouped tool trace showing read-only steps and an approval request.
-    docs_pages:
-      - /docs/ui-tour/
-  chat-approval:
-    title: Chat Approval
-    surface: chat
-    status: required
-    scenario: configured
-    viewport: desktop
-    route: /docs-mode/surface/chat-approval
-    actions:
-      - wait_for_selector: '[data-docs-id="approval-dialog"]'
-    capture_selector: '[data-docs-id="approval-dialog"]'
-    wait_for: '[data-docs-id="approval-dialog"]'
-    expected_text:
-      - Approval required
-      - Approve once
-    masks:
-      - '[data-sensitive]'
-    output: chat-approval.png
-    alt: Row-Bot approval dialog for a sensitive file write action.
-    docs_pages:
-      - /docs/privacy-safety/
+      - /docs/chat/
   home-workflows:
-    title: Workflows Home
+    title: Home Workflows Tab
     surface: home_workflows
     status: required
     scenario: workflows
     viewport: desktop
-    route: /docs-mode/surface/home-workflows
+    route: /?home_tab=Workflows
     actions:
-      - wait_for_selector: '[data-docs-id="workflow-card-list"]'
-    capture_selector: '[data-docs-id="workflow-card-list"]'
-    wait_for: '[data-docs-id="workflow-card-list"]'
+      - wait_for_selector: '[data-docs-id="home-panel-workflows"]'
+    capture_selector: '[data-docs-id="home-panel-workflows"]'
+    wait_for: '[data-docs-id="home-panel-workflows"]'
     expected_text:
       - Workflows
-      - Morning Brief
+      - Background Agents
     masks: []
     output: home-workflows.png
-    alt: Row-Bot Workflows tab with workflow cards and run history.
+    alt: Row-Bot Home Workflows tab with workflow cards, delivery defaults, and run status.
     docs_pages:
-      - /docs/guides/workflows
-  designer-gallery:
-    title: Designer Gallery
-    surface: designer
+      - /docs/home/workflows
+  home-designer:
+    title: Home Designer Tab
+    surface: home_designer
     status: required
     scenario: designer
     viewport: desktop
-    route: /docs-mode/surface/designer-gallery
+    route: /?home_tab=Designer
     actions:
-      - wait_for_selector: '[data-docs-id="designer-gallery"]'
-    capture_selector: '[data-docs-id="designer-gallery"]'
-    wait_for: '[data-docs-id="designer-gallery"]'
+      - wait_for_selector: '[data-docs-id="home-panel-designer"]'
+    capture_selector: '[data-docs-id="home-panel-designer"]'
+    wait_for: '[data-docs-id="home-panel-designer"]'
     expected_text:
-      - Designer Studio
-      - Product one-pager
+      - Designer
     masks: []
-    output: designer-gallery.png
-    alt: Row-Bot Designer Studio gallery with demo project cards.
+    output: home-designer.png
+    alt: Row-Bot Home Designer tab with Designer Studio entry points.
     docs_pages:
-      - /docs/guides/designer-studio
-  designer-new-project:
-    title: Designer New Project
-    surface: designer
-    status: required
-    scenario: designer
-    viewport: desktop
-    route: /docs-mode/surface/designer-new-project
-    actions:
-      - wait_for_selector: '[data-docs-id="designer-new-project-dialog"]'
-    capture_selector: '[data-docs-id="designer-new-project-dialog"]'
-    wait_for: '[data-docs-id="designer-new-project-dialog"]'
-    expected_text:
-      - New Designer project
-      - Create project
-    masks: []
-    output: designer-new-project.png
-    alt: Row-Bot Designer Studio new project dialog with template choices.
-    docs_pages:
-      - /docs/guides/designer-studio
-  designer-editor:
-    title: Designer Editor
-    surface: designer
-    status: required
-    scenario: designer
-    viewport: desktop
-    route: /docs-mode/surface/designer-editor
-    actions:
-      - wait_for_selector: '[data-docs-id="designer-editor"]'
-    capture_selector: '[data-docs-id="designer-editor"]'
-    wait_for: '[data-docs-id="designer-editor"]'
-    expected_text:
-      - Launch Page Preview
-      - Assistant
-    masks: []
-    output: designer-editor.png
-    alt: Row-Bot Designer Studio editor with page navigator, preview, and assistant panel.
-    docs_pages:
-      - /docs/guides/designer-studio
-  developer-home:
-    title: Developer Home
-    surface: developer
+      - /docs/home/designer
+  home-developer:
+    title: Home Developer Tab
+    surface: home_developer
     status: required
     scenario: developer
     viewport: desktop
-    route: /docs-mode/surface/developer-home
+    route: /?home_tab=Developer
     actions:
-      - wait_for_selector: '[data-docs-id="developer-home"]'
-    capture_selector: '[data-docs-id="developer-home"]'
-    wait_for: '[data-docs-id="developer-home"]'
+      - wait_for_selector: '[data-docs-id="home-panel-developer"]'
+    capture_selector: '[data-docs-id="home-panel-developer"]'
+    wait_for: '[data-docs-id="home-panel-developer"]'
     expected_text:
-      - Developer Studio
-      - demo-workspace
+      - Developer
     masks: []
-    output: developer-home.png
-    alt: Row-Bot Developer Studio home showing demo workspaces and Custom Tools.
+    output: home-developer.png
+    alt: Row-Bot Home Developer tab with Developer Studio workspace and Custom Tools entry points.
     docs_pages:
-      - /docs/guides/developer-studio
-  developer-workspace:
-    title: Developer Workspace
-    surface: developer
-    status: required
-    scenario: developer
-    viewport: desktop
-    route: /docs-mode/surface/developer-workspace
-    actions:
-      - wait_for_selector: '[data-docs-id="developer-workspace"]'
-    capture_selector: '[data-docs-id="developer-workspace"]'
-    wait_for: '[data-docs-id="developer-workspace"]'
-    expected_text:
-      - Workspace inspector
-      - Changed files
-    masks: []
-    output: developer-workspace.png
-    alt: Row-Bot Developer Studio workspace inspector with changed files and approval mode.
-    docs_pages:
-      - /docs/guides/developer-studio
-  knowledge-graph:
-    title: Knowledge Graph
-    surface: knowledge
+      - /docs/home/developer
+  home-knowledge:
+    title: Home Knowledge Tab
+    surface: home_knowledge
     status: required
     scenario: knowledge
     viewport: desktop
-    route: /docs-mode/surface/knowledge-graph
+    route: /?home_tab=Knowledge
     actions:
-      - wait_for_selector: '[data-docs-id="knowledge-graph-panel"]'
-    capture_selector: '[data-docs-id="knowledge-graph-panel"]'
-    wait_for: '[data-docs-id="knowledge-graph-panel"]'
+      - wait_for_selector: '[data-docs-id="home-panel-knowledge"]'
+    capture_selector: '[data-docs-id="home-panel-knowledge"]'
+    wait_for: '[data-docs-id="home-panel-knowledge"]'
     expected_text:
-      - Knowledge graph
-      - Launch brief
+      - Knowledge
     masks: []
-    output: knowledge-graph.png
-    alt: Row-Bot Knowledge graph panel with demo entities and indexed documents.
+    output: home-knowledge.png
+    alt: Row-Bot Home Knowledge tab with memory and graph review surfaces.
     docs_pages:
-      - /docs/ui-tour/
-  settings-providers-overview:
+      - /docs/home/knowledge
+  home-monitor:
+    title: Home Monitor Tab
+    surface: home_monitor
+    status: required
+    scenario: knowledge
+    viewport: desktop
+    route: /?home_tab=Monitor
+    actions:
+      - wait_for_selector: '[data-docs-id="home-panel-monitor"]'
+      - wait_for_text: System Monitor
+    capture_selector: '[data-docs-id="home-panel-monitor"]'
+    wait_for: '[data-docs-id="home-panel-monitor"]'
+    expected_text:
+      - System Monitor
+      - Recent Logs
+    masks: []
+    output: home-monitor.png
+    alt: Row-Bot Home Monitor tab with knowledge extraction, dream cycle, channels, and logs.
+    docs_pages:
+      - /docs/home/monitor
+  settings-providers:
     title: Settings Providers
     surface: settings
     status: required
     scenario: settings
     viewport: desktop
-    route: /docs-mode/surface/settings-providers-overview
+    route: /?settings_tab=Providers
     actions:
-      - wait_for_selector: '[data-docs-id="settings-tab-providers"]'
+      - wait_for_selector: '[data-docs-id="settings-dialog"]'
+      - wait_for_text: Providers
     capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-tab-providers"]'
+    wait_for: '[data-docs-id="settings-dialog"]'
     expected_text:
+      - Settings
       - Providers
-      - OpenAI API
-    masks: []
-    output: settings-providers-overview.png
-    alt: Row-Bot Settings dialog open to Providers with demo connection cards.
+    masks:
+      - '[data-sensitive]'
+    output: settings-providers.png
+    alt: Row-Bot Settings Providers tab for model provider connections.
     docs_pages:
-      - /docs/configuration/models-and-providers
-  settings-models-catalog:
+      - /docs/settings/providers
+  settings-models:
     title: Settings Models
     surface: settings
     status: required
     scenario: settings
     viewport: desktop
-    route: /docs-mode/surface/settings-models-catalog
+    route: /?settings_tab=Models
     actions:
-      - wait_for_selector: '[data-docs-id="settings-tab-models"]'
+      - wait_for_selector: '[data-docs-id="settings-dialog"]'
+      - wait_for_text: Models
     capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-tab-models"]'
+    wait_for: '[data-docs-id="settings-dialog"]'
     expected_text:
+      - Settings
       - Models
-      - Agent Mode
     masks: []
-    output: settings-models-catalog.png
-    alt: Row-Bot Settings dialog open to Models and model catalog choices.
+    output: settings-models.png
+    alt: Row-Bot Settings Models tab for defaults, Quick Choices, and model catalog state.
     docs_pages:
-      - /docs/configuration/models-and-providers
-  settings-knowledge:
-    title: Settings Knowledge
+      - /docs/settings/models
+  settings-documents:
+    title: Settings Documents
     surface: settings
     status: required
     scenario: settings
     viewport: desktop
-    route: /docs-mode/surface/settings-knowledge
+    route: /?settings_tab=Documents
     actions:
-      - wait_for_selector: '[data-docs-id="settings-tab-knowledge"]'
+      - wait_for_selector: '[data-docs-id="settings-dialog"]'
+      - wait_for_text: Documents
     capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-tab-knowledge"]'
+    wait_for: '[data-docs-id="settings-dialog"]'
     expected_text:
-      - Knowledge
-      - Indexed
+      - Settings
+      - Documents
     masks: []
-    output: settings-knowledge.png
-    alt: Row-Bot Settings dialog open to Knowledge with indexed document state.
+    output: settings-documents.png
+    alt: Row-Bot Settings Documents tab for document ingestion and vector indexing.
     docs_pages:
-      - /docs/ui-tour/
+      - /docs/settings/documents
+  settings-search:
+    title: Settings Search
+    surface: settings
+    status: required
+    scenario: settings
+    viewport: desktop
+    route: /?settings_tab=Search
+    actions:
+      - wait_for_selector: '[data-docs-id="settings-dialog"]'
+      - wait_for_text: Search
+    capture_selector: '[data-docs-id="settings-dialog"]'
+    wait_for: '[data-docs-id="settings-dialog"]'
+    expected_text:
+      - Settings
+      - Search
+    masks: []
+    output: settings-search.png
+    alt: Row-Bot Settings Search tab for retrieval and web research controls.
+    docs_pages:
+      - /docs/settings/search
   settings-skills:
     title: Settings Skills
     surface: settings
     status: required
     scenario: settings
     viewport: desktop
-    route: /docs-mode/surface/settings-skills
+    route: /?settings_tab=Skills
     actions:
-      - wait_for_selector: '[data-docs-id="settings-tab-skills"]'
+      - wait_for_selector: '[data-docs-id="settings-dialog"]'
+      - wait_for_text: Skills
     capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-tab-skills"]'
+    wait_for: '[data-docs-id="settings-dialog"]'
     expected_text:
+      - Settings
       - Skills
-      - Task Automation
     masks: []
     output: settings-skills.png
-    alt: Row-Bot Settings dialog open to Skills with enabled and available skills.
+    alt: Row-Bot Settings Skills tab for enabling, pinning, and browsing skills.
     docs_pages:
-      - /docs/guides/skills-plugins-mcp
-  settings-channels:
-    title: Settings Channels
+      - /docs/settings/skills
+  settings-system:
+    title: Settings System
     surface: settings
     status: required
     scenario: settings
     viewport: desktop
-    route: /docs-mode/surface/settings-channels
+    route: /?settings_tab=System
     actions:
-      - wait_for_selector: '[data-docs-id="settings-tab-channels"]'
+      - wait_for_selector: '[data-docs-id="settings-dialog"]'
+      - wait_for_text: System
     capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-tab-channels"]'
+    wait_for: '[data-docs-id="settings-dialog"]'
     expected_text:
-      - Channels
-      - Telegram
+      - Settings
+      - System
     masks: []
-    output: settings-channels.png
-    alt: Row-Bot Settings dialog open to Channels with channel readiness cards.
+    output: settings-system.png
+    alt: Row-Bot Settings System tab for local access, filesystem, shell, browser, tunnels, and logs.
     docs_pages:
-      - /docs/guides/channels-and-voice
+      - /docs/settings/system
+  settings-accounts:
+    title: Settings Accounts
+    surface: settings
+    status: required
+    scenario: settings
+    viewport: desktop
+    route: /?settings_tab=Accounts
+    actions:
+      - wait_for_selector: '[data-docs-id="settings-dialog"]'
+      - wait_for_text: Accounts
+    capture_selector: '[data-docs-id="settings-dialog"]'
+    wait_for: '[data-docs-id="settings-dialog"]'
+    expected_text:
+      - Settings
+      - Accounts
+    masks:
+      - '[data-sensitive]'
+    output: settings-accounts.png
+    alt: Row-Bot Settings Accounts tab for disconnected account integrations.
+    docs_pages:
+      - /docs/settings/accounts
+  settings-utilities:
+    title: Settings Utilities
+    surface: settings
+    status: required
+    scenario: settings
+    viewport: desktop
+    route: /?settings_tab=Utilities
+    actions:
+      - wait_for_selector: '[data-docs-id="settings-dialog"]'
+      - wait_for_text: Utilities
+    capture_selector: '[data-docs-id="settings-dialog"]'
+    wait_for: '[data-docs-id="settings-dialog"]'
+    expected_text:
+      - Settings
+      - Utilities
+    masks: []
+    output: settings-utilities.png
+    alt: Row-Bot Settings Utilities tab for lightweight productivity tools.
+    docs_pages:
+      - /docs/settings/utilities
+  settings-tracker:
+    title: Settings Tracker
+    surface: settings
+    status: required
+    scenario: settings
+    viewport: desktop
+    route: /?settings_tab=Tracker
+    actions:
+      - wait_for_selector: '[data-docs-id="settings-dialog"]'
+      - wait_for_text: Tracker
+    capture_selector: '[data-docs-id="settings-dialog"]'
+    wait_for: '[data-docs-id="settings-dialog"]'
+    expected_text:
+      - Settings
+      - Tracker
+    masks: []
+    output: settings-tracker.png
+    alt: Row-Bot Settings Tracker tab for recurring activities, habits, symptoms, and health events.
+    docs_pages:
+      - /docs/settings/tracker
+  settings-knowledge:
+    title: Settings Knowledge
+    surface: settings
+    status: required
+    scenario: settings
+    viewport: desktop
+    route: /?settings_tab=Knowledge
+    actions:
+      - wait_for_selector: '[data-docs-id="settings-dialog"]'
+      - wait_for_text: Knowledge
+    capture_selector: '[data-docs-id="settings-dialog"]'
+    wait_for: '[data-docs-id="settings-dialog"]'
+    expected_text:
+      - Settings
+      - Knowledge
+    masks: []
+    output: settings-knowledge.png
+    alt: Row-Bot Settings Knowledge tab for memory, graph health, documents, and wiki export.
+    docs_pages:
+      - /docs/settings/knowledge
+  settings-buddy:
+    title: Settings Buddy
+    surface: settings
+    status: required
+    scenario: settings
+    viewport: desktop
+    route: /?settings_tab=Buddy
+    actions:
+      - wait_for_selector: '[data-docs-id="settings-dialog"]'
+      - wait_for_text: Buddy
+    capture_selector: '[data-docs-id="settings-dialog"]'
+    wait_for: '[data-docs-id="settings-dialog"]'
+    expected_text:
+      - Settings
+      - Buddy
+    masks: []
+    output: settings-buddy.png
+    alt: Row-Bot Settings Buddy tab for companion behavior, overlay, look, and motion.
+    docs_pages:
+      - /docs/settings/buddy
   settings-voice:
     title: Settings Voice
     surface: settings
     status: required
     scenario: settings
     viewport: desktop
-    route: /docs-mode/surface/settings-voice
+    route: /?settings_tab=Voice
     actions:
-      - wait_for_selector: '[data-docs-id="settings-tab-voice"]'
+      - wait_for_selector: '[data-docs-id="settings-dialog"]'
+      - wait_for_text: Voice
     capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-tab-voice"]'
+    wait_for: '[data-docs-id="settings-dialog"]'
     expected_text:
+      - Settings
       - Voice
-      - Dictation
     masks: []
     output: settings-voice.png
-    alt: Row-Bot Voice settings with dictation, realtime talk, and read-aloud status.
+    alt: Row-Bot Settings Voice tab for dictation, realtime talk, read-aloud, and diagnostics.
     docs_pages:
-      - /docs/guides/channels-and-voice
+      - /docs/settings/voice
+  settings-channels:
+    title: Settings Channels
+    surface: settings
+    status: required
+    scenario: settings
+    viewport: desktop
+    route: /?settings_tab=Channels
+    actions:
+      - wait_for_selector: '[data-docs-id="settings-dialog"]'
+      - wait_for_text: Channels
+    capture_selector: '[data-docs-id="settings-dialog"]'
+    wait_for: '[data-docs-id="settings-dialog"]'
+    expected_text:
+      - Settings
+      - Channels
+    masks:
+      - '[data-sensitive]'
+    output: settings-channels.png
+    alt: Row-Bot Settings Channels tab for messaging channel configuration and health checks.
+    docs_pages:
+      - /docs/settings/channels
   settings-mcp:
     title: Settings MCP
     surface: settings
     status: required
     scenario: settings
     viewport: desktop
-    route: /docs-mode/surface/settings-mcp
+    route: /?settings_tab=MCP
     actions:
-      - wait_for_selector: '[data-docs-id="settings-tab-mcp"]'
+      - wait_for_selector: '[data-docs-id="settings-dialog"]'
+      - wait_for_text: MCP
     capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-tab-mcp"]'
+    wait_for: '[data-docs-id="settings-dialog"]'
     expected_text:
+      - Settings
       - MCP
-      - Playwright MCP
     masks: []
     output: settings-mcp.png
-    alt: Row-Bot Settings dialog open to MCP with recommended demo servers.
+    alt: Row-Bot Settings MCP tab for external MCP server configuration.
     docs_pages:
-      - /docs/guides/skills-plugins-mcp
+      - /docs/settings/mcp
   settings-plugins:
     title: Settings Plugins
     surface: settings
     status: required
     scenario: settings
     viewport: desktop
-    route: /docs-mode/surface/settings-plugins
+    route: /?settings_tab=Plugins
     actions:
-      - wait_for_selector: '[data-docs-id="settings-tab-plugins"]'
+      - wait_for_selector: '[data-docs-id="settings-dialog"]'
+      - wait_for_text: Plugins
     capture_selector: '[data-docs-id="settings-dialog"]'
-    wait_for: '[data-docs-id="settings-tab-plugins"]'
+    wait_for: '[data-docs-id="settings-dialog"]'
     expected_text:
+      - Settings
       - Plugins
-      - Demo CRM Lookup
     masks: []
     output: settings-plugins.png
-    alt: Row-Bot Settings dialog open to Plugins with demo plugin cards.
+    alt: Row-Bot Settings Plugins tab for installed plugins, marketplace installs, and Custom Tools.
     docs_pages:
-      - /docs/guides/skills-plugins-mcp
-  skills-hub-browse:
-    title: Skills Hub Browse
-    surface: skills_hub
+      - /docs/settings/plugins
+  settings-preferences:
+    title: Settings Preferences
+    surface: settings
     status: required
-    scenario: configured
+    scenario: settings
     viewport: desktop
-    route: /docs-mode/surface/skills-hub-browse
+    route: /?settings_tab=Preferences
     actions:
-      - wait_for_selector: '[data-docs-id="skills-hub-dialog"]'
-    capture_selector: '[data-docs-id="skills-hub-dialog"]'
-    wait_for: '[data-docs-id="skills-hub-dialog"]'
+      - wait_for_selector: '[data-docs-id="settings-dialog"]'
+      - wait_for_text: Preferences
+    capture_selector: '[data-docs-id="settings-dialog"]'
+    wait_for: '[data-docs-id="settings-dialog"]'
     expected_text:
-      - Skills Hub
-      - Meeting Notes
+      - Settings
+      - Preferences
     masks: []
-    output: skills-hub-browse.png
-    alt: Row-Bot Skills Hub browsing demo public and bundled skills.
+    output: settings-preferences.png
+    alt: Row-Bot Settings Preferences tab for identity, launch behavior, updates, and migration.
     docs_pages:
-      - /docs/guides/skills-plugins-mcp
+      - /docs/settings/preferences
+  chat-model-picker:
+    title: Chat Model Picker
+    surface: chat
+    status: deferred
+    scenario: chat
+    route: /?docs_surface=chat-model-picker&thread_id=docs-demo-chat
+    capture_selector: '[data-docs-id="model-picker"]'
+    expected_text:
+      - Model
+    output: chat-model-picker.png
+    alt: Row-Bot model picker showing provider-qualified model choices.
+    reason: The composer model picker needs additional stable real DOM selectors before safe automation can open it without brittle text clicks.
+    follow_up: Add selectors to the composer policy cluster and recapture from the real chat route.
+  chat-tool-trace:
+    title: Chat Tool Trace
+    surface: chat
+    status: deferred
+    scenario: chat
+    route: /?docs_surface=chat-main&thread_id=docs-demo-chat
+    capture_selector: '[data-docs-id="tool-trace"]'
+    expected_text:
+      - filesystem.search
+    output: chat-tool-trace.png
+    alt: Row-Bot tool trace with grouped tool activity.
+    reason: Seeded tool-result rendering is present in chat state but lacks a dedicated stable trace selector for focused capture.
+    follow_up: Add selectors in row_bot.ui.tool_trace and capture the real rendered trace.
+  chat-approval:
+    title: Chat Approval Dialog
+    surface: chat
+    status: deferred
+    scenario: chat
+    route: /
+    capture_selector: '[data-docs-id="approval-dialog"]'
+    expected_text:
+      - Approval
+    output: chat-approval.png
+    alt: Row-Bot approval dialog for a sensitive action.
+    reason: Approval dialogs require a deterministic pending interrupt state that is safe to trigger without starting a real tool run.
+    follow_up: Seed a pending interrupt fixture and attach selectors to the real approval dialog.
+  designer-editor:
+    title: Designer Editor
+    surface: designer
+    status: deferred
+    scenario: designer
+    route: /
+    capture_selector: '[data-docs-id="designer-editor"]'
+    expected_text:
+      - Designer
+    output: designer-editor.png
+    alt: Row-Bot Designer Studio editor.
+    reason: Designer editor capture needs a seeded real Designer project record and editor-route state.
+    follow_up: Seed a safe Designer project through storage APIs and capture the real editor.
+  developer-workspace:
+    title: Developer Workspace
+    surface: developer
+    status: deferred
+    scenario: developer
+    route: /
+    capture_selector: '[data-docs-id="developer-workspace"]'
+    expected_text:
+      - Workspace
+    output: developer-workspace.png
+    alt: Row-Bot Developer Studio workspace inspector.
+    reason: Developer workspace capture needs a temp repository fixture and workspace selector coverage before opening real terminal/server controls.
+    follow_up: Seed a generated temp repo and capture the real Developer workspace with external processes disabled.
   plugin-marketplace:
     title: Plugin Marketplace
     surface: plugin_marketplace
-    status: required
-    scenario: configured
-    viewport: desktop
-    route: /docs-mode/surface/plugin-marketplace
-    actions:
-      - wait_for_selector: '[data-docs-id="plugin-marketplace"]'
+    status: deferred
+    scenario: plugins
+    route: /?settings_tab=Plugins
     capture_selector: '[data-docs-id="plugin-marketplace"]'
-    wait_for: '[data-docs-id="plugin-marketplace"]'
     expected_text:
-      - Plugin marketplace
-      - Invoice Helper
-    masks: []
+      - Marketplace
     output: plugin-marketplace.png
-    alt: Row-Bot Plugin marketplace with safe demo plugin entries.
-    docs_pages:
-      - /docs/guides/skills-plugins-mcp
+    alt: Row-Bot Plugin marketplace.
+    reason: Marketplace opening can touch remote catalog paths unless a safe offline adapter is added.
+    follow_up: Add a capture-only offline marketplace adapter that still renders the real marketplace dialog.
   mcp-add-server:
-    title: MCP Add Server
+    title: MCP Add Server Dialog
     surface: mcp
-    status: required
-    scenario: configured
-    viewport: desktop
-    route: /docs-mode/surface/mcp-add-server
-    actions:
-      - wait_for_selector: '[data-docs-id="mcp-add-server-dialog"]'
+    status: deferred
+    scenario: mcp
+    route: /?settings_tab=MCP
     capture_selector: '[data-docs-id="mcp-add-server-dialog"]'
-    wait_for: '[data-docs-id="mcp-add-server-dialog"]'
     expected_text:
-      - Add MCP server
-      - GitHub MCP Server
-    masks: []
+      - Add
     output: mcp-add-server.png
-    alt: Row-Bot MCP add server dialog with recommended server cards.
-    docs_pages:
-      - /docs/guides/skills-plugins-mcp
-  channel-configuration-cards:
-    title: Channel Configuration Cards
-    surface: channels
-    status: required
-    scenario: settings
-    viewport: desktop
-    route: /docs-mode/surface/channel-configuration-cards
-    actions:
-      - wait_for_selector: '[data-docs-id="channel-configuration-cards"]'
-    capture_selector: '[data-docs-id="channel-configuration-cards"]'
-    wait_for: '[data-docs-id="channel-configuration-cards"]'
-    expected_text:
-      - Channel configuration
-      - Slack
-    masks: []
-    output: channel-configuration-cards.png
-    alt: Row-Bot channel configuration cards with safe demo messaging channel status.
-    docs_pages:
-      - /docs/guides/channels-and-voice
-  voice-settings:
-    title: Voice Settings
-    surface: voice
-    status: required
-    scenario: settings
-    viewport: desktop
-    route: /docs-mode/surface/voice-settings
-    actions:
-      - wait_for_selector: '[data-docs-id="voice-settings"]'
-    capture_selector: '[data-docs-id="voice-settings"]'
-    wait_for: '[data-docs-id="voice-settings"]'
-    expected_text:
-      - Voice settings
-      - Realtime Talk
-    masks: []
-    output: voice-settings.png
-    alt: Row-Bot Voice settings showing dictation, realtime talk, and local TTS readiness.
-    docs_pages:
-      - /docs/guides/channels-and-voice
-  buddy-settings:
-    title: Buddy Settings
-    surface: buddy
-    status: required
-    scenario: settings
-    viewport: desktop
-    route: /docs-mode/surface/buddy-settings
-    actions:
-      - wait_for_selector: '[data-docs-id="buddy-settings-tab"]'
-    capture_selector: '[data-docs-id="buddy-settings-tab"]'
-    wait_for: '[data-docs-id="buddy-settings-tab"]'
-    expected_text:
-      - Buddy
-      - Sidebar companion
-    masks: []
-    output: buddy-settings.png
-    alt: Row-Bot Buddy settings for companion behavior, overlay, look, and motion.
-    docs_pages:
-      - /docs/guides/channels-and-voice
-  privacy-safety-approval-example:
-    title: Privacy And Safety Approval Example
-    surface: privacy_safety
-    status: required
-    scenario: configured
-    viewport: desktop
-    route: /docs-mode/surface/privacy-safety-approval-example
-    actions:
-      - wait_for_selector: '[data-docs-id="privacy-safety-approval-example"]'
-    capture_selector: '[data-docs-id="privacy-safety-approval-example"]'
-    wait_for: '[data-docs-id="privacy-safety-approval-example"]'
-    expected_text:
-      - Safety example
-      - Ask each time
-    masks:
-      - '[data-sensitive]'
-    output: privacy-safety-approval-example.png
-    alt: Row-Bot privacy and safety approval example with sensitive demo fields redacted.
-    docs_pages:
-      - /docs/privacy-safety/
+    alt: Row-Bot MCP add server dialog.
+    reason: The add/import flow needs real dialog selectors and must stay disconnected from MCP server startup.
+    follow_up: Add dialog selectors and a disabled recommended-server fixture before capture.

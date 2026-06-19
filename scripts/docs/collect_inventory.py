@@ -225,6 +225,25 @@ def collect_settings() -> list[dict[str, Any]]:
     return rows
 
 
+def collect_home_tabs() -> list[dict[str, Any]]:
+    tabs = _load_yaml(ROOT / "docs-content" / "metadata" / "home_tabs.yml").get("tabs", {})
+    rows: list[dict[str, Any]] = []
+    if isinstance(tabs, dict):
+        for name, meta in tabs.items():
+            meta = meta if isinstance(meta, dict) else {}
+            rows.append(
+                {
+                    "id": slugify(name),
+                    "title": name,
+                    "docs_route": str(meta.get("docs_route") or ""),
+                    "screenshot_id": str(meta.get("screenshot_id") or ""),
+                    "source": str(meta.get("source") or "src/row_bot/ui/home.py"),
+                    "builder": str(meta.get("builder") or "build_home"),
+                }
+            )
+    return rows
+
+
 def collect_channels() -> list[dict[str, Any]]:
     channels_dir = ROOT / "src" / "row_bot" / "channels"
     skip = {
@@ -450,7 +469,12 @@ def collect_version() -> dict[str, str]:
 def collect_metadata() -> dict[str, Any]:
     return {
         "ui_surfaces": _load_yaml(ROOT / "docs-content" / "metadata" / "ui_surfaces.yml"),
+        "real_ui_surfaces": _load_yaml(ROOT / "docs-content" / "metadata" / "real_ui_surfaces.yml"),
         "settings": _load_yaml(ROOT / "docs-content" / "metadata" / "settings.yml"),
+        "settings_tabs": _load_yaml(ROOT / "docs-content" / "metadata" / "settings_tabs.yml"),
+        "home_tabs": _load_yaml(ROOT / "docs-content" / "metadata" / "home_tabs.yml"),
+        "dialogs": _load_yaml(ROOT / "docs-content" / "metadata" / "dialogs.yml"),
+        "docs_routes": _load_yaml(ROOT / "docs-content" / "metadata" / "docs_routes.yml"),
         "screenshots": _load_yaml(ROOT / "docs-content" / "metadata" / "screenshots.yml"),
         "how_to_guides": _load_yaml(ROOT / "docs-content" / "metadata" / "how_to_guides.yml"),
     }
@@ -464,6 +488,7 @@ def build_inventory() -> dict[str, Any]:
         "tools": collect_tools(),
         "providers": collect_providers(),
         "settings": collect_settings(),
+        "home_tabs": collect_home_tabs(),
         "channels": collect_channels(),
         "skills": bundled_skills + tool_guides,
         "mcp": collect_mcp(),

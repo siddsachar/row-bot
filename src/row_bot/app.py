@@ -45,7 +45,14 @@ for _discord_noisy in _DISCORD_BENIGN_VOICE_LOGGERS:
 os.environ.setdefault("OPENCV_LOG_LEVEL", "ERROR")
 from row_bot.brand import APP_BRAND_ACCENT, APP_DISPLAY_NAME, APP_HOST_ENV, APP_PING_ID, APP_USER_AGENT
 from row_bot.data_paths import get_row_bot_data_dir
-from row_bot.docs_mode import docs_disable_autostart, is_docs_mode, render_docs_surface
+from row_bot.docs_capture import (
+    configure_docs_capture_state,
+    docs_capture_bootstrap_html,
+    docs_capture_disable_autostart,
+    docs_capture_query_params,
+    docs_capture_reduce_motion_css,
+    is_docs_capture,
+)
 from row_bot.runtime_paths import static_dir
 from row_bot.version import __version__ as _app_version
 os.environ.setdefault("USER_AGENT", APP_USER_AGENT)
@@ -376,13 +383,13 @@ async def _run_startup_sequence():
     from row_bot.logging_config import setup_file_logging
     setup_file_logging()
 
-    if docs_disable_autostart():
+    if docs_capture_disable_autostart():
         import row_bot.ui.state as _st
 
-        _st.startup_status = "Docs mode ready"
+        _st.startup_status = "Docs capture ready"
         _st.startup_ready = True
-        _safe_console_print("[startup] Docs mode enabled - background autostart skipped")
-        _app_boot_event("startup_docs_mode_ready")
+        _safe_console_print("[startup] Docs capture enabled - background autostart skipped")
+        _app_boot_event("startup_docs_capture_ready")
         return
 
     try:
@@ -807,6 +814,7 @@ async def index():
     import row_bot.ui.state as _st
 
     ui.dark_mode(True)
+    _docs_query = docs_capture_query_params(ui.context.client)
 
     # ── Global panel card style ──────────────────────────────────────────
     ui.add_head_html("""
@@ -855,6 +863,12 @@ async def index():
     }
     </style>
     """)
+    _docs_capture_css = docs_capture_reduce_motion_css()
+    if _docs_capture_css:
+        ui.add_head_html(_docs_capture_css)
+    _docs_capture_bootstrap = docs_capture_bootstrap_html()
+    if _docs_capture_bootstrap:
+        ui.add_body_html(_docs_capture_bootstrap)
 
     # ── Startup splash (poll until backend is ready) ─────────────────────
     if not _st.startup_ready:
@@ -911,7 +925,7 @@ async def index():
     p.pending_files = []
 
     # Pre-create dialogs (modules call .clear() + .open() on these)
-    p.settings_dlg = ui.dialog().props("maximized transition-show=fade transition-hide=fade")
+    p.settings_dlg = ui.dialog().props("maximized transition-show=fade transition-hide=fade data-docs-id=settings-dialog")
     p.export_dlg = ui.dialog()
     p.task_dlg = ui.dialog().props("persistent")
 
@@ -929,11 +943,14 @@ async def index():
             return False, f"Model {current} is not exposed by the Ollama daemon. Manage local models in Ollama, then refresh."
         return True, ""
 
-    try:
-        health_result = await run.io_bound(_run_health_check)
-    except Exception as exc:
-        logger.warning("Startup health check failed", exc_info=True)
-        health_result = (False, str(exc) or "Startup health check failed.")
+    if is_docs_capture():
+        health_result = (True, "")
+    else:
+        try:
+            health_result = await run.io_bound(_run_health_check)
+        except Exception as exc:
+            logger.warning("Startup health check failed", exc_info=True)
+            health_result = (False, str(exc) or "Startup health check failed.")
     if not isinstance(health_result, tuple) or len(health_result) != 2:
         logger.warning("Startup health check returned invalid result: %r", health_result)
         health_result = (True, "")
@@ -942,7 +959,11 @@ async def index():
         ui.notify(err, type="negative", timeout=0, close_button=True)
 
     # ── Setup wizard gate ────────────────────────────────────────────────
-    if not is_setup_complete():
+    _docs_force_setup_wizard = (
+        is_docs_capture()
+        and _docs_query.get("docs_surface") == "first-launch-setup-wizard"
+    )
+    if _docs_force_setup_wizard or not is_setup_complete():
         async def _on_wizard_finish():
             state.current_model = get_current_model()
             if getattr(state, "open_setup_center_on_next_load", False):
@@ -952,6 +973,12 @@ async def index():
 
         await show_setup_wizard(state, on_finish=_on_wizard_finish)
         return
+
+    _docs_capture_intent = configure_docs_capture_state(
+        state,
+        _docs_query,
+        load_messages=load_thread_messages,
+    )
 
     # ── Build Callbacks bundle ───────────────────────────────────────────
     cb = Callbacks()
@@ -1047,7 +1074,7 @@ async def index():
     from row_bot.ui.terminal_widget import build_terminal_panel
     from row_bot.tools import registry as _tool_registry
 
-    _main_shell = ui.element("div").classes("row-bot-main-shell")
+    _main_shell = ui.element("div").classes("row-bot-main-shell").props("data-docs-id=app-main-shell")
     with _main_shell:
         _outer = ui.column().classes(
             "w-full max-w-7xl mx-auto px-4 no-wrap row-bot-panel-card row-bot-main-card"
@@ -1056,7 +1083,7 @@ async def index():
             " border-radius: 12px; margin-top: 8px;"
         )
         with _outer:
-            p.main_col = ui.column().classes("w-full no-wrap flex-grow").style(
+            p.main_col = ui.column().classes("w-full no-wrap flex-grow").props("data-docs-id=main-content").style(
                 "overflow: hidden;"
             )
         # Terminal panel — inline, pushes chat content up when expanded
@@ -1112,6 +1139,10 @@ async def index():
             if p.main_col is None:
                 return
             _real_started = time.perf_counter()
+            try:
+                p.main_col.props(f"data-docs-id={_view_name()}-surface")
+            except Exception:
+                logger.debug("Could not update docs capture surface selector", exc_info=True)
             with p.main_col:
                 if state.active_designer_project is not None:
                     from row_bot.designer.editor import build_designer_editor
@@ -1686,6 +1717,24 @@ async def index():
 
     # ── Build initial view ───────────────────────────────────────────────
     _rebuild_main()
+    if is_docs_capture() and _docs_capture_intent:
+        _settings_tab = _docs_capture_intent.get("settings_tab")
+        _dialog = _docs_capture_intent.get("dialog")
+        if _settings_tab:
+            defer_ui(lambda tab=_settings_tab: _open_settings(tab), delay=0.2)
+        elif _dialog == "setup-center":
+            def _open_docs_setup_center() -> None:
+                from row_bot.ui.onboarding_center import show_setup_center
+
+                show_setup_center(
+                    open_settings=_open_settings,
+                    rebuild_main=_rebuild_main,
+                    state=state,
+                )
+
+            defer_ui(_open_docs_setup_center, delay=0.2)
+        elif _dialog == "export":
+            defer_ui(_open_export, delay=0.25)
     try:
         from row_bot.ui.onboarding_state import consume_setup_center_on_next_load
 
@@ -1716,15 +1765,6 @@ async def index():
     except Exception:
         logger.exception("Failed to render post-migration report")
     _update_token_counter()
-
-
-@ui.page("/docs-mode/surface/{surface_id}")
-async def docs_mode_surface(surface_id: str):
-    ui.dark_mode(True)
-    if not is_docs_mode():
-        ui.label("Docs mode is not enabled.").classes("q-pa-md text-warning")
-        return
-    ui.add_body_html(render_docs_surface(surface_id))
 
 
 @ui.page("/buddy-overlay")

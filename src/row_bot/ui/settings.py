@@ -5469,7 +5469,7 @@ def open_settings(
 
     p.settings_dlg.clear()
     with p.settings_dlg:
-        with ui.card().classes("w-full h-full no-shadow").style(
+        with ui.card().classes("w-full h-full no-shadow").props("data-docs-id=settings-dialog").style(
             "max-width: 64rem; margin: 0 auto;"
         ):
             with ui.row().classes("w-full items-center justify-between px-4 pt-3 pb-1"):
@@ -5501,23 +5501,23 @@ def open_settings(
                 "disable"
             ).style("height: calc(100vh - 100px);") as splitter:
                 with splitter.before:
-                    with ui.tabs(value=_initial_name).props("vertical").classes("w-full h-full") as tabs:
-                        tab_cloud = ui.tab("Providers", icon="cloud")
-                        tab_models = ui.tab("Models", icon="smart_toy")
-                        tab_knowledge = ui.tab("Knowledge", icon="psychology")
-                        tab_buddy = ui.tab("Buddy", icon="pets")
-                        tab_voice = ui.tab("Voice", icon="mic")
-                        tab_fs = ui.tab("System", icon="terminal")
-                        tab_tracker = ui.tab("Tracker", icon="checklist")
-                        tab_docs = ui.tab("Documents", icon="description")
-                        tab_tools = ui.tab("Search", icon="search")
-                        tab_skills = ui.tab("Skills", icon="auto_fix_high")
-                        tab_accounts = ui.tab("Accounts", icon="group")
-                        tab_channels = ui.tab("Channels", icon="forum")
-                        tab_utils = ui.tab("Utilities", icon="build")
-                        tab_mcp = ui.tab("MCP", icon="hub")
-                        tab_plugins = ui.tab("Plugins", icon="extension")
-                        tab_prefs = ui.tab("Preferences", icon="tune")
+                    with ui.tabs(value=_initial_name).props("vertical data-docs-id=settings-tabs").classes("w-full h-full") as tabs:
+                        tab_cloud = ui.tab("Providers", icon="cloud").props("data-docs-id=settings-tab-providers")
+                        tab_models = ui.tab("Models", icon="smart_toy").props("data-docs-id=settings-tab-models")
+                        tab_knowledge = ui.tab("Knowledge", icon="psychology").props("data-docs-id=settings-tab-knowledge")
+                        tab_buddy = ui.tab("Buddy", icon="pets").props("data-docs-id=settings-tab-buddy")
+                        tab_voice = ui.tab("Voice", icon="mic").props("data-docs-id=settings-tab-voice")
+                        tab_fs = ui.tab("System", icon="terminal").props("data-docs-id=settings-tab-system")
+                        tab_tracker = ui.tab("Tracker", icon="checklist").props("data-docs-id=settings-tab-tracker")
+                        tab_docs = ui.tab("Documents", icon="description").props("data-docs-id=settings-tab-documents")
+                        tab_tools = ui.tab("Search", icon="search").props("data-docs-id=settings-tab-search")
+                        tab_skills = ui.tab("Skills", icon="auto_fix_high").props("data-docs-id=settings-tab-skills")
+                        tab_accounts = ui.tab("Accounts", icon="group").props("data-docs-id=settings-tab-accounts")
+                        tab_channels = ui.tab("Channels", icon="forum").props("data-docs-id=settings-tab-channels")
+                        tab_utils = ui.tab("Utilities", icon="build").props("data-docs-id=settings-tab-utilities")
+                        tab_mcp = ui.tab("MCP", icon="hub").props("data-docs-id=settings-tab-mcp")
+                        tab_plugins = ui.tab("Plugins", icon="extension").props("data-docs-id=settings-tab-plugins")
+                        tab_prefs = ui.tab("Preferences", icon="tune").props("data-docs-id=settings-tab-preferences")
                         _tab_map = {
                             "Models": tab_models, "Cloud": tab_cloud, "Providers": tab_cloud,
                             "Knowledge": tab_knowledge,
@@ -5624,7 +5624,7 @@ def open_settings(
                     defer_ui(lambda name=name, generation=generation: _render_settings_tab(name, generation), delay=0.01)
 
                 with splitter.after:
-                    content_panel = ui.column().classes("w-full h-full px-6 py-4 overflow-auto")
+                    content_panel = ui.column().classes("w-full h-full px-6 py-4 overflow-auto").props("data-docs-id=settings-tab-panel")
                     for _t_obj, _t_name, _t_builder in _tab_defs:
                         _builder_map[_t_name] = _t_builder
                     with content_panel:
