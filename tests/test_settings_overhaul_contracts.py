@@ -105,8 +105,13 @@ def test_settings_shell_is_providers_first_and_single_panel():
     assert "data = await run.io_bound(_collect_models_tab_data)" in build_models_src
     assert 'safe_ui_task(_load_models, context="models settings load")' in build_models_src
     render_models_src = _function_source("_render_models_tab_content")
+    assert "_safe_model_select_state" in settings_src
+    assert "_model_options_map" in settings_src
     assert "build_lazy_model_catalog_section" in render_models_src
     assert "build_model_catalog_section(" not in render_models_src
+    assert "Current Brain default is unavailable" in render_models_src
+    assert "Current Image default is unavailable" in render_models_src
+    assert "Current Video default is unavailable" in render_models_src
 
 
 def test_settings_shell_preserves_all_registered_tabs():

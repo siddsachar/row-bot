@@ -156,6 +156,68 @@ def _pinned_media_options(
     return options
 
 
+def _model_options_map(options: list[dict[str, Any]] | dict[str, str]) -> dict[str, str]:
+    if isinstance(options, dict):
+        return {str(key): str(value) for key, value in options.items() if str(key)}
+    safe_options: dict[str, str] = {}
+    for option in options or []:
+        if not isinstance(option, dict):
+            continue
+        value = str(option.get("value") or "")
+        if not value:
+            continue
+        safe_options[value] = str(option.get("label") or value)
+    return safe_options
+
+
+def _unavailable_model_label(value: str, surface: str) -> str:
+    raw = str(value or "").strip()
+    provider_id = ""
+    model_id = raw
+    try:
+        from row_bot.providers.selection import parse_model_ref, provider_display_label
+
+        parsed = parse_model_ref(raw)
+        if parsed:
+            provider_id, model_id = parsed
+        elif "/" in raw:
+            provider_id, model_id = raw.split("/", 1)
+        provider_label = provider_display_label(provider_id) if provider_id else ""
+    except Exception:
+        provider_label = provider_id
+    label = model_id or raw or surface
+    return f"Unavailable: {label} - {provider_label}" if provider_label else f"Unavailable: {label}"
+
+
+def _safe_model_select_state(
+    surface: str,
+    desired_value: str | None,
+    options: list[dict[str, Any]] | dict[str, str],
+    *,
+    warning: str = "",
+    force_unavailable: bool = False,
+) -> dict[str, Any]:
+    safe_options = _model_options_map(options)
+    value = str(desired_value or "").strip()
+    invalid = False
+    if value:
+        invalid = force_unavailable or value not in safe_options
+        if invalid:
+            safe_options[value] = _unavailable_model_label(value, surface)
+        return {
+            "options": safe_options,
+            "value": value,
+            "invalid": invalid,
+            "warning": warning if invalid or warning else "",
+        }
+    return {
+        "options": safe_options,
+        "value": None,
+        "invalid": False,
+        "warning": warning,
+    }
+
+
 def open_settings(
     state: AppState,
     p: P,
@@ -1053,9 +1115,7 @@ def open_settings(
                 return f"✅  {runtime}"
             return f"⚠️  {runtime}"
 
-        model_opts = {str(option["value"]): str(option["label"]) for option in chat_options}
-        if current_value and current_value not in model_opts:
-            model_opts.update(model_choice_options_map("chat", include_values=[current]))
+        model_opts = _model_options_map(chat_options)
 
         initial_policy = snapshot.get("context_policy")
         _policy_ref = [initial_policy]
@@ -1073,6 +1133,8 @@ def open_settings(
 
         def _model_source_label(model_id: str) -> str:
             runtime = model_id_from_choice_value(model_id)
+            if _provider_unavailable_warning("Brain", model_id):
+                return "Disconnected"
             if is_cloud_model(model_id):
                 return "Provider"
             if _is_local_runtime(runtime):
@@ -1081,6 +1143,8 @@ def open_settings(
 
         def _model_source_color(model_id: str) -> str:
             runtime = model_id_from_choice_value(model_id)
+            if _provider_unavailable_warning("Brain", model_id):
+                return "orange"
             if is_cloud_model(model_id):
                 return "blue-grey"
             if _is_local_runtime(runtime):
@@ -1111,6 +1175,37 @@ def open_settings(
             except Exception:
                 return None
             return int(policy.effective_context or 0) or None
+
+        def _provider_unavailable_warning(surface: str, selection: str | None) -> str:
+            selected = model_choice_value(selection or "")
+            if not selected or not is_cloud_model(selected):
+                return ""
+            try:
+                from row_bot.providers.runtime import provider_status
+                from row_bot.providers.selection import parse_model_ref
+
+                parsed = parse_model_ref(selected)
+                if not parsed:
+                    return ""
+                provider_id, _ = parsed
+                status = provider_status(provider_id, refresh_tokens=False)
+            except Exception:
+                return f"Current {surface} default is unavailable. Connect the provider or choose another model."
+            if bool(status.get("runtime_enabled")):
+                return ""
+            if provider_id == "xai_oauth" and surface == "Brain":
+                return "Current Brain default is unavailable because xAI Grok is disconnected. Connect the provider or choose another model."
+            return f"Current {surface} default is unavailable because its provider is disconnected. Connect the provider or choose another model."
+
+        brain_unavailable_warning = _provider_unavailable_warning("Brain", current_value)
+        brain_select_state = _safe_model_select_state(
+            "Brain",
+            current_value,
+            model_opts,
+            warning=brain_unavailable_warning,
+            force_unavailable=bool(brain_unavailable_warning),
+        )
+        model_opts = dict(brain_select_state["options"])
 
         brain_readiness_slot_ref = [None]
 
@@ -1201,27 +1296,25 @@ def open_settings(
                 return f"✅  {runtime}"
             return f"⚠️  {runtime}"
 
-        vision_opts = {str(option["value"]): str(option["label"]) for option in vision_options}
-        if vision_value and vision_value not in vision_opts:
-            vision_opts.update(model_choice_options_map("vision", include_values=[vsvc.model]))
-        if vision_invalid_reason and vision_value not in vision_opts:
-            fallback = next(
-                (str(option.get("value") or "") for option in vision_options if str(option.get("source") or "") != "included_value"),
-                "",
+        vision_opts = _model_options_map(vision_options)
+        vision_warning = (
+            vision_invalid_reason
+            or _provider_unavailable_warning("Vision", vision_value)
+            or (
+                "Current Vision default is unavailable or not Vision-capable."
+                if vision_value and vision_value not in vision_opts
+                else ""
             )
-            if fallback:
-                logger.info(
-                    "Resetting incompatible Vision default from %s to %s: %s",
-                    vsvc.model,
-                    fallback,
-                    vision_invalid_reason,
-                )
-                vsvc.model = fallback
-                vision_value = fallback
-                vision_invalid_reason = ""
-            else:
-                vision_value = ""
-        vision_select_value = vision_value if vision_value in vision_opts else None
+        )
+        vision_select_state = _safe_model_select_state(
+            "Vision",
+            vision_value,
+            vision_opts,
+            warning=vision_warning,
+            force_unavailable=bool(vision_warning),
+        )
+        vision_opts = dict(vision_select_state["options"])
+        vision_select_value = vision_select_state["value"]
 
         def _has_pinned_picker_choice(options: list[dict]) -> bool:
             return any(str(option.get("source") or "") != "included_value" for option in options)
@@ -1233,16 +1326,21 @@ def open_settings(
         _ig_model = str(snapshot.get("image_model") or (_ig_tool.get_config("model", DEFAULT_MODEL) if _ig_tool else DEFAULT_MODEL))
         image_select_ref = [None]
         image_empty_ref = [None]
+        image_missing_ref = [None]
 
         def _set_image_model(value: str) -> None:
             if _ig_tool and value:
                 _ig_tool.set_config("model", value)
                 seed_configured_media_quick_choices()
 
-        _ig_model_opts = dict(snapshot.get("image_options") or {})
-        if _ig_model_opts and _ig_model not in _ig_model_opts:
-            _ig_model = next(iter(_ig_model_opts))
-            _set_image_model(_ig_model)
+        _ig_valid_model_opts = _model_options_map(dict(snapshot.get("image_options") or {}))
+        image_warning = (
+            "Current Image default is unavailable. Connect the provider, refresh the catalog, or choose another pinned image model."
+            if _ig_model and _ig_model not in _ig_valid_model_opts
+            else ""
+        )
+        image_select_state = _safe_model_select_state("Image", _ig_model, _ig_valid_model_opts, warning=image_warning)
+        _ig_model_opts = dict(image_select_state["options"])
 
         from row_bot.tools.video_gen_tool import DEFAULT_MODEL as _VG_DEFAULT
         _vg_tool = tool_registry.get_tool("video_gen")
@@ -1250,16 +1348,21 @@ def open_settings(
         _vg_model = str(snapshot.get("video_model") or (_vg_tool.get_config("model", _VG_DEFAULT) if _vg_tool else _VG_DEFAULT))
         video_select_ref = [None]
         video_empty_ref = [None]
+        video_missing_ref = [None]
 
         def _set_video_model(value: str) -> None:
             if _vg_tool and value:
                 _vg_tool.set_config("model", value)
                 seed_configured_media_quick_choices()
 
-        _vg_model_opts = dict(snapshot.get("video_options") or {})
-        if _vg_model_opts and _vg_model not in _vg_model_opts:
-            _vg_model = next(iter(_vg_model_opts))
-            _set_video_model(_vg_model)
+        _vg_valid_model_opts = _model_options_map(dict(snapshot.get("video_options") or {}))
+        video_warning = (
+            "Current Video default is unavailable. Connect the provider, refresh the catalog, or choose another pinned video model."
+            if _vg_model and _vg_model not in _vg_valid_model_opts
+            else ""
+        )
+        video_select_state = _safe_model_select_state("Video", _vg_model, _vg_valid_model_opts, warning=video_warning)
+        _vg_model_opts = dict(video_select_state["options"])
 
         ui.label("Models").classes("text-h6 q-mb-xs")
         with ui.row().classes("items-center justify-between w-full q-mb-sm"):
@@ -1288,7 +1391,7 @@ def open_settings(
                 model_select = ui.select(
                     label="Default model",
                     options=model_opts,
-                    value=current_value,
+                    value=brain_select_state["value"],
                 ).classes("col-grow").props('use-input input-debounce=300 dense outlined')
                 cloud_ctx_select = ui.select(
                     label="Provider context",
@@ -1311,6 +1414,8 @@ def open_settings(
                 brain_refresh_btn = ui.button(icon="refresh", on_click=lambda: _reopen("Models")).props("flat dense round size=sm color=primary").tooltip(f"Refresh after managing Ollama models outside {APP_DISPLAY_NAME}")
                 brain_empty = ui.label("No pinned Brain choices yet. Pin Chat models in the catalog below.").classes("text-grey-6 text-xs q-pb-sm")
                 brain_empty.visible = not _has_pinned_picker_choice(chat_options)
+                brain_missing = ui.label(str(brain_select_state.get("warning") or "")).classes("text-warning text-xs q-pb-sm")
+                brain_missing.visible = bool(brain_select_state.get("warning"))
             ctx_note = ui.label("").classes("text-xs text-grey-6 q-ml-lg")
             ctx_note.visible = False
 
@@ -1362,10 +1467,10 @@ def open_settings(
                 vision_empty = ui.label("No pinned Vision choices yet. Pin Vision models in the catalog below.").classes("text-grey-6 text-xs q-pb-sm")
                 vision_empty.visible = not _has_pinned_picker_choice(vision_options)
                 vision_missing = ui.label(
-                    vision_invalid_reason
+                    str(vision_select_state.get("warning") or "")
                     or "Current local Vision model is not available. Manage local models in Ollama, then refresh or pin another Vision model below."
                 ).classes("text-warning text-xs q-pb-sm")
-                vision_missing.visible = bool(vision_invalid_reason) or (bool(vision_value) and vision_select_value is None) or (
+                vision_missing.visible = bool(vision_select_state.get("warning")) or (
                     bool(vsvc.model) and not is_cloud_model(vsvc.model) and not _is_local_selection(vsvc.model)
                 )
 
@@ -1378,15 +1483,18 @@ def open_settings(
                 image_select = ui.select(
                     label="Image model",
                     options=_ig_model_opts,
-                    value=_ig_model if _ig_model in _ig_model_opts else None,
+                    value=image_select_state["value"],
                     on_change=lambda e: _set_image_model(e.value),
                 ).classes("w-full").props("dense outlined")
                 image_select_ref[0] = image_select
-                if not _ig_model_opts:
+                if not _ig_model_opts and not image_select_state["value"]:
                     image_select.disable()
                 image_empty = ui.label("No pinned image models. Pin one in the catalog below.").classes("text-grey-6 text-xs q-pb-sm")
-                image_empty.visible = not bool(_ig_model_opts)
+                image_empty.visible = not bool(_ig_valid_model_opts)
                 image_empty_ref[0] = image_empty
+                image_missing = ui.label(str(image_select_state.get("warning") or "")).classes("text-warning text-xs q-pb-sm")
+                image_missing.visible = bool(image_select_state.get("warning"))
+                image_missing_ref[0] = image_missing
 
             video_actions, video_controls = _surface_row("movie", "Video", "Video generation and image animation")
             with video_actions:
@@ -1397,15 +1505,18 @@ def open_settings(
                 video_select = ui.select(
                     label="Video model",
                     options=_vg_model_opts,
-                    value=_vg_model if _vg_model in _vg_model_opts else None,
+                    value=video_select_state["value"],
                     on_change=lambda e: _set_video_model(e.value),
                 ).classes("w-full").props("dense outlined")
                 video_select_ref[0] = video_select
-                if not _vg_model_opts:
+                if not _vg_model_opts and not video_select_state["value"]:
                     video_select.disable()
                 video_empty = ui.label("No pinned video models. Pin one in the catalog below.").classes("text-grey-6 text-xs q-pb-sm")
-                video_empty.visible = not bool(_vg_model_opts)
+                video_empty.visible = not bool(_vg_valid_model_opts)
                 video_empty_ref[0] = video_empty
+                video_missing = ui.label(str(video_select_state.get("warning") or "")).classes("text-warning text-xs q-pb-sm")
+                video_missing.visible = bool(video_select_state.get("warning"))
+                video_missing_ref[0] = video_missing
 
         import sys as _sys
         if _sys.platform == "win32":
@@ -1586,10 +1697,22 @@ def open_settings(
 
         def _collect_top_picker_options() -> dict:
             current_chat = state.current_model
-            refreshed_chat_options = list_model_choice_options("chat", include_values=[current_chat])
+            try:
+                refreshed_chat_options = list_model_choice_options("chat", include_values=[current_chat])
+            except Exception:
+                logger.debug("Could not refresh Brain picker options", exc_info=True)
+                refreshed_chat_options = []
             current_vision = vsvc.model
-            refreshed_vision_options = list_model_choice_options("vision", include_values=[current_vision])
-            quick_choices = list_quick_choices("", include_inactive=True)
+            try:
+                refreshed_vision_options = list_model_choice_options("vision", include_values=[current_vision])
+            except Exception:
+                logger.debug("Could not refresh Vision picker options", exc_info=True)
+                refreshed_vision_options = []
+            try:
+                quick_choices = list_quick_choices("", include_inactive=True)
+            except Exception:
+                logger.debug("Could not refresh picker quick choices", exc_info=True)
+                quick_choices = []
 
             image_options = {}
             current_image = DEFAULT_MODEL
@@ -1634,45 +1757,66 @@ def open_settings(
 
             current_chat = str(data.get("current_chat") or state.current_model)
             refreshed_chat_options = list(data.get("chat_options") or [])
-            model_select.options = {str(option["value"]): str(option["label"]) for option in refreshed_chat_options}
-            if model_select.value not in model_select.options:
-                model_select.value = model_choice_value(current_chat)
+            current_chat_value = model_choice_value(current_chat)
+            refreshed_chat_map = _model_options_map(refreshed_chat_options)
+            refreshed_brain_warning = (
+                _provider_unavailable_warning("Brain", current_chat_value)
+                or (
+                    "Current Brain default is unavailable. Connect the provider or choose another model."
+                    if current_chat_value and current_chat_value not in refreshed_chat_map
+                    else ""
+                )
+            )
+            refreshed_brain_state = _safe_model_select_state(
+                "Brain",
+                current_chat_value,
+                refreshed_chat_map,
+                warning=refreshed_brain_warning,
+                force_unavailable=bool(refreshed_brain_warning),
+            )
+            model_select.options = dict(refreshed_brain_state["options"])
+            model_select.value = refreshed_brain_state["value"]
             model_select.update()
+            brain_source_badge.text = _model_source_label(current_chat_value)
+            brain_source_badge.update()
             brain_empty.visible = not _has_pinned_picker_choice(refreshed_chat_options)
             brain_empty.update()
+            brain_missing.text = str(refreshed_brain_state.get("warning") or "")
+            brain_missing.visible = bool(refreshed_brain_state.get("warning"))
+            brain_missing.update()
 
             current_vision = str(data.get("current_vision") or vsvc.model)
             refreshed_vision_options = list(data.get("vision_options") or [])
-            vision_select.options = {str(option["value"]): str(option["label"]) for option in refreshed_vision_options}
             current_vision_value = model_choice_value(current_vision)
+            refreshed_vision_map = _model_options_map(refreshed_vision_options)
             current_compat = vision_model_compatibility(current_vision)
             invalid_reason = "" if current_compat.get("usable") else str(current_compat.get("reason") or "Selected model is not Vision-capable.")
-            if current_vision_value not in vision_select.options:
-                fallback = next(
-                    (str(option.get("value") or "") for option in refreshed_vision_options if str(option.get("source") or "") != "included_value"),
-                    "",
+            refreshed_vision_warning = (
+                invalid_reason
+                or _provider_unavailable_warning("Vision", current_vision_value)
+                or (
+                    "Current Vision default is unavailable or not Vision-capable."
+                    if current_vision_value and current_vision_value not in refreshed_vision_map
+                    else ""
                 )
-                if invalid_reason and fallback:
-                    logger.info(
-                        "Resetting incompatible Vision default from %s to %s: %s",
-                        current_vision,
-                        fallback,
-                        invalid_reason,
-                    )
-                    vsvc.model = fallback
-                    vision_select.value = fallback
-                    current_vision = fallback
-                    invalid_reason = ""
-                else:
-                    vision_select.value = current_vision_value if current_vision_value in vision_select.options else None
+            )
+            refreshed_vision_state = _safe_model_select_state(
+                "Vision",
+                current_vision_value,
+                refreshed_vision_map,
+                warning=refreshed_vision_warning,
+                force_unavailable=bool(refreshed_vision_warning),
+            )
+            vision_select.options = dict(refreshed_vision_state["options"])
+            vision_select.value = refreshed_vision_state["value"]
             vision_select.update()
             vision_empty.visible = not _has_pinned_picker_choice(refreshed_vision_options)
             vision_empty.update()
             vision_missing.text = (
-                invalid_reason
+                str(refreshed_vision_state.get("warning") or "")
                 or "Current local Vision model is not available. Manage local models in Ollama, then refresh or pin another Vision model below."
             )
-            vision_missing.visible = bool(invalid_reason) or (
+            vision_missing.visible = bool(refreshed_vision_state.get("warning")) or (
                 bool(current_vision) and not is_cloud_model(current_vision) and not _is_local_selection(current_vision)
             )
             vision_missing.update()
@@ -1680,36 +1824,64 @@ def open_settings(
             image_select = image_select_ref[0]
             if image_select is not None:
                 current_image = str(data.get("current_image") or DEFAULT_MODEL)
-                image_options = dict(data.get("image_options") or {})
-                image_select.options = image_options
-                if image_options:
+                image_options = _model_options_map(dict(data.get("image_options") or {}))
+                refreshed_image_warning = (
+                    "Current Image default is unavailable. Connect the provider, refresh the catalog, or choose another pinned image model."
+                    if current_image and current_image not in image_options
+                    else ""
+                )
+                refreshed_image_state = _safe_model_select_state(
+                    "Image",
+                    current_image,
+                    image_options,
+                    warning=refreshed_image_warning,
+                )
+                image_select.options = dict(refreshed_image_state["options"])
+                image_select.value = refreshed_image_state["value"]
+                if image_select.options or image_select.value:
                     image_select.enable()
                 else:
                     image_select.disable()
-                    image_select.value = None
-                if current_image in image_options:
-                    image_select.value = current_image
                 image_empty = image_empty_ref[0]
                 if image_empty is not None:
                     image_empty.visible = not bool(image_options)
                     image_empty.update()
+                image_missing = image_missing_ref[0]
+                if image_missing is not None:
+                    image_missing.text = str(refreshed_image_state.get("warning") or "")
+                    image_missing.visible = bool(refreshed_image_state.get("warning"))
+                    image_missing.update()
                 image_select.update()
             video_select = video_select_ref[0]
             if video_select is not None:
                 current_video = str(data.get("current_video") or _VG_DEFAULT)
-                video_options = dict(data.get("video_options") or {})
-                video_select.options = video_options
-                if video_options:
+                video_options = _model_options_map(dict(data.get("video_options") or {}))
+                refreshed_video_warning = (
+                    "Current Video default is unavailable. Connect the provider, refresh the catalog, or choose another pinned video model."
+                    if current_video and current_video not in video_options
+                    else ""
+                )
+                refreshed_video_state = _safe_model_select_state(
+                    "Video",
+                    current_video,
+                    video_options,
+                    warning=refreshed_video_warning,
+                )
+                video_select.options = dict(refreshed_video_state["options"])
+                video_select.value = refreshed_video_state["value"]
+                if video_select.options or video_select.value:
                     video_select.enable()
                 else:
                     video_select.disable()
-                    video_select.value = None
-                if current_video in video_options:
-                    video_select.value = current_video
                 video_empty = video_empty_ref[0]
                 if video_empty is not None:
                     video_empty.visible = not bool(video_options)
                     video_empty.update()
+                video_missing = video_missing_ref[0]
+                if video_missing is not None:
+                    video_missing.text = str(refreshed_video_state.get("warning") or "")
+                    video_missing.visible = bool(refreshed_video_state.get("warning"))
+                    video_missing.update()
                 video_select.update()
 
         def _set_catalog_default(surface: str, row) -> None:
@@ -1843,12 +2015,24 @@ def open_settings(
 
         started = time.perf_counter()
         quick_started = time.perf_counter()
-        quick_choices = list_quick_choices("", include_inactive=True)
+        try:
+            quick_choices = list_quick_choices("", include_inactive=True)
+        except Exception:
+            logger.debug("Could not collect model picker quick choices", exc_info=True)
+            quick_choices = []
         quick_elapsed = time.perf_counter() - quick_started
-        ollama_up = _ollama_reachable()
+        try:
+            ollama_up = _ollama_reachable()
+        except Exception:
+            logger.debug("Could not check Ollama status for model settings", exc_info=True)
+            ollama_up = False
         ollama_elapsed = time.perf_counter() - started
         local_started = time.perf_counter()
-        local_models = list_local_models()
+        try:
+            local_models = list_local_models()
+        except Exception:
+            logger.debug("Could not collect local models for model settings", exc_info=True)
+            local_models = []
         local_elapsed = time.perf_counter() - local_started
         current_model = get_current_model()
         vision_model = state.vision_service.model
@@ -1871,8 +2055,16 @@ def open_settings(
         image_options = _pinned_media_options("image", available_image, image_model, quick_choices)
         video_options = _pinned_media_options("video", available_video, video_model, quick_choices)
         options_started = time.perf_counter()
-        chat_options = list_model_choice_options("chat", include_values=[current_model])
-        vision_options = list_model_choice_options("vision", include_values=[vision_model])
+        try:
+            chat_options = list_model_choice_options("chat", include_values=[current_model])
+        except Exception:
+            logger.debug("Could not collect Brain model options", exc_info=True)
+            chat_options = []
+        try:
+            vision_options = list_model_choice_options("vision", include_values=[vision_model])
+        except Exception:
+            logger.debug("Could not collect Vision model options", exc_info=True)
+            vision_options = []
         options_elapsed = time.perf_counter() - options_started
         context_started = time.perf_counter()
         try:
@@ -1948,6 +2140,30 @@ def open_settings(
                         "smart_toy",
                     )
                     ui.label(f"Could not load model settings: {exc}").classes("text-warning text-sm")
+                    with ui.row().classes("items-center gap-2"):
+                        ui.button(icon="hub", on_click=lambda: _reopen("Providers")).props("flat dense round size=sm").tooltip("Provider connections")
+                        ui.button(
+                            "Refresh catalog",
+                            icon="refresh",
+                            on_click=lambda: _start_catalog_refresh_ui(reason="models_error_recovery", force=True),
+                        ).props("flat dense color=primary no-caps")
+                    try:
+                        from row_bot.tools.image_gen_tool import DEFAULT_MODEL as _IMAGE_DEFAULT
+                        from row_bot.tools.video_gen_tool import DEFAULT_MODEL as _VIDEO_DEFAULT
+
+                        image_tool = tool_registry.get_tool("image_gen")
+                        video_tool = tool_registry.get_tool("video_gen")
+                        defaults = {
+                            "Brain": get_current_model(),
+                            "Vision": state.vision_service.model,
+                            "Image": image_tool.get_config("model", _IMAGE_DEFAULT) if image_tool else _IMAGE_DEFAULT,
+                            "Video": video_tool.get_config("model", _VIDEO_DEFAULT) if video_tool else _VIDEO_DEFAULT,
+                        }
+                        with ui.column().classes("w-full gap-1"):
+                            for label, value in defaults.items():
+                                ui.label(f"{label}: {value or 'not set'}").classes("text-grey-6 text-xs")
+                    except Exception:
+                        logger.debug("Could not render model defaults in recovery view", exc_info=True)
 
         safe_ui_task(_load_models, context="models settings load")
 

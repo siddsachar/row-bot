@@ -13,6 +13,7 @@ from row_bot.providers.auth_store import get_provider_secret
 from row_bot.providers.models import AuthMethod, ModelInfo, ModelModality, ModelTask, TransportMode
 from row_bot.providers.xai_catalog import XAI_COMPOSER_MODEL_ID
 from row_bot.providers.xai_oauth import (
+    DEFAULT_XAI_OAUTH_CLIENT_ID,
     DEFAULT_XAI_OAUTH_SCOPES,
     XAI_OAUTH_BASE_URL,
     XAI_OAUTH_VISION_PROBE_VERSION,
@@ -20,6 +21,7 @@ from row_bot.providers.xai_oauth import (
     XAIOAuthError,
     authorization_from_xai_oauth_callback,
     check_xai_oauth_token_health,
+    clear_xai_oauth_client_id_override,
     disconnect_xai_oauth_metadata,
     exchange_xai_oauth_authorization,
     fetch_xai_oauth_model_infos,
@@ -36,6 +38,8 @@ from row_bot.providers.xai_oauth import (
     xai_oauth_base_url,
     xai_oauth_client_id_status,
     xai_oauth_configured_client_id,
+    xai_oauth_default_client_id,
+    xai_oauth_saved_client_id_override,
     xai_oauth_vision_probe_needed,
 )
 from row_bot.secret_store import _set_backend_for_tests
@@ -324,7 +328,7 @@ def test_xai_oauth_loopback_reports_occupied_port(monkeypatch):
             raise AssertionError("Expected occupied xAI OAuth callback port to fail")
 
 
-def test_xai_oauth_flow_requires_configured_client_id(tmp_path, monkeypatch):
+def test_xai_oauth_flow_uses_default_client_id_without_env_or_saved_config(tmp_path, monkeypatch):
     for env_var in (
         "ROW_BOT_XAI_OAUTH_CLIENT_ID",
         "ROW_BOT_XAI_OAUTH_SCOPES",
@@ -334,26 +338,33 @@ def test_xai_oauth_flow_requires_configured_client_id(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     client = _HttpClient([_Response(200, _discovery_payload())])
 
-    try:
-        start_xai_oauth_flow(http_client=client)
-    except XAIOAuthError as exc:
-        assert exc.kind == "missing_client_id"
-        assert "ROW_BOT_XAI_OAUTH_CLIENT_ID" in str(exc)
-    else:
-        raise AssertionError("Expected xAI OAuth flow to require a configured client id")
-
+    flow = start_xai_oauth_flow(http_client=client)
+    query = parse_qs(urlparse(flow.authorization_url).query)
     status = xai_oauth_client_id_status()
-    assert status["configured"] is False
-    assert client.calls == []
+
+    assert DEFAULT_XAI_OAUTH_CLIENT_ID
+    assert len(DEFAULT_XAI_OAUTH_CLIENT_ID) == 36
+    assert DEFAULT_XAI_OAUTH_CLIENT_ID.endswith("9264a828")
+    assert flow.client_id == DEFAULT_XAI_OAUTH_CLIENT_ID
+    assert query["client_id"] == [DEFAULT_XAI_OAUTH_CLIENT_ID]
+    assert status["configured"] is True
+    assert status["source"] == "default"
+    assert status["default_configured"] is True
+    assert xai_oauth_default_client_id() == DEFAULT_XAI_OAUTH_CLIENT_ID
+    assert xai_oauth_saved_client_id_override() == ""
+    assert client.calls[0][0] == "GET"
 
 
 def test_xai_oauth_client_id_can_be_saved_and_used_for_flow(tmp_path, monkeypatch):
+    import row_bot.providers.xai_oauth as xai_oauth_module
+
     for env_var in (
         "ROW_BOT_XAI_OAUTH_CLIENT_ID",
         "ROW_BOT_XAI_OAUTH_SCOPES",
         "ROW_BOT_XAI_OAUTH_REDIRECT_PORT",
     ):
         monkeypatch.delenv(env_var, raising=False)
+    monkeypatch.setattr(xai_oauth_module, "DEFAULT_XAI_OAUTH_CLIENT_ID", "shared-default-client")
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     saved = save_xai_oauth_client_id("client-123")
     discovery_client = _HttpClient([_Response(200, _discovery_payload())])
@@ -366,11 +377,20 @@ def test_xai_oauth_client_id_can_be_saved_and_used_for_flow(tmp_path, monkeypatc
     assert saved["oauth_client_id_configured"] is True
     assert saved["configured"] is False
     assert status["configured"] is True
-    assert status["source"] == "provider_config"
+    assert status["source"] == "override"
     assert status["fingerprint"]
+    assert xai_oauth_saved_client_id_override() == "client-123"
     assert xai_oauth_configured_client_id() == "client-123"
     assert flow.client_id == "client-123"
     assert query["client_id"] == ["client-123"]
+
+    cleared = clear_xai_oauth_client_id_override()
+    status_after_clear = xai_oauth_client_id_status()
+
+    assert "oauth_client_id" not in cleared
+    assert xai_oauth_saved_client_id_override() == ""
+    assert xai_oauth_configured_client_id() == "shared-default-client"
+    assert status_after_clear["source"] == "default"
 
 
 def test_xai_oauth_token_save_status_and_no_secret_leak(tmp_path, monkeypatch):
@@ -415,9 +435,12 @@ def test_xai_oauth_token_save_status_and_no_secret_leak(tmp_path, monkeypatch):
         _set_backend_for_tests(None)
 
 
-def test_xai_oauth_token_save_persists_environment_client_id(tmp_path, monkeypatch):
+def test_xai_oauth_token_save_records_default_client_id_without_saving_override(tmp_path, monkeypatch):
+    import row_bot.providers.xai_oauth as xai_oauth_module
+
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
-    monkeypatch.setenv("ROW_BOT_XAI_OAUTH_CLIENT_ID", "client-from-env")
+    monkeypatch.setattr(xai_oauth_module, "DEFAULT_XAI_OAUTH_CLIENT_ID", "shared-default-client")
+    monkeypatch.delenv("ROW_BOT_XAI_OAUTH_CLIENT_ID", raising=False)
     backend = _MemoryKeyring()
     _set_backend_for_tests(backend)
     try:
@@ -426,17 +449,43 @@ def test_xai_oauth_token_save_persists_environment_client_id(tmp_path, monkeypat
             refresh_token="refresh-secret",
             id_token="id-secret",
         ))
-        monkeypatch.delenv("ROW_BOT_XAI_OAUTH_CLIENT_ID", raising=False)
         status = xai_oauth_client_id_status()
 
         assert saved["oauth_client_id_configured"] is True
-        assert saved["oauth_client_id_source"] == "environment"
-        assert saved["oauth_client_id"] == "client-from-env"
+        assert saved["oauth_client_id_source"] == "default"
+        assert "oauth_client_id" not in saved
         assert status["configured"] is True
-        assert status["source"] == "provider_config"
-        assert xai_oauth_configured_client_id() == "client-from-env"
+        assert status["source"] == "default"
+        assert xai_oauth_saved_client_id_override() == ""
+        assert xai_oauth_configured_client_id() == "shared-default-client"
     finally:
         _set_backend_for_tests(None)
+
+
+def test_xai_oauth_stale_environment_metadata_does_not_block_default(tmp_path, monkeypatch):
+    import row_bot.providers.xai_oauth as xai_oauth_module
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(xai_oauth_module, "DEFAULT_XAI_OAUTH_CLIENT_ID", "shared-default-client")
+    monkeypatch.delenv("ROW_BOT_XAI_OAUTH_CLIENT_ID", raising=False)
+    provider_config.save_provider_config({
+        "providers": {
+            "xai_oauth": {
+                "provider_id": "xai_oauth",
+                "auth_method": AuthMethod.OAUTH_PKCE.value,
+                "oauth_client_id_configured": True,
+                "oauth_client_id_source": "environment",
+                "oauth_client_id_fingerprint": "****stale",
+            },
+        },
+    })
+
+    status = xai_oauth_client_id_status()
+
+    assert status["configured"] is True
+    assert status["source"] == "default"
+    assert xai_oauth_saved_client_id_override() == ""
+    assert xai_oauth_configured_client_id() == "shared-default-client"
 
 
 def test_xai_oauth_status_requires_stored_credentials(tmp_path, monkeypatch):
@@ -488,6 +537,9 @@ def test_xai_oauth_expired_refresh_reconnect_clears_oauth_only(tmp_path, monkeyp
         assert health.runnable is False
         assert cfg["configured"] is False
         assert cfg["auth_method"] == AuthMethod.OAUTH_PKCE.value
+        assert cfg["oauth_client_id"] == "client-123"
+        assert cfg["oauth_client_id_source"] == "override"
+        assert xai_oauth_configured_client_id() == "client-123"
         assert get_provider_secret("xai_oauth", "access_token") == ""
         assert get_provider_secret("xai_oauth", "refresh_token") == ""
         assert get_provider_secret("xai", "api_key") == ""
@@ -1134,8 +1186,11 @@ def test_xai_oauth_quick_choice_seed_requires_runtime_enabled(tmp_path, monkeypa
 
 def test_xai_oauth_status_settings_and_wizard_hooks_are_present(tmp_path, monkeypatch):
     from row_bot.providers.status import provider_status_cards
+    from row_bot.ui.provider_settings import _xai_oauth_action_state
+    import row_bot.providers.xai_oauth as xai_oauth_module
 
     monkeypatch.delenv("ROW_BOT_XAI_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.setattr(xai_oauth_module, "DEFAULT_XAI_OAUTH_CLIENT_ID", "shared-default-client")
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     provider_config.save_provider_config({
         "providers": {
@@ -1161,13 +1216,19 @@ def test_xai_oauth_status_settings_and_wizard_hooks_are_present(tmp_path, monkey
     assert xai_oauth_card["group"] == "Subscription Accounts"
     assert xai_api_card["display_name"] == "xAI API"
     assert xai_api_card["group"] == "API Providers"
-    assert xai_oauth_card["oauth_client_id_configured"] is False
-    assert "ROW_BOT_XAI_OAUTH_CLIENT_ID" in xai_oauth_card["oauth_client_id_detail"]
+    assert xai_oauth_card["oauth_client_id_configured"] is True
+    assert xai_oauth_card["oauth_client_id_source"] == "default"
+    assert "Row-Bot default" in xai_oauth_card["oauth_client_id_detail"]
     assert xai_oauth_card["last_vision_probe"]["model_id"] == "grok-probe"
     assert xai_oauth_card["last_vision_probe"]["ok"] is True
     assert "_configure_xai_oauth_client_id_dialog" in provider_settings
     assert "save_xai_oauth_client_id" in provider_settings
-    assert "Configure xAI OAuth client ID before connecting" in provider_settings
+    assert "clear_xai_oauth_client_id_override" in provider_settings
+    assert "Using Row-Bot default OAuth client ID" in provider_settings
+    assert "Using saved OAuth client ID override" in provider_settings
+    assert "Configure xAI OAuth client ID before connecting" not in provider_settings
+    assert "OAuth client ID override" in provider_settings
+    assert "Reset to default" in provider_settings
     assert "_connect_xai_oauth_login" in provider_settings
     assert "wait_for_xai_oauth_loopback_authorization" in provider_settings
     assert "open_browser=False" in provider_settings
@@ -1188,7 +1249,8 @@ def test_xai_oauth_status_settings_and_wizard_hooks_are_present(tmp_path, monkey
     assert "xAI account fingerprint" in provider_settings
     assert "Use xAI Grok" in setup_wizard
     assert "setup_xai_oauth_client_id" in setup_wizard
-    assert "ROW_BOT_XAI_OAUTH_CLIENT_ID_ENV" in setup_wizard
+    assert "ROW_BOT_XAI_OAUTH_CLIENT_ID_ENV" not in setup_wizard
+    assert "xAI OAuth Client ID override (optional)" in setup_wizard
     assert "setup_xai_key" in setup_wizard
     assert "validate_xai_key" in setup_wizard
     assert "wait_for_xai_oauth_loopback_authorization" in setup_wizard
@@ -1201,6 +1263,21 @@ def test_xai_oauth_status_settings_and_wizard_hooks_are_present(tmp_path, monkey
     assert "xai_oauth_runtime_available" in setup_wizard
     assert "seed_recommended_xai_oauth_quick_choices" in setup_wizard
     assert "xai_oauth" not in x_tool
+    assert _xai_oauth_action_state({
+        "provider_id": "xai_oauth",
+        "configured": False,
+        "runtime_enabled": False,
+        "oauth_client_id_configured": True,
+        "token_health": "missing",
+    })["can_connect"] is True
+    assert _xai_oauth_action_state({
+        "provider_id": "xai_oauth",
+        "configured": True,
+        "runtime_enabled": False,
+        "oauth_client_id_configured": True,
+        "source": AuthMethod.OAUTH_PKCE.value,
+        "token_health": "expired",
+    })["can_connect"] is True
 
 
 def test_xai_oauth_disconnect_removes_oauth_metadata_only(tmp_path, monkeypatch):

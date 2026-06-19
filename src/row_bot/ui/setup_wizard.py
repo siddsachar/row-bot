@@ -171,7 +171,6 @@ async def show_setup_wizard(
         start_codex_device_flow,
     )
     from row_bot.providers.xai_oauth import (
-        ROW_BOT_XAI_OAUTH_CLIENT_ID_ENV,
         XAIOAuthError,
         exchange_xai_oauth_authorization,
         list_xai_oauth_model_infos,
@@ -302,7 +301,7 @@ async def show_setup_wizard(
                     password=True, password_toggle_button=True,
                 ).classes("w-full")
                 setup_xai_oauth_client_id = ui.input(
-                    "xAI OAuth Client ID (optional)",
+                    "xAI OAuth Client ID override (optional)",
                 ).classes("w-full")
                 setup_minimax_key = ui.input(
                     "MiniMax API Key (optional)",
@@ -617,7 +616,7 @@ async def show_setup_wizard(
                         logger.warning("xAI Grok setup sign-in start failed", exc_info=True)
                         if exc.kind == "missing_client_id":
                             cloud_status.text = (
-                                f"Enter an xAI OAuth Client ID here or set {ROW_BOT_XAI_OAUTH_CLIENT_ID_ENV}, "
+                                "Enter an xAI OAuth Client ID override here, "
                                 "then start xAI Grok sign-in again."
                             )
                         else:

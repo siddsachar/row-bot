@@ -593,12 +593,63 @@ def test_models_tab_rerenders_brain_readiness_badge_on_model_change():
     assert "set as Chat Only" in models_section
 
 
-def test_models_tab_validates_stale_vision_default_before_display():
+def test_safe_model_select_state_preserves_invalid_current_defaults():
+    from row_bot.ui import settings as settings_ui
+
+    brain = settings_ui._safe_model_select_state(
+        "Brain",
+        "model:xai_oauth:grok-4.3",
+        {"model:openai:gpt-5": "GPT-5 - OpenAI API"},
+        warning="Current Brain default is unavailable because xAI Grok is disconnected.",
+    )
+    vision = settings_ui._safe_model_select_state(
+        "Vision",
+        "model:xai_oauth:grok-4.3",
+        {},
+        warning="Current Vision default is unavailable or not Vision-capable.",
+    )
+    image = settings_ui._safe_model_select_state(
+        "Image",
+        "xai_oauth/grok-imagine-image",
+        {},
+        warning="Current Image default is unavailable.",
+    )
+    video = settings_ui._safe_model_select_state(
+        "Video",
+        "xai_oauth/grok-imagine-video-1.5",
+        {},
+        warning="Current Video default is unavailable.",
+    )
+
+    for state in (brain, vision, image, video):
+        assert state["value"] in state["options"]
+        assert state["invalid"] is True
+        assert str(state["options"][state["value"]]).startswith("Unavailable:")
+        assert state["warning"]
+
+    assert brain["value"] == "model:xai_oauth:grok-4.3"
+    assert image["value"] == "xai_oauth/grok-imagine-image"
+    assert video["value"] == "xai_oauth/grok-imagine-video-1.5"
+
+
+def test_models_tab_preserves_stale_defaults_as_unavailable_rows():
     source = (ROOT / "src" / "row_bot" / "ui" / "settings.py").read_text(encoding="utf-8")
     models_section = source.split("def _render_models_tab_content", 1)[1].split("def _collect_models_tab_data", 1)[0]
 
     assert "vision_model_compatibility" in models_section
-    assert "Resetting incompatible Vision default" in models_section
+    assert "_safe_model_select_state" in source
+    assert "Resetting incompatible Vision default" not in models_section
+    assert "_set_image_model(_ig_model)" not in models_section
+    assert "_set_video_model(_vg_model)" not in models_section
+    assert "Current Brain default is unavailable because xAI Grok is disconnected" in models_section
+    assert "Current Vision default is unavailable or not Vision-capable." in models_section
+    assert "Current Image default is unavailable. Connect the provider, refresh the catalog, or choose another pinned image model." in models_section
+    assert "Current Video default is unavailable. Connect the provider, refresh the catalog, or choose another pinned video model." in models_section
     assert "not currently marked as Vision-capable" in models_section
-    assert "vision_select_value = vision_value if vision_value in vision_opts else None" in models_section
+    assert "vision_select_value = vision_select_state[\"value\"]" in models_section
     assert "value=vision_select_value" in models_section
+    assert "value=brain_select_state[\"value\"]" in models_section
+    assert "value=image_select_state[\"value\"]" in models_section
+    assert "value=video_select_state[\"value\"]" in models_section
+    assert "camera_controls = ui.row" in models_section
+    assert "Refresh catalog" in source
