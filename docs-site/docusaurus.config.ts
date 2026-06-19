@@ -61,8 +61,9 @@ const config: Config = {
       items: [
         {to: '/docs/', label: 'Docs', position: 'left'},
         {to: '/docs/getting-started/installation', label: 'Install', position: 'left'},
-        {to: '/docs/guides/designer-studio', label: 'Designer', position: 'left'},
-        {to: '/docs/guides/developer-studio', label: 'Developer', position: 'left'},
+        {to: '/docs/home/designer', label: 'Designer', position: 'left'},
+        {to: '/docs/home/developer', label: 'Developer', position: 'left'},
+        {to: '/docs/settings/', label: 'Settings', position: 'left'},
         {to: '/search', label: 'Search', position: 'left'},
         {
           href: 'https://github.com/siddsachar/row-bot',
@@ -83,8 +84,8 @@ const config: Config = {
           title: 'Docs',
           items: [
             {label: 'Getting Started', to: '/docs/getting-started/'},
-            {label: 'UI Tour', to: '/docs/ui-tour/'},
-            {label: 'Configuration', to: '/docs/configuration/models-and-providers'},
+            {label: 'App Shell', to: '/docs/app-shell/navigation'},
+            {label: 'Settings', to: '/docs/settings/'},
             {label: 'Troubleshooting', to: '/docs/troubleshooting/'},
           ],
         },

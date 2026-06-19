@@ -1,4 +1,16 @@
 :root {
+  --bg: #0b0d10;
+  --bg-alt: #101318;
+  --surface: #151920;
+  --surface-raised: #1c2129;
+  --border: #232a35;
+  --border-hover: #3a4556;
+  --text: #e2e6ed;
+  --text-dim: #9aa3b4;
+  --text-faint: #636d7e;
+  --accent: #4f78a4;
+  --accent-hover: #6c93bc;
+  --rose: #d87682;
   --ifm-color-primary: #4f78a4;
   --ifm-color-primary-dark: #466c94;
   --ifm-color-primary-darker: #42668c;
@@ -6,50 +18,172 @@
   --ifm-color-primary-light: #6088b0;
   --ifm-color-primary-lighter: #6a90b6;
   --ifm-color-primary-lightest: #86a7c6;
+  --ifm-background-color: var(--bg);
+  --ifm-background-surface-color: var(--surface);
+  --ifm-card-background-color: var(--surface);
+  --ifm-navbar-background-color: rgba(11, 13, 16, 0.94);
+  --ifm-footer-background-color: var(--bg-alt);
+  --ifm-font-color-base: var(--text);
+  --ifm-heading-color: var(--text);
   --ifm-font-family-base: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --ifm-heading-font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --row-bot-panel-border: rgba(79, 120, 164, 0.22);
+  --ifm-code-background: #0f1318;
+  --ifm-table-border-color: var(--border);
+  --ifm-toc-border-color: var(--border);
+  --row-bot-panel-border: rgba(79, 120, 164, 0.24);
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.navbar {
+  border-bottom: 1px solid var(--border);
+  box-shadow: none;
+  backdrop-filter: blur(14px);
+}
+
+.navbar__brand,
+.navbar__link,
+.footer__link-item {
+  color: var(--text);
+}
+
+.navbar__link:hover,
+.navbar__link--active,
+.menu__link--active,
+.menu__link:hover,
+.footer__link-item:hover {
+  color: var(--accent-hover);
+}
+
+.theme-doc-sidebar-container {
+  border-right: 1px solid var(--border) !important;
+  background: var(--bg-alt);
+}
+
+.theme-doc-sidebar-menu {
+  padding: 0.75rem;
+}
+
+.menu__link {
+  border-radius: 6px;
+  color: var(--text-dim);
+}
+
+.menu__list-item-collapsible {
+  border-radius: 6px;
+}
+
+.breadcrumbs__link,
+.table-of-contents__link,
+.pagination-nav__sublabel {
+  color: var(--text-dim);
+}
+
+.markdown h1 {
+  letter-spacing: 0;
+  font-size: clamp(2rem, 4vw, 3rem);
+}
+
+.markdown h2,
+.markdown h3 {
+  letter-spacing: 0;
+}
+
+.markdown p,
+.markdown li {
+  color: var(--text-dim);
+}
+
+.markdown a {
+  color: var(--accent-hover);
+}
+
+.theme-doc-markdown,
+.theme-doc-toc-desktop {
+  color: var(--text);
+}
+
+.theme-code-block,
+pre,
+code {
+  border-color: var(--border);
+}
+
+table {
+  display: table;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+thead {
+  background: var(--surface-raised);
+}
+
+tr:nth-child(2n) {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.alert {
+  border-radius: 8px;
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+.pagination-nav__link {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.pagination-nav__link:hover {
+  border-color: var(--border-hover);
 }
 
 .hero--primary {
   background:
-    linear-gradient(180deg, rgba(11, 13, 16, 0.72), rgba(11, 13, 16, 0.92)),
+    linear-gradient(180deg, rgba(11, 13, 16, 0.74), rgba(11, 13, 16, 0.94)),
     url('/img/brand/row_bot_hero.webp') center / cover no-repeat;
-  color: #f8fafc;
-}
-
-.rowBotHeroActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  justify-content: center;
-  margin-top: 1.5rem;
+  color: var(--text);
 }
 
 .rowBotPanelGrid {
   display: grid;
   gap: 1rem;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  margin: 2rem 0;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  margin: 1.5rem 0 2rem;
 }
 
 .rowBotPanel {
-  border: 1px solid var(--row-bot-panel-border);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 1rem;
-  background: var(--ifm-card-background-color);
+  background: var(--surface);
+}
+
+.rowBotPanel:hover {
+  border-color: var(--border-hover);
 }
 
 .rowBotPanel h3 {
   margin-top: 0;
 }
 
+.rowBotPanel p {
+  margin-bottom: 0.75rem;
+}
+
 .rowBotScreenshot {
-  border: 1px solid var(--row-bot-panel-border);
+  border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
   margin: 1.5rem 0;
-  background: var(--ifm-card-background-color);
+  background: var(--surface);
 }
 
 .rowBotScreenshot img {
@@ -58,20 +192,26 @@
 }
 
 .rowBotScreenshot figcaption {
-  border-top: 1px solid var(--row-bot-panel-border);
-  color: var(--ifm-color-emphasis-700);
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
   font-size: 0.875rem;
-  padding: 0.65rem 0.85rem;
+  padding: 0.7rem 0.9rem;
+  background: var(--surface-raised);
+}
+
+.rowBotScreenshotMissing {
+  border-color: var(--rose);
 }
 
 .rowBotGeneratedNotice {
-  border: 1px solid var(--row-bot-panel-border);
-  border-left: 4px solid var(--ifm-color-primary);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
   border-radius: 8px;
   margin: 1rem 0;
   padding: 0.85rem 1rem;
   background: rgba(79, 120, 164, 0.08);
 }
+
 .rowBotSearch {
   margin: 1.5rem 0;
 }
@@ -85,19 +225,25 @@
 .rowBotSearchForm input {
   flex: 1;
   min-width: 0;
-  border: 1px solid var(--ifm-color-emphasis-300);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.75rem 0.85rem;
   font: inherit;
+  background: var(--surface);
+  color: var(--text);
 }
 
 .rowBotSearchForm button {
   border: 0;
   border-radius: 8px;
   padding: 0.75rem 1rem;
-  background: var(--ifm-color-primary);
+  background: var(--accent);
   color: #fff;
   font-weight: 600;
+}
+
+.rowBotSearchForm button:hover {
+  background: var(--accent-hover);
 }
 
 .rowBotSearchForm button:disabled {
@@ -105,7 +251,7 @@
 }
 
 .rowBotSearchStatus {
-  color: var(--ifm-color-emphasis-700);
+  color: var(--text-dim);
   margin: 0.75rem 0 0;
 }
 
@@ -116,15 +262,16 @@
 }
 
 .rowBotSearchResult {
-  border: 1px solid var(--ifm-color-emphasis-200);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.9rem 1rem;
   color: inherit;
+  background: var(--surface);
 }
 
 .rowBotSearchResult:hover {
   text-decoration: none;
-  border-color: var(--ifm-color-primary);
+  border-color: var(--accent);
 }
 
 .rowBotSearchResult strong,
@@ -133,11 +280,14 @@
   display: block;
 }
 
-.rowBotSearchResult span {
-  color: var(--ifm-color-emphasis-700);
-  margin-top: 0.2rem;
+.rowBotSearchResult span,
+.rowBotSearchResult small {
+  color: var(--text-dim);
+  margin-top: 0.25rem;
 }
 
-.rowBotSearchResult small {
-  margin-top: 0.35rem;
+@media (max-width: 700px) {
+  .rowBotSearchForm {
+    flex-direction: column;
+  }
 }

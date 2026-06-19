@@ -1,54 +1,16 @@
 ---
-title: Privacy And Safety
-description: Understand Row-Bot's local-first data model and safety controls.
+title: "Privacy And Safety"
+description: "Understand local/external boundaries, approvals, credentials, and safe capture behavior."
 ---
-
-import Screenshot from '@site/src/components/Screenshot';
 
 # Privacy And Safety
 
-Row-Bot is local-first. Durable app data such as conversations, memories,
-documents, graph data, workflows, logs, settings, skills, plugins, local
-workspace references, and generated artifacts stays on your machine by default.
+Row-Bot separates local UI state from external provider, account, channel, MCP, plugin, shell, browser, and filesystem actions. Sensitive operations can require approval, and credential controls are masked.
 
-Hosted provider calls, channels, MCP servers, plugins, browser automation, and
-Developer Studio actions can still send data outside the app when you enable
-and use them.
+## Docs Capture Safety
 
-## Provider Calls
+Public docs screenshots are captured from the real NiceGUI app route with `ROW_BOT_DOCS_CAPTURE=1`, a temporary `ROW_BOT_DATA_DIR`, fixed time, reduced motion, fake provider readiness, disabled autostart, and no real credentials.
 
-When a hosted provider model is selected, Row-Bot sends the active prompt,
-model-visible context, and needed tool results to that provider or endpoint for
-the current turn. Local models reduce provider exposure, but external tools can
-still transmit data.
+## Approval Examples
 
-## Memory And Documents
-
-Memory, document records, embeddings, and graph data are local app data unless
-you choose a hosted embedding/model path or export/share content. Review
-documents before indexing private or regulated material.
-
-## Filesystem, Shell, Browser, MCP, And Plugins
-
-Sensitive actions should remain behind approvals. Filesystem writes, shell
-commands, browser actions, destructive MCP tools, plugin behavior, and
-Developer Studio edits can change local or external state.
-
-<Screenshot
-  id="chat-approval"
-  alt="Row-Bot approval dialog for a sensitive file write action."
-/>
-
-<Screenshot
-  id="privacy-safety-approval-example"
-  alt="Row-Bot privacy and safety approval example with sensitive demo fields redacted."
-/>
-
-## Human Review Areas
-
-Review provider/model recommendations, privacy copy, screenshots of setup
-surfaces, troubleshooting steps that alter data or credentials, MCP/plugin
-instructions, and any LLM-assisted explanatory prose before public cutover.
-
-See [safety and approvals](/docs/reference/generated/safety-approvals) for the
-generated approval-mode reference.
+Approval screenshots are deferred until a deterministic pending-interrupt fixture exists. The docs still describe the behavior: file writes, shell commands, browser automation, MCP tools, Developer edits, and external actions can ask before continuing or be blocked by policy.

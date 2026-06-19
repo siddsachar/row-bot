@@ -1,0 +1,38 @@
+---
+title: "Settings: Search"
+description: "Documented real Settings Search tab."
+---
+
+import Screenshot from '@site/src/components/Screenshot';
+
+# Settings: Search
+
+Retrieval compression, web research providers, browser/search tool availability, and search-related diagnostics.
+
+
+<Screenshot id="settings-search" alt="Row-Bot Settings Search tab." caption="The real Settings Search tab captured from the app." />
+
+## How To Open
+
+Open Settings from the sidebar or setup/status surfaces, then choose **Search**.
+
+## Visible Sections And Controls
+
+The tab is documented from `src/row_bot/ui/settings.py` and the real Settings tab inventory. Controls include the tab header, setting groups, status rows, action buttons, and empty/error states shown by the current local configuration.
+
+
+## What Is Saved
+
+Search settings are saved under the active Row-Bot data directory using the app's normal config, database, or provider-specific storage APIs.
+
+## Local And External Behavior
+
+Opening and editing the tab is local UI work. Local-only options affect files, app config, or local services.
+
+Provider checks, account auth, channel starts, MCP servers, plugin installs, and network probes are external or side-effectful only when the user explicitly configures or starts them.
+
+## Credentials And Safety
+
+Password and token controls are masked. Docs demo data uses fake disconnected/example states and never stores real credentials.
+
+Actions that can change files, call external systems, start servers, or use MCP tools follow the active approval policy. When a surface is disconnected or empty, Row-Bot keeps the controls visible so you can see what still needs setup.

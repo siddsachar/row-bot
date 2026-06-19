@@ -1,47 +1,38 @@
 ---
-title: First Launch Setup
-description: Understand Row-Bot's first launch wizard and model setup paths.
+title: "First Launch"
+description: "Use the real first-run wizard and Setup Center."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
-# First Launch Setup
+# First Launch
 
-On first launch, Row-Bot asks for one working model path. Everything else can
-be finished later from Setup Center or Settings.
+The first-run wizard appears until `setup_complete` is saved in the app config. It asks you to connect one working model path first; every other feature can be configured later.
 
-<Screenshot
-  id="first-launch-setup-wizard"
-  alt="Row-Bot first launch setup wizard with local, API provider, and custom endpoint paths."
-  caption="The setup wizard keeps local, hosted, subscription, and custom endpoint paths separate."
-/>
 
-## Choose A Model Path
+<Screenshot id="first-launch-setup-wizard" alt="Row-Bot first launch wizard." caption="The real first-launch wizard with local, API provider, and custom endpoint paths." />
 
-- Local/Ollama keeps inference on your machine when the selected model and tools
-  are local. Install Ollama, start it, and choose an exposed local model.
-- Provider/API-key paths connect hosted providers such as OpenAI, Anthropic,
-  Google AI, xAI, MiniMax, OpenRouter, Atlas Cloud, and Ollama Cloud.
-- ChatGPT / Codex and Claude Subscription use local sign-in or external CLI
-  flows where supported instead of a traditional provider API key.
-- Custom/self-hosted endpoints support OpenAI-compatible servers such as LM
-  Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, oMLX, or private gateways.
+## Model Paths
 
-Row-Bot stores provider identity with the model choice, so two models with the
-same display name are not treated as interchangeable.
+- Local Ollama keeps model inference on the machine when Ollama and the chosen model are available.
+- API providers require credentials and send prompts to the selected provider.
+- Custom endpoints can be local or remote OpenAI-compatible servers; the endpoint location determines the privacy boundary.
 
-## Continue Setup
 
-After model setup, Setup Center can guide you through documents, workflows,
-Designer Studio, Developer Studio, channels, accounts, tools, plugins, MCP, and
-voice.
+<Screenshot id="setup-center" alt="Row-Bot Setup Center." caption="The real Setup Center for optional post-model setup." />
 
-<Screenshot
-  id="setup-center"
-  alt="Row-Bot Setup Center showing resumable setup checklist cards."
-  caption="Setup Center is optional after the first working model is configured."
-/>
+## What Is Saved
 
-You can skip any setup area and return later. For privacy-sensitive areas such
-as channels, provider credentials, MCP servers, plugins, and Developer Studio,
-review the relevant settings before enabling background behavior.
+Setup progress is saved in app config, including completed and skipped Setup Center steps.
+
+## Local And External Behavior
+
+Local setup choices can stay entirely on the machine when using local models and local files.
+
+API providers, account integrations, channels, MCP servers, and plugins can contact external services only after you configure and start them.
+
+## Credentials And Safety
+
+Credential fields are password-style controls. Docs screenshots use fake demo state and mask sensitive inputs.
+
+Actions that can change files, call external systems, start servers, or use MCP tools follow the active approval policy. When a surface is disconnected or empty, Row-Bot keeps the controls visible so you can see what still needs setup.

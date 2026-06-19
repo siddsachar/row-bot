@@ -1,0 +1,37 @@
+---
+title: "Chat"
+description: "Use Row-Bot chat, composer controls, model choices, attachments, skills, and exports."
+---
+
+import Screenshot from '@site/src/components/Screenshot';
+
+# Chat
+
+Chat is the main conversation surface. It shows the active thread name, transcript, model/privacy banner, parent agent and goal strips when relevant, the composer, attachment controls, model and approval controls, voice buttons, send/stop buttons, and export when messages exist.
+
+
+<Screenshot id="chat-main" alt="Row-Bot chat surface with seeded messages." caption="The real chat surface rendered from seeded safe demo state." />
+
+## Controls In The Screenshot
+
+- Thread header: current thread title, rename, profile picker, and export when messages are present.
+- Transcript: user and assistant messages, tool results, charts, images, and reasoning sections when present.
+- Composer: textarea, attachments, model and approval controls, Smart Skill suggestions, slash commands, voice, send, and stop.
+- Model banner: indicates local/private or cloud/provider execution before a run.
+
+
+## What Is Saved
+
+Thread metadata lives in `threads.db`; transcript checkpoints and media sidecars are stored under the active data directory.
+
+## Local And External Behavior
+
+Local model runs and local tools can stay on the machine. File attachments are copied into Row-Bot-managed storage before use.
+
+Cloud models, web search, browser actions, account tools, MCP tools, channels, and plugins can call outside services only when configured and invoked.
+
+## Credentials And Safety
+
+Secrets are not inserted into chat. Approval prompts are used for sensitive file, shell, browser, MCP, and external actions.
+
+Actions that can change files, call external systems, start servers, or use MCP tools follow the active approval policy. When a surface is disconnected or empty, Row-Bot keeps the controls visible so you can see what still needs setup.

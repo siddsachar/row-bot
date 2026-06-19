@@ -1,57 +1,32 @@
 ---
-title: Row-Bot Documentation
-description: Public end-user documentation for installing, configuring, and using Row-Bot.
-slug: /
+title: "Row-Bot Documentation"
+description: "Public documentation for installing, configuring, and using the real Row-Bot app."
 ---
 
 import PagefindSearch from '@site/src/components/PagefindSearch';
+import Screenshot from '@site/src/components/Screenshot';
 
 # Row-Bot Documentation
 
-Row-Bot is a local-first desktop AI assistant for doing real work with models,
-memory, tools, workflows, Designer Studio, Developer Studio, Skills Hub,
-plugins, MCP, messaging channels, and voice.
+Row-Bot is a local-first desktop AI assistant for chat, tools, workflows, Designer Studio, Developer Studio, knowledge, skills, plugins, MCP, channels, voice, and safety-reviewed automation.
 
-This documentation is a review-ready V1 draft. It combines curated guide pages
-with generated reference pages, deterministic docs-mode screenshots, Pagefind
-search, and machine-readable `llms.txt` output.
+This docs site is built from source inventory, route metadata, generated references, and screenshots captured from the actual NiceGUI app at `/`. Capture mode can seed fake demo data and disable side effects, but it does not render replacement screenshot UI.
 
-## Fast Paths
+<Screenshot id="app-shell-overview" alt="Row-Bot app shell with sidebar and main Home surface." caption="The real app shell captured from the NiceGUI route." />
+
+## Start Here
 
 <div className="rowBotPanelGrid">
-  <div className="rowBotPanel">
-    <h3>Install Row-Bot</h3>
-    <p>Choose the Windows, macOS, or Linux installer path.</p>
-    <a href="/docs/getting-started/installation">Installation guide</a>
-  </div>
-  <div className="rowBotPanel">
-    <h3>Choose a model</h3>
-    <p>Use local Ollama, hosted providers, subscription providers, or a custom endpoint.</p>
-    <a href="/docs/configuration/models-and-providers">Models and providers</a>
-  </div>
-  <div className="rowBotPanel">
-    <h3>Learn the interface</h3>
-    <p>Tour chat, settings, workflows, Designer, Developer, Knowledge, and approvals.</p>
-    <a href="/docs/ui-tour/">UI tour</a>
-  </div>
+  <div className="rowBotPanel"><h3>Install</h3><p>Choose a platform and understand where Row-Bot stores local data.</p><a href="/docs/getting-started/installation">Installation</a></div>
+  <div className="rowBotPanel"><h3>First Launch</h3><p>Connect the first model path, then continue through optional setup areas.</p><a href="/docs/getting-started/first-launch">First launch</a></div>
+  <div className="rowBotPanel"><h3>App Shell</h3><p>Learn navigation, threads, status surfaces, command center, terminal, and settings.</p><a href="/docs/app-shell/navigation">Navigation</a></div>
+  <div className="rowBotPanel"><h3>Settings</h3><p>Every Settings tab is documented from the real tab list.</p><a href="/docs/settings/">Settings reference</a></div>
 </div>
 
 ## Search
 
 <PagefindSearch />
 
-## Generated Reference
+## Code-Backed Reference
 
-The docs system automates the expensive, drift-prone parts:
-
-- generated reference pages for tools, providers, settings, channels, skills,
-  MCP, plugins, data paths, screenshots, and safety approvals;
-- automated screenshots from a deterministic docs-mode app;
-- public `llms.txt` and `llms-full.txt` files for agents and assistants;
-- link, image, generated-docs, and secret validation in CI.
-
-The curated guide pages remain human-reviewable so public instructions stay
-clear and accurate.
-
-Start with the [generated reference index](/docs/reference/generated/) when
-reviewing source-derived tables.
+Generated reference pages cover tools, providers, Home tabs, Settings tabs, channels, skills, MCP, plugins, storage, environment variables, screenshots, and approvals. Start with [Generated Reference](/docs/reference/generated/).

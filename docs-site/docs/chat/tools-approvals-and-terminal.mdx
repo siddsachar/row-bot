@@ -1,0 +1,20 @@
+---
+title: "Tools, Approvals, And Terminal"
+description: "Review tool traces, approval policy, export behavior, and terminal safety."
+---
+
+# Tools, Approvals, And Terminal
+
+Tool activity appears with the conversation so you can inspect what Row-Bot read, wrote, searched, or requested. Sensitive actions follow the active approval policy.
+
+## Tool Trace
+
+Tool trace rendering is part of the real chat transcript. The focused trace screenshot is deferred until a dedicated selector is added to `row_bot.ui.tool_trace`, but the chat screenshot includes seeded tool-result state.
+
+## Approvals
+
+Approval prompts are used for operations such as filesystem writes, shell commands, browser automation, MCP tool calls, Developer workspace edits, and channel actions. A pending approval fixture is required before a deterministic screenshot can be captured.
+
+## Terminal Panel
+
+The terminal panel is rendered inside the real app shell. Commands are subject to tool availability and approval mode. Docs capture disables unsafe startup side effects and does not start real terminal workloads.

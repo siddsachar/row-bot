@@ -1,0 +1,38 @@
+---
+title: "Home: Monitor"
+description: "Documented real Home Monitor tab."
+---
+
+import Screenshot from '@site/src/components/Screenshot';
+
+# Home: Monitor
+
+Knowledge extraction, dream cycle, channels, recent logs, and system activity.
+
+
+<Screenshot id="home-monitor" alt="Row-Bot Home Monitor tab." caption="The real Home Monitor tab captured from the app." />
+
+## How To Open
+
+Choose Home in the sidebar, then select the **Monitor** tab.
+
+## Visible Sections
+
+The tab is built by `src/row_bot/ui/home.py`. Its controls vary with local app state, but the screenshot shows the real tab shell, labels, and empty or seeded-state cards that are safe for public docs.
+
+
+## What Is Saved
+
+Home tab state reads from local workflow, memory, thread, Designer, Developer, and log storage depending on the tab.
+
+## Local And External Behavior
+
+Opening the tab is local UI work. Docs capture disables background autostart while preserving the real tab builders.
+
+External work starts only from configured workflows, providers, channels, MCP servers, plugins, or Developer actions.
+
+## Credentials And Safety
+
+Home tabs can show disconnected states, but seeded docs data never includes real credentials or account names.
+
+Actions that can change files, call external systems, start servers, or use MCP tools follow the active approval policy. When a surface is disconnected or empty, Row-Bot keeps the controls visible so you can see what still needs setup.

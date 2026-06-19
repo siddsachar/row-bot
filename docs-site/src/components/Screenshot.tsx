@@ -8,7 +8,7 @@ type ScreenshotProps = {
 };
 
 export default function Screenshot({id, alt, caption}: ScreenshotProps): JSX.Element {
-  const src = `/img/screenshots/generated/${id}.png`;
+  const src = `/img/screenshots/real-ui/${id}.png`;
   const [missing, setMissing] = useState(false);
   if (missing) {
     if (process.env.NODE_ENV !== 'production') {

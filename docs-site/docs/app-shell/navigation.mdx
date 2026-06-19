@@ -1,0 +1,37 @@
+---
+title: "Navigation"
+description: "Understand the real Row-Bot app shell, sidebar, thread list, command/status surfaces, and terminal panel."
+---
+
+import Screenshot from '@site/src/components/Screenshot';
+
+# Navigation
+
+The app shell combines the left sidebar, thread list and filters, Home button, new chat flow, central main surface, command/status surfaces, Buddy, and the inline terminal panel.
+
+
+<Screenshot id="app-shell-overview" alt="Row-Bot app shell overview." caption="The real app shell with Home selected." />
+
+## Visible Areas
+
+- Sidebar: Home, new chat, thread filters, thread list, settings entry points, and setup/status access.
+- Main content: Home, chat, Designer editor, Developer workspace, or other active surface.
+- Command/status surfaces: running workflows, approvals, status messages, and operational controls.
+- Terminal panel: shown inline when terminal tooling is available; commands still follow approval and capability policy.
+
+
+## What Is Saved
+
+Thread metadata, drafts, local UI preferences, and workflow state are saved under the app data directory.
+
+## Local And External Behavior
+
+Navigation itself is local UI. Opening a thread reads local checkpoint and metadata databases.
+
+External effects only occur when a selected tool, channel, provider, MCP server, or plugin is configured and invoked.
+
+## Credentials And Safety
+
+The sidebar can surface account or provider attention states, but it does not expose saved secret values.
+
+Actions that can change files, call external systems, start servers, or use MCP tools follow the active approval policy. When a surface is disconnected or empty, Row-Bot keeps the controls visible so you can see what still needs setup.
