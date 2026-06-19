@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Row-Bot - Local-First AI Assistant</title>
-    <meta name="description" content="Row-Bot, formerly Thoth, is a local-first desktop AI assistant for Windows, macOS, and Linux with Developer Studio, Skills Hub, Custom Tools, memory, Designer Studio, workflows, realtime voice, messaging channels, MCP tools, provider-aware models, Atlas Cloud, ChatGPT / Codex, and Claude Subscription access. Your durable data stays on your machine.">
+    <meta name="description" content="Row-Bot, formerly Thoth, is a local-first desktop AI assistant for Windows, macOS, and Linux with Agent Profiles, Goal Mode, multi-agent orchestration, Developer Studio, Skills Hub, Custom Tools, memory, Designer Studio, workflows, realtime voice, messaging channels, MCP tools, provider-aware models, xAI Grok OAuth, Atlas Cloud, ChatGPT / Codex, and Claude Subscription access. Your durable data stays on your machine.">
 
     <!-- Canonical -->
     <link rel="canonical" href="https://row-bot.ai/">
@@ -13,7 +13,7 @@
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://row-bot.ai/">
     <meta property="og:title" content="Row-Bot - Local-First AI Assistant">
-    <meta property="og:description" content="Reason. Orchestrate. Work. Row-Bot is a local-first desktop AI assistant with memory, tools, workflows, Developer Studio, Designer Studio, Skills Hub, realtime voice, Atlas Cloud, Claude Subscription, and provider-aware model routing.">
+    <meta property="og:description" content="Reason. Orchestrate. Work. Row-Bot is a local-first desktop AI assistant with Agent Profiles, Goal Mode, multi-agent delegation, memory, tools, workflows, Developer Studio, Designer Studio, Skills Hub, realtime voice, xAI Grok OAuth, Atlas Cloud, Claude Subscription, and provider-aware model routing.">
     <meta property="og:image" content="https://row-bot.ai/row_bot_preview.png">
     <meta property="og:image:type" content="image/png">
     <meta property="og:image:width" content="1536">
@@ -22,7 +22,7 @@
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Row-Bot - Local-First AI Assistant">
-    <meta name="twitter:description" content="Reason. Orchestrate. Work. A local-first desktop AI assistant with memory, tools, workflows, Skills Hub, realtime voice, Atlas Cloud, Claude Subscription, and provider-aware model routing.">
+    <meta name="twitter:description" content="Reason. Orchestrate. Work. A local-first desktop AI assistant with Agent Profiles, Goal Mode, multi-agent orchestration, memory, tools, workflows, realtime voice, xAI Grok OAuth, and provider-aware model routing.">
     <meta name="twitter:image" content="https://row-bot.ai/row_bot_preview.png">
 
     <!-- Favicon -->
@@ -35,7 +35,7 @@
         "@type": "SoftwareApplication",
         "name": "Row-Bot",
         "alternateName": "Thoth",
-        "description": "A local-first desktop AI assistant for Windows, macOS, and Linux with Developer Studio, Skills Hub, Custom Tools, Buddy, memory, built-in tools, Designer Studio, workflows, realtime voice, messaging channels, MCP tools, secure provider credential storage, provider-aware models, Atlas Cloud, ChatGPT / Codex, and Claude Subscription access.",
+        "description": "A local-first desktop AI assistant for Windows, macOS, and Linux with Agent Profiles, Goal Mode, multi-agent orchestration, Developer Studio, Skills Hub, Custom Tools, Buddy, memory, built-in tools, Designer Studio, workflows, realtime voice, messaging channels, MCP tools, secure provider credential storage, provider-aware models, xAI Grok OAuth, Atlas Cloud, ChatGPT / Codex, and Claude Subscription access.",
         "applicationCategory": "UtilitiesApplication",
         "operatingSystem": "Windows 10/11, macOS, Linux",
         "offers": {
@@ -45,8 +45,8 @@
         },
         "license": "https://www.apache.org/licenses/LICENSE-2.0",
         "url": "https://row-bot.ai/",
-        "downloadUrl": "https://github.com/siddsachar/row-bot/releases/tag/v4.1.0",
-        "softwareVersion": "4.1.0",
+        "downloadUrl": "https://github.com/siddsachar/row-bot/releases/tag/v4.2.0",
+        "softwareVersion": "4.2.0",
         "author": {
             "@type": "Person",
             "name": "siddsachar",
@@ -343,7 +343,7 @@
 
         .hero {
             position: relative;
-            padding: 9rem 2rem 5.5rem;
+            padding: 6.5rem 2rem 2.25rem;
             max-width: 980px;
             margin: 0 auto;
             overflow: visible;
@@ -370,18 +370,18 @@
             font-weight: 400;
             line-height: 1.08;
             letter-spacing: 0;
-            margin-bottom: 1.5rem;
+            margin-bottom: 1.25rem;
             color: var(--text);
         }
 
         .hero h1 em { font-style: italic; color: var(--accent); }
 
         .hero-body {
-            font-size: 1.12rem;
+            font-size: 1.05rem;
             color: var(--text-dim);
-            max-width: 690px;
-            line-height: 1.7;
-            margin-bottom: 2.25rem;
+            max-width: 650px;
+            line-height: 1.58;
+            margin-bottom: 1.55rem;
         }
 
         .hero-actions {
@@ -389,7 +389,7 @@
             gap: 0.75rem;
             flex-wrap: wrap;
             align-items: center;
-            margin-bottom: 1.5rem;
+            margin-bottom: 1.15rem;
         }
 
         .btn {
@@ -1119,7 +1119,7 @@
                 width: min(82vw, 320px);
                 opacity: 0.1;
             }
-            .hero-meta { flex-direction: column; gap: 0.4rem; }
+            .hero-meta { display: none; }
             .architecture-points { grid-template-columns: 1fr; }
             .comparison th, .comparison td { padding: 0.6rem 0.5rem; }
             .privacy-facts { flex-direction: column; align-items: center; gap: 0.5rem; }
@@ -1142,8 +1142,8 @@
             <a href="#comparison">Compare</a>
             <a href="contact.html">Contact</a>
             <a href="https://github.com/siddsachar/row-bot" target="_blank">GitHub</a>
-            <a href="https://github.com/siddsachar/row-bot/releases/download/v4.1.0/Row-Bot-4.1.0-Windows-x64.exe" class="nav-dl" data-download="windows">Windows</a>
-            <a href="https://github.com/siddsachar/row-bot/releases/download/v4.1.0/Row-Bot-4.1.0-macOS-arm64.dmg" class="nav-dl" data-download="macos">macOS</a>
+            <a href="https://github.com/siddsachar/row-bot/releases/download/v4.2.0/Row-Bot-4.2.0-Windows-x64.exe" class="nav-dl" data-download="windows">Windows</a>
+            <a href="https://github.com/siddsachar/row-bot/releases/download/v4.2.0/Row-Bot-4.2.0-macOS-arm64.dmg" class="nav-dl" data-download="macos">macOS</a>
             <a href="#linux-install" class="nav-dl" data-download="linux">Linux</a>
         </div>
     </nav>
@@ -1152,21 +1152,19 @@
         <p class="hero-eyebrow">Local-First AI Workbench &middot; formerly Thoth</p>
         <h1>Reason. Orchestrate. Work.<br>Your data stays <em>here.</em></h1>
         <p class="hero-body">
-            Row-Bot is a desktop AI workbench with Developer Studio for code, Skills Hub and Custom Tools for your own workflows,
-            an animated Buddy companion, memory, realtime voice, workflows, design creation, messaging, MCP tools, and provider-aware model routing.
-            Run local runtimes, self-hosted OpenAI-compatible endpoints, hosted APIs including Atlas Cloud and MiniMax, Ollama Cloud, OpenCode providers, or ChatGPT / Codex and Claude Subscription-backed models with explicit runtime readiness.
-            Your durable data stays on your machine.
+            Row-Bot is a desktop AI workbench for agentic work you can direct, inspect, and keep.
+            Agent Profiles, Goal Mode, and multi-agent orchestration bring durable roles, evidence-backed progress, delegation, approvals, and write-lock safeguards into one local-first workspace.
         </p>
         <div class="hero-actions">
-            <a href="https://github.com/siddsachar/row-bot/releases/download/v4.1.0/Row-Bot-4.1.0-Windows-x64.exe" class="btn btn--primary" data-download="windows">Download for Windows <span class="btn-hint">.exe</span></a>
-            <a href="https://github.com/siddsachar/row-bot/releases/download/v4.1.0/Row-Bot-4.1.0-macOS-arm64.dmg" class="btn btn--primary" data-download="macos">Download for macOS <span class="btn-hint">.dmg</span></a>
+            <a href="https://github.com/siddsachar/row-bot/releases/download/v4.2.0/Row-Bot-4.2.0-Windows-x64.exe" class="btn btn--primary" data-download="windows">Download for Windows <span class="btn-hint">.exe</span></a>
+            <a href="https://github.com/siddsachar/row-bot/releases/download/v4.2.0/Row-Bot-4.2.0-macOS-arm64.dmg" class="btn btn--primary" data-download="macos">Download for macOS <span class="btn-hint">.dmg</span></a>
             <a href="#linux-install" class="btn btn--primary" data-download="linux">Install on Linux <span class="btn-hint">curl</span></a>
             <a href="https://github.com/siddsachar/row-bot" class="btn btn--ghost" target="_blank">View on GitHub</a>
         </div>
         <div class="hero-meta">
             <span data-count="30" data-prefix="" data-suffix="+ built-in tools">0 built-in tools</span>
             <span data-count="17" data-prefix="" data-suffix=" bundled skills">0 bundled skills</span>
-            <span>Atlas Cloud + Claude Subscription</span>
+            <span>Profiles + Goals + Multi-Agent</span>
             <span>Apache 2.0 &middot; Free</span>
         </div>
 
@@ -1194,6 +1192,21 @@
 
             <div class="feature-row">
                 <div class="feature-item">
+                    <span class="feature-icon">&#x25C6;</span>
+                    <h3>Agent Profiles &amp; Goal Mode</h3>
+                    <p>Give each thread a durable role with profile instructions, handoff contracts, usage guidance, tool and skill policy, workspace policy, approval policy, and enabled state. Goal Mode keeps the objective, progress, evidence, blockers, next step, and completion status beside the work.</p>
+                    <span class="feature-tag">Durable intent</span>
+                </div>
+                <div class="feature-item">
+                    <span class="feature-icon">&#x29D6;</span>
+                    <h3>Multi-Agent Orchestration</h3>
+                    <p>Delegate focused child-agent runs with profile snapshots, parent thread linkage, live status, event logs, wait and stop controls, and promotion paths into reusable profiles or reviewable workflows. Tool allowlists, write locks, queues, and approvals keep parallel work coordinated.</p>
+                    <span class="feature-tag">Coordinated runs</span>
+                </div>
+            </div>
+
+            <div class="feature-row">
+                <div class="feature-item">
                     <span class="feature-icon">&#x25C9;</span>
                     <h3>Personal Knowledge Graph</h3>
                     <p>Memories become connected entities and typed relationships, with bounded semantic, lexical, and graph-expanded recall, audit metadata, review states, trace output, document extraction, and Obsidian-compatible wiki export.</p>
@@ -1202,7 +1215,7 @@
                 <div class="feature-item">
                     <span class="feature-icon">&#x263E;</span>
                     <h3>Controlled Self-Evolution</h3>
-                    <p>Structured self-reflection now produces bounded improvement proposals with reviewable execution boundaries, persistence, Dream Cycle integration, memory-policy hooks, and Command Center visibility.</p>
+                    <p>Structured self-reflection produces bounded improvement proposals with reviewable execution boundaries, persistence, Dream Cycle integration, memory-policy hooks, and Command Center visibility.</p>
                     <span class="feature-tag">Reviewable proposals</span>
                 </div>
             </div>
@@ -1217,8 +1230,8 @@
                 <div class="feature-item">
                     <span class="feature-icon">&#x26BF;</span>
                     <h3>Provider Runtime &amp; Model Discovery</h3>
-                    <p>OpenAI, Anthropic, Google AI, xAI, OpenRouter, Atlas Cloud, MiniMax live discovery, OpenCode providers, custom endpoints, Ollama, Ollama Cloud, configurable embeddings, ChatGPT / Codex, and Claude Subscription all flow through provider-qualified catalogs, capability mapping, readiness routing, context policies, and chat-only fallbacks.</p>
-                    <span class="feature-tag">Atlas + live catalogs</span>
+                    <p>OpenAI, Anthropic, Google AI, xAI API keys, xAI Grok OAuth, OpenRouter, Atlas Cloud, MiniMax live discovery, OpenCode providers, custom endpoints, Ollama, Ollama Cloud, configurable embeddings, ChatGPT / Codex, and Claude Subscription all flow through provider-qualified catalogs, capability mapping, readiness routing, token health checks, context policies, and chat-only fallbacks.</p>
+                    <span class="feature-tag">Provider-ready</span>
                 </div>
             </div>
 
@@ -1239,7 +1252,7 @@
 
             <div class="feature-row">
                 <div class="feature-item">
-                    <span class="feature-icon">&#x25C6;</span>
+                    <span class="feature-icon">&#x2726;</span>
                     <h3>Designer Studio</h3>
                     <p>Create decks, documents, landing pages, app mockups, and storyboards with live preview, surgical AI edits, media generation, chart insertion, export, and shareable interactive links.</p>
                     <span class="feature-tag">Five modes</span>
@@ -1255,14 +1268,14 @@
             <div class="feature-row">
                 <div class="feature-item">
                     <span class="feature-icon">&#x2B22;</span>
-                    <h3>Skills Hub, MCP &amp; Delegation</h3>
-                    <p>Install and pin Smart Skills from Skills Hub, use slash commands, activate channel skills more reliably, connect external MCP servers, promote tested Custom Tools, and coordinate Claude Code CLI through an approval-gated skill.</p>
+                    <h3>Skills Hub, MCP &amp; Extensions</h3>
+                    <p>Install and pin Smart Skills from Skills Hub, use slash commands, activate channel skills more reliably, connect external MCP servers, load plugins, promote tested Custom Tools, and coordinate Claude Code CLI through an approval-gated skill. Profile policies can narrow the active surface when a run needs less power.</p>
                     <span class="feature-tag">Pinned skills</span>
                 </div>
                 <div class="feature-item">
                     <span class="feature-icon">&#x2B21;</span>
                     <h3>Channels, Voice &amp; Media</h3>
-                    <p>Telegram, WhatsApp, Discord, Slack, and SMS share streaming, media intake, reactions, approvals, health checks, local speech-to-text, realtime voice options, Kokoro TTS, and Buddy state updates.</p>
+                    <p>Telegram, WhatsApp, Discord, Slack, and SMS share streaming, media intake, reactions, approvals, health checks, local speech-to-text, realtime voice options, Kokoro TTS, Buddy state updates, and the agent or goal context needed for channel-driven work.</p>
                     <span class="feature-tag">5 channels</span>
                 </div>
             </div>
@@ -1271,13 +1284,13 @@
                 <div class="feature-item">
                     <span class="feature-icon">&#x25A1;</span>
                     <h3>Image &amp; Video Generation</h3>
-                    <p>Generate or edit images through OpenAI, Google, and xAI, then create video clips through Google Veo or xAI Grok Imagine Video from the same provider-aware model catalog.</p>
+                    <p>Generate or edit images through OpenAI, Google, xAI API-key models, or xAI Grok OAuth, then create video clips through Google Veo or Grok Imagine Video. Curated Grok Imagine image, quality, video, and image-to-video options stay scoped to compatible media surfaces.</p>
                     <span class="feature-tag">Provider media</span>
                 </div>
                 <div class="feature-item">
                     <span class="feature-icon">&#x2605;</span>
                     <h3>Status, Diagnostics &amp; Buddy</h3>
-                    <p>Provider settings, setup guidance, insight status, Row-Bot Status, Home performance, and the macOS tray path now report readiness and runtime issues more clearly while Buddy and heavier app panels stay lighter during long sessions.</p>
+                    <p>Provider settings, setup guidance, OAuth status, session-only secret fallback, Row-Bot Status, Home performance, and the macOS tray path report readiness and runtime issues more clearly while Buddy and heavier app panels stay lighter during long sessions.</p>
                     <span class="feature-tag">More reliable</span>
                 </div>
             </div>
@@ -1317,13 +1330,13 @@
                     <h2>Explore the architecture behind <em>local-first control.</em></h2>
                     <p>
                         The visual architecture gallery shows how Row-Bot connects its agent orchestrator,
-                        provider runtime, context assembly, memory graph, Developer Studio, Docker Sandbox, Skills Hub, Custom Tools,
+                        Agent Profiles, Goal Mode, child-agent runs, provider runtime, context assembly, memory graph, Developer Studio, Docker Sandbox, Skills Hub, Custom Tools,
                         background workflows, channels, Designer Studio, diagnostics, safety boundaries, and self-evolution layer without giving up user control.
                     </p>
                     <div class="architecture-points">
                         <div class="architecture-point">10 subsystem diagrams</div>
                         <div class="architecture-point">Local-first data boundaries</div>
-                        <div class="architecture-point">Tool, provider, and repo routing</div>
+                        <div class="architecture-point">Agent, provider, and repo routing</div>
                         <div class="architecture-point">Safety, sandbox, and approval flows</div>
                     </div>
                     <a href="architecture.html" class="btn btn--primary">View architecture</a>
@@ -1367,7 +1380,7 @@
         <div class="container">
             <div class="two-paths-header">
                 <h2 class="section-heading">Local, self-hosted, or hosted. One catalog.</h2>
-                <p class="section-sub">Ollama, custom OpenAI-compatible runtimes, hosted APIs, Atlas Cloud, Ollama Cloud, OpenCode, MiniMax, ChatGPT / Codex, and Claude Subscription stay provider-qualified from setup to runtime</p>
+                <p class="section-sub">Ollama, custom OpenAI-compatible runtimes, hosted APIs, xAI API keys, xAI Grok OAuth, Atlas Cloud, Ollama Cloud, OpenCode, MiniMax, ChatGPT / Codex, and Claude Subscription stay provider-qualified from setup to runtime</p>
             </div>
 
             <div class="paths-grid">
@@ -1384,11 +1397,11 @@
                 <div class="path-block">
                     <div class="path-label">Hosted providers and subscriptions, opt in</div>
                     <h3>Frontier reasoning on demand</h3>
-                    <p>Add OpenAI, Anthropic, Google AI, xAI, OpenRouter, Atlas Cloud, MiniMax, OpenCode Zen or Go, Ollama Cloud, ChatGPT / Codex, or Claude Subscription when you need frontier reasoning, hosted media, realtime voice, or no local model download.</p>
+                    <p>Add OpenAI, Anthropic, Google AI, xAI API-key access, xAI Grok OAuth, OpenRouter, Atlas Cloud, MiniMax, OpenCode Zen or Go, Ollama Cloud, ChatGPT / Codex, or Claude Subscription when you need frontier reasoning, hosted media, realtime voice, or no local model download.</p>
                     <ul class="path-list">
                         <li>Settings > Providers handles sign-in, health, and credential sources</li>
                         <li>Settings > Models handles catalogs, defaults, Quick Choices, and capability surfaces</li>
-                        <li>Live discovery and stale cleanup keep provider catalogs current where APIs expose them</li>
+                        <li>Live discovery, OAuth health, and stale cleanup keep provider catalogs current where APIs expose them</li>
                         <li>Readiness checks route models to agent mode, chat only mode, or setup guidance</li>
                     </ul>
                 </div>
@@ -1405,11 +1418,11 @@
                     <h2>Tools that turn inboxes into action</h2>
                     <p>
                         Ask a question in natural language and Row-Bot decides which tools to chain together.
-                        Search the web, read your inbox, draft follow-ups, run a shell command, inspect provider and insight status, build a deck in Designer, and chart the results in a single conversation turn.
+                        Search the web, read your inbox, draft follow-ups, run a shell command, inspect provider and insight status, build a deck in Designer, delegate a focused child agent, and chart the results in a single conversation turn.
                     </p>
                     <p>
                         Connected channels add send tools automatically, external MCP servers add dynamic tools,
-                        and every risky action stays behind Row-Bot's approval gates.
+                        Agent Profiles narrow the available surface when needed, and every risky action stays behind Row-Bot's approval gates.
                     </p>
                 </div>
                 <div class="highlight-visual">
@@ -1474,10 +1487,12 @@
             </div>
 
             <div class="tool-group">
-                <div class="tool-group-label">Design, Developer &amp; External Tools <span class="tool-count">&times; 7</span></div>
+                <div class="tool-group-label">Design, Developer &amp; External Tools <span class="tool-count">&times; 9</span></div>
                 <div class="tool-chips">
                     <div class="tool-chip">Designer <span class="chip-badge">Free</span></div>
                     <div class="tool-chip">Developer Studio <span class="chip-badge">Free</span></div>
+                    <div class="tool-chip">Agent Delegation <span class="chip-badge">Free</span></div>
+                    <div class="tool-chip">Goal Mode <span class="chip-badge">Free</span></div>
                     <div class="tool-chip">Custom Tool Builder <span class="chip-badge">Free</span></div>
                     <div class="tool-chip">Row-Bot Status <span class="chip-badge">Free</span></div>
                     <div class="tool-chip">MCP Tools <span class="chip-badge">Free</span></div>
@@ -1496,12 +1511,12 @@
                 <div class="highlight-text">
                     <h2>Background workflows with visible control</h2>
                     <p>
-                        Connect repositories, configure Atlas Cloud or other provider accounts, probe custom endpoints, pin model Quick Choices, install skills, build presentations and interactive pages,
+                        Connect repositories, set Agent Profiles, track goals, delegate child agents, configure xAI Grok OAuth, Atlas Cloud, or other provider accounts, probe custom endpoints, pin model Quick Choices, install skills, build presentations and interactive pages,
                         automate recurring work, route approvals to messaging channels, and connect MCP servers without making startup fragile.
                     </p>
                     <p>
                         Developer Studio keeps repo work under explicit approval modes, Skills Hub imports stay reviewable, Custom Tools stay testable and removable,
-                        ChatGPT / Codex and Claude Subscription sign-ins stay separate from API keys, and provider diagnostics surface readiness problems before they derail work.
+                        xAI Grok OAuth, ChatGPT / Codex, and Claude Subscription sign-ins stay separate from API keys, and provider diagnostics surface readiness problems before they derail work.
                     </p>
                 </div>
                 <div class="highlight-visual">
@@ -1542,7 +1557,7 @@
                     <tr>
                         <td>Cost</td>
                         <td><s>$20+/month subscription</s></td>
-                        <td>Free with local runtimes. Hosted providers use upstream API billing, self-hosted infrastructure, or your ChatGPT / Codex or Claude Subscription access</td>
+                        <td>Free with local runtimes. Hosted providers use upstream API billing, self-hosted infrastructure, or your xAI Grok OAuth, ChatGPT / Codex, or Claude Subscription access</td>
                     </tr>
                     <tr>
                         <td>Memory</td>
@@ -1552,12 +1567,12 @@
                     <tr>
                         <td>Tools</td>
                         <td><s>Sandboxed plugins, limited integrations</s></td>
-                        <td>30+ built-in tools + Skills Hub + channels + plugins + MCP tools + opt-in Custom Tools</td>
+                        <td>30+ built-in tools + Agent Profiles + Goal Mode + Skills Hub + channels + plugins + MCP tools + opt-in Custom Tools</td>
                     </tr>
                     <tr>
                         <td>Customisation</td>
                         <td><s>Pick a model, write a system prompt</s></td>
-                        <td>Swap models per thread, mix local + providers, configure identity, enable skills and guides, build workflows, connect repos, install plugins and skills</td>
+                        <td>Swap models per thread, mix local + providers, configure identity, choose Agent Profiles, set goals, delegate child agents, build workflows, connect repos, install plugins and skills</td>
                     </tr>
                     <tr>
                         <td>Voice</td>
@@ -1594,12 +1609,12 @@
                 <div class="install-step">
                     <div class="install-step-num">&#x2194; 02</div>
                     <h3>Choose your provider</h3>
-                    <p>First-launch onboarding starts with model/provider setup: use <strong>local runtimes</strong>, <strong>Atlas Cloud</strong>, <strong>Ollama Cloud</strong>, API-key providers, custom OpenAI-compatible endpoints, or ChatGPT / Codex and Claude Subscription sign-in, then continue setup from the resumable Setup Center.</p>
+                    <p>First-launch onboarding starts with model/provider setup: use <strong>local runtimes</strong>, <strong>xAI Grok OAuth</strong>, <strong>Atlas Cloud</strong>, <strong>Ollama Cloud</strong>, API-key providers, custom OpenAI-compatible endpoints, or ChatGPT / Codex and Claude Subscription sign-in, then continue setup from the resumable Setup Center.</p>
                 </div>
                 <div class="install-step">
                     <div class="install-step-num">&#x25B6; 03</div>
                     <h3>Start talking</h3>
-                    <p>Ask anything in natural language. The agent handles the rest. Search the web, check email, analyze your screen, connect a repo, create a Custom Tool, or schedule a workflow.</p>
+                    <p>Ask anything in natural language. Choose a profile, set a goal, delegate focused work, search the web, check email, analyze your screen, connect a repo, create a Custom Tool, or schedule a workflow.</p>
                 </div>
             </div>
 
@@ -1607,11 +1622,11 @@
                 <div class="linux-install-head">
                     <div>
                         <span class="linux-install-label">Linux install</span>
-                        <p>Installs the published v4.1.0 XDG user tarball, creates <code>~/.local/bin/row-bot</code>, and verifies the matching Row-Bot release manifest. Manual tarballs remain available from <a href="https://github.com/siddsachar/row-bot/releases/tag/v4.1.0" target="_blank">GitHub Releases</a>.</p>
+                        <p>Installs the published v4.2.0 XDG user tarball, creates <code>~/.local/bin/row-bot</code>, and verifies the matching Row-Bot release manifest. Manual tarballs remain available from <a href="https://github.com/siddsachar/row-bot/releases/tag/v4.2.0" target="_blank">GitHub Releases</a>.</p>
                     </div>
                     <button class="copy-command" type="button" data-copy-linux>Copy</button>
                 </div>
-                <code class="linux-command">curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/v4.1.0/installer/install-linux.sh | bash -s -- 4.1.0</code>
+                <code class="linux-command">curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/v4.2.0/installer/install-linux.sh | bash -s -- 4.2.0</code>
             </div>
         </div>
     </section>
@@ -1623,8 +1638,8 @@
             <h2>Privacy by architecture</h2>
             <p>
                 Row-Bot has no account system, server, or telemetry pipeline. Conversations, memory,
-                Designer projects, documents, code workspace context, and local model runs stay on your machine. Provider models,
-                cloud embeddings, ChatGPT / Codex, Claude Subscription, and online tools are opt-in, with secrets stored in the OS credential store when available.
+                Agent Profiles, goals, child-agent run records, Designer projects, documents, code workspace context, and local model runs stay on your machine. Provider models,
+                cloud embeddings, xAI Grok OAuth, ChatGPT / Codex, Claude Subscription, and online tools are opt-in, with secrets stored in the OS credential store when available and never written to local metadata files as plain secrets.
             </p>
             <div class="privacy-facts">
                 <span class="privacy-fact">&#x25C8; Local data first</span>
@@ -1642,10 +1657,10 @@
     <section class="cta reveal">
         <div class="container--narrow">
             <h2>Take back your <em>AI sovereignty</em></h2>
-            <p>Free, open source, and yours to keep. No Row-Bot account. No Row-Bot subscription. No data harvesting.</p>
+            <p>Free, open source, and yours to keep. Direct agents with profiles, goals, approvals, and local records instead of surrendering the work to a black box.</p>
             <div class="cta-buttons">
-                <a href="https://github.com/siddsachar/row-bot/releases/download/v4.1.0/Row-Bot-4.1.0-Windows-x64.exe" class="btn btn--primary" data-download="windows">Download for Windows <span class="btn-hint">.exe</span></a>
-                <a href="https://github.com/siddsachar/row-bot/releases/download/v4.1.0/Row-Bot-4.1.0-macOS-arm64.dmg" class="btn btn--primary" data-download="macos">Download for macOS <span class="btn-hint">.dmg</span></a>
+                <a href="https://github.com/siddsachar/row-bot/releases/download/v4.2.0/Row-Bot-4.2.0-Windows-x64.exe" class="btn btn--primary" data-download="windows">Download for Windows <span class="btn-hint">.exe</span></a>
+                <a href="https://github.com/siddsachar/row-bot/releases/download/v4.2.0/Row-Bot-4.2.0-macOS-arm64.dmg" class="btn btn--primary" data-download="macos">Download for macOS <span class="btn-hint">.dmg</span></a>
                 <a href="#linux-install" class="btn btn--primary" data-download="linux">Install on Linux <span class="btn-hint">curl</span></a>
                 <a href="https://github.com/siddsachar/row-bot" class="btn btn--ghost" target="_blank">Star on GitHub</a>
             </div>
@@ -1663,7 +1678,7 @@
 
     <footer>
         <p>
-            Row-Bot &middot; v4.1.0 &middot; Apache 2.0 &middot;
+            Row-Bot &middot; v4.2.0 &middot; Apache 2.0 &middot;
             <a href="https://github.com/siddsachar/row-bot" target="_blank">GitHub</a> &middot;
             <a href="contact.html">Contact</a>
         </p>
@@ -1721,7 +1736,7 @@
             });
         });
 
-        const linuxInstallCommand = 'curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/v4.1.0/installer/install-linux.sh | bash -s -- 4.1.0';
+        const linuxInstallCommand = 'curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/v4.2.0/installer/install-linux.sh | bash -s -- 4.2.0';
         document.querySelectorAll('[data-copy-linux]').forEach(button => {
             button.addEventListener('click', async () => {
                 const previous = button.textContent;
