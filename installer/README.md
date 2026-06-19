@@ -20,7 +20,7 @@ manifest, and then runs the tarball's bundled `install.sh`. For a pinned
 version, pass it as an argument:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash -s -- 4.1.0
+curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash -s -- 4.2.0
 ```
 
 The bootstrapper installs published GitHub Release assets. It is not a way to
@@ -33,23 +33,23 @@ tarball instead of a native app bundle:
 
 ```bash
 ./installer/build_linux_app.sh
-./installer/build_linux_app.sh 4.1.0
+./installer/build_linux_app.sh 4.2.0
 ```
 
 From a source checkout, this root-level wrapper is also supported for support
 snippets and maintainer hotfixes:
 
 ```bash
-bash build_linux_app.sh 4.1.0
+bash build_linux_app.sh 4.2.0
 ```
 
 To test an unreleased Linux fix locally, build the tarball from the checkout and
 install the tarball it produced:
 
 ```bash
-bash installer/build_linux_app.sh 4.1.0
-tar -xzf dist/Row-Bot-4.1.0-Linux-*.tar.gz
-cd Row-Bot-4.1.0-Linux-*
+bash installer/build_linux_app.sh 4.2.0
+tar -xzf dist/Row-Bot-4.2.0-Linux-*.tar.gz
+cd Row-Bot-4.2.0-Linux-*
 ./install.sh
 ~/.local/bin/row-bot
 ```
@@ -108,7 +108,7 @@ The installer bundles the embedded Python runtime, pre-installed Python packages
 | Bundled in .exe | Downloaded or created outside install |
 |----------------|--------------------------------------|
 | Python 3.13 embeddable runtime | Ollama installer is optional for local models |
-| App source code, tools, providers, plugins, MCP client, migration wizard, UI, Designer, Developer Studio, bundled skills/tool guides, static assets, and sounds | Kokoro TTS model + voices auto-download on first TTS use |
+| App source code, Agent Profiles, Goal Mode, child-agent runner, tools, providers, plugins, MCP client, migration wizard, UI, Designer, Developer Studio, bundled skills/tool guides, static assets, and sounds | Kokoro TTS model + voices auto-download on first TTS use |
 | Python packages from `requirements.txt` | Playwright Chromium is bundled during build when available, otherwise installed on first browser use |
 
 ## Prerequisites
@@ -132,7 +132,7 @@ The installer bundles the embedded Python runtime, pre-installed Python packages
 This will:
 1. Download Python 3.13 embeddable package (~15 MB)
 2. Download `get-pip.py` (~2.5 MB)
-3. Compile everything into `dist\Row-Bot-4.1.0-Windows-x64.exe`
+3. Compile everything into `dist\Row-Bot-4.2.0-Windows-x64.exe`
 
 ### Options
 
@@ -276,7 +276,7 @@ On repair/upgrade, Inno Setup deletes `{app}\python` before extraction. User dat
 
 ## End-User Experience
 
-1. Run `Row-Bot-4.1.0-Windows-x64.exe`
+1. Run `Row-Bot-4.2.0-Windows-x64.exe`
 2. Follow the wizard â€” the app payload is already bundled; optional model/runtime assets download only when a feature needs them
 3. Launch Row-Bot from Start Menu or Desktop shortcut
 4. The system tray icon appears; the app opens on the first available local port, normally `http://localhost:8080`
@@ -285,9 +285,10 @@ On repair/upgrade, Inno Setup deletes `{app}\python` before extraction. User dat
 ## Notes
 
 - **CPU-only PyTorch**: `requirements.txt` uses CPU-only torch. Users with NVIDIA GPUs can upgrade to CUDA torch after install.
-- **Ollama is optional**: Row-Bot works with API-key provider models (OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, Atlas Cloud, and Ollama Cloud), ChatGPT / Codex subscription models after in-app ChatGPT sign-in, and Claude Subscription models after Row-Bot-owned Claude OAuth or setup-token import. Installed local Ollama chat models appear in Settings -> Models even when their family is newer than Row-Bot's curated capability lists; Vision stays conservative and requires known Vision metadata/families.
+- **Ollama is optional**: Row-Bot works with API-key provider models (OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, Atlas Cloud, and Ollama Cloud), ChatGPT / Codex subscription models after in-app ChatGPT sign-in, xAI Grok OAuth after in-app Grok sign-in, and Claude Subscription models after Row-Bot-owned Claude OAuth or setup-token import. Installed local Ollama chat models appear in Settings -> Models even when their family is newer than Row-Bot's curated capability lists; Vision stays conservative and requires known Vision metadata/families.
+- **Agent orchestration**: the packaged app includes Agent Profiles, Goal Mode, child-agent delegation, profile/tool allowlists, and Agent-run workflow promotion. These records live in Row-Bot's local task database alongside workflow state.
 - **Developer Studio**: the packaged app includes the Developer workspace UI, repo-scoped tools, Git helpers, optional Docker shadow sandbox, and Custom Tool builder. Docker and GitHub CLI are optional external tools; when missing, the UI reports clear setup guidance instead of blocking normal chat.
-- **Model picker behavior**: Settings -> Models pickers show pinned catalog Quick Choices plus the current default. Pin Brain or Vision catalog rows before expecting them in the everyday pickers; ChatGPT / Codex, Claude Subscription, and Atlas Cloud Vision pins keep their provider-specific image-input capability metadata during refresh. Atlas Cloud image-generation and video-generation catalog rows are intentionally not exposed as chat, agent, or Vision models in this phase.
+- **Model picker behavior**: Settings -> Models pickers show pinned catalog Quick Choices plus the current default. Pin Brain or Vision catalog rows before expecting them in the everyday pickers; ChatGPT / Codex, Claude Subscription, xAI Grok OAuth, and Atlas Cloud Vision pins keep their provider-specific image-input capability metadata during refresh. Atlas Cloud image-generation and video-generation catalog rows are intentionally not exposed as chat, agent, or Vision models in this phase, and Grok Imagine rows stay scoped to Image and Video surfaces.
 - **Custom/self-hosted endpoints**: first-run setup can connect to OpenAI-compatible endpoints such as LM Studio, vLLM, LocalAI, or private gateways. LM Studio's local server commonly uses `http://127.0.0.1:1234/v1`; load the selected model with a larger context window, such as `32768`, so Row-Bot's agent prompt and enabled tools fit.
 - **Codex credential boundary**: external Codex CLI auth files are metadata/reference only. Direct ChatGPT / Codex runtime in the packaged app requires the in-app ChatGPT sign-in and stores Row-Bot-owned tokens in the OS credential store.
 - **Optional native package recovery**: built-in TTS uses Kokoro ONNX and does not require TorchCodec. If a user-approved shell command installs a broken optional native package into the embedded Python runtime, startup diagnostics and the launcher log emit recovery hints, and repair/upgrade replaces the embedded runtime.

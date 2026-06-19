@@ -14259,7 +14259,9 @@ try:
     assert "metadata/reference" in _docs_all68m4, "release docs must document external Codex CLI metadata-only behavior"
     assert "subscription/internal Codex backend" in _docs_all68m4, "release docs must document Codex backend risk"
     assert "current conversation plus model-visible tool context and tool results" in _docs_all68m4, "release docs must document provider privacy context"
-    assert "Settings → Models" in _release_docs68m4["readme"], "README must direct catalog/pinning to Models"
+    _readme_models_text68m4 = _release_docs68m4["readme"].replace("Settings ->", "Settings →")
+    assert "Model catalog browsing, pinning" in _release_docs68m4["readme"] and "Settings → Models" in _readme_models_text68m4, \
+        "README must direct catalog/pinning to Models"
     assert "Claude Code Delegation" in _docs_all68m4, "release docs must mention Claude Code Delegation"
     assert "claude_code_delegation" in _docs_all68m4, "release notes must include the Claude Code Delegation skill file"
     assert "Status and insight awareness" in _release_docs68m4["release_notes"], "release notes must cover Row-Bot Status insights alignment"

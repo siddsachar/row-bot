@@ -18,25 +18,31 @@ memory, and tools. Its name is the operating model: **Reason** through messy
 context, **Orchestrate** tools and model providers, and **Work** inside the
 files, repos, workflows, and channels you choose.
 
-It combines chat, durable memory, tool use, workflows, Developer Studio,
-Designer Studio, Smart Skills, Skills Hub, Custom Tools, plugins, messaging
-channels, realtime voice, and provider-aware model routing. Durable app data
-stays local by default.
+It combines chat, durable memory, tool use, Agent Profiles, Goal Mode,
+child-agent delegation, workflows, Developer Studio, Designer Studio, Smart
+Skills, Skills Hub, Custom Tools, plugins, messaging channels, realtime voice,
+and provider-aware model routing. Durable app data stays local by default.
+
+For larger tasks, Row-Bot can keep a visible goal, run the thread through a
+focused Agent Profile, and delegate scoped child agents for research, review,
+implementation, or follow-up work while preserving tool limits, approvals, and
+local run history.
 
 Choose the model path that fits the task: local models through
 [Ollama](https://ollama.com/); provider keys for OpenAI, Anthropic, Google AI,
 xAI, MiniMax, OpenRouter,
 [Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=row_bot),
-and Ollama Cloud; subscription sign-in for ChatGPT / Codex and Claude
-Subscription; or custom OpenAI-compatible endpoints such as oMLX, LM Studio,
-vLLM, llama.cpp, LocalAI, LiteLLM, and SGLang. Row-Bot keeps provider identity,
-capability labels, context limits, and chat-only fallbacks explicit so local,
-hosted, and self-hosted models can sit side by side.
+and Ollama Cloud; subscription or OAuth sign-in for ChatGPT / Codex, Claude
+Subscription, and xAI Grok; or custom OpenAI-compatible endpoints such as oMLX,
+LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, and SGLang. Row-Bot keeps
+provider identity, capability labels, context limits, media surfaces, and
+chat-only fallbacks explicit so local, hosted, subscription, and self-hosted
+models can sit side by side.
 
 Row-Bot itself has no account system, no Row-Bot-hosted inference server, and
 no telemetry pipeline. Provider calls go to the provider or endpoint you choose,
-and provider keys and subscription tokens are stored in the OS credential store
-when available.
+and provider keys, OAuth tokens, and subscription tokens are stored in the OS
+credential store when available.
 
 Download the latest installer from [GitHub Releases](https://github.com/siddsachar/row-bot/releases). Windows and macOS use one-click installers. Linux has a one-line user installer.
 
@@ -55,16 +61,17 @@ Download the latest installer from [GitHub Releases](https://github.com/siddsach
 
 | Area | Details |
 |------|---------|
-| Agent and models | LangGraph ReAct agent, streaming responses, thinking bubbles, smart context trimming, provider-qualified model selection, readiness routing, chat-only fallback for non-tool models, chat/agent/vision capability labels, custom endpoint profiles and probes, live Atlas Cloud and MiniMax discovery, ChatGPT / Codex and Claude Subscription providers, OpenCode providers, local and hosted model catalogs, background model cache, and per-thread, per-workflow, and per-Developer model overrides. |
+| Agent orchestration | LangGraph ReAct agent, Goal Mode, Agent Profiles, Profile Library, child-agent delegation, durable child-agent runs, profile/tool allowlists, agent status and wait tools, promoted Agent-run workflows, streaming activity, thinking bubbles, smart context trimming, and per-thread, per-workflow, per-profile, and per-Developer model overrides. |
+| Models and providers | Provider-qualified model selection, readiness routing, chat-only fallback for non-tool models, chat/agent/vision/image/video capability labels, custom endpoint profiles and probes, live Atlas Cloud and MiniMax discovery, xAI Grok OAuth, ChatGPT / Codex and Claude Subscription providers, OpenCode providers, local and hosted model catalogs, and background model cache. |
 | Memory and knowledge | Personal knowledge graph, 10 entity types, 67 typed relations, bounded semantic/lexical/graph recall, audit and review states, recall traces, graph visualization, Obsidian-compatible wiki export, document extraction with source provenance, Dream Cycle refinement, duplicate merging, stale-confidence decay, relationship inference, self-knowledge, insights, and conversation search. |
-| Tools | 30+ core tool modules for web search, DuckDuckGo, Wikipedia, arXiv, YouTube transcripts, URL reading, documents, wiki vault, Gmail, Google Calendar, filesystem, shell, browser automation, workflows, tracker, channels, X, image generation/editing, video generation, MCP, Developer Studio, Designer Studio, Custom Tool Builder, status, calculator, Wolfram Alpha, weather, vision, memory, system info, and charts. File tools read PDF, CSV, Excel, JSON, JSONL, TSV, and image files, with schema, stats, previews, and PDF export where supported. |
+| Tools | 30+ core tool modules for web search, DuckDuckGo, Wikipedia, arXiv, YouTube transcripts, URL reading, documents, wiki vault, Gmail, Google Calendar, filesystem, shell, browser automation, workflows, Goal Mode, child-agent delegation, tracker, channels, X, image generation/editing, video generation, MCP, Developer Studio, Designer Studio, Custom Tool Builder, status, calculator, Wolfram Alpha, weather, vision, memory, system info, and charts. File tools read PDF, CSV, Excel, JSON, JSONL, TSV, and image files, with schema, stats, previews, and PDF export where supported. |
 | Developer Studio | Local Git workspace linking and cloning, code threads, repo inspector, file tree, diffs, todos, tests, branch, commit, push and PR prep, approval modes, and optional Docker Sandbox with a shadow workspace and explicit import back into the real repo. |
 | Designer Studio | Decks, documents, landing pages, app mockups, and storyboards with a sandboxed interactive runtime, templates, brand controls, critique and repair, AI image and video generation, chart insertion, Mermaid and Plotly rendering, shareable HTML, and export to PDF, HTML, PNG, and PPTX. |
-| Workflows | Scheduled runs, webhook triggers, task-completion triggers, step pipelines, conditions, approvals, subtasks, notification-only runs, concurrency groups, delivery defaults, per-workflow model/tool/skill overrides, safety modes, run status, run history, upcoming runs, and a Workflow Console. |
+| Workflows | Scheduled runs, webhook triggers, task-completion triggers, step pipelines, conditions, approvals, subtasks, notification-only runs, concurrency groups, delivery defaults, promoted Agent-run workflows, per-workflow model/tool/skill/profile overrides, safety modes, run status, run history, upcoming runs, and a Workflow Console. |
 | Controlled self-evolution | Structured self-reflection, bounded change proposals, reviewable execution boundaries, persistence, Dream Cycle and memory integration, and Command Center/status visibility for improvement work that stays explicit and auditable. |
 | Channels and voice | Telegram, WhatsApp, Discord, Slack, and SMS with streaming, reactions, media intake, voice transcription, document extraction, approval routing, health checks, auto-generated send/photo/document tools, and optional tunnel support. Realtime voice adds provider-backed voice sessions, action handling, speech/cue policy, and local faster-whisper STT plus Kokoro TTS options. |
-| Platform and app | Native desktop app, setup wizard, tray integration on Windows and macOS, desktop notifications, local browser-first Linux launch, optional Linux native window/tray mode, faster transcript and Settings surfaces, Home status bar for models, OAuth, MCP, plugins, documents, workflows, Buddy, logging, disk, task DB recovery, and verified auto-updates. |
-| Extensibility | Smart Skills, pinned skills, slash commands, Skills Hub browsing/import/search, sandboxed plugin marketplace, bundled skills and tool guides, external MCP clients over stdio, Streamable HTTP, and SSE, Custom Tools from repos or folders, hardened Custom Tool Builder setup, Claude Code Delegation through an approval-gated CLI worker, migration from selected Hermes/OpenClaw data, setup center, identity settings, and stability diagnostics. |
+| Platform and app | Native desktop app, setup wizard, tray integration on Windows and macOS, desktop notifications, local browser-first Linux launch, optional Linux native window/tray mode, faster transcript and Settings surfaces, Agent drawer, Goal UI, Profile Library, Home status bar for models, OAuth, MCP, plugins, documents, workflows, Buddy, logging, disk, task DB recovery, docs capture hooks, and verified auto-updates. |
+| Extensibility | Smart Skills, pinned skills, slash commands, Skills Hub browsing/import/search, sandboxed plugin marketplace, bundled skills and tool guides, Agent Profiles, child-agent tools, Goal Mode tools, external MCP clients over stdio, Streamable HTTP, and SSE, Custom Tools from repos or folders, hardened Custom Tool Builder setup, Claude Code Delegation through an approval-gated CLI worker, migration from selected Hermes/OpenClaw data, setup center, identity settings, and stability diagnostics. |
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full subsystem reference.
 
@@ -99,7 +106,7 @@ curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/i
 To install a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash -s -- 4.1.0
+curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash -s -- 4.2.0
 ```
 
 The installer downloads the release tarball, verifies its SHA256 from the GitHub release manifest, installs under `~/.local/share/row-bot`, creates `~/.local/bin/row-bot`, and stores user data in `~/.row-bot`. The default Linux build opens in your system browser. Native window and tray support are available when the required GTK, Qt, and AppIndicator libraries are installed.
@@ -130,8 +137,13 @@ On first launch, Row-Bot opens a setup wizard. Pick one of three paths:
 | Mode | Use it when | Setup |
 |------|-------------|-------|
 | Local | You want inference and embeddings on your machine. | Choose a local runtime, download a recommended model such as `qwen3:14b` or a smaller model such as `qwen3:8b`, then start chatting. Ollama is the supported local runtime today. |
-| Providers | You want hosted models, frontier reasoning, or no local model download. | Add an OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, Atlas Cloud, or Ollama Cloud key, refresh live catalogs where available, pick a default model, and save Quick Choices. ChatGPT / Codex and Claude Subscription sign-in are available in Settings after launch. |
+| Providers | You want hosted models, frontier reasoning, media generation, or no local model download. | Add an OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, Atlas Cloud, or Ollama Cloud key, refresh live catalogs where available, pick a default model, and save Quick Choices. ChatGPT / Codex, Claude Subscription, and xAI Grok OAuth sign-in are available in Settings after launch. |
 | Custom/Self-hosted | You run oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, or a private gateway. | Enter an OpenAI-compatible base URL such as `http://127.0.0.1:1234/v1`, choose the closest compatibility profile, add a key if your server requires one, fetch models, and choose a default. |
+
+For routine chats, use Row-Bot normally. For longer work, create a Goal so
+progress and blockers stay visible, choose an Agent Profile for the role you
+want, and delegate child agents when a subtask can run separately under tighter
+tool and approval boundaries.
 
 Common first prompts:
 
@@ -139,6 +151,8 @@ Common first prompts:
 - `Search for recent papers on transformer architectures`
 - `Read report.pdf in my workspace`
 - `Run git status on my project`
+- `Create a goal to update the release docs and track blockers`
+- `Delegate competitor research to a focused child agent and summarize the risks`
 - `Create a six-slide pitch deck for my startup`
 - `Show my headache trends this month`
 - `Remind me to call the dentist tomorrow at 9am`
@@ -153,13 +167,15 @@ For local and self-hosted servers, use a context window large enough for Row-Bot
 Most tools work without API keys. Add keys only for the providers and integrations you use.
 
 Model catalog browsing, pinning, defaults, and Quick Choices live in
-`Settings → Models`. Model choices stay provider-qualified, so the same model
-ID from a local runtime, OpenRouter, Atlas Cloud, a custom endpoint, or a direct
-provider remains distinct. Row-Bot also tracks whether a selected model is ready
-for full agent/tool use, supports vision, should run chat-only, or needs a
-larger context window or different endpoint profile. Live catalogs such as Atlas
-Cloud and MiniMax refresh through the same provider path, and Atlas image/video
-generation rows are filtered out of chat, agent, and vision model surfaces.
+`Settings -> Models`. Model choices stay provider-qualified, so the same model
+ID from a local runtime, OpenRouter, Atlas Cloud, xAI API keys, xAI Grok OAuth,
+a custom endpoint, or a direct provider remains distinct. Row-Bot also tracks
+whether a selected model is ready for full agent/tool use, supports vision,
+belongs on an image or video surface, should run chat-only, or needs a larger
+context window or different endpoint profile. Live catalogs such as Atlas Cloud
+and MiniMax refresh through the same provider path, xAI API-key catalogs merge
+the available xAI model endpoints, and media-generation rows are filtered out of
+chat, agent, and vision model surfaces.
 
 | Service | Key or setup | Used for |
 |---------|--------------|----------|
@@ -168,7 +184,8 @@ generation rows are filtered out of chat, agent, and vision model surfaces.
 | Claude Subscription | In-app Claude OAuth or explicit setup-token import | Subscription-backed Claude models through Row-Bot-owned OAuth. This is separate from Anthropic API. |
 | Anthropic | `ANTHROPIC_API_KEY` | Claude models through the direct API. |
 | Google AI | `GOOGLE_API_KEY` | Gemini models, Imagen, and Veo. |
-| xAI | `XAI_API_KEY` | Grok models, Grok Imagine, and Grok Imagine Video. |
+| xAI | `XAI_API_KEY` | Grok models, Grok Imagine, and Grok Imagine Video through the direct xAI API. |
+| xAI Grok | In-app xAI Grok OAuth | OAuth-backed Grok chat, vision, and Grok Imagine media through the xAI Grok provider. This is separate from `XAI_API_KEY`. |
 | MiniMax | `MINIMAX_API_KEY` | Current MiniMax models through the Anthropic-compatible API, discovered from the live provider catalog where available. |
 | OpenRouter | `OPENROUTER_API_KEY` | Access to 100+ provider models. |
 | [Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=row_bot) | `ATLASCLOUD_API_KEY` | OpenAI-compatible access to Atlas-hosted chat, agent, and vision models, discovered from the live provider catalog. Image and video generation rows are not exposed as chat models. |
@@ -184,12 +201,17 @@ generation rows are filtered out of chat, agent, and vision model surfaces.
 | ngrok | `NGROK_AUTHTOKEN` | Tunnels for inbound webhooks. |
 | Gmail and Google Calendar | Google Cloud OAuth `credentials.json` | Email search/read/draft/send and calendar view/create/update/move/delete. |
 
-Configure providers in Settings, Channels, and Accounts. Keys and in-app ChatGPT / Codex and Claude Subscription OAuth tokens are stored in Windows Credential Manager, macOS Keychain, or Linux Secret Service/KWallet when available. If secure storage is unavailable, newly entered secrets are usable for the current Row-Bot process only and must be re-entered after restart unless a secure keyring backend is configured. `~/.row-bot/api_keys.json` and `~/.row-bot/providers.json` keep metadata only, such as saved state, provider status, Quick Choices, compatibility profiles, probe results, and masked fingerprints.
+Configure providers in Settings, Channels, and Accounts. Keys and in-app ChatGPT / Codex, Claude Subscription, and xAI Grok OAuth tokens are stored in Windows Credential Manager, macOS Keychain, or Linux Secret Service/KWallet when available. If secure storage is unavailable, newly entered secrets are usable for the current Row-Bot process only and must be re-entered after restart unless a secure keyring backend is configured. `~/.row-bot/api_keys.json` and `~/.row-bot/providers.json` keep metadata only, such as saved state, provider status, Quick Choices, compatibility profiles, runtime and vision probe results, OAuth client-id diagnostics, model-count status, and masked fingerprints.
 
 Atlas Cloud uses an OpenAI-compatible API, but Row-Bot treats it as a
 first-class provider with its own setup, auth, catalog refresh, provider
 identity, capability labels, streaming behavior, and chat/agent/vision surface
 filtering.
+
+xAI Grok OAuth is also a first-class provider path. It keeps subscription/OAuth
+Grok runtime state separate from `XAI_API_KEY`, reports token health and runtime
+readiness in Settings, and scopes Grok Imagine image/video models to media
+surfaces instead of chat and agent pickers.
 
 Embedding providers are configured separately from chat models. Local embeddings are available for private document and vector indexing. Optional cloud embeddings show a privacy warning because document text is sent to the selected embedding provider.
 
@@ -201,14 +223,14 @@ After connecting Claude Subscription, Settings -> Providers can run a Claude Sub
 
 ## Tools and Safety
 
-Row-Bot's tools can be enabled or disabled from Settings. Many tools expose multiple operations, Developer Studio adds code-specific tools, Skills Hub can add manual skills, Custom Tools can be promoted after review, and running channels add send/photo/document tools automatically.
+Row-Bot's tools can be enabled or disabled from Settings. Many tools expose multiple operations, Agent Profiles and Goal Mode add orchestration-specific tools, Developer Studio adds code-specific tools, Skills Hub can add manual skills, Custom Tools can be promoted after review, and running channels add send/photo/document tools automatically.
 
 | Group | Included tools |
 |-------|----------------|
 | Search and knowledge | Tavily web search, DuckDuckGo, Wikipedia, arXiv, YouTube transcripts, URL reader, document search, wiki vault, memory graph, and conversation search. |
-| Productivity | Gmail, Google Calendar, filesystem, shell, visible Chromium browser automation, workflows, tracker, channel tools, and X. |
-| Media and design | Designer Studio, image generation/editing through OpenAI, Google, and xAI, video generation through Google Veo and xAI Grok Imagine Video, chart insertion, Mermaid, Plotly, and media persistence. |
-| Developer and extensibility | Developer Studio, Custom Tool Builder, promoted Custom Tools, external MCP tools, plugin tools, Claude Code Delegation, and Row-Bot Status. |
+| Productivity | Gmail, Google Calendar, filesystem, shell, visible Chromium browser automation, workflows, goals, tracker, channel tools, and X. |
+| Media and design | Designer Studio, image generation/editing through OpenAI, Google, xAI API keys, and xAI Grok OAuth, video generation through Google Veo and xAI Grok Imagine Video, chart insertion, Mermaid, Plotly, and media persistence. |
+| Developer and extensibility | Developer Studio, Agent Profiles, child-agent delegation, Goal Mode tools, Custom Tool Builder, promoted Custom Tools, external MCP tools, plugin tools, Claude Code Delegation, and Row-Bot Status. |
 | Analysis | Calculator, Wolfram Alpha, weather, vision for camera/screen/workspace images, system info, and Plotly charts with PNG export. |
 
 Safety controls are built into the tool layer:
@@ -217,9 +239,11 @@ Safety controls are built into the tool layer:
 - Filesystem access is sandboxed to the configured workspace folder, which defaults to `~/Documents/Row-Bot`.
 - Shell commands are classified as safe, moderate, or blocked. High-risk commands such as `shutdown`, `reboot`, and `mkfs` are blocked.
 - Background workflows can have per-task command prefix and email-recipient allowlists.
+- Agent Profiles and child-agent runs can narrow tools through profile/tool allowlists.
 - Browser tabs are isolated per thread and cleaned up when tasks or threads finish.
 - Developer Studio has its own approval modes for edits, commands, Git operations, commits, pushes, and PR prep.
 - Docker Sandbox is opt-in and runs commands in a shadow workspace until you explicitly import changes.
+- Agent Profile saves, child-agent promotion, and Agent-run workflow promotion stay reviewable and approval-gated.
 - Controlled self-evolution produces bounded, reviewable proposals and does not
   silently modify repos or app code.
 - Smart Skills, slash commands, and Skills Hub imports stay user-controlled; installed skills can be enabled, disabled, reviewed, and removed.
@@ -230,11 +254,16 @@ Safety controls are built into the tool layer:
 
 ## Architecture
 
-Row-Bot is organized around reasoning, orchestration, and work: context assembly, memory, workflows, channels, Designer Studio, Developer Studio, plugin/MCP boundaries, and safety controls.
+Row-Bot is organized around reasoning, orchestration, and work: Agent Profiles,
+Goal Mode, context assembly, memory, workflows, channels, Designer Studio,
+Developer Studio, provider runtime, plugin/MCP boundaries, and safety controls.
 
 Explore the visual architecture gallery: [docs/architecture.html](docs/architecture.html)
 
 Read the full architecture reference: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#core-modules)
+
+Review the Docusaurus docs source and local preview instructions:
+[docs-site/README.md](docs-site/README.md)
 
 <table>
    <tr>
@@ -266,6 +295,7 @@ Read the full architecture reference: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.m
 | Local model runtime | Windows 10/11 64-bit, macOS 12+, or glibc Linux x86_64; Python 3.11+; 8 GB RAM for 8B models; about 5 GB disk for the app and one small model; internet for install and model download. | 16 to 32 GB RAM for 14B to 30B models; NVIDIA GPU with 8+ GB VRAM or Apple Silicon for much faster inference; 20+ GB disk for multiple or larger models. |
 | Provider/custom models only | Windows 10/11 64-bit, macOS 12+, or glibc Linux x86_64; Python 3.11+; 4 GB RAM; about 1 GB disk; internet for provider inference. | No GPU required. Use this path if you do not want local model downloads. |
 | Developer Sandbox | Docker Desktop or a compatible Docker/Podman runtime. | Optional. Developer Studio also works with local execution in the selected repo. |
+| Public docs site | Node.js 20+ and npm. | Optional. Used only for local Docusaurus docs preview and generated-docs validation. |
 
 Your default Brain model is set by the setup wizard. If you choose the local path, Row-Bot uses one of the models already exposed by your local runtime; 14B-class models are recommended for stronger agent/tool behavior, while smaller 8B-class models are better for 8 GB machines. Hosted and custom endpoint setups can skip local model downloads entirely.
 
@@ -322,13 +352,21 @@ python launcher.py --restore-data
 
 These commands back up local SQLite files before recreating or restoring known task, memory, and thread databases.
 
+Docs site preview:
+
+```bash
+cd docs-site
+npm ci
+npm run start
+```
+
 ## Privacy
 
-Local model runs stay on your machine. Documents, memories, conversations, knowledge graph data, workflows, logs, and user settings are stored locally under `~/.row-bot` or the platform-specific Row-Bot app data paths used by the installer. Migrated Thoth 3.x data is copied into Row-Bot locations; the original Thoth data is left in place.
+Local model runs stay on your machine. Documents, memories, conversations, knowledge graph data, Agent Profiles, Goal Mode records, child-agent run history, workflows, logs, and user settings are stored locally under `~/.row-bot` or the platform-specific Row-Bot app data paths used by the installer. Migrated Thoth 3.x data is copied into Row-Bot locations; the original Thoth data is left in place.
 
 Provider and custom models are opt-in. When selected, the current conversation, model-visible tool context, and tool results are sent to that endpoint. Memories, documents, files, graph data, and other conversations stay local unless you explicitly include them in the current conversation or expose them through a tool result. Memory recall happens locally before any selected memory is inserted into the active turn.
 
-Developer Studio only touches repos you link or clone. Local execution runs in that repo. Docker Sandbox runs in a shadow copy and requires explicit import before changing the real repo. Skills Hub imports and Custom Tools are opt-in, testable or reviewable, removable, and only affect normal chat after you enable or promote them.
+Developer Studio only touches repos you link or clone. Local execution runs in that repo. Docker Sandbox runs in a shadow copy and requires explicit import before changing the real repo. Skills Hub imports, Custom Tools, Agent Profiles, child-agent promotion, and promoted Agent workflows are opt-in, testable or reviewable, removable where applicable, and only affect normal chat or workflows after you enable, select, or promote them.
 
 Row-Bot does not require a Row-Bot account, and there is no Row-Bot-hosted middleman for provider calls.
 
@@ -336,6 +374,7 @@ Row-Bot does not require a Row-Bot account, and there is no Row-Bot-hosted middl
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Visual architecture gallery](docs/architecture.html)
+- [Public docs site source](docs-site/README.md)
 - [Contributing guide](CONTRIBUTING.md)
 - [Branching strategy](docs/BRANCHING.md)
 - [Release process](docs/RELEASING.md)

@@ -2,6 +2,258 @@
 
 ---
 
+## v4.2.0 - Agent Profiles, Goal Mode, xAI Grok & Public Docs
+
+This release builds on v4.1.0 with a larger orchestration and provider pass. It
+introduces durable Agent Profiles, Goal Mode, child-agent delegation, first-class
+xAI Grok OAuth support, Grok Imagine media generation, a new public docs site,
+real UI documentation capture, and several provider/settings hardening fixes
+that make model selection, OAuth status, and headless secret handling more
+predictable.
+
+### Agent Profiles, Goal Mode & Delegation
+
+- **Agent Profiles runtime** - adds durable Agent Profiles with profile
+  instructions, handoff contracts, usage guidance, tool policy, skill policy,
+  context policy, workspace policy, approval policy, and enabled/disabled
+  state.
+- **Thread profile injection** - carries the active profile into normal agent
+  runs and chat-only turns, including a structured profile prompt, policy
+  summary, and warning path when a selected profile is missing or disabled.
+- **Built-in profile library** - adds and refreshes built-in profiles for
+  focused roles, including profile metadata, when-to-use guidance, tool
+  constraints, and runtime snapshots used by child agents.
+- **Profile commands and UI** - adds profile command handling, a Profile
+  Library, profile picker, profile summaries, and profile-selection surfaces so
+  users can choose or inspect an agent role without editing config files.
+- **Goal Mode v1** - introduces durable per-thread goals with objective,
+  status, progress, evidence, blockers, next step, turn count, active run id,
+  and formatted status output.
+- **Goal tool integration** - adds `goal_update` and `goal_status` tools so
+  agents can report real progress, blockers, evidence, and completion state
+  through the same durable Goal Mode record shown in the UI.
+- **Child Agent runs** - adds durable child-agent runs with queued/running/
+  terminal states, parent thread linkage, profile snapshots, context summaries,
+  status messages, event logs, stop requests, and wait handling.
+- **Agent delegation tools** - adds `delegate_work`, `agent_status`,
+  `agent_wait`, `agent_stop`, `agent_profiles`, `agent_profile_save`,
+  `agent_message`, and `agent_promote` for controlled multi-agent workflows.
+- **Agent promotion paths** - lets completed child runs be promoted into a new
+  Agent Profile or into a disabled manual workflow that can be reviewed before
+  reuse.
+- **Tool allowlists** - carries profile/tool allowlists into agent graph
+  construction, plugin tools, and MCP tool injection so delegated work can be
+  narrower than the parent thread's full tool surface.
+- **Write-lock and queue safeguards** - adds active-run queue handling,
+  single-writer protections, and approval coverage so child agents do not
+  silently collide with parent work.
+- **Activity and Goal UI** - adds Goal UI, Agent drawer, channel monitor
+  surfaces, Command Center grouping, live profile/run status, and streaming
+  updates for long-running delegated work.
+- **Channel goal runtime** - extends channel command/runtime paths across
+  Discord, Slack, SMS, Telegram, and WhatsApp so channel-driven work can carry
+  goal and agent context consistently.
+
+### xAI Grok OAuth Provider
+
+- **xAI Grok first-class provider** - adds `xai_oauth` as a first-class,
+  provider-qualified runtime for xAI Grok subscription access, separate from
+  the existing xAI API-key provider.
+- **OAuth PKCE support** - adds OAuth flow helpers, token storage, refresh
+  handling, client-id status reporting, account/user/email hash metadata, and
+  token health checks for the xAI Grok runtime.
+- **xAI Responses transport** - adds a dedicated xAI OAuth Responses transport
+  for chat/model runtime creation, prompt conversion, streaming behavior, and
+  response normalization.
+- **Model catalog integration** - wires xAI Grok into cloud model refresh,
+  provider-qualified model refs, context-window lookup, model availability
+  checks, cache entries, and status-only catalog reads.
+- **Vision capability probing** - adds xAI OAuth vision probe support so
+  vision-capable Grok models can be confirmed and reported instead of relying
+  only on static assumptions.
+- **Provider readiness and status** - adds runtime availability checks,
+  provider status details, token-health timing, last runtime probe, last vision
+  probe, model-count status, and OAuth client-id diagnostics.
+- **Model picker integration** - adds xAI Grok provider labels, picker icons,
+  inactive reasons, canonical provider refs, surface filtering, and short-lived
+  provider-status caching for faster settings and picker rendering.
+- **Setup and settings integration** - adds xAI Grok provider cards, connect
+  state, setup-wizard copy, model settings rows, default handling, and
+  provider-specific hardening in Settings.
+- **Default/model-settings hardening** - fixes edge cases where xAI OAuth
+  defaults, inactive provider state, or unsupported surfaces could leave model
+  settings in a misleading state.
+
+### Grok Imagine Media Generation
+
+- **xAI OAuth media runtime** - adds Grok Imagine image and video generation
+  through the OAuth-backed xAI Grok provider, including availability checks that
+  use OAuth runtime status rather than API-key presence.
+- **Curated Grok Imagine models** - adds `grok-imagine-image`,
+  `grok-imagine-image-quality`, and `grok-imagine-video` options for xAI and
+  xAI Grok media surfaces.
+- **xAI media provider module** - adds a dedicated xAI media implementation for
+  image, video, and image-to-video request construction and response handling.
+- **Media picker filtering** - updates image and video model option builders so
+  provider-qualified cache rows and OAuth-backed models appear only on
+  compatible media surfaces.
+- **Image/video tool integration** - updates image generation, video
+  generation, and Row-Bot Status media reporting so xAI Grok media models are
+  discoverable and diagnosable.
+- **xAI API-key catalog improvements** - merges `/models` and
+  `/language-models`, hides unusable rows, preserves curated chat extras, and
+  exposes Grok Imagine media rows without leaking them into chat surfaces.
+- **Image-to-video request fix** - fixes the xAI image-to-video request body so
+  media generation requests match the provider's expected payload shape.
+
+### Provider Secrets, Settings & Model Picker Reliability
+
+- **Session-only secret fallback** - hardens provider secret handling when the
+  OS keyring is unavailable, especially on WSL/headless Linux, by allowing
+  newly entered secrets to work for the current process while keeping local
+  metadata files secret-free.
+- **Headless Linux guidance** - updates README and architecture docs to explain
+  that persistent provider secrets need Secret Service, KWallet, or another
+  secure Python keyring backend.
+- **Custom endpoint auth errors** - improves custom OpenAI-compatible endpoint
+  behavior when auth is required but no secret is available, returning a
+  provider-specific message instead of silently falling through.
+- **Provider settings feedback** - updates provider settings and setup wizard
+  copy so unavailable keyring state, missing secrets, OAuth state, and provider
+  readiness are surfaced more clearly.
+- **Read-only picker path** - changes Quick Choice listing to avoid mutating
+  provider config during ordinary picker reads, reducing settings churn and
+  surprising writes.
+- **Surface-aware inactive reasons** - annotates Quick Choices with clearer
+  inactive reasons when a model is configured but unsupported on the requested
+  chat, agent, vision, image, or video surface.
+- **Provider status cache** - adds a short-lived picker cache for provider
+  status checks so settings/model surfaces do not repeatedly refresh token
+  health during one render pass.
+
+### Public Docs, Website & Automation
+
+- **4.1.0 landing page refresh** - updates the public landing page for the
+  published v4.1.0 artifacts, refreshed provider positioning, social preview
+  image, Linux install command, accessibility for video facades, and updated
+  product demos.
+- **Public docs site scaffold** - adds a Docusaurus-based docs site under
+  `docs-site` with docs navigation, generated reference pages, custom styling,
+  static architecture/contact pages, brand assets, favicon, CNAME, and package
+  lockfile.
+- **Docs content metadata** - adds structured metadata under `docs-content` for
+  settings tabs, home tabs, dialogs, docs routes, UI surfaces, real UI
+  surfaces, screenshots, how-to guides, and review status.
+- **Real UI screenshots** - adds real app screenshot assets for app shell,
+  chat, setup, home tabs, and settings tabs so docs show actual Row-Bot
+  surfaces instead of placeholder illustrations.
+- **Docs generation pipeline** - adds scripts for inventory collection, MDX
+  generation, real UI docs generation, screenshot capture, demo data seeding,
+  review report creation, `llms.txt` generation, schema helpers, and public
+  docs validation.
+- **Docs capture hooks** - adds app-side docs capture support so documentation
+  scripts can drive and snapshot stable UI states.
+- **Search and navigation** - adds Pagefind search integration, search page,
+  generated reference index pages, settings docs, home docs, chat docs,
+  integration docs, troubleshooting docs, and skill/plugin/MCP docs.
+- **Docs CI workflow** - adds a GitHub Actions docs workflow and automated
+  validation tests so generated docs, metadata, and screenshot references can
+  be checked before publishing.
+
+### UI, Status & Runtime Polish
+
+- **Agent-aware Row-Bot Status** - expands Row-Bot Status output to include
+  agent/profile/run and media-provider reporting used by diagnostics and
+  delegated work.
+- **Streaming and render updates** - updates streaming, render, transcript,
+  tool-trace, and chat component paths so profile context, child-agent
+  activity, tool traces, and long-running status updates remain visible.
+- **Command Center polish** - reorganizes activity and goal status grouping so
+  active goals, child agents, and related runtime events are easier to scan.
+- **Home and setup capture stability** - adjusts Home, onboarding center, setup
+  wizard, and settings surfaces used by both users and the real UI docs capture
+  pipeline.
+- **Tunnel and channel coverage** - updates tunnel behavior and channel runtime
+  tests to cover the new agent/goal execution paths without weakening existing
+  channel safety behavior.
+- **Installer source-layout note** - refreshes the Windows installer source
+  coverage comment to include the stability module in the packaged recursive
+  source include.
+
+### Tests & Release Validation
+
+- **Agent and Goal coverage** - adds focused tests for active-run queues,
+  approvals, agent commands, agent context, profiles, runtime profiles,
+  runners, durable runs, tool allowlists, write locks, UI contracts, Goal Mode,
+  channel goal runtime, and Row-Bot Status agent reporting.
+- **xAI OAuth coverage** - adds provider and transport tests for OAuth token
+  state, refresh behavior, provider status, model catalog integration,
+  runtime availability, vision probing, model defaults, and setup/settings
+  contracts.
+- **xAI media coverage** - adds tests for xAI media model discovery, Grok
+  Imagine image/video options, media tool routing, Row-Bot Status media output,
+  and image-to-video payload behavior.
+- **Provider secret coverage** - adds tests for auth-store fallback behavior,
+  custom endpoint auth requirements, provider selection, provider catalog rows,
+  and headless/no-keyring semantics.
+- **Model picker and settings coverage** - expands model picker regression and
+  settings-overhaul contract tests around provider-qualified refs, inactive
+  choices, unsupported surfaces, and xAI OAuth defaults.
+- **Public docs automation coverage** - adds docs automation tests for metadata
+  inventory, generated pages, validation, screenshot references, and real UI
+  docs generation inputs.
+- **UI/runtime coverage** - expands tests for app-port stability, app
+  hardening, chat tool trace UI, home performance, onboarding, skill
+  activation, thinking retention, tunnel management, and status media paths.
+
+### Breaking Changes And Caveats
+
+- xAI Grok OAuth support is separate from the existing xAI API-key provider.
+  API keys still use the `xai` provider path; subscription/OAuth-backed Grok
+  runtime uses `xai_oauth` provider-qualified model refs.
+- xAI Grok runtime and Grok Imagine media require a successful OAuth connection
+  and upstream account/model access. If token health fails, related model rows
+  may appear inactive until reconnect or refresh succeeds.
+- Grok Imagine media models are intentionally scoped to image and video
+  surfaces and should not appear as chat, agent, or vision-only models.
+- Agent Profiles and Goal Mode create durable local run/goal records. Profile
+  changes, promotions, and other destructive agent-management actions remain
+  approval-gated.
+- On systems without a secure keyring, newly entered provider secrets are
+  session-only and must be re-entered after restart unless a secure keyring
+  backend is configured.
+- The landing-page changes in this commit range prepared the published v4.1.0
+  site. Final v4.2.0 artifact links and the website landing-page refresh remain
+  release-gate tasks after the release assets are live.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `src/row_bot/agent.py` | Carries Agent Profile context, tool allowlists, and profile snapshots through agent, chat-only, streaming, and resume paths. |
+| `src/row_bot/agent_profiles.py`, `agent_context.py`, `agent_tool_catalog.py` | Adds Agent Profile storage, context assembly, built-in profiles, and tool catalog behavior. |
+| `src/row_bot/agent_runner.py`, `agent_runs.py` | Adds durable child-agent spawning, run state, events, wait/stop handling, and parent linkage. |
+| `src/row_bot/goals.py` | Adds durable Goal Mode state, progress formatting, evidence/blocker tracking, and current-goal helpers. |
+| `src/row_bot/tools/agent_tool.py`, `goal_tool.py` | Adds delegation, run inspection, profile management, promotion, goal update, and goal status tools. |
+| `src/row_bot/ui/agent_drawer.py`, `goal_ui.py`, `profile_library.py`, `profile_picker.py` | Adds Agent/Goal/Profile UI surfaces. |
+| `src/row_bot/ui/command_center.py`, `streaming.py`, `render.py`, `chat.py`, `sidebar.py`, `tool_trace.py` | Updates activity, streaming, rendering, chat, sidebar, and tool-trace behavior for goals and agents. |
+| `src/row_bot/channels/*`, `slash_commands.py`, `tasks.py`, `threads.py` | Updates channel runtime, slash commands, workflows, and thread metadata for goals and profiles. |
+| `src/row_bot/providers/xai_oauth.py` | Adds xAI Grok OAuth provider runtime, tokens, catalog, probes, health checks, and status helpers. |
+| `src/row_bot/providers/transports/xai_oauth_responses.py` | Adds xAI OAuth Responses chat transport. |
+| `src/row_bot/providers/xai_catalog.py`, `xai_media.py` | Adds xAI catalog merging/curation and Grok Imagine media generation support. |
+| `src/row_bot/providers/catalog.py`, `model_catalog.py`, `models.py`, `runtime.py`, `selection.py`, `media.py`, `status.py`, `readiness.py` | Wires xAI Grok OAuth, Grok Imagine media, provider-qualified refs, capability classification, readiness, status, and picker behavior into shared provider paths. |
+| `src/row_bot/providers/auth_store.py`, `custom.py` | Hardens secret storage fallback and custom endpoint auth-required behavior. |
+| `src/row_bot/ui/provider_settings.py`, `settings.py`, `setup_wizard.py`, `chat_components.py` | Updates provider setup/settings/model picker surfaces for xAI Grok OAuth, keyring fallback, and model-setting hardening. |
+| `src/row_bot/tools/image_gen_tool.py`, `video_gen_tool.py`, `row_bot_status_tool.py` | Adds xAI Grok media routing and richer status diagnostics. |
+| `src/row_bot/docs_capture.py` | Adds app-side support for real UI documentation capture. |
+| `docs-site/*`, `docs-content/*`, `scripts/docs/*` | Adds the public docs site, generated docs metadata, real UI screenshot automation, validation, search, and review tooling. |
+| `docs/index.html`, `docs/row_bot_preview.png` | Refreshes the public landing page and social preview image for the v4.1.0 site update. |
+| `README.md`, `docs/ARCHITECTURE.md`, `installer/row_bot_setup.iss` | Updates keyring/headless guidance, architecture wording, and installer source-layout notes. |
+| `tool_guides/agents_guide/SKILL.md`, `goal_guide/SKILL.md`, `row_bot_status_guide/SKILL.md` | Adds and updates tool guidance for agents, goals, and status diagnostics. |
+| `tests/*`, `tests/docs/*` | Adds and expands agent, goal, xAI OAuth, xAI media, provider secret, model picker, settings, docs automation, channel runtime, status, and UI regression coverage. |
+
+---
+
 ## v4.1.0 - Providers, Controlled Self-Evolution, Skills & Diagnostics
 
 This release builds on v4.0.1 with a broad provider and runtime reliability
