@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Scan committed lockfiles
-        uses: google/osv-scanner-action/osv-scanner-action@v2
+        uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
         with:
           scan-args: |-
             --lockfile=uv.lock
