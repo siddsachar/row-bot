@@ -11,6 +11,7 @@ on:
       - ".github/workflows/ci.yml"
       - ".github/workflows/release.yml"
       - ".github/workflows/lint.yml"
+      - ".github/workflows/installer-verify.yml"
   workflow_dispatch:
 
 permissions:

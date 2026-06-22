@@ -1974,7 +1974,7 @@ class RowBotTray:
 
         if not self._owns_server and not _is_row_bot_server(self._port):
             # External server died — just open browser and hope
-            _launch_event("server_ready_timeout", port=self._port, duration_ms=round((time.perf_counter() - wait_started) * 1000.0, 1))
+            _launch_event("server_ready_timeout", port=self._port, duration_ms=0.0)
             webbrowser.open(_url_for_port(self._port))
             return
 
@@ -1995,7 +1995,7 @@ class RowBotTray:
             self._server.start(self._port)
             if _wait_for_server(self._port):
                 _open_in_browser(self._port)
-                _launch_event("browser_opened", port=self._port, mode=mode)
+                _launch_event("browser_opened", port=self._port, mode="browser")
             else:
                 logger.warning("Server did not restart — cannot open browser")
         else:

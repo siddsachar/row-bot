@@ -21,6 +21,7 @@ import json
 import logging
 import re
 import urllib.request
+from pathlib import Path
 from typing import Optional
 
 from row_bot.data_paths import get_row_bot_data_dir

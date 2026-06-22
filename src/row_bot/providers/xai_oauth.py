@@ -917,10 +917,12 @@ def xai_oauth_base_url(override: str | None = None) -> str:
     try:
         return _validated_xai_base_url(raw)
     except XAIOAuthError as exc:
+        warning = str(exc)
+
         def _update(cfg: dict[str, Any]) -> None:
             entry = cfg.setdefault("providers", {}).setdefault(XAI_OAUTH_PROVIDER_ID, {})
             entry["base_url"] = XAI_OAUTH_BASE_URL
-            entry["base_url_warning"] = str(exc)
+            entry["base_url_warning"] = warning
 
         update_provider_config(_update)
         return XAI_OAUTH_BASE_URL

@@ -10,7 +10,7 @@ import logging
 import time
 import uuid
 from datetime import datetime
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from row_bot.brand import APP_BRAND_ACCENT_RGB, APP_DISPLAY_NAME
 from nicegui import run, ui
@@ -19,6 +19,9 @@ from row_bot.ui.state import AppState, P
 from row_bot.ui.constants import welcome_message, EXAMPLE_PROMPTS
 from row_bot.ui.performance import log_ui_perf
 from row_bot.ui.timer_utils import defer_ui
+
+if TYPE_CHECKING:
+    from row_bot.ui.bulk_select import BulkSelect
 
 logger = logging.getLogger(__name__)
 

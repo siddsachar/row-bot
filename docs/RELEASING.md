@@ -61,7 +61,10 @@ Row-Bot uses semantic versioning:
    uv run python -m pytest tests/test_dependency_metadata.py tests/test_optional_dependency_imports.py tests/test_startup_hardening.py tests/test_app_port.py tests/test_linux_support.py
    ```
 
-9. Open and merge the release-prep PR.
+9. For dependency, payload, or installer changes, run GitHub Actions ->
+   `Installer Verify` manually on the release-prep branch. Windows, Linux, and
+   macOS should all pass unless a skipped platform is documented.
+10. Open and merge the release-prep PR.
 
 ## Build artifacts
 
