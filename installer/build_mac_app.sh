@@ -414,6 +414,11 @@ fi
 COMPONENT_PKG="$BUILD_DIR/Row-Bot-component.pkg"
 COMPONENT_PLIST="$BUILD_DIR/Row-Bot-component.plist"
 FINAL_PKG="$DIST_DIR/Row-Bot-${VERSION}-macOS-${ARCH}.pkg"
+PKG_ROOT="$BUILD_DIR/pkg-root"
+
+rm -rf "$PKG_ROOT"
+mkdir -p "$PKG_ROOT"
+cp -R "$APP_BUNDLE" "$PKG_ROOT/Row-Bot.app"
 
 cat > "$COMPONENT_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -437,7 +442,7 @@ cat > "$COMPONENT_PLIST" <<PLIST
 </plist>
 PLIST
 
-pkgbuild --component "$APP_BUNDLE" \
+pkgbuild --root "$PKG_ROOT" \
          --component-plist "$COMPONENT_PLIST" \
          --identifier "ai.row-bot.assistant.pkg" \
          --version "$VERSION" \
@@ -457,6 +462,7 @@ fi
 
 # Clean up intermediate files
 rm -f "$COMPONENT_PKG" "$COMPONENT_PLIST"
+rm -rf "$PKG_ROOT"
 
 PKG_SIZE=$(du -sh "$FINAL_PKG" | cut -f1)
 echo ""
