@@ -241,14 +241,10 @@ def _safety(inv: dict[str, Any]) -> str:
 def _environment(inv: dict[str, Any]) -> str:
     rows = [
         ["ROW_BOT_DATA_DIR", "Overrides the active Row-Bot data directory for the app process."],
-        ["ROW_BOT_PORT", "Selects the local HTTP port for the NiceGUI app."],
+        ["ROW_BOT_PORT", "Selects the local HTTP port for the app process."],
         ["ROW_BOT_HOST", "Selects the host interface for the local app server."],
-        ["ROW_BOT_DOCS_CAPTURE", "Enables deterministic capture support while rendering the real app UI."],
-        ["ROW_BOT_DOCS_FIXED_NOW", "Freezes capture time for deterministic screenshots."],
-        ["ROW_BOT_DOCS_DISABLE_NETWORK", "Instructs docs automation to avoid live network probes."],
-        ["ROW_BOT_DOCS_DISABLE_AUTOSTART", "Skips background autostart paths during real UI docs capture."],
-        ["ROW_BOT_DOCS_REDUCE_MOTION", "Injects reduced-motion CSS for screenshot stability."],
-        ["ROW_BOT_DOCS_FAKE_PROVIDERS", "Uses safe fake provider readiness status without replacing UI."],
+        ["ROW_BOT_WORKSPACE", "Overrides the default workspace folder for file-oriented tools."],
+        ["ROW_BOT_NATIVE", "Controls native-window behavior for advanced launch scenarios."],
     ]
     return _section("Environment And Config", _table(["Variable", "Purpose"], rows))
 
@@ -264,8 +260,9 @@ def _screenshots(inv: dict[str, Any]) -> str:
                 {
                     "id": screenshot_id,
                     "title": shot.get("title", ""),
-                    "surface": shot.get("surface", ""),
                     "status": shot.get("status", ""),
+                    "review_status": shot.get("review_status", ""),
+                    "source": shot.get("source", ""),
                     "output": shot.get("output", ""),
                     "alt": shot.get("alt", ""),
                 }
@@ -277,8 +274,9 @@ def _screenshots(inv: dict[str, Any]) -> str:
             [
                 ("id", "ID"),
                 ("title", "Title"),
-                ("surface", "Surface"),
                 ("status", "Status"),
+                ("review_status", "Review"),
+                ("source", "Source"),
                 ("output", "Output"),
                 ("alt", "Alt text"),
             ],
@@ -287,7 +285,7 @@ def _screenshots(inv: dict[str, Any]) -> str:
 
 
 PAGE_DEFS = [
-    ("index", "Generated Reference", "Generated reference pages built from Row-Bot source inventory.", "scripts/docs/generate_mdx.py", lambda inv: _generated_index()),
+    ("index", "Reference Tables", "Compact lookup tables for Row-Bot features and settings.", "scripts/docs/generate_mdx.py", lambda inv: _generated_index()),
     ("tools", "Tools", "Generated reference for Row-Bot tools and tool guides.", "scripts/docs/collect_inventory.py", _tools),
     ("providers", "Providers", "Generated reference for model providers and provider risk labels.", "scripts/docs/collect_inventory.py", _providers),
     ("settings", "Settings", "Generated reference for settings tabs.", "docs-content/metadata/settings.yml", _settings),

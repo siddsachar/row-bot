@@ -4,12 +4,11 @@ type GeneratedNoticeProps = {
   source?: string;
 };
 
-export default function GeneratedNotice({source}: GeneratedNoticeProps): JSX.Element {
+export default function GeneratedNotice(_props: GeneratedNoticeProps): JSX.Element {
   return (
     <aside className="rowBotGeneratedNotice">
-      <strong>Generated reference.</strong>{' '}
-      This page is refreshed from Row-Bot source metadata during the docs build.
-      {source ? <> Source: <code>{source}</code>.</> : null}
+      <strong>Reference table.</strong>{' '}
+      Use this page for compact lookup after reading the guided docs.
     </aside>
   );
 }

@@ -1,20 +1,46 @@
 ---
 title: "Tools, Approvals, And Terminal"
-description: "Review tool traces, approval policy, export behavior, and terminal safety."
+description: "Understand Row-Bot tools, approval prompts, tool results, and terminal output."
 ---
 
 # Tools, Approvals, And Terminal
 
-Tool activity appears with the conversation so you can inspect what Row-Bot read, wrote, searched, or requested. Sensitive actions follow the active approval policy.
+Tools are actions Row-Bot can take beyond writing text. They can search documents, read files, use a browser, run Developer commands, create designs, inspect knowledge, call MCP servers, use plugins, or send through channels.
 
-## Tool Trace
+## How Tool Use Appears
 
-Tool trace rendering is part of the real chat transcript. The focused trace screenshot is deferred until a dedicated selector is added to `row_bot.ui.tool_trace`, but the chat screenshot includes seeded tool-result state.
+When Row-Bot uses a tool, the transcript can show a tool trace or result block. Read it as an activity receipt: what Row-Bot tried, what came back, and whether more action is needed.
 
-## Approvals
+## Approval Prompts
 
-Approval prompts are used for operations such as filesystem writes, shell commands, browser automation, MCP tool calls, Developer workspace edits, and channel actions. A pending approval fixture is required before a deterministic screenshot can be captured.
+Approval prompts appear when an action can change local files, run commands, contact external systems, use accounts, start servers, send messages, call MCP/plugin tools, or do something else that deserves review.
 
-## Terminal Panel
+Before approving, check:
 
-The terminal panel is rendered inside the real app shell. Commands are subject to tool availability and approval mode. Docs capture disables unsafe startup side effects and does not start real terminal workloads.
+- What action is being requested.
+- What file, workspace, account, channel, server, or provider is involved.
+- Whether the action can send data outside the app.
+- Whether the proposed command or file change matches your request.
+- Whether rejecting is safer until you inspect settings.
+
+Approving lets Row-Bot continue that action. Rejecting stops that action and returns control to the conversation.
+
+## Terminal Output
+
+The terminal panel shows command-style output when Row-Bot surfaces it from local tools, Developer Studio, or related runtime activity. It is a review surface, not permission by itself. Commands still follow workspace boundaries, tool availability, and approval mode.
+
+## Common Workflow
+
+1. Ask for a task that may need tools.
+2. Let Row-Bot explain the intended action.
+3. Review the approval prompt.
+4. Approve only if the action matches your intent.
+5. Inspect the tool trace or terminal output.
+6. Ask Row-Bot to summarize what changed.
+
+## Troubleshooting
+
+- If no approval appears, the action may be read-only or blocked before execution.
+- If a tool result is confusing, ask Row-Bot to explain the last tool call.
+- If command output is missing, check whether you are in Developer Studio or a tool-capable context.
+- If you rejected by mistake, ask Row-Bot to try again and review the next prompt.

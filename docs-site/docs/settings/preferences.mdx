@@ -1,38 +1,47 @@
 ---
 title: "Settings: Preferences"
-description: "Documented real Settings Preferences tab."
+description: "Customize assistant identity, launch behavior, background intelligence, updates, and migration."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Settings: Preferences
 
-Assistant identity, personality, launch behavior, background intelligence, updates, migration, and self-improvement toggle.
+Preferences are personal choices for how Row-Bot should address you, how it should behave at launch, and which background features should be active.
 
+<Screenshot id="settings-preferences" alt="Settings: Preferences in Row-Bot." caption="The Preferences tab controls user identity, assistant personality, launch behavior, background intelligence, updates, and migration helpers." />
 
-<Screenshot id="settings-preferences" alt="Row-Bot Settings Preferences tab." caption="The real Settings Preferences tab captured from the app." />
+## Where To Find It
 
-## How To Open
+Open **Settings**, then choose **Preferences** from the left tab list.
 
-Open Settings from the sidebar or setup/status surfaces, then choose **Preferences**.
+## Controls
 
-## Visible Sections And Controls
+- Name helps Row-Bot address you naturally.
+- Personality changes the assistant's default tone.
+- Launch and window preferences decide how the app opens.
+- Background intelligence controls affect optional automatic review or organization features.
+- Dream cycle timing controls when background organization may run.
+- Update controls decide how Row-Bot checks or reports available versions.
+- Migration helpers support users moving from earlier app data.
 
-The tab is documented from `src/row_bot/ui/settings.py` and the real Settings tab inventory. Controls include the tab header, setting groups, status rows, action buttons, and empty/error states shown by the current local configuration.
+## Common Workflow
 
+1. Set your name and preferred assistant tone first.
+2. Choose a launch mode that fits how you use the desktop app.
+3. Enable background features only when you want Row-Bot organizing or reviewing local data outside direct chat turns.
+4. Use migration helpers only when moving from an older installation or renamed data set.
 
 ## What Is Saved
 
-Preferences settings are saved under the active Row-Bot data directory using the app's normal config, database, or provider-specific storage APIs.
+Preferences are global local settings. They affect new chats and app behavior, while existing threads can still have their own model, profile, or approval choices.
 
-## Local And External Behavior
+## Privacy And Safety
 
-Opening and editing the tab is local UI work. Local-only options affect files, app config, or local services.
+Review credential, account, channel, provider, or tool settings before enabling features that can contact outside services. Local-only features stay on your machine until you ask Row-Bot to use a provider, account, channel, MCP server, plugin, or tool that sends data elsewhere.
 
-Provider checks, account auth, channel starts, MCP servers, plugin installs, and network probes are external or side-effectful only when the user explicitly configures or starts them.
+## Troubleshooting
 
-## Credentials And Safety
-
-Password and token controls are masked. Docs demo data uses fake disconnected/example states and never stores real credentials.
-
-Actions that can change files, call external systems, start servers, or use MCP tools follow the active approval policy. When a surface is disconnected or empty, Row-Bot keeps the controls visible so you can see what still needs setup.
+- If the app opens unexpectedly, adjust launch preferences and restart.
+- If background activity appears in Monitor, review Preferences and Knowledge settings.
+- If migration looks incomplete, do not delete old data until you confirm the new app has what you need.

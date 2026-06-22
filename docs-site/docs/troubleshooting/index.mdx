@@ -1,19 +1,58 @@
 ---
 title: "Troubleshooting"
-description: "Resolve common setup, model, data, documents, channels, MCP, plugin, and capture issues safely."
+description: "Resolve setup, model, chat, workflow, Designer, Developer, Knowledge, Monitor, Settings, channel, MCP, plugin, skill, voice, and Buddy issues."
 ---
 
 # Troubleshooting
 
-Start with the visible status text in the app shell, Setup Center, Settings tabs, and Monitor tab. Then check the local logs under the active data directory.
+Start with the visible status text in Row-Bot. Then check the relevant Settings tab and Monitor. Most issues fall into one of four categories: setup is incomplete, a provider or tool is disabled, the wrong model is selected, or Row-Bot is waiting for approval.
 
-## Common Checks
+## Setup Problems
 
-- Model unavailable: open Settings > Providers and Settings > Models.
-- Documents not searchable: open Settings > Documents and check indexing state.
-- Workflows not running: open Home > Workflows and verify delivery defaults and approvals.
-- Channels disconnected: open Settings > Channels and keep credentials masked.
-- MCP or plugins unsafe: keep servers/plugins disabled until reviewed.
-- Voice unavailable: open Settings > Voice and confirm provider and microphone/runtime settings.
+- Reopen Setup Center if first launch was skipped or incomplete.
+- Check Settings -> Providers and Settings -> Models before troubleshooting Chat.
+- Check Settings -> System if local files, browser automation, command execution, or tunnels are involved.
 
-Never paste real credentials into screenshots, docs fixtures, or review artifacts.
+## Model Problems
+
+- Refresh Providers, then refresh Models.
+- Choose a tool-capable model for workflows, Designer, Developer, and multi-step tool use.
+- For local and custom endpoints, use enough context for Row-Bot's instructions and tool schemas.
+
+## Chat And Tool Problems
+
+- Check the model picker, Agent Profile, approval mode, and enabled tools.
+- If an action is waiting, open Activity Center and review approvals.
+- Ask Row-Bot to explain the last tool result if the transcript is unclear.
+
+## Workflow Problems
+
+- Confirm the workflow is not paused.
+- Run it manually once before trusting a schedule.
+- Check delivery defaults and channel status.
+
+## Designer And Developer Problems
+
+- Designer: add a clearer goal, audience, references, or brand details.
+- Developer: confirm a workspace is open before asking for code actions.
+- Review commands and patches before approving or importing changes.
+
+## Knowledge And Monitor Problems
+
+- If Knowledge is empty, enable memory or index documents.
+- If a record is wrong, edit or remove it.
+- Use Monitor logs, extraction journal, dream journal, and View Full Log for background issues.
+
+## Integrations
+
+- Channels need credentials, optional tunnel setup, start/stop state, and user pairing.
+- MCP needs the global switch, a trusted server, and a successful test.
+- Plugins need installation, enablement, configuration, and sometimes a restart.
+- Skills need to be enabled and relevant to the prompt.
+
+## Voice And Buddy
+
+- Check microphone/output device selection and permissions.
+- Use Dictate before Talk if you need review.
+- Check provider readiness for realtime voice.
+- Toggle Buddy visibility or reopen the overlay if the companion is missing.

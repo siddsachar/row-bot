@@ -1,16 +1,39 @@
 ---
 title: "Installation"
-description: "Install Row-Bot and identify the local data directory used by the app."
+description: "Install Row-Bot from a release package or run it from source with clear next steps."
 ---
 
 # Installation
 
-Install Row-Bot from the release package for your platform, or run it from source with the Python dependencies installed. The app starts a local NiceGUI server and opens a browser or native window depending on launch settings.
+For ordinary use, install Row-Bot from the latest release package for your operating system. Running from source is useful for contributors, testers, and people who want to inspect or modify the app.
 
-## Data Directory
+## Install From A Release
 
-Row-Bot keeps local app data in the active Row-Bot data directory. Set `ROW_BOT_DATA_DIR` to isolate test, review, or portable runs. The docs capture flow always uses a temporary data directory and generated demo files.
+1. Download the latest Row-Bot release for Windows, macOS, or Linux.
+2. Run the installer or unpack the archive.
+3. Launch Row-Bot from the Start Menu, Applications, app launcher, or the provided command.
+4. Let the first-run wizard open and choose a model path.
 
-## After Install
+The installed app starts a local Row-Bot process and opens the UI in a desktop window or browser, depending on your platform and launch preference. If the usual port is busy, Row-Bot chooses another local port.
 
-Open Row-Bot, complete the first model setup path, then use the Setup Center for documents, workflows, Designer, Developer, channels, accounts, MCP, plugins, and voice.
+## Run From Source
+
+Use the source path if you are developing Row-Bot or testing changes:
+
+1. Clone the repository.
+2. Create a Python environment.
+3. Install the Python dependencies from `requirements.txt`.
+4. Install the docs-site dependencies only if you are working on documentation.
+5. Run the app entry point from the repository.
+
+Source runs use the same local data concepts as the packaged app. Keep test data separate from personal data when experimenting.
+
+## Local Data Directory
+
+Row-Bot stores local app data under the active Row-Bot data directory. This includes conversations, memories, model/provider metadata, workflows, Designer projects, Developer workspace records, documents, logs, skills, plugins, Buddy assets, channel settings, and MCP settings.
+
+Advanced users can set `ROW_BOT_DATA_DIR` before launch to use a separate data directory for testing or portable runs. Do this before starting the app, and remember that Row-Bot will treat that folder as the active local data store for the whole process.
+
+## After Installing
+
+Continue to [First Launch](/docs/getting-started/first-launch). You can finish optional setup later from the Setup Center and Settings.

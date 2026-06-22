@@ -1,38 +1,31 @@
 ---
 title: "Home: Monitor"
-description: "Documented real Home Monitor tab."
+description: "Use the Home Monitor tab to inspect logs, journals, channel state, and background activity."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Home: Monitor
 
-Knowledge extraction, dream cycle, channels, recent logs, and system activity.
+The Monitor tab is the place to answer: what is Row-Bot doing, what recently happened, and what needs attention? Use it during setup, workflows, channels, and troubleshooting.
 
+<Screenshot id="home-monitor" alt="Home: Monitor in Row-Bot." caption="The Monitor tab combines recent logs, knowledge extraction, dream cycle, channels, and full-log access." />
 
-<Screenshot id="home-monitor" alt="Row-Bot Home Monitor tab." caption="The real Home Monitor tab captured from the app." />
+## What This Tab Is For
 
-## How To Open
+Use this Home tab as a quick entry point. It shows current state and launch controls, while the full walkthrough lives in the [Monitor guide](/docs/monitor/).
 
-Choose Home in the sidebar, then select the **Monitor** tab.
+## What You Can Launch
 
-## Visible Sections
-
-The tab is built by `src/row_bot/ui/home.py`. Its controls vary with local app state, but the screenshot shows the real tab shell, labels, and empty or seeded-state cards that are safe for public docs.
-
+- Refresh updates status panels and recent logs.
+- View Journal opens knowledge extraction or dream cycle history.
+- View Full Log opens a longer diagnostic log view.
+- Channel status panels show whether external messaging connectors are running.
 
 ## What Is Saved
 
-Home tab state reads from local workflow, memory, thread, Designer, Developer, and log storage depending on the tab.
+Changes made from this tab apply to the feature it opens: workflows save as local automations, Designer projects save as local design projects, Developer workspaces save as local workspace records, Knowledge changes save to the local knowledge store, and Monitor filters affect the current review view.
 
-## Local And External Behavior
+## Next Step
 
-Opening the tab is local UI work. Docs capture disables background autostart while preserving the real tab builders.
-
-External work starts only from configured workflows, providers, channels, MCP servers, plugins, or Developer actions.
-
-## Credentials And Safety
-
-Home tabs can show disconnected states, but seeded docs data never includes real credentials or account names.
-
-Actions that can change files, call external systems, start servers, or use MCP tools follow the active approval policy. When a surface is disconnected or empty, Row-Bot keeps the controls visible so you can see what still needs setup.
+Open the [Monitor guide](/docs/monitor/) when you need the control-by-control guide.

@@ -1,37 +1,70 @@
 ---
-title: "Navigation"
-description: "Understand the real Row-Bot app shell, sidebar, thread list, command/status surfaces, and terminal panel."
+title: "Row-Bot Interface"
+description: "Navigate Row-Bot's sidebar, threads, Home tabs, Activity Center, Buddy, Settings, and terminal."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
-# Navigation
+# Row-Bot Interface
 
-The app shell combines the left sidebar, thread list and filters, Home button, new chat flow, central main surface, command/status surfaces, Buddy, and the inline terminal panel.
+The Row-Bot Interface is the main workspace you see after launch. It combines conversations, Home tabs, status panels, approvals, workflows, Buddy, Settings, and terminal output in one local app window.
 
+<Screenshot id="app-shell-overview" alt="Row-Bot main interface." caption="The main interface shows the left sidebar, Home tabs, central work area, Activity Center, Buddy, Settings, and terminal." />
 
-<Screenshot id="app-shell-overview" alt="Row-Bot app shell overview." caption="The real app shell with Home selected." />
+## Left Sidebar
 
-## Visible Areas
+- **Home** returns to the Home tabs: Workflows, Designer, Developer, Knowledge, and Monitor.
+- **New** starts a fresh conversation thread.
+- **Conversations** shows recent threads. The sidebar keeps the list short so the workspace stays usable; use **Show all** when you need older threads.
+- **Thread menu** on a conversation row opens actions such as rename and delete.
+- **Rename** changes the visible thread title without changing the messages.
+- **Delete** removes the thread after confirmation. Use it carefully if you still need the conversation history.
+- **Agent profiles** opens the profile selector and profile management area.
+- **Buddy** appears near the bottom when enabled.
+- **Settings** opens the full configuration dialog.
 
-- Sidebar: Home, new chat, thread filters, thread list, settings entry points, and setup/status access.
-- Main content: Home, chat, Designer editor, Developer workspace, or other active surface.
-- Command/status surfaces: running workflows, approvals, status messages, and operational controls.
-- Terminal panel: shown inline when terminal tooling is available; commands still follow approval and capability policy.
+## Show All Threads
 
+When you have more threads than the sidebar shows, use Show All from the conversations area. The dialog is for search and cleanup: find an older thread, reopen it, rename it, or delete it after confirming. Start a new thread when the task has a new goal; continue an existing thread when the earlier context still matters.
+
+## Home Tabs
+
+The central Home area has five tabs:
+
+- **Workflows** for saved automations and background agents.
+- **Designer** for starting design projects.
+- **Developer** for opening code workspaces and Custom Tools.
+- **Knowledge** for memory, document, and graph review.
+- **Monitor** for logs, journals, channel state, and background activity.
+
+Home pages in these docs are short entry-point pages. The dedicated feature pages are the full guides.
+
+## Activity Center And Right Drawer
+
+The right side summarizes what needs attention:
+
+- **Current goals and agents** shows running or waiting goal-mode and child-agent activity.
+- **Approvals** shows pending approval prompts that need a decision.
+- **Workflows** shows active and upcoming workflow state, plus run and new controls.
+- **Launch** lets you choose a workflow and run it manually.
+- **Insights** expands supporting status and suggestions when available.
+
+Use the Activity Center when you want to know whether Row-Bot is idle, waiting for you, running background work, or ready to launch a workflow.
+
+## Terminal Panel
+
+The terminal panel at the bottom shows command-oriented output when a tool, Developer workspace, or local runtime exposes it through the UI. It is not a general replacement for your system terminal. Command execution still follows Row-Bot's active tool availability, workspace boundaries, and approval mode.
+
+## Agent Profiles
+
+Agent profiles change how Row-Bot behaves for a thread or specialist run. The sidebar profile control opens the profile selector; the detailed walkthrough is in [Agent Profiles](/docs/app-shell/agent-profiles).
 
 ## What Is Saved
 
-Thread metadata, drafts, local UI preferences, and workflow state are saved under the app data directory.
+Threads, thread names, selected models, profile choices, workflow records, knowledge records, settings, and logs are saved in the local Row-Bot data directory. Some choices are thread-specific; Settings usually changes global app behavior.
 
-## Local And External Behavior
+## Troubleshooting
 
-Navigation itself is local UI. Opening a thread reads local checkpoint and metadata databases.
-
-External effects only occur when a selected tool, channel, provider, MCP server, or plugin is configured and invoked.
-
-## Credentials And Safety
-
-The sidebar can surface account or provider attention states, but it does not expose saved secret values.
-
-Actions that can change files, call external systems, start servers, or use MCP tools follow the active approval policy. When a surface is disconnected or empty, Row-Bot keeps the controls visible so you can see what still needs setup.
+- If a thread is missing from the sidebar, open Show All and search.
+- If a panel looks stale, use the visible refresh control or reload the app.
+- If a button is disabled, check the related Settings tab and Monitor for readiness messages.

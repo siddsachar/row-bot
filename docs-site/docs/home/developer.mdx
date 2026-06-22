@@ -1,38 +1,31 @@
 ---
 title: "Home: Developer"
-description: "Documented real Home Developer tab."
+description: "Use the Home Developer tab as the entry point for code workspaces and Custom Tools."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Home: Developer
 
-Developer Studio entry point for workspaces, repos, diffs, terminal/server controls, approvals, git actions, and Custom Tools.
+The Developer tab is where you choose what code workspace Row-Bot should help with. The full Developer Studio page explains the inspector, chat, sandbox, commands, and review flow.
 
+<Screenshot id="home-developer" alt="Home: Developer in Row-Bot." caption="The Developer tab starts folder, repository, clone, and Custom Tool work without replacing the full Developer Studio guide." />
 
-<Screenshot id="home-developer" alt="Row-Bot Home Developer tab." caption="The real Home Developer tab captured from the app." />
+## What This Tab Is For
 
-## How To Open
+Use this Home tab as a quick entry point. It shows current state and launch controls, while the full walkthrough lives in the [Developer Studio guide](/docs/developer/).
 
-Choose Home in the sidebar, then select the **Developer** tab.
+## What You Can Launch
 
-## Visible Sections
-
-The tab is built by `src/row_bot/ui/home.py`. Its controls vary with local app state, but the screenshot shows the real tab shell, labels, and empty or seeded-state cards that are safe for public docs.
-
+- Open folder connects an existing local project.
+- Connect repository attaches a Git repository already on the machine.
+- Clone repository creates a new local checkout from a remote URL.
+- Custom Tools opens the builder for reviewed, reusable local tools.
 
 ## What Is Saved
 
-Home tab state reads from local workflow, memory, thread, Designer, Developer, and log storage depending on the tab.
+Changes made from this tab apply to the feature it opens: workflows save as local automations, Designer projects save as local design projects, Developer workspaces save as local workspace records, Knowledge changes save to the local knowledge store, and Monitor filters affect the current review view.
 
-## Local And External Behavior
+## Next Step
 
-Opening the tab is local UI work. Docs capture disables background autostart while preserving the real tab builders.
-
-External work starts only from configured workflows, providers, channels, MCP servers, plugins, or Developer actions.
-
-## Credentials And Safety
-
-Home tabs can show disconnected states, but seeded docs data never includes real credentials or account names.
-
-Actions that can change files, call external systems, start servers, or use MCP tools follow the active approval policy. When a surface is disconnected or empty, Row-Bot keeps the controls visible so you can see what still needs setup.
+Open the [Developer Studio guide](/docs/developer/) when you need the control-by-control guide.

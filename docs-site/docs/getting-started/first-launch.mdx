@@ -1,38 +1,41 @@
 ---
 title: "First Launch"
-description: "Use the real first-run wizard and Setup Center."
+description: "Complete the first-run wizard, choose a model path, and revisit setup later."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # First Launch
 
-The first-run wizard appears until `setup_complete` is saved in the app config. It asks you to connect one working model path first; every other feature can be configured later.
+The first-run wizard appears until setup is complete. Its job is to help you connect one working model path so Row-Bot can answer a first chat message. Everything else can be configured later.
 
+<Screenshot id="first-launch-setup-wizard" alt="Row-Bot first launch setup wizard." caption="The first-run wizard helps you choose a local, hosted, subscription, or custom model path before optional setup begins." />
 
-<Screenshot id="first-launch-setup-wizard" alt="Row-Bot first launch wizard." caption="The real first-launch wizard with local, API provider, and custom endpoint paths." />
+## Choose A Model Path
 
-## Model Paths
+A model is the AI system that writes responses and reasons through tasks. Row-Bot can work with several kinds of model providers:
 
-- Local Ollama keeps model inference on the machine when Ollama and the chosen model are available.
-- API providers require credentials and send prompts to the selected provider.
-- Custom endpoints can be local or remote OpenAI-compatible servers; the endpoint location determines the privacy boundary.
+| Path | Good For | Tradeoffs |
+| --- | --- | --- |
+| Local Ollama | Privacy-focused local chats and tool use when your machine has enough resources. | Requires installing models locally. Larger models need more memory and disk space. |
+| Hosted API provider | Strong models without local downloads. | Requires an API key, internet access, and provider billing. Prompt content can be sent to that provider. |
+| Subscription account | Using a supported account-backed provider from inside Row-Bot. | Requires sign-in or token import and follows that provider's account terms. |
+| Custom endpoint | Advanced local or self-hosted runtimes such as LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, or SGLang. | Requires endpoint details and compatible model behavior. Tool use needs enough context and function-calling support. |
 
+For beginners, start with the provider path you already trust. If you are unsure, Ollama is the simplest local-first path, while an API provider is usually the quickest path to strong hosted models.
 
-<Screenshot id="setup-center" alt="Row-Bot Setup Center." caption="The real Setup Center for optional post-model setup." />
+## Setup Center
 
-## What Is Saved
+<Screenshot id="setup-center" alt="Row-Bot Setup Center." caption="Setup Center lets you finish optional setup areas later without blocking the first chat." />
 
-Setup progress is saved in app config, including completed and skipped Setup Center steps.
+Setup Center is the place to finish or revisit optional setup after the first launch. It can guide you through models, documents, workflows, Designer, Developer, channels, accounts, MCP, plugins, Buddy, and voice. The wizard gets you started; Setup Center helps you build out the rest of your app over time.
 
-## Local And External Behavior
+## Privacy, Cost, And Credentials
 
-Local setup choices can stay entirely on the machine when using local models and local files.
+Local model runs can stay on your machine. Hosted, subscription, realtime voice, web search, account, channel, MCP, and plugin features can contact outside services when configured and used. Provider keys and account tokens should be entered only through the relevant Settings or account flow. Cost depends on the provider or service you choose.
 
-API providers, account integrations, channels, MCP servers, and plugins can contact external services only after you configure and start them.
+## Troubleshooting
 
-## Credentials And Safety
-
-Credential fields are password-style controls. Docs screenshots use fake demo state and mask sensitive inputs.
-
-Actions that can change files, call external systems, start servers, or use MCP tools follow the active approval policy. When a surface is disconnected or empty, Row-Bot keeps the controls visible so you can see what still needs setup.
+- If the wizard cannot find a local model, start Ollama and install a model first.
+- If a hosted provider connects but no models appear, refresh Providers and Models.
+- If you skip optional setup, open Setup Center or Settings later.

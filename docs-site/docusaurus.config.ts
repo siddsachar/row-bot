@@ -61,8 +61,8 @@ const config: Config = {
       items: [
         {to: '/docs/', label: 'Docs', position: 'left'},
         {to: '/docs/getting-started/installation', label: 'Install', position: 'left'},
-        {to: '/docs/home/designer', label: 'Designer', position: 'left'},
-        {to: '/docs/home/developer', label: 'Developer', position: 'left'},
+        {to: '/docs/designer/', label: 'Designer', position: 'left'},
+        {to: '/docs/developer/', label: 'Developer', position: 'left'},
         {to: '/docs/settings/', label: 'Settings', position: 'left'},
         {to: '/search', label: 'Search', position: 'left'},
         {
@@ -84,7 +84,7 @@ const config: Config = {
           title: 'Docs',
           items: [
             {label: 'Getting Started', to: '/docs/getting-started/'},
-            {label: 'App Shell', to: '/docs/app-shell/navigation'},
+            {label: 'Row-Bot Interface', to: '/docs/app-shell/navigation'},
             {label: 'Settings', to: '/docs/settings/'},
             {label: 'Troubleshooting', to: '/docs/troubleshooting/'},
           ],

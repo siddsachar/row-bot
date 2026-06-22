@@ -11,9 +11,9 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'App Shell',
+      label: 'Row-Bot Interface',
       collapsed: false,
-      items: ['app-shell/navigation'],
+      items: ['app-shell/navigation', 'app-shell/agent-profiles'],
     },
     {
       type: 'category',
@@ -27,8 +27,11 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: ['home/workflows', 'home/designer', 'home/developer', 'home/knowledge', 'home/monitor'],
     },
+    'guides/workflows',
     'designer/index',
     'developer/index',
+    'knowledge/index',
+    'monitor/index',
     {
       type: 'category',
       label: 'Settings',
@@ -69,7 +72,7 @@ const sidebars: SidebarsConfig = {
         'reference/index',
         {
           type: 'category',
-          label: 'Generated',
+          label: 'Lookup Tables',
           collapsed: false,
           items: [
             'reference/generated/index',

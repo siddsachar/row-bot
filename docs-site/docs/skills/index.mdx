@@ -1,29 +1,40 @@
 ---
-title: "Skills"
-description: "Enable, pin, import, browse, and review Smart Skills."
+title: "Skills Hub"
+description: "Browse, enable, pin, create, edit, and troubleshoot Row-Bot skills."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
-# Skills
+# Skills Hub
 
-Enable, pin, import, browse, and review Smart Skills.
+Skills are instruction packs that teach Row-Bot how to approach a category of work. Skills Hub is where you browse installed skills, inspect details, enable or disable them, pin useful ones, and create or edit local skills.
 
+<Screenshot id="settings-skills" alt="Row-Bot Skills settings and Skills Hub entry points." caption="Skills settings expose installed skills, browse/search entry points, enablement, and pinning controls." />
 
-<Screenshot id="settings-skills" alt="Row-Bot Skills surface." caption="Related real Row-Bot surface for Skills." />
+## UI Walkthrough
 
-## What Is Saved
+- **Browse/search** finds bundled, installed, local, and external-source skills.
+- **Filters** narrow by source, installed state, or task type.
+- **Skill detail** explains purpose, instructions, source, and status.
+- **Enable/disable** decides whether Row-Bot may use the skill.
+- **Pin** keeps an important skill easy to reach.
+- **Create/edit** lets you maintain a local skill for your own workflow.
 
-Configuration is saved under the active Row-Bot data directory.
+## Creating A Skill
 
-## Local And External Behavior
+1. Decide what task the skill should help with.
+2. Write concise instructions, examples, and boundaries.
+3. Include when the skill should and should not be used.
+4. Save it locally.
+5. Enable it and test with a small prompt.
+6. Revise if Row-Bot overuses or misunderstands it.
 
-The documented UI opens locally. Side effects are disabled during docs capture.
+## What Skills Change
 
-External services are contacted only when credentials/configuration are added and the user starts or invokes the integration.
+Skills shape Row-Bot's behavior; they do not automatically grant credentials or bypass approvals. A skill can make Row-Bot more consistent for a task, but tools still need to be enabled and approved where appropriate.
 
-## Credentials And Safety
+## Troubleshooting
 
-Public demo screenshots use example domains, disconnected states, or masked controls.
-
-Actions that can change files, call external systems, start servers, or use MCP tools follow the active approval policy. When a surface is disconnected or empty, Row-Bot keeps the controls visible so you can see what still needs setup.
+- If a skill is not used, make your prompt match its purpose and confirm it is enabled.
+- If a skill is too aggressive, disable or rewrite it with clearer boundaries.
+- If an external skill is unfamiliar, inspect it before enabling.

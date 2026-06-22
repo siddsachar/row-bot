@@ -1,38 +1,31 @@
 ---
 title: "Home: Knowledge"
-description: "Documented real Home Knowledge tab."
+description: "Use the Home Knowledge tab to review memories, documents, and knowledge graph activity."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Home: Knowledge
 
-Knowledge graph, memory review, document relationships, and audit flows.
+The Knowledge tab is the review area for information Row-Bot can remember or retrieve. It is useful when you want to check what has been extracted, filter it, or open a detail card before relying on it in chat.
 
+<Screenshot id="home-knowledge" alt="Home: Knowledge in Row-Bot." caption="The Knowledge tab shows memory and graph review surfaces for the local Row-Bot data set." />
 
-<Screenshot id="home-knowledge" alt="Row-Bot Home Knowledge tab." caption="The real Home Knowledge tab captured from the app." />
+## What This Tab Is For
 
-## How To Open
+Use this Home tab as a quick entry point. It shows current state and launch controls, while the full walkthrough lives in the [Knowledge guide](/docs/knowledge/).
 
-Choose Home in the sidebar, then select the **Knowledge** tab.
+## What You Can Launch
 
-## Visible Sections
-
-The tab is built by `src/row_bot/ui/home.py`. Its controls vary with local app state, but the screenshot shows the real tab shell, labels, and empty or seeded-state cards that are safe for public docs.
-
+- Filters narrow the list by source, status, or type.
+- Detail cards show the exact item Row-Bot may use later.
+- Edit controls let you correct useful records instead of deleting whole history.
+- Dream cycle controls help review background organization when enabled.
 
 ## What Is Saved
 
-Home tab state reads from local workflow, memory, thread, Designer, Developer, and log storage depending on the tab.
+Changes made from this tab apply to the feature it opens: workflows save as local automations, Designer projects save as local design projects, Developer workspaces save as local workspace records, Knowledge changes save to the local knowledge store, and Monitor filters affect the current review view.
 
-## Local And External Behavior
+## Next Step
 
-Opening the tab is local UI work. Docs capture disables background autostart while preserving the real tab builders.
-
-External work starts only from configured workflows, providers, channels, MCP servers, plugins, or Developer actions.
-
-## Credentials And Safety
-
-Home tabs can show disconnected states, but seeded docs data never includes real credentials or account names.
-
-Actions that can change files, call external systems, start servers, or use MCP tools follow the active approval policy. When a surface is disconnected or empty, Row-Bot keeps the controls visible so you can see what still needs setup.
+Open the [Knowledge guide](/docs/knowledge/) when you need the control-by-control guide.

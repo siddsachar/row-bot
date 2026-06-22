@@ -1,0 +1,49 @@
+---
+title: "Monitor"
+description: "Inspect Row-Bot logs, journals, workflow state, channels, and background activity."
+---
+
+import Screenshot from '@site/src/components/Screenshot';
+
+# Monitor
+
+Monitor shows what Row-Bot is doing and what recently happened. Use it when a workflow, channel, background job, knowledge extraction, dream cycle, or provider setup needs investigation.
+
+<Screenshot id="home-monitor" alt="Row-Bot Monitor tab." caption="The Monitor tab shows recent logs, journals, channel state, and background activity controls." />
+
+## Where To Find It
+
+Open Home -> Monitor.
+
+## UI Walkthrough
+
+- **System Monitor** is the top-level status area.
+- **Refresh** updates visible logs and state.
+- **Knowledge Extraction** shows extraction activity and links to the extraction journal.
+- **Dream Cycle** shows background organization activity and links to the dream journal.
+- **Channels** shows whether configured external message channels are running.
+- **Recent Logs** shows current app events with timestamps and severity.
+- **View Full Log** opens a longer log view for troubleshooting.
+- **Status labels** identify running, idle, disabled, warning, or failed states.
+
+## Logs And Journals
+
+Recent logs help with immediate diagnosis. The knowledge extraction journal explains what Row-Bot extracted from conversations or documents. The dream journal explains background organization attempts. Use journals when you need a narrative of why a knowledge record or background status exists.
+
+## Common Workflow
+
+1. Reproduce or observe the issue.
+2. Open Monitor and refresh.
+3. Check status labels and recent logs.
+4. Open the relevant journal.
+5. Copy only non-sensitive details into a support request.
+
+## What Is Saved
+
+Logs and journals are local Row-Bot data. They may include file names, thread names, provider names, channel names, or task summaries, so review them before sharing.
+
+## Troubleshooting
+
+- If logs are empty, reproduce the issue and refresh.
+- If background work is disabled, check Settings -> Preferences and Settings -> Knowledge.
+- If a channel is stopped, open Settings -> Channels before restarting it.

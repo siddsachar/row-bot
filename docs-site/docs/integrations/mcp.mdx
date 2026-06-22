@@ -1,29 +1,42 @@
 ---
 title: "MCP"
-description: "Add, import, test, enable, and troubleshoot MCP servers safely."
+description: "Configure external MCP servers, test tool availability, and manage MCP safety."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # MCP
 
-Add, import, test, enable, and troubleshoot MCP servers safely.
+MCP lets Row-Bot use tools exposed by external Model Context Protocol servers. An MCP server can be local or remote, simple or powerful. Treat it like an extension with its own access and trust boundary.
 
+<Screenshot id="settings-mcp" alt="Row-Bot MCP settings." caption="MCP settings manage global enablement, server rows, add/import/browse actions, tests, diagnostics, and per-server controls." />
 
-<Screenshot id="settings-mcp" alt="Row-Bot MCP surface." caption="Related real Row-Bot surface for MCP." />
+## Setup Workflow
 
-## What Is Saved
+1. Open Settings -> MCP.
+2. Leave Enable MCP off until a trusted server is configured.
+3. Add, import, or browse for a server.
+4. Review the command, arguments, URL, transport, and expected tools.
+5. Save disabled first if you are unsure.
+6. Test the server.
+7. Enable the server only after you understand what it can access.
 
-Configuration is saved under the active Row-Bot data directory.
+## Controls
 
-## Local And External Behavior
+- **Enable MCP** turns all external MCP tools on or off.
+- **Add Server** opens the manual server form.
+- **Import Config** imports server definitions from configuration text.
+- **Browse MCP Servers** searches available server directories.
+- **Diagnostics** helps explain connection failures.
+- **Per-server enablement** decides whether a saved server contributes tools.
+- **Test, refresh, edit, delete** manage the server row.
 
-The documented UI opens locally. Side effects are disabled during docs capture.
+## Safety
 
-External services are contacted only when credentials/configuration are added and the user starts or invokes the integration.
+MCP tools can read, write, call APIs, or automate services depending on the server. Row-Bot approvals still matter, but you should also trust the server itself before enabling it.
 
-## Credentials And Safety
+## Troubleshooting
 
-Public demo screenshots use example domains, disconnected states, or masked controls.
-
-Actions that can change files, call external systems, start servers, or use MCP tools follow the active approval policy. When a surface is disconnected or empty, Row-Bot keeps the controls visible so you can see what still needs setup.
+- If a server fails to test, check transport, command, arguments, URL, and dependencies.
+- If tools are missing, enable both the global MCP switch and the server.
+- If a prompt asks for unexpected access, reject it and inspect the server configuration.

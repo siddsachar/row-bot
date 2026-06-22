@@ -1,38 +1,46 @@
 ---
 title: "Settings: Plugins"
-description: "Documented real Settings Plugins tab."
+description: "Manage installed plugins, marketplace installs, configuration, and promoted Custom Tools."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Settings: Plugins
 
-Installed plugins, plugin manifest validation, marketplace entry points, Custom Tools promotion, and sandbox state.
+Plugins add local bundles of tools, skills, apps, or integrations. They can make Row-Bot more capable, but they should be treated as code that runs with local app permissions.
 
+<Screenshot id="settings-plugins" alt="Settings: Plugins in Row-Bot." caption="The Plugins tab lists installed plugins, marketplace actions, enablement, configuration, and Custom Tool promotion paths." />
 
-<Screenshot id="settings-plugins" alt="Row-Bot Settings Plugins tab." caption="The real Settings Plugins tab captured from the app." />
+## Where To Find It
 
-## How To Open
+Open **Settings**, then choose **Plugins** from the left tab list.
 
-Open Settings from the sidebar or setup/status surfaces, then choose **Plugins**.
+## Controls
 
-## Visible Sections And Controls
+- Installed plugin cards show version, status, and available actions.
+- Enable and disable controls decide whether plugin capabilities are active.
+- Configure opens plugin-specific settings when provided.
+- Update and remove actions manage local plugin installations.
+- Marketplace opens discovery and install previews.
+- Custom Tools promotion turns reviewed local tools into reusable plugin-like capabilities.
 
-The tab is documented from `src/row_bot/plugins/ui_settings.py` and the real Settings tab inventory. Controls include the tab header, setting groups, status rows, action buttons, and empty/error states shown by the current local configuration.
+## Common Workflow
 
+1. Install plugins only from sources you trust.
+2. Read the plugin description and requested fields before enabling it.
+3. Configure required settings, then test with a low-risk prompt.
+4. Disable or remove plugins you no longer use.
 
 ## What Is Saved
 
-Plugins settings are saved under the active Row-Bot data directory using the app's normal config, database, or provider-specific storage APIs.
+Installed plugins and plugin settings are local files. Plugin secrets should use secret storage when the plugin supports it.
 
-## Local And External Behavior
+## Privacy And Safety
 
-Opening and editing the tab is local UI work. Local-only options affect files, app config, or local services.
+Review credential, account, channel, provider, or tool settings before enabling features that can contact outside services. Local-only features stay on your machine until you ask Row-Bot to use a provider, account, channel, MCP server, plugin, or tool that sends data elsewhere.
 
-Provider checks, account auth, channel starts, MCP servers, plugin installs, and network probes are external or side-effectful only when the user explicitly configures or starts them.
+## Troubleshooting
 
-## Credentials And Safety
-
-Password and token controls are masked. Docs demo data uses fake disconnected/example states and never stores real credentials.
-
-Actions that can change files, call external systems, start servers, or use MCP tools follow the active approval policy. When a surface is disconnected or empty, Row-Bot keeps the controls visible so you can see what still needs setup.
+- If a plugin does not load, check its manifest and dependency messages.
+- If plugin tools do not appear, confirm the plugin is enabled and restart if instructed.
+- If a plugin behaves unexpectedly, disable it first, then inspect its configuration.
