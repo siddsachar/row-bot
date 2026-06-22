@@ -51,20 +51,26 @@ def build_report() -> str:
         if isinstance(shot, dict) and shot.get("status") == "deferred"
     ]
 
+    review_status_counts: dict[str, int] = {}
+    for shot in screenshot_manifest.values():
+        if isinstance(shot, dict):
+            status = str(shot.get("review_status") or "missing")
+            review_status_counts[status] = review_status_counts.get(status, 0) + 1
+
     lines = [
         "# Row-Bot Public Docs Real UI Review Report",
         "",
-        "Generated: 2026-06-19 real UI docs automation run.",
+        "Generated: 2026-06-22 complete public user guide pass.",
         "",
         "## Completion Summary",
         "",
-        "- Curated public docs real-UI pages are in `docs-site/docs`.",
-        "- Generated reference pages are in `docs-site/docs/reference/generated`.",
+        "- Curated public user guide pages are in `docs-site/docs`.",
+        "- Lookup reference pages are in `docs-site/docs/reference/generated`.",
         "- Pagefind search UI is present on the docs homepage and `/search`.",
         "- LLM docs are generated under `docs-site/static`.",
-        "- Real UI capture mode seeds fake data, freezes time, reduces motion, and disables unsafe side effects.",
-        "- Screenshots are captured from the actual NiceGUI `/` route, not fake docs routes.",
-        "- Baseline validator previously passed the synthetic prototype; the hardened validator now rejects that approach.",
+        "- Screenshot automation opens the real Row-Bot app route and records review status for each image.",
+        "- Real-data screenshots are written to `docs-build/reports/real-data-screenshots/` and copied as candidate docs assets.",
+        "- Screenshot metadata keeps a final human visual review gate before publishing.",
         "- Current public website guardrails remain validation-only with no Pages deploy behavior.",
         "",
         "## Generated Inventory",
@@ -83,6 +89,8 @@ def build_report() -> str:
             f"- Deferred: {screenshot_report.get('deferred', 0)}",
         ]
     )
+    if review_status_counts:
+        lines.append("- Review status: " + ", ".join(f"{key}={value}" for key, value in sorted(review_status_counts.items())))
     if deferred:
         lines.append("")
         lines.append("Deferred screenshots:")
@@ -105,11 +113,12 @@ def build_report() -> str:
             "",
             "- Verify provider/model recommendation wording and cost/privacy implications.",
             "- Review privacy and safety claims against current app behavior.",
-            "- Inspect screenshots for visual accuracy and absence of sensitive data.",
+            "- Inspect every needs-review screenshot for visual accuracy and absence of sensitive data.",
+            "- Update screenshot `review_status` to approved, replace, crop, or redact after inspection.",
             "- Verify the docs site visually matches the current public website.",
             "- Confirm every Home tab and every Settings tab page is accurate.",
             "- Confirm troubleshooting steps do not risk data loss or credential exposure.",
-            "- Review generated reference pages for overexposed implementation details.",
+            "- Review lookup reference pages for overexposed implementation details.",
             "- Confirm no public-site cutover or deploy behavior is included.",
         ]
     )

@@ -1,151 +1,160 @@
 surfaces:
   app_shell:
-    title: App Shell
-    description: Main real app shell with sidebar, thread list, main panel, command/status surfaces, Buddy, and terminal panel.
+    title: Row-Bot Interface
+    description: Main Row-Bot interface with sidebar, thread list, Home tabs, Activity
+      Center, Buddy, Settings, and terminal panel.
     source_files:
-      - src/row_bot/app.py
-      - src/row_bot/ui/sidebar.py
-      - src/row_bot/ui/command_center.py
-      - src/row_bot/ui/terminal_widget.py
+    - src/row_bot/app.py
+    - src/row_bot/ui/sidebar.py
+    - src/row_bot/ui/command_center.py
+    - src/row_bot/ui/terminal_widget.py
     screenshot_ids:
-      - app-shell-overview
+    - app-shell-overview
   onboarding:
     title: Onboarding
-    description: First launch wizard and resumable Setup Center for model setup and optional next steps.
+    description: First launch wizard and resumable Setup Center for model setup and
+      optional next steps.
     source_files:
-      - src/row_bot/ui/setup_wizard.py
-      - src/row_bot/ui/onboarding_center.py
+    - src/row_bot/ui/setup_wizard.py
+    - src/row_bot/ui/onboarding_center.py
     screenshot_ids:
-      - first-launch-setup-wizard
-      - setup-center
+    - first-launch-setup-wizard
+    - setup-center
   chat:
     title: Chat
-    description: Main conversation surface with model controls, composer, attachments, tool traces, approvals, exports, and terminal context.
+    description: Main conversation surface with model controls, composer, attachments,
+      tool traces, approvals, exports, and terminal context.
     source_files:
-      - src/row_bot/ui/chat.py
-      - src/row_bot/ui/chat_composer_extras.py
-      - src/row_bot/ui/chat_components.py
-      - src/row_bot/ui/streaming.py
-      - src/row_bot/ui/tool_trace.py
+    - src/row_bot/ui/chat.py
+    - src/row_bot/ui/chat_composer_extras.py
+    - src/row_bot/ui/chat_components.py
+    - src/row_bot/ui/streaming.py
+    - src/row_bot/ui/tool_trace.py
     screenshot_ids:
-      - chat-main
-      - chat-model-picker
-      - chat-tool-trace
-      - chat-approval
+    - chat-main
+    - chat-model-picker
+    - chat-tool-trace
+    - chat-approval
   home_workflows:
     title: Home Workflows
     description: Home tab for scheduled and background workflows.
     source_files:
-      - src/row_bot/ui/home.py
-      - src/row_bot/tasks.py
+    - src/row_bot/ui/home.py
+    - src/row_bot/tasks.py
     screenshot_ids:
-      - home-workflows
+    - home-workflows
   home_designer:
     title: Home Designer
     description: Home tab entry point for Designer Studio project creation and editing.
     source_files:
-      - src/row_bot/ui/home.py
-      - src/row_bot/designer/home_tab.py
+    - src/row_bot/ui/home.py
+    - src/row_bot/designer/home_tab.py
     screenshot_ids:
-      - home-designer
-      - designer-editor
+    - home-designer
+    - designer-editor
   designer:
     title: Designer Studio
-    description: Full Designer Studio project editor, dialogs, page navigator, brand/import/export/share/history surfaces.
+    description: Full Designer Studio project editor, dialogs, page navigator, brand/import/export/share/history
+      surfaces.
     source_files:
-      - src/row_bot/designer/home_tab.py
-      - src/row_bot/designer/editor.py
-      - src/row_bot/designer/page_navigator.py
-      - src/row_bot/designer/brand_dialog.py
-      - src/row_bot/designer/import_dialog.py
-      - src/row_bot/designer/export_dialog.py
-      - src/row_bot/designer/share_dialog.py
-      - src/row_bot/designer/review_dialog.py
+    - src/row_bot/designer/home_tab.py
+    - src/row_bot/designer/editor.py
+    - src/row_bot/designer/page_navigator.py
+    - src/row_bot/designer/brand_dialog.py
+    - src/row_bot/designer/import_dialog.py
+    - src/row_bot/designer/export_dialog.py
+    - src/row_bot/designer/share_dialog.py
+    - src/row_bot/designer/review_dialog.py
     screenshot_ids:
-      - designer-editor
+    - designer-editor
   home_developer:
     title: Home Developer
     description: Home tab entry point for Developer Studio workspaces and Custom Tools.
     source_files:
-      - src/row_bot/ui/home.py
-      - src/row_bot/developer/ui.py
+    - src/row_bot/ui/home.py
+    - src/row_bot/developer/ui.py
     screenshot_ids:
-      - home-developer
-      - developer-workspace
+    - home-developer
+    - developer-workspace
   developer:
     title: Developer Studio
-    description: Full Developer Studio workspace inspector, changed files, terminal/server controls, approvals, git actions, and custom tool wizard.
+    description: Full Developer Studio workspace inspector, changed files, terminal/server
+      controls, approvals, git actions, and custom tool wizard.
     source_files:
-      - src/row_bot/developer/ui.py
-      - src/row_bot/developer/storage.py
-      - src/row_bot/developer/git.py
-      - src/row_bot/developer/runtime.py
+    - src/row_bot/developer/ui.py
+    - src/row_bot/developer/storage.py
+    - src/row_bot/developer/git.py
+    - src/row_bot/developer/runtime.py
     screenshot_ids:
-      - developer-workspace
+    - developer-workspace
   home_knowledge:
     title: Home Knowledge
     description: Home tab for memory and knowledge graph review.
     source_files:
-      - src/row_bot/ui/home.py
-      - src/row_bot/ui/graph_panel.py
-      - src/row_bot/knowledge_graph.py
+    - src/row_bot/ui/home.py
+    - src/row_bot/ui/graph_panel.py
+    - src/row_bot/knowledge_graph.py
     screenshot_ids:
-      - home-knowledge
+    - home-knowledge
   home_monitor:
     title: Home Monitor
     description: Home tab for knowledge extraction, dream cycle, channels, and logs.
     source_files:
-      - src/row_bot/ui/home.py
-      - src/row_bot/memory_extraction.py
-      - src/row_bot/dream_cycle.py
+    - src/row_bot/ui/home.py
+    - src/row_bot/memory_extraction.py
+    - src/row_bot/dream_cycle.py
     screenshot_ids:
-      - home-monitor
+    - home-monitor
   settings:
     title: Settings
-    description: Central configuration dialog for models, providers, documents, search, skills, system, accounts, utilities, tracker, knowledge, Buddy, voice, channels, MCP, plugins, and preferences.
+    description: Central configuration dialog for models, providers, documents, search,
+      skills, system, accounts, utilities, tracker, knowledge, Buddy, voice, channels,
+      MCP, plugins, and preferences.
     source_files:
-      - src/row_bot/ui/settings.py
-      - src/row_bot/ui/mcp_settings.py
-      - src/row_bot/ui/buddy.py
-      - src/row_bot/plugins/ui_settings.py
+    - src/row_bot/ui/settings.py
+    - src/row_bot/ui/mcp_settings.py
+    - src/row_bot/ui/buddy.py
+    - src/row_bot/plugins/ui_settings.py
     screenshot_ids:
-      - settings-providers
-      - settings-models
-      - settings-documents
-      - settings-search
-      - settings-skills
-      - settings-system
-      - settings-accounts
-      - settings-utilities
-      - settings-tracker
-      - settings-knowledge
-      - settings-buddy
-      - settings-voice
-      - settings-channels
-      - settings-mcp
-      - settings-plugins
-      - settings-preferences
+    - settings-providers
+    - settings-models
+    - settings-documents
+    - settings-search
+    - settings-skills
+    - settings-system
+    - settings-accounts
+    - settings-utilities
+    - settings-tracker
+    - settings-knowledge
+    - settings-buddy
+    - settings-voice
+    - settings-channels
+    - settings-mcp
+    - settings-plugins
+    - settings-preferences
   plugin_marketplace:
     title: Plugin Marketplace
     description: Public plugin discovery and plugin install preview surface.
     source_files:
-      - src/row_bot/plugins/ui_marketplace.py
-      - src/row_bot/plugins/marketplace.py
+    - src/row_bot/plugins/ui_marketplace.py
+    - src/row_bot/plugins/marketplace.py
     screenshot_ids:
-      - plugin-marketplace
+    - plugin-marketplace
   mcp:
     title: MCP
-    description: External Model Context Protocol server configuration and recommendation surfaces.
+    description: External Model Context Protocol server configuration and recommendation
+      surfaces.
     source_files:
-      - src/row_bot/ui/mcp_settings.py
-      - src/row_bot/mcp_client/recommended_servers.json
+    - src/row_bot/ui/mcp_settings.py
+    - src/row_bot/mcp_client/recommended_servers.json
     screenshot_ids:
-      - mcp-add-server
+    - mcp-add-server
   privacy_safety:
     title: Privacy And Safety
-    description: Approval examples, redaction behavior, and privacy-sensitive action review.
+    description: Approval examples, redaction behavior, and privacy-sensitive action
+      review.
     source_files:
-      - src/row_bot/approval_policy.py
-      - src/row_bot/tools/approval_gate.py
+    - src/row_bot/approval_policy.py
+    - src/row_bot/tools/approval_gate.py
     screenshot_ids:
-      - chat-approval
+    - chat-approval
