@@ -226,12 +226,27 @@ jobs:
       - name: Smoke macOS app bundle
         run: |
           set -euo pipefail
+          resolve_bundle_python() {
+            local resources="$1"
+            local candidate
+            for candidate in \
+              "$resources/python/bin/python3" \
+              "$resources/python/bin/python" \
+              "$resources/python/bin"/python3.*; do
+              if [ -x "$candidate" ]; then
+                printf '%s\n' "$candidate"
+                return 0
+              fi
+            done
+            return 1
+          }
+
           APP_PATH="$(pwd)/installer/build/mac/Row-Bot.app"
           RESOURCES="$APP_PATH/Contents/Resources"
           APP_DIR="$RESOURCES/app"
-          PYTHON="$RESOURCES/python/bin/python3"
-          if [ ! -x "$PYTHON" ]; then
-            echo "::error::Bundled Python not found at $PYTHON"
+          if ! PYTHON="$(resolve_bundle_python "$RESOURCES")"; then
+            echo "::error::Bundled Python not found under $RESOURCES/python/bin"
+            find "$APP_PATH" -maxdepth 5 -path '*/python/bin/*' -print || true
             exit 1
           fi
           ROW_BOT_INSTALL_ROOT="$RESOURCES" \
@@ -258,9 +273,29 @@ jobs:
           APP_PATH="/Applications/Row-Bot.app"
           RESOURCES="$APP_PATH/Contents/Resources"
           APP_DIR="$RESOURCES/app"
-          PYTHON="$RESOURCES/python/bin/python3"
-          if [ ! -x "$PYTHON" ]; then
-            echo "::error::Installed bundled Python not found at $PYTHON"
+          resolve_bundle_python() {
+            local resources="$1"
+            local candidate
+            for candidate in \
+              "$resources/python/bin/python3" \
+              "$resources/python/bin/python" \
+              "$resources/python/bin"/python3.*; do
+              if [ -x "$candidate" ]; then
+                printf '%s\n' "$candidate"
+                return 0
+              fi
+            done
+            return 1
+          }
+
+          if ! PYTHON="$(resolve_bundle_python "$RESOURCES")"; then
+            echo "::group::macOS pkg payload"
+            pkgutil --payload-files "$PKG" | sed -n '1,160p' || true
+            echo "::endgroup::"
+            echo "::group::Installed Row-Bot candidates"
+            find /Applications -maxdepth 7 \( -name 'Row-Bot.app' -o -path '*/Row-Bot.app/Contents/Resources/python/bin/*' \) -print || true
+            echo "::endgroup::"
+            echo "::error::Installed bundled Python not found under $RESOURCES/python/bin"
             exit 1
           fi
           ROW_BOT_INSTALL_ROOT="$RESOURCES" \
