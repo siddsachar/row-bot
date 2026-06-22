@@ -169,3 +169,19 @@ def test_ci_security_and_installer_dependency_hooks_are_wired():
 
     assert 'Source: "..\\pyproject.toml"' in windows_installer
     assert 'Source: "..\\uv.lock"' in windows_installer
+
+
+def test_runtime_verifier_presence_checks_pystray_on_headless_linux(monkeypatch):
+    import scripts.verify_runtime_dependencies as verifier
+
+    monkeypatch.setattr(verifier.platform, "system", lambda: "Linux")
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.setattr(
+        verifier.importlib,
+        "import_module",
+        lambda module: (_ for _ in ()).throw(AssertionError(module)),
+    )
+    monkeypatch.setattr(verifier.importlib.util, "find_spec", lambda module: object())
+
+    verifier._verify_module("pystray")

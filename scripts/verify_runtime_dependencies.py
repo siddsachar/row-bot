@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
+import os
 import platform
 import sys
 
@@ -130,6 +132,10 @@ INSTALL_HINTS = {
     "all": "uv sync --locked --all-extras or pip install -e .[all]",
 }
 
+HEADLESS_LINUX_PRESENCE_CHECKS = {
+    "pystray",
+}
+
 
 def _expand_groups(groups: list[str]) -> list[str]:
     expanded: list[str] = []
@@ -141,6 +147,22 @@ def _expand_groups(groups: list[str]) -> list[str]:
         else:
             expanded.append(group)
     return list(dict.fromkeys(expanded))
+
+
+def _is_headless_linux() -> bool:
+    return (
+        platform.system() == "Linux"
+        and not os.environ.get("DISPLAY")
+        and not os.environ.get("WAYLAND_DISPLAY")
+    )
+
+
+def _verify_module(module: str) -> None:
+    if module in HEADLESS_LINUX_PRESENCE_CHECKS and _is_headless_linux():
+        if importlib.util.find_spec(module) is None:
+            raise ModuleNotFoundError(f"No module named '{module}'")
+        return
+    importlib.import_module(module)
 
 
 def main(argv: list[str]) -> int:
@@ -160,7 +182,7 @@ def main(argv: list[str]) -> int:
     for group in expanded_groups:
         for module in GROUPS[group]:
             try:
-                importlib.import_module(module)
+                _verify_module(module)
             except Exception as exc:
                 failed.append(
                     f"{group}:{module}: {type(exc).__name__}: {exc} "
