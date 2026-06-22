@@ -1,37 +1,60 @@
 ---
 title: "Chat"
-description: "Use Row-Bot chat, composer controls, model choices, attachments, skills, and exports."
+description: "Use Row-Bot chat, composer controls, model choices, attachments, tools, approvals, and history."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Chat
 
-Chat is the main conversation surface. It shows the active thread name, transcript, model/privacy banner, parent agent and goal strips when relevant, the composer, attachment controls, model and approval controls, voice buttons, send/stop buttons, and export when messages exist.
+Chat is the main place to ask Row-Bot for help. A chat thread can stay simple, or it can use models, memory, documents, tools, approvals, attachments, skills, voice, workflows, and specialist profiles.
 
+<Screenshot id="chat-main" alt="Row-Bot chat view with conversation and composer controls." caption="The chat view shows the active conversation, model context, tool-result history, and message composer controls." />
 
-<Screenshot id="chat-main" alt="Row-Bot chat surface with seeded messages." caption="The real chat surface rendered from seeded safe demo state." />
+## UI Walkthrough
 
-## Controls In The Screenshot
+- **Thread header** shows the current thread title and actions such as rename, profile selection, model state, and export when available.
+- **Transcript** contains user messages, assistant responses, tool results, charts, images, reasoning sections, and status messages.
+- **Composer** is where you type the next request. Use plain language and include the outcome you want.
+- **Send** submits the composer text to the selected model.
+- **Stop** appears while Row-Bot is responding and asks the current run to stop.
+- **Regenerate or retry controls** appear when a response can be run again.
+- **Model picker** chooses the model for this thread. See [Model Picker](/docs/chat/model-picker).
+- **Approval mode** controls how sensitive actions are reviewed for this thread.
+- **Attachments and context controls** add files or local context to the current request.
+- **Skills and slash commands** help start structured tasks when available.
+- **Voice buttons** use Dictate or Talk when voice is configured.
+- **Tool traces** show what tools Row-Bot used and what came back.
+- **Approval prompts** pause risky actions until you approve or reject them.
 
-- Thread header: current thread title, rename, profile picker, and export when messages are present.
-- Transcript: user and assistant messages, tool results, charts, images, and reasoning sections when present.
-- Composer: textarea, attachments, model and approval controls, Smart Skill suggestions, slash commands, voice, send, and stop.
-- Model banner: indicates local/private or cloud/provider execution before a run.
+## Beginner Workflow
 
+1. Start a new thread.
+2. Choose a model that is ready for chat.
+3. Ask one clear question or task.
+4. Attach files only when the task needs them.
+5. Review any approval prompt before allowing Row-Bot to act.
+6. Rename the thread when it becomes useful enough to keep.
+
+## Power Workflow
+
+1. Choose an Agent Profile for the kind of work.
+2. Pick a stronger tool-capable model.
+3. Attach documents or enable retrieval only for relevant context.
+4. Let Row-Bot use tools, but approve file writes, browser actions, shell commands, account actions, channel sends, MCP calls, and plugin tools deliberately.
+5. Export or continue the thread after the work is complete.
 
 ## What Is Saved
 
-Thread metadata lives in `threads.db`; transcript checkpoints and media sidecars are stored under the active data directory.
+Thread names, messages, selected model overrides, approval mode, profile selection, attachments copied into Row-Bot-managed storage, and tool results are saved locally. Some external providers may receive prompt content when you choose their models.
 
-## Local And External Behavior
+## Privacy And Safety
 
-Local model runs and local tools can stay on the machine. File attachments are copied into Row-Bot-managed storage before use.
+Local model runs can stay on your machine. Hosted models, web search, browser actions, account tools, MCP servers, plugins, and channels can send data outside the app when configured and used. Row-Bot should not insert secrets into chat; enter credentials only through Settings or the provider's sign-in flow.
 
-Cloud models, web search, browser actions, account tools, MCP tools, channels, and plugins can call outside services only when configured and invoked.
+## Troubleshooting
 
-## Credentials And Safety
-
-Secrets are not inserted into chat. Approval prompts are used for sensitive file, shell, browser, MCP, and external actions.
-
-Actions that can change files, call external systems, start servers, or use MCP tools follow the active approval policy. When a surface is disconnected or empty, Row-Bot keeps the controls visible so you can see what still needs setup.
+- If Row-Bot cannot answer with the current model, choose a more capable model in the picker.
+- If attachments are ignored, confirm the files finished uploading and are relevant to the prompt.
+- If a tool is unavailable, check Settings, the current Agent Profile, and approval mode.
+- If a run is stuck, press Stop, then retry with a narrower prompt.

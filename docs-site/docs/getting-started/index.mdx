@@ -1,12 +1,30 @@
 ---
 title: "Getting Started"
-description: "Start Row-Bot, connect a model, and understand the real first-run flow."
+description: "Install Row-Bot, complete first launch, and learn the first choices that matter."
 ---
 
 # Getting Started
 
-Use the installation page for platform setup, then use first launch to choose a local, API, subscription, or custom endpoint model path. Row-Bot stores app state under the active data directory, which can be overridden with `ROW_BOT_DATA_DIR` for tests or portable runs.
+Start here if you are new to Row-Bot. You only need three things for a useful first session: the app installed, one working model path, and a basic understanding of where Row-Bot stores local data.
+
+## The Short Path
+
+1. Install Row-Bot from the release package for your platform.
+2. Launch the app and complete the first-run wizard.
+3. Choose one model path: local Ollama, a hosted provider, a subscription account, or a custom endpoint.
+4. Send a first chat message.
+5. Open Settings later when you are ready for documents, workflows, Designer, Developer, channels, MCP, plugins, Skills, Buddy, or voice.
+
+## Important Concepts
+
+- **Local app** means Row-Bot runs on your machine and opens a local desktop or browser window.
+- **Data directory** means the folder where Row-Bot keeps conversations, memories, documents, settings, workflows, logs, Designer projects, Developer workspaces, skills, plugins, and local integration state.
+- **Model provider** means the service or local runtime that supplies a model. Ollama is local; API and subscription providers usually use the internet.
+- **Tools** are actions Row-Bot can take, such as reading files, searching documents, using a browser, running Developer commands, or sending through a channel.
+- **Approvals** are prompts that ask you to review sensitive actions before Row-Bot proceeds.
+
+## Pages In This Section
 
 - [Installation](/docs/getting-started/installation)
 - [First Launch](/docs/getting-started/first-launch)
-- [App Shell Navigation](/docs/app-shell/navigation)
+- [Row-Bot Interface](/docs/app-shell/navigation)

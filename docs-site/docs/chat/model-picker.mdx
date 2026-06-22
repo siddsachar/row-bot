@@ -1,18 +1,42 @@
 ---
 title: "Model Picker"
-description: "Understand model choices, provider identity, Quick Choices, and execution boundaries."
+description: "Choose, pin, and troubleshoot Row-Bot models across local, hosted, subscription, and custom providers."
 ---
 
 # Model Picker
 
-The composer model controls choose which provider-qualified model handles the next run. The visible labels separate local models, hosted API providers, subscription-backed providers, and custom endpoints.
+The Model Picker chooses which model powers the current chat thread. It is where provider setup becomes visible in day-to-day use.
 
-The focused model-picker screenshot is deferred until the composer policy cluster has stable real selectors. The current chat screenshot still shows the live model/privacy banner and composer area.
+## Where Models Come From
 
-## Saved State
+Models appear after Row-Bot discovers them from a connected provider or local runtime:
 
-Quick Choices, defaults, context settings, and model catalog cache entries are saved locally. Provider credentials stay in the configured secure or session storage path rather than in docs or screenshots.
+- Local Ollama models come from the Ollama service running on your machine.
+- API provider models come from a provider connected in Settings -> Providers.
+- Subscription models come from a supported account-backed provider after sign-in or token import.
+- Custom endpoint models come from the compatible endpoint details you provide.
+- Pinned Quick Choices come from Settings -> Models and are shown first for convenience.
 
-## Safety
+## UI Walkthrough
 
-Changing a model can change where prompts and tool results are sent. Check the banner before sending sensitive content.
+- **Pinned models** are your quick picks for everyday use.
+- **Provider groups** keep local, API, subscription, and custom endpoint models understandable.
+- **Search** narrows long model lists.
+- **Capability labels** help distinguish chat, tool-capable, vision, reasoning, embedding, media, and voice models.
+- **Disabled or missing providers** stay out of normal selection until they are configured and healthy.
+- **Thread override** means the selected model applies to the active thread without changing your global default.
+
+## Choosing Well
+
+Use a smaller or local model for quick private chats. Use a stronger tool-capable model for workflows, Developer Studio, Designer Studio, long context, or multi-step tool use. For local and self-hosted endpoints, prefer a context window large enough for Row-Bot's instructions and tool schemas.
+
+## Pinning Models
+
+Open Settings -> Models, refresh the catalog, and pin the models you use often. Pinning does not create a new model; it just puts an existing discovered model into your Quick Choices.
+
+## Troubleshooting
+
+- If a model is missing, refresh Providers, then refresh Models.
+- If a provider is connected but disabled, review the provider row message.
+- If a model appears but fails with tools, choose a model labeled or tested for Agent Mode.
+- If custom endpoint models look duplicated, use the provider-qualified name.

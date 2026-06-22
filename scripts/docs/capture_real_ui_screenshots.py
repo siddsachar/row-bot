@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -29,7 +30,9 @@ if str(SRC) not in sys.path:
 
 MANIFEST = ROOT / "docs-content" / "metadata" / "screenshots.yml"
 OUTPUT_ROOT = ROOT / "docs-site" / "static" / "img" / "screenshots" / "real-ui"
+RAW_OUTPUT_ROOT = ROOT / "docs-build" / "reports" / "real-data-screenshots"
 REPORT = ROOT / "docs-build" / "reports" / "screenshots.json"
+REVIEW_REPORT = ROOT / "docs-build" / "reports" / "public-docs-screenshot-review.md"
 DOM_ROOT = ROOT / "docs-build" / "reports" / "real-ui-dom"
 LOG_ROOT = ROOT / "docs-build" / "logs"
 
@@ -106,6 +109,12 @@ def _managed_chromium() -> str:
         if candidate.is_file():
             return str(candidate)
     return ""
+
+
+def _default_real_data_dir() -> Path:
+    from row_bot.brand import default_data_dir
+
+    return default_data_dir().expanduser()
 
 
 def _browser_type(pw):
@@ -213,7 +222,11 @@ def _write_dom_snapshot(page, shot_id: str, shot: dict[str, Any], selector: str)
 
 
 def _wait_for_text(page, text: str, timeout: int = 15_000) -> None:
-    page.get_by_text(text, exact=False).first.wait_for(timeout=timeout)
+    page.wait_for_function(
+        "(needle) => document.body && document.body.innerText && document.body.innerText.includes(needle)",
+        arg=text,
+        timeout=timeout,
+    )
 
 
 def _run_action(page, action: dict[str, Any], base_url: str) -> None:
@@ -255,6 +268,7 @@ def _capture_one(browser, port: int, shot_id: str, shot: dict[str, Any]) -> dict
     base_url = f"http://127.0.0.1:{port}"
     route = str(shot.get("route") or "/")
     output = OUTPUT_ROOT / str(shot.get("output") or f"{shot_id}.png")
+    raw_output = RAW_OUTPUT_ROOT / str(shot.get("output") or f"{shot_id}.png")
     errors: list[str] = []
     try:
         if "/docs-mode/" in route:
@@ -276,7 +290,9 @@ def _capture_one(browser, port: int, shot_id: str, shot: dict[str, Any]) -> dict
             except Exception:
                 pass
         locator = page.locator(selector).first
-        locator.screenshot(path=str(output), animations="disabled", mask=masks)
+        raw_output.parent.mkdir(parents=True, exist_ok=True)
+        locator.screenshot(path=str(raw_output), animations="disabled", mask=masks)
+        shutil.copyfile(raw_output, output)
         errors.extend(_validate_image(output, {"id": shot_id, **shot}))
     except Exception as exc:
         errors.append(str(exc))
@@ -287,8 +303,12 @@ def _capture_one(browser, port: int, shot_id: str, shot: dict[str, Any]) -> dict
         "title": shot.get("title", shot_id),
         "status": "ok" if not errors else "failed",
         "deferred": False,
+        "review_status": shot.get("review_status", "needs-review"),
+        "source": shot.get("source", ""),
+        "public_asset": shot.get("public_asset", False),
         "route": route,
         "output": str(output.relative_to(ROOT)).replace("\\", "/"),
+        "raw_output": str(raw_output.relative_to(ROOT)).replace("\\", "/"),
         "errors": errors,
     }
 
@@ -299,6 +319,9 @@ def _blocked_record(shot_id: str, shot: dict[str, Any], reason: str) -> dict[str
         "title": shot.get("title", shot_id),
         "status": "deferred",
         "deferred": True,
+        "review_status": shot.get("review_status", "needs-review"),
+        "source": shot.get("source", ""),
+        "public_asset": shot.get("public_asset", False),
         "reason": reason,
         "output": str((OUTPUT_ROOT / str(shot.get("output") or f"{shot_id}.png")).relative_to(ROOT)).replace("\\", "/"),
         "errors": [],
@@ -316,11 +339,56 @@ def _write_report(records: list[dict[str, Any]], *, mode: str) -> dict[str, Any]
         "records": records,
     }
     REPORT.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_review_report(summary)
     print(f"Wrote screenshot report to {REPORT}")
     for item in records:
         if item.get("errors"):
             print(f"ERROR {item['id']}: {'; '.join(item['errors'])}")
     return summary
+
+
+def _write_review_report(summary: dict[str, Any]) -> None:
+    REVIEW_REPORT.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "# Public Docs Screenshot Review",
+        "",
+        "Status: manual visual review required before publishing these screenshots.",
+        "",
+        f"- Mode: {summary.get('mode', '')}",
+        f"- Total records: {summary.get('total', 0)}",
+        f"- Captured or validated: {summary.get('captured', 0)}",
+        f"- Failed: {summary.get('failed', 0)}",
+        f"- Deferred: {summary.get('deferred', 0)}",
+        "",
+        "## Screenshot Records",
+        "",
+        "| ID | Status | Review | Source | Public asset | Output | Notes |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for item in summary.get("records", []):
+        notes = "; ".join(item.get("errors") or []) or str(item.get("reason") or "")
+        lines.append(
+            "| {id} | {status} | {review} | {source} | {public_asset} | {output} | {notes} |".format(
+                id=str(item.get("id", "")),
+                status=str(item.get("status", "")),
+                review=str(item.get("review_status", "needs-review")),
+                source=str(item.get("source", "")),
+                public_asset=str(item.get("public_asset", "")),
+                output=str(item.get("output", "")),
+                notes=notes.replace("|", "\\|"),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Manual Gate",
+            "",
+            "- Review every image for private names, credentials, paths, account labels, channel names, document content, or misleading real data.",
+            "- Mark screenshots as approved, replace, crop, or redact in `docs-content/metadata/screenshots.yml` after review.",
+            "- Do not publish or link this docs-site from the current public site until the review gate is complete.",
+        ]
+    )
+    REVIEW_REPORT.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 
 def validate_committed(manifest: dict[str, Any]) -> dict[str, Any]:
@@ -339,6 +407,9 @@ def validate_committed(manifest: dict[str, Any]) -> dict[str, Any]:
                     "id": shot_id,
                     "status": "failed" if errors else "deferred",
                     "deferred": True,
+                    "review_status": shot.get("review_status", "needs-review"),
+                    "source": shot.get("source", ""),
+                    "public_asset": shot.get("public_asset", False),
                     "errors": errors,
                     "output": str((OUTPUT_ROOT / str(shot.get("output") or f"{shot_id}.png")).relative_to(ROOT)).replace("\\", "/"),
                 }
@@ -351,6 +422,9 @@ def validate_committed(manifest: dict[str, Any]) -> dict[str, Any]:
                 "id": shot_id,
                 "status": "ok" if not errors else "failed",
                 "deferred": False,
+                "review_status": shot.get("review_status", "needs-review"),
+                "source": shot.get("source", ""),
+                "public_asset": shot.get("public_asset", False),
                 "errors": errors,
                 "output": str(output.relative_to(ROOT)).replace("\\", "/"),
             }
@@ -358,14 +432,38 @@ def validate_committed(manifest: dict[str, Any]) -> dict[str, Any]:
     return _write_report(records, mode="validate")
 
 
-def capture(manifest: dict[str, Any], *, scenario: str, timeout: float = 90.0, data_dir: Path | None = None) -> dict[str, Any]:
+def _filter_manifest(manifest: dict[str, Any], source_filter: str) -> dict[str, Any]:
+    if not source_filter or source_filter == "all":
+        return manifest
+    return {
+        shot_id: shot
+        for shot_id, shot in manifest.items()
+        if isinstance(shot, dict) and str(shot.get("source") or "") == source_filter
+    }
+
+
+def capture(
+    manifest: dict[str, Any],
+    *,
+    scenario: str,
+    timeout: float = 90.0,
+    data_dir: Path | None = None,
+    seed_demo_data: bool = False,
+    use_temp_data: bool = False,
+    source_filter: str = "real-data-dir",
+) -> dict[str, Any]:
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+    RAW_OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
     DOM_ROOT.mkdir(parents=True, exist_ok=True)
+    manifest = _filter_manifest(manifest, source_filter)
     temp_dir = None
-    if data_dir is None:
+    if use_temp_data:
         temp_dir = tempfile.TemporaryDirectory(prefix="row_bot_docs_real_ui_", ignore_cleanup_errors=True)
         data_dir = Path(temp_dir.name)
-    else:
+        seed_demo_data = True if not seed_demo_data else seed_demo_data
+    elif data_dir is None:
+        data_dir = _default_real_data_dir()
+    if data_dir is not None:
         data_dir.mkdir(parents=True, exist_ok=True)
     port = _free_port()
     if _port_open(port):
@@ -374,7 +472,8 @@ def capture(manifest: dict[str, Any], *, scenario: str, timeout: float = 90.0, d
     records: list[dict[str, Any]] = []
     proc: subprocess.Popen | None = None
     try:
-        _seed(data_dir, scenario)
+        if seed_demo_data:
+            _seed(data_dir, scenario)
         with ExitStack() as stack:
             proc = _launch_app(port, data_dir, stack)
             _wait_ping(port, proc, timeout)
@@ -417,6 +516,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Capture or validate real Row-Bot UI screenshots")
     parser.add_argument("--scenario", default="full")
     parser.add_argument("--data-dir", default=None)
+    parser.add_argument("--use-temp-data", action="store_true", help="Use an isolated temporary data directory")
+    parser.add_argument("--seed-demo-data", action="store_true", help="Seed deterministic review data before launch")
+    parser.add_argument(
+        "--source-filter",
+        default="real-data-dir",
+        help="Capture only screenshots with this metadata source, or 'all'",
+    )
     parser.add_argument("--validate-only", action="store_true")
     parser.add_argument("--timeout", type=float, default=90.0)
     args = parser.parse_args()
@@ -429,6 +535,9 @@ def main() -> int:
             scenario=str(args.scenario or "full"),
             timeout=args.timeout,
             data_dir=Path(args.data_dir).resolve() if args.data_dir else None,
+            seed_demo_data=bool(args.seed_demo_data),
+            use_temp_data=bool(args.use_temp_data),
+            source_filter=str(args.source_filter or "real-data-dir"),
         )
     return 1 if summary.get("failed") else 0
 

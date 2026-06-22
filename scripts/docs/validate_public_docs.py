@@ -94,6 +94,26 @@ def _scan_text(path: Path, text: str) -> list[str]:
         errors.append(f"{rel} references forbidden docs-mode screenshot text")
     if "img/screenshots/generated" in normalized or "screenshots/generated" in normalized:
         errors.append(f"{rel} references the fake generated screenshot directory")
+    forbidden_public_phrases = [
+        "nicegui",
+        "capture mode",
+        "docs capture",
+        "docs-mode",
+        "route metadata",
+        "source inventory",
+        "fake demo",
+        "seeded safe demo",
+        "setup_complete",
+        "replacement screenshot",
+        "captured from the app",
+        "captured from the nicegui",
+    ]
+    if path.is_relative_to(DOCS_ROOT) or path.name in {"llms.txt", "llms-full.txt"}:
+        for phrase in forbidden_public_phrases:
+            if phrase in lowered:
+                errors.append(f"{rel} contains internal public-docs wording: {phrase}")
+        if "app shell" in lowered:
+            errors.append(f"{rel} uses App Shell terminology")
     for pattern in SECRET_PATTERNS:
         if pattern.search(text):
             errors.append(f"{rel} contains blocked secret/path pattern: {pattern.pattern}")
@@ -234,6 +254,17 @@ def _validate_screenshots(errors: list[str], surfaces: dict[str, Any], screensho
         status = str(screenshot.get("status") or "")
         if status not in {"required", "deferred"}:
             errors.append(f"Screenshot {screenshot_id} status must be required or deferred")
+        review_status = str(screenshot.get("review_status") or "")
+        if review_status not in {"needs-review", "approved", "replace", "crop", "redact"}:
+            errors.append(f"Screenshot {screenshot_id} review_status is invalid or missing")
+        source = str(screenshot.get("source") or "")
+        if source not in {"real-data-dir", "isolated-first-launch", "review-fixture"}:
+            errors.append(f"Screenshot {screenshot_id} source is invalid or missing")
+        if not isinstance(screenshot.get("public_asset"), bool):
+            errors.append(f"Screenshot {screenshot_id} public_asset must be true or false")
+        for required_key in ("id", "page", "purpose", "selector"):
+            if not screenshot.get(required_key):
+                errors.append(f"Screenshot {screenshot_id} is missing {required_key}")
         selector = str(screenshot.get("capture_selector") or screenshot.get("wait_for") or "")
         for docs_id in re.findall(r'data-docs-id=\"([^\"]+)\"', selector):
             if docs_id not in source_text:
@@ -246,6 +277,8 @@ def _validate_screenshots(errors: list[str], surfaces: dict[str, Any], screensho
                 errors.append(f"Deferred screenshot {screenshot_id} is missing reason")
             if not screenshot.get("follow_up"):
                 errors.append(f"Deferred screenshot {screenshot_id} is missing follow_up")
+            if screenshot.get("public_asset"):
+                errors.append(f"Deferred screenshot {screenshot_id} cannot be marked public_asset")
             if screenshot_id in component_ids:
                 errors.append(f"Deferred screenshot {screenshot_id} is referenced by user-facing docs")
             continue

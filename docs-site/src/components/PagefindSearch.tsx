@@ -43,13 +43,26 @@ export default function PagefindSearch(): JSX.Element {
       setReady(true);
       return;
     }
+    let cancelled = false;
+    const readyEvent = 'rowbot-pagefind-ready';
+    const handleReady = () => {
+      if (!cancelled) {
+        setReady(Boolean(window.pagefind));
+      }
+    };
+    window.addEventListener(readyEvent, handleReady);
     const script = document.createElement('script');
-    script.src = pagefindUrl;
-    script.async = true;
-    script.onload = () => setReady(Boolean(window.pagefind));
+    script.type = 'module';
+    script.textContent = `
+      import * as pagefind from ${JSON.stringify(pagefindUrl)};
+      window.pagefind = pagefind;
+      window.dispatchEvent(new Event('${readyEvent}'));
+    `;
     script.onerror = () => setMessage('Search index is available after building the docs site.');
     document.body.appendChild(script);
     return () => {
+      cancelled = true;
+      window.removeEventListener(readyEvent, handleReady);
       script.remove();
     };
   }, [pagefindUrl]);

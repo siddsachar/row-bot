@@ -1,29 +1,50 @@
 ---
 title: "Voice And Buddy"
-description: "Configure voice input/output and Buddy companion behavior."
+description: "Configure Dictate, Talk, local voice, realtime voice, read-aloud, devices, and Buddy."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Voice And Buddy
 
-Configure voice input/output and Buddy companion behavior.
+Voice and Buddy make Row-Bot feel less like a text box and more like a desktop companion. Voice handles speech input and optional spoken output. Buddy is the visual companion that reflects app state and can live in the sidebar, workspace, or desktop overlay.
 
+<Screenshot id="settings-voice" alt="Row-Bot Voice settings." caption="Voice settings control Dictate, Talk, read-aloud, voice models, devices, and diagnostics." />
 
-<Screenshot id="settings-voice" alt="Row-Bot Voice And Buddy surface." caption="Related real Row-Bot surface for Voice And Buddy." />
+## Voice Modes
 
-## What Is Saved
+- **Dictate** turns speech into composer text so you can review it before sending.
+- **Talk** submits spoken input more directly for conversation.
+- **Read-aloud** speaks assistant responses when enabled.
+- **Local voice** uses local speech components where available.
+- **Realtime voice** uses a compatible provider for lower-latency spoken conversation.
 
-Configuration is saved under the active Row-Bot data directory.
+## Choosing A Mode
 
-## Local And External Behavior
+Use Dictate when accuracy and review matter. Use Talk when you want a faster hands-light conversation. Use local voice when privacy and offline-style behavior matter. Use realtime voice when latency matters and you accept internet access, provider requirements, and provider cost.
 
-The documented UI opens locally. Side effects are disabled during docs capture.
+## Devices And Diagnostics
 
-External services are contacted only when credentials/configuration are added and the user starts or invokes the integration.
+Select the microphone and output device in Settings -> Voice. Run diagnostics when audio is silent, delayed, or routed to the wrong device.
 
-## Credentials And Safety
+<Screenshot id="settings-buddy" alt="Row-Bot Buddy settings." caption="Buddy settings control companion visibility, overlay, personality, look, motion, and optional custom-look generation." />
 
-Public demo screenshots use example domains, disconnected states, or masked controls.
+## Buddy Controls
 
-Actions that can change files, call external systems, start servers, or use MCP tools follow the active approval policy. When a surface is disconnected or empty, Row-Bot keeps the controls visible so you can see what still needs setup.
+- **Enable switches** choose sidebar, workspace, or desktop overlay visibility.
+- **Open and close overlay** manage the separate desktop companion window.
+- **Companion personality** changes the tone of Buddy cues.
+- **Bubble style** changes status presentation.
+- **Look cards** choose bundled or custom appearances.
+- **Generate full Buddy**, **Retry motion**, and **Use still only** manage custom looks.
+
+## Privacy And Safety
+
+Voice input can become chat text. Realtime voice and provider-backed speech may send audio or transcript data to the selected provider. Buddy preferences and assets are local, but custom generation may call a configured media provider.
+
+## Troubleshooting
+
+- If Dictate records nothing, check microphone selection and permissions.
+- If Talk sends too quickly, use Dictate instead.
+- If realtime voice is unavailable, check Providers and Voice Models.
+- If Buddy does not appear, check Buddy enable switches and overlay state.

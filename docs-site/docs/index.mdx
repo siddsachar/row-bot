@@ -1,32 +1,38 @@
 ---
 title: "Row-Bot Documentation"
-description: "Public documentation for installing, configuring, and using the real Row-Bot app."
+description: "A complete public user guide for installing, configuring, and using Row-Bot end to end."
 ---
 
-import PagefindSearch from '@site/src/components/PagefindSearch';
 import Screenshot from '@site/src/components/Screenshot';
 
 # Row-Bot Documentation
 
-Row-Bot is a local-first desktop AI assistant for chat, tools, workflows, Designer Studio, Developer Studio, knowledge, skills, plugins, MCP, channels, voice, and safety-reviewed automation.
+Row-Bot is a local-first desktop AI assistant for people who want models, memory, tools, workflows, design, code help, integrations, and voice in one controllable app. This guide explains how to install Row-Bot, choose a model path, use the main interface, configure settings, and understand what happens when Row-Bot uses external services.
 
-This docs site is built from source inventory, route metadata, generated references, and screenshots captured from the actual NiceGUI app at `/`. Capture mode can seed fake demo data and disable side effects, but it does not render replacement screenshot UI.
-
-<Screenshot id="app-shell-overview" alt="Row-Bot app shell with sidebar and main Home surface." caption="The real app shell captured from the NiceGUI route." />
+<Screenshot id="app-shell-overview" alt="Row-Bot main interface with sidebar, Home tabs, activity center, and terminal." caption="Row-Bot's main interface brings conversations, Home tabs, settings, Buddy, activity, approvals, workflows, and terminal output into one local workspace." />
 
 ## Start Here
 
-<div className="rowBotPanelGrid">
-  <div className="rowBotPanel"><h3>Install</h3><p>Choose a platform and understand where Row-Bot stores local data.</p><a href="/docs/getting-started/installation">Installation</a></div>
-  <div className="rowBotPanel"><h3>First Launch</h3><p>Connect the first model path, then continue through optional setup areas.</p><a href="/docs/getting-started/first-launch">First launch</a></div>
-  <div className="rowBotPanel"><h3>App Shell</h3><p>Learn navigation, threads, status surfaces, command center, terminal, and settings.</p><a href="/docs/app-shell/navigation">Navigation</a></div>
-  <div className="rowBotPanel"><h3>Settings</h3><p>Every Settings tab is documented from the real tab list.</p><a href="/docs/settings/">Settings reference</a></div>
-</div>
+- [Getting Started](/docs/getting-started/) explains the install path, first launch, and setup choices.
+- [Row-Bot Interface](/docs/app-shell/navigation) tours the sidebar, thread list, Home tabs, Activity Center, Buddy, Settings, and terminal.
+- [Chat](/docs/chat/) explains conversations, composer controls, attachments, model selection, approvals, and tool results.
+- [Settings](/docs/settings/) explains every configuration tab and what each choice changes.
 
-## Search
+## Feature Guides
 
-<PagefindSearch />
+- [Workflows](/docs/guides/workflows) for repeatable background work and scheduled agents.
+- [Designer Studio](/docs/designer/) for creating pages, slides, mockups, branded assets, and exportable designs.
+- [Developer Studio](/docs/developer/) for folders, repositories, code chat, inspectors, commands, and sandbox modes.
+- [Knowledge](/docs/knowledge/) for local memory, documents, graph review, and background organization.
+- [Monitor](/docs/monitor/) for logs, journals, channel state, and background activity.
+- [Skills Hub](/docs/skills/) for browsing, enabling, creating, and reviewing skills.
+- [Channels](/docs/integrations/channels), [MCP](/docs/integrations/mcp), and [Plugins](/docs/integrations/plugins) for integrations.
+- [Voice and Buddy](/docs/voice-and-buddy/) for speech input, Talk, Dictate, read-aloud, and the visual companion.
 
-## Code-Backed Reference
+## How To Read These Docs
 
-Generated reference pages cover tools, providers, Home tabs, Settings tabs, channels, skills, MCP, plugins, storage, environment variables, screenshots, and approvals. Start with [Generated Reference](/docs/reference/generated/).
+Each major page explains what the feature is, where to find it, the important controls, a common workflow, what is saved, privacy and safety implications, and troubleshooting. Screenshot captions describe the product UI so you can connect the text to what you see in the app.
+
+## References
+
+Use [Reference](/docs/reference/) when you need tables of tools, providers, settings tabs, channels, skills, MCP servers, plugins, storage, or approval behavior. The guided pages should be your first stop; the reference pages are for lookup.

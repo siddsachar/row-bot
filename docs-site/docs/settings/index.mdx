@@ -1,27 +1,42 @@
 ---
 title: "Settings"
-description: "Overview of every real Row-Bot Settings tab."
+description: "Understand every Row-Bot Settings tab and what each configuration area changes."
 ---
 
 # Settings
 
-Settings is a maximized real NiceGUI dialog. It contains every configuration tab listed in `src/row_bot/ui/settings.py`: Providers, Models, Documents, Search, Skills, System, Accounts, Utilities, Tracker, Knowledge, Buddy, Voice, Channels, MCP, Plugins, and Preferences.
+Settings is Row-Bot's configuration center. It affects model providers, model choices, documents, search, skills, system access, accounts, utilities, tracker, knowledge, Buddy, voice, channels, MCP, plugins, and preferences.
 
-Use the pages below for tab-by-tab behavior, saved state, credentials, side effects, and troubleshooting.
+## How Settings Is Organized
 
-- [Providers](/docs/settings/providers)
-- [Models](/docs/settings/models)
-- [Documents](/docs/settings/documents)
-- [Search](/docs/settings/search)
-- [Skills](/docs/settings/skills)
-- [System](/docs/settings/system)
-- [Accounts](/docs/settings/accounts)
-- [Utilities](/docs/settings/utilities)
-- [Tracker](/docs/settings/tracker)
-- [Knowledge](/docs/settings/knowledge)
-- [Buddy](/docs/settings/buddy)
-- [Voice](/docs/settings/voice)
-- [Channels](/docs/settings/channels)
-- [MCP](/docs/settings/mcp)
-- [Plugins](/docs/settings/plugins)
-- [Preferences](/docs/settings/preferences)
+- **Providers** connects local, hosted, subscription, and custom model providers.
+- **Models** chooses defaults and pinned Quick Choices.
+- **Documents** manages uploads, extraction, embeddings, and vector rebuilds.
+- **Search** controls web research, local retrieval, and browser automation.
+- **Skills** manages Smart Skills and Skills Hub access.
+- **System** configures local access, workspace boundaries, window behavior, tunnels, logs, and diagnostics.
+- **Accounts** connects account-level integrations.
+- **Utilities** manages built-in helper tools.
+- **Tracker** configures structured personal logs.
+- **Knowledge** manages memory, graph, embeddings, and wiki export.
+- **Buddy** controls the visual companion.
+- **Voice** configures Talk, Dictate, read-aloud, models, devices, and diagnostics.
+- **Channels** configures external messaging connectors.
+- **MCP** manages external MCP tool servers.
+- **Plugins** manages installed plugins and Custom Tool promotion.
+- **Preferences** changes identity, launch behavior, background intelligence, updates, and migration.
+
+## A Good Setup Order
+
+1. Providers
+2. Models
+3. Documents and Search
+4. Skills
+5. System access
+6. Integrations: Accounts, Channels, MCP, Plugins
+7. Voice and Buddy
+8. Preferences
+
+## Safety Notes
+
+Credentials belong in Providers, Accounts, Channels, MCP, or plugin-specific settings, not in chat messages. Enable only the tools and integrations you intend to use. Review approvals before actions that write files, run commands, use accounts, contact external services, or send messages.

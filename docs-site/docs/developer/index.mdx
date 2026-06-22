@@ -1,29 +1,50 @@
 ---
 title: "Developer Studio"
-description: "Use Developer Studio from Home Developer and workspace surfaces."
+description: "Use Row-Bot for folders, repositories, code chat, inspectors, commands, changes, and sandbox modes."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Developer Studio
 
-Use Developer Studio from Home Developer and workspace surfaces.
+Developer Studio is Row-Bot's code workspace. Use it when you want Row-Bot to understand a local folder or Git repository, discuss code, inspect files, run approved commands, propose edits, and help review changes.
 
+<Screenshot id="home-developer" alt="Row-Bot Developer entry point." caption="The Developer Home tab opens folders, connects repositories, clones projects, and starts Developer Studio workspaces." />
 
-<Screenshot id="home-developer" alt="Row-Bot Developer Studio surface." caption="Related real Row-Bot surface for Developer Studio." />
+## Where To Find It
 
-## What Is Saved
+Open Home -> Developer. Choose an existing folder, connect a repository already on your machine, or clone a repository into a local workspace.
 
-Configuration is saved under the active Row-Bot data directory.
+## End-To-End Workflow
 
-## Local And External Behavior
+1. Open or clone a project.
+2. Confirm the workspace name, path, branch, and dirty state.
+3. Ask Developer chat a code question or assign a change.
+4. Review the inspector for files, detected commands, todos, context, and approvals.
+5. Approve only the commands or edits you understand.
+6. Run tests or checks.
+7. Review the changed files before committing or exporting a patch.
 
-The documented UI opens locally. Side effects are disabled during docs capture.
+## UI Walkthrough
 
-External services are contacted only when credentials/configuration are added and the user starts or invokes the integration.
+- **Open folder** connects a local project without cloning.
+- **Connect repository** uses a local Git checkout.
+- **Clone repository** creates a new checkout from a remote URL.
+- **Developer chat** is the conversation bound to that workspace.
+- **Inspector** shows workspace identity, files, command suggestions, todos, changes, and run state.
+- **File/context panel** helps Row-Bot and you see what code is relevant.
+- **Command controls** run detected or requested commands through approval policy.
+- **Change review** summarizes edits and lets you inspect before accepting next steps.
 
-## Credentials And Safety
+## Sandbox Modes
 
-Public demo screenshots use example domains, disconnected states, or masked controls.
+Local mode lets Row-Bot operate in the selected workspace with your configured file and command permissions. Docker sandbox mode, when available, isolates command execution in a container and requires an import step before changes affect the real workspace. Docker is safer for risky commands but requires Docker setup and can differ from your local environment.
 
-Actions that can change files, call external systems, start servers, or use MCP tools follow the active approval policy. When a surface is disconnected or empty, Row-Bot keeps the controls visible so you can see what still needs setup.
+For most users, start with local mode on a disposable branch. Use Docker when you want stronger isolation or are testing uncertain commands.
+
+## Troubleshooting
+
+- If Developer tools are unavailable, open a Developer workspace first.
+- If commands are missing, inspect detected commands or ask Row-Bot to identify the project tooling.
+- If a command asks for approval, read the exact command and workspace before approving.
+- If Docker sandbox import is offered, review the patch before importing it into the real project.

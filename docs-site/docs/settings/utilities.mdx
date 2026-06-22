@@ -1,38 +1,43 @@
 ---
 title: "Settings: Utilities"
-description: "Documented real Settings Utilities tab."
+description: "Configure built-in helper tools and productivity utilities."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Settings: Utilities
 
-Built-in utility tools and small productivity integrations available to the assistant.
+Utilities are smaller helper tools that support everyday work: calculations, file helpers, media helpers, formatting aids, or local integrations. They are useful when Chat needs a precise operation instead of a pure model answer.
 
+<Screenshot id="settings-utilities" alt="Settings: Utilities in Row-Bot." caption="The Utilities tab controls optional built-in tools and helper features." />
 
-<Screenshot id="settings-utilities" alt="Row-Bot Settings Utilities tab." caption="The real Settings Utilities tab captured from the app." />
+## Where To Find It
 
-## How To Open
+Open **Settings**, then choose **Utilities** from the left tab list.
 
-Open Settings from the sidebar or setup/status surfaces, then choose **Utilities**.
+## Controls
 
-## Visible Sections And Controls
+- Tool toggles decide which helper utilities Row-Bot may use.
+- Configuration fields set defaults such as output locations or preferred formats.
+- Status labels show whether a utility is ready or needs additional setup.
+- Test or refresh actions confirm that an optional dependency is working.
 
-The tab is documented from `src/row_bot/ui/settings.py` and the real Settings tab inventory. Controls include the tab header, setting groups, status rows, action buttons, and empty/error states shown by the current local configuration.
+## Common Workflow
 
+1. Enable utilities that match your normal tasks.
+2. Leave unfamiliar action tools disabled until you understand what they can change.
+3. Use approval mode to review file writes, shell actions, or external calls triggered by utilities.
 
 ## What Is Saved
 
-Utilities settings are saved under the active Row-Bot data directory using the app's normal config, database, or provider-specific storage APIs.
+Utility settings are global. Tool results are shown in the active conversation and may also create files when the approved tool does so.
 
-## Local And External Behavior
+## Privacy And Safety
 
-Opening and editing the tab is local UI work. Local-only options affect files, app config, or local services.
+Review credential, account, channel, provider, or tool settings before enabling features that can contact outside services. Local-only features stay on your machine until you ask Row-Bot to use a provider, account, channel, MCP server, plugin, or tool that sends data elsewhere.
 
-Provider checks, account auth, channel starts, MCP servers, plugin installs, and network probes are external or side-effectful only when the user explicitly configures or starts them.
+## Troubleshooting
 
-## Credentials And Safety
-
-Password and token controls are masked. Docs demo data uses fake disconnected/example states and never stores real credentials.
-
-Actions that can change files, call external systems, start servers, or use MCP tools follow the active approval policy. When a surface is disconnected or empty, Row-Bot keeps the controls visible so you can see what still needs setup.
+- If a utility does not appear in Chat, confirm it is enabled.
+- If a utility needs a dependency, follow its status message before retrying.
+- If an output file is missing, check the allowed workspace and approval history.

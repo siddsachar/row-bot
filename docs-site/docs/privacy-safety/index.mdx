@@ -1,16 +1,36 @@
 ---
 title: "Privacy And Safety"
-description: "Understand local/external boundaries, approvals, credentials, and safe capture behavior."
+description: "Understand local data, provider calls, credentials, approvals, channels, MCP, plugins, and sharing."
 ---
 
 # Privacy And Safety
 
-Row-Bot separates local UI state from external provider, account, channel, MCP, plugin, shell, browser, and filesystem actions. Sensitive operations can require approval, and credential controls are masked.
+Row-Bot is local-first: the app and its data live on your machine. Local-first does not mean every feature is offline. Hosted models, web search, browser actions, account tools, channels, MCP servers, plugins, realtime voice, and media providers can send data outside the app when you configure and use them.
 
-## Docs Capture Safety
+## Local Data
 
-Public docs screenshots are captured from the real NiceGUI app route with `ROW_BOT_DOCS_CAPTURE=1`, a temporary `ROW_BOT_DATA_DIR`, fixed time, reduced motion, fake provider readiness, disabled autostart, and no real credentials.
+Conversations, memories, documents, workflows, logs, Designer projects, Developer workspaces, skills, plugins, Buddy assets, and settings are stored in the active local Row-Bot data directory.
 
-## Approval Examples
+## External Calls
 
-Approval screenshots are deferred until a deterministic pending-interrupt fixture exists. The docs still describe the behavior: file writes, shell commands, browser automation, MCP tools, Developer edits, and external actions can ask before continuing or be blocked by policy.
+External calls happen when you choose or enable something that needs them: hosted models, subscription providers, API providers, web search, browser automation, account tools, messaging channels, MCP servers, plugin tools, realtime voice, and media generation.
+
+## Credentials
+
+Enter credentials only in the relevant Settings tab or provider sign-in flow. Row-Bot stores secrets in the operating system key store when available and keeps local metadata for status and diagnostics.
+
+## Approvals
+
+Use approvals to review file writes, command execution, browser actions, account actions, channel sends, MCP calls, plugin tools, Developer changes, and other sensitive actions. Reject anything that does not match your request.
+
+## Sharing Logs Or Screenshots
+
+Before sharing logs, screenshots, documents, thread exports, or review packages, check for names, file paths, account names, message contents, tokens, private documents, or misleading real data.
+
+## Safer Defaults
+
+- Start with local models when privacy matters most.
+- Keep channels, MCP, and plugins disabled until needed.
+- Use narrow workspaces for file tools.
+- Review approvals before external or destructive actions.
+- Keep a final human review step before publishing screenshots or docs built from a personal app state.

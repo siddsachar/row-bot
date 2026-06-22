@@ -1,0 +1,43 @@
+---
+title: "Knowledge"
+description: "Review and manage Row-Bot memory, documents, knowledge graph records, filters, details, and dream cycle activity."
+---
+
+import Screenshot from '@site/src/components/Screenshot';
+
+# Knowledge
+
+Knowledge is Row-Bot's local memory and retrieval area. It includes saved memories, extracted document information, graph records, entity relationships, and background organization that can help future chats.
+
+<Screenshot id="home-knowledge" alt="Row-Bot Knowledge tab." caption="The Knowledge tab reviews local memory and graph records with filters and detail surfaces." />
+
+## Where To Find It
+
+Open Home -> Knowledge. Configure memory and embeddings in Settings -> Knowledge and Settings -> Documents.
+
+## UI Walkthrough
+
+- **List or grid** shows available knowledge records.
+- **Filters** narrow records by type, source, status, or search text.
+- **Detail cards** show the exact record, source, confidence, timestamps, and related information when available.
+- **Edit mode** lets you correct useful information instead of deleting everything around it.
+- **Dream cycle controls** review or trigger background organization when enabled.
+- **Extraction journal links** connect Knowledge to Monitor so you can see how records were created.
+
+## Common Workflow
+
+1. Open Knowledge after a few useful chats or document imports.
+2. Filter to the topic you care about.
+3. Open a detail card.
+4. Correct or remove misleading records.
+5. Ask Chat to use knowledge only after you have verified important entries.
+
+## What Is Saved
+
+Knowledge records are local data. They can be used as context in future chats when memory, document search, or knowledge retrieval is enabled.
+
+## Troubleshooting
+
+- If Knowledge is empty, enable memory or index documents first.
+- If records are wrong, edit or remove them.
+- If retrieval feels noisy, reduce memory/search settings and review graph entries.

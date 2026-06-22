@@ -59,3 +59,69 @@ routes:
   /docs/troubleshooting/:
     file: docs-site/docs/troubleshooting/index.mdx
     owner: support
+  /docs/app-shell/agent-profiles:
+    file: docs-site/docs/app-shell/agent-profiles.mdx
+    owner: app-shell
+  /docs/guides/workflows:
+    file: docs-site/docs/guides/workflows.mdx
+    owner: workflows
+  /docs/designer/:
+    file: docs-site/docs/designer/index.mdx
+    owner: designer
+  /docs/developer/:
+    file: docs-site/docs/developer/index.mdx
+    owner: developer
+  /docs/knowledge/:
+    file: docs-site/docs/knowledge/index.mdx
+    owner: knowledge
+  /docs/monitor/:
+    file: docs-site/docs/monitor/index.mdx
+    owner: monitor
+  /docs/settings/providers:
+    file: docs-site/docs/settings/providers.mdx
+    owner: settings
+  /docs/settings/models:
+    file: docs-site/docs/settings/models.mdx
+    owner: settings
+  /docs/settings/documents:
+    file: docs-site/docs/settings/documents.mdx
+    owner: settings
+  /docs/settings/search:
+    file: docs-site/docs/settings/search.mdx
+    owner: settings
+  /docs/settings/skills:
+    file: docs-site/docs/settings/skills.mdx
+    owner: settings
+  /docs/settings/system:
+    file: docs-site/docs/settings/system.mdx
+    owner: settings
+  /docs/settings/accounts:
+    file: docs-site/docs/settings/accounts.mdx
+    owner: settings
+  /docs/settings/utilities:
+    file: docs-site/docs/settings/utilities.mdx
+    owner: settings
+  /docs/settings/tracker:
+    file: docs-site/docs/settings/tracker.mdx
+    owner: settings
+  /docs/settings/knowledge:
+    file: docs-site/docs/settings/knowledge.mdx
+    owner: settings
+  /docs/settings/buddy:
+    file: docs-site/docs/settings/buddy.mdx
+    owner: settings
+  /docs/settings/voice:
+    file: docs-site/docs/settings/voice.mdx
+    owner: settings
+  /docs/settings/channels:
+    file: docs-site/docs/settings/channels.mdx
+    owner: settings
+  /docs/settings/mcp:
+    file: docs-site/docs/settings/mcp.mdx
+    owner: settings
+  /docs/settings/plugins:
+    file: docs-site/docs/settings/plugins.mdx
+    owner: settings
+  /docs/settings/preferences:
+    file: docs-site/docs/settings/preferences.mdx
+    owner: settings

@@ -1,10 +1,56 @@
 ---
-title: "Workflows Guide"
-description: "Workflow docs now live under Home Workflows."
+title: "Workflows"
+description: "Create, run, schedule, edit, deliver, and troubleshoot Row-Bot workflows."
 ---
 
-# Workflows Guide
+import Screenshot from '@site/src/components/Screenshot';
 
-This compatibility page remains so older docs links keep working.
+# Workflows
 
-Continue to [Workflow docs now live under Home Workflows.](/docs/home/workflows).
+Workflows are repeatable Row-Bot tasks. Use them for things you want to run again: a morning brief, inbox follow-up, document digest, research check, report draft, or channel delivery.
+
+<Screenshot id="home-workflows" alt="Row-Bot Workflows tab." caption="The Workflows tab shows workflow cards, delivery defaults, run controls, and the New Workflow entry point." />
+
+## Where To Find Workflows
+
+Open Home -> Workflows. The Home tab is the dashboard; this page is the full guide.
+
+## UI Walkthrough
+
+- **Workflow list** shows saved workflows, status, next run, and quick actions.
+- **New Workflow** opens the creation flow.
+- **Delivery defaults** choose where results go unless a workflow overrides them.
+- **Run** starts the selected workflow manually.
+- **Pause/resume** controls whether scheduled runs continue.
+- **Edit** opens the saved workflow for changes.
+- **Delete** removes a workflow after confirmation.
+- **Status labels** show whether a workflow is ready, paused, running, waiting for approval, or needs attention.
+
+## Basic Workflow Creation
+
+1. Click **New Workflow**.
+2. Give the workflow a clear name.
+3. Describe the task Row-Bot should perform.
+4. Choose when it should run: manual, scheduled, or triggered when that option is available.
+5. Choose delivery: app only, a channel, or another configured destination.
+6. Save the workflow.
+7. Run it manually once and review the result.
+
+## Advanced Workflow Creation
+
+Advanced workflows can include richer instructions, required inputs, model/profile choices, delivery overrides, approval rules, and multi-step behavior. Keep each step observable: what information Row-Bot should gather, what it should produce, where it should save or send output, and what requires your approval.
+
+## What Is Saved
+
+Workflow definitions, schedules, run history, delivery defaults, and status are local Row-Bot data. Results may be sent to channels only when configured and selected.
+
+## Safety
+
+Avoid workflows that send messages, write files, start servers, or call external systems without a review point. Use approvals for actions that can affect files, accounts, channels, MCP servers, plugins, or external services.
+
+## Troubleshooting
+
+- If a workflow does not run, check whether it is paused.
+- If delivery fails, check the selected channel and its Settings tab.
+- If a run waits for approval, open the Activity Center and decide there.
+- If results are too broad, split the workflow into smaller steps.

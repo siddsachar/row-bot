@@ -1,29 +1,41 @@
 ---
 title: "Plugins"
-description: "Manage installed plugins, marketplace review, manifests, and Custom Tools."
+description: "Install, enable, configure, update, remove, and troubleshoot Row-Bot plugins."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Plugins
 
-Manage installed plugins, marketplace review, manifests, and Custom Tools.
+Plugins add optional capabilities to Row-Bot: tools, skills, apps, settings, and integration surfaces. Install them only from sources you trust, because they can run code inside the local app environment.
 
+<Screenshot id="settings-plugins" alt="Row-Bot Plugins settings." caption="Plugins settings list installed plugins, marketplace entry points, configuration, enablement, and Custom Tool promotion." />
 
-<Screenshot id="settings-plugins" alt="Row-Bot Plugins surface." caption="Related real Row-Bot surface for Plugins." />
+## Setup Workflow
 
-## What Is Saved
+1. Open Settings -> Plugins.
+2. Review installed plugins and marketplace options.
+3. Read the plugin description and requested configuration.
+4. Install or enable the plugin.
+5. Configure required fields.
+6. Test with a low-risk prompt.
+7. Disable, update, or remove the plugin when needed.
 
-Configuration is saved under the active Row-Bot data directory.
+## Controls
 
-## Local And External Behavior
+- **Installed plugin cards** show version and status.
+- **Enable/disable** controls whether plugin capabilities are active.
+- **Configure** opens plugin-specific settings.
+- **Update/remove** manage the local installation.
+- **Marketplace** opens plugin discovery and install previews.
+- **Custom Tools** can be promoted after review so they behave like reusable app capabilities.
 
-The documented UI opens locally. Side effects are disabled during docs capture.
+## Safety
 
-External services are contacted only when credentials/configuration are added and the user starts or invokes the integration.
+Plugins can add tools that read files, call services, or create outputs. Keep approval mode active for risky actions and disable plugins you do not actively use.
 
-## Credentials And Safety
+## Troubleshooting
 
-Public demo screenshots use example domains, disconnected states, or masked controls.
-
-Actions that can change files, call external systems, start servers, or use MCP tools follow the active approval policy. When a surface is disconnected or empty, Row-Bot keeps the controls visible so you can see what still needs setup.
+- If a plugin does not load, inspect its manifest and dependency message.
+- If plugin tools are missing, confirm the plugin is enabled.
+- If a plugin causes errors, disable it, restart Row-Bot if needed, then review configuration.

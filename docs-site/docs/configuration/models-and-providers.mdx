@@ -1,10 +1,33 @@
 ---
 title: "Models And Providers"
-description: "Model and provider docs now live under Settings Providers and Settings Models."
+description: "Configure providers, discover models, choose defaults, and pin quick model choices."
 ---
 
 # Models And Providers
 
-This compatibility page remains so older docs links keep working.
+Providers are where models come from. Models are the specific choices you use in Chat, workflows, Designer, Developer, voice, and other Row-Bot surfaces.
 
-Continue to [Model and provider docs now live under Settings Providers and Settings Models.](/docs/settings/providers).
+## Recommended Setup Order
+
+1. Open Settings -> Providers.
+2. Connect one provider path.
+3. Refresh provider health.
+4. Open Settings -> Models.
+5. Refresh the catalog.
+6. Choose a default model.
+7. Pin Quick Choices.
+8. Test in Chat.
+
+## Choosing A Provider Path
+
+Use local Ollama for local-first privacy and no provider billing. Use an API provider for strong hosted models. Use a subscription account when you already have the supported provider account. Use a custom endpoint for advanced local or self-hosted OpenAI-compatible runtimes.
+
+## Choosing Models
+
+Keep at least one everyday chat model and one stronger tool-capable model pinned. For Developer, Designer, workflows, and complex tools, choose a model that can handle tool calls and enough context.
+
+## Troubleshooting
+
+- If a provider connects but has no models, refresh Models.
+- If a model fails with tools, choose a tool-capable model.
+- If a custom endpoint fails, check base URL, model name, API compatibility, and context window.

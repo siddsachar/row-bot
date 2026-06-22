@@ -1,38 +1,31 @@
 ---
 title: "Home: Designer"
-description: "Documented real Home Designer tab."
+description: "Use the Home Designer tab as the entry point for Designer Studio projects."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Home: Designer
 
-Designer Studio entry point for projects, generated pages, decks, mockups, imports, exports, brand config, and review.
+The Designer tab is a launcher. It helps you start or reopen design projects, then hands off to Designer Studio for the full editor, preview, brand, and export workflow.
 
+<Screenshot id="home-designer" alt="Home: Designer in Row-Bot." caption="The Designer tab gathers project creation, recent designs, and the path into Designer Studio." />
 
-<Screenshot id="home-designer" alt="Row-Bot Home Designer tab." caption="The real Home Designer tab captured from the app." />
+## What This Tab Is For
 
-## How To Open
+Use this Home tab as a quick entry point. It shows current state and launch controls, while the full walkthrough lives in the [Designer Studio guide](/docs/designer/).
 
-Choose Home in the sidebar, then select the **Designer** tab.
+## What You Can Launch
 
-## Visible Sections
-
-The tab is built by `src/row_bot/ui/home.py`. Its controls vary with local app state, but the screenshot shows the real tab shell, labels, and empty or seeded-state cards that are safe for public docs.
-
+- New design starts a project from a prompt, template, or goal.
+- Recent projects reopen saved Designer work.
+- Brand and import actions prepare assets before you enter the editor.
+- Open in Designer Studio moves from the Home tab into the full workspace.
 
 ## What Is Saved
 
-Home tab state reads from local workflow, memory, thread, Designer, Developer, and log storage depending on the tab.
+Changes made from this tab apply to the feature it opens: workflows save as local automations, Designer projects save as local design projects, Developer workspaces save as local workspace records, Knowledge changes save to the local knowledge store, and Monitor filters affect the current review view.
 
-## Local And External Behavior
+## Next Step
 
-Opening the tab is local UI work. Docs capture disables background autostart while preserving the real tab builders.
-
-External work starts only from configured workflows, providers, channels, MCP servers, plugins, or Developer actions.
-
-## Credentials And Safety
-
-Home tabs can show disconnected states, but seeded docs data never includes real credentials or account names.
-
-Actions that can change files, call external systems, start servers, or use MCP tools follow the active approval policy. When a surface is disconnected or empty, Row-Bot keeps the controls visible so you can see what still needs setup.
+Open the [Designer Studio guide](/docs/designer/) when you need the control-by-control guide.

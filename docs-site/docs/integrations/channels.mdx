@@ -1,29 +1,43 @@
 ---
 title: "Channels"
-description: "Configure messaging channels, delivery defaults, and disconnected-safe channel states."
+description: "Connect Row-Bot to messaging channels, delivery defaults, pairing, tunnels, and safe external behavior."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Channels
 
-Configure messaging channels, delivery defaults, and disconnected-safe channel states.
+Channels connect Row-Bot to external messaging platforms such as Telegram, WhatsApp, Discord, Slack, and SMS-style providers when configured. Use channels when you want to message Row-Bot outside the desktop app or send workflow results somewhere specific.
 
+<Screenshot id="settings-channels" alt="Row-Bot Channels settings." caption="Channels settings show connector configuration, credentials, tunnel use, pairing, and start/stop controls." />
 
-<Screenshot id="settings-channels" alt="Row-Bot Channels surface." caption="Related real Row-Bot surface for Channels." />
+## Setup Workflow
 
-## What Is Saved
+1. Open Settings -> Channels.
+2. Expand the channel you want.
+3. Add the required token, URL, phone/account detail, or provider-specific field.
+4. Configure a tunnel in Settings -> System if the channel requires an inbound webhook.
+5. Save the channel.
+6. Start the channel.
+7. Pair or approve users before trusting private messages.
+8. Test with a low-risk message.
 
-Configuration is saved under the active Row-Bot data directory.
+## Controls
 
-## Local And External Behavior
+- **Save** stores channel settings.
+- **Start** begins the channel runtime.
+- **Stop** shuts the channel runtime down.
+- **Tunnel controls** connect a channel to a public webhook URL when needed.
+- **DM Pairing Code** approves a user before private-message access.
+- **Paired Users** lists approved users and lets you revoke access.
+- **Setup Guide** explains platform-specific prerequisites.
 
-The documented UI opens locally. Side effects are disabled during docs capture.
+## Safety
 
-External services are contacted only when credentials/configuration are added and the user starts or invokes the integration.
+Messages sent through a channel leave the local app. Do not enable a channel until you understand who can message it, what Row-Bot can send back, and whether workflows may deliver results there.
 
-## Credentials And Safety
+## Troubleshooting
 
-Public demo screenshots use example domains, disconnected states, or masked controls.
-
-Actions that can change files, call external systems, start servers, or use MCP tools follow the active approval policy. When a surface is disconnected or empty, Row-Bot keeps the controls visible so you can see what still needs setup.
+- If a channel cannot start, check required fields and tunnel state.
+- If inbound messages fail, verify webhook URLs and platform permissions.
+- If the wrong person has access, revoke them from Paired Users.
