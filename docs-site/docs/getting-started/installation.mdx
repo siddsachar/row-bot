@@ -22,9 +22,11 @@ Use the source path if you are developing Row-Bot or testing changes:
 
 1. Clone the repository.
 2. Create a Python environment.
-3. Install the Python dependencies from `requirements.txt`.
+3. Install uv and sync the locked Python dependencies with `uv sync --locked --all-extras --group test`.
 4. Install the docs-site dependencies only if you are working on documentation.
 5. Run the app entry point from the repository.
+
+`requirements.txt` is a generated pip export from `uv.lock` for installer compatibility. It is available as a fallback for environments that cannot use uv, but source dependency changes should be made in `pyproject.toml`.
 
 Source runs use the same local data concepts as the packaged app. Keep test data separate from personal data when experimenting.
 

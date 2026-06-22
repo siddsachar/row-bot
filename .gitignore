@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 .venv/
 .venv-linux/
+src/*.egg-info/
 
 # Node.js (WhatsApp bridge)
 channels/whatsapp_bridge/node_modules/

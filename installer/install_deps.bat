@@ -8,7 +8,7 @@
 ::   2. Installs pip via get-pip.py
 ::   3. Installs setuptools + wheel
 ::   4. (Optional) Downloads and installs Ollama
-::   5. Installs Python packages from requirements.txt
+::   5. Installs Python packages from the locked requirements.txt export
 :: ============================================================================
 title Row-Bot - Setting up dependencies...
 set "INSTALL_DIR=%~1"
@@ -144,7 +144,14 @@ del "%OLLAMA_EXE%" >NUL 2>&1
 
 :: â”€â”€ 5. Install Python packages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 echo [5/5] Installing Python packages (this may take several minutes)...
-echo Installing Python packages from requirements.txt... >> "%LOG%" 2>&1
+if not exist "%APP_DIR%\uv.lock" (
+    echo ERROR: uv.lock not found in app payload. >> "%LOG%" 2>&1
+    echo ERROR: Dependency lockfile is missing. Repair or reinstall Row-Bot.
+    pause
+    exit /b 1
+)
+
+echo Installing locked Python packages from requirements.txt... >> "%LOG%" 2>&1
 "%PYTHON%" -m pip install --no-warn-script-location -r "%APP_DIR%\requirements.txt" >> "%LOG%" 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo ERROR: Failed to install some packages. >> "%LOG%" 2>&1
@@ -155,7 +162,7 @@ if %ERRORLEVEL% NEQ 0 (
 
 :: â”€â”€ 6. Install Playwright Chromium browser â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 echo Verifying required runtime packages... >> "%LOG%" 2>&1
-"%PYTHON%" "%APP_DIR%\scripts\verify_runtime_dependencies.py" >> "%LOG%" 2>&1
+"%PYTHON%" "%APP_DIR%\scripts\verify_runtime_dependencies.py" all >> "%LOG%" 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo ERROR: Runtime dependency verification failed. >> "%LOG%" 2>&1
     echo ERROR: Required runtime packages are missing. See install_log.txt for details.

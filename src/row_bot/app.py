@@ -257,6 +257,28 @@ from row_bot.notifications import drain_toasts
 from row_bot.channels import config as _ch_config
 from row_bot.channels import registry as _ch_registry
 
+_CHANNEL_MODULES = (
+    "row_bot.channels.telegram",
+    "row_bot.channels.slack",
+    "row_bot.channels.sms",
+    "row_bot.channels.discord_channel",
+    "row_bot.channels.whatsapp",
+)
+
+
+def _load_channel_modules() -> list[str]:
+    """Import channel adapters so installed extras self-register."""
+    import importlib
+
+    skipped: list[str] = []
+    for module_name in _CHANNEL_MODULES:
+        try:
+            importlib.import_module(module_name)
+        except ImportError as exc:
+            skipped.append(f"{module_name}: {exc}")
+            logger.info("Optional channel module skipped: %s (%s)", module_name, exc)
+    return skipped
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 # SINGLETON STATE
@@ -509,17 +531,12 @@ async def _run_startup_sequence():
 
     # Auto-start channels via registry
     _set("📡 Starting channels…")
-    # Ensure channel modules are imported so they self-register
-    import row_bot.channels.telegram # noqa: F401
-    from row_bot import channels
-    import row_bot.channels.slack # noqa: F401
-    from row_bot import channels
-    import row_bot.channels.sms # noqa: F401
-    from row_bot import channels
-    import row_bot.channels.discord_channel # noqa: F401
-    from row_bot import channels
-    import row_bot.channels.whatsapp # noqa: F401
-    from row_bot import channels
+    # Ensure channel modules are imported so they self-register.
+    for skipped_channel in _load_channel_modules():
+        _st.startup_warnings.append(
+            f"Channel adapter unavailable: {skipped_channel}. "
+            "Install the channels extra to enable it."
+        )
     try:
         from row_bot.channels.auth_store import migrate_legacy_channel_secrets
         migrated = await asyncio.to_thread(

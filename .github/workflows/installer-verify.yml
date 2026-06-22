@@ -1,0 +1,277 @@
+name: Installer Verify
+
+on:
+  workflow_dispatch:
+    inputs:
+      windows:
+        description: Build and smoke the Windows Inno Setup installer
+        type: boolean
+        default: true
+      linux:
+        description: Build and smoke the Linux self-contained tarball
+        type: boolean
+        default: true
+      macos:
+        description: Build and smoke the unsigned macOS app/pkg
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installer-verify-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  WINDOWS_PYTHON_VERSION: "3.13.2"
+  ROW_BOT_STARTUP_TIMEOUT: "180"
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: python -m pip install "uv>=0.7,<1.0"
+
+      - name: Verify locked dependency files
+        run: |
+          uv lock --check
+          python scripts/export_locked_requirements.py --check
+
+  verify-windows:
+    if: ${{ inputs.windows }}
+    needs: preflight
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.WINDOWS_PYTHON_VERSION }}
+
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: .\installer\build_installer.ps1 -PythonVersion "${{ env.WINDOWS_PYTHON_VERSION }}"
+
+      - name: Smoke installed Windows package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installer = Get-ChildItem -Path dist -Filter "Row-Bot-*-Windows-*.exe" | Select-Object -First 1
+          if (-not $installer) {
+            throw "Windows installer artifact not found under dist"
+          }
+
+          $installDir = Join-Path $env:RUNNER_TEMP "Row-Bot"
+          $installLog = Join-Path $env:RUNNER_TEMP "row-bot-install.log"
+          if (Test-Path $installDir) {
+            Remove-Item -LiteralPath $installDir -Recurse -Force
+          }
+
+          $installerArgs = @(
+            "/VERYSILENT",
+            "/SUPPRESSMSGBOXES",
+            "/NORESTART",
+            "/DIR=$installDir",
+            "/LOG=$installLog"
+          )
+          & $installer.FullName @installerArgs
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content $installLog -ErrorAction SilentlyContinue
+            throw "Installer exited with code $LASTEXITCODE"
+          }
+
+          $pythonExe = Join-Path $installDir "python\python.exe"
+          $appDir = Join-Path $installDir "app"
+          foreach ($required in @(
+            $pythonExe,
+            (Join-Path $appDir "launcher.py"),
+            (Join-Path $appDir "scripts\verify_runtime_dependencies.py")
+          )) {
+            if (!(Test-Path $required)) {
+              throw "Expected installed file missing: $required"
+            }
+          }
+
+          $env:PYTHONNOUSERSITE = "1"
+          $env:PYTHONIOENCODING = "utf-8"
+          $env:TCL_LIBRARY = Join-Path $installDir "python\tcl\tcl8.6"
+          $env:TK_LIBRARY = Join-Path $installDir "python\tcl\tk8.6"
+          $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $installDir "python\playwright-browsers"
+          $env:PATH = (Join-Path $installDir "python\Scripts") + ";" + (Join-Path $installDir "python") + ";" + $env:PATH
+
+          & $pythonExe (Join-Path $appDir "scripts\verify_runtime_dependencies.py") all
+          if ($LASTEXITCODE -ne 0) {
+            throw "Installed runtime verifier failed with code $LASTEXITCODE"
+          }
+
+          python scripts/smoke_app.py `
+            --port 8094 `
+            --timeout 180 `
+            --cwd "$appDir" `
+            -- "$pythonExe" launcher.py --server --no-open --no-splash --no-ollama --port 8094
+
+      - name: Upload Windows installer
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Row-Bot-Windows-verified
+          path: dist/Row-Bot-*-Windows-*.exe
+          retention-days: 14
+
+      - name: Upload Windows install log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Row-Bot-Windows-install-log
+          path: ${{ runner.temp }}\row-bot-install.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  verify-linux:
+    if: ${{ inputs.linux }}
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Linux build/runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends rsync binutils libgl1 libegl1 libglib2.0-0 libxcb-cursor0 libportaudio2
+
+      - name: Validate Linux installer scripts
+        run: bash -n build_linux_app.sh installer/build_linux_app.sh installer/install-linux.sh
+
+      - name: Build Linux package
+        run: |
+          chmod +x installer/build_linux_app.sh
+          ./installer/build_linux_app.sh
+
+      - name: Smoke installed Linux package
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/row-bot-linux-smoke"
+          tar -xzf dist/Row-Bot-*-Linux-*.tar.gz -C "$RUNNER_TEMP/row-bot-linux-smoke"
+          PACKAGE_ROOT="$(find "$RUNNER_TEMP/row-bot-linux-smoke" -maxdepth 1 -type d -name 'Row-Bot-*-Linux-*' | head -n 1)"
+          if [ -z "$PACKAGE_ROOT" ]; then
+            echo "::error::Linux package root not found after extraction"
+            exit 1
+          fi
+          chmod +x "$PACKAGE_ROOT/bin/row-bot"
+          export HOME="$RUNNER_TEMP/row-bot-linux-home"
+          export XDG_DATA_HOME="$RUNNER_TEMP/row-bot-linux-xdg"
+          mkdir -p "$HOME" "$XDG_DATA_HOME"
+          bash "$PACKAGE_ROOT/install.sh"
+          python scripts/smoke_app.py \
+            --port 8095 \
+            --timeout 180 \
+            --cwd "$XDG_DATA_HOME/row-bot/current/app" \
+            -- "$HOME/.local/bin/row-bot"
+          python scripts/smoke_app.py \
+            --port 8096 \
+            --timeout 120 \
+            --cwd "$XDG_DATA_HOME/row-bot/current/app" \
+            -- "$HOME/.local/bin/row-bot" --server --no-open --port 8096 --no-ollama
+
+      - name: Upload Linux package
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Row-Bot-Linux-verified
+          path: dist/Row-Bot-*-Linux-*.tar.gz
+          retention-days: 14
+
+  verify-macos:
+    if: ${{ inputs.macos }}
+    needs: preflight
+    runs-on: macos-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Build unsigned macOS package
+        env:
+          BUNDLE_PLAYWRIGHT: "0"
+        run: |
+          chmod +x installer/build_mac_app.sh
+          ./installer/build_mac_app.sh
+
+      - name: Smoke macOS app bundle
+        run: |
+          set -euo pipefail
+          APP_PATH="installer/build/mac/Row-Bot.app"
+          RESOURCES="$APP_PATH/Contents/Resources"
+          APP_DIR="$RESOURCES/app"
+          PYTHON="$RESOURCES/python/bin/python3"
+          if [ ! -x "$PYTHON" ]; then
+            echo "::error::Bundled Python not found at $PYTHON"
+            exit 1
+          fi
+          ROW_BOT_INSTALL_ROOT="$RESOURCES" \
+          PYTHONNOUSERSITE=1 \
+          PYTHONIOENCODING=utf-8 \
+          PLAYWRIGHT_BROWSERS_PATH="$RESOURCES/python/playwright-browsers" \
+          python scripts/smoke_app.py \
+            --port 8097 \
+            --timeout 180 \
+            --cwd "$APP_DIR" \
+            -- "$PYTHON" launcher.py --server --no-open --no-splash --no-ollama --port 8097
+
+      - name: Install and smoke macOS package
+        run: |
+          set -euo pipefail
+          PKG="$(find dist -maxdepth 1 -name 'Row-Bot-*-macOS-*.pkg' | head -n 1)"
+          if [ -z "$PKG" ]; then
+            echo "::error::macOS pkg artifact not found under dist"
+            exit 1
+          fi
+          sudo rm -rf /Applications/Row-Bot.app
+          sudo installer -pkg "$PKG" -target /
+
+          APP_PATH="/Applications/Row-Bot.app"
+          RESOURCES="$APP_PATH/Contents/Resources"
+          APP_DIR="$RESOURCES/app"
+          PYTHON="$RESOURCES/python/bin/python3"
+          if [ ! -x "$PYTHON" ]; then
+            echo "::error::Installed bundled Python not found at $PYTHON"
+            exit 1
+          fi
+          ROW_BOT_INSTALL_ROOT="$RESOURCES" \
+          PYTHONNOUSERSITE=1 \
+          PYTHONIOENCODING=utf-8 \
+          PLAYWRIGHT_BROWSERS_PATH="$RESOURCES/python/playwright-browsers" \
+          python scripts/smoke_app.py \
+            --port 8098 \
+            --timeout 180 \
+            --cwd "$APP_DIR" \
+            -- "$PYTHON" launcher.py --server --no-open --no-splash --no-ollama --port 8098
+
+      - name: Upload macOS package
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Row-Bot-macOS-verified
+          path: dist/Row-Bot-*-macOS-*.pkg
+          retention-days: 14

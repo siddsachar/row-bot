@@ -319,10 +319,18 @@ Activate the environment:
 source .venv/bin/activate
 ```
 
-Install dependencies and launch:
+Install dependencies and launch with the locked dependency set:
 
 ```bash
-pip install -r requirements.txt
+python -m pip install "uv>=0.7,<1.0"
+uv sync --locked --all-extras --group test
+uv run python launcher.py
+```
+
+`requirements.txt` is kept only as a generated pip-compatible export for installers and repair helpers. If you cannot use uv, the fallback is:
+
+```bash
+python -m pip install -r requirements.txt
 python launcher.py
 ```
 
@@ -341,6 +349,18 @@ python app.py
 ```
 
 Direct launches default to `http://localhost:8080`. Set `ROW_BOT_PORT` to choose a different port.
+
+Dependency edits go through `pyproject.toml`, not `requirements.txt`:
+
+```bash
+# edit pyproject.toml
+uv lock
+python scripts/export_locked_requirements.py
+uv sync --locked --all-extras --group test
+uv run python scripts/verify_runtime_dependencies.py all
+```
+
+Supported optional extras are `voice`, `designer`, `browser`, `channels`, `mcp`, `developer`, `local-embeddings`, and `media`. Development and packaged app builds use `all`; lightweight source installs can choose only the extras they need.
 
 Recovery helpers:
 

@@ -103,13 +103,13 @@ report unavailable until the platform libraries are installed.
 
 ## Architecture
 
-The installer bundles the embedded Python runtime, pre-installed Python packages, and app source code. Repair and upgrade installs replace the embedded Python directory before copying the new payload so manually installed or corrupted packages cannot linger inside Row-Bot's bundled runtime. Kokoro TTS model files are auto-downloaded on first use. Ollama and Playwright Chromium are handled by the build/runtime flow, and Ollama is optional because Row-Bot can run entirely with provider models.
+The installer bundles the embedded Python runtime, pre-installed Python packages, and app source code. Python packages are installed from `requirements.txt`, which is a generated locked export from `pyproject.toml` and `uv.lock`. Repair and upgrade installs replace the embedded Python directory before copying the new payload so manually installed or corrupted packages cannot linger inside Row-Bot's bundled runtime. Kokoro TTS model files are auto-downloaded on first use. Ollama and Playwright Chromium are handled by the build/runtime flow, and Ollama is optional because Row-Bot can run entirely with provider models.
 
 | Bundled in .exe | Downloaded or created outside install |
 |----------------|--------------------------------------|
 | Python 3.13 embeddable runtime | Ollama installer is optional for local models |
 | App source code, Agent Profiles, Goal Mode, child-agent runner, tools, providers, plugins, MCP client, migration wizard, UI, Designer, Developer Studio, bundled skills/tool guides, static assets, and sounds | Kokoro TTS model + voices auto-download on first TTS use |
-| Python packages from `requirements.txt` | Playwright Chromium is bundled during build when available, otherwise installed on first browser use |
+| Python packages from locked `requirements.txt` export | Playwright Chromium is bundled during build when available, otherwise installed on first browser use |
 
 ## Prerequisites
 
@@ -274,6 +274,8 @@ The Inno Setup installer runs these steps:
 
 On repair/upgrade, Inno Setup deletes `{app}\python` before extraction. User data in `%USERPROFILE%\.row-bot` is not touched.
 
+The app payload includes `pyproject.toml`, `uv.lock`, and generated `requirements.txt` so repair helpers and support diagnostics can identify the exact dependency set that produced the bundled runtime.
+
 ## End-User Experience
 
 1. Run `Row-Bot-4.2.0-Windows-x64.exe`
@@ -284,7 +286,7 @@ On repair/upgrade, Inno Setup deletes `{app}\python` before extraction. User dat
 
 ## Notes
 
-- **CPU-only PyTorch**: `requirements.txt` uses CPU-only torch. Users with NVIDIA GPUs can upgrade to CUDA torch after install.
+- **CPU-only PyTorch**: `pyproject.toml` maps `torch` to the PyTorch CPU index and the generated `requirements.txt` preserves that installer policy. Users with NVIDIA GPUs can upgrade to CUDA torch after install.
 - **Ollama is optional**: Row-Bot works with API-key provider models (OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, Atlas Cloud, and Ollama Cloud), ChatGPT / Codex subscription models after in-app ChatGPT sign-in, xAI Grok OAuth after in-app Grok sign-in, and Claude Subscription models after Row-Bot-owned Claude OAuth or setup-token import. Installed local Ollama chat models appear in Settings -> Models even when their family is newer than Row-Bot's curated capability lists; Vision stays conservative and requires known Vision metadata/families.
 - **Agent orchestration**: the packaged app includes Agent Profiles, Goal Mode, child-agent delegation, profile/tool allowlists, and Agent-run workflow promotion. These records live in Row-Bot's local task database alongside workflow state.
 - **Developer Studio**: the packaged app includes the Developer workspace UI, repo-scoped tools, Git helpers, optional Docker shadow sandbox, and Custom Tool builder. Docker and GitHub CLI are optional external tools; when missing, the UI reports clear setup guidance instead of blocking normal chat.

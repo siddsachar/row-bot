@@ -1,0 +1,38 @@
+name: UV Lockfile Check
+
+on:
+  pull_request:
+    paths:
+      - "pyproject.toml"
+      - "uv.lock"
+      - "requirements.txt"
+      - "scripts/export_locked_requirements.py"
+      - ".github/workflows/uv-lockfile-check.yml"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/release.yml"
+      - ".github/workflows/lint.yml"
+      - ".github/workflows/installer-verify.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: python -m pip install "uv>=0.7,<1.0"
+
+      - name: Verify uv.lock is current
+        run: uv lock --check
+
+      - name: Verify requirements export is current
+        run: python scripts/export_locked_requirements.py --check

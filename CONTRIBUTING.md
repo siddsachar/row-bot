@@ -18,6 +18,7 @@ Row-Bot is a personal-AI-sovereignty project. The priorities, in order, are:
 ### Prerequisites
 
 - **Python 3.12** (the packaged app and CI both target 3.12)
+- **uv** for locked Python dependency installs (`python -m pip install "uv>=0.7,<1.0"`)
 - **Git**
 - **Ollama** (optional but recommended for running the full test suite locally:
   https://ollama.com)
@@ -32,7 +33,8 @@ git clone https://github.com/siddsachar/row-bot.git
 cd Row-Bot
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install "uv>=0.7,<1.0"
+uv sync --locked --all-extras --group test
 ```
 
 ```bash
@@ -41,24 +43,38 @@ git clone https://github.com/siddsachar/row-bot.git
 cd Row-Bot
 python3.12 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install "uv>=0.7,<1.0"
+uv sync --locked --all-extras --group test
 ```
+
+`pyproject.toml` is the canonical dependency manifest. `uv.lock` is the full resolution, and `requirements.txt` is a generated pip export for installer compatibility only. Do not edit `requirements.txt` by hand.
 
 ### Run Row-Bot
 
 ```bash
-python launcher.py
+uv run python launcher.py
 ```
 
 ### Run the tests
 
 ```bash
-python tests/test_suite.py
+uv run python tests/test_suite.py
 ```
 
 The suite is the single source of truth. Section markers (e.g. `Section 73:
 Auto-Update`) make it easy to see what each block covers. The run exits
 non-zero on any failure.
+
+When changing dependencies, edit `pyproject.toml`, then run:
+
+```bash
+uv lock
+python scripts/export_locked_requirements.py
+uv sync --locked --all-extras --group test
+uv run python scripts/verify_runtime_dependencies.py all
+```
+
+Runtime extras are `voice`, `designer`, `browser`, `channels`, `mcp`, `developer`, `local-embeddings`, and `media`. Use `all` for normal development and installer builds.
 
 ---
 

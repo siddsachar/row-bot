@@ -16,6 +16,7 @@ import socket
 import subprocess
 import sys
 import time
+import tomllib
 import traceback
 import uuid
 from pathlib import Path
@@ -58,6 +59,24 @@ def _source_layout_builder_manifest(builder_text: str) -> bool:
         and "--category payload_dirs" in builder_text
         and "--category asset_dirs" in builder_text
     )
+
+
+def _pyproject_dependency_names(group: str | None = None) -> set[str]:
+    project = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    if group is None:
+        entries = project["dependencies"]
+    else:
+        entries = project["optional-dependencies"][group]
+    return {
+        entry.split(";", 1)[0]
+        .split("[", 1)[0]
+        .split(">=", 1)[0]
+        .split("==", 1)[0]
+        .split("<", 1)[0]
+        .strip()
+        .lower()
+        for entry in entries
+    }
 
 
 def _tool_module_is_covered(module_name: str, covered_modules: set[str]) -> bool:
@@ -1925,14 +1944,12 @@ try:
     assert Path("tool_guides/browser_guide/SKILL.md").is_file()
     record("PASS", "browser: browser_guide SKILL.md present")
 
-    # 19r. requirements.txt contains playwright
-    _req_path = pathlib.Path(__file__).parent / "requirements.txt"
-    if _req_path.exists():
-        _req_text = _req_path.read_text(encoding="utf-8")
-        assert "playwright" in _req_text, "playwright not in requirements.txt"
-        record("PASS", "browser: playwright in requirements.txt")
-    else:
-        record("WARN", "browser: requirements.txt not found")
+    # 19r. browser extra declares playwright and locked export contains it
+    assert "playwright" in _pyproject_dependency_names("browser"), "playwright not in browser extra"
+    _req_text = (PROJECT_ROOT / "requirements.txt").read_text(encoding="utf-8")
+    assert "# This file is generated from pyproject.toml and uv.lock." in _req_text
+    assert "playwright==" in _req_text, "playwright not in locked requirements export"
+    record("PASS", "browser: playwright in browser extra and locked export")
 
 except Exception as e:
     record("FAIL", "browser tool tests", f"{type(e).__name__}: {e}")
@@ -3243,13 +3260,11 @@ try:
     else:
         record("FAIL", "memory_policy: auto-recall should check count_entities")
 
-    # --- 26p. requirements.txt has networkx --------------------------------
-    _req_path = os.path.join(PROJECT_ROOT, "requirements.txt")
-    _req_text = open(_req_path).read()
-    if "networkx" in _req_text:
-        record("PASS", "requirements: networkx listed")
+    # --- 26p. core metadata has networkx ------------------------------------
+    if "networkx" in _pyproject_dependency_names():
+        record("PASS", "pyproject: networkx listed")
     else:
-        record("FAIL", "requirements: networkx missing")
+        record("FAIL", "pyproject: networkx missing")
 
     # --- 26q. memory_extraction uses knowledge_graph for relations --------
     _mex_src = _ins_kg.getsource(_ins_kg.getmodule(_me_mod._dedup_and_save))
@@ -3924,9 +3939,9 @@ try:
     # ── 30t. (removed — skip_tools no longer exists; channels handle their own registration)
 
     # ── 30u. kaleido in requirements.txt ──────────────────────────────────
-    _req_src30 = Path("requirements.txt").read_text(encoding="utf-8")
-    assert "kaleido" in _req_src30.lower()
-    record("PASS", "v3.6: kaleido in requirements.txt")
+    assert "kaleido" in _pyproject_dependency_names("media")
+    assert "kaleido" in _pyproject_dependency_names("designer")
+    record("PASS", "v3.6: kaleido in media/designer extras")
 
     # ── 30v. Gmail as_langchain_tools replaces send/draft with custom ─────
     _gm_src30 = _source_path("tools/gmail_tool.py").read_text(encoding="utf-8")
@@ -5147,9 +5162,8 @@ try:
     record("PASS", "cloud: app.py health check handles cloud default")
 
     # ── 35al. requirements.txt includes langchain-openai ─────────────
-    _req_src35 = Path("requirements.txt").read_text(encoding="utf-8")
-    assert "langchain-openai" in _req_src35
-    record("PASS", "cloud: requirements.txt includes langchain-openai")
+    assert "langchain-openai" in _pyproject_dependency_names()
+    record("PASS", "cloud: pyproject includes langchain-openai")
 
     # ── 35am. langchain-openai is importable ─────────────────────────
     try:
@@ -12003,9 +12017,12 @@ try:
 
     # ── 52a. New packages in requirements.txt ────────────────────────
     _req_src52 = _P52("requirements.txt").read_text(encoding="utf-8")
-    assert "langchain-anthropic" in _req_src52, "requirements.txt should list langchain-anthropic"
-    assert "langchain-google-genai" in _req_src52, "requirements.txt should list langchain-google-genai"
-    record("PASS", "anth+goog: requirements.txt has new packages")
+    _core_deps52 = _pyproject_dependency_names()
+    assert "langchain-anthropic" in _core_deps52
+    assert "langchain-google-genai" in _core_deps52
+    assert "langchain-anthropic==" in _req_src52
+    assert "langchain-google-genai==" in _req_src52
+    record("PASS", "anth+goog: pyproject and locked export have provider packages")
 
     # ── 52b. api_keys.py key definitions ─────────────────────────────
     from row_bot.api_keys import (
@@ -13930,8 +13947,9 @@ try:
 
     # ── 67u. requirements.txt includes pyngrok ──────────────────────
     _reqs67 = open("requirements.txt", encoding="utf-8").read()
-    assert "pyngrok" in _reqs67
-    record("PASS", "67u: requirements.txt includes pyngrok")
+    assert "pyngrok" in _pyproject_dependency_names("channels")
+    assert "pyngrok==" in _reqs67
+    record("PASS", "67u: channels extra and locked export include pyngrok")
 
     # ── 67v. Tunnel Settings UI code exists ─────────────────────────
     _settings67 = _source_path("ui/settings.py").open( encoding="utf-8").read()
@@ -14174,15 +14192,19 @@ try:
     _verify68m2b = _P68("scripts/verify_runtime_dependencies.py").read_text(encoding="utf-8")
     _linux68m2b = _P68("installer/build_linux_app.sh").read_text(encoding="utf-8")
     _depsbat68m2b = _P68("installer/install_deps.bat").read_text(encoding="utf-8")
-    assert "sentence-transformers" in _req68m2b, "local embeddings require sentence-transformers in requirements.txt"
-    assert "langchain-huggingface" in _req68m2b, "local embeddings require langchain-huggingface in requirements.txt"
-    assert "httpx" in _req68m2b, "provider runtimes require httpx explicitly in requirements.txt"
+    assert "# This file is generated from pyproject.toml and uv.lock." in _req68m2b
+    assert "sentence-transformers==" in _req68m2b, "local embeddings export requires sentence-transformers"
+    assert "langchain-huggingface==" in _req68m2b, "local embeddings export requires langchain-huggingface"
+    assert "httpx==" in _req68m2b, "provider runtimes require httpx explicitly in the locked export"
     assert '"sentence_transformers"' in _verify68m2b and '"langchain_huggingface"' in _verify68m2b
-    assert '"core"' in _verify68m2b and '"providers"' in _verify68m2b and '"youtube"' in _verify68m2b
+    assert '"core"' in _verify68m2b and '"local-embeddings"' in _verify68m2b and '"media"' in _verify68m2b
+    assert '"providers"' in _verify68m2b and '"youtube"' in _verify68m2b
     assert '"httpx"' in _verify68m2b and '"youtube_transcript_api"' in _verify68m2b
     assert "verify_runtime_dependencies.py\"" in _mac68
     assert "verify_runtime_dependencies.py\"" in _linux68m2b
     assert _source_layout_builder_manifest(_linux68m2b), "linux app bundle must copy manifest payload_dirs and asset_dirs"
+    assert "verify_runtime_dependencies.py\" all" in _mac68
+    assert "verify_runtime_dependencies.py\" all" in _linux68m2b
     assert "verify_runtime_dependencies.py\" embeddings" not in _mac68
     assert "verify_runtime_dependencies.py\" embeddings" not in _linux68m2b
     assert "Assembled app runtime dependencies verified" in _mac68
@@ -14192,7 +14214,7 @@ try:
     assert _unsafe_tests_cleanup68m2b not in _mac68
     assert _unsafe_tests_cleanup68m2b not in _linux68m2b
     assert "verify_runtime_dependencies.py\" embeddings" not in _depsbat68m2b
-    assert "verify_runtime_dependencies.py\" >>" in _depsbat68m2b
+    assert "verify_runtime_dependencies.py\" all >>" in _depsbat68m2b
     assert "verify_runtime_dependencies.py" in _iss68
     assert "build\\python\\Lib\\site-packages\\sentence_transformers\\__init__.py" in _iss68
     assert "build\\python\\Lib\\site-packages\\langchain_huggingface\\__init__.py" in _iss68
@@ -14274,10 +14296,14 @@ try:
 
     # ── 68n. requirements.txt has v3.15.0 deps ─────────────────────
     _reqs68 = _P68("requirements.txt").read_text(encoding="utf-8")
+    _channel_deps68 = _pyproject_dependency_names("channels")
     _req_pkgs68 = ["pyngrok", "discord.py", "slack-bolt", "twilio", "python-telegram-bot"]
+    _export_pkgs68 = {"discord.py": "discord-py"}
     for _pkg68 in _req_pkgs68:
-        assert _pkg68 in _reqs68, f"{_pkg68} not in requirements.txt"
-    record("PASS", f"68n: requirements.txt has all channel deps ({len(_req_pkgs68)} checked)")
+        assert _pkg68 in _channel_deps68, f"{_pkg68} not in channels extra"
+        _export_pkg68 = _export_pkgs68.get(_pkg68, _pkg68)
+        assert f"{_export_pkg68}==" in _reqs68, f"{_export_pkg68} not in locked requirements export"
+    record("PASS", f"68n: channels extra and locked export have all channel deps ({len(_req_pkgs68)} checked)")
 
     # ── 68o. Channel sub-modules in ISS match filesystem ────────────
     _ch_files68 = [f.name for f in _source_path("channels").glob("*.py") if f.name != "__pycache__"]
@@ -14354,6 +14380,7 @@ try:
         t for t in _tool_files69
         if f"import {t}" not in _init_text69 and f"from row_bot.tools import {t}" not in _init_text69
            and f"from row_bot.tools.{t}" not in _init_text69
+           and f"row_bot.tools.{t}" not in _init_text69
     }
     assert not _missing_imports69, f"Tool files not imported in __init__.py: {sorted(_missing_imports69)}"
     record("PASS", f"69a: all {len(_tool_files69)} tool files imported in tools/__init__.py")

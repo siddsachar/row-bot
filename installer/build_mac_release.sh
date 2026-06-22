@@ -50,6 +50,11 @@ if [ ! -f "$PROJECT_DIR/requirements.txt" ]; then
     exit 1
 fi
 
+if [ ! -f "$PROJECT_DIR/uv.lock" ]; then
+    echo -e "${RED}[FAIL]${NC}  uv.lock not found."
+    exit 1
+fi
+
 # â”€â”€ Ensure shell scripts are executable â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 chmod +x "$PROJECT_DIR/Start Row-Bot.command"
 chmod +x "$PROJECT_DIR/installer/Row-Bot.app/Contents/MacOS/row-bot" 2>/dev/null || true
@@ -105,7 +110,7 @@ ok "Created $OUTPUT_ZIP ($ZIP_SIZE)"
 echo ""
 echo "  Contents:"
 echo "    â€¢ Start Row-Bot.command   (double-click to install & launch)"
-echo "    â€¢ Source files, requirements.txt, tools/, channels/"
+echo "    â€¢ Source files, pyproject.toml, uv.lock, locked requirements.txt"
 echo "    â€¢ installer/Row-Bot.app/  (template, copied to /Applications at install)"
 echo ""
 echo "  Upload this zip to GitHub Releases for distribution."

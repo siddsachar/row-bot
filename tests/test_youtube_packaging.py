@@ -1,16 +1,31 @@
+import tomllib
 from pathlib import Path
 
 
-def test_youtube_transcript_runtime_dependency_is_packaged():
-    requirements = Path("requirements.txt").read_text(encoding="utf-8").splitlines()
-    normalized = {
-        line.strip().split(";", 1)[0].split("#", 1)[0].strip().lower()
-        for line in requirements
+def _dependency_names(entries):
+    return {
+        entry.split(";", 1)[0]
+        .split("[", 1)[0]
+        .split(">=", 1)[0]
+        .split("==", 1)[0]
+        .split("<", 1)[0]
+        .strip()
+        .lower()
+        for entry in entries
     }
 
-    assert "youtube-search" in normalized
-    assert "youtube-transcript-api" in normalized
-    assert "httpx" in normalized
+
+def test_youtube_transcript_runtime_dependency_is_packaged():
+    pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    media_deps = _dependency_names(pyproject["project"]["optional-dependencies"]["media"])
+    requirements = Path("requirements.txt").read_text(encoding="utf-8")
+
+    assert "youtube-search" in media_deps
+    assert "youtube-transcript-api" in media_deps
+    assert "httpx" in _dependency_names(pyproject["project"]["dependencies"])
+    assert "# This file is generated from pyproject.toml and uv.lock." in requirements
+    assert "youtube-search==" in requirements
+    assert "youtube-transcript-api==" in requirements
 
 
 def test_youtube_tool_uses_transcript_loader():
@@ -25,7 +40,17 @@ def test_runtime_dependency_verifier_covers_shipped_feature_groups():
     ci = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
     release = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
 
-    for group in ("core", "providers", "tools", "channels", "voice", "embeddings", "youtube"):
+    for group in (
+        "core",
+        "media",
+        "channels",
+        "voice",
+        "local-embeddings",
+        "providers",
+        "tools",
+        "embeddings",
+        "youtube",
+    ):
         assert f'"{group}"' in verifier
 
     assert '"httpx"' in verifier

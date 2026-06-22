@@ -1,5 +1,6 @@
 import importlib
 import json
+import tomllib
 import uuid
 from pathlib import Path
 
@@ -15,6 +16,23 @@ def _reload_embedding_config(monkeypatch, data_dir):
     import row_bot.embedding_config as embedding_config
 
     return importlib.reload(embedding_config)
+
+
+def _pyproject():
+    return tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+
+
+def _dependency_names(entries):
+    return {
+        entry.split(";", 1)[0]
+        .split("[", 1)[0]
+        .split(">=", 1)[0]
+        .split("==", 1)[0]
+        .split("<", 1)[0]
+        .strip()
+        .lower()
+        for entry in entries
+    }
 
 
 def test_embedding_config_defaults_and_index_metadata(monkeypatch):
@@ -75,13 +93,18 @@ def test_embedding_config_recovers_from_invalid_values(monkeypatch):
 
 
 def test_nomic_dependency_is_explicit():
+    optional = _pyproject()["project"]["optional-dependencies"]
+    local_embedding_deps = _dependency_names(optional["local-embeddings"])
     requirements = Path("requirements.txt").read_text(encoding="utf-8")
 
     import row_bot.embedding_config as embedding_config
 
-    assert "sentence-transformers" in requirements
-    assert "langchain-huggingface" in requirements
-    assert "einops" in requirements
+    assert "sentence-transformers" in local_embedding_deps
+    assert "langchain-huggingface" in local_embedding_deps
+    assert "einops" in local_embedding_deps
+    assert "# This file is generated from pyproject.toml and uv.lock." in requirements
+    assert "sentence-transformers==" in requirements
+    assert "langchain-huggingface==" in requirements
     assert embedding_config.LOCAL_MODELS["nomic-v1.5"]["required_packages"] == ["einops"]
 
 
@@ -93,13 +116,23 @@ def test_packaged_builds_verify_required_runtime_imports():
     legacy_deps = Path("installer/install_deps.bat").read_text(encoding="utf-8")
     windows_installer = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
 
-    assert '"embeddings"' in verifier
-    assert '"core"' in verifier
-    assert '"providers"' in verifier
-    assert '"channels"' in verifier
-    assert '"tools"' in verifier
-    assert '"voice"' in verifier
-    assert '"youtube"' in verifier
+    for group in (
+        "core",
+        "voice",
+        "designer",
+        "browser",
+        "channels",
+        "mcp",
+        "developer",
+        "local-embeddings",
+        "media",
+        "all",
+        "embeddings",
+        "providers",
+        "tools",
+        "youtube",
+    ):
+        assert f'"{group}"' in verifier
     assert '"sentence_transformers"' in verifier
     assert '"langchain_huggingface"' in verifier
     assert '"httpx"' in verifier
@@ -126,6 +159,8 @@ def test_packaged_builds_verify_required_runtime_imports():
     assert "build\\python\\Lib\\site-packages\\youtube_transcript_api\\__init__.py" in windows_installer
     assert "verify_runtime_dependencies.py\"" in mac_build
     assert "verify_runtime_dependencies.py\"" in linux_build
+    assert "verify_runtime_dependencies.py\" all" in mac_build
+    assert "verify_runtime_dependencies.py\" all" in linux_build
     assert "verify_runtime_dependencies.py\" embeddings" not in mac_build
     assert "verify_runtime_dependencies.py\" embeddings" not in linux_build
     assert "Assembled app runtime dependencies verified" in mac_build
@@ -135,7 +170,7 @@ def test_packaged_builds_verify_required_runtime_imports():
     assert unsafe_tests_cleanup not in mac_build
     assert unsafe_tests_cleanup not in linux_build
     assert "verify_runtime_dependencies.py\" embeddings" not in legacy_deps
-    assert "verify_runtime_dependencies.py\" >>" in legacy_deps
+    assert "verify_runtime_dependencies.py\" all >>" in legacy_deps
 
 
 def test_startup_diagnostics_reports_required_embedding_packages(monkeypatch):

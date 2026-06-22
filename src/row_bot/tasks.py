@@ -35,7 +35,7 @@ import uuid
 from contextvars import ContextVar
 from datetime import datetime, timedelta
 from functools import wraps
-from typing import Callable, TypeVar
+from typing import TYPE_CHECKING, Callable, TypeVar
 
 from row_bot.approval_policy import (
     DEFAULT_APPROVAL_MODE,
@@ -43,6 +43,9 @@ from row_bot.approval_policy import (
     normalize_approval_mode,
 )
 from row_bot.data_paths import get_tasks_db_path, get_row_bot_data_dir
+
+if TYPE_CHECKING:
+    from apscheduler.schedulers.background import BackgroundScheduler
 
 logger = logging.getLogger(__name__)
 

@@ -75,7 +75,14 @@ async def handle_realtime_event(
 
     if event_type == "function_call_ready":
         state.voice_coordinator.mark_realtime_latency("function_call_ready")
-        await _handle_function_call(payload, state=state, p=p, send_message=send_message, session_id=session_id)
+        await _handle_function_call(
+            payload,
+            state=state,
+            p=p,
+            send_message=send_message,
+            session_id=session_id,
+            diag=_realtime_diag,
+        )
         return
 
     if event_type == "consult_fallback_needed":
@@ -214,6 +221,7 @@ async def _handle_function_call(
     p: P,
     send_message: Callable[..., Any],
     session_id: int | None,
+    diag: Callable[..., None] | None = None,
 ) -> None:
     from row_bot.voice.agent_bridge import VoiceAgentBridge
     from row_bot.voice.realtime_client import send_realtime_function_output_js
@@ -258,11 +266,12 @@ async def _handle_function_call(
         state.voice_coordinator.mark_realtime_latency("function_output_sent")
         next_state = "listening" if silent else "speaking"
         state.voice_coordinator.set_realtime_state(next_state, detail=f"function_output:{name}", session_id=session_id)
-        _realtime_diag(
-            "function_output_sent",
-            function_name=name,
-            silent=silent,
-        )
+        if diag is not None:
+            diag(
+                "function_output_sent",
+                function_name=name,
+                silent=silent,
+            )
 
 
 async def _handle_forced_fallback(
