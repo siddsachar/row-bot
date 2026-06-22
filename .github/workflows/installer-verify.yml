@@ -87,10 +87,15 @@ jobs:
             "/DIR=$installDir",
             "/LOG=$installLog"
           )
-          & $installer.FullName @installerArgs
-          if ($LASTEXITCODE -ne 0) {
+          $installerProcess = Start-Process `
+            -FilePath $installer.FullName `
+            -ArgumentList $installerArgs `
+            -Wait `
+            -PassThru `
+            -WindowStyle Hidden
+          if ($installerProcess.ExitCode -ne 0) {
             Get-Content $installLog -ErrorAction SilentlyContinue
-            throw "Installer exited with code $LASTEXITCODE"
+            throw "Installer exited with code $($installerProcess.ExitCode)"
           }
 
           $pythonExe = Join-Path $installDir "python\python.exe"
@@ -184,7 +189,7 @@ jobs:
             --port 8095 \
             --timeout 180 \
             --cwd "$XDG_DATA_HOME/row-bot/current/app" \
-            -- "$HOME/.local/bin/row-bot"
+            -- "$HOME/.local/bin/row-bot" --no-open --port 8095 --no-ollama
           python scripts/smoke_app.py \
             --port 8096 \
             --timeout 120 \
@@ -221,7 +226,7 @@ jobs:
       - name: Smoke macOS app bundle
         run: |
           set -euo pipefail
-          APP_PATH="installer/build/mac/Row-Bot.app"
+          APP_PATH="$(pwd)/installer/build/mac/Row-Bot.app"
           RESOURCES="$APP_PATH/Contents/Resources"
           APP_DIR="$RESOURCES/app"
           PYTHON="$RESOURCES/python/bin/python3"
