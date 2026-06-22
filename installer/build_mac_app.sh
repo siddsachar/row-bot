@@ -413,16 +413,11 @@ fi
 # â”€â”€ Build .pkg installer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 COMPONENT_PKG="$BUILD_DIR/Row-Bot-component.pkg"
 FINAL_PKG="$DIST_DIR/Row-Bot-${VERSION}-macOS-${ARCH}.pkg"
-PKG_ROOT="$BUILD_DIR/pkg-root"
 
-rm -rf "$PKG_ROOT"
-mkdir -p "$PKG_ROOT/Applications"
-cp -R "$APP_BUNDLE" "$PKG_ROOT/Applications/Row-Bot.app"
-
-pkgbuild --root "$PKG_ROOT" \
+pkgbuild --component "$APP_BUNDLE" \
          --identifier "ai.row-bot.assistant.pkg" \
          --version "$VERSION" \
-         --install-location "/" \
+         --install-location "/Applications" \
          "$COMPONENT_PKG"
 
 if [ -n "$PKG_SIGN_IDENTITY" ]; then
@@ -438,7 +433,6 @@ fi
 
 # Clean up intermediate files
 rm -f "$COMPONENT_PKG"
-rm -rf "$PKG_ROOT"
 
 PKG_SIZE=$(du -sh "$FINAL_PKG" | cut -f1)
 echo ""
