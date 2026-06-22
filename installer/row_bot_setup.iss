@@ -118,6 +118,8 @@ Type: filesandordirs; Name: "{app}\python"
 ; App payload copied from scripts/app_payload_manifest.py
 Source: "..\app.py";                  DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\launcher.py";             DestDir: "{app}\app"; Flags: ignoreversion
+Source: "..\pyproject.toml";          DestDir: "{app}\app"; Flags: ignoreversion
+Source: "..\uv.lock";                 DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\requirements.txt";       DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\row-bot.ico";            DestDir: "{app}\app"; Flags: ignoreversion
 Source: "..\scripts\verify_runtime_dependencies.py"; DestDir: "{app}\app\scripts"; Flags: ignoreversion

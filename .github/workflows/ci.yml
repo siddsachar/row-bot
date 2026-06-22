@@ -29,7 +29,9 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-          cache: pip
+
+      - name: Install uv
+        run: python -m pip install "uv>=0.7,<1.0"
 
       - name: Install Linux runtime libraries
         if: runner.os == 'Linux'
@@ -42,26 +44,26 @@ jobs:
         run: brew install portaudio
 
       - name: Install Python packages
-        run: python -m pip install -r requirements.txt pytest
+        run: uv sync --locked --all-extras --group test
 
       - name: Verify required runtime dependencies
-        run: python scripts/verify_runtime_dependencies.py
+        run: uv run python scripts/verify_runtime_dependencies.py all
 
       - name: Compile Python files
-        run: python -m compileall -q -x "(\\.git|\\.venv|dist|build|__pycache__)" .
+        run: uv run python -m compileall -q -x "(\\.git|\\.venv|dist|build|__pycache__)" .
 
       - name: Focused startup hardening tests
-        run: python -m pytest tests/test_startup_hardening.py tests/test_app_port.py
+        run: uv run python -m pytest tests/test_dependency_metadata.py tests/test_optional_dependency_imports.py tests/test_startup_hardening.py tests/test_app_port.py
 
       - name: Focused agent orchestration tests
-        run: python -m pytest tests/test_agent_profiles.py tests/test_agent_context.py tests/test_agent_tool_catalog.py tests/test_agent_runs.py tests/test_agent_runner.py tests/test_agent_tool.py tests/test_agent_tool_filtering.py tests/test_agent_write_locks.py tests/test_goal_mode.py tests/test_channel_goal_runtime.py tests/test_row_bot_status_agents.py
+        run: uv run python -m pytest tests/test_agent_profiles.py tests/test_agent_context.py tests/test_agent_tool_catalog.py tests/test_agent_runs.py tests/test_agent_runner.py tests/test_agent_tool.py tests/test_agent_tool_filtering.py tests/test_agent_write_locks.py tests/test_goal_mode.py tests/test_channel_goal_runtime.py tests/test_row_bot_status_agents.py
 
       - name: Focused provider model selection tests
-        run: python -m pytest tests/test_provider_catalog.py tests/test_provider_selection.py tests/test_provider_runtime.py tests/test_provider_media.py tests/test_row_bot_status_media.py tests/test_provider_subscription_auth.py tests/test_atlascloud_first_class_provider.py tests/test_openai_compatible_transport.py tests/test_claude_subscription_auth.py tests/test_claude_subscription_transport.py tests/test_xai_oauth_provider.py tests/test_xai_oauth_transport.py tests/test_xai_media.py tests/test_model_picker_regressions.py -k "not xai_oauth_loopback"
+        run: uv run python -m pytest tests/test_provider_catalog.py tests/test_provider_selection.py tests/test_provider_runtime.py tests/test_provider_media.py tests/test_row_bot_status_media.py tests/test_provider_subscription_auth.py tests/test_atlascloud_first_class_provider.py tests/test_openai_compatible_transport.py tests/test_claude_subscription_auth.py tests/test_claude_subscription_transport.py tests/test_xai_oauth_provider.py tests/test_xai_oauth_transport.py tests/test_xai_media.py tests/test_model_picker_regressions.py -k "not xai_oauth_loopback"
 
       - name: Runtime smoke on Linux
         if: runner.os == 'Linux'
-        run: python scripts/smoke_app.py --port 8090 --timeout 120
+        run: uv run python scripts/smoke_app.py --port 8090 --timeout 120
 
       - name: Validate Linux installer scripts
         if: runner.os == 'Linux'
@@ -79,7 +81,9 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-          cache: pip
+
+      - name: Install uv
+        run: python -m pip install "uv>=0.7,<1.0"
 
       - name: Install Ollama
         run: |
@@ -90,10 +94,10 @@ jobs:
           ollama pull qwen3:1.7b
 
       - name: Install Python packages
-        run: python -m pip install -r requirements.txt pytest
+        run: uv sync --locked --all-extras --group test
 
       - name: Verify required runtime dependencies
-        run: python scripts/verify_runtime_dependencies.py
+        run: uv run python scripts/verify_runtime_dependencies.py all
 
       - name: Run test suite
-        run: python tests/test_suite.py
+        run: uv run python tests/test_suite.py

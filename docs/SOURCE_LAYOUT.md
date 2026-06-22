@@ -8,8 +8,8 @@ The repository root still keeps a small supported launch surface:
 - `app.py` runs `row_bot.app` from a checkout or packaged payload.
 - `launcher.py` imports and calls `row_bot.launcher.main`.
 - Root payload assets such as `static/`, `sounds/`, `bundled_skills/`,
-  `tool_guides/`, `requirements.txt`, and `row-bot.ico` remain at the root for
-  the v4 packaging contract.
+  `tool_guides/`, `pyproject.toml`, `uv.lock`, generated `requirements.txt`,
+  and `row-bot.ico` remain at the root for the v4 packaging contract.
 
 Do not add implementation code to the root wrappers. If code needs to be shared
 with tests, installers, or scripts, place it under `src/row_bot/` or in a
@@ -22,9 +22,12 @@ From the repository root:
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\activate
-pip install -r requirements.txt
-python launcher.py
+python -m pip install "uv>=0.7,<1.0"
+uv sync --locked --all-extras --group test
+uv run python launcher.py
 ```
+
+`pyproject.toml` owns direct dependencies and extras. `requirements.txt` is generated from `uv.lock` with `python scripts/export_locked_requirements.py` for pip-based installers and should not be edited by hand.
 
 Server/headless mode:
 
@@ -55,7 +58,7 @@ coverage. The manifest currently separates the package into:
 - `root_python_files`: supported root Python launch wrappers discovered from the
   repository root, excluding debug, test, and harness files.
 - `root_files`: root files required by packaged apps, including
-  `requirements.txt` and `row-bot.ico`.
+  `pyproject.toml`, `uv.lock`, `requirements.txt`, and `row-bot.ico`.
 - `runtime_script_files`: package-time runtime verification scripts.
 
 Windows packaging uses `installer/row_bot_setup.iss` to recursively include

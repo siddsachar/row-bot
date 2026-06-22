@@ -17,8 +17,12 @@ Row-Bot uses semantic versioning:
 2. Run the full suite locally:
 
    ```bash
-   python scripts/verify_runtime_dependencies.py
-   python tests/test_suite.py
+   python -m pip install "uv>=0.7,<1.0"
+   uv lock --check
+   python scripts/export_locked_requirements.py --check
+   uv sync --locked --all-extras --group test
+   uv run python scripts/verify_runtime_dependencies.py all
+   uv run python tests/test_suite.py
    ```
 
 3. Cut a release-prep branch:
@@ -53,8 +57,8 @@ Row-Bot uses semantic versioning:
 8. Run focused startup and packaging hardening tests:
 
    ```bash
-   python scripts/verify_runtime_dependencies.py
-   python -m pytest tests/test_startup_hardening.py tests/test_app_port.py tests/test_linux_support.py
+   uv run python scripts/verify_runtime_dependencies.py all
+   uv run python -m pytest tests/test_dependency_metadata.py tests/test_optional_dependency_imports.py tests/test_startup_hardening.py tests/test_app_port.py tests/test_linux_support.py
    ```
 
 9. Open and merge the release-prep PR.

@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tomllib
 from pathlib import Path
 
 import row_bot.launcher as launcher
@@ -177,6 +178,8 @@ def test_app_payload_manifest_declares_required_runtime_payload():
     for package in REQUIRED_RUNTIME_PACKAGES:
         assert Path("src/row_bot", package).is_dir(), f"runtime package missing: {package}"
     assert {"static", "sounds", "tool_guides", "bundled_skills"} <= asset_dirs
+    assert "pyproject.toml" in manifest["root_files"]
+    assert "uv.lock" in manifest["root_files"]
     assert "requirements.txt" in manifest["root_files"]
     assert "row-bot.ico" in manifest["root_files"]
     assert "scripts/verify_runtime_dependencies.py" in manifest["runtime_script_files"]
@@ -303,6 +306,7 @@ def test_linux_tarball_installs_into_xdg_tree(monkeypatch, tmp_path):
 def test_linux_build_script_declares_expected_package_contract():
     script = Path("installer/build_linux_app.sh").read_text(encoding="utf-8")
     requirements = Path("requirements.txt").read_text(encoding="utf-8")
+    pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     manifest = app_payload_manifest.build_manifest(Path("."))
 
     assert "unknown-linux-gnu-install_only" in script
@@ -318,7 +322,9 @@ def test_linux_build_script_declares_expected_package_contract():
     assert "ROW_BOT_SUPPRESS_INSTALL_PATH_HINT" in script
     assert "export PATH=\"$HOME/.local/bin:$PATH\"" in script
     assert "Run: $LAUNCH_CMD" in script
-    assert 'numpy<2.3; python_version < "3.14"' in requirements
+    assert "# This file is generated from pyproject.toml and uv.lock." in requirements
+    assert "numpy==" in requirements
+    assert "numpy>=1.26,<2.3" in pyproject["project"]["dependencies"]
     assert "scripts/check_linux_native_baseline.py" in script
     assert "Checking native CPU baselines" in script
     assert "src/row_bot" in manifest["payload_dirs"]

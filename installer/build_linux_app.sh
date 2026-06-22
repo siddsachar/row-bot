@@ -80,10 +80,14 @@ tar -xzf "$PBS_TAR" -C "$PYTHON_PREFIX" --strip-components=1
 "$PYTHON_PREFIX/bin/python3" --version
 ok "Python extracted"
 
-info "[2/6] Installing Python packages from requirements.txt..."
+if [ ! -f "$PROJECT_DIR/uv.lock" ]; then
+    fail "uv.lock not found. Regenerate dependencies before building."
+fi
+
+info "[2/6] Installing locked Python packages from requirements.txt..."
 "$PYTHON_PREFIX/bin/python3" -m pip install --upgrade pip setuptools wheel --quiet 2>&1 | tail -1 || true
 "$PYTHON_PREFIX/bin/python3" -m pip install -r "$PROJECT_DIR/requirements.txt" --quiet 2>&1 | tail -5
-"$PYTHON_PREFIX/bin/python3" "$PROJECT_DIR/scripts/verify_runtime_dependencies.py"
+"$PYTHON_PREFIX/bin/python3" "$PROJECT_DIR/scripts/verify_runtime_dependencies.py" all
 ok "Python packages installed"
 
 if [ "$PACKAGE_ARCH" = "x86_64" ]; then
@@ -342,7 +346,7 @@ ok "Package cleaned"
 
 info "Verifying assembled Linux runtime dependencies..."
 ROW_BOT_INSTALL_ROOT="$PACKAGE_ROOT" PYTHONNOUSERSITE=1 \
-    "$PYTHON_PREFIX/bin/python3" "$APP_SRC/scripts/verify_runtime_dependencies.py"
+    "$PYTHON_PREFIX/bin/python3" "$APP_SRC/scripts/verify_runtime_dependencies.py" all
 ok "Assembled Linux runtime dependencies verified"
 
 info "[6/6] Creating tarball..."

@@ -28,6 +28,8 @@ ASSET_DIRS = (
 )
 
 ROOT_FILES = (
+    "pyproject.toml",
+    "uv.lock",
     "requirements.txt",
     "row-bot.ico",
 )

@@ -250,9 +250,14 @@ Write-Host "      pip installed" -ForegroundColor Green
 Write-Host "      Installing setuptools and wheel..." -ForegroundColor Yellow
 & $PythonExe -m pip install --no-warn-script-location setuptools wheel --quiet 2>&1 | Out-Null
 
-# Install all packages from requirements.txt
+# Install all packages from the locked requirements export.
 $RequirementsFile = Join-Path (Split-Path $PSScriptRoot) "requirements.txt"
-Write-Host "      Installing packages from requirements.txt..." -ForegroundColor Yellow
+$LockFile = Join-Path (Split-Path $PSScriptRoot) "uv.lock"
+if (!(Test-Path $LockFile)) {
+    Write-Host "ERROR: uv.lock not found. Regenerate dependencies before building." -ForegroundColor Red
+    exit 1
+}
+Write-Host "      Installing locked Python packages from requirements.txt..." -ForegroundColor Yellow
 Write-Host "      (this may take several minutes)" -ForegroundColor Yellow
 & $PythonExe -m pip install --no-warn-script-location -r $RequirementsFile 2>&1 | ForEach-Object {
     $line = $_.ToString()
@@ -273,7 +278,7 @@ Write-Host "      All packages pre-installed" -ForegroundColor Green
 # importable in the embedded Python.
 $VerifierFile = Join-Path (Split-Path $PSScriptRoot) "scripts\verify_runtime_dependencies.py"
 Write-Host "      Verifying required runtime packages..." -ForegroundColor Yellow
-& $PythonExe $VerifierFile
+& $PythonExe $VerifierFile all
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ERROR: Embedded Python is missing required runtime packages." -ForegroundColor Red
     exit 1
