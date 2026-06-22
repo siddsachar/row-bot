@@ -412,9 +412,33 @@ fi
 
 # â”€â”€ Build .pkg installer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 COMPONENT_PKG="$BUILD_DIR/Row-Bot-component.pkg"
+COMPONENT_PLIST="$BUILD_DIR/Row-Bot-component.plist"
 FINAL_PKG="$DIST_DIR/Row-Bot-${VERSION}-macOS-${ARCH}.pkg"
 
+cat > "$COMPONENT_PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+  <dict>
+    <key>BundleHasStrictIdentifier</key>
+    <true/>
+    <key>BundleIsRelocatable</key>
+    <false/>
+    <key>BundleIsVersionChecked</key>
+    <true/>
+    <key>BundleOverwriteAction</key>
+    <string>upgrade</string>
+    <key>RootRelativeBundlePath</key>
+    <string>Row-Bot.app</string>
+  </dict>
+</array>
+</plist>
+PLIST
+
 pkgbuild --component "$APP_BUNDLE" \
+         --component-plist "$COMPONENT_PLIST" \
          --identifier "ai.row-bot.assistant.pkg" \
          --version "$VERSION" \
          --install-location "/Applications" \
@@ -432,7 +456,7 @@ else
 fi
 
 # Clean up intermediate files
-rm -f "$COMPONENT_PKG"
+rm -f "$COMPONENT_PKG" "$COMPONENT_PLIST"
 
 PKG_SIZE=$(du -sh "$FINAL_PKG" | cut -f1)
 echo ""
