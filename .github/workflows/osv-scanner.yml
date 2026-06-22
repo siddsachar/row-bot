@@ -7,6 +7,7 @@ on:
       - "docs-site/package-lock.json"
       - "src/row_bot/channels/whatsapp_bridge/package-lock.json"
       - ".github/workflows/osv-scanner.yml"
+      - "osv-scanner.toml"
   schedule:
     - cron: "24 4 * * 1"
   workflow_dispatch:
@@ -26,6 +27,7 @@ jobs:
         uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
         with:
           scan-args: |-
+            --config=osv-scanner.toml
             --lockfile=uv.lock
             --lockfile=docs-site/package-lock.json
             --lockfile=src/row_bot/channels/whatsapp_bridge/package-lock.json

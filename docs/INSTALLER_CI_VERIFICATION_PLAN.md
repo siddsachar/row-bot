@@ -17,6 +17,9 @@ payloads in GitHub Actions.
    - `UV Lockfile Check`
    - `OSV Scanner`
    - `Lint (safety + advisory)`
+   - Existing OSV findings are baselined in `osv-scanner.toml` with
+     package/version-specific expiry dates; new vulnerable packages or changed
+     vulnerable versions should still fail the scan.
 3. Manual GitHub installer verification:
    - Run **Actions -> Installer Verify -> Run workflow** on the branch or tag to verify.
    - Leave Windows, Linux, and macOS enabled unless the change is platform-specific and the skipped platform is documented.

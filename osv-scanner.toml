@@ -1,0 +1,125 @@
+# Temporary OSV baseline created when dependency scanning was introduced.
+#
+# Keep these package/version-specific overrides narrow and time-bound. They let
+# the scanner block new vulnerable packages or version changes while existing
+# dependency cleanup is handled in focused follow-up work.
+
+[[PackageOverrides]]
+name = "pytest"
+version = "8.4.2"
+ecosystem = "PyPI"
+vulnerability.ignore = true
+effectiveUntil = 2026-07-31
+reason = "Test-only baseline while validating pytest 9.x compatibility."
+
+[[PackageOverrides]]
+name = "requests"
+version = "2.32.5"
+ecosystem = "PyPI"
+vulnerability.ignore = true
+effectiveUntil = 2026-07-31
+reason = "Runtime baseline from enabling OSV; upgrade once 2.33.x is resolvable with the app lock."
+
+[[PackageOverrides]]
+name = "starlette"
+version = "0.50.0"
+ecosystem = "PyPI"
+vulnerability.ignore = true
+effectiveUntil = 2026-07-31
+reason = "Runtime baseline; FastAPI/NiceGUI currently resolve Starlette below the fixed 1.x line."
+
+[[PackageOverrides]]
+name = "transformers"
+version = "4.57.6"
+ecosystem = "PyPI"
+vulnerability.ignore = true
+effectiveUntil = 2026-07-31
+reason = "Optional local-embeddings baseline; one advisory is unfixed and the other requires validating the 5.x release line."
+
+[[PackageOverrides]]
+name = "http-proxy-middleware"
+version = "2.0.9"
+ecosystem = "npm"
+vulnerability.ignore = true
+effectiveUntil = 2026-07-31
+reason = "Docs-site transitive baseline pending dedicated docs dependency cleanup."
+
+[[PackageOverrides]]
+name = "js-yaml"
+version = "3.14.2"
+ecosystem = "npm"
+vulnerability.ignore = true
+effectiveUntil = 2026-07-31
+reason = "Docs-site transitive baseline pending dedicated docs dependency cleanup."
+
+[[PackageOverrides]]
+name = "serialize-javascript"
+version = "6.0.2"
+ecosystem = "npm"
+vulnerability.ignore = true
+effectiveUntil = 2026-07-31
+reason = "Docs-site transitive baseline pending dedicated docs dependency cleanup."
+
+[[PackageOverrides]]
+name = "uuid"
+version = "8.3.2"
+ecosystem = "npm"
+vulnerability.ignore = true
+effectiveUntil = 2026-07-31
+reason = "Docs-site transitive baseline pending dedicated docs dependency cleanup."
+
+[[PackageOverrides]]
+name = "@protobufjs/utf8"
+version = "1.1.0"
+ecosystem = "npm"
+vulnerability.ignore = true
+effectiveUntil = 2026-07-31
+reason = "WhatsApp bridge transitive baseline pending dedicated channel dependency cleanup."
+
+[[PackageOverrides]]
+name = "@whiskeysockets/baileys"
+version = "6.7.21"
+ecosystem = "npm"
+vulnerability.ignore = true
+effectiveUntil = 2026-07-31
+reason = "WhatsApp bridge dependency baseline pending compatibility validation of 6.7.22 or newer."
+
+[[PackageOverrides]]
+name = "axios"
+version = "1.15.0"
+ecosystem = "npm"
+vulnerability.ignore = true
+effectiveUntil = 2026-07-31
+reason = "WhatsApp bridge transitive baseline pending dedicated channel dependency cleanup."
+
+[[PackageOverrides]]
+name = "form-data"
+version = "4.0.5"
+ecosystem = "npm"
+vulnerability.ignore = true
+effectiveUntil = 2026-07-31
+reason = "WhatsApp bridge transitive baseline pending dedicated channel dependency cleanup."
+
+[[PackageOverrides]]
+name = "protobufjs"
+version = "6.8.8"
+ecosystem = "npm"
+vulnerability.ignore = true
+effectiveUntil = 2026-07-31
+reason = "WhatsApp bridge transitive baseline pending dedicated channel dependency cleanup."
+
+[[PackageOverrides]]
+name = "protobufjs"
+version = "7.5.5"
+ecosystem = "npm"
+vulnerability.ignore = true
+effectiveUntil = 2026-07-31
+reason = "WhatsApp bridge transitive baseline pending dedicated channel dependency cleanup."
+
+[[PackageOverrides]]
+name = "ws"
+version = "8.20.0"
+ecosystem = "npm"
+vulnerability.ignore = true
+effectiveUntil = 2026-07-31
+reason = "WhatsApp bridge transitive baseline pending dedicated channel dependency cleanup."
