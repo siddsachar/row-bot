@@ -92,7 +92,7 @@ mcp = [
   "langchain-mcp-adapters>=0.1,<1.0",
 ]
 developer = [
-  "pywinpty>=2.0,<3.0; sys_platform == 'win32'",
+  "pywinpty>=2.0,<4.0; sys_platform == 'win32'",
 ]
 local-embeddings = [
   "faiss-cpu>=1.12,<2.0",
@@ -134,7 +134,7 @@ all = [
   "pyngrok>=7.0,<8.0",
   "mcp>=1.20,<2.0",
   "langchain-mcp-adapters>=0.1,<1.0",
-  "pywinpty>=2.0,<3.0; sys_platform == 'win32'",
+  "pywinpty>=2.0,<4.0; sys_platform == 'win32'",
   "faiss-cpu>=1.12,<2.0",
   "sentence-transformers>=5.1,<6.0",
   "huggingface-hub>=0.35,<1.0",

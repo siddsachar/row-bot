@@ -191,7 +191,7 @@ pytz==2026.2
 pywebview==5.4
 pywin32==312 ; sys_platform == 'win32'
 pywin32-ctypes==0.2.3 ; sys_platform == 'win32'
-pywinpty==2.0.15 ; sys_platform == 'win32'
+pywinpty==3.0.5 ; sys_platform == 'win32'
 pyyaml==6.0.3
 qrcode==8.2
 qtpy==2.4.3 ; sys_platform == 'openbsd6'
