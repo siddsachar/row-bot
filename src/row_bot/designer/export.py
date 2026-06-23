@@ -440,7 +440,7 @@ def build_html_export(project: DesignerProject, pages: Optional[str] = None) -> 
         sections.append(
             f'<section id="page-{i}" style="margin-bottom:40px; page-break-after:always;">\n'
             f'<h2 style="font-family:sans-serif;font-size:14px;color:#888;margin-bottom:8px;">'
-            f'Page {i + 1}: {page.title}</h2>\n'
+            f'Page {i + 1}: {_escape_html(page.title)}</h2>\n'
             f'<div style="border:1px solid #333;border-radius:8px;overflow:hidden;">\n'
             f'<iframe srcdoc="{_escape_attr(html)}" '
             f'style="width:{project.canvas_width}px;height:{project.canvas_height}px;border:none;" '
@@ -451,7 +451,7 @@ def build_html_export(project: DesignerProject, pages: Optional[str] = None) -> 
     indices = _parse_page_range(pages, len(project.pages))
     nav_links = " ".join(
         f'<a href="#page-{i}" style="color:#2563EB;margin-right:12px;">'
-        f'{project.pages[i].title}</a>'
+        f'{_escape_html(project.pages[i].title)}</a>'
         for i in indices if i < len(project.pages)
     )
 
@@ -667,18 +667,55 @@ def _parse_css_color(value: Any):
     text = str(value or "").strip().lower()
     if not text or text == "transparent":
         return None
+    named_colors = {
+        "black": (0, 0, 0),
+        "blue": (0, 0, 255),
+        "cyan": (0, 255, 255),
+        "gray": (128, 128, 128),
+        "green": (0, 128, 0),
+        "grey": (128, 128, 128),
+        "lime": (0, 255, 0),
+        "magenta": (255, 0, 255),
+        "orange": (255, 165, 0),
+        "purple": (128, 0, 128),
+        "red": (255, 0, 0),
+        "white": (255, 255, 255),
+        "yellow": (255, 255, 0),
+    }
+    if text in named_colors:
+        return named_colors[text], 1.0
     if text.startswith("#"):
         hex_value = text[1:]
         if len(hex_value) == 3:
             hex_value = "".join(char * 2 for char in hex_value)
+        alpha = 1.0
+        if len(hex_value) == 4:
+            hex_value = "".join(char * 2 for char in hex_value)
+        if len(hex_value) == 8:
+            alpha = int(hex_value[6:8], 16) / 255.0
+            hex_value = hex_value[:6]
         if len(hex_value) == 6:
-            return tuple(int(hex_value[i:i + 2], 16) for i in range(0, 6, 2)), 1.0
+            return tuple(int(hex_value[i:i + 2], 16) for i in range(0, 6, 2)), alpha
         return None
-    channels = [float(number) for number in re.findall(r"[\d.]+", text)]
-    if len(channels) < 3:
+    if not text.startswith("rgb"):
         return None
-    rgb = tuple(max(0, min(255, int(round(channel)))) for channel in channels[:3])
-    alpha = max(0.0, min(1.0, channels[3])) if len(channels) >= 4 else 1.0
+    raw_channels = re.findall(r"(-?\d+(?:\.\d+)?)\s*(%)?", text)
+    if len(raw_channels) < 3:
+        return None
+    rgb_values = []
+    for number, percent in raw_channels[:3]:
+        channel = float(number)
+        if percent:
+            channel = channel * 255.0 / 100.0
+        rgb_values.append(max(0, min(255, int(round(channel)))))
+    alpha = 1.0
+    if len(raw_channels) >= 4:
+        raw_alpha, alpha_percent = raw_channels[3]
+        alpha = float(raw_alpha)
+        if alpha_percent:
+            alpha /= 100.0
+        alpha = max(0.0, min(1.0, alpha))
+    rgb = tuple(rgb_values)
     return rgb, alpha
 
 

@@ -141,13 +141,49 @@ def classify_command_action(command: str) -> str:
     raw_text = str(command or "")
     text = raw_text.lower()
     unquoted = _unquoted_text(raw_text).lower()
+    try:
+        tokens = [token.lower() for token in shlex.split(unquoted, posix=True)]
+    except ValueError:
+        tokens = unquoted.split()
+
+    def has_sequence(*parts: str) -> bool:
+        if not parts:
+            return False
+        width = len(parts)
+        return any(tokens[idx:idx + width] == list(parts) for idx in range(0, max(len(tokens) - width + 1, 0)))
+
+    first = tokens[0] if tokens else ""
     if has_shell_control_operator(raw_text):
         return "run_network"
-    if any(token in unquoted for token in (" pip install", "npm install", "pnpm install", "yarn install", "cargo install")):
+    if (
+        has_sequence("pip", "install")
+        or has_sequence("uv", "pip", "install")
+        or has_sequence("python", "-m", "pip", "install")
+        or has_sequence("python3", "-m", "pip", "install")
+        or has_sequence("py", "-m", "pip", "install")
+        or has_sequence("pipx", "install")
+        or has_sequence("npm", "install")
+        or has_sequence("pnpm", "install")
+        or has_sequence("yarn", "install")
+        or has_sequence("bun", "install")
+        or has_sequence("cargo", "install")
+        or has_sequence("poetry", "add")
+        or has_sequence("uv", "add")
+    ):
         return "run_install"
-    if any(token in unquoted for token in ("curl ", "wget ", "http://", "https://")):
+    if first in {"rm", "del", "erase", "rmdir", "unlink"} or has_sequence("remove-item") or "shutil.rmtree" in text:
+        return "delete"
+    if has_sequence("git", "commit"):
+        return "git_commit"
+    if has_sequence("git", "push"):
+        return "git_push"
+    if has_sequence("gh", "pr", "create") or has_sequence("hub", "pull-request") or has_sequence("git", "request-pull"):
+        return "git_pr"
+    if first in {"curl", "wget"} or "http://" in unquoted or "https://" in unquoted:
         return "run_network"
     if any(token in text for token in ("urlopen(", "requests.get", "requests.post", "httpx.", "aiohttp.")):
+        return "run_network"
+    if first == "docker":
         return "run_network"
     if any(token in unquoted for token in (" run dev", " start", "serve", "uvicorn", "flask run")):
         return "start_server"
@@ -206,14 +242,24 @@ def run_workspace_command(
             sandbox_pending_change_id=outcome.pending_change_id,
         )
     args = split_command(command)
-    completed = subprocess.run(
-        args,
-        cwd=str(root),
-        shell=False,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
+    try:
+        completed = subprocess.run(
+            args,
+            cwd=str(root),
+            shell=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return CommandResult(
+            command=command,
+            cwd=str(root),
+            returncode=124,
+            stdout=(exc.stdout or "")[-20_000:] if isinstance(exc.stdout, str) else "",
+            stderr=f"Command timed out after {timeout}s.",
+            decision=decision,
+        )
     return CommandResult(
         command=command,
         cwd=str(root),
@@ -286,14 +332,24 @@ def run_workspace_shell_command(
         )
 
     before = _snapshot_changed_files(root)
-    completed = subprocess.run(
-        _platform_shell_args(command),
-        cwd=str(root),
-        shell=False,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
+    try:
+        completed = subprocess.run(
+            _platform_shell_args(command),
+            cwd=str(root),
+            shell=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return CommandResult(
+            command=command,
+            cwd=str(root),
+            returncode=124,
+            stdout=(exc.stdout or "")[-20_000:] if isinstance(exc.stdout, str) else "",
+            stderr=f"Command timed out after {timeout}s.",
+            decision=decision,
+        )
     after = _snapshot_changed_files(root)
     changed_paths = sorted(set(before) | set(after))
     file_changes: list[FileChange] = []

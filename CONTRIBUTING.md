@@ -1,4 +1,4 @@
-# Contributing to Row-Bot
+﻿# Contributing to Row-Bot
 
 Thanks for taking an interest in Row-Bot. This document describes how to set up a
 dev environment, the expected workflow for changes, and the bar for getting a
@@ -6,10 +6,10 @@ pull request merged.
 
 Row-Bot is a personal-AI-sovereignty project. The priorities, in order, are:
 
-1. **Privacy** — local-first defaults, no telemetry, no surprise network calls
-2. **Reliability** — destructive actions confirm, errors degrade gracefully
-3. **Test coverage** — new behavior ships with new tests in `tests/test_suite.py` or focused files under `tests/`
-4. **Cross-platform** — Windows and macOS are first-class; Linux is best-effort
+1. **Privacy** â€” local-first defaults, no telemetry, no surprise network calls
+2. **Reliability** â€” destructive actions confirm, errors degrade gracefully
+3. **Test coverage** â€” new behavior ships with deterministic coverage in `tests/contracts/`, `tests/subsystem/`, or focused files under `tests/`
+4. **Cross-platform** â€” Windows and macOS are first-class; Linux is best-effort
 
 ---
 
@@ -58,12 +58,30 @@ uv run python launcher.py
 ### Run the tests
 
 ```bash
-uv run python tests/test_suite.py
+uv run python scripts/run_test_matrix.py fast
 ```
 
-The suite is the single source of truth. Section markers (e.g. `Section 73:
-Auto-Update`) make it easy to see what each block covers. The run exits
-non-zero on any failure.
+For new subsystem work, you can also run the deterministic pytest lane directly:
+
+```bash
+uv run python -m pytest tests/contracts tests/subsystem -m "not live_provider" -q
+```
+
+`tests/test_suite.py`, `tests/integration_tests.py`, and
+`tests/test_memory_e2e.py` are retired compatibility shims. Their former
+coverage is mapped in `tests/helpers/legacy_inventory.py` and
+`tests/helpers/legacy_inventory_snapshot.py`; add or update real coverage in
+focused pytest files instead.
+
+Before opening a shared or release-sensitive PR, run:
+
+```bash
+uv run python scripts/run_test_matrix.py pr
+```
+
+The PR matrix also runs `uv run python scripts/run_test_matrix.py coverage`,
+which writes `.tmp/coverage/migrated-subsystems.xml` and enforces the migrated
+subsystem coverage baseline.
 
 When changing dependencies, edit `pyproject.toml`, then run:
 
@@ -91,12 +109,12 @@ Row-Bot uses a **trunk-based** model:
 
 Use one of the following prefixes:
 
-- `feat/<slug>` — new feature
-- `fix/<slug>` — bug fix
-- `docs/<slug>` — documentation only
-- `refactor/<slug>` — internal refactor with no behavior change
-- `test/<slug>` — adds or fixes tests
-- `chore/<slug>` — tooling, deps, CI
+- `feat/<slug>` â€” new feature
+- `fix/<slug>` â€” bug fix
+- `docs/<slug>` â€” documentation only
+- `refactor/<slug>` â€” internal refactor with no behavior change
+- `test/<slug>` â€” adds or fixes tests
+- `chore/<slug>` â€” tooling, deps, CI
 
 Examples: `feat/designer-pdf-export`, `fix/discord-voice-warning`.
 
@@ -129,8 +147,8 @@ Keep commits focused. If a PR ends up with cleanup noise, squash on merge.
 ## 3. Pull requests
 
 1. Fork or create a feature branch off the latest `main`.
-2. Make your change. Add or update tests in `tests/test_suite.py` or focused files under `tests/`.
-3. Run `python tests/test_suite.py` locally and confirm it passes.
+2. Make your change. Add or update deterministic tests in `tests/contracts/`, `tests/subsystem/`, or focused files under `tests/`.
+3. Run the affected pytest lane locally, then `uv run python scripts/run_test_matrix.py pr` when touching shared behavior.
 4. Push and open a PR against `main`. The PR template will prompt for the
    relevant info; fill out every section.
 5. CI will run on Windows, macOS, and Linux. All checks must be green.
@@ -152,7 +170,7 @@ Keep commits focused. If a PR ends up with cleanup noise, squash on merge.
 
 - A linked issue describing the problem
 - A short rationale in the PR description
-- New tests next to existing ones in the right `tests/test_suite.py` section or focused `tests/test_*.py` file
+- New tests in the right contract/subsystem folder or focused `tests/test_*.py` file
 - Screenshots or a short clip for UI changes
 - Stays under ~500 lines of diff where possible
 
@@ -177,14 +195,19 @@ UI (NiceGUI):
 
 ## 5. Tests
 
-`tests/test_suite.py` is one big runner. When you add a feature, add a new section
-or extend the most relevant existing section:
+Prefer deterministic pytest tests:
 
-```python
-# ── Section N: <Your feature> ────────────────────────────────────────────────
-print("\n=== Section N: <Your feature> ===")
-# ... assertions, increment PASS/FAIL counters using the helpers above ...
-```
+- `tests/contracts/` for fake provider/channel/MCP/tool interface contracts.
+- `tests/subsystem/` for end-to-end behavior with fakes and isolated temp data.
+- `tests/e2e/` for opt-in live provider or real service checks.
+- `tests/helpers/legacy_inventory.py` for proving retired legacy coverage still maps to replacement lanes.
+
+`tests/test_suite.py`, `tests/integration_tests.py`, and `tests/test_memory_e2e.py`
+are not destinations for new coverage. Add behavior under `tests/contracts/`,
+`tests/subsystem/`, `tests/integration/`, `tests/smoke/`, or a focused
+`tests/test_*.py` file. If a retired legacy mapping changes, update the
+machine-readable inventory so the old section still points at the replacement
+pytest files and verification command.
 
 Tests should:
 
@@ -193,6 +216,8 @@ Tests should:
 - Not depend on a specific Ollama model being pulled (skip cleanly when not
   available)
 - Finish in seconds, not minutes
+- Mark live/provider/network tests with `live_provider` or an opt-in marker so
+  CI deterministic lanes stay offline
 
 ---
 

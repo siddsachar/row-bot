@@ -6,6 +6,26 @@ For version bumps, CI release workflow expectations, signing, tagging, and publi
 order, use the canonical [release process](../docs/RELEASING.md). This file only
 covers the installer payload and local build flow.
 
+## Release Verification
+
+Fast installer and release contracts run in the normal test matrix:
+
+```bash
+uv run python scripts/run_test_matrix.py installer-contracts
+uv run python scripts/run_test_matrix.py release
+```
+
+Actual package builds and installed-app smoke checks are manual release work.
+Use the GitHub `Release - Build & Sign Installers` workflow for release
+candidates and `Installer Verify` when you want to smoke platform packages
+without publishing. Those workflows build the Windows, Linux, and macOS
+artifacts, launch the installed app with isolated data dirs, and upload
+checksums/manifests for review.
+
+Windows code signing remains local-only unless the project signing policy
+changes. macOS notarization remains an explicit manual workflow after the
+signed artifact has been reviewed.
+
 ## Linux Tarball
 
 Linux users should normally install with the one-line bootstrapper:

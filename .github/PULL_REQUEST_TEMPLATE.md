@@ -23,8 +23,10 @@ Describe what changed and why.
 
 ## Testing
 
-- [ ] I ran `python tests/test_suite.py`
+- [ ] I ran `uv run python scripts/run_test_matrix.py fast`
+- [ ] I ran `uv run python scripts/run_test_matrix.py pr` for shared, release-sensitive, or cross-subsystem changes
 - [ ] I added or updated tests
+- [ ] I updated the relevant inventory in `tests/helpers/` when changing coverage ownership
 - [ ] I manually tested the affected user flow
 - [ ] Not applicable, docs-only change
 

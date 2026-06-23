@@ -18,10 +18,7 @@ try:
 except ImportError:
     _ollama_mod = None  # type: ignore[assignment]
 
-try:
-    from langchain_ollama import ChatOllama
-except ImportError:
-    ChatOllama = None  # type: ignore[assignment,misc]
+ChatOllama = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
 
@@ -441,8 +438,13 @@ def _ollama_http_json(path: str, payload: dict | None = None, *, timeout: float 
 
 
 def _chat_ollama(model: str, **kwargs):
+    global ChatOllama
     if ChatOllama is None:
-        raise RuntimeError("langchain-ollama is not installed")
+        try:
+            from langchain_ollama import ChatOllama as _ChatOllama
+        except ImportError as exc:
+            raise RuntimeError("langchain-ollama is not installed") from exc
+        ChatOllama = _ChatOllama
     if "reasoning" not in kwargs:
         try:
             from row_bot.providers.ollama import is_ollama_reasoning_model

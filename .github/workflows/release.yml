@@ -6,10 +6,11 @@
 #                                  and sign the macOS outputs
 #
 # Jobs:
-#   test           - run tests/test_suite.py before any installer build
+#   release-preflight - run the release-grade deterministic test matrix
 #   build-windows - self-contained unsigned .exe (Inno Setup)
 #   build-macos    - signed .app/.pkg/.dmg (manual notarization later)
 #   build-linux - self-contained XDG user-install tarball
+#   checksums-and-manifest - publish artifact hashes for release review
 #
 # Notarization is handled by two separate manual workflows:
 #   notarize-submit.yml  - submit DMG to Apple (after testing)
@@ -34,6 +35,27 @@ name: Release - Build & Sign Installers
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: Version to build. Must match src/row_bot/version.py and installer/row_bot_setup.iss.
+        type: string
+        default: "4.2.0"
+      build_windows:
+        description: Build the Windows installer
+        type: boolean
+        default: true
+      build_linux:
+        description: Build the Linux tarball
+        type: boolean
+        default: true
+      build_macos:
+        description: Build the signed macOS app/pkg/dmg
+        type: boolean
+        default: true
+      publish_draft_release:
+        description: Reserved for a later publish job; this workflow currently uploads artifacts only.
+        type: boolean
+        default: false
 
 concurrency:
   group: release-${{ github.ref }}
@@ -42,14 +64,14 @@ concurrency:
 # Tracks the version this workflow is currently shipping. Kept in sync with
 # `installer/row_bot_setup.iss` (#define MyAppVersion) and `src/row_bot/version.py`.
 env:
-  ROW_BOT_VERSION: "4.2.0"
+  ROW_BOT_VERSION: ${{ inputs.version || '4.2.0' }}
   WINDOWS_PYTHON_VERSION: "3.13.2"
 
 jobs:
   # ---------------------------------------------------------------------------
-  #  Run test suite before building installers
+  #  Run release-grade deterministic verification before building installers
   # ---------------------------------------------------------------------------
-  test:
+  release-preflight:
     runs-on: macos-latest
     timeout-minutes: 30
 
@@ -68,13 +90,8 @@ jobs:
           uv lock --check
           python scripts/export_locked_requirements.py --check
 
-      - name: Install Ollama
-        run: |
-          brew install portaudio
-          brew install ollama
-          ollama serve &
-          sleep 5
-          ollama pull qwen3:1.7b
+      - name: Install macOS runtime libraries
+        run: brew install portaudio
 
       - name: Install Python packages
         run: uv sync --locked --all-extras --group test
@@ -82,23 +99,40 @@ jobs:
       - name: Verify required runtime dependencies
         run: uv run python scripts/verify_runtime_dependencies.py all
 
-      - name: Run focused startup hardening tests
-        run: uv run python -m pytest tests/test_dependency_metadata.py tests/test_optional_dependency_imports.py tests/test_startup_hardening.py tests/test_app_port.py tests/test_linux_support.py
+      - name: Verify release version consistency
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          expected = "${{ inputs.version || '4.2.0' }}"
+          version_py = Path("src/row_bot/version.py").read_text(encoding="utf-8")
+          setup_iss = Path("installer/row_bot_setup.iss").read_text(encoding="utf-8")
+          py_match = re.search(r'__version__\s*=\s*"([^"]+)"', version_py)
+          iss_match = re.search(r'#define\s+MyAppVersion\s+"([^"]+)"', setup_iss)
+          actual_py = py_match.group(1) if py_match else None
+          actual_iss = iss_match.group(1) if iss_match else None
+          if actual_py != expected or actual_iss != expected:
+              raise SystemExit(f"version mismatch: input={expected!r}, version.py={actual_py!r}, iss={actual_iss!r}")
+          print(f"version ok: {expected}")
+          PY
 
-      - name: Run focused agent orchestration tests
-        run: uv run python -m pytest tests/test_agent_profiles.py tests/test_agent_context.py tests/test_agent_tool_catalog.py tests/test_agent_runs.py tests/test_agent_runner.py tests/test_agent_tool.py tests/test_agent_tool_filtering.py tests/test_agent_write_locks.py tests/test_goal_mode.py tests/test_channel_goal_runtime.py tests/test_row_bot_status_agents.py
+      - name: Run release test matrix
+        run: uv run python scripts/run_test_matrix.py release
 
-      - name: Run focused provider model selection tests
-        run: uv run python -m pytest tests/test_provider_catalog.py tests/test_provider_selection.py tests/test_provider_runtime.py tests/test_provider_media.py tests/test_row_bot_status_media.py tests/test_provider_subscription_auth.py tests/test_atlascloud_first_class_provider.py tests/test_openai_compatible_transport.py tests/test_claude_subscription_auth.py tests/test_claude_subscription_transport.py tests/test_xai_oauth_provider.py tests/test_xai_oauth_transport.py tests/test_xai_media.py tests/test_model_picker_regressions.py -k "not xai_oauth_loopback"
-
-      - name: Run test suite
-        run: uv run python tests/test_suite.py
+      - name: Upload release preflight coverage
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-preflight-coverage
+          path: .tmp/coverage/migrated-subsystems.xml
+          if-no-files-found: warn
 
   # ---------------------------------------------------------------------------
   #  Build Windows installer (.exe) - self-contained
   # ---------------------------------------------------------------------------
   build-windows:
-    needs: test
+    if: ${{ inputs.build_windows }}
+    needs: release-preflight
     runs-on: windows-latest
     timeout-minutes: 60
 
@@ -133,7 +167,8 @@ jobs:
   #  Build Linux tarball - self-contained, browser/no-tray baseline
   # ---------------------------------------------------------------------------
   build-linux:
-    needs: test
+    if: ${{ inputs.build_linux }}
+    needs: release-preflight
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -194,7 +229,8 @@ jobs:
   #  Build macOS installers (.pkg + .dmg) - signed, manual notarization later
   # ---------------------------------------------------------------------------
   build-macos:
-    needs: test
+    if: ${{ inputs.build_macos }}
+    needs: release-preflight
     runs-on: macos-latest
     timeout-minutes: 180
 
@@ -414,4 +450,38 @@ jobs:
         with:
           name: Row-Bot-macOS-pkg
           path: dist/Row-Bot-*-macOS-*.pkg
+          retention-days: 90
+
+  # ---------------------------------------------------------------------------
+  #  Publish artifact checksums for release review
+  # ---------------------------------------------------------------------------
+  checksums-and-manifest:
+    if: ${{ always() && !cancelled() }}
+    needs: [build-windows, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Build SHA256 manifest
+        run: |
+          set -euo pipefail
+          if ! find release-artifacts -type f | grep -q .; then
+            echo "::error::No release artifacts were downloaded"
+            exit 1
+          fi
+          find release-artifacts -type f -print0 \
+            | sort -z \
+            | xargs -0 sha256sum \
+            | tee release-artifact-sha256.txt
+
+      - name: Upload release checksum manifest
+        uses: actions/upload-artifact@v7
+        with:
+          name: Row-Bot-release-sha256
+          path: release-artifact-sha256.txt
           retention-days: 90

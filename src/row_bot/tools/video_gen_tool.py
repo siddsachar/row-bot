@@ -198,6 +198,9 @@ def get_available_video_models() -> dict[str, str]:
 
 def _get_configured_selection() -> str:
     """Return the raw 'provider/model' string from tool config."""
+    val = registry.get_tool_config("video_gen", "model", None)
+    if val:
+        return val
     tool = registry.get_tool("video_gen")
     if tool:
         val = tool.get_config("model", DEFAULT_MODEL)

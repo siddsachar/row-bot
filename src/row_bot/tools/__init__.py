@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import importlib
 import logging
+import os
+import sys
 
 from row_bot.tools import registry  # noqa: F401 - make registry accessible as tools.registry
 
@@ -16,11 +18,23 @@ logger = logging.getLogger(__name__)
 
 
 def _import_tool_module(module_name: str, *, optional: bool = False) -> None:
+    modules_before = set(sys.modules) if optional else set()
     try:
         importlib.import_module(module_name)
     except ImportError as exc:
         if optional:
+            for imported_name in set(sys.modules) - modules_before:
+                sys.modules.pop(imported_name, None)
+            sys.modules.pop(module_name, None)
             logger.info("Optional tool module skipped: %s (%s)", module_name, exc)
+            return
+        raise
+    except Exception as exc:
+        if optional:
+            for imported_name in set(sys.modules) - modules_before:
+                sys.modules.pop(imported_name, None)
+            sys.modules.pop(module_name, None)
+            logger.warning("Optional tool module skipped after import failure: %s (%s)", module_name, exc)
             return
         raise
 
@@ -68,5 +82,6 @@ _OPTIONAL_TOOL_MODULES = (
 for _module_name in _CORE_TOOL_MODULES:
     _import_tool_module(_module_name)
 
-for _module_name in _OPTIONAL_TOOL_MODULES:
-    _import_tool_module(_module_name, optional=True)
+if os.environ.get("ROW_BOT_TEST_MODE") != "1":
+    for _module_name in _OPTIONAL_TOOL_MODULES:
+        _import_tool_module(_module_name, optional=True)

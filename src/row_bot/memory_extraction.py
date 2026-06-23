@@ -197,10 +197,14 @@ def _format_conversation(messages: list[dict]) -> str:
     """
     lines = []
     for m in messages:
-        if m["role"] == "user":
-            lines.append(f"User: {m['content']}")
+        role = m.get("role") if isinstance(m, dict) else None
+        content = m.get("content", "") if isinstance(m, dict) else ""
+        if role not in {"user", "assistant"} or not str(content).strip():
+            continue
+        if role == "user":
+            lines.append(f"User: {content}")
         else:
-            text = m["content"]
+            text = str(content)
             if len(text) > _ASSISTANT_TRUNCATE:
                 text = text[:_ASSISTANT_TRUNCATE] + " [...]"
             lines.append(f"Assistant: {text}")

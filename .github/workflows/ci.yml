@@ -50,7 +50,7 @@ jobs:
         run: uv run python scripts/verify_runtime_dependencies.py all
 
       - name: Compile Python files
-        run: uv run python -m compileall -q -x "(\\.git|\\.venv|dist|build|__pycache__)" .
+        run: uv run python -m compileall -q -x "(\\.git|\\.venv|dist|build|__pycache__)" src tests scripts app.py debug_tools.py launcher.py
 
       - name: Focused startup hardening tests
         run: uv run python -m pytest tests/test_dependency_metadata.py tests/test_optional_dependency_imports.py tests/test_startup_hardening.py tests/test_app_port.py
@@ -60,6 +60,13 @@ jobs:
 
       - name: Focused provider model selection tests
         run: uv run python -m pytest tests/test_provider_catalog.py tests/test_provider_selection.py tests/test_provider_runtime.py tests/test_provider_media.py tests/test_row_bot_status_media.py tests/test_provider_subscription_auth.py tests/test_atlascloud_first_class_provider.py tests/test_openai_compatible_transport.py tests/test_claude_subscription_auth.py tests/test_claude_subscription_transport.py tests/test_xai_oauth_provider.py tests/test_xai_oauth_transport.py tests/test_xai_media.py tests/test_model_picker_regressions.py -k "not xai_oauth_loopback"
+
+      - name: Changed-test advisory
+        if: github.event_name == 'pull_request'
+        run: uv run python scripts/run_test_matrix.py changed --dry-run --base origin/main
+
+      - name: Deterministic subsystem and contract tests
+        run: uv run python scripts/run_test_matrix.py contract-subsystem
 
       - name: Runtime smoke on Linux
         if: runner.os == 'Linux'
@@ -99,5 +106,13 @@ jobs:
       - name: Verify required runtime dependencies
         run: uv run python scripts/verify_runtime_dependencies.py all
 
-      - name: Run test suite
-        run: uv run python tests/test_suite.py
+      - name: Run full PR verification matrix
+        run: uv run python scripts/run_test_matrix.py pr
+
+      - name: Upload migrated subsystem coverage
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: migrated-subsystem-coverage
+          path: .tmp/coverage/migrated-subsystems.xml
+          if-no-files-found: warn

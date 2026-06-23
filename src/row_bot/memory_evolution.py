@@ -126,6 +126,20 @@ def merge_evidence(existing: Any, incoming: Any) -> list[Any]:
     return items[:EVIDENCE_MAX_ITEMS]
 
 
+def merge_unique_list(existing: Any, incoming: Any) -> list[Any]:
+    items: list[Any] = []
+    for value in (existing, incoming):
+        if value is None:
+            continue
+        candidates = value if isinstance(value, list) else [value]
+        for item in candidates:
+            if not item:
+                continue
+            if item not in items:
+                items.append(item)
+    return items
+
+
 def merge_properties(
     existing: dict | str | None,
     incoming: dict | str | None,
@@ -146,6 +160,13 @@ def merge_properties(
             merged[key] = merge_source_context(merged.get(key), value, actor=actor)
         elif key == "evidence":
             merged[key] = merge_evidence(merged.get("evidence"), value)
+        elif key in {"aliases", "tags"}:
+            merged[key] = merge_unique_list(merged.get(key), value)
+        elif key == "confidence" and merged.get("confidence") is not None:
+            try:
+                merged[key] = max(float(merged.get(key)), float(value))
+            except (TypeError, ValueError):
+                merged[key] = value
         elif key in {"last_user_modified_at"} and merged.get(key) and not high_authority:
             continue
         elif key == "status" and merged.get("status") in {"archived", "needs_review"} and not high_authority:

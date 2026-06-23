@@ -85,6 +85,10 @@ def set_enabled(enabled: bool) -> None:
 
 
 def set_window(start: int, end: int) -> None:
+    if not isinstance(start, int) or not isinstance(end, int) or not (0 <= start <= 23) or not (0 <= end <= 23):
+        raise ValueError("Dream window hours must be integers from 0 through 23.")
+    if start == end:
+        raise ValueError("Dream window start and end must differ.")
     cfg = _load_config()
     cfg["window_start"] = start
     cfg["window_end"] = end

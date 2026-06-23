@@ -308,6 +308,8 @@ def _migrate_legacy_secrets(data: dict[str, Any]) -> bool:
 
 # ── Cache Invalidation ───────────────────────────────────────────────────────
 def _invalidate_agent_cache():
+    if os.environ.get("ROW_BOT_TEST_MODE") == "1":
+        return
     try:
         from row_bot.agent import clear_agent_cache
         clear_agent_cache()

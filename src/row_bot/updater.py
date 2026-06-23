@@ -653,7 +653,7 @@ def check_for_updates(*, force: bool = False) -> Optional[UpdateInfo]:
             continue
         if info.version in st.skipped_versions:
             continue
-        if best is None or compare_versions(best.version, info.version) < 0:
+        if best is None or compare_versions(best.version, info.version) > 0:
             best = info
 
     with _state_lock:

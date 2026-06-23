@@ -262,6 +262,9 @@ def _get_client() -> tuple:
 
 def _get_configured_selection() -> str:
     """Return the raw 'provider/model' string from tool config."""
+    val = registry.get_tool_config("image_gen", "model", None)
+    if val:
+        return val
     tool = registry.get_tool("image_gen")
     if tool:
         val = tool.get_config("model", DEFAULT_MODEL)

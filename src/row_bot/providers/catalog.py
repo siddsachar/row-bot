@@ -393,6 +393,8 @@ def classify_model_capabilities(
     endpoint_compatibility = {default_transport}
     if isinstance(metadata.get("tool_calling"), bool):
         tool_calling = bool(metadata.get("tool_calling"))
+    if isinstance(metadata.get("streaming"), bool):
+        streaming = bool(metadata.get("streaming"))
 
     if provider_id == "atlascloud":
         from row_bot.providers.atlascloud import (

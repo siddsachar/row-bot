@@ -158,6 +158,7 @@ row-bot = "row_bot.launcher:main"
 [dependency-groups]
 test = [
   "pytest>=8.4,<9.0",
+  "pytest-cov>=6.0,<8.0",
 ]
 lint = [
   "ruff>=0.12,<1.0",

@@ -1,0 +1,62 @@
+name: Live E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_marked_live_tests:
+        description: Run all tests marked live_provider or e2e
+        type: boolean
+        default: false
+      run_real_mcp:
+        description: Enable real-world MCP E2E checks
+        type: boolean
+        default: false
+      timeout_minutes:
+        description: Job timeout in minutes
+        type: number
+        default: 30
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  live-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    env:
+      ROW_BOT_MCP_REAL_WORLD_E2E: ${{ inputs.run_real_mcp && '1' || '0' }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: python -m pip install "uv>=0.7,<1.0"
+
+      - name: Install Linux runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgl1 libegl1 libglib2.0-0 libxcb-cursor0 libportaudio2
+
+      - name: Install Python packages
+        run: uv sync --locked --all-extras --group test
+
+      - name: Run selected live MCP checks
+        if: ${{ inputs.run_real_mcp }}
+        run: uv run python -m pytest tests/test_mcp_real_world_e2e.py -q
+
+      - name: Run all marked live/e2e tests
+        if: ${{ inputs.run_marked_live_tests }}
+        run: uv run python -m pytest tests -m "live_provider or e2e" -q
+
+      - name: Confirm no live lane selected
+        if: ${{ !inputs.run_real_mcp && !inputs.run_marked_live_tests }}
+        run: |
+          echo "No live/e2e inputs selected. Re-run this workflow with an explicit live check enabled."
