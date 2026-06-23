@@ -554,7 +554,7 @@ def test_developer_executable_resolver_finds_standard_windows_installs(tmp_path,
     }
 
     monkeypatch.setattr(executables.shutil, "which", fake_which)
-    monkeypatch.setattr(executables.os, "name", "nt")
+    monkeypatch.setattr(executables, "_is_windows", lambda: True)
     monkeypatch.setattr(executables.os, "environ", {
         "ProgramFiles": r"C:\Program Files",
         "ProgramFiles(x86)": r"C:\Program Files (x86)",

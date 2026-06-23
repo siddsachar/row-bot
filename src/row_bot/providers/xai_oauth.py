@@ -371,6 +371,7 @@ def wait_for_xai_oauth_loopback_authorization(
 ) -> XAIOAuthAuthorization:
     """Wait for one xAI OAuth loopback callback and return a validated authorization."""
     from http.server import BaseHTTPRequestHandler, HTTPServer
+    from socketserver import TCPServer
     import html
     import webbrowser
 
@@ -419,8 +420,15 @@ def wait_for_xai_oauth_loopback_authorization(
                 return
             _write_page(self, 200, "xAI Grok connected", "You can close this browser tab and return to Row-Bot.")
 
+    class _LoopbackHTTPServer(HTTPServer):
+        def server_bind(self) -> None:
+            TCPServer.server_bind(self)
+            host, port = self.socket.getsockname()[:2]
+            self.server_name = str(host)
+            self.server_port = int(port)
+
     try:
-        server = HTTPServer((XAI_OAUTH_REDIRECT_HOST, port), _CallbackHandler)
+        server = _LoopbackHTTPServer((XAI_OAUTH_REDIRECT_HOST, port), _CallbackHandler)
     except OSError as exc:
         raise XAIOAuthError(
             f"xAI OAuth callback port {port} is unavailable. Close the process using it and try again.",

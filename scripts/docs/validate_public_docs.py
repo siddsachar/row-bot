@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -80,7 +83,10 @@ def _route_exists(route: str, routes: dict[str, Path]) -> bool:
 
 
 def _relative(path: Path) -> str:
-    return str(path.relative_to(ROOT)).replace("\\", "/")
+    try:
+        return str(path.relative_to(ROOT)).replace("\\", "/")
+    except ValueError:
+        return str(path).replace("\\", "/")
 
 
 def _scan_text(path: Path, text: str) -> list[str]:
@@ -315,16 +321,35 @@ def _validate_reference_links(errors: list[str]) -> None:
 
 
 def _validate_llms(errors: list[str]) -> None:
-    llms = DOCS_SITE / "static" / "llms.txt"
-    full = DOCS_SITE / "static" / "llms-full.txt"
-    for path in (llms, full, DOCS_SITE / "static" / "docs" / "llms.txt", DOCS_SITE / "static" / "docs" / "llms-full.txt"):
-        if not path.exists() or path.stat().st_size < 100:
-            errors.append(f"Missing or empty generated LLM docs file: {_relative(path)}")
-    if llms.exists():
-        text = llms.read_text(encoding="utf-8", errors="replace")
-        for route in _doc_routes():
-            if route not in text:
-                errors.append(f"llms.txt missing route {route}")
+    from scripts.docs.generate_llms_txt import generate
+
+    with tempfile.TemporaryDirectory(prefix="row-bot-llms-") as tmp:
+        out_dir = Path(tmp)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                generate(DOCS_ROOT, out_dir)
+        except Exception as exc:
+            errors.append(f"Could not generate LLM docs files: {exc}")
+            return
+
+        llms = out_dir / "llms.txt"
+        full = out_dir / "llms-full.txt"
+        expected = [
+            ("docs-site/static/llms.txt", llms),
+            ("docs-site/static/llms-full.txt", full),
+            ("docs-site/static/docs/llms.txt", out_dir / "docs" / "llms.txt"),
+            ("docs-site/static/docs/llms-full.txt", out_dir / "docs" / "llms-full.txt"),
+        ]
+        for rel, path in expected:
+            if not path.exists() or path.stat().st_size < 100:
+                errors.append(f"Missing or empty generated LLM docs file: {rel}")
+            elif path.name in {"llms.txt", "llms-full.txt"}:
+                errors.extend(_scan_text(path, path.read_text(encoding="utf-8", errors="replace")))
+        if llms.exists():
+            text = llms.read_text(encoding="utf-8", errors="replace")
+            for route in _doc_routes():
+                if route not in text:
+                    errors.append(f"llms.txt missing route {route}")
 
 
 def _validate_public_guardrails(errors: list[str]) -> None:

@@ -219,6 +219,7 @@ def test_tray_icon_caches_by_state(monkeypatch):
         calls["count"] += 1
         return Image.new("RGBA", (launcher._ICON_SIZE, launcher._ICON_SIZE), (10, 20, 30, 255))
 
+    monkeypatch.setattr(launcher.sys, "platform", "win32")
     monkeypatch.setattr(launcher, "_icons", {}, raising=False)
     monkeypatch.setattr(launcher, "_load_tray_base_icon", _load_base_icon)
 
