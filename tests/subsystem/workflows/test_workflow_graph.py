@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.fixtures.workflows import fresh_tasks_module, sample_workflow_steps
+from tests.fixtures.tasks import fresh_tasks_module, sample_workflow_steps
 
 
 pytestmark = pytest.mark.subsystem

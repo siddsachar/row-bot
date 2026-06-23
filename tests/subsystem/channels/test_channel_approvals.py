@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from tests.fixtures.channels import FakeChannel
-from tests.fixtures.workflows import fresh_tasks_module
+from tests.fixtures.tasks import fresh_tasks_module
 
 
 pytestmark = pytest.mark.subsystem

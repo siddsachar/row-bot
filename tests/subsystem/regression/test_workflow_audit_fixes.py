@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.fixtures.workflows import fresh_tasks_module
+from tests.fixtures.tasks import fresh_tasks_module
 
 
 pytestmark = pytest.mark.subsystem
