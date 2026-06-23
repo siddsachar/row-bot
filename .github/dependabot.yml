@@ -1,6 +1,8 @@
 version: 2
 updates:
-  - package-ecosystem: pip
+  # Python dependencies are resolved by uv.lock; requirements.txt is generated
+  # from that lockfile for installer compatibility.
+  - package-ecosystem: uv
     directory: /
     schedule:
       interval: weekly

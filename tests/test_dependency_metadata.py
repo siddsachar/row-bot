@@ -4,6 +4,8 @@ import re
 import tomllib
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = ROOT / "pyproject.toml"
@@ -134,6 +136,18 @@ def test_lockfile_and_generated_requirements_are_committed():
     )
 
 
+def test_dependabot_uses_uv_for_python_updates():
+    dependabot = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text(encoding="utf-8"))
+    updates = dependabot["updates"]
+    ecosystems = {entry["package-ecosystem"]: entry for entry in updates}
+
+    assert "uv" in ecosystems
+    assert "pip" not in ecosystems
+    assert ecosystems["uv"]["directory"] == "/"
+    assert ecosystems["uv"]["labels"] == ["dependencies", "python"]
+    assert ecosystems["github-actions"]["labels"] == ["dependencies", "github-actions"]
+
+
 def test_payload_manifest_includes_dependency_provenance_files():
     import scripts.app_payload_manifest as manifest
 
@@ -156,6 +170,7 @@ def test_ci_security_and_installer_dependency_hooks_are_wired():
     assert "uv sync --locked --all-extras --group test" in release
     assert "uv sync --locked --group lint" in lint
     assert lock_check.is_file()
+    assert ".github/dependabot.yml" in lock_check.read_text(encoding="utf-8")
     assert "uv lock --check" in lock_check.read_text(encoding="utf-8")
     assert "export_locked_requirements.py --check" in lock_check.read_text(encoding="utf-8")
     assert osv.is_file()
