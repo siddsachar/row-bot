@@ -59,6 +59,15 @@ PROVIDER_DEFINITIONS: dict[str, ProviderDefinition] = {
         risk_label="third_party_router",
         icon="🌐",
     ),
+    "litellm": ProviderDefinition(
+        id="litellm",
+        display_name="LiteLLM",
+        auth_methods=(AuthMethod.API_KEY,),
+        default_transport=TransportMode.OPENAI_CHAT,
+        base_url="http://localhost:4000/v1",
+        risk_label="third_party_router",
+        icon="🔀",
+    ),
     "opencode_zen": ProviderDefinition(
         id="opencode_zen",
         display_name="OpenCode Zen",

@@ -24,6 +24,7 @@ def list_configured_provider_ids() -> list[str]:
             "openai",
             "ollama_cloud",
             "openrouter",
+            "litellm",
             "opencode_zen",
             "opencode_go",
             "atlascloud",
