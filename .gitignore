@@ -58,6 +58,7 @@ audit_*.py
 
 # Old workflows module (replaced by tasks.py in v3.5.0)
 workflows.py
+!tests/fixtures/workflows.py
 
 # Plugin monorepo (separate repo: siddsachar/row-bot-plugins)
 monorepo/
