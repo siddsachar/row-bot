@@ -817,7 +817,7 @@ def _format_selected_tool_ids(tool_ids: object, *, limit: int = 12) -> str:
     labels: list[str] = []
     for tool_id in clean_ids[:limit]:
         label = _tool_label_for_id(tool_id, lookup)
-        labels.append(f"{label} ({tool_id})" if label and label != tool_id else tool_id)
+        labels.append(f"{label or tool_id} ({tool_id})")
     if len(clean_ids) > limit:
         labels.append(f"... and {len(clean_ids) - limit} more")
     return ", ".join(labels)
