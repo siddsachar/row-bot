@@ -47,6 +47,10 @@ inventory snapshot.
 `tests/helpers/legacy_inventory.py` verifies that every retired legacy section
 has covered replacement paths. PR and release CI use `scripts/run_test_matrix.py`;
 no substantive coverage should be added back to the legacy script files.
+Prompt assembly changes in `agent.py`, `prompts.py`, `self_knowledge.py`,
+`prompt_context.py`, or `prompt_cache.py` select the subsystem agent tests,
+prompt-cache provider tests, and the focused Chat Only, memory, skills, and
+provider runtime regressions.
 
 `scripts/run_test_matrix.py coverage` runs the migrated contract/subsystem lane
 with `pytest-cov`, writes `.tmp/coverage/migrated-subsystems.xml`, and enforces
@@ -58,6 +62,11 @@ Developer Studio, Designer export, and existing plugin modules.
 Use `python scripts/coverage_summary.py` after a coverage run for a compact
 per-module summary of `.tmp/coverage/migrated-subsystems.xml`.
 
-Live provider, real MCP, and real channel checks stay opt-in. Use the manual
-`.github/workflows/live-e2e.yml` workflow when credentials or external services
-are available.
+Live provider, real MCP, and real channel checks stay opt-in. Live provider
+prompt-cache validation should use the real Row-Bot runtime with at least one
+latest recommended chat-capable model per configured provider. The only
+acceptable provider-side failure is an explicit out-of-credits, quota,
+usage-exhausted, or billing-limit response; schema, auth, routing, streaming,
+tool replay, and unsupported-parameter failures are bugs or blockers. Use the
+manual `.github/workflows/live-e2e.yml` workflow when credentials or external
+services are available.

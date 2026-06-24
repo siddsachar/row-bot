@@ -6,8 +6,14 @@ from typing import Any
 from row_bot.models import get_llm, get_llm_for, get_context_size, get_current_model, is_model_local, is_cloud_model, get_cloud_provider, get_model_max_context, set_active_model_override, _active_model_override
 from row_bot.api_keys import apply_keys
 from row_bot.prompts import AGENT_SYSTEM_PROMPT, SUMMARIZE_PROMPT, get_agent_system_prompt, get_chat_only_system_prompt
-from langchain_classic.retrievers import ContextualCompressionRetriever
-from langchain_classic.retrievers.document_compressors import LLMChainExtractor
+from row_bot.prompt_cache import apply_anthropic_system_cache_marker, normalize_prompt_cache_usage
+from row_bot.prompt_context import (
+    cache_eligible_message_ids,
+    ephemeral_section,
+    section_messages,
+    stable_prefix_fingerprint,
+    stable_section,
+)
 from langchain_core.messages import trim_messages, ToolMessage, AIMessage, HumanMessage, SystemMessage, BaseMessage
 from langgraph.types import interrupt, Command
 from row_bot.threads import pick_or_create_thread, checkpointer
@@ -397,6 +403,8 @@ def _get_compressor():
         return None
 
     # mode == "deep" — LLMChainExtractor behaviour
+    from langchain_classic.retrievers.document_compressors import LLMChainExtractor
+
     _ov = _model_override_var.get() or ""
     if _ov and _ov != get_current_model() and (is_model_local(_ov) or is_cloud_model(_ov)):
         _compressor = LLMChainExtractor.from_llm(get_llm_for(_ov))
@@ -410,6 +418,8 @@ def _compressed(base_retriever):
     comp = _get_compressor()
     if comp is None:
         return base_retriever
+    from langchain_classic.retrievers import ContextualCompressionRetriever
+
     return ContextualCompressionRetriever(
         base_compressor=comp,
         base_retriever=base_retriever,
@@ -1133,6 +1143,15 @@ def _summarize_tool_result(name: str, content: str) -> str:
     return f"[{name}]: {content[:150]}…"
 
 
+def _cache_eligible_root_system_section(message: SystemMessage):
+    text = _content_to_str(getattr(message, "content", "") or "")
+    if not text.strip():
+        return None
+    if "[Conversation Summary" in text or "[End of summary" in text:
+        return None
+    return stable_section("agent.root", text, source="agent")
+
+
 def _pre_model_trim(state: dict) -> dict:
     """Trim conversation history to ~85% of the context window before each
     LLM call, and inject the current date/time so it is always accurate.
@@ -1456,40 +1475,86 @@ def _pre_model_trim(state: dict) -> dict:
             insert_idx = i + 1
             break
 
-    _injections: list[SystemMessage] = []
+    _prompt_sections = []
+    _cache_eligible_system_message_ids: set[int] = set()
+    _stable_fingerprint = ""
+
+    for _root_candidate in trimmed:
+        if isinstance(_root_candidate, SystemMessage):
+            _root_section = _cache_eligible_root_system_section(_root_candidate)
+            if _root_section is not None:
+                _prompt_sections.append(_root_section)
+                _cache_eligible_system_message_ids.add(id(_root_candidate))
+            break
+
+    _stable_injection_sections = []
+    _ephemeral_injection_sections = []
 
     # Date/time — always present
     now = _datetime.now()
-    _injections.append(SystemMessage(
-        content=f"Current date and time: {now.strftime('%A, %B %d, %Y at %I:%M %p')}."
-    ))
+    _section = ephemeral_section(
+        "turn.date_time",
+        f"Current date and time: {now.strftime('%A, %B %d, %Y at %I:%M %p')}.",
+        source="agent",
+    )
+    if _section is not None:
+        _ephemeral_injection_sections.append(_section)
 
     # Current runtime authority. This prevents stale Chat Only assistant text
     # from a previous turn from overriding the active Agent/tool contract.
-    _injections.append(SystemMessage(content=_agent_runtime_system_context()))
+    _section = ephemeral_section(
+        "turn.runtime_mode",
+        _agent_runtime_system_context(),
+        source="agent",
+    )
+    if _section is not None:
+        _ephemeral_injection_sections.append(_section)
 
     profile_context = _agent_profile_system_context(_current_thread_id_var.get() or "")
     if profile_context:
-        _injections.append(SystemMessage(content=profile_context))
+        _section = stable_section("agent.profile", profile_context, source="agent_profiles")
+        if _section is not None:
+            _stable_injection_sections.append(_section)
 
     # Platform / shell context
     try:
         from row_bot.prompts import get_platform_context
-        _injections.append(SystemMessage(content=get_platform_context()))
+        _section = stable_section("platform.context", get_platform_context(), source="prompts")
+        if _section is not None:
+            _stable_injection_sections.append(_section)
     except Exception:
         pass
 
     developer_context = _developer_context_var.get("")
     if developer_context:
-        _injections.append(SystemMessage(content=developer_context))
+        _section = ephemeral_section("turn.developer_context", developer_context, source="developer")
+        if _section is not None:
+            _ephemeral_injection_sections.append(_section)
 
     # Self-knowledge
     if not compact_custom_endpoint:
         try:
-            from row_bot.self_knowledge import build_self_knowledge_block
-            _sk_text = build_self_knowledge_block()
-            if _sk_text:
-                _injections.append(SystemMessage(content=_sk_text))
+            from row_bot.self_knowledge import (
+                build_dynamic_self_knowledge_block,
+                build_static_self_knowledge_block,
+            )
+
+            _sk_static = build_static_self_knowledge_block()
+            _section = stable_section(
+                "self_knowledge.static",
+                _sk_static,
+                source="self_knowledge",
+            )
+            if _section is not None:
+                _stable_injection_sections.append(_section)
+            _sk_dynamic = build_dynamic_self_knowledge_block()
+            _section = ephemeral_section(
+                "self_knowledge.dynamic_state",
+                _sk_dynamic,
+                source="self_knowledge",
+            )
+            if _section is not None:
+                _ephemeral_injection_sections.append(_section)
         except Exception:
             pass
 
@@ -1500,21 +1565,39 @@ def _pre_model_trim(state: dict) -> dict:
         _dp = get_active_project()
         if _dp is not None:
             from row_bot.designer.prompt import build_designer_prompt
-            _injections.append(SystemMessage(content=build_designer_prompt(_dp)))
+            _section = ephemeral_section(
+                "turn.designer_project",
+                build_designer_prompt(_dp),
+                source="designer",
+            )
+            if _section is not None:
+                _ephemeral_injection_sections.append(_section)
     except Exception:
         pass
 
     # Background-mode override
     if is_background_workflow():
         from row_bot.prompts import AGENT_BG_OVERRIDE
-        _injections.append(SystemMessage(content=AGENT_BG_OVERRIDE))
+        _section = stable_section(
+            "background.override",
+            AGENT_BG_OVERRIDE,
+            source="prompts",
+        )
+        if _section is not None:
+            _stable_injection_sections.append(_section)
         if _persistent_thread_var.get():
-            _injections.append(SystemMessage(content=(
-                "PERSISTENT THREAD: This task uses a persistent conversation thread. "
-                "Earlier messages in this thread are from PREVIOUS runs of the same task. "
-                "Use them to compare against prior results, track changes over time, "
-                "and avoid repeating work already done."
-            )))
+            _section = ephemeral_section(
+                "turn.background_persistent_thread",
+                (
+                    "PERSISTENT THREAD: This task uses a persistent conversation thread. "
+                    "Earlier messages in this thread are from PREVIOUS runs of the same task. "
+                    "Use them to compare against prior results, track changes over time, "
+                    "and avoid repeating work already done."
+                ),
+                source="tasks",
+            )
+            if _section is not None:
+                _ephemeral_injection_sections.append(_section)
 
     # Skill instructions
     skills_text = ""
@@ -1561,12 +1644,31 @@ def _pre_model_trim(state: dict) -> dict:
                     is_background=False,
                 )
 
-            skills_text = get_skills_prompt(
-                manual_skill_names,
+            tool_guides_text = get_skills_prompt(
+                [],
                 active_tool_names=active_tool_names,
             )
-            if skills_text:
-                _injections.append(SystemMessage(content=skills_text))
+            manual_skills_text = get_skills_prompt(
+                manual_skill_names,
+                active_tool_names=[],
+            )
+            skills_text = "\n".join(
+                text for text in (tool_guides_text, manual_skills_text) if text
+            )
+            _section = stable_section(
+                "skills.tool_guides",
+                tool_guides_text,
+                source="skills",
+            )
+            if _section is not None:
+                _stable_injection_sections.append(_section)
+            _section = stable_section(
+                "skills.manual",
+                manual_skills_text,
+                source="skills",
+            )
+            if _section is not None:
+                _stable_injection_sections.append(_section)
             if _thread_id and manual_skill_names:
                 record_usage(_thread_id, manual_skill_names, source="agent")
         except Exception as exc:
@@ -1577,7 +1679,13 @@ def _pre_model_trim(state: dict) -> dict:
 
                     skills_text = _fallback_get_skills_prompt()
                     if skills_text:
-                        _injections.append(SystemMessage(content=skills_text))
+                        _section = stable_section(
+                            "skills.manual",
+                            skills_text,
+                            source="skills",
+                        )
+                        if _section is not None:
+                            _stable_injection_sections.append(_section)
                 except Exception:
                     pass
 
@@ -1587,13 +1695,24 @@ def _pre_model_trim(state: dict) -> dict:
             from row_bot.plugins import registry as _plugin_reg
             plugin_skills_text = _plugin_reg.get_skills_prompt()
             if plugin_skills_text:
-                _injections.append(SystemMessage(content=plugin_skills_text))
+                _section = stable_section(
+                    "skills.plugins",
+                    plugin_skills_text,
+                    source="plugins",
+                )
+                if _section is not None:
+                    _stable_injection_sections.append(_section)
         except Exception as exc:
             logger.debug("Plugin skill injection skipped: %s", exc)
 
     # Batch-insert all injections at insert_idx
-    for _ii, _inj_msg in enumerate(_injections):
-        trimmed.insert(insert_idx + _ii, _inj_msg)
+    _injection_sections = _stable_injection_sections + _ephemeral_injection_sections
+    _prompt_sections.extend(_injection_sections)
+    _section_messages = section_messages(_injection_sections)
+    _cache_eligible_system_message_ids.update(cache_eligible_message_ids(_section_messages))
+    _stable_fingerprint = stable_prefix_fingerprint(_prompt_sections)
+    for _ii, _section_message in enumerate(_section_messages):
+        trimmed.insert(insert_idx + _ii, _section_message.message)
 
     # ── Auto-recall: inject validated background memory before latest user ─
     try:
@@ -1829,12 +1948,8 @@ def _pre_model_trim(state: dict) -> dict:
             trimmed = _sys + _rest
 
             # ── Anthropic prompt caching ─────────────────────────────
-            # Mark the merged system block and early conversation turns
-            # with cache_control so Anthropic caches them across requests.
-            # langchain-anthropic passes cache_control through on content
-            # blocks.  We place up to 2 cache breakpoints:
-            #   1. The last SystemMessage (covers system prompt + metadata)
-            #   2. The 3rd non-system message (covers early conversation)
+            # Only direct Anthropic API receives cache_control, and only on
+            # stable system context. Conversation history is never marked.
             if _provider_id != "anthropic":
                 return {
                     "llm_input_messages": _normalize_provider_facing_messages(
@@ -1843,51 +1958,19 @@ def _pre_model_trim(state: dict) -> dict:
                         anthropic_messages=True,
                     )
                 }
-            _CACHE_MARKER = {"type": "ephemeral"}
-            # Breakpoint 1: last system message
-            _last_sys_idx = -1
-            for _ci in range(len(trimmed) - 1, -1, -1):
-                if isinstance(trimmed[_ci], SystemMessage):
-                    _last_sys_idx = _ci
-                    break
-            if _last_sys_idx >= 0:
-                _sm = trimmed[_last_sys_idx]
-                _sc = _sm.content
-                if isinstance(_sc, str):
-                    _sc = [{"type": "text", "text": _sc, "cache_control": _CACHE_MARKER}]
-                elif isinstance(_sc, list) and _sc:
-                    _sc = list(_sc)  # shallow copy
-                    _last_block = _sc[-1]
-                    if isinstance(_last_block, dict):
-                        _sc[-1] = {**_last_block, "cache_control": _CACHE_MARKER}
-                    else:
-                        _sc.append({"type": "text", "text": "", "cache_control": _CACHE_MARKER})
-                trimmed[_last_sys_idx] = SystemMessage(content=_sc)
-
-            # Breakpoint 2: 3rd non-system message (early conversation)
-            _nonsys_count = 0
-            for _ci, _cm in enumerate(trimmed):
-                if isinstance(_cm, SystemMessage):
-                    continue
-                _nonsys_count += 1
-                if _nonsys_count == 3:
-                    _cc = _cm.content
-                    if isinstance(_cc, str):
-                        _cc = [{"type": "text", "text": _cc, "cache_control": _CACHE_MARKER}]
-                    elif isinstance(_cc, list) and _cc:
-                        _cc = list(_cc)
-                        _lb = _cc[-1]
-                        if isinstance(_lb, dict):
-                            _cc[-1] = {**_lb, "cache_control": _CACHE_MARKER}
-                        else:
-                            _cc.append({"type": "text", "text": "", "cache_control": _CACHE_MARKER})
-                    # Reconstruct message preserving type
-                    _new_msg = _cm.model_copy(update={"content": _cc})
-                    trimmed[_ci] = _new_msg
-                    break
-            logger.debug("Anthropic prompt caching: applied breakpoints "
-                         "(sys=%d, conv=%s)", _last_sys_idx >= 0,
-                         _nonsys_count >= 3)
+            trimmed, _cache_marker_result = apply_anthropic_system_cache_marker(
+                trimmed,
+                provider_id=_provider_id,
+                cache_eligible_system_message_ids=_cache_eligible_system_message_ids,
+                stable_fingerprint=_stable_fingerprint,
+            )
+            logger.debug(
+                "Anthropic prompt caching: applied=%s eligible_systems=%d fingerprint=%s reason=%s",
+                _cache_marker_result.applied,
+                _cache_marker_result.eligible_system_count,
+                _cache_marker_result.stable_fingerprint[:16],
+                _cache_marker_result.reason,
+            )
     except Exception:
         pass  # Non-fatal
 
@@ -3321,6 +3404,7 @@ def stream_chat_only(
     ) * 1000.0
     full_answer: list[str] = []
     full_reasoning: list[str] = []
+    latest_response_metadata: dict[str, Any] = {}
     thinking_signalled = False
     decoder = _ReasoningTextStreamDecoder()
 
@@ -3343,6 +3427,9 @@ def stream_chat_only(
             for chunk in stream_iter:
                 if stop_event and stop_event.is_set():
                     break
+                response_metadata = getattr(chunk, "response_metadata", None) or {}
+                if isinstance(response_metadata, dict) and response_metadata:
+                    latest_response_metadata.update(response_metadata)
                 parts = decode_ai_stream_parts(chunk, decoder)
                 if not parts and not thinking_signalled:
                     thinking_signalled = True
@@ -3373,6 +3460,9 @@ def stream_chat_only(
             provider_call["mode"] = "invoke"
             _provider_started = time.perf_counter()
             result = llm.invoke(messages)
+            response_metadata = getattr(result, "response_metadata", None) or {}
+            if isinstance(response_metadata, dict) and response_metadata:
+                latest_response_metadata.update(response_metadata)
             phase_timings["generation.provider_invoke_ms"] = (
                 time.perf_counter() - _provider_started
             ) * 1000.0
@@ -3403,6 +3493,7 @@ def stream_chat_only(
     answer = "".join(full_answer)
     provider_done_ms = (time.perf_counter() - _provider_started) * 1000.0
     phase_timings["generation.provider_stream_ms"] = provider_done_ms
+    prompt_cache_usage = normalize_prompt_cache_usage(latest_response_metadata)
     provider_call.update({
         "complete_ms": provider_done_ms,
         "duration_ms": provider_done_ms,
@@ -3410,6 +3501,7 @@ def stream_chat_only(
         "answer_chars": len(answer),
         "reasoning_chunks": len(full_reasoning),
         "reasoning_chars": len("".join(full_reasoning)),
+        **prompt_cache_usage,
     })
     phase_timings["generation.provider_call_count"] = 1
     phase_timings["generation.provider_calls"] = [
@@ -3434,6 +3526,7 @@ def stream_chat_only(
             "answer_chunks": len(full_answer),
             "reasoning_chars": len("".join(full_reasoning)),
             "reasoning_chunks": len(full_reasoning),
+            **prompt_cache_usage,
         },
     )
     additional_kwargs = {"reasoning_content": "".join(full_reasoning)} if full_reasoning else {}
@@ -3445,7 +3538,11 @@ def stream_chat_only(
             thread_id,
             [
                 HumanMessage(content=user_input),
-                AIMessage(content=answer, additional_kwargs=additional_kwargs),
+                AIMessage(
+                    content=answer,
+                    additional_kwargs=additional_kwargs,
+                    response_metadata=latest_response_metadata,
+                ),
             ],
         )
     yield ("done", answer)
@@ -3991,6 +4088,7 @@ def _log_stream_completion(
 ) -> None:
     """Log enough completion detail to diagnose reasoning-only model stops."""
     response_metadata = dict(getattr(latest_ai_message, "response_metadata", None) or {})
+    prompt_cache_usage = normalize_prompt_cache_usage(response_metadata)
     additional_kwargs = getattr(latest_ai_message, "additional_kwargs", None) or {}
     checkpoint_answer_chars = len(_content_to_str(getattr(latest_ai_message, "content", "") or "")) if latest_ai_message else 0
     checkpoint_reasoning_chars = len(str(additional_kwargs.get("reasoning_content") or "")) if latest_ai_message else 0
@@ -4024,6 +4122,8 @@ def _log_stream_completion(
         "prompt_eval_count": response_metadata.get("prompt_eval_count"),
         "total_duration": response_metadata.get("total_duration"),
     })
+    if prompt_cache_usage:
+        diagnostics.update(prompt_cache_usage)
     if (
         not answer_chars
         and not checkpoint_answer_chars
@@ -4272,6 +4372,9 @@ def _stream_graph(agent, input_data, config: dict,
 
             # Track finish_reason from streaming response_metadata
             _rm = getattr(msg, "response_metadata", None) or {}
+            _prompt_cache_usage = normalize_prompt_cache_usage(_rm)
+            if _prompt_cache_usage:
+                provider_call.update(_prompt_cache_usage)
             _fr = _rm.get("finish_reason")
             if _fr:
                 _finish_reason = _fr

@@ -494,7 +494,8 @@ def test_developer_context_is_hidden_system_context():
     assert "agent_input = f\"{developer_context}" not in streaming_source
     assert '"developer_context": developer_context' in streaming_source
     assert "_developer_context_var" in agent_source
-    assert "SystemMessage(content=developer_context)" in agent_source
+    assert '"turn.developer_context"' in agent_source
+    assert "ephemeral_section" in agent_source
 
 
 def test_developer_patch_rejects_path_traversal(tmp_path, monkeypatch):
