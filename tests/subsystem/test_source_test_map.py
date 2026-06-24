@@ -52,6 +52,25 @@ def test_memory_tool_change_selects_tool_and_graph_coverage() -> None:
     assert "tests/test_memory_recall_uplift.py" in selection.test_paths
 
 
+def test_prompt_context_change_selects_prompt_and_provider_regressions() -> None:
+    selection = select_tests_for_changes([
+        "src/row_bot/agent.py",
+        "src/row_bot/prompts.py",
+        "src/row_bot/self_knowledge.py",
+        "src/row_bot/prompt_context.py",
+        "src/row_bot/prompt_cache.py",
+    ])
+
+    assert "prompt_context" in selection.matched_rules
+    assert "tests/subsystem/agents" in selection.test_paths
+    assert "tests/subsystem/providers/test_prompt_cache_payloads.py" in selection.test_paths
+    assert "tests/subsystem/providers/test_prompt_cache_metrics.py" in selection.test_paths
+    assert "tests/test_provider_runtime.py" in selection.test_paths
+    assert "tests/test_chat_only_runtime.py" in selection.test_paths
+    assert "tests/test_memory_recall_uplift.py" in selection.test_paths
+    assert not selection.unmatched_files
+
+
 def test_updater_change_selects_updater_and_installer_contracts() -> None:
     selection = select_tests_for_changes(["src/row_bot/updater.py"])
 

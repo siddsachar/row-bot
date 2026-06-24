@@ -23,6 +23,28 @@ class SourceTestRule:
 
 SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
     SourceTestRule(
+        "prompt_context",
+        (
+            "src/row_bot/agent.py",
+            "src/row_bot/prompts.py",
+            "src/row_bot/self_knowledge.py",
+            "src/row_bot/prompt_context.py",
+            "src/row_bot/prompt_cache.py",
+        ),
+        (
+            "tests/subsystem/agents",
+            "tests/subsystem/providers/test_prompt_cache_payloads.py",
+            "tests/subsystem/providers/test_prompt_cache_metrics.py",
+            "tests/test_provider_runtime.py",
+            "tests/test_chat_only_runtime.py",
+            "tests/test_agent_runtime_profiles.py",
+            "tests/test_memory_recall_uplift.py",
+            "tests/test_skills_activation.py",
+            "tests/test_slash_commands.py",
+        ),
+        "Prompt assembly changes need stable/ephemeral context, provider cache marker, Chat Only, memory, and skill regressions.",
+    ),
+    SourceTestRule(
         "providers",
         ("src/row_bot/providers/**", "src/row_bot/tools/image_gen_tool.py", "src/row_bot/tools/video_gen_tool.py"),
         (

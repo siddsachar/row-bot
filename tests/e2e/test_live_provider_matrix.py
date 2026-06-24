@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import time
 from pathlib import Path
 from typing import Any
@@ -14,12 +15,33 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 pytestmark = pytest.mark.live_provider
 
 
-ACCEPTABLE_ERROR_RE = re.compile(
-    r"credit|quota|rate.?limit|insufficient|balance|billing|payment|capacity|"
-    r"not configured|credentials|not_running|connection refused|unable to connect|"
-    r"connection error|timeout|timed out|model unavailable|not found|404",
+OUT_OF_CREDITS_RE = re.compile(
+    r"out of credits|credit(?:s)? exhausted|quota exceeded|usage exhausted|"
+    r"billing limit|insufficient (?:balance|credits|quota)|payment required|"
+    r"account balance|spend limit",
     re.IGNORECASE,
 )
+
+
+FALLBACK_LIVE_MODEL_IDS: dict[str, str] = {
+    "anthropic": "claude-sonnet-4-6",
+    "atlascloud": "anthropic/claude-opus-4.8",
+    "claude_subscription": "claude-sonnet-4-6",
+    "codex": "gpt-5.5",
+    "google": "gemini-3.1-flash-lite-preview",
+    "minimax": "MiniMax-M2.7",
+    "ollama_cloud": "gpt-oss:120b-cloud",
+    "openai": "gpt-5.4",
+    "opencode_go": "qwen3.7-max",
+    "opencode_zen": "kimi-k2.6",
+    "openrouter": "z-ai/glm-5.2",
+    "xai": "grok-4-1-fast-reasoning",
+    "xai_oauth": "grok-4.20-0309-non-reasoning",
+}
+
+
+def _live_data_dir() -> Path:
+    return Path(os.environ.get("ROW_BOT_LIVE_PROVIDER_DATA_DIR") or Path.home() / ".row-bot").expanduser()
 
 
 def _enabled() -> bool:
@@ -28,6 +50,49 @@ def _enabled() -> bool:
 
 def _report_path() -> Path:
     return Path(os.environ.get("ROW_BOT_LIVE_PROVIDER_REPORT", "test-results/live_provider_matrix.json"))
+
+
+def _agent_smoke_candidate_supported(provider_id: str, snapshot: Any) -> bool:
+    if provider_id != "openrouter":
+        return True
+    return isinstance(snapshot, dict) and snapshot.get("tool_calling") is True
+
+
+def _hydrate_live_provider_profile() -> dict[str, Any]:
+    from row_bot import api_keys, secret_store
+    from row_bot.data_paths import get_row_bot_data_dir
+    from row_bot.providers import config as provider_config
+    from row_bot.providers.auth_store import PROVIDER_API_KEY_ENV
+
+    live_dir = _live_data_dir()
+    test_data_dir = get_row_bot_data_dir()
+    live_service = secret_store.service_name_for(live_dir)
+    live_provider_config = provider_config.load_provider_config(live_dir / "providers.json")
+    provider_config.save_provider_config(live_provider_config)
+    copied_cache_files: list[str] = []
+    for filename in ("cloud_models_cache.json", "context_catalog_cache.json", "model_catalog_cache.json"):
+        source = live_dir / filename
+        if not source.exists():
+            continue
+        destination = test_data_dir / filename
+        if source.resolve() == destination.resolve():
+            continue
+        shutil.copyfile(source, destination)
+        copied_cache_files.append(filename)
+    loaded_env_keys: list[str] = []
+    for env_var in sorted(set(PROVIDER_API_KEY_ENV.values())):
+        value = api_keys.get_key_for_data_dir(live_dir, env_var)
+        if not value:
+            continue
+        os.environ[env_var] = value
+        loaded_env_keys.append(env_var)
+    secret_store.SERVICE_NAME = live_service
+    return {
+        "loaded_api_key_envs": loaded_env_keys,
+        "copied_cache_files": copied_cache_files,
+        "copied_quick_choices": len(live_provider_config.get("quick_choices") or []),
+        "copied_custom_endpoints": len(live_provider_config.get("custom_endpoints") or []),
+    }
 
 
 def _event_summary(events: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -129,6 +194,8 @@ def _poison_thread(thread_id: str) -> None:
 
 
 def _run_poisoned_case(agent_module, *, model_ref: str, provider_id: str) -> dict[str, Any]:
+    from row_bot.threads import get_latest_checkpoint_messages
+
     thread_id = f"live_{provider_id}_poison_{int(time.time() * 1000)}"
     _poison_thread(thread_id)
     config = {"configurable": {"thread_id": thread_id, "model_override": model_ref, "runtime_mode": "agent"}}
@@ -146,10 +213,10 @@ def _run_poisoned_case(agent_module, *, model_ref: str, provider_id: str) -> dic
             "thinking_chars": 0,
             "event_types": [],
         }
-    diagnostics_before = agent_module._provider_transcript_diagnostics(__import__("threads").get_latest_checkpoint_messages(thread_id))
+    diagnostics_before = agent_module._provider_transcript_diagnostics(get_latest_checkpoint_messages(thread_id))
     diagnostics_after = agent_module._provider_transcript_diagnostics(
         agent_module._normalize_provider_facing_messages(
-            __import__("threads").get_latest_checkpoint_messages(thread_id),
+            get_latest_checkpoint_messages(thread_id),
             provider_id=provider_id,
         )
     )
@@ -177,6 +244,11 @@ def _discover_live_candidates() -> list[dict[str, str]]:
         model_id = str(choice.get("model_id") or "")
         if not provider_id or not model_id or provider_id not in configured:
             continue
+        if provider_id == "openrouter" and model_id != FALLBACK_LIVE_MODEL_IDS["openrouter"]:
+            continue
+        snapshot = choice.get("capabilities_snapshot") if isinstance(choice.get("capabilities_snapshot"), dict) else {}
+        if not _agent_smoke_candidate_supported(provider_id, snapshot):
+            continue
         status = provider_status(provider_id)
         if not status.get("configured"):
             continue
@@ -186,6 +258,29 @@ def _discover_live_candidates() -> list[dict[str, str]]:
             "model_id": model_id,
             "display_name": str(choice.get("display_name") or model_id),
         })
+
+    for provider_id in sorted(configured):
+        if provider_id in candidates:
+            continue
+        model_id = FALLBACK_LIVE_MODEL_IDS.get(provider_id)
+        if not model_id:
+            continue
+        status = provider_status(provider_id)
+        if not status.get("configured"):
+            continue
+        if provider_id == "openrouter":
+            from row_bot.models import _cloud_model_cache
+
+            cached = _cloud_model_cache.get(model_ref(provider_id, model_id)) or _cloud_model_cache.get(model_id)
+            snapshot = cached.get("capabilities_snapshot") if isinstance(cached, dict) and isinstance(cached.get("capabilities_snapshot"), dict) else {}
+            if not _agent_smoke_candidate_supported(provider_id, snapshot):
+                continue
+        candidates[provider_id] = {
+            "provider_id": provider_id,
+            "model_ref": model_ref(provider_id, model_id),
+            "model_id": model_id,
+            "display_name": model_id,
+        }
 
     for endpoint in list_custom_endpoints():
         provider_id = str(endpoint.get("provider_id") or "")
@@ -213,18 +308,21 @@ def _classify_result(case: dict[str, Any]) -> str:
     if case.get("status") == "done" and case.get("answer_chars", 0) > 0:
         return "pass"
     text = " ".join(str(error) for error in case.get("errors") or [])
-    if ACCEPTABLE_ERROR_RE.search(text):
+    if OUT_OF_CREDITS_RE.search(text):
         return "acceptable_error"
     return "unexpected_error"
 
 
 @pytest.mark.skipif(not _enabled(), reason="set ROW_BOT_LIVE_PROVIDER_E2E=1 to run real provider calls")
 def test_live_configured_provider_matrix():
+    os.environ.pop("ROW_BOT_TEST_MODE", None)
+    profile = _hydrate_live_provider_profile()
     import row_bot.agent as agent
 
     candidates = _discover_live_candidates()
     report: dict[str, Any] = {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "profile": profile,
         "candidates": candidates,
         "providers": [],
     }

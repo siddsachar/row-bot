@@ -412,12 +412,8 @@ def get_dynamic_state() -> str:
     return "Current state:\n" + "\n".join(parts) + "\n"
 
 
-def build_self_knowledge_block() -> str:
-    """Assemble the full self-knowledge block for prompt injection.
-
-    Returns a string suitable for inserting as a SystemMessage.
-    Omits skill-improvement guidance when self-improvement is disabled.
-    """
+def build_static_self_knowledge_block() -> str:
+    """Return Row-Bot self-knowledge that is stable across normal turns."""
     sections = [ABOUT_ROW_BOT]
 
     try:
@@ -427,7 +423,23 @@ def build_self_knowledge_block() -> str:
     except Exception:
         sections.append(SKILL_CREATION_GUIDANCE)  # safe fallback: include
 
+    return "\n".join(sections)
+
+
+def build_dynamic_self_knowledge_block() -> str:
+    """Return current Row-Bot runtime state for prompt injection."""
     state = get_dynamic_state()
+    return state or ""
+
+
+def build_self_knowledge_block() -> str:
+    """Assemble the full self-knowledge block for prompt injection.
+
+    Returns a string suitable for inserting as a SystemMessage.
+    Omits skill-improvement guidance when self-improvement is disabled.
+    """
+    sections = [build_static_self_knowledge_block()]
+    state = build_dynamic_self_knowledge_block()
     if state:
         sections.append(state)
 

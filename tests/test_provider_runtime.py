@@ -1133,7 +1133,8 @@ def test_custom_openai_pre_model_trim_compacts_32k_agent_payload(tmp_path, monke
     import row_bot.skills as skills
     import row_bot.plugins.registry as plugin_registry
 
-    monkeypatch.setattr(self_knowledge, "build_self_knowledge_block", lambda: "SELF_SENTINEL " * 1000)
+    monkeypatch.setattr(self_knowledge, "build_static_self_knowledge_block", lambda: "SELF_SENTINEL " * 1000)
+    monkeypatch.setattr(self_knowledge, "build_dynamic_self_knowledge_block", lambda: "SELF_DYNAMIC_SENTINEL " * 1000)
     monkeypatch.setattr(skills, "get_skills_prompt", lambda *args, **kwargs: "SKILL_SENTINEL " * 1000)
     monkeypatch.setattr(plugin_registry, "get_skills_prompt", lambda: "PLUGIN_SENTINEL " * 1000)
 
@@ -1658,7 +1659,8 @@ def test_openai_pre_model_trim_keeps_standard_skill_injections(tmp_path, monkeyp
     import row_bot.skills as skills
     import row_bot.plugins.registry as plugin_registry
 
-    monkeypatch.setattr(self_knowledge, "build_self_knowledge_block", lambda: "SELF_SENTINEL")
+    monkeypatch.setattr(self_knowledge, "build_static_self_knowledge_block", lambda: "SELF_SENTINEL")
+    monkeypatch.setattr(self_knowledge, "build_dynamic_self_knowledge_block", lambda: "")
     monkeypatch.setattr(skills, "get_skills_prompt", lambda *args, **kwargs: "SKILL_SENTINEL")
     monkeypatch.setattr(plugin_registry, "get_skills_prompt", lambda: "PLUGIN_SENTINEL")
 
