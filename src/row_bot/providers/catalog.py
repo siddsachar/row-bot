@@ -59,6 +59,15 @@ PROVIDER_DEFINITIONS: dict[str, ProviderDefinition] = {
         risk_label="third_party_router",
         icon="🌐",
     ),
+    "requesty": ProviderDefinition(
+        id="requesty",
+        display_name="Requesty",
+        auth_methods=(AuthMethod.API_KEY,),
+        default_transport=TransportMode.OPENAI_CHAT,
+        base_url="https://router.requesty.ai/v1",
+        risk_label="third_party_router",
+        icon="🛰️",
+    ),
     "opencode_zen": ProviderDefinition(
         id="opencode_zen",
         display_name="OpenCode Zen",
@@ -621,6 +630,15 @@ def classify_model_capabilities(
         if "supported_parameters" in metadata:
             supported = metadata.get("supported_parameters") or []
             tool_calling = any(param in supported for param in ("tools", "tool_choice"))
+    if provider_id == "requesty":
+        from row_bot.providers.requesty import requesty_supports_vision, requesty_tool_calling
+
+        # Requesty exposes the same provider/model IDs as OpenRouter but reports
+        # capabilities via supports_tool_calling / supports_vision booleans.
+        if requesty_supports_vision(metadata) or _metadata_suggests_image_input(metadata):
+            input_modalities.add(ModelModality.IMAGE.value)
+            capabilities.add("vision")
+        tool_calling = requesty_tool_calling(metadata)
 
     if tool_calling:
         capabilities.add("tool_calling")

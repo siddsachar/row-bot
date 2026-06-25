@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 # ── Cloud provider URLs ─────────────────────────────────────────────────────
 OPENAI_BASE_URL = "https://api.openai.com/v1"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+REQUESTY_BASE_URL = "https://router.requesty.ai/v1"
 ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"
 GOOGLE_GENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 XAI_BASE_URL = "https://api.x.ai/v1"
@@ -928,6 +929,7 @@ _PROVIDER_EMOJI: dict[str | None, str] = {
     "opencode_go": "OG",
     "atlascloud": "AC",
     "openrouter": "🌐",
+    "requesty": "🛰️",
     "anthropic": "🔶",
     "google": "💎",
     "xai": "𝕏",
@@ -962,6 +964,12 @@ def is_openrouter_available() -> bool:
     """Return True if an OpenRouter API key is configured."""
     from row_bot.api_keys import get_key
     return bool(get_key("OPENROUTER_API_KEY"))
+
+
+def is_requesty_available() -> bool:
+    """Return True if a Requesty API key is configured."""
+    from row_bot.api_keys import get_key
+    return bool(get_key("REQUESTY_API_KEY"))
 
 
 def is_ollama_cloud_available() -> bool:
