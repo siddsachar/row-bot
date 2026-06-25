@@ -55,6 +55,16 @@ def _ollama_vision_row(model_id: str) -> dict:
     }
 
 
+def _ollama_weak_inferred_vision_row(model_id: str) -> dict:
+    row = _ollama_vision_row(model_id)
+    row["capabilities_snapshot"] = {
+        **row["capabilities_snapshot"],
+        "source_confidence": "inferred",
+        "last_verified_at": "",
+    }
+    return row
+
+
 def test_legacy_starred_models_migrate_to_quick_choices(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": ["gpt-4o", "qwen3:14b"]})
@@ -502,6 +512,7 @@ def test_grouped_quick_choices_separates_surface_models_and_routes(tmp_path, mon
 def test_grouped_quick_choices_refreshes_stale_capability_snapshots(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+    _write_ollama_catalog_cache(monkeypatch, tmp_path, [_ollama_weak_inferred_vision_row("qwen3.6:27b")])
 
     add_quick_choice_for_model(
         "qwen3.6:27b",

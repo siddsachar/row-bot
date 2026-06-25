@@ -299,6 +299,7 @@ def spawn_agent_run(
         context_mode=context_mode,
         parent_thread_id=parent_thread_id,
         parent_run_id=parent_run_id,
+        model_override=model,
     )
     run_id = uuid.uuid4().hex[:12]
     child_display = display_name or f"{profile_snapshot.get('display_name', 'Agent')}: {_short_title(objective, limit=42)}"

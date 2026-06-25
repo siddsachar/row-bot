@@ -496,7 +496,46 @@
     drawGeneratedSource(ctx, state, source, x, y, width, height, eased);
   }
 
+  function cleanupGeneratedState(state) {
+    if (!state) return;
+    if (state.frame) {
+      cancelAnimationFrame(state.frame);
+      state.frame = null;
+    }
+    if (state.video && state.video.pause) {
+      try {
+        state.video.pause();
+      } catch (error) {}
+    }
+    Object.keys(state.videos || {}).forEach(function (clipId) {
+      const video = state.videos[clipId];
+      if (video && video.pause) {
+        try {
+          video.pause();
+        } catch (error) {}
+      }
+    });
+    if (state.canvas && state.canvas.id) {
+      generated.delete(state.canvas.id);
+    }
+  }
+
+  function isGeneratedStateAttached(state) {
+    return Boolean(
+      state &&
+      state.root &&
+      state.canvas &&
+      state.root.isConnected !== false &&
+      state.canvas.isConnected !== false
+    );
+  }
+
   function drawGeneratedBuddy(state, time) {
+    state.frame = null;
+    if (!isGeneratedStateAttached(state)) {
+      cleanupGeneratedState(state);
+      return;
+    }
     const canvas = state.canvas;
     const ctx = state.ctx;
     const snapshot = state.snapshot || {};
@@ -604,6 +643,8 @@
 
   function initGeneratedRoot(root, canvas, preview, motion, motionPack) {
     const ctx = canvas.getContext('2d');
+    const previousState = generated.get(canvas.id);
+    if (previousState) cleanupGeneratedState(previousState);
     const state = { root, canvas, ctx, image: null, video: null, videos: {}, motionPack: motionPack || null, activeClip: '', snapshot: {}, frame: null, keyCanvas: null, keyCtx: null, idleStillUntil: 0, idlePlaybackMode: '', currentSource: null, transitionFromSource: null, transitionStartedAt: 0, transitionUntil: 0 };
     generated.set(canvas.id, state);
 

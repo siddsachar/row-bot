@@ -385,11 +385,14 @@ def dispatch_text_command(
         request = parse_agent_spawn_text(text)
         if request is None:
             return format_agent_spawn_usage()
-        run = spawn_agent_from_request(
-            thread_id,
-            request,
-            enabled_tool_names=enabled_tool_names,
-        )
+        try:
+            run = spawn_agent_from_request(
+                thread_id,
+                request,
+                enabled_tool_names=enabled_tool_names,
+            )
+        except Exception as exc:
+            return f"Could not start Agent: {exc}"
         return format_agent_spawn_started(run, request)
     if spec.id == "goal":
         from row_bot.goals import handle_goal_command

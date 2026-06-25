@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+from types import SimpleNamespace
 
 
 def _fresh_command_modules(tmp_path, monkeypatch):
@@ -116,7 +117,7 @@ def test_app_slash_profile_commands_set_clear_and_list(tmp_path, monkeypatch):
     assert threads.get_thread_skills_override(thread_id) is None
 
 
-def test_direct_agent_request_parser_is_explicit_about_profiles(tmp_path, monkeypatch):
+def test_direct_agent_parser_is_command_only_and_explicit_about_profiles(tmp_path, monkeypatch):
     _threads, _agent_runs, agent_commands, slash_commands, commands = _fresh_command_modules(
         tmp_path,
         monkeypatch,
@@ -125,24 +126,17 @@ def test_direct_agent_request_parser_is_explicit_about_profiles(tmp_path, monkey
     generic = agent_commands.parse_agent_spawn_text(
         "Use another agent to write a 600 word essay and save it as smoke.pdf"
     )
-    assert generic is not None
-    assert generic.profile == "worker"
-    assert generic.explicit_profile is False
-    assert generic.objective.startswith("write a 600 word essay")
+    assert generic is None
 
     explicit = agent_commands.parse_agent_spawn_text(
         "Use a quality reviewer agent to review the latest draft"
     )
-    assert explicit is not None
-    assert explicit.profile == "review"
-    assert explicit.explicit_profile is True
-    assert explicit.objective == "review the latest draft"
+    assert explicit is None
 
     natural_without_agent_noun = agent_commands.parse_agent_spawn_text(
         "Use quality reviewer to review the release notes"
     )
-    assert natural_without_agent_noun is not None
-    assert natural_without_agent_noun.profile == "review"
+    assert natural_without_agent_noun is None
 
     slash_profile = agent_commands.parse_agent_spawn_text("/agent researcher research Row-Bot history")
     assert slash_profile is not None
@@ -174,6 +168,22 @@ def test_direct_agent_request_parser_is_explicit_about_profiles(tmp_path, monkey
     develop = agent_commands.parse_agent_spawn_text("/agent develop implement this")
     assert develop is not None
     assert develop.profile == "develop"
+
+    slash_model_first = agent_commands.parse_agent_spawn_text(
+        "/agent --model=model:claude_subscription:claude-opus-4-8 worker only reply ok"
+    )
+    assert slash_model_first is not None
+    assert slash_model_first.model == "model:claude_subscription:claude-opus-4-8"
+    assert slash_model_first.profile == "worker"
+    assert slash_model_first.objective == "only reply ok"
+
+    slash_model_after_profile = agent_commands.parse_agent_spawn_text(
+        "/agent review --model=model:openai:gpt-5.5 check this"
+    )
+    assert slash_model_after_profile is not None
+    assert slash_model_after_profile.model == "model:openai:gpt-5.5"
+    assert slash_model_after_profile.profile == "review"
+    assert slash_model_after_profile.objective == "check this"
 
 
 def test_direct_agent_commands_spawn_with_explicit_or_worker_profile(tmp_path, monkeypatch):
@@ -218,6 +228,71 @@ def test_direct_agent_commands_spawn_with_explicit_or_worker_profile(tmp_path, m
     assert channel_response and "`write`" in channel_response
     assert captured[-1]["profile"] == "write"
     assert captured[-1]["objective"] == "a smoke report"
+
+
+def test_direct_agent_command_model_option_is_strict_and_validated(tmp_path, monkeypatch):
+    threads, _agent_runs, _agent_commands, slash_commands, commands = _fresh_command_modules(
+        tmp_path,
+        monkeypatch,
+    )
+    thread_id = threads.create_thread("Direct agent command model")
+
+    import row_bot.agent_runner as agent_runner
+    import row_bot.providers.selection as selection
+
+    captured: list[dict] = []
+
+    def fake_spawn_agent_run(objective: str, **kwargs):
+        captured.append({"objective": objective, **kwargs})
+        profile = kwargs.get("profile") or "worker"
+        return {
+            "id": f"run-{len(captured)}",
+            "status": "queued",
+            "display_name": kwargs.get("display_name") or "Agent",
+            "profile_slug": profile,
+            "model_override": kwargs.get("model_override") or "",
+        }
+
+    monkeypatch.setattr(agent_runner, "spawn_agent_run", fake_spawn_agent_run)
+    monkeypatch.setattr(
+        selection,
+        "resolve_catalog_model_selection",
+        lambda *args, **kwargs: SimpleNamespace(ref="model:openai:gpt-5.5"),
+    )
+
+    app_response = slash_commands.dispatch_text_command(
+        thread_id,
+        "/agent --model=model:openai:gpt-5.5 quality_reviewer review with model",
+        enabled_tool_names=["filesystem", "row_bot_status"],
+    )
+
+    assert app_response and "Started Agent" in app_response
+    assert "Model: `model:openai:gpt-5.5`" in app_response
+    assert captured[-1]["profile"] == "review"
+    assert captured[-1]["objective"] == "review with model"
+    assert captured[-1]["model_override"] == "model:openai:gpt-5.5"
+
+    def reject_model(*_args, **_kwargs):
+        raise ValueError("Model 'model:openai:nope' is not pinned for Brain.")
+
+    monkeypatch.setattr(selection, "resolve_catalog_model_selection", reject_model)
+
+    invalid_app_response = slash_commands.dispatch_text_command(
+        thread_id,
+        "/agent --model=model:openai:nope worker say nope",
+        enabled_tool_names=["filesystem"],
+    )
+    assert invalid_app_response == "Could not start Agent: Model 'model:openai:nope' is not pinned for Brain."
+    assert len(captured) == 1
+
+    invalid_channel_response = commands.dispatch(
+        "sms",
+        "/agent --model=model:openai:nope worker say nope",
+        thread_id=thread_id,
+        enabled_tool_names=["filesystem"],
+    )
+    assert invalid_channel_response == "Could not start Agent: Model 'model:openai:nope' is not pinned for Brain."
+    assert len(captured) == 1
 
 
 def test_channel_profile_commands_are_thread_scoped(tmp_path, monkeypatch):

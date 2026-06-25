@@ -291,9 +291,9 @@ def test_workflow_run_is_mirrored_to_agent_runs(tmp_path, monkeypatch):
             {
                 "type": "prompt",
                 "prompt": "Review this change.",
-                "agent_profile_id": "quality_reviewer",
             }
         ],
+        agent_profile_id="quality_reviewer",
     )
     task = tasks.get_task(task_id)
     run_id = tasks._record_run_start(

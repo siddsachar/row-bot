@@ -74,6 +74,8 @@ def test_spawn_agent_run_creates_child_thread_and_completes(tmp_path, monkeypatc
     assert run["context_mode"] == "focused"
     assert "Review the auth change." in captured["prompt"]
     assert "PROFILE INSTRUCTIONS" in captured["prompt"]
+    assert "Runtime model override: model:test" in captured["prompt"]
+    assert "Do not call row_bot_update_setting(setting='model')" in captured["prompt"]
     assert "agents" not in captured["tools"]
     assert captured["config"]["configurable"]["runtime_surface"] == "agent_child"
     assert captured["config"]["configurable"]["approval_mode"] == "block"

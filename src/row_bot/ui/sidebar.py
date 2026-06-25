@@ -51,6 +51,14 @@ _SIDEBAR_AVATAR_CSS = """
 """
 
 
+def _is_hidden_agent_child_run(agent_run: dict) -> bool:
+    if str(agent_run.get("kind") or "") != "subagent":
+        return False
+    thread_id = str(agent_run.get("thread_id") or "")
+    parent_thread_id = str(agent_run.get("parent_thread_id") or "")
+    return bool(thread_id) and thread_id != parent_thread_id
+
+
 def _render_filter_button(
     *,
     key: str,
@@ -341,8 +349,7 @@ def build_sidebar(
         child_thread_ids = {
             str(agent_run.get("thread_id") or "")
             for agent_run in _agent_run_rows
-            if str(agent_run.get("thread_id") or "")
-            and str(agent_run.get("thread_id") or "") != str(agent_run.get("parent_thread_id") or "")
+            if _is_hidden_agent_child_run(agent_run)
         }
         def _cat_of(pid: str, tid: str, thread_type: str = "", dev_ws: str = "") -> str:
             if thread_type == "agent_child" or tid in child_thread_ids:

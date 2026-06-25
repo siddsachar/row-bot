@@ -53,8 +53,422 @@ class CanonicalModelSelection:
     source: str = ""
 
 
+@dataclass(frozen=True)
+class CatalogModelResolution:
+    ref: str
+    provider_id: str = ""
+    model_id: str = ""
+    display_label: str = ""
+    source: str = ""
+    alternatives: tuple[str, ...] = ()
+
+
 class ModelSelectionError(ValueError):
     """Raised when a model selection cannot be canonicalized safely."""
+
+
+def resolve_catalog_model_selection(
+    value: str | None,
+    *,
+    surface: str = "chat",
+    allow_default: bool = False,
+    require_agent_ready: bool = False,
+    require_pinned: bool = False,
+) -> CatalogModelResolution:
+    """Strictly resolve a model selection without inventing a provider.
+
+    This helper is for user-facing persistent writes and child-agent model
+    selection. It reads configured quick choices, custom endpoint metadata, and
+    the cached model catalog only; it does not probe providers or refresh live
+    catalogs. When require_pinned is true, only configured Quick Choices are
+    accepted.
+    """
+    raw = str(value or "").strip()
+    if not raw or raw.lower() == "default":
+        if allow_default:
+            return CatalogModelResolution(ref="", display_label="Default", source="default")
+        raise ModelSelectionError("Model selection is empty.")
+
+    parsed = parse_model_ref(raw)
+    candidates = _strict_catalog_model_candidates(surface=surface)
+    if parsed:
+        provider_id, model_id = parsed
+        ref = model_ref(provider_id, model_id)
+        exact = _unique_catalog_candidates(
+            item for item in candidates if item["ref"].lower() == ref.lower()
+        )
+        if exact:
+            if require_pinned and not _catalog_candidate_is_pinned(exact[0]):
+                raise ModelSelectionError(_pinned_model_selection_message(raw, candidates, provider_id=provider_id))
+            return _catalog_resolution_from_candidate(
+                raw,
+                exact[0],
+                require_agent_ready=require_agent_ready,
+            )
+        if require_pinned:
+            raise ModelSelectionError(_pinned_model_selection_message(raw, candidates, provider_id=provider_id))
+        if _known_catalog_provider(provider_id):
+            return CatalogModelResolution(
+                ref=ref,
+                provider_id=provider_id,
+                model_id=model_id,
+                display_label=format_model_choice_label(
+                    provider_id,
+                    model_id,
+                    include_icon=False,
+                ),
+                source="provider_ref",
+            )
+        raise ModelSelectionError(
+            f"Unknown model provider '{provider_id}' in '{raw}'. Choose a configured model."
+        )
+
+    lower = raw.lower()
+    matches = _unique_catalog_candidates(
+        item for item in candidates if lower in item["aliases"]
+    )
+    if require_pinned:
+        pinned_matches = [item for item in matches if _catalog_candidate_is_pinned(item)]
+        if matches and not pinned_matches:
+            raise ModelSelectionError(_pinned_model_selection_message(raw, candidates))
+        matches = pinned_matches
+    if not matches:
+        if require_pinned:
+            raise ModelSelectionError(_pinned_model_selection_message(raw, candidates))
+        raise ModelSelectionError(
+            f"Model '{raw}' was not found in configured model choices. "
+            "Use a provider-qualified model such as model:<provider_id>:<model_id> "
+            "or pin the model in Settings -> Models first."
+        )
+    if len(matches) > 1:
+        alternatives = tuple(_catalog_candidate_choice(item) for item in matches[:8])
+        raise ModelSelectionError(
+            f"Ambiguous model selection '{raw}'. Use one of: "
+            f"{', '.join(alternatives)}."
+        )
+    return _catalog_resolution_from_candidate(
+        raw,
+        matches[0],
+        require_agent_ready=require_agent_ready,
+    )
+
+
+def _known_catalog_provider(provider_id: str) -> bool:
+    provider = _canonical_provider_id(provider_id)
+    if not provider:
+        return False
+    try:
+        from row_bot.providers.catalog import get_provider_definition
+
+        if get_provider_definition(provider) is not None:
+            return True
+    except Exception:
+        pass
+    try:
+        from row_bot.providers.custom import get_custom_endpoint
+
+        return bool(get_custom_endpoint(provider))
+    except Exception:
+        return False
+
+
+def _catalog_resolution_from_candidate(
+    raw: str,
+    candidate: dict[str, Any],
+    *,
+    require_agent_ready: bool,
+) -> CatalogModelResolution:
+    if candidate.get("active") is False:
+        reason = str(candidate.get("reason") or "This model choice is inactive.")
+        raise ModelSelectionError(f"Model '{raw}' is inactive. {reason}".strip())
+    if require_agent_ready and str(candidate.get("runtime_mode") or "") == "chat_only":
+        reason = str(candidate.get("reason") or "This model is Chat Only; tools and actions are off.")
+        raise ModelSelectionError(f"Model '{raw}' is not available for agent runs. {reason}".strip())
+    return CatalogModelResolution(
+        ref=str(candidate["ref"]),
+        provider_id=str(candidate["provider_id"]),
+        model_id=str(candidate["model_id"]),
+        display_label=str(candidate.get("display_label") or candidate.get("model_id") or ""),
+        source=str(candidate.get("source") or "catalog"),
+    )
+
+
+def _catalog_candidate_choice(candidate: dict[str, Any]) -> str:
+    label = str(candidate.get("display_label") or "")
+    ref = str(candidate.get("ref") or "")
+    return f"{label} ({ref})" if label and label != ref else ref
+
+
+def _catalog_candidate_is_pinned(candidate: dict[str, Any]) -> bool:
+    return str(candidate.get("source") or "") == "quick_choice"
+
+
+def _pinned_model_suggestions(
+    candidates: Iterable[dict[str, Any]],
+    *,
+    provider_id: str = "",
+    limit: int = 5,
+) -> tuple[str, ...]:
+    provider = _canonical_provider_id(provider_id)
+    pinned = [
+        item
+        for item in _unique_catalog_candidates(candidates)
+        if _catalog_candidate_is_pinned(item) and item.get("active") is not False
+    ]
+    scoped = [
+        item
+        for item in pinned
+        if provider and str(item.get("provider_id") or "") == provider
+    ]
+    choices = scoped or pinned
+    return tuple(_catalog_candidate_choice(item) for item in choices[:limit])
+
+
+def _pinned_model_selection_message(
+    raw: str,
+    candidates: Iterable[dict[str, Any]],
+    *,
+    provider_id: str = "",
+) -> str:
+    message = (
+        f"Model '{raw}' is not pinned for Brain. "
+        "Pin it in Settings -> Models first, or choose an existing pinned Brain choice."
+    )
+    suggestions = _pinned_model_suggestions(candidates, provider_id=provider_id)
+    if suggestions:
+        message += f" Active pinned Brain choices: {', '.join(suggestions)}."
+    return message
+
+
+def _unique_catalog_candidates(candidates: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_ref: dict[str, dict[str, Any]] = {}
+    for item in candidates:
+        ref = str(item.get("ref") or "")
+        if ref and ref not in by_ref:
+            by_ref[ref] = item
+    return list(by_ref.values())
+
+
+def pinned_model_choice_summaries(
+    surface: str = "chat",
+    *,
+    include_inactive: bool = True,
+    limit: int = 0,
+) -> list[dict[str, Any]]:
+    """Return compact, agent-readable pinned model choices for a surface."""
+    summaries: list[dict[str, Any]] = []
+    try:
+        options = list_model_choice_options(surface, include_inactive=include_inactive)
+    except Exception:
+        return summaries
+    for option in options:
+        provider_id = _canonical_provider_id(str(option.get("provider_id") or ""))
+        model_id = str(option.get("model_id") or "").strip()
+        ref = str(option.get("value") or "").strip()
+        if not provider_id or not model_id or not ref:
+            continue
+        active = option.get("active") is not False
+        summaries.append({
+            "ref": ref,
+            "canonical_ref": ref,
+            "config_value": f"{provider_id}/{model_id}",
+            "label": str(option.get("label") or model_id),
+            "display_name": str(option.get("display_name") or model_id),
+            "provider_id": provider_id,
+            "provider": provider_display_label(provider_id),
+            "model_id": model_id,
+            "active": active,
+            "reason": str(option.get("reason") or ""),
+            "source": str(option.get("source") or "quick_choice"),
+        })
+        if limit and len(summaries) >= limit:
+            break
+    return summaries
+
+
+def _strict_catalog_model_candidates(*, surface: str) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+
+    def add_candidate(
+        *,
+        provider_id: str,
+        model_id: str,
+        display_name: str = "",
+        source: str,
+        aliases: Iterable[str] = (),
+        active: bool = True,
+        reason: str = "",
+        visibility: Iterable[str] | None = None,
+        capabilities_snapshot: dict[str, Any] | None = None,
+        runtime_mode: str = "",
+    ) -> None:
+        provider = _canonical_provider_id(provider_id)
+        model = str(model_id or "").strip()
+        if not provider or not model:
+            return
+        snapshot = dict(capabilities_snapshot or {})
+        if not _catalog_candidate_supports_surface(
+            surface,
+            visibility=visibility,
+            capabilities_snapshot=snapshot,
+        ):
+            return
+        ref = model_ref(provider, model)
+        label = format_model_choice_label(
+            provider,
+            model,
+            display_name or model,
+            include_icon=False,
+        )
+        alias_values = {
+            ref,
+            model,
+            display_name or model,
+            f"{provider}/{model}",
+        }
+        alias_values.update(str(item or "") for item in aliases)
+        candidates.append({
+            "ref": ref,
+            "provider_id": provider,
+            "model_id": model,
+            "display_label": label,
+            "source": source,
+            "aliases": {item.strip().lower() for item in alias_values if item and item.strip()},
+            "active": bool(active),
+            "reason": str(reason or ""),
+            "runtime_mode": str(runtime_mode or ""),
+        })
+
+    for choice in _configured_quick_model_choices():
+        if choice.get("kind") != "model":
+            continue
+        provider_id = str(choice.get("provider_id") or "")
+        model_id = str(choice.get("model_id") or "")
+        display_name = str(choice.get("display_name") or model_id)
+        add_candidate(
+            provider_id=provider_id,
+            model_id=model_id,
+            display_name=display_name,
+            source="quick_choice",
+            aliases=(str(choice.get("id") or ""),),
+            active=choice.get("active") is not False,
+            reason=str(choice.get("inactive_reason") or choice.get("last_error") or ""),
+            visibility=choice.get("visibility") if isinstance(choice.get("visibility"), list) else None,
+            capabilities_snapshot=choice.get("capabilities_snapshot")
+            if isinstance(choice.get("capabilities_snapshot"), dict)
+            else None,
+        )
+
+    for provider_id, model_id, display_name in _custom_endpoint_model_matches_for_catalog():
+        add_candidate(
+            provider_id=provider_id,
+            model_id=model_id,
+            display_name=display_name,
+            source="custom_endpoint_model",
+        )
+
+    for provider_id, model_id, display_name, snapshot in _cached_catalog_model_matches():
+        add_candidate(
+            provider_id=provider_id,
+            model_id=model_id,
+            display_name=display_name,
+            source="cached_catalog",
+            capabilities_snapshot=snapshot,
+        )
+
+    return _unique_catalog_candidates(candidates)
+
+
+def _configured_quick_model_choices() -> list[dict[str, Any]]:
+    try:
+        return [
+            dict(choice)
+            for choice in load_provider_config().get("quick_choices", [])
+            if isinstance(choice, dict)
+        ]
+    except Exception:
+        return []
+
+
+def _catalog_candidate_supports_surface(
+    surface: str,
+    *,
+    visibility: Iterable[str] | None,
+    capabilities_snapshot: dict[str, Any],
+) -> bool:
+    selected_surface = str(surface or "").strip()
+    if not selected_surface:
+        return True
+    visible = {str(item) for item in (visibility or []) if str(item)}
+    if visible and selected_surface not in visible:
+        return False
+    has_structured_snapshot = bool(
+        capabilities_snapshot.get("tasks")
+        or capabilities_snapshot.get("input_modalities")
+        or capabilities_snapshot.get("output_modalities")
+        or capabilities_snapshot.get("capabilities")
+    )
+    if has_structured_snapshot and not snapshot_supports_surface(capabilities_snapshot, selected_surface):
+        return False
+    return True
+
+
+def _custom_endpoint_model_matches_for_catalog() -> list[tuple[str, str, str]]:
+    matches: list[tuple[str, str, str]] = []
+    try:
+        from row_bot.providers.custom import custom_endpoint_models, list_custom_endpoints
+
+        for endpoint in list_custom_endpoints():
+            if endpoint.get("enabled") is False:
+                continue
+            provider_id = str(endpoint.get("provider_id") or "")
+            if not provider_id:
+                continue
+            for item in custom_endpoint_models(provider_id):
+                model_id = str(item.get("model_id") or item.get("id") or "")
+                display_name = str(item.get("display_name") or item.get("label") or model_id)
+                if model_id:
+                    matches.append((provider_id, model_id, display_name))
+    except Exception:
+        return []
+    return matches
+
+
+def _cached_catalog_model_matches() -> list[tuple[str, str, str, dict[str, Any]]]:
+    matches: list[tuple[str, str, str, dict[str, Any]]] = []
+    try:
+        from row_bot.providers.model_catalog_cache import read_model_catalog_cache
+
+        snapshot = read_model_catalog_cache()
+    except Exception:
+        return []
+    for key, info in snapshot.cloud_cache.items():
+        if not isinstance(info, dict):
+            continue
+        parsed = parse_model_ref(str(key))
+        provider_id = str(info.get("provider") or (parsed[0] if parsed else "") or "")
+        model_id = str((parsed[1] if parsed else "") or info.get("model_id") or key)
+        if not provider_id or not model_id:
+            continue
+        display = str(info.get("display_name") or info.get("label") or info.get("name") or model_id)
+        snapshot_data = (
+            info.get("capabilities_snapshot")
+            if isinstance(info.get("capabilities_snapshot"), dict)
+            else {}
+        )
+        matches.append((provider_id, model_id, display, dict(snapshot_data)))
+    for row in snapshot.ollama_rows:
+        model_id = str(row.get("model") or row.get("model_id") or row.get("name") or row.get("id") or "")
+        if not model_id:
+            continue
+        display = str(row.get("display_name") or row.get("label") or model_id)
+        snapshot_data = (
+            row.get("capabilities_snapshot")
+            if isinstance(row.get("capabilities_snapshot"), dict)
+            else {}
+        )
+        matches.append(("ollama", model_id, display, dict(snapshot_data)))
+    return matches
 
 
 def model_selection_diagnostics(
@@ -659,14 +1073,79 @@ def _is_auto_capability_reason(reason: Any) -> bool:
     return str(reason or "").startswith("Capability metadata says this model is not compatible with ")
 
 
+def _ollama_uncached_capability_snapshot() -> dict[str, Any]:
+    return {
+        "capabilities": ["chat", "streaming", "text"],
+        "input_modalities": ["text"],
+        "output_modalities": ["text"],
+        "tasks": ["chat"],
+        "tool_calling": None,
+        "streaming": True,
+        "endpoint_compatibility": ["ollama_chat"],
+        "transport": "ollama_chat",
+        "source_confidence": "inferred",
+        "last_verified_at": "",
+    }
+
+
+def _strip_weak_ollama_vision(snapshot: dict[str, Any]) -> dict[str, Any]:
+    cleaned = dict(snapshot)
+    capabilities = cleaned.get("capabilities")
+    if isinstance(capabilities, list):
+        cleaned["capabilities"] = [
+            item for item in capabilities
+            if str(item).strip().lower() != "vision"
+        ]
+    input_modalities = cleaned.get("input_modalities")
+    if isinstance(input_modalities, list):
+        kept = [
+            item for item in input_modalities
+            if str(item).strip().lower() != "image"
+        ]
+        cleaned["input_modalities"] = kept or ["text"]
+    return cleaned
+
+
+def _ollama_snapshot_has_weak_inferred_vision(model_id: str, snapshot: dict[str, Any]) -> bool:
+    input_modalities = snapshot.get("input_modalities")
+    has_image = isinstance(input_modalities, list) and any(
+        str(item).strip().lower() == "image" for item in input_modalities
+    )
+    if not has_image:
+        return False
+    if str(snapshot.get("source_confidence") or "").strip().lower() != "inferred":
+        return False
+    if str(snapshot.get("last_verified_at") or "").strip():
+        return False
+    try:
+        from row_bot.providers.ollama import is_ollama_vision_capable
+
+        return not is_ollama_vision_capable(model_id)
+    except Exception:
+        return True
+
+
 def _inferred_capability_snapshot(choice: dict[str, Any]) -> dict[str, Any]:
     provider_id = str(choice.get("provider_id") or "")
     model_id = str(choice.get("model_id") or "")
     if not provider_id or not model_id:
         return {}
     try:
-        from row_bot.providers.capability_resolution import resolve_capability_snapshot
+        from row_bot.providers.capability_resolution import (
+            resolve_capability_metadata,
+            resolve_capability_snapshot,
+        )
 
+        if provider_id in {"local", "ollama", "ollama_cloud"}:
+            resolved = resolve_capability_metadata(
+                provider_id,
+                model_id,
+                include_static_fallback=False,
+            )
+            cached = resolved.snapshot
+            if cached and _ollama_snapshot_has_weak_inferred_vision(model_id, cached):
+                return _strip_weak_ollama_vision(cached)
+            return cached or _ollama_uncached_capability_snapshot()
         return resolve_capability_snapshot(provider_id, model_id)
     except Exception:
         return {}

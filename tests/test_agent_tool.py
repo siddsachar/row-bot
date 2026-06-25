@@ -30,6 +30,26 @@ def _fresh_agent_tool_modules(tmp_path, monkeypatch):
     return agent_tool, agent_runs
 
 
+def _isolated_model_choices(tmp_path, monkeypatch):
+    import row_bot.providers.config as provider_config
+    import row_bot.providers.selection as selection
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(selection, "load_provider_config", provider_config.load_provider_config)
+    monkeypatch.setattr(selection, "save_provider_config", provider_config.save_provider_config)
+    provider_config.save_provider_config({})
+    selection._provider_status_picker_cache.clear()
+    return selection
+
+
+def _chat_snapshot() -> dict:
+    return {
+        "tasks": ["chat"],
+        "input_modalities": ["text"],
+        "output_modalities": ["text"],
+    }
+
+
 def test_agents_tool_registers_expected_subtools(tmp_path, monkeypatch):
     agent_tool, _agent_runs = _fresh_agent_tool_modules(tmp_path, monkeypatch)
     from row_bot.tools import registry
@@ -88,6 +108,137 @@ def test_delegate_work_uses_runner_and_returns_public_run(tmp_path, monkeypatch)
     assert calls["kwargs"]["profile"] == "quality_reviewer"
     assert calls["kwargs"]["context"] == "Changed files: app.py"
     assert calls["kwargs"]["parent_thread_id"] == "parent-thread"
+    assert calls["kwargs"]["model_override"] == ""
+
+
+def test_delegate_work_resolves_optional_model_to_canonical_ref(tmp_path, monkeypatch):
+    selection = _isolated_model_choices(tmp_path, monkeypatch)
+    selection.add_quick_choice_for_model(
+        "claude-sonnet-4-5",
+        provider_id="anthropic",
+        display_name="Claude Work",
+        capabilities_snapshot=_chat_snapshot(),
+    )
+    agent_tool, _agent_runs = _fresh_agent_tool_modules(tmp_path, monkeypatch)
+    calls = {}
+
+    def fake_spawn(objective, **kwargs):
+        calls["objective"] = objective
+        calls["kwargs"] = kwargs
+        return {
+            "id": "run-model",
+            "kind": "subagent",
+            "status": "queued",
+            "display_name": "Research",
+            "thread_id": "child-thread",
+            "parent_thread_id": kwargs["parent_thread_id"],
+            "profile_id": "builtin:research",
+            "profile_slug": "research",
+            "profile_display_name": "Research",
+            "model_override": kwargs["model_override"],
+        }
+
+    monkeypatch.setattr(agent_tool.agent_runner, "spawn_agent_run", fake_spawn)
+
+    payload = json.loads(agent_tool._delegate_work(
+        objective="Research current docs.",
+        profile="research",
+        model="Claude Work",
+        parent_thread_id="parent-thread",
+    ))
+
+    assert payload["ok"] is True
+    assert calls["kwargs"]["model_override"] == "model:anthropic:claude-sonnet-4-5"
+    assert payload["run"]["model_override"] == "model:anthropic:claude-sonnet-4-5"
+
+
+def test_delegate_work_rejects_unknown_or_ambiguous_model_without_spawning(tmp_path, monkeypatch):
+    selection = _isolated_model_choices(tmp_path, monkeypatch)
+    selection.add_quick_choice_for_model(
+        "lab-chat",
+        provider_id="openai",
+        display_name="Shared Model",
+        capabilities_snapshot=_chat_snapshot(),
+    )
+    selection.add_quick_choice_for_model(
+        "lab-chat",
+        provider_id="anthropic",
+        display_name="Shared Model",
+        capabilities_snapshot=_chat_snapshot(),
+    )
+    agent_tool, _agent_runs = _fresh_agent_tool_modules(tmp_path, monkeypatch)
+    calls = {"count": 0}
+
+    def fake_spawn(objective, **kwargs):
+        calls["count"] += 1
+        return {}
+
+    monkeypatch.setattr(agent_tool.agent_runner, "spawn_agent_run", fake_spawn)
+
+    unknown = json.loads(agent_tool._delegate_work(
+        objective="Try unknown.",
+        model="not-a-pinned-model",
+    ))
+    ambiguous = json.loads(agent_tool._delegate_work(
+        objective="Try ambiguous.",
+        model="Shared Model",
+    ))
+
+    assert unknown["ok"] is False
+    assert "not pinned for Brain" in unknown["message"]
+    assert ambiguous["ok"] is False
+    assert "Ambiguous model selection" in ambiguous["message"]
+    assert calls["count"] == 0
+
+
+def test_delegate_work_rejects_unpinned_canonical_model_without_spawning(tmp_path, monkeypatch):
+    _isolated_model_choices(tmp_path, monkeypatch)
+    agent_tool, _agent_runs = _fresh_agent_tool_modules(tmp_path, monkeypatch)
+    calls = {"count": 0}
+
+    def fake_spawn(objective, **kwargs):
+        calls["count"] += 1
+        return {}
+
+    monkeypatch.setattr(agent_tool.agent_runner, "spawn_agent_run", fake_spawn)
+
+    payload = json.loads(agent_tool._delegate_work(
+        objective="Try unpinned.",
+        model="model:openai:gpt-4o-mini",
+    ))
+
+    assert payload["ok"] is False
+    assert "not pinned for Brain" in payload["message"]
+    assert calls["count"] == 0
+
+
+def test_agents_guide_mentions_pinned_model_resolution() -> None:
+    from pathlib import Path
+
+    guide = Path("tool_guides/agents_guide/SKILL.md").read_text(encoding="utf-8").lower()
+
+    assert "pinned brain choices" in guide
+    assert "row_bot_status category='model'" in guide
+    assert "delegate_work(model=...)" in guide
+    assert "delegate_work(wait=false)" in guide
+    assert "parent thread stays responsive" in guide
+    assert "use `wait=true` only when the user explicitly asks" in guide
+
+
+def test_delegate_work_schema_is_async_first() -> None:
+    from row_bot.tools.agent_tool import _DelegateWorkInput, AgentsTool
+
+    wait_description = str(_DelegateWorkInput.model_fields["wait"].description or "").lower()
+    assert "prefer false" in wait_description
+    assert "asynchronously" in wait_description
+    assert "explicitly asks" in wait_description
+
+    delegate_tool = next(
+        tool
+        for tool in AgentsTool().as_langchain_tools()
+        if tool.name == "delegate_work"
+    )
+    assert "async background" in str(delegate_tool.description).lower()
 
 
 def test_delegate_work_wait_timeout_message_is_explicit(tmp_path, monkeypatch):
@@ -198,8 +349,8 @@ def test_agent_promote_creates_profile_and_disabled_workflow(tmp_path, monkeypat
     assert task["enabled"] is False
     assert task["advanced_mode"] is True
     assert task["agent_profile_id"] == "builtin:review"
-    assert task["tools_override"] == ["filesystem"]
-    assert task["skills_override"] == ["release_notes"]
+    assert task["tools_override"] is None
+    assert task["skills_override"] is None
     assert task["safety_mode"] == "approve"
     assert "Review the release checklist." in task["steps"][0]["prompt"]
     assert "Release checklist passed." in task["steps"][0]["prompt"]

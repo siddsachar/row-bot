@@ -96,9 +96,13 @@ class _TaskCreateInput(BaseModel):
     model: str | None = Field(
         default=None,
         description=(
-            "Optional Ollama model name to use for this task instead of the global default "
-            "(e.g. 'qwen3:32b'). Leave empty to use the current brain model."
+            "Optional workflow-level model override. Use a provider-qualified or pinned model. "
+            "Leave empty to use the current brain model."
         ),
+    )
+    agent_profile: str | None = Field(
+        default=None,
+        description="Optional Agent Profile slug or id. Defaults to the Default profile.",
     )
     steps: list[dict] | None = Field(
         default=None,
@@ -203,9 +207,13 @@ class _TaskUpdateInput(BaseModel):
     model: str | None = Field(
         default=None,
         description=(
-            "Optional Ollama model name to use for this task instead of the global default. "
+            "Optional workflow-level model override. "
             "Set to empty string '' to clear and use the default model."
         ),
+    )
+    agent_profile: str | None = Field(
+        default=None,
+        description="Agent Profile slug or id. Set to empty string '' to use the Default profile.",
     )
     persistent_thread: bool | None = Field(
         default=None,
@@ -230,6 +238,7 @@ def _task_create(
     delivery_channel: str | None = None,
     delivery_target: str | None = None,
     model: str | None = None,
+    agent_profile: str | None = None,
     steps: list[dict] | None = None,
     approval_mode: str | None = None,
     safety_mode: str | None = None,
@@ -262,6 +271,8 @@ def _task_create(
             persistent_thread_id=p_thread_id,
             steps=steps,
             safety_mode=effective_approval_mode,
+            agent_profile_id=agent_profile or tasks_db.DEFAULT_WORKFLOW_AGENT_PROFILE_ID,
+            apply_default_skills=False,
         )
 
         task = tasks_db.get_task(task_id)
@@ -371,6 +382,7 @@ def _task_update(
     safety_mode: str | None = None,
     enabled: bool | None = None,
     model: str | None = None,
+    agent_profile: str | None = None,
     persistent_thread: bool | None = None,
 ) -> str:
     """Update fields on an existing task."""
@@ -393,6 +405,8 @@ def _task_update(
         updates["enabled"] = enabled
     if model is not None:
         updates["model_override"] = model if model else None
+    if agent_profile is not None:
+        updates["agent_profile_id"] = agent_profile or tasks_db.DEFAULT_WORKFLOW_AGENT_PROFILE_ID
     if persistent_thread is not None:
         if persistent_thread:
             # Only generate a new ID if one doesn't already exist

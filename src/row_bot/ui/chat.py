@@ -22,7 +22,11 @@ from nicegui import events, run, ui
 
 from row_bot.ui.state import AppState, P, _active_generations
 from row_bot.ui.constants import ALLOWED_UPLOAD_SUFFIXES, welcome_message, EXAMPLE_PROMPTS
-from row_bot.ui.render import render_agent_tool_results, render_image_with_save
+from row_bot.ui.render import (
+    agent_result_use_prompt,
+    render_agent_tool_results,
+    render_image_with_save,
+)
 from row_bot.ui.performance import log_ui_perf
 from row_bot.ui.timer_utils import defer_ui
 from row_bot.ui.transcript import (
@@ -92,6 +96,20 @@ def build_chat(
             send_message=send_message,
             surface="main",
         )
+
+    def _ask_parent_to_use_agent_result(run_id: str) -> None:
+        prompt = agent_result_use_prompt(run_id)
+        if not prompt:
+            return
+        try:
+            ui.notify("Asking the parent to use that Agent result.", type="info", close_button=True)
+            asyncio.create_task(send_message(prompt))
+        except Exception as exc:
+            logger.debug("Could not ask parent to use Agent result", exc_info=True)
+            ui.notify(f"Could not ask parent to use Agent result: {exc}", type="negative", close_button=True)
+
+    def _add_chat_message(msg: dict) -> None:
+        add_chat_message(msg, on_use_agent_result=_ask_parent_to_use_agent_result)
 
     # Header
     _header_started = time.perf_counter()
@@ -379,7 +397,7 @@ def build_chat(
                 ).classes("text-grey-5")
 
     def _render_message_at(local_idx: int) -> None:
-        add_chat_message(_display_msgs[local_idx])
+        _add_chat_message(_display_msgs[local_idx])
         p.transcript_rendered_keys.append(_display_keys[local_idx])
 
     # Progressive render
@@ -429,7 +447,11 @@ def build_chat(
                         ]
                         if _agent_tool_results:
                             with _reattach_gen.tool_col:
-                                render_agent_tool_results(_agent_tool_results, thread_id=state.thread_id)
+                                render_agent_tool_results(
+                                    _agent_tool_results,
+                                    thread_id=state.thread_id,
+                                    on_use_agent_result=_ask_parent_to_use_agent_result,
+                                )
                         for _group in group_tool_results(_generic_tool_results):
                             _group_failed = any(tool_result_failed(_tr) for _tr in _group.results)
                             with _reattach_gen.tool_col:
@@ -487,17 +509,64 @@ def build_chat(
             if p.stop_btn:
                 p.stop_btn.enable()
         elif _reattach_gen and _reattach_gen.status in ("done", "error", "stopped", "interrupted"):
+            final_tool_results = list(_reattach_gen.tool_results or [])
+            final_agent_run_ids: list[str] = []
+            promoted_agent_run_ids: list[str] = []
+            if final_tool_results:
+                try:
+                    from row_bot.ui.streaming import (
+                        _filter_visible_agent_tool_results,
+                        _ordered_agent_run_ids_from_tool_results,
+                        _refresh_key_for_agent_run_ids,
+                    )
+
+                    final_agent_run_ids = _ordered_agent_run_ids_from_tool_results(final_tool_results)
+                    if final_agent_run_ids:
+                        existing_agent_run_ids = {
+                            str(run_id)
+                            for msg in state.messages
+                            if isinstance(msg, dict)
+                            for run_id in (msg.get("agent_run_ids") or [])
+                            if str(run_id or "").strip()
+                        }
+                        promoted_agent_run_ids = [
+                            run_id for run_id in final_agent_run_ids
+                            if run_id not in existing_agent_run_ids
+                        ]
+                    filter_messages = state.messages
+                    if promoted_agent_run_ids:
+                        filter_messages = [
+                            *state.messages,
+                            {"role": "assistant", "agent_run_ids": promoted_agent_run_ids},
+                        ]
+                    final_tool_results, _removed_agent_results = _filter_visible_agent_tool_results(
+                        filter_messages,
+                        final_tool_results,
+                    )
+                except Exception:
+                    logger.debug("Agent tool result promotion during reattach failed", exc_info=True)
+                    promoted_agent_run_ids = []
+                    final_tool_results = list(_reattach_gen.tool_results or [])
             if (
                 _reattach_gen.accumulated
-                or _reattach_gen.tool_results
+                or final_tool_results
+                or promoted_agent_run_ids
                 or _reattach_gen.chart_data
                 or _reattach_gen.captured_images
                 or _reattach_gen.captured_videos
             ):
                 a_msg: dict = {"role": "assistant", "content": _reattach_gen.accumulated}
                 attach_thinking_to_message(a_msg, _reattach_gen.thinking_text)
-                if _reattach_gen.tool_results:
-                    a_msg["tool_results"] = _reattach_gen.tool_results
+                if promoted_agent_run_ids:
+                    a_msg["agent_run_ids"] = promoted_agent_run_ids
+                    try:
+                        from row_bot.ui.streaming import _refresh_key_for_agent_run_ids
+
+                        a_msg["agent_run_refresh_key"] = _refresh_key_for_agent_run_ids(promoted_agent_run_ids)
+                    except Exception:
+                        logger.debug("Could not build reattach Agent card refresh key", exc_info=True)
+                if final_tool_results:
+                    a_msg["tool_results"] = final_tool_results
                 if _reattach_gen.chart_data:
                     a_msg["charts"] = _reattach_gen.chart_data
                 if _reattach_gen.captured_images:
@@ -510,10 +579,67 @@ def build_chat(
                     a_msg["videos"] = _reattach_gen.captured_videos
                 state.messages.append(a_msg)
                 persist_thread_media_state(state.thread_id, state.messages)
-                add_chat_message(a_msg)
+                _add_chat_message(a_msg)
                 p.transcript_rendered_keys.append(message_key(len(state.messages) - 1, a_msg))
                 p.transcript_total = len(state.messages)
                 p.transcript_window_size = len(p.transcript_rendered_keys)
+                if promoted_agent_run_ids:
+                    try:
+                        from types import SimpleNamespace
+                        from row_bot.ui.streaming import (
+                            _schedule_agent_tool_result_card_refresh,
+                            _schedule_direct_agent_card_refresh,
+                        )
+
+                        def _refresh_chat_for_agent_card() -> None:
+                            try:
+                                rebuild_main(immediate=True, reason="agent_card_refresh")
+                            except TypeError:
+                                rebuild_main()
+
+                        refresh_cb = SimpleNamespace(
+                            rebuild_main=rebuild_main,
+                            refresh_chat_messages=_refresh_chat_for_agent_card,
+                            refresh_parent_agent_strip=_refresh_parent_agent_strip,
+                        )
+                        _schedule_direct_agent_card_refresh(
+                            state=state,
+                            cb=refresh_cb,
+                            thread_id=state.thread_id,
+                            run_ids=promoted_agent_run_ids,
+                        )
+                        if final_agent_run_ids:
+                            _schedule_agent_tool_result_card_refresh(
+                                state=state,
+                                cb=refresh_cb,
+                                thread_id=state.thread_id,
+                                run_ids=final_agent_run_ids,
+                            )
+                    except Exception:
+                        logger.debug("Could not schedule reattach Agent card refresh", exc_info=True)
+                elif final_agent_run_ids:
+                    try:
+                        from types import SimpleNamespace
+                        from row_bot.ui.streaming import _schedule_agent_tool_result_card_refresh
+
+                        def _refresh_chat_for_agent_tool_result() -> None:
+                            try:
+                                rebuild_main(immediate=True, reason="agent_tool_result_refresh")
+                            except TypeError:
+                                rebuild_main()
+
+                        _schedule_agent_tool_result_card_refresh(
+                            state=state,
+                            cb=SimpleNamespace(
+                                rebuild_main=rebuild_main,
+                                refresh_chat_messages=_refresh_chat_for_agent_tool_result,
+                                refresh_parent_agent_strip=_refresh_parent_agent_strip,
+                            ),
+                            thread_id=state.thread_id,
+                            run_ids=final_agent_run_ids,
+                        )
+                    except Exception:
+                        logger.debug("Could not schedule reattach Agent tool-result refresh", exc_info=True)
             _active_generations.pop(state.thread_id, None)
 
         # Onboarding
@@ -1586,13 +1712,32 @@ def build_chat(
                 ensure_composer_control_css,
             )
             ensure_composer_control_css()
-            build_composer_policy_cluster(
-                state,
-                open_settings=open_settings,
-                on_model_switch=_refresh_model_surface,
-                generation_getter=lambda: p.chat_shell_generation,
-                shell_generation=_shell_generation,
-            )
+
+            def _render_model_controls() -> None:
+                build_composer_policy_cluster(
+                    state,
+                    open_settings=open_settings,
+                    on_model_switch=_refresh_model_surface,
+                    generation_getter=lambda: p.chat_shell_generation,
+                    shell_generation=_shell_generation,
+                )
+
+            def _refresh_model_controls() -> None:
+                _refresh_model_surface()
+                container = getattr(p, "model_controls_container", None)
+                if container is None:
+                    return
+                try:
+                    container.clear()
+                    with container:
+                        _render_model_controls()
+                except Exception:
+                    logger.debug("Composer model controls refresh failed", exc_info=True)
+
+            p.refresh_model_controls = _refresh_model_controls
+            p.model_controls_container = ui.row().classes("items-center no-wrap gap-1")
+            with p.model_controls_container:
+                _render_model_controls()
             from row_bot.ui.voice_realtime_events import make_realtime_event_handler
 
             _on_realtime_event = make_realtime_event_handler(

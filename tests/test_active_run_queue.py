@@ -3,7 +3,9 @@ from __future__ import annotations
 import ast
 import importlib
 import inspect
+import json
 import sys
+from types import SimpleNamespace
 
 
 def _fresh_modules(tmp_path, monkeypatch):
@@ -11,6 +13,7 @@ def _fresh_modules(tmp_path, monkeypatch):
     data_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(data_dir))
     for name in (
+        "row_bot.threads",
         "row_bot.tasks",
         "row_bot.agent_runs",
         "row_bot.ui.streaming",
@@ -18,11 +21,13 @@ def _fresh_modules(tmp_path, monkeypatch):
     ):
         sys.modules.pop(name, None)
 
+    import row_bot.threads as threads
     import row_bot.tasks as tasks
     import row_bot.agent_runs as agent_runs
     import row_bot.ui.streaming as streaming
     import row_bot.ui.transcript as transcript
 
+    threads = importlib.reload(threads)
     tasks = importlib.reload(tasks)
     agent_runs = importlib.reload(agent_runs)
     streaming = importlib.reload(streaming)
@@ -207,6 +212,613 @@ def test_direct_agent_completion_summary_appends_once(tmp_path, monkeypatch):
     assert "ai_agent_smoke.pdf" in messages[1]["content"]
     assert streaming._append_direct_agent_completion_messages(messages, ["run-1"]) is False
     assert len(messages) == 2
+
+
+def test_async_delegated_tool_result_completion_summary_appends_once(tmp_path, monkeypatch):
+    agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+
+    agent_runs.create_agent_run(
+        run_id="delegated-tool-1",
+        kind="subagent",
+        status="running",
+        parent_thread_id="parent",
+        display_name="Child model smoke",
+    )
+    messages = [
+        {"role": "user", "content": "use a child agent in the background"},
+        {
+            "role": "assistant",
+            "content": "Started in the background.",
+            "tool_results": [
+                {
+                    "name": "delegate_work",
+                    "content": json.dumps({
+                        "ok": True,
+                        "message": "Child Agent started.",
+                        "run": {"id": "delegated-tool-1", "status": "queued"},
+                    }),
+                }
+            ],
+        },
+    ]
+
+    assert streaming._append_async_delegated_agent_completion_messages(
+        messages,
+        ["delegated-tool-1"],
+    ) is False
+
+    agent_runs.finish_agent_run(
+        "delegated-tool-1",
+        "completed",
+        summary="child model smoke",
+    )
+
+    assert streaming._append_async_delegated_agent_completion_messages(
+        messages,
+        ["delegated-tool-1"],
+    ) is True
+    assert messages[2]["agent_completion_for"] == "delegated-tool-1"
+    assert "Child model smoke completed" in messages[2]["content"]
+    assert "child model smoke" in messages[2]["content"]
+    assert streaming._append_async_delegated_agent_completion_messages(
+        messages,
+        ["delegated-tool-1"],
+    ) is False
+    assert len(messages) == 3
+
+
+def test_async_delegated_tool_result_completion_can_persist_checkpoint(tmp_path, monkeypatch):
+    agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+
+    agent_runs.create_agent_run(
+        run_id="delegated-tool-checkpoint",
+        kind="subagent",
+        status="completed",
+        parent_thread_id="parent-thread",
+        display_name="Checkpoint child",
+        summary="checkpoint child result",
+    )
+    messages = [
+        {
+            "role": "assistant",
+            "content": "Started in the background.",
+            "tool_results": [
+                {
+                    "name": "delegate_work",
+                    "content": json.dumps({
+                        "ok": True,
+                        "message": "Child Agent started.",
+                        "run": {"id": "delegated-tool-checkpoint", "status": "queued"},
+                    }),
+                }
+            ],
+        },
+    ]
+
+    assert streaming._append_async_delegated_agent_completion_messages(
+        messages,
+        ["delegated-tool-checkpoint"],
+        checkpoint_thread_id="parent-thread",
+    ) is True
+
+    from row_bot.threads import get_latest_checkpoint_messages
+
+    checkpoint_messages = get_latest_checkpoint_messages("parent-thread")
+    assert [getattr(msg, "content", "") for msg in checkpoint_messages] == [
+        "Done. Checkpoint child completed.\n\ncheckpoint child result"
+    ]
+
+
+def test_promoted_async_delegated_card_completion_appends_without_tool_result(tmp_path, monkeypatch):
+    agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+
+    agent_runs.create_agent_run(
+        run_id="promoted-async",
+        kind="subagent",
+        status="completed",
+        parent_thread_id="parent",
+        display_name="Child model smoke",
+        summary="child model smoke",
+    )
+    messages = [
+        {"role": "user", "content": "use an agent in the background"},
+        {
+            "role": "assistant",
+            "content": "Started in the background.",
+            "agent_run_ids": ["promoted-async"],
+            "agent_run_refresh_key": "promoted-async|completed",
+            "tool_results": [
+                {"name": "row_bot_status", "content": "Status checked."},
+            ],
+        },
+    ]
+
+    assert streaming._append_async_delegated_agent_completion_messages(
+        messages,
+        ["promoted-async"],
+        candidate_run_ids=["promoted-async"],
+    ) is True
+    assert messages[2]["agent_completion_for"] == "promoted-async"
+    assert messages[2]["content"] == "Done. Child model smoke completed.\n\nchild model smoke"
+
+    assert streaming._append_async_delegated_agent_completion_messages(
+        messages,
+        ["promoted-async"],
+        candidate_run_ids=["promoted-async"],
+    ) is False
+    assert len(messages) == 3
+
+
+def test_wait_delegated_tool_result_does_not_append_async_completion(tmp_path, monkeypatch):
+    agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+
+    agent_runs.create_agent_run(
+        run_id="delegated-wait-tool",
+        kind="subagent",
+        status="completed",
+        parent_thread_id="parent",
+        display_name="Review child",
+        summary="The claim is false.",
+    )
+    messages = [
+        {
+            "role": "assistant",
+            "content": "The review agent completed.",
+            "tool_results": [
+                {
+                    "name": "delegate_work",
+                    "content": json.dumps({
+                        "ok": True,
+                        "message": "Child Agent completed.",
+                        "run": {"id": "delegated-wait-tool", "status": "completed"},
+                    }),
+                }
+            ],
+        }
+    ]
+
+    assert streaming._is_async_delegated_agent_tool_result(messages[0]["tool_results"][0]) is False
+    assert streaming._append_async_delegated_agent_completion_messages(
+        messages,
+        ["delegated-wait-tool"],
+    ) is False
+    assert len(messages) == 1
+
+
+def test_wait_delegated_candidate_does_not_append_async_completion(tmp_path, monkeypatch):
+    agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+
+    agent_runs.create_agent_run(
+        run_id="delegated-wait-candidate",
+        kind="subagent",
+        status="completed",
+        parent_thread_id="parent",
+        display_name="Wait Candidate",
+        summary="Parent already summarized this.",
+    )
+    messages = [
+        {
+            "role": "assistant",
+            "content": "The review agent completed.",
+            "tool_results": [
+                {
+                    "name": "delegate_work",
+                    "content": json.dumps({
+                        "ok": True,
+                        "message": "Child Agent completed.",
+                        "run": {"id": "delegated-wait-candidate", "status": "completed"},
+                    }),
+                }
+            ],
+        }
+    ]
+
+    assert streaming._append_async_delegated_agent_completion_messages(
+        messages,
+        ["delegated-wait-candidate"],
+        candidate_run_ids=["delegated-wait-candidate"],
+    ) is False
+    assert len(messages) == 1
+
+
+def test_async_delegated_run_ids_from_tool_results_excludes_wait_results(tmp_path, monkeypatch):
+    _agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+
+    tool_results = [
+        {
+            "name": "delegate_work",
+            "content": json.dumps({
+                "ok": True,
+                "message": "Child Agent started.",
+                "run": {"id": "async-run", "status": "queued"},
+            }),
+        },
+        {
+            "name": "delegate_work",
+            "content": json.dumps({
+                "ok": True,
+                "message": "Child Agent completed.",
+                "run": {"id": "wait-run", "status": "completed"},
+            }),
+        },
+        {"name": "row_bot_status", "content": "ok"},
+    ]
+
+    assert streaming._async_delegated_run_ids_from_tool_results(tool_results) == ["async-run"]
+
+
+def test_async_child_run_ids_for_generation_uses_new_runs_and_excludes_wait(tmp_path, monkeypatch):
+    agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+
+    agent_runs.create_agent_run(
+        run_id="old-child",
+        kind="subagent",
+        status="completed",
+        parent_thread_id="parent",
+        display_name="Old Child",
+    )
+    agent_runs.create_agent_run(
+        run_id="async-child",
+        kind="subagent",
+        status="completed",
+        parent_thread_id="parent",
+        display_name="Async Child",
+    )
+    agent_runs.create_agent_run(
+        run_id="wait-child",
+        kind="subagent",
+        status="completed",
+        parent_thread_id="parent",
+        display_name="Wait Child",
+    )
+    wait_result = {
+        "name": "delegate_work",
+        "content": json.dumps({
+            "ok": True,
+            "message": "Child Agent completed.",
+            "run": {"id": "wait-child", "status": "completed"},
+        }),
+    }
+    gen = SimpleNamespace(
+        thread_id="parent",
+        baseline_child_agent_run_ids={"old-child"},
+        live_async_agent_run_ids=set(),
+    )
+
+    assert streaming._wait_delegated_run_ids_from_tool_results([wait_result]) == {"wait-child"}
+    assert set(streaming._async_child_agent_run_ids_for_generation(gen, [wait_result])) == {
+        "async-child",
+    }
+
+
+def test_async_child_run_ids_for_generation_includes_live_async_ids(tmp_path, monkeypatch):
+    _agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+
+    gen = SimpleNamespace(
+        thread_id="parent",
+        baseline_child_agent_run_ids=set(),
+        live_async_agent_run_ids={"live-async"},
+    )
+
+    assert streaming._async_child_agent_run_ids_for_generation(gen, []) == ["live-async"]
+
+
+def test_visible_agent_run_ids_collects_direct_and_delegated_cards(tmp_path, monkeypatch):
+    _agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+
+    messages = [
+        {"role": "assistant", "agent_run_ids": ["run-1", ""]},
+        {"role": "assistant", "agent_run_ids": ["run-2"]},
+        {"role": "user", "agent_run_ids": ["ignored"]},
+    ]
+
+    assert streaming._visible_agent_run_ids(messages) == {"run-1", "run-2"}
+
+
+def test_agent_result_use_prompt_is_explicit_parent_message() -> None:
+    from row_bot.ui.render import agent_result_use_available, agent_result_use_prompt
+
+    assert agent_result_use_prompt("run-123") == "what did agent run-123 find? use that result here"
+    assert agent_result_use_prompt("  run-123  ") == "what did agent run-123 find? use that result here"
+    assert agent_result_use_prompt("") == ""
+    assert agent_result_use_available({"id": "run-1", "status": "completed"})
+    assert agent_result_use_available({"id": "run-1", "status": "completed_delivery_failed"})
+    assert not agent_result_use_available({"id": "run-1", "status": "running"})
+    assert not agent_result_use_available({"id": "", "status": "completed"})
+
+
+def test_delegated_agent_card_message_inserts_before_future_queued_turn(tmp_path, monkeypatch):
+    agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+
+    run = agent_runs.create_agent_run(
+        run_id="delegated-1",
+        kind="subagent",
+        status="running",
+        parent_thread_id="parent",
+        display_name="Review Child",
+        profile_id="builtin:review",
+        profile_snapshot_json={"slug": "review", "display_name": "Review"},
+    )
+    queued = streaming._queued_control_message(
+        "also use another agent",
+        kind="follow_up",
+        status="queued_parent_turn",
+        label="Queued as your next chat message",
+        message_id="queued-1",
+    )
+    state = SimpleNamespace(
+        thread_id="parent",
+        messages=[{"role": "user", "content": "first"}, queued],
+        message_cache={},
+        message_cache_dirty=set(),
+        cache_active_messages=lambda: None,
+    )
+    refreshed: list[str] = []
+    cb = streaming.Callbacks()
+    cb.refresh_chat_messages = lambda: refreshed.append("chat")
+    cb.refresh_parent_agent_strip = lambda: refreshed.append("strip")
+
+    assert streaming._append_delegated_agent_card_message(
+        state=state,
+        cb=cb,
+        thread_id="parent",
+        run_row=run,
+        generation_id="gen-1",
+    ) is True
+
+    assert [msg["role"] for msg in state.messages] == ["user", "assistant", "user"]
+    assert state.messages[1]["agent_run_ids"] == ["delegated-1"]
+    assert state.messages[1]["agent_lifecycle"]["kind"] == "delegated_agent_spawn"
+    assert state.messages[1]["agent_lifecycle"]["completion_summary_emitted"] is False
+    assert state.messages[1]["agent_lifecycle"]["wait_mode"] is False
+    assert state.messages[2]["queued_control"]["id"] == "queued-1"
+    assert "chat" in refreshed
+
+    agent_runs.finish_agent_run("delegated-1", "completed", summary="Looks good.")
+    assert streaming._append_direct_agent_completion_messages(state.messages, ["delegated-1"]) is True
+    assert len(state.messages) == 4
+    assert state.messages[1]["agent_lifecycle"]["completion_summary_emitted"] is True
+    assert state.messages[2]["agent_completion_for"] == "delegated-1"
+    assert "Review Child completed" in state.messages[2]["content"]
+    assert "Looks good." in state.messages[2]["content"]
+    assert state.messages[3]["queued_control"]["id"] == "queued-1"
+    assert streaming._append_direct_agent_completion_messages(state.messages, ["delegated-1"]) is False
+
+
+def test_delegated_agent_card_message_defers_refresh_during_live_parent(tmp_path, monkeypatch):
+    agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+
+    run = agent_runs.create_agent_run(
+        run_id="delegated-live",
+        kind="subagent",
+        status="running",
+        parent_thread_id="parent",
+        display_name="Live Child",
+    )
+    state = SimpleNamespace(
+        thread_id="parent",
+        messages=[{"role": "user", "content": "first"}],
+        message_cache={},
+        message_cache_dirty=set(),
+        cache_active_messages=lambda: None,
+    )
+    refreshed: list[str] = []
+    cb = streaming.Callbacks()
+    cb.refresh_chat_messages = lambda: refreshed.append("chat")
+    cb.refresh_parent_agent_strip = lambda: refreshed.append("strip")
+    streaming._active_generations["parent"] = SimpleNamespace(
+        status="streaming",
+        detached=False,
+        live_row=object(),
+    )
+    try:
+        assert streaming._append_delegated_agent_card_message(
+            state=state,
+            cb=cb,
+            thread_id="parent",
+            run_row=run,
+            generation_id="gen-live",
+        ) is True
+    finally:
+        streaming._active_generations.pop("parent", None)
+
+    assert "chat" not in refreshed
+    assert state.messages[1]["agent_run_ids"] == ["delegated-live"]
+
+
+def test_live_agent_run_card_tracks_rendered_ids_once(tmp_path, monkeypatch):
+    _agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+
+    class DummySlot:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    rendered: list[list[str]] = []
+    monkeypatch.setattr(
+        streaming,
+        "render_agent_run_cards",
+        lambda run_ids: rendered.append(list(run_ids)) or True,
+    )
+    gen = SimpleNamespace(
+        detached=False,
+        tool_col=DummySlot(),
+        live_agent_run_ids=set(),
+    )
+
+    assert streaming._render_live_agent_run_card(gen, {"id": "run-live"}) is True
+    assert streaming._render_live_agent_run_card(gen, {"id": "run-live"}) is False
+    assert rendered == [["run-live"]]
+    assert gen.live_agent_run_ids == {"run-live"}
+
+
+def test_agent_tool_result_already_live_detects_rendered_run(tmp_path, monkeypatch):
+    _agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+
+    gen = SimpleNamespace(live_agent_run_ids={"run-live"})
+    result = {
+        "name": "delegate_work",
+        "content": json.dumps({
+            "message": "Child Agent started.",
+            "run": {"id": "run-live", "status": "running"},
+        }),
+    }
+    other = {
+        "name": "delegate_work",
+        "content": json.dumps({
+            "message": "Child Agent started.",
+            "run": {"id": "run-other", "status": "running"},
+        }),
+    }
+
+    assert streaming._agent_tool_result_already_live(gen, result)
+    assert not streaming._agent_tool_result_already_live(gen, other)
+
+
+def test_delegated_wait_mode_skips_async_completion_summary(tmp_path, monkeypatch):
+    agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+
+    agent_runs.create_agent_run(
+        run_id="delegated-wait",
+        kind="subagent",
+        status="running",
+        parent_thread_id="parent",
+        display_name="Wait Child",
+    )
+    messages = [
+        {
+            "role": "assistant",
+            "content": "Started wait child.",
+            "agent_run_ids": ["delegated-wait"],
+            "agent_lifecycle": {
+                "kind": "delegated_agent_spawn",
+                "run_id": "delegated-wait",
+                "wait_mode": True,
+                "completion_summary_emitted": False,
+            },
+        }
+    ]
+
+    agent_runs.finish_agent_run("delegated-wait", "completed", summary="Parent will summarize this.")
+
+    assert streaming._append_direct_agent_completion_messages(messages, ["delegated-wait"]) is False
+    assert len(messages) == 1
+    assert messages[0]["agent_lifecycle"]["completion_summary_emitted"] is False
+
+
+def test_visible_agent_tool_results_are_filtered_after_card_is_visible(tmp_path, monkeypatch):
+    _agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+
+    messages = [
+        {
+            "role": "assistant",
+            "agent_run_ids": ["run-1"],
+            "agent_lifecycle": {"kind": "delegated_agent_spawn", "run_id": "run-1"},
+        }
+    ]
+    duplicate_agent_result = {
+        "name": "delegate_work",
+        "content": json.dumps({
+            "message": "Child Agent completed.",
+            "run": {"id": "run-1", "status": "completed"},
+        }),
+    }
+    unseen_agent_result = {
+        "name": "delegate_work",
+        "content": json.dumps({
+            "message": "Child Agent started.",
+            "run": {"id": "run-2", "status": "queued"},
+        }),
+    }
+    other_result = {"name": "calculator", "content": "4"}
+
+    filtered, removed = streaming._filter_visible_agent_tool_results(
+        messages,
+        [duplicate_agent_result, unseen_agent_result, other_result],
+    )
+
+    assert removed is True
+    assert filtered == [unseen_agent_result, other_result]
+    assert streaming._ordered_agent_run_ids_from_tool_results([
+        duplicate_agent_result,
+        unseen_agent_result,
+        duplicate_agent_result,
+    ]) == ["run-1", "run-2"]
+
+
+def test_delegated_agent_run_card_refreshes_without_completion_summary(tmp_path, monkeypatch):
+    agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+
+    run = agent_runs.create_agent_run(
+        run_id="delegated-refresh",
+        kind="subagent",
+        status="running",
+        parent_thread_id="parent",
+        display_name="Refresh Child",
+        profile_id="builtin:review",
+        profile_snapshot_json={"slug": "review", "display_name": "Review"},
+    )
+    messages = [
+        {
+            "role": "assistant",
+            "content": "Child started.",
+            "agent_run_ids": ["delegated-refresh"],
+            "agent_run_refresh_key": streaming._agent_run_card_refresh_key(run),
+        }
+    ]
+
+    agent_runs.finish_agent_run("delegated-refresh", "completed", summary="Done.")
+    changed, terminal = streaming._update_direct_agent_refresh_keys(messages, ["delegated-refresh"])
+
+    assert changed is True
+    assert terminal is True
+    assert "completed" in messages[0]["agent_run_refresh_key"]
+    assert streaming._append_direct_agent_completion_messages(messages, ["delegated-refresh"]) is False
+    assert len(messages) == 1
+
+
+def test_interrupt_changes_model_setting_detects_status_tool_payload(tmp_path, monkeypatch):
+    _agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+
+    assert streaming._interrupt_changes_model_setting({
+        "tool": "row_bot_update_setting",
+        "args": {"setting": "model", "value": "openai:gpt-5"},
+    })
+    assert streaming._interrupt_changes_model_setting([
+        {"tool": "row_bot_update_setting", "args": {"setting": "voice", "value": "off"}},
+        {"tool": "row_bot_update_setting", "args": {"setting": "model", "value": "anthropic:opus"}},
+    ])
+    assert not streaming._interrupt_changes_model_setting({
+        "tool": "row_bot_update_setting",
+        "args": {"setting": "voice", "value": "on"},
+    })
+    assert not streaming._interrupt_changes_model_setting({
+        "tool": "other_tool",
+        "args": {"setting": "model", "value": "openai:gpt-5"},
+    })
+
+
+def test_tool_result_changes_model_setting_detects_auto_success(tmp_path, monkeypatch):
+    _agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+
+    assert streaming._tool_result_changes_model_setting(
+        "row_bot_update_setting",
+        "Active model changed to: model:codex:gpt-5.4",
+    )
+    assert not streaming._tool_result_changes_model_setting(
+        "row_bot_update_setting",
+        "Model change cancelled.",
+    )
+    assert not streaming._tool_result_changes_model_setting(
+        "row_bot_update_setting",
+        "Failed to change model: boom",
+    )
+    assert not streaming._tool_result_changes_model_setting(
+        "row_bot_status",
+        "Active model changed to: model:codex:gpt-5.4",
+    )
 
 
 def test_new_agent_request_is_not_child_steering(tmp_path, monkeypatch):

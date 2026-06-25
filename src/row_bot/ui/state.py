@@ -125,12 +125,16 @@ class GenerationState:
     thinking_text: str = ""
     tool_results: list = field(default_factory=list)
     pending_tools: dict = field(default_factory=dict)
+    live_agent_run_ids: set[str] = field(default_factory=set)
+    live_async_agent_run_ids: set[str] = field(default_factory=set)
+    baseline_child_agent_run_ids: set[str] = field(default_factory=set)
     chart_data: list = field(default_factory=list)
     captured_images: list = field(default_factory=list)
     captured_images_persist: list = field(default_factory=list)
     captured_videos: list = field(default_factory=list)
     captured_videos_persist: list = field(default_factory=list)
     browser_step_count: int = 0
+    refresh_model_controls_on_done: bool = False
     interrupt_data: Any = None
     interrupt_rendered: bool = False
     status: str = "streaming"  # streaming | done | error | stopped
@@ -215,6 +219,8 @@ class P:
     chat_input: ui.textarea = None      # type: ignore[assignment]
     chat_header_label: ui.label = None  # type: ignore[assignment]
     model_banner_container: Any = None
+    model_controls_container: Any = None
+    refresh_model_controls: Any = None
     parent_agent_strip_container: Any = None
     refresh_parent_agent_strip: Any = None
     goal_strip_container: Any = None

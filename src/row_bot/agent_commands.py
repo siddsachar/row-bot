@@ -37,6 +37,7 @@ class AgentSpawnRequest:
     profile: str = DEFAULT_DIRECT_AGENT_PROFILE
     explicit_profile: bool = False
     source: str = "natural"
+    model: str = ""
 
 
 _DIRECT_AGENT_VERBS = {"use", "create", "spawn", "start", "launch", "make"}
@@ -181,12 +182,18 @@ def is_agent_spawn_command(text: str) -> bool:
 
 
 def parse_agent_spawn_text(text: str) -> AgentSpawnRequest | None:
-    """Parse explicit direct child-Agent requests without task-based routing."""
+    """Parse explicit direct child-Agent slash commands without task-based routing."""
     raw = str(text or "").strip()
     if not raw:
         return None
     if is_agent_spawn_command(raw):
         arg = raw.split(maxsplit=1)[1].strip() if len(raw.split(maxsplit=1)) > 1 else ""
+        if not arg:
+            return None
+        arg, model = _extract_model_option(arg)
+        if arg is None:
+            return None
+        arg = arg.strip()
         if not arg:
             return None
         profile_match = _consume_leading_profile(arg)
@@ -199,24 +206,55 @@ def parse_agent_spawn_text(text: str) -> AgentSpawnRequest | None:
                     profile=profile_slug,
                     explicit_profile=True,
                     source="slash",
+                    model=model,
                 )
         return AgentSpawnRequest(
             objective=arg,
             profile=DEFAULT_DIRECT_AGENT_PROFILE,
             explicit_profile=False,
             source="slash",
+            model=model,
         )
-    return _parse_natural_agent_request(raw)
+    return None
+
+
+def _extract_model_option(arg: str) -> tuple[str | None, str]:
+    """Remove a strict ``--model`` option from a slash-command argument."""
+    parts = str(arg or "").strip().split()
+    if not parts:
+        return "", ""
+    kept: list[str] = []
+    model = ""
+    index = 0
+    while index < len(parts):
+        part = parts[index]
+        if part == "--model":
+            if index + 1 >= len(parts):
+                return None, ""
+            model = parts[index + 1].strip()
+            index += 2
+            continue
+        if part.startswith("--model="):
+            model = part.split("=", 1)[1].strip()
+            if not model:
+                return None, ""
+            index += 1
+            continue
+        kept.append(part)
+        index += 1
+    return " ".join(kept).strip(), model
 
 
 def format_agent_spawn_usage() -> str:
     return (
-        "Usage: `/agent [profile] <task>`.\n\n"
+        "Usage: `/agent [--model=model:provider:model-id] [profile] <task>`.\n\n"
         "Examples:\n"
         "- `/agent review check this plan for risk`\n"
-        "- `/agent develop implement the focused fix`\n\n"
+        "- `/agent develop implement the focused fix`\n"
+        "- `/agent --model=model:claude_subscription:claude-opus-4-8 worker only reply: ok`\n\n"
         "Generic Agent requests use `worker`. A specialized profile is used only "
-        "when you explicitly name an enabled Agent Profile."
+        "when you explicitly name an enabled Agent Profile. The optional model "
+        "must be an active pinned Brain canonical ref or exact pinned label."
     )
 
 
@@ -244,6 +282,18 @@ def spawn_agent_from_request(
         raise ValueError("Direct Agent requests require a parent thread.")
     from row_bot.agent_runner import spawn_agent_run
 
+    model_override = ""
+    if str(request.model or "").strip():
+        from row_bot.providers.selection import resolve_catalog_model_selection
+
+        resolved = resolve_catalog_model_selection(
+            request.model,
+            surface="chat",
+            require_agent_ready=True,
+            require_pinned=True,
+        )
+        model_override = resolved.ref
+
     return spawn_agent_run(
         request.objective,
         parent_thread_id=str(thread_id),
@@ -251,6 +301,7 @@ def spawn_agent_from_request(
         display_name=agent_spawn_display_name(request),
         context_mode="auto",
         enabled_tool_names=list(enabled_tool_names or []),
+        model_override=model_override,
         wait=False,
     )
 
@@ -261,7 +312,9 @@ def format_agent_spawn_started(run: dict, request: AgentSpawnRequest) -> str:
     name = str((run or {}).get("display_name") or agent_spawn_display_name(request)).strip()
     profile = str((run or {}).get("profile_slug") or request.profile or DEFAULT_DIRECT_AGENT_PROFILE).strip()
     suffix = f" (`{run_id}`)" if run_id else ""
-    return f"Started Agent **{name}** with profile `{profile}`. Status: `{status}`{suffix}."
+    model = str((run or {}).get("model_override") or request.model or "").strip()
+    model_text = f" Model: `{model}`." if model else ""
+    return f"Started Agent **{name}** with profile `{profile}`. Status: `{status}`{suffix}.{model_text}"
 
 
 def _profile_lines(query: str = "", *, limit: int = 18) -> list[str]:

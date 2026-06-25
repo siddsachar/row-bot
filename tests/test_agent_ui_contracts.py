@@ -316,6 +316,8 @@ def test_sidebar_hides_child_agent_threads_by_default():
 
     assert '"agents"' in src
     assert 'thread_type == "agent_child"' in src
+    assert "def _is_hidden_agent_child_run" in src
+    assert 'agent_run.get("kind") or "") != "subagent"' in src
     assert '{"key": "agents"' not in src
     assert '"label": "Agents"' not in src
     assert "parent_child_counts" not in src
@@ -324,7 +326,7 @@ def test_sidebar_hides_child_agent_threads_by_default():
     assert 'payload.pop("agent_parent_expanded", None)' in src
     assert "for agent_run in _agent_run_rows" in src
     assert "for run in _agent_run_rows" not in src
-    assert '!= str(agent_run.get("parent_thread_id") or "")' in src
+    assert "_is_hidden_agent_child_run(agent_run)" in src
     assert '_SIDEBAR_FILTER == "all"' in src
     assert 'c[1] != "agents"' in src
     assert "Show child Agent threads" not in src

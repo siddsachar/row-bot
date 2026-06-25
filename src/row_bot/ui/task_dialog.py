@@ -136,7 +136,9 @@ def show_task_dialog(
         get_workflow_draft,
         save_workflow_draft,
         delete_workflow_draft,
+        DEFAULT_WORKFLOW_AGENT_PROFILE_ID,
     )
+    from row_bot.agent_profiles import list_agent_profiles
 
     is_new = task is None
     title = "New Workflow" if is_new else "Edit Workflow"
@@ -147,13 +149,14 @@ def show_task_dialog(
     _desc = task.get("description", "") if task else ""
     _enabled = task.get("enabled", True) if task else True
     _model_ov = task.get("model_override") or "" if task else ""
+    _agent_profile_id = (
+        task.get("agent_profile_id") or DEFAULT_WORKFLOW_AGENT_PROFILE_ID
+    ) if task else DEFAULT_WORKFLOW_AGENT_PROFILE_ID
     _prompts_data: list[str] = list(task["prompts"]) if task else [""]
     _approval_mode = (task.get("safety_mode") or get_global_approval_mode()) if task else "block"
     _steps_data: list[dict] = copy.deepcopy(task.get("steps") or []) if task else []
     _concurrency_group = (task.get("concurrency_group") or "") if task else ""
     _trigger_data: dict | None = task.get("trigger") if task else None
-    _tools_override_data = task.get("tools_override") if task else None
-    _skills_override_data = task.get("skills_override") if task else None
     _persistent_enabled = bool(task.get("persistent_thread_id")) if task else False
 
     _draft_key = task["id"] if task else None
@@ -168,13 +171,16 @@ def show_task_dialog(
         _desc = str(_draft_payload.get("description", _desc) or "")
         _enabled = bool(_draft_payload.get("enabled", _enabled))
         _model_ov = str(_draft_payload.get("model_override") or "")
+        _agent_profile_id = str(
+            _draft_payload.get("agent_profile_id")
+            or _agent_profile_id
+            or DEFAULT_WORKFLOW_AGENT_PROFILE_ID
+        )
         _prompts_data = list(_draft_payload.get("prompts") or _prompts_data)
         _steps_data = copy.deepcopy(_draft_payload.get("steps") or _steps_data)
         _approval_mode = str(_draft_payload.get("safety_mode") or _approval_mode or "block")
         _concurrency_group = str(_draft_payload.get("concurrency_group") or _concurrency_group or "")
         _trigger_data = _draft_payload.get("trigger") if isinstance(_draft_payload.get("trigger"), dict) else _trigger_data
-        _tools_override_data = _draft_payload.get("tools_override")
-        _skills_override_data = _draft_payload.get("skills_override")
         _persistent_enabled = bool(_draft_payload.get("persistent_enabled", _persistent_enabled))
 
     # Determine if we should show advanced mode initially. Persisted mode wins,
@@ -310,6 +316,41 @@ def show_task_dialog(
                         "Ask: pauses for your approval before action-capable tools. "
                         "Auto: allows action-capable tools."
                     )
+
+                _profile_options = {}
+                try:
+                    for _profile in list_agent_profiles(enabled_only=True, include_builtins=True):
+                        _pid = str(_profile.get("id") or "")
+                        if not _pid:
+                            continue
+                        _profile_options[_pid] = str(
+                            _profile.get("display_name")
+                            or _profile.get("slug")
+                            or _pid
+                        )
+                except Exception:
+                    logger.debug("Could not load Agent Profiles for workflow picker", exc_info=True)
+                if DEFAULT_WORKFLOW_AGENT_PROFILE_ID not in _profile_options:
+                    _profile_options[DEFAULT_WORKFLOW_AGENT_PROFILE_ID] = "Default"
+                _profile_val = (
+                    _agent_profile_id
+                    if _agent_profile_id in _profile_options
+                    else DEFAULT_WORKFLOW_AGENT_PROFILE_ID
+                )
+                profile_sel = ui.select(
+                    _profile_options,
+                    value=_profile_val,
+                    label="Agent Profile",
+                ).classes("w-full").tooltip(
+                    "Choose the profile that supplies workflow instructions, tools, and skills."
+                )
+                _migration_status = str((task or {}).get("profile_migration_status") or "")
+                if _migration_status in {"needs_review", "blocked"}:
+                    _migration_note = str((task or {}).get("profile_migration_note") or "")
+                    ui.label(
+                        f"Profile migration: {_migration_status.replace('_', ' ')}"
+                        + (f" - {_migration_note}" if _migration_note else "")
+                    ).classes("text-xs text-warning")
 
                 # Model override dropdown
                 _default_label = "__default__"
@@ -1352,20 +1393,6 @@ def show_task_dialog(
                     # Legacy compat: old single-channel workflows are migrated
                     # to the unified channels field on save.
                     del_ch_sel = type("_Compat", (), {"value": None})()
-                # ── Advanced-only extras: Tools & Skills overrides ──────
-                from row_bot.tools import registry as _tool_registry
-                _all_tools = _tool_registry.get_enabled_tools()
-                _task_tools_override = _tools_override_data
-                _all_tool_names = [t.name for t in _all_tools]
-                # If override is set, use it; otherwise all checked
-                _task_tools_active = (
-                    set(_task_tools_override)
-                    if _task_tools_override is not None
-                    else set(_all_tool_names)
-                )
-                _tool_checkboxes: dict = {}
-                _always_on_tools = {"conversation_search", "memory"}
-
                 advanced_extras_container = ui.column().classes("w-full")
                 advanced_extras_container.set_visibility(_has_advanced)
 
@@ -1472,90 +1499,6 @@ def show_task_dialog(
                             _on_trigger_type_change
                         )
 
-                    # ── Tools override ──
-                    with ui.expansion("🔧 Tools override (optional)").classes("w-full"):
-                        ui.label(
-                            "Choose which tools are available when this task runs. "
-                            "Use Auto-detect to suggest tools from your step prompts."
-                        ).style("font-size: 0.75rem; color: #666;")
-
-                        def _auto_detect_tools():
-                            """Re-scan all step prompts and update tool checkboxes."""
-                            _sync_step_data_from_editors()
-                            all_prompts = []
-                            for s in _steps_data:
-                                stype = s.get("type", "prompt")
-                                if stype == "prompt":
-                                    all_prompts.append(s.get("prompt", ""))
-                                elif stype == "condition":
-                                    all_prompts.append(s.get("condition", ""))
-                                elif stype in ("approval", "notify"):
-                                    all_prompts.append(s.get("message", ""))
-                            from row_bot.tasks import infer_tools_for_prompt
-                            suggested = set(infer_tools_for_prompt(
-                                all_prompts, _all_tool_names,
-                            ))
-                            for tname, cb in _tool_checkboxes.items():
-                                if tname in _always_on_tools:
-                                    continue  # Always-on, don't touch
-                                cb.set_value(tname in suggested)
-                            _detect_count = len(suggested)
-                            ui.notify(
-                                f"🔍 Auto-detected {_detect_count} tool(s)",
-                                type="info",
-                            )
-
-                        with ui.row().classes("w-full items-center gap-2"):
-                            ui.button(
-                                "🔍 Auto-detect from steps",
-                                on_click=_auto_detect_tools,
-                            ).props("flat dense no-caps").style(
-                                f"color: {APP_BRAND_ACCENT}; font-size: 0.8rem;"
-                            ).tooltip(
-                                "Analyze all step prompts and suggest "
-                                "which tools are needed."
-                            )
-
-                        for _tool in _all_tools:
-                            _is_always = _tool.name in _always_on_tools
-                            _tcb = ui.checkbox(
-                                f"{_tool.display_name}",
-                                value=(_tool.name in _task_tools_active) or _is_always,
-                            ).classes("text-sm")
-                            if _is_always:
-                                _tcb.props("disable")
-                                _tcb.tooltip("Always included (core agent tool)")
-                            _tool_checkboxes[_tool.name] = _tcb
-
-                # Skills override (advanced only) ─────────────────────
-                import row_bot.skills as _task_skills_mod
-                _task_skills_mod.load_skills()
-                _task_all_skills = _task_skills_mod.get_enabled_manual_skills()
-                _task_sk_override = _skills_override_data
-                _task_enabled_names = set(sk.name for sk in _task_all_skills)
-                _task_default_names = set(
-                    _task_skills_mod.get_default_active_skill_names("task")
-                )
-                _task_sk_active = (
-                    set(_task_sk_override) & _task_enabled_names
-                    if _task_sk_override is not None
-                    else _task_default_names & _task_enabled_names
-                )
-                _task_sk_checkboxes: dict = {}
-                if _task_all_skills:
-                    with advanced_extras_container:
-                        with ui.expansion("✨ Skills override (optional)").classes("w-full"):
-                            ui.label(
-                                "Choose which skills are active when this task runs. "
-                                "Pinned skills are selected by default for new tasks."
-                            ).style("font-size: 0.75rem; color: #666;")
-                            for _tsk in _task_all_skills:
-                                _tcb = ui.checkbox(
-                                    f"{_tsk.icon} {_tsk.display_name}",
-                                    value=_tsk.name in _task_sk_active,
-                                ).classes("text-sm")
-                                _task_sk_checkboxes[_tsk.name] = _tcb
-
                 # Run history (edit mode only)
                 if not is_new:
                     runs = get_run_history(task["id"], limit=5)
@@ -1610,20 +1553,6 @@ def show_task_dialog(
                 cur_trigger["secret"] = webhook_secret_input.value or ""
             return cur_trigger
 
-        def _current_tools_override_value(is_advanced: bool):
-            if not (is_advanced and _tool_checkboxes):
-                return None
-            checked = [n for n, cb in _tool_checkboxes.items() if cb.value]
-            if set(checked) == set(_all_tool_names):
-                return None
-            return checked if checked else []
-
-        def _current_skills_override_value(is_advanced: bool):
-            if not (is_advanced and _task_sk_checkboxes):
-                return _skills_override_data if not is_new else None
-            checked = [n for n, cb in _task_sk_checkboxes.items() if cb.value]
-            return checked if checked else []
-
         def _collect_draft_payload():
             is_advanced = bool(advanced_switch.value)
             if is_advanced:
@@ -1645,6 +1574,7 @@ def show_task_dialog(
                 "icon": icon_sel.value or "⚡",
                 "description": desc_input.value.strip(),
                 "enabled": bool(enabled_switch.value),
+                "agent_profile_id": profile_sel.value or DEFAULT_WORKFLOW_AGENT_PROFILE_ID,
                 "model_override": cur_model_ov,
                 "prompts": clean_prompts,
                 "steps": cur_steps,
@@ -1655,8 +1585,6 @@ def show_task_dialog(
                 "channels": _current_channels_value(),
                 "concurrency_group": conc_group_input.value.strip() or None,
                 "trigger": _current_trigger_value(),
-                "tools_override": _current_tools_override_value(is_advanced),
-                "skills_override": _current_skills_override_value(is_advanced),
                 "persistent_enabled": bool(persistent_toggle.value),
             }
 
@@ -1915,24 +1843,7 @@ def show_task_dialog(
                 elif _ch_mode_sel and _ch_mode_sel.value == "Custom channels":
                     cur_channels = list(_ch_select.value or [])
                 cur_model_ov = model_sel.value if model_sel.value != "__default__" else None
-
-                # Parse tools override (advanced mode only)
-                cur_tools_override = None
-                if is_advanced and _tool_checkboxes:
-                    _checked_tools = [
-                        n for n, cb in _tool_checkboxes.items() if cb.value
-                    ]
-                    # If all tools are checked, save as None (= use all)
-                    if set(_checked_tools) == set(_all_tool_names):
-                        cur_tools_override = None
-                    else:
-                        cur_tools_override = _checked_tools if _checked_tools else []
-
-                # Parse skills override (advanced mode only)
-                cur_skills_override = task.get("skills_override") if task else None
-                if is_advanced and _task_sk_checkboxes:
-                    _checked = [n for n, cb in _task_sk_checkboxes.items() if cb.value]
-                    cur_skills_override = _checked if _checked else []
+                cur_agent_profile_id = profile_sel.value or DEFAULT_WORKFLOW_AGENT_PROFILE_ID
 
                 # Pipeline settings
                 cur_conc_group = conc_group_input.value.strip() or None
@@ -1966,14 +1877,14 @@ def show_task_dialog(
                             delivery_target=cur_del_tgt,
                             model_override=cur_model_ov,
                             persistent_thread_id=_p_thread_id,
-                            skills_override=cur_skills_override,
                             steps=cur_steps if cur_steps else None,
                             safety_mode=cur_approval,
                             concurrency_group=cur_conc_group,
                             trigger=cur_trigger,
-                            tools_override=cur_tools_override,
                             channels=cur_channels,
                             advanced_mode=is_advanced,
+                            agent_profile_id=cur_agent_profile_id,
+                            apply_default_skills=False,
                         )
                         all_t = list_tasks()
                         if all_t:
@@ -2012,14 +1923,12 @@ def show_task_dialog(
                             updates["delivery_target"] = cur_del_tgt
                         if cur_model_ov != (task.get("model_override") or None):
                             updates["model_override"] = cur_model_ov
-                        if cur_skills_override != task.get("skills_override"):
-                            updates["skills_override"] = cur_skills_override
+                        if cur_agent_profile_id != (task.get("agent_profile_id") or DEFAULT_WORKFLOW_AGENT_PROFILE_ID):
+                            updates["agent_profile_id"] = cur_agent_profile_id
                         if cur_conc_group != (task.get("concurrency_group") or None):
                             updates["concurrency_group"] = cur_conc_group
                         if cur_trigger != (task.get("trigger") or None):
                             updates["trigger"] = cur_trigger
-                        if cur_tools_override != task.get("tools_override"):
-                            updates["tools_override"] = cur_tools_override
                         if cur_channels != task.get("channels"):
                             updates["channels"] = cur_channels
                         if bool(is_advanced) != bool(task.get("advanced_mode")):

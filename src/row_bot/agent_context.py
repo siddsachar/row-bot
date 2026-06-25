@@ -146,6 +146,7 @@ def build_child_agent_prompt(
     context_mode: str = "",
     parent_thread_id: str = "",
     parent_run_id: str = "",
+    model_override: str = "",
 ) -> dict[str, str]:
     """Build the focused prompt packet for a child Agent run.
 
@@ -204,6 +205,17 @@ def build_child_agent_prompt(
         "MISSION:",
         objective,
     ]
+    model_ref = str(model_override or "").strip()
+    runtime_lines = [
+        "The parent selected this child Agent's runtime model before start.",
+        (
+            f"Runtime model override: {model_ref}"
+            if model_ref
+            else "Runtime model override: inherited from the parent/default runtime."
+        ),
+        "Do not call row_bot_update_setting(setting='model') to satisfy your own runtime model request.",
+    ]
+    parts.extend(["", "RUNTIME MODEL:", "\n".join(runtime_lines)])
     for title, body in context_sections:
         if body:
             parts.extend(["", f"{title}:", body])

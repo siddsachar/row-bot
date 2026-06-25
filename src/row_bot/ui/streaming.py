@@ -33,11 +33,18 @@ from row_bot.ui.constants import (
     YT_URL_PATTERN,
     IMAGE_EXTENSIONS,
 )
-from row_bot.ui.render import autolink_urls, _auto_fence_mermaid, render_agent_tool_result, render_image_with_save
+from row_bot.ui.render import (
+    autolink_urls,
+    _auto_fence_mermaid,
+    render_agent_run_cards,
+    render_agent_tool_result,
+    render_image_with_save,
+)
 from row_bot.ui.performance import log_ui_perf
 from row_bot.ui.tool_trace import (
     canonical_tool_name,
     display_tool_content,
+    parse_agent_tool_payload,
     is_agent_tool_result,
     is_browser_tool_name,
     tool_result_failed,
@@ -645,9 +652,10 @@ def _finish_live_tool_result(gen: GenerationState, tool_name: str, content: str)
             label.classes(f"text-xs {'text-negative' if failed else 'text-positive'}")
         else:
             ui.label(f"#{call_no} {'failed' if failed else 'complete'}").classes(
-                f"text-xs {'text-negative' if failed else 'text-positive'}"
-            )
-        if not render_agent_tool_result({"name": tool_name, "content": content}):
+            f"text-xs {'text-negative' if failed else 'text-positive'}"
+        )
+        tool_result = {"name": tool_name, "content": content}
+        if not _agent_tool_result_already_live(gen, tool_result) and not render_agent_tool_result(tool_result):
             display = display_tool_content(content)
             if display:
                 ui.code(display).classes("w-full text-xs")
@@ -679,6 +687,7 @@ class _Callbacks:
         "refresh_chat_messages",
         "refresh_parent_agent_strip",
         "refresh_goal_strip",
+        "refresh_model_controls",
     )
 
     def __init__(self) -> None:
@@ -747,6 +756,86 @@ def _rebuild_goal_surface(cb: Any, *, reason: str) -> None:
 def _schedule_goal_surface_refresh(cb: Any, *, reason: str) -> None:
     _schedule_goal_strip_refresh(cb)
     _rebuild_goal_surface(cb, reason=reason)
+
+
+def _refresh_model_controls(cb: Any) -> None:
+    refresh = getattr(cb, "refresh_model_controls", None)
+    if not callable(refresh):
+        return
+    try:
+        refresh()
+    except Exception:
+        logger.debug("Model controls refresh failed", exc_info=True)
+
+
+def _schedule_model_controls_refresh(cb: Any) -> None:
+    _refresh_model_controls(cb)
+    for delay in (0.25, 1.0):
+        try:
+            ui.timer(delay, lambda cb=cb: _refresh_model_controls(cb), once=True)
+        except Exception:
+            logger.debug("Model controls delayed refresh scheduling failed", exc_info=True)
+            break
+
+
+def _tool_event_name(payload: Any) -> str:
+    if isinstance(payload, dict):
+        return str(payload.get("name") or payload.get("raw_name") or "tool")
+    get_value = getattr(payload, "get", None)
+    if callable(get_value):
+        try:
+            return str(get_value("name", str(payload)) or str(payload) or "tool")
+        except Exception:
+            return str(payload or "tool")
+    return str(payload or "tool")
+
+
+def _tool_event_raw_name(payload: Any) -> str:
+    if isinstance(payload, dict):
+        return str(payload.get("raw_name") or payload.get("name") or "")
+    get_value = getattr(payload, "get", None)
+    if callable(get_value):
+        try:
+            return str(get_value("raw_name", "") or "")
+        except Exception:
+            return ""
+    return ""
+
+
+def _tool_event_args(payload: Any) -> dict[str, Any]:
+    if isinstance(payload, dict):
+        args = payload.get("args")
+        return args if isinstance(args, dict) else {}
+    get_value = getattr(payload, "get", None)
+    if callable(get_value):
+        try:
+            args = get_value("args", {})
+            return args if isinstance(args, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _interrupt_changes_model_setting(pending: Any) -> bool:
+    items = pending if isinstance(pending, list) else [pending]
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("tool") or "").strip() != "row_bot_update_setting":
+            continue
+        args = item.get("args")
+        if isinstance(args, dict) and str(args.get("setting") or "").strip().lower() == "model":
+            return True
+    return False
+
+
+def _tool_result_changes_model_setting(raw_tool_name: Any, content: Any) -> bool:
+    """Return true for successful direct model-setting tool results."""
+
+    if str(raw_tool_name or "").strip() != "row_bot_update_setting":
+        return False
+    text = str(content or "").strip()
+    return text.startswith("Active model changed to:")
 
 
 def _looks_like_new_agent_request(text: str) -> bool:
@@ -988,6 +1077,149 @@ def _refresh_key_for_agent_run_ids(run_ids: list[str]) -> str:
         return ""
 
 
+def _visible_agent_run_ids(messages: list[dict]) -> set[str]:
+    visible: set[str] = set()
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        if str(msg.get("role") or "") != "assistant":
+            continue
+        for item in msg.get("agent_run_ids") or []:
+            run_id = str(item or "").strip()
+            if run_id:
+                visible.add(run_id)
+    return visible
+
+
+def _child_agent_run_ids_for_thread(thread_id: str) -> set[str]:
+    parent_thread_id = str(thread_id or "").strip()
+    if not parent_thread_id:
+        return set()
+    try:
+        from row_bot.agent_runs import list_agent_runs
+
+        return {
+            str(run.get("id") or "").strip()
+            for run in list_agent_runs(parent_thread_id=parent_thread_id, kind="subagent", limit=200)
+            if str(run.get("id") or "").strip()
+        }
+    except Exception:
+        logger.debug("Could not list child Agent runs for thread %s", parent_thread_id, exc_info=True)
+        return set()
+
+
+def _agent_run_ids_from_tool_result(tool_result: dict) -> set[str]:
+    return set(_ordered_agent_run_ids_from_tool_result(tool_result))
+
+
+def _ordered_agent_run_ids_from_tool_result(tool_result: dict) -> list[str]:
+    try:
+        from row_bot.ui.tool_trace import agent_runs_from_payload, parse_agent_tool_payload
+
+        payload = parse_agent_tool_payload(tool_result)
+        run_ids: list[str] = []
+        seen: set[str] = set()
+        for run in agent_runs_from_payload(payload):
+            run_id = str(run.get("id") or "").strip()
+            if run_id and run_id not in seen:
+                run_ids.append(run_id)
+                seen.add(run_id)
+        return run_ids
+    except Exception:
+        logger.debug("Could not parse Agent tool result run ids", exc_info=True)
+        return []
+
+
+def _ordered_agent_run_ids_from_tool_results(tool_results: list) -> list[str]:
+    run_ids: list[str] = []
+    seen: set[str] = set()
+    for item in tool_results or []:
+        if not (isinstance(item, dict) and is_agent_tool_result(item)):
+            continue
+        for run_id in _ordered_agent_run_ids_from_tool_result(item):
+            if run_id not in seen:
+                run_ids.append(run_id)
+                seen.add(run_id)
+    return run_ids
+
+
+def _async_delegated_run_ids_from_tool_results(tool_results: list) -> list[str]:
+    run_ids: list[str] = []
+    seen: set[str] = set()
+    for item in tool_results or []:
+        if not (isinstance(item, dict) and _is_async_delegated_agent_tool_result(item)):
+            continue
+        for run_id in _ordered_agent_run_ids_from_tool_result(item):
+            if run_id not in seen:
+                run_ids.append(run_id)
+                seen.add(run_id)
+    return run_ids
+
+
+def _wait_delegated_run_ids_from_tool_results(tool_results: list) -> set[str]:
+    run_ids: set[str] = set()
+    for item in tool_results or []:
+        if not (isinstance(item, dict) and is_agent_tool_result(item)):
+            continue
+        name = str(item.get("name") or "").strip().lower()
+        if name not in {"delegate_work", "agents"}:
+            continue
+        payload = parse_agent_tool_payload(item)
+        if not isinstance(payload, dict):
+            continue
+        if str(payload.get("message") or "").strip().lower() == "child agent started.":
+            continue
+        run_ids.update(_ordered_agent_run_ids_from_tool_result(item))
+    return run_ids
+
+
+def _async_child_agent_run_ids_for_generation(gen: GenerationState, tool_results: list) -> list[str]:
+    baseline_ids = {
+        str(run_id).strip()
+        for run_id in getattr(gen, "baseline_child_agent_run_ids", set())
+        if str(run_id).strip()
+    }
+    wait_ids = _wait_delegated_run_ids_from_tool_results(tool_results)
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def _add(run_id: object) -> None:
+        clean = str(run_id or "").strip()
+        if not clean or clean in wait_ids or clean in seen:
+            return
+        candidates.append(clean)
+        seen.add(clean)
+
+    for run_id in getattr(gen, "live_async_agent_run_ids", set()):
+        _add(run_id)
+
+    for run_id in _child_agent_run_ids_for_thread(getattr(gen, "thread_id", "")):
+        clean = str(run_id or "").strip()
+        if clean and clean not in baseline_ids:
+            _add(clean)
+
+    return candidates
+
+
+def _filter_visible_agent_tool_results(
+    messages: list[dict],
+    tool_results: list,
+) -> tuple[list, bool]:
+    visible_ids = _visible_agent_run_ids(messages)
+    if not visible_ids:
+        return list(tool_results or []), False
+    filtered: list = []
+    removed = False
+    for item in tool_results or []:
+        if isinstance(item, dict) and is_agent_tool_result(item):
+            run_ids = _agent_run_ids_from_tool_result(item)
+            if run_ids and run_ids <= visible_ids:
+                removed = True
+                continue
+        filtered.append(item)
+    return filtered, removed
+
+
 def _direct_agent_thread_messages(state: AppState, thread_id: str) -> list[dict]:
     if state.thread_id == thread_id:
         return state.messages
@@ -1004,6 +1236,32 @@ def _direct_agent_thread_messages(state: AppState, thread_id: str) -> list[dict]
     except Exception:
         logger.debug("Could not load parent thread messages for Agent refresh", exc_info=True)
         return []
+
+
+def _thread_has_attached_live_generation(thread_id: str) -> bool:
+    gen = _active_generations.get(str(thread_id or ""))
+    if gen is None:
+        return False
+    if str(getattr(gen, "status", "") or "").lower() != "streaming":
+        return False
+    return not bool(getattr(gen, "detached", False)) and getattr(gen, "live_row", None) is not None
+
+
+def _render_live_agent_run_card(gen: GenerationState, run_row: dict | None) -> bool:
+    run_id = str((run_row or {}).get("id") or "").strip()
+    if not run_id or gen.detached or not gen.tool_col:
+        return False
+    if run_id in gen.live_agent_run_ids:
+        return False
+    try:
+        with gen.tool_col:
+            rendered = render_agent_run_cards([run_id])
+    except Exception:
+        logger.debug("Live delegated Agent card render failed", exc_info=True)
+        return False
+    if rendered:
+        gen.live_agent_run_ids.add(run_id)
+    return rendered
 
 
 def _update_direct_agent_refresh_keys(messages: list[dict], run_ids: list[str]) -> tuple[bool, bool]:
@@ -1096,10 +1354,13 @@ def _append_direct_agent_completion_messages(messages: list[dict], run_ids: list
         lifecycle = msg.get("agent_lifecycle")
         if not isinstance(lifecycle, dict):
             continue
-        if str(lifecycle.get("kind") or "") != "direct_agent_spawn":
+        lifecycle_kind = str(lifecycle.get("kind") or "")
+        if lifecycle_kind not in {"direct_agent_spawn", "delegated_agent_spawn"}:
             continue
         run_id = str(lifecycle.get("run_id") or "").strip()
         if run_id not in clean_ids or lifecycle.get("completion_summary_emitted"):
+            continue
+        if lifecycle_kind == "delegated_agent_spawn" and lifecycle.get("wait_mode"):
             continue
         try:
             run_row = get_agent_run(run_id)
@@ -1111,14 +1372,128 @@ def _append_direct_agent_completion_messages(messages: list[dict], run_ids: list
             continue
         lifecycle["completion_summary_emitted"] = True
         lifecycle["completed_status"] = str((run_row or {}).get("status") or "")
-        messages.append(
-            {
-                "role": "assistant",
-                "content": summary,
-                "timestamp": datetime.now().strftime("%H:%M"),
-                "agent_completion_for": run_id,
-            }
+        completion_msg = {
+            "role": "assistant",
+            "content": summary,
+            "timestamp": datetime.now().strftime("%H:%M"),
+            "agent_completion_for": run_id,
+        }
+        _insert_assistant_before_future_queued_turns(
+            messages,
+            completion_msg,
+            current_generation_id=str(lifecycle.get("source_generation_id") or ""),
         )
+        changed = True
+    return changed
+
+
+def _is_async_delegated_agent_tool_result(tool_result: dict) -> bool:
+    if not is_agent_tool_result(tool_result):
+        return False
+    name = str(tool_result.get("name") or "").strip().lower()
+    if name not in {"delegate_work", "agents"}:
+        return False
+    payload = parse_agent_tool_payload(tool_result)
+    if not isinstance(payload, dict):
+        return False
+    # wait=True returns "Child Agent completed." or a timeout message.  Only
+    # the non-waiting spawn needs a later natural completion update.
+    return str(payload.get("message") or "").strip().lower() == "child agent started."
+
+
+def _append_async_delegated_agent_completion_messages(
+    messages: list[dict],
+    run_ids: list[str] | None = None,
+    *,
+    candidate_run_ids: list[str] | None = None,
+    checkpoint_thread_id: str = "",
+) -> bool:
+    target_ids = {str(run_id) for run_id in (run_ids or []) if str(run_id or "").strip()}
+    candidate_ids: list[str] = []
+    seen_candidates: set[str] = set()
+
+    def _add_candidate(run_id: object) -> None:
+        clean = str(run_id or "").strip()
+        if not clean:
+            return
+        if target_ids and clean not in target_ids:
+            return
+        if clean not in seen_candidates:
+            candidate_ids.append(clean)
+            seen_candidates.add(clean)
+
+    for run_id in candidate_run_ids or []:
+        _add_candidate(run_id)
+
+    for msg in messages:
+        if not isinstance(msg, dict) or str(msg.get("role") or "") != "assistant":
+            continue
+        for tool_result in msg.get("tool_results") or []:
+            if not (isinstance(tool_result, dict) and _is_async_delegated_agent_tool_result(tool_result)):
+                continue
+            for run_id in _ordered_agent_run_ids_from_tool_result(tool_result):
+                _add_candidate(run_id)
+
+    if not candidate_ids:
+        return False
+
+    wait_candidate_ids: set[str] = set()
+    for msg in messages:
+        if not isinstance(msg, dict) or str(msg.get("role") or "") != "assistant":
+            continue
+        wait_candidate_ids.update(_wait_delegated_run_ids_from_tool_results(msg.get("tool_results") or []))
+
+    existing_completion_ids = {
+        str(msg.get("agent_completion_for") or "").strip()
+        for msg in messages
+        if isinstance(msg, dict)
+    }
+    existing_assistant_content = {
+        str(msg.get("content") or "").strip()
+        for msg in messages
+        if isinstance(msg, dict) and str(msg.get("role") or "") == "assistant"
+    }
+
+    changed = False
+    try:
+        from row_bot.agent_runs import get_agent_run
+    except Exception:
+        logger.debug("Could not import Agent Run store for async delegated completion", exc_info=True)
+        return False
+
+    for run_id in candidate_ids:
+        if run_id in existing_completion_ids or run_id in wait_candidate_ids:
+            continue
+        try:
+            run_row = get_agent_run(run_id)
+        except Exception:
+            logger.debug("Could not load delegated Agent Run %s for completion", run_id, exc_info=True)
+            continue
+        summary = _direct_agent_terminal_summary(run_row)
+        if not summary:
+            continue
+        if summary.strip() in existing_assistant_content:
+            continue
+        completion_msg = {
+            "role": "assistant",
+            "content": summary,
+            "timestamp": datetime.now().strftime("%H:%M"),
+            "agent_completion_for": run_id,
+        }
+        _insert_assistant_before_future_queued_turns(messages, completion_msg)
+        if checkpoint_thread_id:
+            try:
+                from langchain_core.messages import AIMessage
+                from row_bot.threads import append_checkpoint_messages
+
+                append_checkpoint_messages(checkpoint_thread_id, [AIMessage(content=summary)])
+            except Exception:
+                logger.debug(
+                    "Could not persist async delegated Agent completion to checkpoint",
+                    exc_info=True,
+                )
+        existing_completion_ids.add(run_id)
+        existing_assistant_content.add(summary.strip())
         changed = True
     return changed
 
@@ -1135,6 +1510,7 @@ def _schedule_direct_agent_card_refresh(
         return
     attempts = {"count": 0}
     timer_ref: dict[str, Any] = {"timer": None}
+    pending_transcript_refresh = {"value": False}
 
     def _tick() -> None:
         attempts["count"] += 1
@@ -1151,15 +1527,28 @@ def _schedule_direct_agent_card_refresh(
             if state.thread_id == thread_id:
                 state.messages = messages
                 state.cache_active_messages()
-                try:
-                    cb.refresh_chat_messages()
-                except Exception:
-                    logger.debug("Direct Agent card transcript refresh failed", exc_info=True)
+                if _thread_has_attached_live_generation(thread_id):
+                    pending_transcript_refresh["value"] = True
+                else:
+                    pending_transcript_refresh["value"] = False
+                    try:
+                        cb.refresh_chat_messages()
+                    except Exception:
+                        logger.debug("Direct Agent card transcript refresh failed", exc_info=True)
             else:
                 state.message_cache[thread_id] = list(messages)
                 state.message_cache_dirty.discard(thread_id)
+        elif pending_transcript_refresh["value"] and state.thread_id == thread_id:
+            if _thread_has_attached_live_generation(thread_id):
+                pass
+            else:
+                pending_transcript_refresh["value"] = False
+                try:
+                    cb.refresh_chat_messages()
+                except Exception:
+                    logger.debug("Deferred Agent card transcript refresh failed", exc_info=True)
         _refresh_parent_agent_strip(cb)
-        if terminal or attempts["count"] >= 240:
+        if (terminal and not pending_transcript_refresh["value"]) or attempts["count"] >= 240:
             timer_obj = timer_ref.get("timer")
             if timer_obj is not None:
                 try:
@@ -1173,6 +1562,285 @@ def _schedule_direct_agent_card_refresh(
         timer_ref["timer"] = safe_timer(1.0, _tick)
     except Exception:
         logger.debug("Direct Agent card refresh scheduling failed", exc_info=True)
+
+
+def _agent_runs_terminal(run_ids: list[str]) -> bool:
+    clean_ids = [str(run_id) for run_id in run_ids if str(run_id or "").strip()]
+    if not clean_ids:
+        return True
+    try:
+        from row_bot.agent_runs import get_agent_run
+
+        rows = [get_agent_run(run_id) for run_id in clean_ids]
+        return all(
+            (not row) or str(row.get("status") or "") in _DIRECT_AGENT_TERMINAL_STATUSES
+            for row in rows
+        )
+    except Exception:
+        logger.debug("Could not determine Agent Run terminal state", exc_info=True)
+        return False
+
+
+def _schedule_agent_tool_result_card_refresh(
+    *,
+    state: AppState,
+    cb: Any,
+    thread_id: str,
+    run_ids: list[str],
+    async_completion_run_ids: list[str] | None = None,
+) -> None:
+    clean_ids = [str(run_id) for run_id in run_ids if str(run_id or "").strip()]
+    if not clean_ids:
+        return
+    clean_async_completion_ids = [
+        str(run_id)
+        for run_id in (async_completion_run_ids or [])
+        if str(run_id or "").strip()
+    ]
+    attempts = {"count": 0}
+    timer_ref: dict[str, Any] = {"timer": None}
+    last_key = {"value": _refresh_key_for_agent_run_ids(clean_ids)}
+    pending_transcript_refresh = {"value": False}
+
+    def _tick() -> None:
+        attempts["count"] += 1
+        key = _refresh_key_for_agent_run_ids(clean_ids)
+        changed = bool(key and key != last_key.get("value"))
+        if key:
+            last_key["value"] = key
+        terminal = _agent_runs_terminal(clean_ids)
+        summary_changed = False
+        if terminal:
+            messages = _direct_agent_thread_messages(state, thread_id)
+            summary_changed = _append_async_delegated_agent_completion_messages(
+                messages,
+                clean_ids,
+                candidate_run_ids=clean_async_completion_ids,
+                checkpoint_thread_id=thread_id,
+            )
+            if summary_changed:
+                try:
+                    from row_bot.ui.helpers import persist_thread_media_state
+
+                    persist_thread_media_state(thread_id, messages)
+                except Exception:
+                    logger.debug("Async delegated completion persistence failed", exc_info=True)
+                if state.thread_id == thread_id:
+                    state.messages = messages
+                    state.cache_active_messages()
+                else:
+                    state.message_cache[thread_id] = list(messages)
+                    state.message_cache_dirty.discard(thread_id)
+        if (changed or terminal or summary_changed) and state.thread_id == thread_id:
+            if _thread_has_attached_live_generation(thread_id):
+                pending_transcript_refresh["value"] = True
+            else:
+                pending_transcript_refresh["value"] = False
+                try:
+                    refresh = getattr(cb, "refresh_chat_messages", None)
+                    if callable(refresh):
+                        refresh()
+                except Exception:
+                    logger.debug("Agent tool-result card transcript refresh failed", exc_info=True)
+            if terminal:
+                try:
+                    rebuild = getattr(cb, "rebuild_main", None)
+                    if callable(rebuild) and not _thread_has_attached_live_generation(thread_id):
+                        try:
+                            rebuild(immediate=True, reason="agent_tool_result_terminal")
+                        except TypeError:
+                            rebuild()
+                except Exception:
+                    logger.debug("Agent tool-result terminal main refresh failed", exc_info=True)
+        elif pending_transcript_refresh["value"] and state.thread_id == thread_id:
+            if not _thread_has_attached_live_generation(thread_id):
+                pending_transcript_refresh["value"] = False
+                try:
+                    refresh = getattr(cb, "refresh_chat_messages", None)
+                    if callable(refresh):
+                        refresh()
+                except Exception:
+                    logger.debug("Deferred Agent tool-result transcript refresh failed", exc_info=True)
+        _refresh_parent_agent_strip(cb)
+        if (terminal and not pending_transcript_refresh["value"]) or attempts["count"] >= 240:
+            timer_obj = timer_ref.get("timer")
+            if timer_obj is not None:
+                try:
+                    timer_obj.deactivate()
+                except Exception:
+                    logger.debug("Agent tool-result card refresh timer deactivate failed", exc_info=True)
+
+    try:
+        from row_bot.ui.timer_utils import safe_timer
+
+        timer_ref["timer"] = safe_timer(1.0, _tick)
+    except Exception:
+        logger.debug("Agent tool-result card refresh scheduling failed", exc_info=True)
+
+
+def _delegated_agent_start_ack(run_row: dict | None) -> str:
+    profile = str(
+        (run_row or {}).get("profile_display_name")
+        or (run_row or {}).get("profile_slug")
+        or (run_row or {}).get("kind")
+        or "Agent"
+    ).strip()
+    if profile:
+        profile = profile[:1].upper() + profile[1:]
+    else:
+        profile = "Agent"
+    return f"Started a {profile} agent for this. I'll keep this thread updated."
+
+
+def _append_delegated_agent_card_message(
+    *,
+    state: AppState,
+    cb: _Callbacks,
+    thread_id: str,
+    run_row: dict,
+    generation_id: str = "",
+    queued_message_ids: list[str] | None = None,
+    wait_mode: bool = False,
+) -> bool:
+    run_id = str((run_row or {}).get("id") or "").strip()
+    if not thread_id or not run_id:
+        return False
+    messages = _direct_agent_thread_messages(state, thread_id)
+    if run_id in _visible_agent_run_ids(messages):
+        return False
+    msg = {
+        "role": "assistant",
+        "content": _delegated_agent_start_ack(run_row),
+        "timestamp": datetime.now().strftime("%H:%M"),
+        "agent_run_ids": [run_id],
+        "agent_run_refresh_key": _agent_run_card_refresh_key(run_row),
+        "agent_lifecycle": {
+            "kind": "delegated_agent_spawn",
+            "run_id": run_id,
+            "source_generation_id": str(generation_id or ""),
+            "wait_mode": bool(wait_mode),
+            "completion_summary_emitted": False,
+        },
+    }
+    _insert_assistant_before_future_queued_turns(
+        messages,
+        msg,
+        current_queued_ids=queued_message_ids,
+        current_generation_id=generation_id,
+    )
+    try:
+        from row_bot.threads import touch_thread
+        from row_bot.ui.helpers import persist_thread_media_state
+
+        persist_thread_media_state(thread_id, messages)
+        touch_thread(thread_id)
+    except Exception:
+        logger.debug("Delegated Agent card persistence failed", exc_info=True)
+    if state.thread_id == thread_id:
+        state.messages = messages
+        state.cache_active_messages()
+        refresh = getattr(cb, "refresh_chat_messages", None)
+        if callable(refresh) and not _thread_has_attached_live_generation(thread_id):
+            try:
+                refresh()
+            except Exception:
+                logger.debug("Delegated Agent card transcript refresh failed", exc_info=True)
+    else:
+        state.message_cache[thread_id] = list(messages)
+        state.message_cache_dirty.discard(thread_id)
+    _schedule_direct_agent_card_refresh(
+        state=state,
+        cb=cb,
+        thread_id=thread_id,
+        run_ids=[run_id],
+    )
+    _schedule_parent_agent_strip_refresh(cb)
+    return True
+
+
+def _agent_tool_result_already_live(gen: GenerationState, tool_result: dict) -> bool:
+    if not is_agent_tool_result(tool_result):
+        return False
+    run_ids = _agent_run_ids_from_tool_result(tool_result)
+    return bool(run_ids) and run_ids <= set(getattr(gen, "live_agent_run_ids", set()))
+
+
+def _schedule_delegated_agent_card_probe(
+    gen: GenerationState,
+    state: AppState,
+    cb: _Callbacks,
+    *,
+    tool_call_id: str = "",
+    wait_mode: bool = False,
+) -> None:
+    del tool_call_id
+    parent_thread_id = str(gen.thread_id or "")
+    if not parent_thread_id:
+        return
+    messages = _direct_agent_thread_messages(state, parent_thread_id)
+    baseline_ids = set(_visible_agent_run_ids(messages))
+    try:
+        from row_bot.agent_runs import list_agent_runs
+
+        baseline_ids.update(
+            str(run.get("id") or "").strip()
+            for run in list_agent_runs(parent_thread_id=parent_thread_id, kind="subagent", limit=50)
+            if str(run.get("id") or "").strip()
+        )
+    except Exception:
+        logger.debug("Could not capture delegated Agent probe baseline", exc_info=True)
+
+    attempts = {"count": 0}
+    timer_ref: dict[str, Any] = {"timer": None}
+
+    def _deactivate() -> None:
+        timer_obj = timer_ref.get("timer")
+        if timer_obj is not None:
+            try:
+                timer_obj.deactivate()
+            except Exception:
+                logger.debug("Delegated Agent card probe deactivate failed", exc_info=True)
+
+    def _tick() -> None:
+        attempts["count"] += 1
+        try:
+            from row_bot.agent_runs import list_agent_runs
+
+            current_messages = _direct_agent_thread_messages(state, parent_thread_id)
+            visible_ids = _visible_agent_run_ids(current_messages)
+            runs = list_agent_runs(parent_thread_id=parent_thread_id, kind="subagent", limit=20)
+            appended = False
+            for run_row in reversed(runs):
+                run_id = str(run_row.get("id") or "").strip()
+                if not run_id or run_id in baseline_ids or run_id in visible_ids:
+                    continue
+                if not wait_mode:
+                    gen.live_async_agent_run_ids.add(run_id)
+                _render_live_agent_run_card(gen, run_row)
+                appended = _append_delegated_agent_card_message(
+                    state=state,
+                    cb=cb,
+                    thread_id=parent_thread_id,
+                    run_row=run_row,
+                    generation_id=gen.generation_id,
+                    queued_message_ids=gen.queued_message_ids,
+                    wait_mode=wait_mode,
+                ) or appended
+                visible_ids.add(run_id)
+            if appended:
+                _deactivate()
+                return
+        except Exception:
+            logger.debug("Delegated Agent card probe tick failed", exc_info=True)
+        if attempts["count"] >= 60 or _active_generations.get(parent_thread_id) is not gen:
+            _deactivate()
+
+    try:
+        from row_bot.ui.timer_utils import safe_timer
+
+        timer_ref["timer"] = safe_timer(0.5, _tick)
+    except Exception:
+        logger.debug("Delegated Agent card probe scheduling failed", exc_info=True)
 
 
 async def _handle_direct_agent_spawn(
@@ -1767,15 +2435,26 @@ async def consume_generation(
             _break_loop = True
 
         elif event_type == "tool_call":
-            _buddy(BuddyEventType.TOOL_STARTED, "Using a tool", tool=str(payload))
-            _voice_diag("generation_event:tool_call", tool=str(payload))
-            if str(payload or "").strip().lower() in {"agents", "delegate_work", "agent_wait", "agent_status"}:
+            tool_name = _tool_event_name(payload)
+            raw_tool_name = _tool_event_raw_name(payload)
+            tool_key = (raw_tool_name or tool_name).strip().lower()
+            _buddy(BuddyEventType.TOOL_STARTED, "Using a tool", tool=tool_name)
+            _voice_diag("generation_event:tool_call", tool=tool_name)
+            if tool_key == "delegate_work" or (not raw_tool_name and tool_name.strip().lower() == "agents"):
+                _schedule_delegated_agent_card_probe(
+                    gen,
+                    state,
+                    cb,
+                    tool_call_id=str(getattr(payload, "get", lambda *_args: "")("id", "")),
+                    wait_mode=bool(_tool_event_args(payload).get("wait")),
+                )
+            if tool_key in {"agents", "delegate_work", "agent_wait", "agent_status"} or tool_name.strip().lower() == "agents":
                 _schedule_parent_agent_strip_refresh(cb)
             if gen.voice_mode and state.voice_coordinator.transport == "realtime":
                 realtime_tool_events_since_cue += 1
                 state.voice_coordinator.mark_realtime_latency("row_bot_tool_started")
-            _set_realtime_generation_state("row_bot_tool_running", detail=str(payload))
-            spoke_tool_cue = voice_output.speak_cue(tool_start_cue(str(payload)), generation_elapsed=_generation_elapsed())
+            _set_realtime_generation_state("row_bot_tool_running", detail=tool_name)
+            spoke_tool_cue = voice_output.speak_cue(tool_start_cue(tool_name), generation_elapsed=_generation_elapsed())
             if spoke_tool_cue:
                 realtime_tool_events_since_cue = 0
             _voice_diag(
@@ -1788,7 +2467,7 @@ async def consume_generation(
             _grouped_tool_call = False
             if not gen.detached and gen.tool_col:
                 try:
-                    _add_live_tool_pending(gen, str(payload))
+                    _add_live_tool_pending(gen, tool_name)
                     _grouped_tool_call = True
                 except Exception as exc:
                     _handle_ui_runtime_error(gen, state, exc, "tool-call group")
@@ -1797,12 +2476,12 @@ async def consume_generation(
                 try:
                     with gen.tool_col:
                         _pending_exp = ui.expansion(
-                            f"\U0001f504 {payload}\u2026", icon="hourglass_empty"
+                            f"\U0001f504 {tool_name}\u2026", icon="hourglass_empty"
                         ).classes("w-full")
                         # FIFO queue per tool name - parallel calls to the
                         # same tool must each get their own pending slot so
                         # later tool_done events can still match them.
-                        gen.pending_tools.setdefault(payload, []).append(_pending_exp)
+                        gen.pending_tools.setdefault(tool_name, []).append(_pending_exp)
                 except Exception as exc:
                     _handle_ui_runtime_error(gen, state, exc, "tool-call expansion")
                     logger.debug("Tool-call expansion creation failed", exc_info=True)
@@ -2034,9 +2713,39 @@ async def consume_generation(
         logger.error("Error in post-stream finalization", exc_info=True)
 
     # Store assistant message
+    final_tool_results = list(gen.tool_results or [])
+    unfiltered_final_tool_results = list(final_tool_results)
+    removed_visible_agent_results = False
+    final_agent_run_ids: list[str] = []
+    promoted_agent_run_ids: list[str] = []
+    async_delegated_run_ids: list[str] = []
+    if state.thread_id == gen.thread_id:
+        if final_tool_results:
+            final_agent_run_ids = _ordered_agent_run_ids_from_tool_results(final_tool_results)
+            async_delegated_run_ids = _async_delegated_run_ids_from_tool_results(final_tool_results)
+            if final_agent_run_ids:
+                visible_agent_ids = _visible_agent_run_ids(state.messages)
+                promoted_agent_run_ids = [
+                    run_id for run_id in final_agent_run_ids
+                    if run_id not in visible_agent_ids
+                ]
+            filter_messages = state.messages
+            if promoted_agent_run_ids:
+                filter_messages = [
+                    *state.messages,
+                    {"role": "assistant", "agent_run_ids": promoted_agent_run_ids},
+                ]
+            final_tool_results, removed_visible_agent_results = _filter_visible_agent_tool_results(
+                filter_messages,
+                final_tool_results,
+            )
+        for run_id in _async_child_agent_run_ids_for_generation(gen, unfiltered_final_tool_results):
+            if run_id not in async_delegated_run_ids:
+                async_delegated_run_ids.append(run_id)
     _has_final_output = bool(
         str(gen.accumulated or "").strip()
-        or gen.tool_results
+        or final_tool_results
+        or promoted_agent_run_ids
         or gen.chart_data
         or gen.captured_images
         or gen.captured_videos
@@ -2047,8 +2756,11 @@ async def consume_generation(
         visible_content = gen.accumulated if str(gen.accumulated or "").strip() else ""
         a_msg: dict = {"role": "assistant", "content": visible_content}
         attach_thinking_to_message(a_msg, gen.thinking_text)
-        if gen.tool_results:
-            a_msg["tool_results"] = gen.tool_results
+        if promoted_agent_run_ids:
+            a_msg["agent_run_ids"] = promoted_agent_run_ids
+            a_msg["agent_run_refresh_key"] = _refresh_key_for_agent_run_ids(promoted_agent_run_ids)
+        if final_tool_results:
+            a_msg["tool_results"] = final_tool_results
         if gen.chart_data:
             a_msg["charts"] = gen.chart_data
         if gen.captured_images:
@@ -2075,12 +2787,13 @@ async def consume_generation(
             inserted_at_tail = inserted_idx == len(state.messages) - 1
             has_agent_tool_results = any(
                 isinstance(item, dict) and is_agent_tool_result(item)
-                for item in (gen.tool_results or [])
+                for item in (final_tool_results or [])
             )
+            has_refreshable_agent_cards = bool(promoted_agent_run_ids) or has_agent_tool_results
             needs_transcript_reconcile = (
                 (not inserted_at_tail)
                 or settled_queued_controls
-                or has_agent_tool_results
+                or has_refreshable_agent_cards
             )
             if (
                 not gen.detached
@@ -2093,11 +2806,30 @@ async def consume_generation(
                     logger.debug("Final assistant render-state mark failed", exc_info=True)
             elif not gen.detached:
                 try:
-                    if has_agent_tool_results:
+                    if has_refreshable_agent_cards:
                         _delete_live_generation_row(gen)
                     cb.refresh_chat_messages()
                 except Exception:
                     logger.debug("Final assistant queued-turn transcript refresh failed", exc_info=True)
+            if promoted_agent_run_ids:
+                _schedule_direct_agent_card_refresh(
+                    state=state,
+                    cb=cb,
+                    thread_id=state.thread_id,
+                    run_ids=promoted_agent_run_ids,
+                )
+            agent_refresh_run_ids: list[str] = []
+            for run_id in [*final_agent_run_ids, *async_delegated_run_ids]:
+                if run_id not in agent_refresh_run_ids:
+                    agent_refresh_run_ids.append(run_id)
+            if agent_refresh_run_ids:
+                _schedule_agent_tool_result_card_refresh(
+                    state=state,
+                    cb=cb,
+                    thread_id=state.thread_id,
+                    run_ids=agent_refresh_run_ids,
+                    async_completion_run_ids=async_delegated_run_ids,
+                )
             _persisted_detached = True
         else:
             _has_detached_media = bool(gen.captured_images or gen.captured_videos)
@@ -2120,8 +2852,14 @@ async def consume_generation(
                     "Detached generation for thread %s completed but media sidecar persistence did not attach anything",
                     gen.thread_id,
                 )
-    elif state.thread_id == gen.thread_id and gen.queued_message_ids:
-        if _settle_queued_controls(state.messages, gen.queued_message_ids):
+    elif state.thread_id == gen.thread_id and (gen.queued_message_ids or removed_visible_agent_results):
+        settled_empty_queued_controls = _settle_queued_controls(state.messages, gen.queued_message_ids)
+        if removed_visible_agent_results and not gen.detached:
+            try:
+                _delete_live_generation_row(gen)
+            except Exception:
+                logger.debug("Duplicate Agent tool-only live row cleanup failed", exc_info=True)
+        if settled_empty_queued_controls or removed_visible_agent_results:
             state.cache_active_messages()
             if not gen.detached:
                 try:
@@ -2187,6 +2925,8 @@ async def consume_generation(
                     logger.warning("Approval is pending but the interrupt dialog could not be rendered", exc_info=True)
             if rendered_inline:
                 gen.interrupt_rendered = True
+        if gen.refresh_model_controls_on_done and gen.status == "done":
+            _schedule_model_controls_refresh(cb)
         try:
             cb.update_token_counter()
         except RuntimeError as exc:
@@ -2397,6 +3137,9 @@ async def _handle_tool_done(
         # content may be a list of content-blocks (e.g. Anthropic cache_control format)
         tool_content = " ".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in tool_content) if isinstance(tool_content, list) else str(tool_content)
 
+    if _tool_result_changes_model_setting(raw_tool_name, tool_content):
+        gen.refresh_model_controls_on_done = True
+
     if not gen.detached:
         _detach_if_ui_client_deleted(gen, state, f"tool {tool_name} result rendering")
 
@@ -2494,7 +3237,11 @@ async def _handle_tool_done(
                 matched_exp.update()
                 if tool_content:
                     with matched_exp:
-                        if not render_agent_tool_result({"name": tool_name, "content": tool_content}):
+                        tool_result_for_live = {"name": tool_name, "content": tool_content}
+                        if (
+                            not _agent_tool_result_already_live(gen, tool_result_for_live)
+                            and not render_agent_tool_result(tool_result_for_live)
+                        ):
                             display = tool_content[:5_000]
                             if len(tool_content) > 5_000:
                                 display += "\n\n\u2026 (truncated)"
@@ -2506,7 +3253,11 @@ async def _handle_tool_done(
                         icon="error" if failed else "check_circle",
                     ).classes("w-full"):
                         if tool_content:
-                            if not render_agent_tool_result({"name": tool_name, "content": tool_content}):
+                            tool_result_for_live = {"name": tool_name, "content": tool_content}
+                            if (
+                                not _agent_tool_result_already_live(gen, tool_result_for_live)
+                                and not render_agent_tool_result(tool_result_for_live)
+                            ):
                                 display = tool_content[:5_000]
                                 if len(tool_content) > 5_000:
                                     display += "\n\n\u2026 (truncated)"
@@ -2663,7 +3414,8 @@ async def send_message(
             from row_bot.agent_commands import is_agent_spawn_command, parse_agent_spawn_text
 
             direct_agent_command_text = is_agent_spawn_command(text)
-            direct_agent_request = await run.io_bound(lambda: parse_agent_spawn_text(text))
+            if direct_agent_command_text:
+                direct_agent_request = await run.io_bound(lambda: parse_agent_spawn_text(text))
         except Exception:
             logger.debug("Could not parse direct Agent request", exc_info=True)
 
@@ -3149,6 +3901,7 @@ async def send_message(
         voice_mode=voice_mode,
         tts_active=voice_mode and (state.tts_service.enabled or state.voice_coordinator.transport == "realtime"),
         tts_allow_long=voice_mode and not internal_goal_continuation and user_requested_read_aloud(text),
+        baseline_child_agent_run_ids=_child_agent_run_ids_for_thread(gen_thread_id),
     )
     if voice_mode and state.voice_coordinator.transport == "realtime":
         realtime_call = state.voice_coordinator.consume_realtime_tool_call()
@@ -3279,6 +4032,7 @@ async def resume_after_interrupt(
     from row_bot.tools import registry as tool_registry
 
     pending = state.pending_interrupt
+    refresh_model_controls_on_done = bool(approved and _interrupt_changes_model_setting(pending))
     interrupt_ids = None
     if isinstance(pending, list) and len(pending) > 1:
         interrupt_ids = [
@@ -3390,6 +4144,8 @@ async def resume_after_interrupt(
         config=config,
         enabled_tools=enabled_tools,
         generation_id=generation_id,
+        refresh_model_controls_on_done=refresh_model_controls_on_done,
+        baseline_child_agent_run_ids=_child_agent_run_ids_for_thread(gen_thread_id),
     )
     _active_generations[gen_thread_id] = gen
 
@@ -3458,7 +4214,7 @@ def build_interrupt_dialog(
     Attaches ``p.interrupt_dlg`` and returns the ``show_interrupt`` function
     for use as a callback.
     """
-    p.interrupt_dlg = ui.dialog().props("persistent")
+    p.interrupt_dlg = ui.dialog().props("persistent transition-show=fade transition-hide=fade")
 
     def show_interrupt(data) -> None:
         p.interrupt_dlg.clear()
@@ -3514,7 +4270,14 @@ def build_interrupt_dialog(
                     "background: #2d8a4e; color: white; font-weight: 600;"
                     "font-size: 0.9rem; padding: 8px 28px; border-radius: 8px;"
                 )
-        p.interrupt_dlg.open()
+        try:
+            from row_bot.ui.timer_utils import defer_ui
+
+            if defer_ui(p.interrupt_dlg.open, delay=0.01) is None:
+                p.interrupt_dlg.open()
+        except Exception:
+            logger.debug("Interrupt dialog deferred open failed", exc_info=True)
+            p.interrupt_dlg.open()
 
     def _close_interrupt(approved: bool) -> None:
         p.interrupt_dlg.close()

@@ -178,10 +178,10 @@ def test_row_bot_status_rejects_unknown_provider_chat_model(tmp_path, monkeypatc
     model_value, error = _resolve_model_update_value("gpt-99-fictional", surface="chat")
 
     assert model_value is None
-    assert "not in the current catalog" in str(error)
+    assert "not pinned for Brain" in str(error)
 
 
-def test_row_bot_status_allows_installed_unknown_local_chat_model(tmp_path, monkeypatch):
+def test_row_bot_status_rejects_installed_unknown_local_chat_model(tmp_path, monkeypatch):
     import row_bot.api_keys as api_keys
     import row_bot.models as models
     import row_bot.providers.config as provider_config
@@ -195,8 +195,8 @@ def test_row_bot_status_allows_installed_unknown_local_chat_model(tmp_path, monk
 
     model_value, error = _resolve_model_update_value("gemma4:e4b", surface="chat")
 
-    assert error is None
-    assert model_value == "gemma4:e4b"
+    assert model_value is None
+    assert "not pinned for Brain" in str(error)
 
 
 def test_row_bot_status_rejects_local_model_without_vision_metadata(tmp_path, monkeypatch):

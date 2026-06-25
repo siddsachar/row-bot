@@ -3259,6 +3259,94 @@ def _resolve_tool_display_name(func_name: str) -> str:
     return _TOOL_DISPLAY_NAMES.get(func_name, func_name)
 
 
+_SAFE_TOOL_CALL_ARG_KEYS = {
+    "category",
+    "display_name",
+    "include_events",
+    "limit",
+    "model",
+    "parent_message_id",
+    "parent_run_id",
+    "parent_thread_id",
+    "profile",
+    "run_id",
+    "setting",
+    "statuses",
+    "timeout_seconds",
+    "wait",
+}
+
+
+class ToolCallPayload(str):
+    """String-compatible tool-call event with optional UI metadata."""
+
+    def __new__(
+        cls,
+        name: str,
+        *,
+        raw_name: str = "",
+        args: dict[str, Any] | None = None,
+        call_id: str = "",
+    ):
+        obj = str.__new__(cls, str(name or "tool"))
+        obj.raw_name = str(raw_name or "")
+        obj.args = dict(args or {})
+        obj.call_id = str(call_id or "")
+        return obj
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if key == "name":
+            return str(self)
+        if key == "raw_name":
+            return self.raw_name
+        if key == "args":
+            return self.args
+        if key == "id":
+            return self.call_id
+        return default
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "name": str(self),
+            "raw_name": self.raw_name,
+            "args": dict(self.args),
+            "id": self.call_id,
+        }
+
+
+def _safe_tool_call_args(args: Any) -> dict[str, Any]:
+    if not isinstance(args, dict):
+        return {}
+    safe: dict[str, Any] = {}
+    for key, value in args.items():
+        clean_key = str(key or "").strip()
+        if clean_key not in _SAFE_TOOL_CALL_ARG_KEYS:
+            continue
+        if isinstance(value, bool) or value is None:
+            safe[clean_key] = value
+        elif isinstance(value, (int, float)):
+            safe[clean_key] = value
+        elif isinstance(value, str):
+            safe[clean_key] = value[:180]
+        elif isinstance(value, list):
+            safe[clean_key] = [
+                str(item)[:120]
+                for item in value[:8]
+                if isinstance(item, (str, int, float, bool))
+            ]
+    return safe
+
+
+def _tool_call_payload(tc: dict[str, Any]) -> ToolCallPayload:
+    raw_name = str(tc.get("name") or "")
+    return ToolCallPayload(
+        _resolve_tool_display_name(raw_name),
+        raw_name=raw_name,
+        args=_safe_tool_call_args(tc.get("args")),
+        call_id=str(tc.get("id") or raw_name),
+    )
+
+
 def _selected_model_label_from_config(config: dict) -> tuple[str, bool]:
     model_override = (config.get("configurable") or {}).get("model_override")
     if model_override and model_override != get_current_model():
@@ -4316,7 +4404,7 @@ def _stream_graph(agent, input_data, config: dict,
                             tc_id = tc.get("id", tc["name"])
                             if tc_id not in _seen_tool_calls:
                                 _seen_tool_calls.add(tc_id)
-                                yield ("tool_call", _resolve_tool_display_name(tc["name"]))
+                                yield ("tool_call", _tool_call_payload(tc))
 
                             # Loop detection: hash (name, args) as signature
                             _args = tc.get("args", {})
@@ -4454,7 +4542,7 @@ def _stream_graph(agent, input_data, config: dict,
                                 tc_list = getattr(m, "tool_calls", [])
                                 if tc_list:
                                     for tc in tc_list:
-                                        yield ("tool_call", _resolve_tool_display_name(tc["name"]))
+                                        yield ("tool_call", _tool_call_payload(tc))
                                 if m.type == "tool":
                                     yield ("tool_done", {
                                         "name": _resolve_tool_display_name(m.name),

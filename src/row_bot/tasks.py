@@ -35,7 +35,7 @@ import uuid
 from contextvars import ContextVar
 from datetime import datetime, timedelta
 from functools import wraps
-from typing import TYPE_CHECKING, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping, Sequence, TypeVar
 
 from row_bot.approval_policy import (
     DEFAULT_APPROVAL_MODE,
@@ -60,6 +60,21 @@ _DB_PATH = str(get_tasks_db_path())
 _OLD_WF_DB = str(_DATA_DIR / "workflows.db")
 _TASK_CONFIG_PATH = str(_DATA_DIR / "task_config.json")
 _SCHEMA_VERSION = 1
+DEFAULT_WORKFLOW_AGENT_PROFILE_ID = "builtin:row_bot_default"
+WORKFLOW_PROFILE_MIGRATION_VERSION = "workflow_profile_v1"
+_WORKFLOW_READ_ONLY_DEFAULT_DENY_TOOLS = {
+    "calendar",
+    "custom_tool_builder",
+    "designer",
+    "gmail",
+    "goal",
+    "image_gen",
+    "row_bot_updater",
+    "task",
+    "tracker",
+    "video_gen",
+    "x",
+}
 _SCHEMA_LOCK = threading.RLock()
 _SCHEMA_READY_PATH: str | None = None
 _LAST_SCHEMA_REPAIR: dict[str, object] = {}
@@ -96,7 +111,10 @@ _CREATE_TABLE_SQL = {
             tools_override      TEXT,
             channels            TEXT,
             advanced_mode       INTEGER DEFAULT 0,
-            agent_profile_id    TEXT DEFAULT ''
+            agent_profile_id    TEXT DEFAULT '',
+            profile_migration_status TEXT DEFAULT '',
+            profile_migration_note TEXT DEFAULT '',
+            profile_migration_snapshot_json TEXT DEFAULT '{}'
         )
     """,
     "task_runs": """
@@ -201,6 +219,9 @@ _COLUMN_MIGRATIONS = {
         ("channels", "TEXT"),
         ("advanced_mode", "INTEGER DEFAULT 0"),
         ("agent_profile_id", "TEXT DEFAULT ''"),
+        ("profile_migration_status", "TEXT DEFAULT ''"),
+        ("profile_migration_note", "TEXT DEFAULT ''"),
+        ("profile_migration_snapshot_json", "TEXT DEFAULT '{}'"),
     ],
     "task_runs": [
         ("finished_at", "TEXT"),
@@ -242,7 +263,8 @@ _REQUIRED_COLUMNS = {
         "persistent_thread_id", "delete_after_run", "allowed_commands",
         "allowed_recipients", "skills_override", "steps", "safety_mode",
         "concurrency_group", "trigger", "tools_override", "channels",
-        "advanced_mode", "agent_profile_id",
+        "advanced_mode", "agent_profile_id", "profile_migration_status",
+        "profile_migration_note", "profile_migration_snapshot_json",
     },
     "task_runs": {
         "id", "task_id", "thread_id", "started_at", "finished_at", "status",
@@ -568,7 +590,10 @@ def _init_db() -> None:
             tools_override      TEXT,                    -- JSON list of tool names (null = all enabled)
             channels            TEXT,                    -- JSON list of channel names (null = workflow default)
             advanced_mode       INTEGER DEFAULT 0,       -- 1 = reopen in Advanced editor mode
-            agent_profile_id    TEXT DEFAULT ''          -- optional Agent Profile id/slug
+            agent_profile_id    TEXT DEFAULT '',         -- optional Agent Profile id/slug
+            profile_migration_status TEXT DEFAULT '',
+            profile_migration_note TEXT DEFAULT '',
+            profile_migration_snapshot_json TEXT DEFAULT '{}'
         )
     """)
     conn.execute("""
@@ -655,6 +680,9 @@ def _init_db() -> None:
         ("channels", "TEXT"),
         ("advanced_mode", "INTEGER DEFAULT 0"),
         ("agent_profile_id", "TEXT DEFAULT ''"),
+        ("profile_migration_status", "TEXT DEFAULT ''"),
+        ("profile_migration_note", "TEXT DEFAULT ''"),
+        ("profile_migration_snapshot_json", "TEXT DEFAULT '{}'"),
     ]:
         try:
             conn.execute(f"ALTER TABLE tasks ADD COLUMN {col} {defn}")
@@ -829,8 +857,485 @@ def _migrate_from_workflows() -> None:
         conn.close()
 
 
+def _ordered_text_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        items = list(value)
+    else:
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        text = str(item or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            result.append(text)
+    return result
+
+
+def _json_list_value(value: Any) -> list[str] | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            loaded = json.loads(text)
+        except Exception:
+            return _ordered_text_list(text)
+        return _ordered_text_list(loaded)
+    return _ordered_text_list(value)
+
+
+def _default_task_skill_names_for_migration() -> set[str]:
+    defaults = {"proactive_agent"}
+    try:
+        from row_bot.skills import get_default_active_skill_names
+
+        defaults.update(get_default_active_skill_names("task"))
+    except Exception:
+        logger.debug("Could not load default task skills for workflow migration", exc_info=True)
+    return {name for name in defaults if name}
+
+
+def _custom_legacy_skill_names(skills_override: Sequence[str] | None) -> list[str]:
+    names = _ordered_text_list(skills_override)
+    if not names:
+        return []
+    default_names = _default_task_skill_names_for_migration()
+    custom = [name for name in names if name not in default_names]
+    if custom:
+        return custom
+    return []
+
+
+def _workflow_policy_key(
+    *,
+    tools_override: Sequence[str] | None,
+    skills_override: Sequence[str] | None,
+) -> dict[str, list[str]]:
+    return {
+        "tools": sorted(_ordered_text_list(tools_override)),
+        "skills": sorted(_custom_legacy_skill_names(skills_override)),
+    }
+
+
+def _infer_migrated_profile_capability(tools: Sequence[str], skills: Sequence[str]) -> str:
+    if not tools:
+        return "orchestrator" if skills else "read_only"
+    write_or_delivery_tools = {
+        "calendar",
+        "custom_tool_builder",
+        "designer",
+        "gmail",
+        "goal",
+        "image_gen",
+        "row_bot_updater",
+        "task",
+        "tracker",
+        "video_gen",
+        "x",
+    }
+    return "write_capable" if any(tool in write_or_delivery_tools for tool in tools) else "read_only"
+
+
+def _workflow_policy_signature(
+    *,
+    tools_override: Sequence[str] | None,
+    skills_override: Sequence[str] | None,
+) -> dict[str, Any]:
+    key = _workflow_policy_key(
+        tools_override=tools_override,
+        skills_override=skills_override,
+    )
+    return {
+        **key,
+        "capability": _infer_migrated_profile_capability(key["tools"], key["skills"]),
+    }
+
+
+def _profile_policy_key(profile: Mapping[str, Any]) -> dict[str, list[str]]:
+    tool_policy = profile.get("tool_policy_json") or {}
+    skill_policy = profile.get("skill_policy_json") or {}
+    if not isinstance(tool_policy, dict):
+        tool_policy = {}
+    if not isinstance(skill_policy, dict):
+        skill_policy = {}
+    return {
+        "tools": sorted(_ordered_text_list(tool_policy.get("allow_tools"))),
+        "skills": sorted(_ordered_text_list(skill_policy.get("skills_override"))),
+    }
+
+
+def _known_workflow_tool_ids() -> set[str]:
+    try:
+        from row_bot.agent_tool_catalog import list_agent_tool_catalog
+
+        return {
+            str(item.get("id") or "")
+            for item in list_agent_tool_catalog(include_unavailable=True)
+            if str(item.get("id") or "")
+        }
+    except Exception:
+        logger.debug("Could not load Agent Profile tool catalog for migration", exc_info=True)
+        return set()
+
+
+def _known_workflow_skill_names() -> set[str]:
+    try:
+        from row_bot.skills import get_all_skills, load_skills, skills_loaded
+
+        if not skills_loaded():
+            load_skills()
+        return {skill.name for skill in get_all_skills()}
+    except Exception:
+        logger.debug("Could not load skills for workflow migration", exc_info=True)
+        return set()
+
+
+def _missing_legacy_policy_items(
+    *,
+    tools_override: Sequence[str] | None,
+    skills_override: Sequence[str] | None,
+) -> dict[str, list[str]]:
+    missing: dict[str, list[str]] = {}
+    tools = _ordered_text_list(tools_override)
+    if tools:
+        known_tools = _known_workflow_tool_ids()
+        if known_tools:
+            missing_tools = sorted(tool for tool in tools if tool not in known_tools)
+            if missing_tools:
+                missing["tools"] = missing_tools
+    skills = _custom_legacy_skill_names(skills_override)
+    if skills:
+        known_skills = _known_workflow_skill_names()
+        if known_skills:
+            missing_skills = sorted(skill for skill in skills if skill not in known_skills)
+            if missing_skills:
+                missing["skills"] = missing_skills
+    return missing
+
+
+def _migration_profile_name(signature: Mapping[str, Any]) -> str:
+    tools = [str(item) for item in signature.get("tools") or []]
+    skills = [str(item) for item in signature.get("skills") or []]
+    if tools:
+        labels = [tool.replace("_", " ").replace("-", " ").title() for tool in tools[:3]]
+        joined = " + ".join(labels)
+        return f"Migrated {joined} Tools" if joined else "Migrated Workflow Profile"
+    if skills:
+        labels = [skill.replace("_", " ").replace("-", " ").title() for skill in skills[:3]]
+        joined = " + ".join(labels)
+        return f"Migrated {joined} Skills" if joined else "Migrated Workflow Profile"
+    return "Migrated Workflow Profile"
+
+
+def _find_matching_builtin_profile(policy_key: Mapping[str, list[str]]) -> dict[str, Any] | None:
+    try:
+        from row_bot.agent_profiles import list_agent_profiles
+
+        for profile in list_agent_profiles(enabled_only=True, include_builtins=True):
+            if profile.get("source") == "builtin" and _profile_policy_key(profile) == policy_key:
+                return profile
+    except Exception:
+        logger.debug("Could not match built-in Agent Profile for workflow migration", exc_info=True)
+    return None
+
+
+def _find_migration_profile(signature: Mapping[str, Any]) -> dict[str, Any] | None:
+    try:
+        from row_bot.agent_profiles import list_agent_profiles
+
+        for profile in list_agent_profiles(enabled_only=False, include_builtins=False):
+            provenance = profile.get("provenance_json") or {}
+            if not isinstance(provenance, dict):
+                continue
+            if provenance.get("migration") != WORKFLOW_PROFILE_MIGRATION_VERSION:
+                continue
+            if provenance.get("policy_signature") == dict(signature):
+                return profile
+    except Exception:
+        logger.debug("Could not find reusable migration profile", exc_info=True)
+    return None
+
+
+def _append_migration_profile_task_id(profile: Mapping[str, Any], task_id: str) -> None:
+    if not profile or str(profile.get("id") or "").startswith("builtin:"):
+        return
+    try:
+        from row_bot.agent_profiles import save_agent_profile
+
+        provenance = dict(profile.get("provenance_json") or {})
+        source_task_ids = _ordered_text_list(provenance.get("source_task_ids"))
+        if task_id not in source_task_ids:
+            provenance["source_task_ids"] = [*source_task_ids, task_id]
+            save_agent_profile({**dict(profile), "provenance_json": provenance})
+    except Exception:
+        logger.debug("Could not update migration profile provenance", exc_info=True)
+
+
+def _create_migration_profile(signature: Mapping[str, Any], task_id: str) -> dict[str, Any]:
+    from row_bot.agent_profiles import _unique_slug, normalize_profile_slug, save_agent_profile
+
+    name = _migration_profile_name(signature)
+    slug = _unique_slug(normalize_profile_slug(name) or "migrated_workflow_profile")
+    capability = str(signature.get("capability") or "read_only")
+    allow_tools = _ordered_text_list(signature.get("tools"))
+    skills = _ordered_text_list(signature.get("skills"))
+    return save_agent_profile(
+        slug=slug,
+        display_name=name,
+        description="Created by the workflow Agent Profile migration from legacy workflow policy.",
+        when_to_use="Use for workflows migrated from legacy tool or skill overrides with this policy.",
+        instructions=(
+            "Run the workflow using the migrated legacy workflow capability policy. "
+            "Review this profile before broad reuse."
+        ),
+        handoff_contract="Summarize workflow results, approvals, delivery status, and any follow-up needed.",
+        source="workflow_created",
+        tool_policy_json={
+            "capability": capability,
+            "allow_tools": allow_tools,
+            "allow_delegation": False,
+        },
+        skill_policy_json={"skills_override": skills},
+        context_policy_json={
+            "default_context_mode": "auto",
+            "include_parent_summary": True,
+            "include_selected_messages": False,
+            "include_workspace_context": True,
+            "max_context_tokens": 0,
+        },
+        workspace_policy_json={
+            "workspace_mode_default": "read_only" if capability == "read_only" else "auto",
+            "write_lock_required": capability in {"write_capable", "orchestrator"},
+            "worktree_allowed": False,
+            "developer_workspace_required": False,
+        },
+        approval_policy_json={"mode": "inherit"},
+        model_policy_json={"mode": "inherit"},
+        ui_json={"icon": "rule", "color": "blue-grey", "group": "Migrated"},
+        provenance_json={
+            "migration": WORKFLOW_PROFILE_MIGRATION_VERSION,
+            "source_task_ids": [task_id],
+            "policy_signature": dict(signature),
+        },
+    )
+
+
+def _resolve_workflow_profile_for_legacy_policy(
+    *,
+    task_id: str,
+    task_name: str = "",
+    agent_profile_id: str | None,
+    tools_override: Sequence[str] | None,
+    skills_override: Sequence[str] | None,
+    preserve_existing_profile: bool = False,
+) -> dict[str, Any]:
+    tools = _ordered_text_list(tools_override)
+    skills = _ordered_text_list(skills_override)
+    raw_policy_present = tools_override is not None or skills_override is not None
+    snapshot = {
+        "migration": WORKFLOW_PROFILE_MIGRATION_VERSION,
+        "task_id": task_id,
+        "task_name": task_name,
+        "old_tools_override": tools if tools_override is not None else None,
+        "old_skills_override": skills if skills_override is not None else None,
+    }
+
+    profile_ref = str(agent_profile_id or "").strip()
+    if preserve_existing_profile and profile_ref:
+        try:
+            from row_bot.agent_profiles import require_agent_profile
+
+            profile = require_agent_profile(profile_ref, enabled_only=True)
+            snapshot["selected_profile_id"] = profile["id"]
+            snapshot["selected_profile_slug"] = profile["slug"]
+            return {
+                "profile_id": profile["id"],
+                "status": "not_needed",
+                "note": "Workflow already had an Agent Profile; legacy overrides were retired.",
+                "snapshot": snapshot,
+                "clear_old_overrides": True,
+                "disable": False,
+            }
+        except Exception as exc:
+            snapshot["invalid_profile_reference"] = profile_ref
+            snapshot["invalid_profile_error"] = str(exc)
+
+    policy_key = _workflow_policy_key(
+        tools_override=tools,
+        skills_override=skills,
+    )
+    custom_policy = bool(policy_key["tools"] or policy_key["skills"])
+    if not custom_policy:
+        note = "Assigned Default Agent Profile."
+        status = "not_needed"
+        if raw_policy_present and skills:
+            note = "Ignored legacy task default skill snapshot and assigned Default Agent Profile."
+            status = "needs_review"
+        snapshot["policy_signature"] = _workflow_policy_signature(
+            tools_override=[],
+            skills_override=[],
+        )
+        return {
+            "profile_id": DEFAULT_WORKFLOW_AGENT_PROFILE_ID,
+            "status": status,
+            "note": note,
+            "snapshot": snapshot,
+            "clear_old_overrides": True,
+            "disable": False,
+        }
+
+    missing = _missing_legacy_policy_items(
+        tools_override=policy_key["tools"],
+        skills_override=policy_key["skills"],
+    )
+    if missing:
+        snapshot["missing_policy_items"] = missing
+        return {
+            "profile_id": profile_ref or "",
+            "status": "blocked",
+            "note": "Legacy workflow policy references missing tools or skills.",
+            "snapshot": snapshot,
+            "clear_old_overrides": False,
+            "disable": True,
+        }
+
+    builtin = _find_matching_builtin_profile(policy_key)
+    if builtin:
+        snapshot["policy_signature"] = _workflow_policy_signature(
+            tools_override=policy_key["tools"],
+            skills_override=policy_key["skills"],
+        )
+        snapshot["selected_profile_id"] = builtin["id"]
+        snapshot["selected_profile_slug"] = builtin["slug"]
+        return {
+            "profile_id": builtin["id"],
+            "status": "exact_profile",
+            "note": f"Legacy workflow policy matched built-in Agent Profile: {builtin['display_name']}.",
+            "snapshot": snapshot,
+            "clear_old_overrides": True,
+            "disable": False,
+        }
+
+    signature = _workflow_policy_signature(
+        tools_override=policy_key["tools"],
+        skills_override=policy_key["skills"],
+    )
+    profile = _find_migration_profile(signature)
+    if profile is None:
+        profile = _create_migration_profile(signature, task_id)
+    else:
+        _append_migration_profile_task_id(profile, task_id)
+    snapshot["policy_signature"] = signature
+    snapshot["selected_profile_id"] = profile["id"]
+    snapshot["selected_profile_slug"] = profile["slug"]
+    return {
+        "profile_id": profile["id"],
+        "status": "created_profile",
+        "note": f"Legacy workflow policy migrated to Agent Profile: {profile['display_name']}.",
+        "snapshot": snapshot,
+        "clear_old_overrides": True,
+        "disable": False,
+    }
+
+
+def _task_row_legacy_policy(row: sqlite3.Row | Mapping[str, Any]) -> tuple[list[str] | None, list[str] | None]:
+    raw = dict(row)
+    return (
+        _json_list_value(raw.get("tools_override")),
+        _json_list_value(raw.get("skills_override")),
+    )
+
+
+def migrate_workflow_profile_policies() -> dict[str, Any]:
+    """Migrate legacy workflow tool/skill overrides into Agent Profiles."""
+    ensure_task_schema()
+    conn = _raw_conn()
+    migrated = 0
+    blocked = 0
+    needs_review = 0
+    created_or_reused = 0
+    try:
+        rows = conn.execute(
+            "SELECT id, name, agent_profile_id, tools_override, skills_override, "
+            "enabled, profile_migration_status FROM tasks"
+        ).fetchall()
+        for row in rows:
+            raw_tools, raw_skills = _task_row_legacy_policy(row)
+            profile_ref = str(row["agent_profile_id"] or "")
+            status = str(row["profile_migration_status"] or "")
+            if (
+                status
+                and profile_ref
+                and raw_tools is None
+                and raw_skills is None
+            ):
+                continue
+            conversion = _resolve_workflow_profile_for_legacy_policy(
+                task_id=str(row["id"]),
+                task_name=str(row["name"] or ""),
+                agent_profile_id=profile_ref,
+                tools_override=raw_tools,
+                skills_override=raw_skills,
+                preserve_existing_profile=True,
+            )
+            new_enabled = 0 if conversion["disable"] else int(bool(row["enabled"]))
+            if conversion["status"] == "blocked":
+                blocked += 1
+            if conversion["status"] == "needs_review":
+                needs_review += 1
+            if conversion["status"] == "created_profile":
+                created_or_reused += 1
+            clear_old = bool(conversion["clear_old_overrides"])
+            conn.execute(
+                "UPDATE tasks SET agent_profile_id = ?, "
+                "tools_override = CASE WHEN ? THEN NULL ELSE tools_override END, "
+                "skills_override = CASE WHEN ? THEN NULL ELSE skills_override END, "
+                "enabled = ?, profile_migration_status = ?, "
+                "profile_migration_note = ?, profile_migration_snapshot_json = ? "
+                "WHERE id = ?",
+                (
+                    str(conversion["profile_id"] or profile_ref or DEFAULT_WORKFLOW_AGENT_PROFILE_ID),
+                    1 if clear_old else 0,
+                    1 if clear_old else 0,
+                    new_enabled,
+                    conversion["status"],
+                    conversion["note"],
+                    json.dumps(conversion["snapshot"], sort_keys=True),
+                    row["id"],
+                ),
+            )
+            conn.commit()
+            migrated += 1
+        conn.commit()
+    finally:
+        conn.close()
+    return {
+        "migrated": migrated,
+        "blocked": blocked,
+        "needs_review": needs_review,
+        "created_or_reused_profiles": created_or_reused,
+    }
+
+
+def _migrate_workflow_profile_policies_best_effort() -> None:
+    try:
+        result = migrate_workflow_profile_policies()
+        if result.get("migrated"):
+            logger.info("Workflow Agent Profile migration result: %s", result)
+    except Exception as exc:
+        logger.warning("Workflow Agent Profile migration failed (non-fatal): %s", exc)
+
+
 _init_db()
 _migrate_from_workflows()
+_migrate_workflow_profile_policies_best_effort()
 
 
 # ── Template Variables ───────────────────────────────────────────────────────
@@ -876,9 +1381,14 @@ def _canonicalize_workflow_model_override(value: str | None) -> str | None:
     raw = str(value or "").strip()
     if not raw:
         return None
-    from row_bot.providers.selection import canonicalize_model_selection
+    from row_bot.providers.selection import resolve_catalog_model_selection
 
-    canonical = canonicalize_model_selection(raw, "workflow", allow_default=True)
+    canonical = resolve_catalog_model_selection(
+        raw,
+        surface="workflow",
+        allow_default=True,
+        require_agent_ready=True,
+    )
     return canonical.ref or None
 
 
@@ -904,14 +1414,9 @@ def _canonicalize_workflow_steps(steps: list[dict] | None) -> list[dict] | None:
                 step["model_override"] = canonical
             else:
                 step.pop("model_override", None)
-        if "agent_profile_id" in step:
-            canonical_profile = _canonicalize_agent_profile_reference(
-                step.get("agent_profile_id")
-            )
-            if canonical_profile:
-                step["agent_profile_id"] = canonical_profile
-            else:
-                step.pop("agent_profile_id", None)
+        # Workflow runtime policy is selected at the workflow level.  Step-level
+        # profile pointers are intentionally ignored in this migration phase.
+        step.pop("agent_profile_id", None)
     return steps
 
 
@@ -1075,18 +1580,38 @@ def create_task(
     if advanced_mode is None:
         advanced_mode = bool(steps)
     model_override = _canonicalize_workflow_model_override(model_override)
-    agent_profile_id = _canonicalize_agent_profile_reference(agent_profile_id)
+    legacy_policy_input = tools_override is not None or skills_override is not None
+    agent_profile_id = _canonicalize_agent_profile_reference(
+        agent_profile_id or DEFAULT_WORKFLOW_AGENT_PROFILE_ID
+    )
     safety_mode = legacy_safety_mode_to_approval_mode(safety_mode)
+    profile_migration_status = "not_needed"
+    profile_migration_note = "Profile-first workflow."
+    profile_migration_snapshot: dict[str, Any] = {}
     if notify_only:
         skills_override = None
-    elif skills_override is None and apply_default_skills:
-        try:
-            from row_bot.skills import get_default_active_skill_names
-
-            skills_override = get_default_active_skill_names("task")
-        except Exception:
-            logger.debug("Failed to resolve default workflow skills", exc_info=True)
-            skills_override = []
+        tools_override = None
+    elif legacy_policy_input:
+        conversion = _resolve_workflow_profile_for_legacy_policy(
+            task_id=task_id,
+            task_name=name,
+            agent_profile_id=agent_profile_id,
+            tools_override=tools_override,
+            skills_override=skills_override,
+            preserve_existing_profile=False,
+        )
+        agent_profile_id = str(conversion["profile_id"] or agent_profile_id)
+        profile_migration_status = str(conversion["status"] or "not_needed")
+        profile_migration_note = str(conversion["note"] or "")
+        profile_migration_snapshot = dict(conversion["snapshot"] or {})
+        if conversion["clear_old_overrides"]:
+            tools_override = None
+            skills_override = None
+        if conversion["disable"]:
+            enabled = False
+    else:
+        skills_override = None
+        tools_override = None
     # If steps provided, also sync prompts for backward compat
     if steps:
         assign_step_ids(steps)
@@ -1099,8 +1624,9 @@ def create_task(
         "notify_label, delivery_channel, delivery_target, model_override, "
         "persistent_thread_id, delete_after_run, created_at, enabled, skills_override, "
         "steps, safety_mode, concurrency_group, trigger, tools_override, channels, "
-        "advanced_mode, agent_profile_id) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "advanced_mode, agent_profile_id, profile_migration_status, "
+        "profile_migration_note, profile_migration_snapshot_json) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             task_id, name, description, icon, json.dumps(prompts),
             schedule, at, int(notify_only), notify_label,
@@ -1115,6 +1641,9 @@ def create_task(
             json.dumps(channels) if channels is not None else None,
             int(bool(advanced_mode)),
             agent_profile_id,
+            profile_migration_status,
+            profile_migration_note,
+            json.dumps(profile_migration_snapshot, sort_keys=True),
         ),
     )
     conn.commit()
@@ -1170,9 +1699,35 @@ def update_task(task_id: str, **kwargs) -> None:
         "skills_override",
         "steps", "safety_mode", "concurrency_group", "trigger",
         "tools_override", "channels", "advanced_mode", "agent_profile_id",
+        "profile_migration_status", "profile_migration_note",
+        "profile_migration_snapshot_json",
     }
 
     # ── Validate delivery if either field is being changed ───────────
+    if {"tools_override", "skills_override"} & set(kwargs):
+        current = get_task(task_id) or {}
+        conversion = _resolve_workflow_profile_for_legacy_policy(
+            task_id=task_id,
+            task_name=str(kwargs.get("name") or current.get("name") or ""),
+            agent_profile_id=str(kwargs.get("agent_profile_id") or current.get("agent_profile_id") or ""),
+            tools_override=kwargs.get("tools_override", current.get("tools_override")),
+            skills_override=kwargs.get("skills_override", current.get("skills_override")),
+            preserve_existing_profile=False,
+        )
+        kwargs["agent_profile_id"] = str(
+            conversion["profile_id"]
+            or current.get("agent_profile_id")
+            or DEFAULT_WORKFLOW_AGENT_PROFILE_ID
+        )
+        kwargs["profile_migration_status"] = str(conversion["status"] or "not_needed")
+        kwargs["profile_migration_note"] = str(conversion["note"] or "")
+        kwargs["profile_migration_snapshot_json"] = dict(conversion["snapshot"] or {})
+        if conversion["clear_old_overrides"]:
+            kwargs["tools_override"] = None
+            kwargs["skills_override"] = None
+        if conversion["disable"]:
+            kwargs["enabled"] = False
+
     if "delivery_channel" in kwargs or "delivery_target" in kwargs:
         # Merge with existing values to get full picture
         task = get_task(task_id)
@@ -1190,14 +1745,14 @@ def update_task(task_id: str, **kwargs) -> None:
         if key == "safety_mode":
             value = legacy_safety_mode_to_approval_mode(value)
         if key == "agent_profile_id":
-            value = _canonicalize_agent_profile_reference(value)
+            value = _canonicalize_agent_profile_reference(value or DEFAULT_WORKFLOW_AGENT_PROFILE_ID)
         if key == "steps" and isinstance(value, list):
             assign_step_ids(value)
             _canonicalize_workflow_steps(value)
         if key in ("prompts", "allowed_commands", "allowed_recipients",
                    "skills_override", "steps", "trigger",
-                   "tools_override", "channels"):
-            value = json.dumps(value)
+                   "tools_override", "channels", "profile_migration_snapshot_json"):
+            value = json.dumps(value, sort_keys=True) if value is not None else None
         if key in ("notify_only", "delete_after_run", "advanced_mode"):
             value = int(value)
         conn.execute(
@@ -1342,6 +1897,13 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     raw_channels = d.get("channels")
     d["channels"] = json.loads(raw_channels) if raw_channels else None
     d["agent_profile_id"] = str(d.get("agent_profile_id") or "")
+    d["profile_migration_status"] = str(d.get("profile_migration_status") or "")
+    d["profile_migration_note"] = str(d.get("profile_migration_note") or "")
+    raw_migration = d.get("profile_migration_snapshot_json")
+    try:
+        d["profile_migration_snapshot_json"] = json.loads(raw_migration) if raw_migration else {}
+    except Exception:
+        d["profile_migration_snapshot_json"] = {}
     if d.get("safety_mode"):
         d["safety_mode"] = legacy_safety_mode_to_approval_mode(d.get("safety_mode"))
     # Auto-convert: if steps is empty but prompts exist, synthesize steps
@@ -1381,14 +1943,105 @@ def _steps_to_prompts(steps: list[dict]) -> list[str]:
 
 def _workflow_agent_profile_ref(task: dict | None) -> str:
     if not task:
-        return ""
+        return DEFAULT_WORKFLOW_AGENT_PROFILE_ID
     profile_ref = str(task.get("agent_profile_id") or "")
     if profile_ref:
         return profile_ref
-    for step in task.get("steps") or []:
-        if isinstance(step, dict) and step.get("agent_profile_id"):
-            return str(step.get("agent_profile_id") or "")
-    return ""
+    return DEFAULT_WORKFLOW_AGENT_PROFILE_ID
+
+
+def _workflow_agent_profile_snapshot(task: dict | None) -> dict[str, Any]:
+    profile_ref = _workflow_agent_profile_ref(task)
+    try:
+        from row_bot.agent_profiles import snapshot_agent_profile
+
+        return snapshot_agent_profile(profile_ref)
+    except Exception:
+        logger.debug("Could not snapshot workflow Agent Profile %s", profile_ref, exc_info=True)
+        return {}
+
+
+def _workflow_profile_tool_allowlist(profile_snapshot: Mapping[str, Any]) -> list[str]:
+    tool_policy = profile_snapshot.get("tool_policy_json") or {}
+    if not isinstance(tool_policy, dict):
+        return []
+    return _ordered_text_list(tool_policy.get("allow_tools"))
+
+
+def _workflow_default_task_skills() -> list[str]:
+    try:
+        from row_bot.skills import get_default_active_skill_names
+
+        return _ordered_text_list(get_default_active_skill_names("task"))
+    except Exception:
+        logger.debug("Could not load default task skills for workflow runtime", exc_info=True)
+        return []
+
+
+def _workflow_profile_skills(profile_snapshot: Mapping[str, Any]) -> list[str]:
+    skill_policy = profile_snapshot.get("skill_policy_json") or {}
+    if not isinstance(skill_policy, dict):
+        return []
+    base = _ordered_text_list(skill_policy.get("skills_override"))
+    if not base:
+        base = _workflow_default_task_skills()
+    deny = set(_ordered_text_list(skill_policy.get("deny_skills")))
+    return [name for name in base if name not in deny]
+
+
+def _filter_workflow_tools_for_profile(
+    enabled_tool_names: Sequence[str],
+    profile_snapshot: Mapping[str, Any],
+) -> list[str]:
+    requested = _ordered_text_list(enabled_tool_names)
+    tool_policy = profile_snapshot.get("tool_policy_json") or {}
+    if not isinstance(tool_policy, dict):
+        tool_policy = {}
+    allow = set(_ordered_text_list(tool_policy.get("allow_tools")))
+    capability = str(tool_policy.get("capability") or "read_only")
+    filtered = list(requested)
+    if capability == "read_only" and not allow:
+        filtered = [name for name in filtered if name not in _WORKFLOW_READ_ONLY_DEFAULT_DENY_TOOLS]
+    if allow:
+        mcp_allowed = "mcp" in allow or any(name.startswith("mcp_") for name in allow)
+        filtered = [
+            name
+            for name in filtered
+            if name in allow or (name == "mcp" and mcp_allowed)
+        ]
+    return filtered
+
+
+def _workflow_profile_runtime_policy(
+    task: dict,
+    enabled_tool_names: Sequence[str],
+) -> dict[str, Any]:
+    from row_bot.agent_profiles import resolve_profile_for_run
+
+    parent_approval = get_task_approval_mode(task)
+    resolved = resolve_profile_for_run(
+        _workflow_agent_profile_ref(task),
+        parent_approval_mode=parent_approval,
+        require_enabled=True,
+    )
+    profile_snapshot = dict(resolved["profile_snapshot"])
+    tool_allowlist = _workflow_profile_tool_allowlist(profile_snapshot)
+    return {
+        "agent_profile_id": str(resolved["profile_id"] or DEFAULT_WORKFLOW_AGENT_PROFILE_ID),
+        "agent_profile_slug": str(resolved["profile_slug"] or ""),
+        "agent_profile_snapshot": profile_snapshot,
+        "approval_mode": normalize_approval_mode(
+            str(resolved["effective_approval_mode"] or parent_approval),
+            parent_approval,
+        ),
+        "skills_override": _workflow_profile_skills(profile_snapshot),
+        "tool_allowlist": tool_allowlist,
+        "effective_tool_names": _filter_workflow_tools_for_profile(
+            enabled_tool_names,
+            profile_snapshot,
+        ),
+        "warnings": list(resolved.get("warnings") or []),
+    }
 
 
 def _mirror_workflow_agent_run_start(
@@ -1402,6 +2055,7 @@ def _mirror_workflow_agent_run_start(
     try:
         task = get_task(task_id)
         from row_bot.agent_runs import mirror_workflow_run_start
+        profile_snapshot = _workflow_agent_profile_snapshot(task)
 
         mirror_workflow_run_start(
             run_id,
@@ -1410,10 +2064,11 @@ def _mirror_workflow_agent_run_start(
             display_name=task_name or (task or {}).get("name", ""),
             steps_total=steps_total,
             profile_id=_workflow_agent_profile_ref(task),
+            profile_snapshot_json=profile_snapshot,
             approval_mode=get_task_approval_mode(task) if task else DEFAULT_APPROVAL_MODE,
             model_override=str((task or {}).get("model_override") or ""),
-            tools_override=(task or {}).get("tools_override"),
-            skills_override=(task or {}).get("skills_override"),
+            tools_override=_workflow_profile_tool_allowlist(profile_snapshot) or None,
+            skills_override=_workflow_profile_skills(profile_snapshot),
         )
     except Exception:
         logger.debug("Workflow agent-run mirror start failed for %s", run_id, exc_info=True)
@@ -2217,22 +2872,31 @@ def run_task_background(
             last_response = list(step_outputs.values())[-1]
 
         # Determine effective approval mode (block/approve/allow_all)
-        approval_mode = get_task_approval_mode(task)
-        effective_tool_names = enabled_tool_names
+        try:
+            runtime_policy = _workflow_profile_runtime_policy(task, enabled_tool_names)
+        except Exception:
+            logger.exception(
+                "Task '%s' could not resolve Agent Profile policy; falling back to Default profile",
+                task.get("name", ""),
+            )
+            fallback_task = {**task, "agent_profile_id": DEFAULT_WORKFLOW_AGENT_PROFILE_ID}
+            runtime_policy = _workflow_profile_runtime_policy(fallback_task, enabled_tool_names)
 
-        # Skills override — set on thread so the pre-model hook picks it up
-        if task.get("skills_override") is not None:
-            from row_bot.threads import set_thread_skills_override
-            set_thread_skills_override(thread_id, task["skills_override"])
+        approval_mode = str(runtime_policy["approval_mode"])
+        effective_tool_names = list(runtime_policy["effective_tool_names"])
+        profile_snapshot = dict(runtime_policy["agent_profile_snapshot"])
+        profile_skills = list(runtime_policy["skills_override"])
+        tool_allowlist = list(runtime_policy["tool_allowlist"])
 
-        # Apply tools_override (explicit selection from UI)
-        if task.get("tools_override"):
-            override_set = set(task["tools_override"])
-            effective_tool_names = [
-                t for t in effective_tool_names if t in override_set
-            ]
+        from row_bot.threads import _set_thread_agent_profile, _set_thread_approval_mode, set_thread_skills_override
+
+        _set_thread_agent_profile(thread_id, str(runtime_policy["agent_profile_id"]))
+        _set_thread_approval_mode(thread_id, approval_mode)
+        set_thread_skills_override(thread_id, profile_skills)
+
+        if tool_allowlist:
             logger.info(
-                "Task '%s' using tools_override — %d tool(s): %s",
+                "Task '%s' using Agent Profile tool allow-list - %d tool(s): %s",
                 task["name"], len(effective_tool_names), effective_tool_names,
             )
 
@@ -2249,9 +2913,13 @@ def run_task_background(
                     "runtime_surface": "workflow",
                     "runtime_mode": "agent",
                     "approval_mode": approval_mode,
+                    "agent_profile_id": str(runtime_policy["agent_profile_id"]),
+                    "agent_profile_snapshot": profile_snapshot,
                 },
                 "recursion_limit": RECURSION_LIMIT_TASK,
             }
+            if tool_allowlist:
+                config["configurable"]["tool_allowlist"] = tool_allowlist
 
             def _format_interrupt_details(interrupts: list[dict]) -> list[str]:
                 details = []
@@ -2999,7 +3667,12 @@ def _prepare_task_thread(task: dict) -> str:
     - thread_meta creation
     - model_override propagation
     """
-    from row_bot.threads import _save_thread_meta, _set_thread_approval_mode, _set_thread_model_override
+    from row_bot.threads import (
+        _save_thread_meta,
+        _set_thread_agent_profile,
+        _set_thread_approval_mode,
+        _set_thread_model_override,
+    )
 
     thread_id = task.get("persistent_thread_id") or uuid.uuid4().hex[:12]
     if not task.get("notify_only"):
@@ -3010,6 +3683,10 @@ def _prepare_task_thread(task: dict) -> str:
         _save_thread_meta(thread_id, thread_name)
     if task.get("model_override"):
         _set_thread_model_override(thread_id, task["model_override"])
+    try:
+        _set_thread_agent_profile(thread_id, _workflow_agent_profile_ref(task))
+    except Exception:
+        logger.debug("Could not set workflow thread Agent Profile", exc_info=True)
     _set_thread_approval_mode(thread_id, get_task_approval_mode(task))
     return thread_id
 
@@ -4923,6 +5600,8 @@ def add_default_workflow_templates() -> int:
             steps=t.get("steps"),
             enabled=t.get("enabled", False),
             channels=t.get("channels"),
+            agent_profile_id=DEFAULT_WORKFLOW_AGENT_PROFILE_ID,
+            apply_default_skills=False,
         )
         created += 1
     return created
@@ -4955,6 +5634,8 @@ def seed_default_tasks() -> None:
             steps=t.get("steps"),
             enabled=t.get("enabled", False),
             channels=t.get("channels"),
+            agent_profile_id=DEFAULT_WORKFLOW_AGENT_PROFILE_ID,
+            apply_default_skills=False,
         )
     open(_MARKER, "w").close()
     logger.info("Seeded %d default tasks", len(_DEFAULT_TASKS))
@@ -4965,6 +5646,7 @@ seed_default_workflows = seed_default_tasks
 list_workflows = list_tasks
 create_workflow = lambda name, prompts, description="", icon="⚡", schedule=None: create_task(
     name=name, prompts=prompts, description=description, icon=icon, schedule=schedule,
+    agent_profile_id=DEFAULT_WORKFLOW_AGENT_PROFILE_ID, apply_default_skills=False,
 )
 update_workflow = update_task
 delete_workflow = delete_task

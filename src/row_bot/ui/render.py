@@ -12,6 +12,7 @@ import json as _json
 import logging
 import re
 import uuid as _uuid
+from collections.abc import Callable
 from datetime import datetime
 
 from nicegui import ui
@@ -19,6 +20,24 @@ from nicegui import ui
 logger = logging.getLogger(__name__)
 
 from row_bot.ui.state import AppState, P
+
+
+_AGENT_RESULT_USE_STATUSES = {"completed", "completed_delivery_failed"}
+
+
+def agent_result_use_prompt(run_id: str) -> str:
+    """Build the normal parent-chat prompt used by Agent result card actions."""
+    clean = str(run_id or "").strip()
+    if not clean:
+        return ""
+    return f"what did agent {clean} find? use that result here"
+
+
+def agent_result_use_available(run: dict) -> bool:
+    """Return whether a child Agent card should offer an explicit use-result action."""
+    run_id = str((run or {}).get("id") or "").strip()
+    status = str((run or {}).get("status") or "").strip().lower()
+    return bool(run_id) and status in _AGENT_RESULT_USE_STATUSES
 
 def _img_data_uri(b64: str) -> str:
     """Return a data URI with the correct MIME type for a base64-encoded image."""
@@ -900,7 +919,12 @@ def open_agent_peek_dialog(run_or_id: dict | str) -> None:
         ui.notify(f"Could not open Agent details: {exc}", type="negative", close_button=True)
 
 
-def _render_agent_run_card(run: dict, *, payload_message: str = "") -> None:
+def _render_agent_run_card(
+    run: dict,
+    *,
+    payload_message: str = "",
+    on_use_agent_result: Callable[[str], None] | None = None,
+) -> None:
     run_id = str(run.get("id") or "").strip()
     status = str(run.get("status") or "unknown").strip()
     name = str(run.get("display_name") or run_id or "Agent").strip()
@@ -982,6 +1006,17 @@ def _render_agent_run_card(run: dict, *, payload_message: str = "") -> None:
                 ui.button(icon="content_copy", on_click=_copy_run_id).props("flat dense round size=sm").tooltip(
                     f"Agent Run id: {run_id}"
                 )
+            if agent_result_use_available(run) and callable(on_use_agent_result):
+                def _use_agent_result(rid=run_id) -> None:
+                    try:
+                        on_use_agent_result(rid)
+                    except Exception as exc:
+                        logger.debug("Agent result action failed", exc_info=True)
+                        ui.notify(f"Could not ask parent to use Agent result: {exc}", type="negative", close_button=True)
+
+                ui.button(icon="summarize", on_click=_use_agent_result).props(
+                    "flat dense round size=sm color=primary"
+                ).tooltip("Ask parent to use this result")
             if run_id and not terminal:
                 def _stop_agent(rid=run_id) -> None:
                     try:
@@ -1013,6 +1048,18 @@ def _current_agent_run_for_card(run: dict) -> dict:
     except Exception:
         logger.debug("Could not load current Agent Run %s for card", run_id, exc_info=True)
     return run
+
+
+def _agent_run_is_terminal(run: dict) -> bool:
+    return str((run or {}).get("status") or "").strip().lower() in {
+        "completed",
+        "completed_delivery_failed",
+        "failed",
+        "blocked",
+        "stopped",
+        "cancelled",
+        "timed_out",
+    }
 
 
 def _agent_card_runs_from_tool_results(tool_results: list[dict]) -> tuple[list[tuple[dict, str]], list[dict]]:
@@ -1056,25 +1103,153 @@ def _render_raw_agent_tool_outputs(results: list[dict]) -> None:
                     ui.code(display).classes("w-full text-xs")
 
 
-def render_agent_tool_results(results: list[dict], *, thread_id: str | None = None) -> bool:
+def render_agent_tool_results(
+    results: list[dict],
+    *,
+    thread_id: str | None = None,
+    on_use_agent_result: Callable[[str], None] | None = None,
+) -> bool:
     """Render Agent tool results as one durable card per Agent Run id."""
 
     del thread_id
     card_runs, raw_results = _agent_card_runs_from_tool_results(results)
     if not card_runs:
         return False
-    with ui.column().classes("w-full gap-2"):
-        for run, message in card_runs:
-            _render_agent_run_card(_current_agent_run_for_card(run), payload_message=message)
-        _render_raw_agent_tool_outputs(raw_results)
+
+    def _current_runs() -> list[tuple[dict, str]]:
+        return [(_current_agent_run_for_card(run), message) for run, message in card_runs]
+
+    with ui.column().classes("w-full gap-2") as card_container:
+        pass
+
+    def _render_cards() -> list[tuple[dict, str]]:
+        current_runs = _current_runs()
+        try:
+            card_container.clear()
+            with card_container:
+                for run, message in current_runs:
+                    _render_agent_run_card(
+                        run,
+                        payload_message=message,
+                        on_use_agent_result=on_use_agent_result,
+                    )
+                _render_raw_agent_tool_outputs(raw_results)
+        except Exception:
+            logger.debug("Agent tool-result card render failed", exc_info=True)
+        return current_runs
+
+    current_runs = _render_cards()
+    if any(not _agent_run_is_terminal(run) for run, _message in current_runs):
+        attempts = {"count": 0}
+        timer_ref: dict[str, object | None] = {"timer": None}
+
+        def _tick() -> None:
+            attempts["count"] += 1
+            refreshed = _render_cards()
+            if (
+                all(_agent_run_is_terminal(run) for run, _message in refreshed)
+                or attempts["count"] >= 240
+            ):
+                timer_obj = timer_ref.get("timer")
+                if timer_obj is not None:
+                    try:
+                        timer_obj.deactivate()  # type: ignore[attr-defined]
+                    except Exception:
+                        logger.debug("Agent tool-result card self-refresh deactivate failed", exc_info=True)
+
+        try:
+            from row_bot.ui.timer_utils import safe_timer
+
+            timer_ref["timer"] = safe_timer(1.0, _tick)
+        except Exception:
+            logger.debug("Agent tool-result card self-refresh scheduling failed", exc_info=True)
     return True
 
 
-def render_agent_tool_result(result: dict, *, thread_id: str | None = None) -> bool:
-    return render_agent_tool_results([result], thread_id=thread_id)
+def render_agent_run_cards(
+    run_ids: list[str],
+    *,
+    on_use_agent_result: Callable[[str], None] | None = None,
+) -> bool:
+    """Render durable Agent Run cards directly from run ids."""
+
+    clean_ids = [str(run_id).strip() for run_id in run_ids if str(run_id or "").strip()]
+    if not clean_ids:
+        return False
+
+    def _current_runs() -> list[dict]:
+        try:
+            from row_bot.agent_runs import get_agent_run
+
+            return [run for run_id in clean_ids if (run := get_agent_run(run_id))]
+        except Exception:
+            logger.debug("Could not load Agent Runs for direct cards", exc_info=True)
+            return []
+
+    with ui.column().classes("w-full gap-2") as card_container:
+        pass
+
+    def _render_cards() -> list[dict]:
+        current_runs = _current_runs()
+        try:
+            card_container.clear()
+            with card_container:
+                for run in current_runs:
+                    _render_agent_run_card(
+                        run,
+                        on_use_agent_result=on_use_agent_result,
+                    )
+        except Exception:
+            logger.debug("Direct Agent Run card render failed", exc_info=True)
+        return current_runs
+
+    current_runs = _render_cards()
+    if current_runs and any(not _agent_run_is_terminal(run) for run in current_runs):
+        attempts = {"count": 0}
+        timer_ref: dict[str, object | None] = {"timer": None}
+
+        def _tick() -> None:
+            attempts["count"] += 1
+            refreshed = _render_cards()
+            if (
+                all(_agent_run_is_terminal(run) for run in refreshed)
+                or attempts["count"] >= 240
+            ):
+                timer_obj = timer_ref.get("timer")
+                if timer_obj is not None:
+                    try:
+                        timer_obj.deactivate()  # type: ignore[attr-defined]
+                    except Exception:
+                        logger.debug("Direct Agent Run card refresh deactivate failed", exc_info=True)
+
+        try:
+            from row_bot.ui.timer_utils import safe_timer
+
+            timer_ref["timer"] = safe_timer(1.0, _tick)
+        except Exception:
+            logger.debug("Direct Agent Run card refresh scheduling failed", exc_info=True)
+    return bool(current_runs)
 
 
-def render_message_content(msg: dict, thread_id: str | None = None) -> None:
+def render_agent_tool_result(
+    result: dict,
+    *,
+    thread_id: str | None = None,
+    on_use_agent_result: Callable[[str], None] | None = None,
+) -> bool:
+    return render_agent_tool_results(
+        [result],
+        thread_id=thread_id,
+        on_use_agent_result=on_use_agent_result,
+    )
+
+
+def render_message_content(
+    msg: dict,
+    thread_id: str | None = None,
+    *,
+    on_use_agent_result: Callable[[str], None] | None = None,
+) -> None:
     """Render a single message's content inside the current parent element."""
     from row_bot.ui.tool_trace import (
         display_tool_content,
@@ -1132,7 +1307,10 @@ def render_message_content(msg: dict, thread_id: str | None = None) -> None:
                 for run_id in agent_run_ids:
                     run = get_agent_run(str(run_id))
                     if run:
-                        _render_agent_run_card(run)
+                        _render_agent_run_card(
+                            run,
+                            on_use_agent_result=on_use_agent_result,
+                        )
                     else:
                         ui.label(f"Agent Run not found: {run_id}").classes("text-xs text-grey-6")
         except Exception:
@@ -1150,7 +1328,11 @@ def render_message_content(msg: dict, thread_id: str | None = None) -> None:
             elif isinstance(tr, dict):
                 generic_tool_results.append(tr)
         if agent_tool_results:
-            render_agent_tool_results(agent_tool_results, thread_id=thread_id)
+            render_agent_tool_results(
+                agent_tool_results,
+                thread_id=thread_id,
+                on_use_agent_result=on_use_agent_result,
+            )
         for group in group_tool_results(generic_tool_results):
             group_failed = any(tool_result_failed(item) for item in group.results)
             with ui.expansion(
@@ -1267,7 +1449,13 @@ def render_message_content(msg: dict, thread_id: str | None = None) -> None:
         logger.debug("JS runtime unavailable for hljs/mermaid", exc_info=True)
 
 
-def add_chat_message(msg: dict, p: P, thread_id: str | None = None) -> None:
+def add_chat_message(
+    msg: dict,
+    p: P,
+    thread_id: str | None = None,
+    *,
+    on_use_agent_result: Callable[[str], None] | None = None,
+) -> None:
     """Append a rendered chat message to the chat container."""
     if p.chat_container is None:
         return
@@ -1294,4 +1482,8 @@ def add_chat_message(msg: dict, p: P, thread_id: str | None = None) -> None:
                     f'</div>',
                     sanitize=False,
                 )
-                render_message_content(msg, thread_id=thread_id)
+                render_message_content(
+                    msg,
+                    thread_id=thread_id,
+                    on_use_agent_result=on_use_agent_result,
+                )

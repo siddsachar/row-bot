@@ -52,10 +52,14 @@ def test_stream_graph_preserves_text_on_tool_call_chunks():
     events = list(_stream_graph(FakeAgent(), {}, {"configurable": {"thread_id": "test-channel-stream"}}))
     token_text = "".join(payload for event_type, payload in events if event_type == "token")
     done_text = [payload for event_type, payload in events if event_type == "done"][-1]
+    tool_payload = [payload for event_type, payload in events if event_type == "tool_call"][0]
 
     assert "I'll check that now." in token_text
     assert "I'll check that now." in done_text
     assert "The result is ready." in done_text
+    assert "Web Search" in str(tool_payload)
+    assert tool_payload.get("raw_name") == "web_search"
+    assert tool_payload.get("id") == "call_search"
 
 
 def test_telegram_stream_consumer_returns_none_when_final_edit_fails():

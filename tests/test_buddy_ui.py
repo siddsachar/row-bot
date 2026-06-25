@@ -149,6 +149,8 @@ def test_buddy_runtime_supports_generated_art_as_primary_path():
     assert "data-preview" in buddy_ui_src
     assert "data-motion" in buddy_ui_src
     assert "data-generated-fit" in buddy_ui_src
+    assert 'rendered_motion_url = "" if motion_pack_json != "{}" else motion_url' in buddy_ui_src
+    assert 'data-motion="{html.escape(rendered_motion_url)}"' in buddy_ui_src
     assert 'render_fit = "cover"' in buddy_ui_src
     assert 'render_fit = "contain"' not in buddy_ui_src
     assert "data-riv" not in buddy_ui_src
@@ -494,6 +496,10 @@ def test_buddy_idle_video_uses_quiet_replay_cadence():
     assert "LOOP_RESTART_PADDING_SECONDS = 0.08" in runtime_src
     assert "restartVideoSmoothly" in runtime_src
     assert "smoothLoopIfNeeded" in runtime_src
+    assert "cleanupGeneratedState" in runtime_src
+    assert "isGeneratedStateAttached" in runtime_src
+    assert "state.root.isConnected !== false" in runtime_src
+    assert "generated.delete(state.canvas.id)" in runtime_src
 
 
 def test_buddy_approval_motion_is_softened_and_state_changes_crossfade():
@@ -508,7 +514,7 @@ def test_buddy_approval_motion_is_softened_and_state_changes_crossfade():
     assert "return 0.72" in runtime_src
     assert "isApproval ? Math.sin(phase * 2.1) * 0.7" in runtime_src
     assert "isApproval ? 'rgba(228, 194, 94, 0.28)'" in runtime_src
-    assert "row-bot-buddy-v6" in buddy_ui_src
+    assert "row-bot-buddy-v7" in buddy_ui_src
     assert 'data-animation="tap_glass"' in buddy_ui_src
     assert "animation-duration: 4.2s" in buddy_ui_src
     assert "animation === 'tap_glass' || animation === 'pause'" not in runtime_src

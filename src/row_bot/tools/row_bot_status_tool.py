@@ -43,7 +43,7 @@ class _StatusQueryInput(BaseModel):
         description=(
             "What to query. One of: 'overview' (full status summary), "
             "'version' (Row-Bot version number), "
-            "'model' (current model and provider info), "
+            "'model' (current Brain model, provider info, and pinned Brain model choices), "
             "'channels' (messaging channel status), "
             "'memory' (knowledge graph stats), "
             "'skills' (Skill Library availability and pinned defaults), "
@@ -58,9 +58,9 @@ class _StatusQueryInput(BaseModel):
             "'agents' (durable Agent Runs, subagents, workflow mirrors, writer locks, and V1 defaults), "
             "'agent_profiles' (Agent Profile Library counts, sources, active profile, and selected tools), "
             "'goals' (current Goal Mode status, turn budgets, progress, and blockers), "
-            "'vision' (vision/camera model and settings), "
-            "'image_gen' (image generation model), "
-            "'video_gen' (video generation model), "
+            "'vision' (vision/camera model, settings, and pinned Vision choices), "
+            "'image_gen' (image generation model and pinned Image choices), "
+            "'video_gen' (video generation model and pinned Video choices), "
             "'voice' (TTS and STT settings), "
             "'config' (context window, dream cycle, wiki vault, memory extraction), "
             "'designer' (Designer project count and recent projects), "
@@ -75,7 +75,7 @@ class _SettingUpdateInput(BaseModel):
     setting: str = Field(
         description=(
             "The setting to change. One of: "
-            "'model' (switch active model; value may be a local model, provider model, or Quick Choice), "
+            "'model' (switch active Brain model; value must be an active pinned Brain Quick Choice canonical ref or exact label), "
             "'vision_model' (switch Vision model; value may be an installed local vision model, provider vision model, or Vision Quick Choice), "
             "'name' (change assistant name), "
             "'personality' (change personality text), "
@@ -175,8 +175,70 @@ def _surface_label(surface: str) -> str:
     return {"chat": "Brain", "vision": "Vision"}.get(surface, surface.replace("_", " ").title())
 
 
+def _pinned_choice_status_lines(
+    surface: str,
+    heading: str,
+    *,
+    value_label: str = "Canonical ref",
+    value_key: str = "canonical_ref",
+    limit: int | None = 8,
+) -> list[str]:
+    try:
+        from row_bot.providers.selection import pinned_model_choice_summaries
+
+        choices = pinned_model_choice_summaries(surface, include_inactive=True)
+    except Exception as exc:
+        return ["", f"**{heading}**", f"- Unavailable: {exc}"]
+
+    lines = ["", f"**{heading}**"]
+    if not choices:
+        lines.append("- None pinned. Pin choices in Settings -> Models.")
+        return lines
+
+    active = [choice for choice in choices if choice.get("active") is not False]
+    inactive = [choice for choice in choices if choice.get("active") is False]
+    if surface == "chat":
+        lines.append(
+            "- For natural Brain model requests, choose from this list and call tools with the canonical ref."
+        )
+    shown_active = active if not limit or limit < 0 else active[:limit]
+    for choice in shown_active:
+        value = str(choice.get(value_key) or choice.get("canonical_ref") or "")
+        lines.append(
+            f"- {choice.get('display_name')} - {choice.get('provider')}: "
+            f"{value_label}: {value} (provider_id: {choice.get('provider_id')}, model_id: {choice.get('model_id')})"
+        )
+    hidden_count = len(active) - len(shown_active)
+    if hidden_count > 0:
+        lines.append(f"- Plus {hidden_count} more active pinned choice(s).")
+    if inactive:
+        lines.append(f"- Not usable now: {len(inactive)} pinned choice(s)")
+        for choice in inactive[:3]:
+            value = str(choice.get(value_key) or choice.get("canonical_ref") or "")
+            reason = str(choice.get("reason") or "inactive")
+            lines.append(
+                f"  - {choice.get('display_name')} - {choice.get('provider')}: "
+                f"{value_label}: {value} ({reason})"
+            )
+    return lines
+
+
 def _resolve_model_update_value(value: str, *, surface: str) -> tuple[str | None, str | None]:
     """Resolve a status-tool model update to a runnable model id or an error."""
+    if surface == "chat":
+        try:
+            from row_bot.providers.selection import resolve_catalog_model_selection
+
+            resolved = resolve_catalog_model_selection(
+                value,
+                surface="chat",
+                require_agent_ready=True,
+                require_pinned=True,
+            )
+            return resolved.ref, None
+        except Exception as exc:
+            return None, str(exc)
+
     from row_bot.models import is_model_local, list_cloud_models, list_cloud_vision_models
     from row_bot.providers.capabilities import snapshot_supports_surface
     from row_bot.providers.selection import list_quick_choices, model_ref, resolve_selection
@@ -331,13 +393,16 @@ def _query_overview() -> str:
                 "channels", "skills", "tools", "mcp", "identity", "tasks", "agents", "agent_profiles", "goals",
                 "insights", "evolution", "config", "designer", "updates"):
         try:
-            parts.append(_QUERY_HANDLERS[cat]())
+            if cat == "model":
+                parts.append(_query_model(compact_pinned=True))
+            else:
+                parts.append(_QUERY_HANDLERS[cat]())
         except Exception as exc:
             parts.append(f"[{cat}] Error: {exc}")
     return "\n\n".join(parts)
 
 
-def _query_model() -> str:
+def _query_model(*, compact_pinned: bool = False) -> str:
     try:
         from row_bot.models import (get_current_model, get_context_size, get_provider_emoji,
                             _active_model_override,
@@ -396,6 +461,13 @@ def _query_model() -> str:
             lines.append(f"- Provider context cap: {get_cloud_context_size():,} tokens")
         if override and override != default_model:
             lines.append(f"- ⚠️ Override active (global default: {default_model})")
+        lines.extend(_pinned_choice_status_lines(
+            "chat",
+            "Pinned Brain Model Choices",
+            value_label="Canonical ref",
+            value_key="canonical_ref",
+            limit=8 if compact_pinned else 0,
+        ))
         return "\n".join(lines)
     except Exception as exc:
         return f"**Current Model**\nError retrieving model info: {exc}"
@@ -1259,6 +1331,12 @@ def _query_vision() -> str:
                 lines.append(f"- {label}: {vision_error}")
         if incompat_reason:
             lines.append(f"- Vision compatibility: {incompat_reason}")
+        lines.extend(_pinned_choice_status_lines(
+            "vision",
+            "Pinned Vision Model Choices",
+            value_label="Selection value",
+            value_key="canonical_ref",
+        ))
         return "\n".join(lines)
     except Exception as exc:
         return f"**Vision**\nError: {exc}"
@@ -1285,6 +1363,12 @@ def _query_image_gen() -> str:
         ]
         if selection == DEFAULT_MODEL:
             lines.append(f"- (default — change in Settings → Models)")
+        lines.extend(_pinned_choice_status_lines(
+            "image",
+            "Pinned Image Model Choices",
+            value_label="Config value",
+            value_key="config_value",
+        ))
         return "\n".join(lines)
     except Exception as exc:
         return f"**Image Generation**\nError: {exc}"
@@ -1303,6 +1387,12 @@ def _query_video_gen() -> str:
         ]
         if selection == DEFAULT_MODEL:
             lines.append("- (default — change in Settings → Models)")
+        lines.extend(_pinned_choice_status_lines(
+            "video",
+            "Pinned Video Model Choices",
+            value_label="Config value",
+            value_key="config_value",
+        ))
         return "\n".join(lines)
     except Exception as exc:
         return f"**Video Generation**\nError: {exc}"
@@ -1577,6 +1667,13 @@ def _update_setting(setting: str, value: str) -> str:
     value = value.strip()
 
     if setting == "model":
+        runtime_surface = str(_active_runtime_context().get("runtime_surface") or "").strip()
+        if runtime_surface in {"agent_child", "agent_child_resume"}:
+            return (
+                "Child Agents cannot switch their own runtime model. "
+                "Ask the parent to spawn the child with delegate_work(model=...) "
+                "or use /agent --model=model:provider:model-id for explicit command spawns."
+            )
         approval = interrupt({
             "tool": "row_bot_update_setting",
             "label": "Change active model",
@@ -2193,7 +2290,7 @@ class RowBotStatusTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Query or change Row-Bot's own configuration: current model, "
+            "Query or change Row-Bot's own configuration: current model and pinned model choices, "
             "active channels, memory stats, skills, tools, API keys, "
             "identity settings, and scheduled tasks."
         )
@@ -2228,7 +2325,7 @@ class RowBotStatusTool(BaseTool):
                 name="row_bot_update_setting",
                 description=(
                     "Change a Row-Bot setting. Requires user confirmation. "
-                    "Settings: model, vision_model, name, personality, context_size, "
+                    "Settings: model (pinned Brain canonical ref or exact pinned label), vision_model, name, personality, context_size, "
                     "cloud_context_size, dream_cycle (on/off), "
                     "dream_window (e.g. '1-5'), "
                     "skill_toggle for Skill Library Available/Off (e.g. 'deep_research:off'), "

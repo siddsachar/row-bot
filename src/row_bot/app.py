@@ -213,14 +213,23 @@ from row_bot.ui.helpers import (
 )
 from row_bot.ui.head_html import inject_head_html
 from row_bot.ui.setup_wizard import show_setup_wizard
-from row_bot.ui.render import render_text_with_embeds, add_chat_message
+from row_bot.ui.render import (
+    add_chat_message,
+    agent_result_use_prompt,
+    render_text_with_embeds,
+)
 from row_bot.ui.export import open_export
 from row_bot.ui.graph_panel import build_graph_panel
 from row_bot.ui.task_dialog import show_task_dialog
 from row_bot.ui.sidebar import build_sidebar
 from row_bot.ui.command_center import build_command_center
 from row_bot.ui.settings import open_settings
-from row_bot.ui.streaming import Callbacks, send_message, build_interrupt_dialog
+from row_bot.ui.streaming import (
+    Callbacks,
+    _append_async_delegated_agent_completion_messages,
+    build_interrupt_dialog,
+    send_message,
+)
 from row_bot.ui.home import build_home
 from row_bot.ui.chat import build_chat
 from row_bot.ui.transcript import (
@@ -1079,6 +1088,17 @@ async def index():
             internal_goal_continuation=internal_goal_continuation,
         )
 
+    def _ask_parent_to_use_agent_result(run_id: str) -> None:
+        prompt = agent_result_use_prompt(run_id)
+        if not prompt:
+            return
+        try:
+            ui.notify("Asking the parent to use that Agent result.", type="info", close_button=True)
+            asyncio.create_task(_send_message(prompt))
+        except Exception as exc:
+            logger.debug("Could not ask parent to use Agent result", exc_info=True)
+            ui.notify(f"Could not ask parent to use Agent result: {exc}", type="negative", close_button=True)
+
     async def _send_active_voice_message(text: str, *, voice_mode: bool = False):
         binding = getattr(p, "active_voice_binding", None)
         if binding is not None and binding.is_current(state.thread_id):
@@ -1292,7 +1312,14 @@ async def index():
                         open_settings=_open_settings,
                         open_export=_open_export,
                         show_interrupt=cb.show_interrupt,
-                        add_chat_message=lambda msg: add_chat_message(msg, p, state.thread_id),
+                        add_chat_message=(
+                            lambda msg, **kwargs: add_chat_message(
+                                msg,
+                                p,
+                                state.thread_id,
+                                **kwargs,
+                            )
+                        ),
                         browse_file=browse_file,
                     )
             log_ui_perf(
@@ -1413,7 +1440,12 @@ async def index():
             logger.debug("Transcript render-state mark failed", exc_info=True)
 
     def _add_chat_message_and_track(msg: dict) -> None:
-        add_chat_message(msg, p, state.thread_id)
+        add_chat_message(
+            msg,
+            p,
+            state.thread_id,
+            on_use_agent_result=_ask_parent_to_use_agent_result,
+        )
         _mark_chat_message_rendered(msg)
 
     cb.add_chat_message = _add_chat_message_and_track
@@ -1427,6 +1459,11 @@ async def index():
     cb.refresh_goal_strip = lambda: (
         p.refresh_goal_strip()
         if callable(getattr(p, "refresh_goal_strip", None))
+        else None
+    )
+    cb.refresh_model_controls = lambda: (
+        p.refresh_model_controls()
+        if callable(getattr(p, "refresh_model_controls", None))
         else None
     )
 
@@ -1487,7 +1524,12 @@ async def index():
                     with p.chat_container:
                         while end_idx < len(missing):
                             msg_index, msg = missing[end_idx]
-                            add_chat_message(msg, p, state.thread_id)
+                            add_chat_message(
+                                msg,
+                                p,
+                                state.thread_id,
+                                on_use_agent_result=_ask_parent_to_use_agent_result,
+                            )
                             p.transcript_rendered_keys.append(message_key(msg_index, msg))
                             end_idx += 1
                             if end_idx - start_idx >= TRANSCRIPT_MAX_CHUNK_MESSAGES:
@@ -1544,7 +1586,12 @@ async def index():
             try:
                 with p.chat_container:
                     while end_idx < len(display_msgs):
-                        add_chat_message(display_msgs[end_idx], p, state.thread_id)
+                        add_chat_message(
+                            display_msgs[end_idx],
+                            p,
+                            state.thread_id,
+                            on_use_agent_result=_ask_parent_to_use_agent_result,
+                        )
                         p.transcript_rendered_keys.append(display_keys[end_idx])
                         end_idx += 1
                         if end_idx - start_idx >= TRANSCRIPT_MAX_CHUNK_MESSAGES:
@@ -1567,6 +1614,116 @@ async def index():
     cb.refresh_chat_messages = _refresh_chat_messages
 
     # ── Timers ───────────────────────────────────────────────────────────
+
+    _last_agent_run_refresh = {"thread_id": "", "key": ""}
+
+    def _current_agent_run_refresh_key(tid: str) -> str:
+        if not tid:
+            return ""
+        try:
+            from row_bot.agent_runs import list_agent_runs
+
+            rows = list_agent_runs(parent_thread_id=tid, kind="subagent", limit=12)
+        except Exception:
+            logger.debug("Agent run page refresh poll failed", exc_info=True)
+            return ""
+        parts: list[str] = []
+        for row in rows:
+            parts.append("|".join(
+                str(row.get(field) or "")
+                for field in (
+                    "id",
+                    "status",
+                    "status_message",
+                    "summary",
+                    "error",
+                    "steps_done",
+                    "steps_total",
+                    "updated_at",
+                    "finished_at",
+                    "stop_requested",
+                )
+            ))
+        return "\n".join(parts)
+
+    def _current_child_agent_run_ids(tid: str) -> list[str]:
+        if not tid:
+            return []
+        try:
+            from row_bot.agent_runs import list_agent_runs
+
+            return [
+                str(row.get("id") or "").strip()
+                for row in list_agent_runs(parent_thread_id=tid, kind="subagent", limit=12)
+                if str(row.get("id") or "").strip()
+            ]
+        except Exception:
+            logger.debug("Agent run id poll failed", exc_info=True)
+            return []
+
+    def _thread_has_live_generation(tid: str) -> bool:
+        active_gen = _active_generations.get(tid)
+        return bool(
+            active_gen
+            and str(getattr(active_gen, "status", "") or "").lower() == "streaming"
+            and not bool(getattr(active_gen, "detached", False))
+            and getattr(active_gen, "live_row", None) is not None
+        )
+
+    def _poll_agent_card_refresh() -> None:
+        tid = str(state.thread_id or "")
+        if not tid:
+            _last_agent_run_refresh["thread_id"] = ""
+            _last_agent_run_refresh["key"] = ""
+            return
+        key = _current_agent_run_refresh_key(tid)
+        if _last_agent_run_refresh.get("thread_id") != tid:
+            _last_agent_run_refresh["thread_id"] = tid
+            _last_agent_run_refresh["key"] = key
+            if _thread_has_live_generation(tid):
+                return
+            try:
+                completion_changed = _append_async_delegated_agent_completion_messages(
+                    state.messages,
+                    candidate_run_ids=_current_child_agent_run_ids(tid),
+                    checkpoint_thread_id=tid,
+                )
+                if completion_changed:
+                    state.cache_active_messages()
+                    if p.chat_container is not None and p.transcript_thread_id == tid:
+                        p.transcript_rendered_keys = []
+                        _refresh_chat_messages()
+            except Exception:
+                logger.debug("Initial async delegated Agent completion poll failed", exc_info=True)
+            return
+        if key == _last_agent_run_refresh.get("key"):
+            return
+        _last_agent_run_refresh["key"] = key
+        try:
+            if callable(getattr(p, "refresh_parent_agent_strip", None)):
+                p.refresh_parent_agent_strip()
+        except Exception:
+            logger.debug("Parent Agent strip poll refresh failed", exc_info=True)
+        if _thread_has_live_generation(tid):
+            return
+        try:
+            if _append_async_delegated_agent_completion_messages(
+                state.messages,
+                candidate_run_ids=_current_child_agent_run_ids(tid),
+                checkpoint_thread_id=tid,
+            ):
+                state.cache_active_messages()
+        except Exception:
+            logger.debug("Async delegated Agent completion poll failed", exc_info=True)
+        if p.chat_container is None or p.transcript_thread_id != tid:
+            return
+        try:
+            # Agent Run cards are backed by DB rows, so message keys may stay
+            # stable while card content changes from queued/running/completed.
+            p.transcript_rendered_keys = []
+            _refresh_chat_messages()
+        except Exception:
+            logger.debug("Agent card transcript poll refresh failed", exc_info=True)
 
     def _poll_notifications() -> None:
         for t in drain_toasts():
@@ -1783,8 +1940,9 @@ async def index():
 
     _notification_timer = safe_timer(1.0, _poll_notifications)
     _voice_timer = safe_timer(0.3, _poll_voice)
+    _agent_card_timer = safe_timer(1.0, _poll_agent_card_refresh)
     _token_timer = safe_timer(5.0, _update_token_counter)
-    deactivate_on_disconnect(_notification_timer, _voice_timer, _token_timer)
+    deactivate_on_disconnect(_notification_timer, _voice_timer, _agent_card_timer, _token_timer)
 
     # ── Build initial view ───────────────────────────────────────────────
     _rebuild_main()
