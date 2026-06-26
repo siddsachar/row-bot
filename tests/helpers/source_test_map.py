@@ -92,6 +92,17 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
         "Task, workflow, and agent orchestration changes need resume/approval and schema coverage.",
     ),
     SourceTestRule(
+        "threads",
+        ("src/row_bot/threads.py",),
+        (
+            "tests/test_developer_workspace_threads.py",
+            "tests/test_thread_approval_mode.py",
+            "tests/test_thread_rename.py",
+            "tests/test_sidebar_developer_grouping.py",
+        ),
+        "Thread metadata changes need Developer grouping, approval, rename, and sidebar regressions.",
+    ),
+    SourceTestRule(
         "agent_profile_workflows",
         (
             "src/row_bot/agent_commands.py",

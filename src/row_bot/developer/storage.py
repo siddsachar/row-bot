@@ -272,7 +272,7 @@ def clone_repository(repo_url: str, destination_parent: str) -> DeveloperWorkspa
 
 
 def list_workspace_threads(workspace_id: str) -> list[tuple]:
-    """Return Developer code threads linked to a workspace, newest first."""
+    """Return Developer code threads grouped under a project workspace."""
     from row_bot.threads import list_developer_workspace_threads
 
     return list_developer_workspace_threads(workspace_id)
@@ -289,8 +289,10 @@ def create_workspace_thread(
     *,
     name: str | None = None,
     name_source: str = "auto",
+    use_worktree: bool | None = None,
+    seed_mode: str = "current_changes",
 ) -> str:
-    """Create a new empty Developer thread linked to an existing workspace."""
+    """Create a new empty Developer thread for a project workspace."""
     workspace = get_workspace(workspace_id)
     if workspace is None:
         raise ValueError(f"Developer workspace not found: {workspace_id}")
@@ -303,13 +305,53 @@ def create_workspace_thread(
         thread_name,
         thread_type="code",
         developer_workspace_id=workspace.id,
+        project_workspace_id=workspace.id,
         approval_mode=workspace.approval_mode,
         name_source=name_source,
     )
+    if use_worktree is None:
+        use_worktree = is_git_repository_root(workspace.path)
+    if use_worktree:
+        from row_bot.developer.worktrees import allocate_thread_worktree, switch_thread_to_worktree
+
+        allocated = allocate_thread_worktree(
+            thread_id,
+            workspace.id,
+            objective=thread_name,
+            seed_mode=seed_mode,
+        )
+        if str(allocated.get("status") or "") != "active":
+            raise ValueError(str(allocated.get("error") or "Failed to create Worktree."))
+        switch_thread_to_worktree(thread_id, str(allocated.get("worktree_workspace_id") or ""))
     _seed_developer_thread_skills(thread_id)
     workspace.touch()
     save_workspace(workspace)
     return thread_id
+
+
+def create_thread_worktree(
+    thread_id: str,
+    project_workspace_id: str,
+    *,
+    objective: str = "",
+    seed_mode: str = "current_changes",
+) -> dict:
+    """Create a Worktree for an existing current-folder Developer thread."""
+    project = get_workspace(project_workspace_id)
+    if project is None:
+        raise ValueError(f"Developer workspace not found: {project_workspace_id}")
+    from row_bot.developer.worktrees import allocate_thread_worktree, switch_thread_to_worktree
+
+    allocated = allocate_thread_worktree(
+        thread_id,
+        project.id,
+        objective=objective or f"Developer thread {thread_id}",
+        seed_mode=seed_mode,
+    )
+    if str(allocated.get("status") or "") != "active":
+        raise ValueError(str(allocated.get("error") or "Failed to create Worktree."))
+    switch_thread_to_worktree(thread_id, str(allocated.get("worktree_workspace_id") or ""))
+    return allocated
 
 
 def ensure_latest_workspace_thread(workspace_id: str) -> str:
@@ -317,7 +359,7 @@ def ensure_latest_workspace_thread(workspace_id: str) -> str:
     latest = latest_workspace_thread(workspace_id)
     if latest:
         return latest
-    return ensure_workspace_thread(workspace_id)
+    return create_workspace_thread(workspace_id)
 
 
 def ensure_workspace_thread(workspace_id: str) -> str:
@@ -342,6 +384,7 @@ def ensure_workspace_thread(workspace_id: str) -> str:
         thread_id=thread_id,
         thread_type="code",
         developer_workspace_id=workspace.id,
+        project_workspace_id=workspace.id,
         approval_mode=workspace.approval_mode,
     )
     _seed_developer_thread_skills(thread_id)
@@ -375,8 +418,18 @@ def detect_git_summary(path: str) -> dict:
         "dirty": status.dirty,
         "remote": status.remote,
         "ahead_behind": status.ahead_behind,
+        "repo_root": status.repo_root,
+        "is_repo_root": status.is_repo_root,
         "error": status.error,
     }
+
+
+def is_git_repository_root(path: str) -> bool:
+    folder = pathlib.Path(path).expanduser().resolve()
+    status = detect_git_summary(str(folder))
+    if not status.get("is_git") or status.get("error"):
+        return False
+    return bool(status.get("is_repo_root"))
 
 
 def workspace_updated_label(workspace: DeveloperWorkspace) -> str:

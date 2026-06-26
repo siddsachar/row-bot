@@ -10,7 +10,11 @@ import base64 as _b64
 import html as _html
 import json as _json
 import logging
+import os
+import pathlib
 import re
+import subprocess
+import sys
 import uuid as _uuid
 from collections.abc import Callable
 from datetime import datetime
@@ -775,7 +779,106 @@ def _extract_agent_artifacts(text: str) -> list[str]:
     return artifacts[:6]
 
 
-def open_agent_peek_dialog(run_or_id: dict | str) -> None:
+def _agent_workspace_details(run: dict) -> dict[str, str]:
+    run_id = str((run or {}).get("id") or "").strip()
+    workspace = run.get("workspace") if isinstance(run.get("workspace"), dict) else {}
+    mode = str(workspace.get("mode") or run.get("workspace_mode") or "")
+    details = {
+        "mode": mode,
+        "branch": str(workspace.get("branch") or ""),
+        "path": str(workspace.get("path") or run.get("workspace_path") or ""),
+        "tooltip": "",
+    }
+    if mode == "worktree" and run_id and not details["branch"]:
+        try:
+            from row_bot.developer.worktrees import get_worktree_for_run
+
+            worktree = get_worktree_for_run(run_id)
+            if worktree:
+                details["branch"] = str(worktree.get("branch_name") or "")
+                details["path"] = str(worktree.get("worktree_path") or details["path"])
+                metadata = worktree.get("metadata_json") or {}
+                if metadata.get("seeded_from_current_changes"):
+                    seeded = []
+                    if metadata.get("seeded_staged_diff"):
+                        seeded.append("staged")
+                    if metadata.get("seeded_unstaged_diff"):
+                        seeded.append("unstaged")
+                    copied = metadata.get("seeded_untracked_files") or []
+                    if copied:
+                        seeded.append(f"{len(copied)} untracked")
+                    details["seeded"] = "Inherited current changes: " + (", ".join(seeded) or "yes")
+        except Exception:
+            logger.debug("Could not load Agent worktree details", exc_info=True)
+    details["tooltip"] = "\n".join(
+        item for item in (details["branch"], details["path"], details.get("seeded", "")) if item
+    ) or "Runs in its own local git Worktree."
+    return details
+
+
+def _open_folder_path(path: str) -> None:
+    folder = pathlib.Path(str(path or "")).expanduser()
+    if not folder.exists():
+        ui.notify("Worktree folder does not exist.", type="warning", close_button=True)
+        return
+    try:
+        if sys.platform.startswith("win"):
+            os.startfile(str(folder))  # type: ignore[attr-defined]
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(folder)])
+        else:
+            subprocess.Popen(["xdg-open", str(folder)])
+    except Exception as exc:
+        logger.debug("Could not open Worktree folder", exc_info=True)
+        ui.notify(f"Could not open Worktree: {exc}", type="negative", close_button=True)
+
+
+def _open_agent_worktree(run: dict) -> None:
+    details = _agent_workspace_details(run)
+    path = details.get("path") or ""
+    if not path:
+        ui.notify("This Agent run has no Worktree path.", type="warning", close_button=True)
+        return
+    _open_folder_path(path)
+
+
+def _show_agent_worktree_compare(run: dict) -> None:
+    run_id = str((run or {}).get("id") or "").strip()
+    if not run_id:
+        ui.notify("Agent Run id is missing.", type="warning", close_button=True)
+        return
+    try:
+        from row_bot.developer.worktrees import worktree_diff_summary
+
+        summary = worktree_diff_summary("agent_run", run_id)
+    except Exception as exc:
+        logger.debug("Could not compare Agent Worktree", exc_info=True)
+        ui.notify(f"Could not compare Worktree: {exc}", type="negative", close_button=True)
+        return
+    with ui.dialog() as dlg, ui.card().classes("q-pa-md").style(
+        "width: min(720px, 94vw); border-radius: 8px;"
+    ):
+        with ui.row().classes("w-full items-center justify-between no-wrap"):
+            ui.label("Compare Worktree").classes("text-h6")
+            ui.button(icon="close", on_click=dlg.close).props("round flat dense")
+        if not summary.get("ok"):
+            ui.label(str(summary.get("error") or "Worktree compare failed.")).classes("text-sm text-negative")
+        worktree = summary.get("worktree") if isinstance(summary.get("worktree"), dict) else {}
+        if worktree:
+            ui.label(str(worktree.get("worktree_path") or "")).classes("text-xs text-grey-6 ellipsis")
+        status_lines = summary.get("status_lines") or []
+        if status_lines:
+            ui.code("\n".join(str(line) for line in status_lines)).classes("w-full text-xs")
+        else:
+            ui.label("No changed files detected in this Worktree.").classes("text-sm text-grey-6")
+    dlg.open()
+
+
+def open_agent_peek_dialog(
+    run_or_id: dict | str,
+    *,
+    on_open_agent_thread: Callable[[dict], None] | None = None,
+) -> None:
     """Open a compact read-only Agent detail dialog without leaving chat."""
     try:
         from row_bot.agent_runs import get_agent_events, get_agent_parent_messages, get_agent_run, stop_agent_run
@@ -826,6 +929,7 @@ def open_agent_peek_dialog(run_or_id: dict | str) -> None:
             "cancelled",
             "timed_out",
         }
+        workspace_details = _agent_workspace_details(run_row)
 
         with ui.dialog() as dlg, ui.card().classes("q-pa-md").style(
             "width: min(760px, 94vw); max-height: min(760px, 88vh); "
@@ -838,6 +942,10 @@ def open_agent_peek_dialog(run_or_id: dict | str) -> None:
                         ui.badge(status or "unknown", color=_agent_status_color(status)).props("outline dense")
                         ui.label(name).classes("text-sm font-bold ellipsis").style("flex: 1; min-width: 0;")
                         ui.label(profile).classes("text-xs text-grey-6 ellipsis").style("max-width: 160px;")
+                        if workspace_details["mode"] == "worktree":
+                            ui.badge("Worktree", color="blue-grey").props("outline dense").tooltip(
+                                workspace_details["tooltip"]
+                            )
                     if run_id:
                         ui.label(f"Run {run_id}").classes("text-xs text-grey-7 ellipsis")
                 ui.button(icon="close", on_click=dlg.close).props("round flat dense").tooltip("Close")
@@ -855,6 +963,13 @@ def open_agent_peek_dialog(run_or_id: dict | str) -> None:
                             with ui.row().classes("w-full items-center no-wrap gap-1"):
                                 ui.icon("attach_file", size="xs").classes("text-grey-5")
                                 ui.label(artifact).classes("text-xs ellipsis").style("flex: 1; min-width: 0;")
+                if workspace_details["mode"] == "worktree":
+                    ui.label("Worktree").classes("text-xs font-bold text-grey-5 q-mt-sm")
+                    branch = workspace_details.get("branch") or "Worktree"
+                    path = workspace_details.get("path") or ""
+                    ui.label(branch).classes("text-xs text-grey-4")
+                    if path:
+                        ui.label(path).classes("text-xs text-grey-6 ellipsis")
                 if parent_notes:
                     ui.label("Parent Notes").classes("text-xs font-bold text-grey-5 q-mt-sm")
                     for note in parent_notes[-4:]:
@@ -878,13 +993,25 @@ def open_agent_peek_dialog(run_or_id: dict | str) -> None:
                         ui.label(f"{role}: {_short_text(content, 180)}").classes("text-xs text-grey-5").style(
                             "white-space: normal;"
                         )
-                if thread_id:
-                    ui.label(
-                        "Open the full child thread from the Agents drawer if you need the complete transcript."
-                    ).classes("text-xs text-grey-7 q-mt-sm")
-
             with ui.row().classes("w-full justify-between items-center q-mt-sm"):
                 with ui.row().classes("gap-1"):
+                    if thread_id and callable(on_open_agent_thread):
+                        ui.button(
+                            "Open thread",
+                            icon="open_in_new",
+                            on_click=lambda row=run_row: (dlg.close(), on_open_agent_thread(row)),
+                        ).props("flat dense no-caps")
+                    if workspace_details["mode"] == "worktree":
+                        ui.button(
+                            "Open worktree",
+                            icon="folder_open",
+                            on_click=lambda row=run_row: _open_agent_worktree(row),
+                        ).props("flat dense no-caps")
+                        ui.button(
+                            "Compare",
+                            icon="difference",
+                            on_click=lambda row=run_row: _show_agent_worktree_compare(row),
+                        ).props("flat dense no-caps")
                     if run_id:
                         def _copy_summary(rid=run_id, text=summary) -> None:
                             payload = text or rid
@@ -924,6 +1051,7 @@ def _render_agent_run_card(
     *,
     payload_message: str = "",
     on_use_agent_result: Callable[[str], None] | None = None,
+    on_open_agent_thread: Callable[[dict], None] | None = None,
 ) -> None:
     run_id = str(run.get("id") or "").strip()
     status = str(run.get("status") or "unknown").strip()
@@ -957,6 +1085,7 @@ def _render_agent_run_card(
         "cancelled",
         "timed_out",
     }
+    workspace_details = _agent_workspace_details(run)
 
     with ui.column().classes("w-full gap-1 q-pa-sm").style(
         "border: 1px solid rgba(96, 165, 250, 0.22); "
@@ -970,6 +1099,10 @@ def _render_agent_run_card(
             ui.label(name).classes("text-sm font-semibold ellipsis").style("flex: 1; min-width: 0;")
             if profile_label:
                 ui.label(profile_label).classes("text-xs text-grey-6 ellipsis").style("max-width: 130px;")
+            if workspace_details["mode"] == "worktree":
+                ui.badge("Worktree", color="blue-grey").props("outline dense").tooltip(
+                    workspace_details["tooltip"]
+                )
             if turns_used or max_turns:
                 ui.label(f"{turns_used}/{max_turns} turns").classes("text-xs text-grey-6 no-wrap")
 
@@ -993,8 +1126,25 @@ def _render_agent_run_card(
             if run_id:
                 ui.button(
                     icon="visibility",
-                    on_click=lambda rid=run_id: open_agent_peek_dialog(rid),
+                    on_click=lambda rid=run_id: open_agent_peek_dialog(
+                        rid,
+                        on_open_agent_thread=on_open_agent_thread,
+                    ),
                 ).props("flat dense round size=sm").tooltip("Peek Agent activity")
+            if thread_id and callable(on_open_agent_thread):
+                ui.button(
+                    icon="open_in_new",
+                    on_click=lambda row=run: on_open_agent_thread(row),
+                ).props("flat dense round size=sm").tooltip("Open thread")
+            if workspace_details["mode"] == "worktree":
+                ui.button(
+                    icon="folder_open",
+                    on_click=lambda row=run: _open_agent_worktree(row),
+                ).props("flat dense round size=sm").tooltip("Open worktree")
+                ui.button(
+                    icon="difference",
+                    on_click=lambda row=run: _show_agent_worktree_compare(row),
+                ).props("flat dense round size=sm").tooltip("Compare")
             if run_id:
                 def _copy_run_id(rid=run_id) -> None:
                     try:
@@ -1108,6 +1258,7 @@ def render_agent_tool_results(
     *,
     thread_id: str | None = None,
     on_use_agent_result: Callable[[str], None] | None = None,
+    on_open_agent_thread: Callable[[dict], None] | None = None,
 ) -> bool:
     """Render Agent tool results as one durable card per Agent Run id."""
 
@@ -1132,6 +1283,7 @@ def render_agent_tool_results(
                         run,
                         payload_message=message,
                         on_use_agent_result=on_use_agent_result,
+                        on_open_agent_thread=on_open_agent_thread,
                     )
                 _render_raw_agent_tool_outputs(raw_results)
         except Exception:
@@ -1170,6 +1322,7 @@ def render_agent_run_cards(
     run_ids: list[str],
     *,
     on_use_agent_result: Callable[[str], None] | None = None,
+    on_open_agent_thread: Callable[[dict], None] | None = None,
 ) -> bool:
     """Render durable Agent Run cards directly from run ids."""
 
@@ -1198,6 +1351,7 @@ def render_agent_run_cards(
                     _render_agent_run_card(
                         run,
                         on_use_agent_result=on_use_agent_result,
+                        on_open_agent_thread=on_open_agent_thread,
                     )
         except Exception:
             logger.debug("Direct Agent Run card render failed", exc_info=True)
@@ -1236,11 +1390,13 @@ def render_agent_tool_result(
     *,
     thread_id: str | None = None,
     on_use_agent_result: Callable[[str], None] | None = None,
+    on_open_agent_thread: Callable[[dict], None] | None = None,
 ) -> bool:
     return render_agent_tool_results(
         [result],
         thread_id=thread_id,
         on_use_agent_result=on_use_agent_result,
+        on_open_agent_thread=on_open_agent_thread,
     )
 
 
@@ -1249,6 +1405,7 @@ def render_message_content(
     thread_id: str | None = None,
     *,
     on_use_agent_result: Callable[[str], None] | None = None,
+    on_open_agent_thread: Callable[[dict], None] | None = None,
 ) -> None:
     """Render a single message's content inside the current parent element."""
     from row_bot.ui.tool_trace import (
@@ -1310,6 +1467,7 @@ def render_message_content(
                         _render_agent_run_card(
                             run,
                             on_use_agent_result=on_use_agent_result,
+                            on_open_agent_thread=on_open_agent_thread,
                         )
                     else:
                         ui.label(f"Agent Run not found: {run_id}").classes("text-xs text-grey-6")
@@ -1332,6 +1490,7 @@ def render_message_content(
                 agent_tool_results,
                 thread_id=thread_id,
                 on_use_agent_result=on_use_agent_result,
+                on_open_agent_thread=on_open_agent_thread,
             )
         for group in group_tool_results(generic_tool_results):
             group_failed = any(tool_result_failed(item) for item in group.results)
@@ -1455,6 +1614,7 @@ def add_chat_message(
     thread_id: str | None = None,
     *,
     on_use_agent_result: Callable[[str], None] | None = None,
+    on_open_agent_thread: Callable[[dict], None] | None = None,
 ) -> None:
     """Append a rendered chat message to the chat container."""
     if p.chat_container is None:
@@ -1486,4 +1646,5 @@ def add_chat_message(
                     msg,
                     thread_id=thread_id,
                     on_use_agent_result=on_use_agent_result,
+                    on_open_agent_thread=on_open_agent_thread,
                 )

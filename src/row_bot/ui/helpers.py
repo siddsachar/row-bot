@@ -547,6 +547,23 @@ def langchain_messages_to_ui_messages(messages: list) -> list[dict]:
     """Convert raw LangChain checkpoint messages into Row-Bot UI messages."""
     import re as _re
 
+    def _restore_row_bot_ui_metadata(msg_dict: dict, m: object) -> dict:
+        ak = getattr(m, "additional_kwargs", None) or {}
+        metadata = ak.get("row_bot_ui") if isinstance(ak, dict) else None
+        if not isinstance(metadata, dict):
+            return msg_dict
+        for key in (
+            "timestamp",
+            "turn_boundary",
+            "agent_run_ids",
+            "agent_run_refresh_key",
+            "agent_lifecycle",
+            "agent_completion_for",
+        ):
+            if key in metadata:
+                msg_dict[key] = metadata[key]
+        return msg_dict
+
     msgs: list[dict] = []
     pending_tool_results: list[dict] = []
     pending_charts: list[str] = []
@@ -590,6 +607,7 @@ def langchain_messages_to_ui_messages(messages: list) -> list[dict]:
             msg_dict: dict = {"role": "user", "content": strip_file_context(str(content or ""))}
             if user_images:
                 msg_dict["images"] = user_images
+            _restore_row_bot_ui_metadata(msg_dict, m)
             msgs.append(msg_dict)
         elif m_type == "ai":
             ai_content = getattr(m, "content", "") or ""
@@ -626,6 +644,7 @@ def langchain_messages_to_ui_messages(messages: list) -> list[dict]:
             if not ai_content:
                 continue
             msg_dict = {"role": "assistant", "content": ai_content}
+            _restore_row_bot_ui_metadata(msg_dict, m)
             if thinking:
                 msg_dict["thinking"] = thinking
             if pending_tool_results:

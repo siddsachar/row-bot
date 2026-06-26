@@ -25,7 +25,8 @@ def test_sidebar_groups_developer_threads_under_expandable_workspace_rows():
     assert "not _SIDEBAR_DEV_EXPANDED_HAS_SAVED_STATE" in list_block
     assert "_SIDEBAR_DEV_EXPANDED.add(top_workspace_id)" in list_block
     assert 'items.append(("developer_group", group, cat, False))' in list_block
-    assert "if dev_ws in _SIDEBAR_DEV_EXPANDED" in list_block
+    assert "project_ws = row[12]" in list_block
+    assert "if project_ws in _SIDEBAR_DEV_EXPANDED" in list_block
     assert '"folder_open" if is_expanded else "folder"' in list_block
     assert "def _toggle_workspace" in list_block
     assert "developer-thread-child" in list_block

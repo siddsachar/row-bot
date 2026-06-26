@@ -431,21 +431,22 @@ def build_sidebar(
             top_workspace_id = ""
             for row, cat in rows:
                 dev_ws = row[7] if len(row) > 7 else ""
-                if cat != "code" or not dev_ws:
+                project_ws = row[12] if len(row) > 12 else dev_ws
+                if cat != "code" or not project_ws:
                     continue
                 if not top_workspace_id:
-                    top_workspace_id = dev_ws
-                group = groups.get(dev_ws)
+                    top_workspace_id = project_ws
+                group = groups.get(project_ws)
                 if group is None:
-                    workspace_name, workspace_path = _workspace_display(dev_ws)
+                    workspace_name, workspace_path = _workspace_display(project_ws)
                     group = {
-                        "workspace_id": dev_ws,
+                        "workspace_id": project_ws,
                         "name": workspace_name,
                         "path": workspace_path,
                         "updated": row[3] if len(row) > 3 else "",
                         "rows": [],
                     }
-                    groups[dev_ws] = group
+                    groups[project_ws] = group
                 group["rows"].append((row, cat))
 
             if (
@@ -461,13 +462,14 @@ def build_sidebar(
             seen_groups: set[str] = set()
             for row, cat in rows:
                 dev_ws = row[7] if len(row) > 7 else ""
-                if cat == "code" and dev_ws:
-                    if dev_ws in seen_groups:
+                project_ws = row[12] if len(row) > 12 else dev_ws
+                if cat == "code" and project_ws:
+                    if project_ws in seen_groups:
                         continue
-                    seen_groups.add(dev_ws)
-                    group = groups[dev_ws]
+                    seen_groups.add(project_ws)
+                    group = groups[project_ws]
                     items.append(("developer_group", group, cat, False))
-                    if dev_ws in _SIDEBAR_DEV_EXPANDED:
+                    if project_ws in _SIDEBAR_DEV_EXPANDED:
                         for child_row, child_cat in group["rows"]:
                             items.append(("thread", child_row, child_cat, True))
                     continue
@@ -762,7 +764,7 @@ def build_sidebar(
                         except Exception:
                             pass
 
-                    with ui.dialog() as dlg, ui.card().classes("w-96"):
+                    with ui.dialog() as dlg, ui.card().style("width: min(840px, 94vw); max-width: 94vw;"):
                         with ui.row().classes("w-full items-center justify-between"):
                             ui.label("All Conversations").classes("text-h6")
                             select_btn = ui.button("Select").props(

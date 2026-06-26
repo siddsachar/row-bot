@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import subprocess
+import sys
 import time
 from functools import partial
 from pathlib import Path
@@ -13,6 +16,7 @@ from row_bot.approval_policy import approval_label
 from row_bot.developer.storage import (
     add_or_update_local_workspace,
     clone_repository,
+    create_thread_worktree,
     create_workspace_thread,
     detect_git_summary,
     ensure_latest_workspace_thread,
@@ -57,7 +61,12 @@ from row_bot.developer.inspector_snapshot import (
 )
 from row_bot.developer.sandbox import decide_action
 from row_bot.developer.state import DeveloperWorkspace
-from row_bot.ui.chat_components import build_chat_input_bar, build_chat_messages, build_file_upload
+from row_bot.ui.chat_components import (
+    build_chat_input_bar,
+    build_chat_messages,
+    build_file_upload,
+    ensure_composer_control_css,
+)
 from row_bot.ui.helpers import browse_folder, load_thread_messages
 from row_bot.ui.state import AppState, P
 from row_bot.ui.thread_actions import show_rename_thread_dialog
@@ -74,33 +83,21 @@ _APPROVAL_MODE_HELP: dict[str, str] = {
 }
 
 
-_DEVELOPER_QUICK_ACTIONS: tuple[tuple[str, str, str], ...] = (
-    (
-        "Review this repo",
-        "rate_review",
-        "Review this repository for the highest-risk correctness, security, test, and maintainability issues. Inspect the relevant files first, then give findings ordered by severity.",
-    ),
-    (
-        "Fix failing tests",
-        "science",
-        "Find the failing test surface for this repository, run the relevant test command if one is available, and apply the smallest safe fix after you understand the failure.",
-    ),
-    (
-        "Add a feature",
-        "add_task",
-        "Help me add a feature to this repository. If the feature is not specified yet, ask me for the feature details before editing.",
-    ),
-    (
-        "Explain architecture",
-        "account_tree",
-        "Explain this repository's architecture. Inspect the top-level structure and the main entry points, then summarize how the pieces fit together.",
-    ),
-    (
-        "Prepare a PR",
-        "merge_type",
-        "Review the current diff and prepare a pull request title, summary, test notes, and risk notes. Do not push unless I ask.",
-    ),
-)
+def _open_folder_path(path: str) -> None:
+    folder = Path(str(path or "")).expanduser()
+    if not folder.exists():
+        ui.notify("Folder does not exist.", type="warning", close_button=True)
+        return
+    try:
+        if sys.platform.startswith("win"):
+            os.startfile(str(folder))  # type: ignore[attr-defined]
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(folder)])
+        else:
+            subprocess.Popen(["xdg-open", str(folder)])
+    except Exception as exc:
+        logger.debug("Could not open folder", exc_info=True)
+        ui.notify(f"Could not open folder: {exc}", type="negative", close_button=True)
 
 
 def build_developer_tab(
@@ -113,15 +110,32 @@ def build_developer_tab(
 ) -> None:
     """Render the Developer Studio home tab."""
 
-    async def _open_workspace(workspace: DeveloperWorkspace) -> None:
+    async def _open_workspace(workspace: DeveloperWorkspace, *, use_worktree: bool | None = None) -> None:
         from row_bot.memory_extraction import set_active_thread
-        from row_bot.threads import _get_thread_approval_mode, _get_thread_model_override, get_thread_name
+        from row_bot.threads import (
+            _get_thread_approval_mode,
+            _get_thread_developer_workspace,
+            _get_thread_model_override,
+            get_thread_name,
+        )
 
         prev = state.thread_id
-        thread_id = await run.io_bound(ensure_latest_workspace_thread, workspace.id)
+        if use_worktree is None:
+            thread_id = await run.io_bound(ensure_latest_workspace_thread, workspace.id)
+        else:
+            existing_threads = await run.io_bound(list_workspace_threads, workspace.id)
+            if existing_threads:
+                thread_id = str(existing_threads[0][0])
+            else:
+                thread_id = await run.io_bound(
+                    create_workspace_thread,
+                    workspace.id,
+                    use_worktree=use_worktree,
+                )
         thread_name = await run.io_bound(get_thread_name, thread_id)
+        active_workspace_id = await run.io_bound(_get_thread_developer_workspace, thread_id)
         state.active_designer_project = None
-        state.active_developer_workspace_id = workspace.id
+        state.active_developer_workspace_id = active_workspace_id or workspace.id
         state.thread_id = thread_id
         state.thread_name = thread_name or f"Developer: {workspace.name}"
         state.thread_model_override = await run.io_bound(_get_thread_model_override, thread_id)
@@ -132,13 +146,13 @@ def build_developer_tab(
         rebuild_main()
         rebuild_thread_list()
 
-    async def _open_path(path: str | None) -> None:
+    async def _open_path(path: str | None, *, use_worktree: bool | None = None) -> None:
         try:
             workspace = await run.io_bound(add_or_update_local_workspace, path or "")
         except Exception as exc:
             ui.notify(str(exc), type="negative", close_button=True)
             return
-        await _open_workspace(workspace)
+        await _open_workspace(workspace, use_worktree=use_worktree)
 
     async def _clone(repo_url: str | None, parent_path: str | None) -> None:
         try:
@@ -199,24 +213,37 @@ def build_developer_tab(
                             if picked:
                                 path_input.value = picked
 
-                        async def _open_from_dialog() -> None:
+                        async def _open_from_dialog(use_worktree: bool | None = None) -> None:
                             if not str(path_input.value or "").strip():
                                 ui.notify("Choose a repository folder first.", type="warning")
                                 return
                             dlg.close()
-                            await _open_path(path_input.value)
+                            await _open_path(path_input.value, use_worktree=use_worktree)
 
-                        with ui.row().classes("gap-2"):
+                        with ui.row().classes("gap-2 flex-wrap"):
                             ui.button(
                                 "Browse",
                                 icon="folder_open",
                                 on_click=lambda: safe_ui_task(_browse_open_folder, context="developer browse repository folder"),
                             ).props("outline no-caps")
                             ui.button(
-                                "Open Workspace",
+                                "Start in Worktree",
+                                icon="account_tree",
+                                on_click=lambda: safe_ui_task(
+                                    lambda: _open_from_dialog(True),
+                                    context="developer open workspace worktree",
+                                ),
+                            ).props("color=primary no-caps").tooltip(
+                                "Recommended for Git repo roots. Current changes are seeded by default."
+                            )
+                            ui.button(
+                                "Use current folder",
                                 icon="arrow_forward",
-                                on_click=lambda: safe_ui_task(_open_from_dialog, context="developer open workspace"),
-                            ).props("color=primary no-caps")
+                                on_click=lambda: safe_ui_task(
+                                    lambda: _open_from_dialog(False),
+                                    context="developer open workspace current folder",
+                                ),
+                            ).props("outline no-caps")
 
                 with ui.tab_panel(clone_tab).classes("q-pa-none"):
                     with ui.column().classes("w-full gap-3 q-pt-md"):
@@ -369,6 +396,24 @@ def _current_developer_workspace(state: AppState) -> DeveloperWorkspace | None:
     if not state.active_developer_workspace_id:
         return None
     return get_workspace(state.active_developer_workspace_id)
+
+
+def _worktree_action_state(
+    workspace: DeveloperWorkspace,
+    project_workspace: DeveloperWorkspace,
+    git_summary: dict,
+) -> tuple[bool, str]:
+    if workspace.id != project_workspace.id:
+        return False, "This thread is already using a Worktree."
+    if git_summary.get("error"):
+        return False, f"Git check failed: {git_summary.get('error')}"
+    if not git_summary.get("is_git"):
+        return False, "Worktree requires a Git repository."
+    if not git_summary.get("is_repo_root"):
+        repo_root = str(git_summary.get("repo_root") or "").strip()
+        suffix = f" Repo root: {repo_root}" if repo_root else ""
+        return False, f"Open the Git repo root to create a Worktree.{suffix}"
+    return True, "Create a Worktree for this Developer thread."
 
 
 def _render_custom_tools_home(state: AppState, refresh: Callable) -> None:
@@ -1131,17 +1176,34 @@ def _show_custom_tool_wizard(state: AppState, refresh: Callable) -> None:
 def _render_workspace_status_badges(container: object, git_summary: dict, workspace: DeveloperWorkspace) -> None:
     container.clear()
     with container:
-        repo_label = "Git repo" if git_summary.get("is_git") else "Folder"
+        repo_label = "Folder"
+        repo_tooltip = "No Git repository detected."
+        if git_summary.get("is_git"):
+            if git_summary.get("is_repo_root"):
+                repo_label = "Git repo"
+                repo_tooltip = "This workspace is a Git repository root."
+            else:
+                repo_label = "Folder inside Git repo"
+                repo_tooltip = f"Repo root: {git_summary.get('repo_root') or 'unknown'}"
         ui.badge(repo_label, color="green" if git_summary.get("is_git") else "grey").tooltip(
-            "This workspace is a Git repository." if git_summary.get("is_git") else "No Git repository detected."
+            repo_tooltip
         )
+        ui.badge("Worktree" if workspace.hidden else "Current folder", color="blue-grey").tooltip(
+            "This Developer thread is using a git Worktree."
+            if workspace.hidden
+            else "This Developer thread is using the current project folder."
+        )
+        if git_summary.get("repo_root") and not git_summary.get("is_repo_root"):
+            ui.badge("Repo root", color="grey").props("outline").tooltip(
+                str(git_summary.get("repo_root") or "")
+            )
         if git_summary.get("branch"):
             ui.badge(f"Branch: {git_summary['branch']}", color="blue-grey").tooltip("Current Git branch")
         if git_summary.get("dirty"):
             ui.badge("Dirty", color="orange").tooltip("Uncommitted changes are present")
         if git_summary.get("error"):
             ui.badge("Git check failed", color="red").tooltip(str(git_summary.get("error")))
-        mode_label = "Docker Sandbox" if workspace.execution_mode == "docker" else "Local"
+        mode_label = "Run in Docker Sandbox" if workspace.execution_mode == "docker" else "Run in Local"
         mode_tip = (
             "Commands run in a persistent Docker shadow workspace until imported."
             if workspace.execution_mode == "docker"
@@ -1245,12 +1307,24 @@ def build_developer_workspace(
     show_interrupt: Callable | None = None,
 ) -> None:
     """Render the active Developer workspace shell."""
+    ensure_composer_control_css()
     workspace = get_workspace(workspace_id)
     if workspace is None:
         state.active_developer_workspace_id = None
         ui.notify("Developer workspace not found.", type="negative")
         on_back()
         return
+    active_workspace = workspace
+    project_workspace = workspace
+    if state.thread_id:
+        try:
+            from row_bot.threads import _get_thread_project_workspace
+
+            project_workspace_id = _get_thread_project_workspace(state.thread_id)
+            if project_workspace_id:
+                project_workspace = get_workspace(project_workspace_id) or workspace
+        except Exception:
+            logger.debug("Could not resolve Developer project workspace", exc_info=True)
 
     git_summary = detect_git_summary(workspace.path)
     workspace_header: dict[str, object] = {}
@@ -1273,9 +1347,9 @@ def build_developer_workspace(
                 if current_git.get("is_git"):
                     with ui.row().classes("w-full items-end gap-2"):
                         branch_input = ui.input(
-                            "Feature branch",
+                            "Branch",
                             value=suggest_feature_branch(current_workspace.name),
-                        ).props("dense outlined").style("max-width: 260px;")
+                        ).props("dense outlined hide-bottom-space").style("max-width: 260px;")
                         ui.button(
                             "Create branch",
                             icon="call_split",
@@ -1323,16 +1397,22 @@ def build_developer_workspace(
 
     async def _switch_developer_thread(thread_id: str | None) -> None:
         from row_bot.memory_extraction import set_active_thread
-        from row_bot.threads import _get_thread_approval_mode, _get_thread_model_override, get_thread_name
+        from row_bot.threads import (
+            _get_thread_approval_mode,
+            _get_thread_developer_workspace,
+            _get_thread_model_override,
+            get_thread_name,
+        )
         from row_bot.ui.voice_lifecycle import stop_voice_for_thread_change
 
         next_thread_id = str(thread_id or "").strip()
         if not next_thread_id or next_thread_id == state.thread_id:
             return
+        next_workspace_id = await run.io_bound(_get_thread_developer_workspace, next_thread_id)
         stop_voice_for_thread_change(state, p, reason="developer_thread_switch")
         prev = state.thread_id
         state.active_designer_project = None
-        state.active_developer_workspace_id = workspace.id
+        state.active_developer_workspace_id = next_workspace_id or project_workspace.id
         state.thread_id = next_thread_id
         state.thread_name = await run.io_bound(get_thread_name, next_thread_id) or "Untitled"
         state.thread_model_override = await run.io_bound(_get_thread_model_override, next_thread_id)
@@ -1348,14 +1428,40 @@ def build_developer_workspace(
         if rebuild_main is not None:
             rebuild_main(immediate=True, reason="developer_thread_switch")
 
-    async def _create_new_developer_thread() -> None:
+    async def _create_new_developer_thread(use_worktree: bool | None = None) -> None:
         try:
-            thread_id = await run.io_bound(create_workspace_thread, workspace.id)
+            thread_id = await run.io_bound(
+                create_workspace_thread,
+                project_workspace.id,
+                use_worktree=use_worktree,
+            )
         except Exception as exc:
             ui.notify(str(exc), type="negative", close_button=True)
             return
         await _switch_developer_thread(thread_id)
         ui.notify("New Developer thread", type="positive")
+
+    async def _create_worktree_for_current_thread() -> None:
+        if not state.thread_id:
+            return
+        try:
+            allocated = await run.io_bound(
+                create_thread_worktree,
+                state.thread_id,
+                project_workspace.id,
+                objective=str(state.thread_name or "Developer thread"),
+            )
+        except Exception as exc:
+            ui.notify(str(exc), type="negative", close_button=True)
+            return
+        next_workspace_id = str(allocated.get("worktree_workspace_id") or "")
+        if next_workspace_id:
+            state.active_developer_workspace_id = next_workspace_id
+        ui.notify("Developer thread is now using a Worktree", type="positive")
+        if rebuild_thread_list is not None:
+            rebuild_thread_list()
+        if rebuild_main is not None:
+            rebuild_main(immediate=True, reason="developer_thread_worktree_created")
 
     def _show_current_thread_rename() -> None:
         if not state.thread_id:
@@ -1368,42 +1474,108 @@ def build_developer_workspace(
             rebuild_main=rebuild_main,
         )
 
-    with ui.row().classes("w-full h-full no-wrap gap-2").style("overflow: hidden;"):
+    with ui.row().classes("w-full h-full no-wrap gap-2 row-bot-developer-workspace-shell").style(
+        "overflow: hidden;"
+    ):
         with ui.column().classes("h-full gap-2").style("min-width: 0; flex: 1; overflow: hidden;"):
             with ui.row().classes("w-full items-start gap-2").style("flex-wrap: wrap;"):
                 with ui.column().classes("gap-0").style("min-width: 220px; flex: 1 1 280px;"):
                     with ui.row().classes("items-center gap-2 no-wrap"):
                         ui.button(icon="arrow_back", on_click=on_back).props("flat dense round").tooltip("Back to Developer")
-                        ui.label(workspace.name).classes("text-h5 ellipsis")
+                        ui.label(project_workspace.name).classes("text-h5 ellipsis")
                     with ui.row().classes("items-center gap-1 no-wrap").style("min-width: 0;"):
                         ui.label(str(state.thread_name or "Untitled")).classes("text-xs text-grey-5 ellipsis").style("min-width: 0;")
                         ui.button(icon="edit", on_click=_show_current_thread_rename).props("flat dense round size=xs").tooltip("Rename")
-                    ui.label(workspace.path).classes("text-xs text-grey-6 ellipsis")
+                    working_label = (
+                        f"Worktree: {workspace.path}"
+                        if workspace.id != project_workspace.id
+                        else "Working copy: Current folder"
+                    )
+                    ui.label(f"Project: {project_workspace.path}").classes("text-xs text-grey-6 ellipsis")
+                    ui.label(working_label).classes("text-xs text-grey-6 ellipsis")
+                    if state.thread_id and workspace.id != project_workspace.id:
+                        try:
+                            from row_bot.developer.worktrees import source_dirty_missing_from_worktree
+
+                            missing_summary = source_dirty_missing_from_worktree("thread", state.thread_id)
+                        except Exception:
+                            missing_summary = {}
+                            logger.debug("Could not compare original folder with Worktree", exc_info=True)
+                        missing = list((missing_summary or {}).get("missing") or [])
+                        if missing:
+                            sample = ", ".join(missing[:3])
+                            more = f" +{len(missing) - 3} more" if len(missing) > 3 else ""
+                            ui.label(
+                                f"Original folder has changes not in this Worktree: {sample}{more}"
+                            ).classes("text-xs text-amber-4 ellipsis").tooltip(
+                                "The active working copy is the Worktree, not the original folder."
+                            )
                 with ui.row().classes("items-center justify-end gap-2").style(
                     "flex: 1 1 520px; min-width: min(100%, 300px); flex-wrap: wrap;"
                 ):
-                    thread_rows = list_workspace_threads(workspace.id)
+                    thread_rows = list_workspace_threads(project_workspace.id)
                     thread_options = {row[0]: row[1] or "Untitled" for row in thread_rows}
                     if state.thread_id and state.thread_id not in thread_options:
                         thread_options[state.thread_id] = str(state.thread_name or "Untitled")
-                    ui.select(
-                        thread_options,
-                        value=state.thread_id,
-                        label="Thread",
-                        on_change=lambda e: safe_ui_task(
-                            lambda: _switch_developer_thread(e.value),
-                            context="developer thread switch",
-                        ),
-                    ).props("dense outlined").classes("text-xs").style(
+                    with ui.element("div").classes("row-bot-composer-control-group").style(
                         "flex: 1 1 220px; min-width: min(100%, 180px); max-width: 330px;"
+                    ):
+                        ui.select(
+                            thread_options,
+                            value=state.thread_id,
+                            label="Thread",
+                            on_change=lambda e: safe_ui_task(
+                                lambda: _switch_developer_thread(e.value),
+                                context="developer thread switch",
+                            ),
+                        ).props("dense borderless options-dense hide-bottom-space").classes(
+                            "text-xs row-bot-composer-select"
+                        ).style("width: 100%; min-width: 0;")
+                    new_thread_btn = ui.button(icon="add").props("flat dense round").tooltip(
+                        "New thread in Worktree is recommended for Git repo roots"
                     )
-                    ui.button(
-                        icon="add",
+                    with new_thread_btn:
+                        with ui.menu():
+                            worktree_ok, worktree_reason = _worktree_action_state(
+                                project_workspace,
+                                project_workspace,
+                                detect_git_summary(project_workspace.path),
+                            )
+                            worktree_item = ui.menu_item(
+                                "New Thread in Worktree (Recommended)",
+                                on_click=lambda: safe_ui_task(
+                                    lambda: _create_new_developer_thread(True),
+                                    context="developer new thread worktree",
+                                ),
+                            )
+                            if not worktree_ok:
+                                worktree_item.disable()
+                                worktree_item.tooltip(worktree_reason)
+                            ui.menu_item(
+                                "New Thread in Current Folder",
+                                on_click=lambda: safe_ui_task(
+                                    lambda: _create_new_developer_thread(False),
+                                    context="developer new thread current folder",
+                                ),
+                            )
+                    worktree_enabled, worktree_reason = _worktree_action_state(
+                        workspace,
+                        project_workspace,
+                        git_summary,
+                    )
+                    worktree_btn = ui.button(
+                        "Create Worktree",
+                        icon="account_tree",
                         on_click=lambda: safe_ui_task(
-                            _create_new_developer_thread,
-                            context="developer new thread",
-                        ),
-                    ).props("flat dense round").tooltip("New thread")
+                            _create_worktree_for_current_thread,
+                            context="developer create thread worktree",
+                        ) if worktree_enabled else None,
+                    ).props("flat dense no-caps")
+                    if worktree_enabled:
+                        worktree_btn.tooltip("Create Worktree")
+                    else:
+                        worktree_btn.disable()
+                        worktree_btn.tooltip(worktree_reason)
                     from row_bot.ui.profile_picker import build_profile_picker
 
                     build_profile_picker(
@@ -1414,36 +1586,29 @@ def build_developer_workspace(
                         label="Profile",
                         surface="developer",
                     )
-                    ui.select(
-                        {
-                            "local": "Local",
-                            "docker": "Docker Sandbox",
-                        },
-                        value=workspace.execution_mode,
-                        on_change=lambda e: safe_ui_task(
-                            lambda: _set_execution_mode(e.value),
-                            context="developer execution mode change",
-                        ),
-                    ).props("dense outlined").classes("text-xs").style(
+                    with ui.element("div").classes("row-bot-composer-control-group").style(
                         "flex: 0 1 180px; min-width: min(100%, 150px);"
-                    )
+                    ):
+                        ui.select(
+                            {
+                                "local": "Local",
+                                "docker": "Docker Sandbox",
+                            },
+                            value=workspace.execution_mode,
+                            label="Run in",
+                            on_change=lambda e: safe_ui_task(
+                                lambda: _set_execution_mode(e.value),
+                                context="developer execution mode change",
+                            ),
+                        ).props("dense borderless options-dense hide-bottom-space").classes(
+                            "text-xs row-bot-composer-select"
+                        ).style("width: 100%; min-width: 0;")
                     ui.badge("Developer Preview", color="grey-8").props("outline")
 
             workspace_header["badges"] = ui.row().classes("w-full flex-wrap gap-2")
             _render_workspace_status_badges(workspace_header["badges"], git_summary, workspace)
             workspace_header["branch"] = ui.column().classes("w-full gap-1")
             _refresh_header_from_snapshot()
-
-            with ui.row().classes("w-full flex-wrap gap-2"):
-                for label, icon, prompt in _DEVELOPER_QUICK_ACTIONS:
-                    ui.button(
-                        label,
-                        icon=icon,
-                        on_click=lambda text=prompt: safe_ui_task(
-                            lambda: send_message(text),
-                            context="developer quick action",
-                        ),
-                    ).props("flat dense outline no-caps").classes("text-grey-4")
 
             from row_bot.ui.agent_drawer import build_parent_agent_drawer
 
@@ -1453,6 +1618,23 @@ def build_developer_workspace(
                 rebuild_main=rebuild_main,
                 rebuild_thread_list=rebuild_thread_list,
             )
+
+            def _open_child_agent_thread(agent_run: dict) -> None:
+                from row_bot.ui.agent_drawer import open_agent_thread
+
+                open_agent_thread(
+                    agent_run,
+                    state=state,
+                    p=p,
+                    rebuild_main=rebuild_main or (lambda **_kwargs: None),
+                    rebuild_thread_list=rebuild_thread_list,
+                )
+
+            def _add_developer_chat_message(msg: dict) -> None:
+                try:
+                    add_chat_message(msg, on_open_agent_thread=_open_child_agent_thread)
+                except TypeError:
+                    add_chat_message(msg)
 
             def _refresh_goal_strip() -> None:
                 if p.goal_strip_container is None:
@@ -1479,7 +1661,7 @@ def build_developer_workspace(
                 p,
                 state,
                 messages=state.messages,
-                add_chat_message=add_chat_message,
+                add_chat_message=_add_developer_chat_message,
                 placeholder_text="Ask Developer to inspect this repo, plan a change, or review code.",
                 cloud_tint=None,
             )
@@ -1523,6 +1705,8 @@ def build_developer_workspace(
             state.thread_id,
             state=state,
             add_chat_message=add_chat_message,
+            rebuild_main=rebuild_main,
+            rebuild_thread_list=rebuild_thread_list,
         )
 
         header_seen: dict[str, str] = {"fingerprint": ""}
@@ -1546,9 +1730,15 @@ def _build_developer_inspector(
     *,
     state: AppState | None = None,
     add_chat_message: Callable | None = None,
+    rebuild_main: Callable[..., None] | None = None,
+    rebuild_thread_list: Callable[[], None] | None = None,
 ) -> Callable[[], None]:
     """Render the Developer Inspector from a background snapshot cache."""
-    host = ui.element("div").classes("h-full").style("flex-shrink: 0; overflow: hidden;")
+    host_id = f"developer-inspector-host-{id(workspace)}"
+    host = ui.element("div").classes("h-full row-bot-developer-inspector-host").style(
+        "display: none; flex: 0 1 clamp(280px, 34%, 520px); min-width: 260px; max-width: 48%; overflow: hidden;"
+    )
+    host._props["id"] = host_id
     version_state: dict[str, object] = {"version": -1, "last_request": 0.0, "updater": None}
 
     def _render(snapshot: InspectorSnapshot | None = None, *, notify: bool = False) -> None:
@@ -1573,6 +1763,8 @@ def _build_developer_inspector(
                     state=state,
                     add_chat_message=add_chat_message,
                     on_refresh=lambda: _force_refresh(),
+                    rebuild_main=rebuild_main,
+                    rebuild_thread_list=rebuild_thread_list,
                 )
             version_state["updater"] = updater
         else:
@@ -1615,6 +1807,8 @@ def _build_developer_inspector_static(
     state: AppState | None = None,
     add_chat_message: Callable | None = None,
     on_refresh: Callable[[], None] | None = None,
+    rebuild_main: Callable[..., None] | None = None,
+    rebuild_thread_list: Callable[[], None] | None = None,
 ) -> Callable[[InspectorSnapshot], None]:
     from row_bot.developer.edits import revert_change_set
     from row_bot.developer.github import create_pull_request, get_gh_status, push_current_branch, suggest_pull_request_text
@@ -1641,33 +1835,59 @@ def _build_developer_inspector_static(
         drag_handle.on("mouseleave", lambda: drag_handle.style("background: transparent;"))
 
         inspector_panel = ui.column().classes("h-full gap-2 row-bot-inner-panel").style(
-            "width: clamp(560px, 34vw, 680px); min-width: 560px; max-width: 65vw; "
+            "width: 100%; min-width: 0; max-width: 100%; "
             "overflow-y: auto; padding: 0.75rem;"
         )
         inspector_panel._props["id"] = panel_id
 
     ui.run_javascript(f"""
-    (function() {{
+    (function initDeveloperInspectorLayout(attempt) {{
         const handle = document.getElementById({resize_id!r});
         const panel = document.getElementById({panel_id!r});
+        const host = panel ? panel.parentElement : null;
         const storageKey = 'rowBotDeveloperInspectorWidth';
-        if (!handle || !panel || handle.dataset.rowBotResizable === '1') return;
+        if (!host || !handle || !panel) {{
+            if ((attempt || 0) < 20) {{
+                window.setTimeout(() => initDeveloperInspectorLayout((attempt || 0) + 1), 100);
+            }}
+            return;
+        }}
+        if (handle.dataset.rowBotResizable === '1') return;
         handle.dataset.rowBotResizable = '1';
 
+        function shellWidth() {{
+            const shell = panel.closest('.row-bot-developer-workspace-shell');
+            return shell ? shell.getBoundingClientRect().width : window.innerWidth;
+        }}
+
+        function syncHostVisibility() {{
+            host.style.display = shellWidth() < 760 ? 'none' : '';
+        }}
+
         function clampWidth(width) {{
-            const viewportMax = Math.max(560, Math.min(920, window.innerWidth * 0.65));
-            return Math.max(420, Math.min(viewportMax, width));
+            const shellMax = Math.max(260, Math.min(680, shellWidth() * 0.42));
+            return Math.max(260, Math.min(shellMax, width));
         }}
 
         function applyWidth(width) {{
             const clamped = clampWidth(width);
             panel.style.width = clamped + 'px';
-            panel.style.minWidth = clamped + 'px';
-            panel.style.maxWidth = '65vw';
+            panel.style.minWidth = '0';
+            panel.style.maxWidth = '100%';
+            if (panel.parentElement) {{
+                panel.parentElement.style.flexBasis = clamped + 'px';
+                panel.parentElement.style.maxWidth = '48%';
+            }}
         }}
 
         const saved = Number.parseInt(localStorage.getItem(storageKey) || '', 10);
         if (Number.isFinite(saved)) applyWidth(saved);
+        syncHostVisibility();
+        window.addEventListener('resize', syncHostVisibility);
+        if (window.ResizeObserver) {{
+            const shell = panel.closest('.row-bot-developer-workspace-shell');
+            if (shell) new ResizeObserver(syncHostVisibility).observe(shell);
+        }}
 
         handle.addEventListener('mousedown', function(e) {{
             const startX = e.clientX;
@@ -1694,7 +1914,7 @@ def _build_developer_inspector_static(
             document.addEventListener('mousemove', onMove);
             document.addEventListener('mouseup', onUp);
         }});
-    }})();
+    }})(0);
     """)
 
     latest: dict[str, InspectorSnapshot] = {"snapshot": snapshot}
@@ -1787,6 +2007,7 @@ def _build_developer_inspector_static(
 
         for name, label, icon, opened in (
             ("overview", "Overview", "dashboard", True),
+            ("working_copy", "Working Copy", "account_tree", True),
             ("safety", "Approval Policy", "shield", True),
             ("sandbox", "Sandbox", "inventory_2", True),
             ("todos", "Todos", "checklist", True),
@@ -1829,6 +2050,142 @@ def _build_developer_inspector_static(
                 ui.label("Uncommitted changes detected. Developer will treat this workspace as dirty.").classes("text-xs text-orange-4")
 
         _render_if_changed("overview", (workspace_now.name, workspace_now.path, workspace_now.approval_mode, git_summary, diff_stats), section_bodies["overview"], _overview)
+
+        def _working_copy() -> None:
+            worktree_row = None
+            project_workspace = workspace_now
+            try:
+                from row_bot.developer.worktrees import (
+                    get_worktree_for_workspace,
+                    source_dirty_missing_from_worktree,
+                    worktree_diff_summary,
+                )
+                from row_bot.threads import _get_thread_project_workspace
+
+                worktree_row = get_worktree_for_workspace(workspace_now.id)
+                project_workspace_id = _get_thread_project_workspace(next_snapshot.thread_id or "")
+                if project_workspace_id:
+                    project_workspace = get_workspace(project_workspace_id) or workspace_now
+            except Exception:
+                logger.debug("Could not load Developer Worktree metadata", exc_info=True)
+
+            with ui.row().classes("items-center gap-2 flex-wrap"):
+                ui.badge("Worktree" if workspace_now.hidden else "Current folder", color="blue-grey").props("outline")
+                if git_summary.get("branch"):
+                    ui.badge(str(git_summary["branch"]), color="grey").props("outline")
+            ui.label(workspace_now.path).classes("text-xs text-grey-6 ellipsis")
+            if worktree_row:
+                metadata = worktree_row.get("metadata_json") or {}
+                if worktree_row.get("project_path"):
+                    ui.label(f"Project: {worktree_row['project_path']}").classes("text-xs text-grey-7 ellipsis")
+                if worktree_row.get("base_commit"):
+                    ui.label(f"Base: {str(worktree_row['base_commit'])[:12]}").classes("text-xs text-grey-7")
+                if metadata.get("seeded_from_current_changes"):
+                    ui.label("Seeded from current changes.").classes("text-xs text-amber-3")
+                try:
+                    missing_summary = source_dirty_missing_from_worktree(
+                        str(worktree_row["owner_kind"]),
+                        str(worktree_row["owner_id"]),
+                    )
+                except Exception:
+                    missing_summary = {}
+                    logger.debug("Could not compare source dirty files for Worktree", exc_info=True)
+                missing = list((missing_summary or {}).get("missing") or [])
+                if missing:
+                    ui.label(
+                        "Original folder has files not present in this Worktree: "
+                        + ", ".join(missing[:4])
+                    ).classes("text-xs text-amber-4")
+
+                def _compare(row=worktree_row) -> None:
+                    try:
+                        from row_bot.developer.worktrees import worktree_diff_summary
+
+                        summary = worktree_diff_summary(str(row["owner_kind"]), str(row["owner_id"]))
+                    except Exception as exc:
+                        ui.notify(f"Could not compare Worktree: {exc}", type="negative", close_button=True)
+                        return
+                    lines = summary.get("status_lines") or []
+                    with ui.dialog() as dlg, ui.card().classes("q-pa-md").style("width: min(720px, 94vw);"):
+                        with ui.row().classes("w-full items-center justify-between no-wrap"):
+                            ui.label("Compare Worktree").classes("text-h6")
+                            ui.button(icon="close", on_click=dlg.close).props("round flat dense")
+                        if lines:
+                            ui.code("\n".join(str(line) for line in lines)).classes("w-full text-xs")
+                        else:
+                            ui.label("No changed files detected.").classes("text-sm text-grey-6")
+                    dlg.open()
+
+                with ui.row().classes("gap-2 flex-wrap"):
+                    ui.button(
+                        "Open worktree",
+                        icon="folder_open",
+                        on_click=lambda: _open_folder_path(workspace_now.path),
+                    ).props("dense outline no-caps size=sm")
+                    ui.button(
+                        "Compare",
+                        icon="difference",
+                        on_click=_compare,
+                    ).props("dense outline no-caps size=sm")
+            else:
+                action_enabled, action_reason = _worktree_action_state(
+                    workspace_now,
+                    project_workspace,
+                    git_summary,
+                )
+
+                async def _create_inspector_worktree() -> None:
+                    if state is None or not next_snapshot.thread_id:
+                        return
+                    try:
+                        allocated = await run.io_bound(
+                            create_thread_worktree,
+                            next_snapshot.thread_id,
+                            project_workspace.id,
+                            objective=str(getattr(state, "thread_name", "") or "Developer thread"),
+                        )
+                    except Exception as exc:
+                        ui.notify(str(exc), type="negative", close_button=True)
+                        return
+                    next_workspace_id = str(allocated.get("worktree_workspace_id") or "")
+                    if next_workspace_id:
+                        state.active_developer_workspace_id = next_workspace_id
+                    ui.notify("Developer thread is now using a Worktree", type="positive")
+                    if rebuild_thread_list is not None:
+                        rebuild_thread_list()
+                    if rebuild_main is not None:
+                        rebuild_main(immediate=True, reason="developer_inspector_worktree_created")
+                    elif on_refresh is not None:
+                        on_refresh()
+
+                ui.label(
+                    "This thread is using the current project folder."
+                ).classes("text-xs text-grey-6")
+                create_btn = ui.button(
+                    "Create Worktree",
+                    icon="account_tree",
+                    on_click=lambda: safe_ui_task(
+                        _create_inspector_worktree,
+                        context="developer inspector create worktree",
+                    ) if action_enabled else None,
+                ).props("dense outline no-caps size=sm")
+                if action_enabled:
+                    create_btn.tooltip("Create Worktree")
+                else:
+                    create_btn.disable()
+                    create_btn.tooltip(action_reason)
+
+        _render_if_changed(
+            "working_copy",
+            (
+                workspace_now.id,
+                workspace_now.hidden,
+                workspace_now.path,
+                git_summary,
+            ),
+            section_bodies["working_copy"],
+            _working_copy,
+        )
 
         def _safety() -> None:
             ui.label(_APPROVAL_MODE_HELP.get(workspace_now.approval_mode, "")).classes("text-xs text-grey-6 q-mb-xs")

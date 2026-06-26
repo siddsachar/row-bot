@@ -49,6 +49,26 @@ def _public_run(run: dict[str, Any] | None) -> dict[str, Any]:
             parent_messages = get_agent_parent_messages(run_id, limit=20)
         except Exception:
             parent_messages = []
+    workspace: dict[str, Any] = {
+        "id": run.get("workspace_id", ""),
+        "path": run.get("workspace_path", ""),
+        "mode": run.get("workspace_mode", ""),
+    }
+    if workspace["mode"] == "worktree" and run_id:
+        try:
+            from row_bot.developer.worktrees import get_worktree_for_run
+
+            worktree = get_worktree_for_run(run_id)
+            if worktree:
+                metadata = worktree.get("metadata_json") or {}
+                workspace.update({
+                    "branch": worktree.get("branch_name", ""),
+                    "project_workspace_id": worktree.get("project_workspace_id", ""),
+                    "working_workspace_id": worktree.get("worktree_workspace_id", ""),
+                    "seeded_from_current_changes": bool(metadata.get("seeded_from_current_changes")),
+                })
+        except Exception:
+            pass
     return {
         "id": run.get("id", ""),
         "kind": run.get("kind", ""),
@@ -72,6 +92,7 @@ def _public_run(run: dict[str, Any] | None) -> dict[str, Any]:
         "summary": run.get("summary", ""),
         "error": run.get("error", ""),
         "model_override": run.get("model_override", ""),
+        "workspace": workspace,
         "stop_requested": bool(run.get("stop_requested", False)),
         "parent_message_count": len(parent_messages),
         "latest_parent_message": parent_messages[-1] if parent_messages else "",
@@ -173,6 +194,18 @@ class _DelegateWorkInput(BaseModel):
         default="",
         description="Optional parent thread id. Omit to use the current thread.",
     )
+    developer_workspace_id: str = Field(
+        default="",
+        description="Optional Developer workspace id to use. Omit to inherit the current thread workspace.",
+    )
+    use_worktree: bool = Field(
+        default=False,
+        description="Run the child in its own local git Worktree when a git-backed Developer workspace is available.",
+    )
+    workspace_mode: str = Field(
+        default="",
+        description="Optional workspace mode override: auto, read_only, single_writer, or worktree.",
+    )
     parent_run_id: str = Field(default="", description="Optional parent Agent Run id for nested tracking.")
     parent_message_id: str = Field(default="", description="Optional parent message id that triggered delegation.")
     wait: bool = Field(
@@ -241,6 +274,9 @@ def _delegate_work(
     display_name: str = "",
     model: str = "",
     parent_thread_id: str = "",
+    developer_workspace_id: str = "",
+    use_worktree: bool = False,
+    workspace_mode: str = "",
     parent_run_id: str = "",
     parent_message_id: str = "",
     wait: bool = False,
@@ -267,20 +303,30 @@ def _delegate_work(
                 "message": str(exc),
                 "model": str(model or "").strip(),
             })
-    run = agent_runner.spawn_agent_run(
-        objective,
-        parent_thread_id=parent_thread_id,
-        parent_run_id=parent_run_id,
-        parent_message_id=parent_message_id,
-        profile=profile,
-        display_name=display_name,
-        context=context,
-        context_mode=context_mode,
-        enabled_tool_names=enabled_tool_names,
-        model_override=model_override,
-        wait=wait,
-        timeout=timeout_seconds if wait else None,
-    )
+    try:
+        run = agent_runner.spawn_agent_run(
+            objective,
+            parent_thread_id=parent_thread_id,
+            parent_run_id=parent_run_id,
+            parent_message_id=parent_message_id,
+            profile=profile,
+            display_name=display_name,
+            context=context,
+            context_mode=context_mode,
+            enabled_tool_names=enabled_tool_names,
+            model_override=model_override,
+            developer_workspace_id=developer_workspace_id,
+            use_worktree=use_worktree,
+            workspace_mode=workspace_mode,
+            wait=wait,
+            timeout=timeout_seconds if wait else None,
+        )
+    except Exception as exc:
+        return _json_response({
+            "ok": False,
+            "message": str(exc),
+            "run": {},
+        })
     if wait:
         status = str((run or {}).get("status") or "")
         if status in TERMINAL_STATUSES:

@@ -38,9 +38,11 @@ class AgentSpawnRequest:
     explicit_profile: bool = False
     source: str = "natural"
     model: str = ""
+    use_worktree: bool = False
+    developer_workspace_id: str = ""
 
 
-_DIRECT_AGENT_VERBS = {"use", "create", "spawn", "start", "launch", "make"}
+_DIRECT_AGENT_VERBS = {"ask", "create", "spawn", "start", "launch", "make"}
 _DIRECT_AGENT_MARKERS = (" to ", " for ", " about ", " on ")
 _AGENT_NOUN_RE = re.compile(r"^(?:an?\s+|another\s+|new\s+)?(?:child\s+)?(?:subagent|agent)\b")
 
@@ -114,6 +116,34 @@ def _strip_task_marker(text: str) -> str:
     return raw
 
 
+_WORKTREE_INTENT_PATTERNS = (
+    re.compile(
+        r"\b(?:in|using|with)\s+(?:an?\s+)?(?:isolated|own)\s+"
+        r"(?:worktree|workspace|branch)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bin\s+its\s+own\s+(?:worktree|workspace|branch)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bwithout\s+(?:editing|touching|changing)\s+(?:my\s+|the\s+)?current\s+"
+        r"(?:folder|workspace|files)\b",
+        re.IGNORECASE,
+    ),
+)
+
+
+def _clean_agent_objective(text: str) -> tuple[str, bool]:
+    objective = _strip_task_marker(text)
+    use_worktree = False
+    for pattern in _WORKTREE_INTENT_PATTERNS:
+        objective, count = pattern.subn("", objective)
+        use_worktree = use_worktree or count > 0
+    objective = _strip_task_marker(" ".join(objective.split()).strip(" .,;:"))
+    return objective, use_worktree
+
+
 def _parse_natural_agent_request(text: str) -> AgentSpawnRequest | None:
     raw = " ".join(str(text or "").strip().split())
     if not raw or raw.startswith("/"):
@@ -143,34 +173,37 @@ def _parse_natural_agent_request(text: str) -> AgentSpawnRequest | None:
             count=1,
             flags=re.IGNORECASE,
         ).strip()
-        objective = _strip_task_marker(after_profile)
+        objective, use_worktree = _clean_agent_objective(after_profile)
         if objective:
             return AgentSpawnRequest(
                 objective=objective,
                 profile=profile_slug,
                 explicit_profile=True,
                 source="natural",
+                use_worktree=use_worktree,
             )
 
     agent_match = _AGENT_NOUN_RE.match(rest.lower())
     if agent_match:
-        objective = _strip_task_marker(rest[agent_match.end():].strip())
+        objective, use_worktree = _clean_agent_objective(rest[agent_match.end():].strip())
         if objective:
             return AgentSpawnRequest(
                 objective=objective,
                 profile=DEFAULT_DIRECT_AGENT_PROFILE,
                 explicit_profile=False,
                 source="natural",
+                use_worktree=use_worktree,
             )
 
     if lower.startswith("delegate "):
-        objective = _strip_task_marker(rest)
+        objective, use_worktree = _clean_agent_objective(rest)
         if objective:
             return AgentSpawnRequest(
                 objective=objective,
                 profile=DEFAULT_DIRECT_AGENT_PROFILE,
                 explicit_profile=False,
                 source="natural",
+                use_worktree=use_worktree,
             )
 
     return None
@@ -190,16 +223,19 @@ def parse_agent_spawn_text(text: str) -> AgentSpawnRequest | None:
         arg = raw.split(maxsplit=1)[1].strip() if len(raw.split(maxsplit=1)) > 1 else ""
         if not arg:
             return None
-        arg, model = _extract_model_option(arg)
+        arg, options = _extract_agent_options(arg)
         if arg is None:
             return None
+        model = str(options.get("model") or "")
+        use_worktree_option = bool(options.get("use_worktree"))
+        developer_workspace_id = str(options.get("developer_workspace_id") or "")
         arg = arg.strip()
         if not arg:
             return None
         profile_match = _consume_leading_profile(arg)
         if profile_match:
             profile_slug, objective = profile_match
-            objective = _strip_task_marker(objective)
+            objective, use_worktree_text = _clean_agent_objective(objective)
             if objective:
                 return AgentSpawnRequest(
                     objective=objective,
@@ -207,15 +243,73 @@ def parse_agent_spawn_text(text: str) -> AgentSpawnRequest | None:
                     explicit_profile=True,
                     source="slash",
                     model=model,
+                    use_worktree=use_worktree_option or use_worktree_text,
+                    developer_workspace_id=developer_workspace_id,
                 )
+        objective, use_worktree_text = _clean_agent_objective(arg)
+        if not objective:
+            return None
         return AgentSpawnRequest(
-            objective=arg,
+            objective=objective,
             profile=DEFAULT_DIRECT_AGENT_PROFILE,
             explicit_profile=False,
             source="slash",
             model=model,
+            use_worktree=use_worktree_option or use_worktree_text,
+            developer_workspace_id=developer_workspace_id,
         )
-    return None
+    return _parse_natural_agent_request(raw)
+
+
+def _extract_agent_options(arg: str) -> tuple[str | None, dict[str, object]]:
+    """Remove supported strict slash-command options from an argument."""
+    parts = str(arg or "").strip().split()
+    if not parts:
+        return "", {"model": "", "use_worktree": False, "developer_workspace_id": ""}
+    kept: list[str] = []
+    options: dict[str, object] = {
+        "model": "",
+        "use_worktree": False,
+        "developer_workspace_id": "",
+    }
+    index = 0
+    while index < len(parts):
+        part = parts[index]
+        if part == "--model":
+            if index + 1 >= len(parts):
+                return None, options
+            options["model"] = parts[index + 1].strip()
+            index += 2
+            continue
+        if part.startswith("--model="):
+            model = part.split("=", 1)[1].strip()
+            if not model:
+                return None, options
+            options["model"] = model
+            index += 1
+            continue
+        if part == "--worktree":
+            options["use_worktree"] = True
+            index += 1
+            continue
+        if part in {"--workspace", "--developer-workspace"}:
+            if index + 1 >= len(parts):
+                return None, options
+            options["developer_workspace_id"] = parts[index + 1].strip()
+            index += 2
+            continue
+        if part.startswith("--workspace=") or part.startswith("--developer-workspace="):
+            workspace_id = part.split("=", 1)[1].strip()
+            if not workspace_id:
+                return None, options
+            options["developer_workspace_id"] = workspace_id
+            index += 1
+            continue
+        if part.startswith("--"):
+            return None, options
+        kept.append(part)
+        index += 1
+    return " ".join(kept).strip(), options
 
 
 def _extract_model_option(arg: str) -> tuple[str | None, str]:
@@ -247,14 +341,16 @@ def _extract_model_option(arg: str) -> tuple[str | None, str]:
 
 def format_agent_spawn_usage() -> str:
     return (
-        "Usage: `/agent [--model=model:provider:model-id] [profile] <task>`.\n\n"
+        "Usage: `/agent [--worktree] [--workspace=id] [--model=model:provider:model-id] [profile] <task>`.\n\n"
         "Examples:\n"
         "- `/agent review check this plan for risk`\n"
         "- `/agent develop implement the focused fix`\n"
+        "- `/agent --worktree develop fix the failing tests`\n"
         "- `/agent --model=model:claude_subscription:claude-opus-4-8 worker only reply: ok`\n\n"
         "Generic Agent requests use `worker`. A specialized profile is used only "
         "when you explicitly name an enabled Agent Profile. The optional model "
-        "must be an active pinned Brain canonical ref or exact pinned label."
+        "must be an active pinned Brain canonical ref or exact pinned label. "
+        "Worktree gives the child Agent its own local git worktree."
     )
 
 
@@ -276,6 +372,7 @@ def spawn_agent_from_request(
     request: AgentSpawnRequest,
     *,
     enabled_tool_names: Iterable[str] | None = None,
+    developer_workspace_id: str = "",
 ) -> dict:
     """Start a direct child Agent Run from a parsed user request."""
     if not thread_id:
@@ -302,6 +399,8 @@ def spawn_agent_from_request(
         context_mode="auto",
         enabled_tool_names=list(enabled_tool_names or []),
         model_override=model_override,
+        developer_workspace_id=request.developer_workspace_id or developer_workspace_id,
+        use_worktree=request.use_worktree,
         wait=False,
     )
 
@@ -314,7 +413,12 @@ def format_agent_spawn_started(run: dict, request: AgentSpawnRequest) -> str:
     suffix = f" (`{run_id}`)" if run_id else ""
     model = str((run or {}).get("model_override") or request.model or "").strip()
     model_text = f" Model: `{model}`." if model else ""
-    return f"Started Agent **{name}** with profile `{profile}`. Status: `{status}`{suffix}.{model_text}"
+    workspace_mode = str((run or {}).get("workspace_mode") or "").strip()
+    workspace_text = " Workspace: Worktree." if workspace_mode == "worktree" else ""
+    return (
+        f"Started Agent **{name}** with profile `{profile}`. "
+        f"Status: `{status}`{suffix}.{workspace_text}{model_text}"
+    )
 
 
 def _profile_lines(query: str = "", *, limit: int = 18) -> list[str]:

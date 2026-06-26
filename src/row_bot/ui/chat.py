@@ -108,13 +108,88 @@ def build_chat(
             logger.debug("Could not ask parent to use Agent result", exc_info=True)
             ui.notify(f"Could not ask parent to use Agent result: {exc}", type="negative", close_button=True)
 
+    def _open_child_agent_thread(agent_run: dict) -> None:
+        from row_bot.ui.agent_drawer import open_agent_thread
+
+        open_agent_thread(
+            agent_run,
+            state=state,
+            p=p,
+            rebuild_main=rebuild_main,
+            rebuild_thread_list=rebuild_thread_list,
+        )
+
     def _add_chat_message(msg: dict) -> None:
-        add_chat_message(msg, on_use_agent_result=_ask_parent_to_use_agent_result)
+        add_chat_message(
+            msg,
+            on_use_agent_result=_ask_parent_to_use_agent_result,
+            on_open_agent_thread=_open_child_agent_thread,
+        )
+
+    def _child_agent_parent_context() -> dict[str, str] | None:
+        if not state.thread_id:
+            return None
+        try:
+            from row_bot.agent_runs import get_agent_run_for_thread
+            from row_bot.threads import _get_thread_type, get_thread_name
+
+            if _get_thread_type(state.thread_id) != "agent_child":
+                return None
+            run_row = get_agent_run_for_thread(state.thread_id)
+            parent_thread_id = str((run_row or {}).get("parent_thread_id") or "").strip()
+            if not parent_thread_id:
+                return None
+            return {
+                "parent_thread_id": parent_thread_id,
+                "parent_name": get_thread_name(parent_thread_id) or "Parent thread",
+                "run_id": str((run_row or {}).get("id") or ""),
+            }
+        except Exception:
+            logger.debug("Could not resolve child Agent parent context", exc_info=True)
+            return None
+
+    def _open_parent_thread(parent_thread_id: str) -> None:
+        try:
+            from row_bot.memory_extraction import set_active_thread
+            from row_bot.threads import (
+                _get_thread_approval_mode,
+                _get_thread_developer_workspace,
+                _get_thread_model_override,
+                get_thread_name,
+            )
+            from row_bot.ui.helpers import load_thread_messages
+            from row_bot.ui.voice_lifecycle import stop_voice_for_thread_change
+
+            target = str(parent_thread_id or "").strip()
+            if not target:
+                return
+            prev = state.thread_id
+            prev_gen = _active_generations.get(prev) if prev else None
+            if prev_gen and str(getattr(prev_gen, "status", "")) == "streaming":
+                from row_bot.ui.streaming import _detach_generation
+
+                _detach_generation(prev_gen, state, "back_to_parent_agent_thread")
+            stop_voice_for_thread_change(state, p, reason="back_to_parent_agent_thread")
+            state.active_designer_project = None
+            state.thread_id = target
+            state.active_developer_workspace_id = _get_thread_developer_workspace(target) or None
+            state.thread_name = get_thread_name(target) or "Parent thread"
+            state.thread_model_override = _get_thread_model_override(target)
+            state.thread_approval_mode = _get_thread_approval_mode(target)
+            state.messages = load_thread_messages(target)
+            p.pending_files.clear()
+            set_active_thread(target, previous_id=prev)
+            rebuild_main()
+            rebuild_thread_list()
+        except Exception as exc:
+            logger.debug("Could not return to Agent parent thread", exc_info=True)
+            ui.notify(f"Could not open parent thread: {exc}", type="negative", close_button=True)
 
     # Header
     _header_started = time.perf_counter()
     running_wfs = get_running_tasks()
     bg = running_wfs.get(state.thread_id)
+    child_parent_context = _child_agent_parent_context()
 
     with ui.row().classes("w-full items-center shrink-0"):
         if bg:
@@ -155,6 +230,16 @@ def build_chat(
                         label="Profile",
                         surface="chat",
                     )
+                    if child_parent_context:
+                        ui.badge(
+                            f"Child Agent of {child_parent_context['parent_name']}",
+                            color="blue-grey",
+                        ).props("outline").classes("ellipsis").style("max-width: min(320px, 38vw);")
+                        ui.button(
+                            "Back to Parent",
+                            icon="arrow_back",
+                            on_click=lambda pid=child_parent_context["parent_thread_id"]: _open_parent_thread(pid),
+                        ).props("flat dense no-caps")
 
             # Model selection now lives in the composer, matching Designer.
 

@@ -214,6 +214,157 @@ def test_direct_agent_completion_summary_appends_once(tmp_path, monkeypatch):
     assert len(messages) == 2
 
 
+def test_direct_agent_completion_summary_dedupes_existing_completion_row(tmp_path, monkeypatch):
+    agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+
+    agent_runs.create_agent_run(
+        run_id="run-existing",
+        kind="subagent",
+        status="completed",
+        parent_thread_id="parent",
+        display_name="PDF Writer",
+        summary="Created report.pdf",
+    )
+    messages = [
+        {
+            "role": "assistant",
+            "content": "Started a Worker agent for this.",
+            "agent_run_ids": ["run-existing"],
+            "agent_lifecycle": {
+                "kind": "direct_agent_spawn",
+                "run_id": "run-existing",
+                "completion_summary_emitted": False,
+            },
+        },
+        {
+            "role": "assistant",
+            "content": "Done. PDF Writer completed.\n\nCreated report.pdf",
+            "agent_completion_for": "run-existing",
+        },
+    ]
+
+    assert streaming._append_direct_agent_completion_messages(messages, ["run-existing"]) is True
+    assert messages[0]["agent_lifecycle"]["completion_summary_emitted"] is True
+    assert len(messages) == 2
+
+
+def test_direct_agent_completion_summary_dedupes_reloaded_plain_rows(tmp_path, monkeypatch):
+    agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+
+    agent_runs.create_agent_run(
+        run_id="run-plain",
+        kind="subagent",
+        status="completed",
+        parent_thread_id="parent",
+        display_name="PDF Writer",
+        summary="Created report.pdf",
+    )
+    summary = "Done. PDF Writer completed.\n\nCreated report.pdf"
+    messages = [
+        {
+            "role": "assistant",
+            "content": "Started a Worker agent for this.",
+            "agent_run_ids": ["run-plain"],
+            "agent_lifecycle": {
+                "kind": "direct_agent_spawn",
+                "run_id": "run-plain",
+                "completion_summary_emitted": False,
+            },
+        },
+        {"role": "assistant", "content": summary},
+        {"role": "assistant", "content": summary},
+    ]
+
+    assert streaming._append_direct_agent_completion_messages(messages, ["run-plain"]) is True
+    assert messages[0]["agent_lifecycle"]["completion_summary_emitted"] is True
+    assert [msg["content"] for msg in messages] == [
+        "Started a Worker agent for this.",
+        summary,
+    ]
+    assert messages[1]["agent_completion_for"] == "run-plain"
+
+
+def test_direct_agent_messages_round_trip_agent_metadata_through_checkpoint(tmp_path, monkeypatch):
+    agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+    import row_bot.ui.helpers as helpers
+
+    helpers = importlib.reload(helpers)
+    agent_runs.create_agent_run(
+        run_id="run-checkpoint",
+        kind="subagent",
+        status="running",
+        parent_thread_id="parent",
+        display_name="Checkpoint Agent",
+    )
+    user_msg = {
+        "role": "user",
+        "content": "/agent do checkpoint work",
+        "timestamp": "12:00",
+    }
+    start_msg = {
+        "role": "assistant",
+        "content": "Started a Worker agent for this. I'll keep this thread updated.",
+        "timestamp": "12:00",
+        "agent_run_ids": ["run-checkpoint"],
+        "agent_run_refresh_key": "run-checkpoint|running",
+        "agent_lifecycle": {
+            "kind": "direct_agent_spawn",
+            "run_id": "run-checkpoint",
+            "completion_summary_emitted": False,
+        },
+    }
+    messages = [user_msg, start_msg]
+    streaming._append_ui_messages_to_checkpoint("parent", messages)
+
+    agent_runs.finish_agent_run("run-checkpoint", "completed", summary="checkpoint result")
+    assert streaming._append_direct_agent_completion_messages(
+        messages,
+        ["run-checkpoint"],
+        checkpoint_thread_id="parent",
+    ) is True
+
+    reloaded = helpers.load_thread_messages("parent")
+
+    assert [msg["role"] for msg in reloaded] == ["user", "assistant", "assistant"]
+    assert reloaded[1]["agent_run_ids"] == ["run-checkpoint"]
+    assert reloaded[1]["agent_lifecycle"]["kind"] == "direct_agent_spawn"
+    assert reloaded[1]["agent_lifecycle"]["completion_summary_emitted"] is False
+    assert reloaded[2]["agent_completion_for"] == "run-checkpoint"
+    assert reloaded[2]["content"] == "Done. Checkpoint Agent completed.\n\ncheckpoint result"
+
+
+def test_langchain_message_conversion_restores_row_bot_ui_metadata(tmp_path, monkeypatch):
+    _agent_runs, _streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+    import row_bot.ui.helpers as helpers
+    from langchain_core.messages import AIMessage
+
+    helpers = importlib.reload(helpers)
+    converted = helpers.langchain_messages_to_ui_messages([
+        AIMessage(
+            content="Started a Worker agent for this.",
+            additional_kwargs={
+                "row_bot_ui": {
+                    "timestamp": "12:00",
+                    "agent_run_ids": ["run-meta"],
+                    "agent_run_refresh_key": "run-meta|running",
+                    "agent_lifecycle": {"kind": "direct_agent_spawn", "run_id": "run-meta"},
+                }
+            },
+        )
+    ])
+
+    assert converted == [
+        {
+            "role": "assistant",
+            "content": "Started a Worker agent for this.",
+            "timestamp": "12:00",
+            "agent_run_ids": ["run-meta"],
+            "agent_run_refresh_key": "run-meta|running",
+            "agent_lifecycle": {"kind": "direct_agent_spawn", "run_id": "run-meta"},
+        }
+    ]
+
+
 def test_async_delegated_tool_result_completion_summary_appends_once(tmp_path, monkeypatch):
     agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
 
@@ -265,6 +416,38 @@ def test_async_delegated_tool_result_completion_summary_appends_once(tmp_path, m
         ["delegated-tool-1"],
     ) is False
     assert len(messages) == 3
+
+
+def test_async_delegated_completion_skips_lifecycle_agent_card(tmp_path, monkeypatch):
+    agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+
+    agent_runs.create_agent_run(
+        run_id="direct-owned",
+        kind="subagent",
+        status="completed",
+        parent_thread_id="parent",
+        display_name="Direct Agent",
+        summary="direct result",
+    )
+    messages = [
+        {
+            "role": "assistant",
+            "content": "Started a Worker agent for this.",
+            "agent_run_ids": ["direct-owned"],
+            "agent_lifecycle": {
+                "kind": "direct_agent_spawn",
+                "run_id": "direct-owned",
+                "completion_summary_emitted": False,
+            },
+        }
+    ]
+
+    assert streaming._append_async_delegated_agent_completion_messages(
+        messages,
+        candidate_run_ids=["direct-owned"],
+    ) is False
+    assert len(messages) == 1
+    assert messages[0]["agent_lifecycle"]["completion_summary_emitted"] is False
 
 
 def test_async_delegated_tool_result_completion_can_persist_checkpoint(tmp_path, monkeypatch):

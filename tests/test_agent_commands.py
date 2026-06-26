@@ -185,6 +185,28 @@ def test_direct_agent_parser_is_command_only_and_explicit_about_profiles(tmp_pat
     assert slash_model_after_profile.profile == "review"
     assert slash_model_after_profile.objective == "check this"
 
+    slash_worktree = agent_commands.parse_agent_spawn_text(
+        "/agent --worktree --workspace=dev_repo develop fix tests"
+    )
+    assert slash_worktree is not None
+    assert slash_worktree.profile == "develop"
+    assert slash_worktree.objective == "fix tests"
+    assert slash_worktree.use_worktree is True
+    assert slash_worktree.developer_workspace_id == "dev_repo"
+
+    removed_flag = agent_commands.parse_agent_spawn_text(
+        "/agent --separate-checkout --workspace=dev_repo develop fix tests"
+    )
+    assert removed_flag is None
+
+    natural_worktree = agent_commands.parse_agent_spawn_text(
+        "Start an agent to inspect README without touching my current folder"
+    )
+    assert natural_worktree is not None
+    assert natural_worktree.profile == "worker"
+    assert natural_worktree.objective == "inspect README"
+    assert natural_worktree.use_worktree is True
+
 
 def test_direct_agent_commands_spawn_with_explicit_or_worker_profile(tmp_path, monkeypatch):
     threads, _agent_runs, _agent_commands, slash_commands, commands = _fresh_command_modules(
@@ -228,6 +250,24 @@ def test_direct_agent_commands_spawn_with_explicit_or_worker_profile(tmp_path, m
     assert channel_response and "`write`" in channel_response
     assert captured[-1]["profile"] == "write"
     assert captured[-1]["objective"] == "a smoke report"
+
+    worktree_response = slash_commands.dispatch_text_command(
+        thread_id,
+        "/agent --worktree --workspace=dev_repo quality_reviewer review in isolation",
+        enabled_tool_names=["filesystem"],
+    )
+    assert worktree_response and "Started Agent" in worktree_response
+    assert captured[-1]["profile"] == "review"
+    assert captured[-1]["objective"] == "review in isolation"
+    assert captured[-1]["use_worktree"] is True
+    assert captured[-1]["developer_workspace_id"] == "dev_repo"
+
+    removed_response = slash_commands.dispatch_text_command(
+        thread_id,
+        "/agent --separate-checkout quality_reviewer review in isolation",
+        enabled_tool_names=["filesystem"],
+    )
+    assert removed_response and "/agent [--worktree]" in removed_response
 
 
 def test_direct_agent_command_model_option_is_strict_and_validated(tmp_path, monkeypatch):

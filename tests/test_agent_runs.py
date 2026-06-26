@@ -161,6 +161,35 @@ def test_stop_agent_run_marks_durable_stop_state(tmp_path, monkeypatch):
     assert agent_runs.get_agent_events(run["id"])[-1]["type"] == "run.stopped"
 
 
+def test_finish_agent_run_does_not_overwrite_requested_stop(tmp_path, monkeypatch):
+    agent_runs, _profiles, _tasks, _data_dir = _fresh_agent_run_modules(
+        tmp_path,
+        monkeypatch,
+    )
+    run = agent_runs.create_agent_run(
+        run_id="late-success-after-stop",
+        kind="subagent",
+        status="running",
+        display_name="Stop Me",
+    )
+
+    stopped = agent_runs.stop_agent_run(run["id"])
+    finished = agent_runs.finish_agent_run(
+        run["id"],
+        "completed",
+        summary="Late success should not win.",
+        result_json={"response": "late success"},
+    )
+
+    assert stopped["status"] == "stopped"
+    assert finished["status"] == "stopped"
+    assert finished["stop_requested"] is True
+    assert finished["summary"] == ""
+    event_types = [event["type"] for event in agent_runs.get_agent_events(run["id"])]
+    assert event_types.count("run.stopped") == 1
+    assert "run.completed" not in event_types
+
+
 def test_startup_recovery_stops_stale_runs_and_releases_locks(tmp_path, monkeypatch):
     agent_runs, _profiles, _tasks, _data_dir = _fresh_agent_run_modules(
         tmp_path,
@@ -277,6 +306,31 @@ def test_parent_thread_delete_cascades_chat_agent_state_but_keeps_workflows(tmp_
     finally:
         conn.close()
     assert row["status"] == "cancelled"
+
+
+def test_get_agent_run_for_child_thread(tmp_path, monkeypatch):
+    agent_runs, _profiles, _tasks, _data_dir = _fresh_agent_run_modules(
+        tmp_path,
+        monkeypatch,
+    )
+    import row_bot.threads as threads
+
+    threads = importlib.reload(threads)
+    parent_thread_id = threads.create_thread("Lookup parent")
+    child_thread_id = threads.create_thread("Lookup child", thread_type="agent_child")
+    agent_runs.create_agent_run(
+        run_id="lookup-child",
+        kind="subagent",
+        status="running",
+        parent_thread_id=parent_thread_id,
+        thread_id=child_thread_id,
+        display_name="Lookup Child",
+    )
+
+    row = agent_runs.get_agent_run_for_thread(child_thread_id)
+    assert row is not None
+    assert row["id"] == "lookup-child"
+    assert row["parent_thread_id"] == parent_thread_id
 
 
 def test_workflow_run_is_mirrored_to_agent_runs(tmp_path, monkeypatch):

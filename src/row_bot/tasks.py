@@ -1414,9 +1414,10 @@ def _canonicalize_workflow_steps(steps: list[dict] | None) -> list[dict] | None:
                 step["model_override"] = canonical
             else:
                 step.pop("model_override", None)
-        # Workflow runtime policy is selected at the workflow level.  Step-level
-        # profile pointers are intentionally ignored in this migration phase.
-        step.pop("agent_profile_id", None)
+        # Workflow prompt runtime policy is selected at the workflow level.
+        # Delegate steps are explicit child-Agent calls and may choose a helper.
+        if step.get("type") != "delegate_agent":
+            step.pop("agent_profile_id", None)
     return steps
 
 
@@ -3305,6 +3306,229 @@ def run_task_background(
                                 break
 
                 # ── Notify step type ──────────────────────────────────
+                elif step_type == "delegate_agent":
+                    objective = expand_template_vars(
+                        step.get("objective") or step.get("prompt", ""),
+                        task_id=task_id,
+                        prev_output=last_response,
+                        step_outputs=step_outputs,
+                    ).strip()
+                    context = expand_template_vars(
+                        step.get("context", ""),
+                        task_id=task_id,
+                        prev_output=last_response,
+                        step_outputs=step_outputs,
+                    ).strip()
+                    if not objective:
+                        failure_message = "Child Agent step is missing an objective."
+                        logger.error(
+                            "Task '%s' step %d: %s",
+                            task["name"],
+                            step_index + 1,
+                            failure_message,
+                        )
+                        if step.get("on_error", "stop") == "skip":
+                            step_outputs[step_id] = failure_message
+                        else:
+                            stopped = True
+                            break
+                    else:
+                        try:
+                            from row_bot.agent_runner import (
+                                agent_run_is_terminal,
+                                spawn_agent_run,
+                                wait_for_agent_run_terminal,
+                            )
+                            from row_bot.threads import _get_thread_developer_workspace
+
+                            profile_ref = str(
+                                step.get("profile")
+                                or step.get("agent_profile_id")
+                                or "worker"
+                            ).strip()
+                            developer_workspace_id = str(
+                                step.get("developer_workspace_id")
+                                or _get_thread_developer_workspace(thread_id)
+                                or ""
+                            ).strip()
+                            editing_safety = str(step.get("editing_safety") or "").strip()
+                            use_worktree = bool(step.get("use_worktree")) or editing_safety == "worktree"
+                            workspace_mode = str(step.get("workspace_mode") or "").strip()
+                            if use_worktree and not workspace_mode:
+                                workspace_mode = "worktree"
+                            return_mode = str(step.get("return_mode") or "").strip().lower()
+                            wait_for_result = bool(step.get("wait", True))
+                            if return_mode in {"background", "start_in_background"}:
+                                wait_for_result = False
+                            timeout_seconds = float(
+                                step.get("timeout_seconds") or (300 if wait_for_result else 0)
+                            )
+                            _task_log(f"Step {step_index + 1}/{total}: Child Agent")
+                            child_run = spawn_agent_run(
+                                objective,
+                                parent_thread_id=thread_id,
+                                parent_run_id=run_id,
+                                profile=profile_ref,
+                                display_name=str(step.get("display_name") or ""),
+                                context=context,
+                                context_mode=str(step.get("context_mode") or "auto"),
+                                enabled_tool_names=effective_tool_names,
+                                model_override=str(step.get("model_override") or ""),
+                                developer_workspace_id=developer_workspace_id,
+                                workspace_mode=workspace_mode,
+                                use_worktree=use_worktree,
+                                wait=False,
+                            )
+                            if wait_for_result:
+                                child_run_id = str((child_run or {}).get("id") or "")
+                                if child_run_id:
+                                    child_run = wait_for_agent_run_terminal(
+                                        child_run_id,
+                                        timeout=timeout_seconds,
+                                    )
+                            child_status = str((child_run or {}).get("status") or "")
+                            summary = str((child_run or {}).get("summary") or "")
+                            child_output = {
+                                "agent_run_id": str((child_run or {}).get("id") or ""),
+                                "status": child_status,
+                                "summary": summary,
+                                "thread_id": str((child_run or {}).get("thread_id") or ""),
+                                "workspace_id": str((child_run or {}).get("workspace_id") or ""),
+                                "workspace_path": str((child_run or {}).get("workspace_path") or ""),
+                                "workspace_mode": str((child_run or {}).get("workspace_mode") or ""),
+                            }
+                            step_outputs[step_id] = json.dumps(child_output, sort_keys=True)
+                            last_response = summary or step_outputs[step_id]
+                            _task_log(
+                                "Step "
+                                f"{step_index + 1}: Agent {child_output['agent_run_id']} "
+                                f"{child_status or 'started'}"
+                            )
+                            if wait_for_result and not agent_run_is_terminal(child_run):
+                                if child_status == "waiting_approval":
+                                    failure_message = (
+                                        f"Child Agent {child_output['agent_run_id']} is waiting for approval."
+                                    )
+                                else:
+                                    failure_message = (
+                                        f"Child Agent {child_output['agent_run_id']} did not finish "
+                                        f"before the workflow wait timeout (status: {child_status or 'unknown'})."
+                                    )
+                                _task_log(
+                                    f"Step {step_index + 1}: {failure_message[:120]}"
+                                )
+                                if step.get("on_error", "stop") == "skip":
+                                    failure_message = ""
+                                else:
+                                    stopped = True
+                                    break
+                        except Exception as exc:
+                            failure_message = str(exc)
+                            step_outputs[step_id] = failure_message
+                            logger.error(
+                                "Task '%s' step %d delegate Agent failed: %s",
+                                task["name"],
+                                step_index + 1,
+                                exc,
+                            )
+                            _task_log(
+                                f"Step {step_index + 1} delegate failed: {failure_message[:80]}"
+                            )
+                            if step.get("on_error", "stop") == "skip":
+                                failure_message = ""
+                            else:
+                                stopped = True
+                                break
+
+                elif step_type == "wait_for_agents":
+                    try:
+                        import time as _time
+
+                        from row_bot.agent_runner import (
+                            agent_run_is_terminal,
+                            wait_for_agent_run_terminal,
+                        )
+
+                        run_ids: list[str] = []
+                        raw_run_ids = step.get("run_ids") or []
+                        if isinstance(raw_run_ids, str):
+                            raw_run_ids = [
+                                item.strip()
+                                for item in raw_run_ids.split(",")
+                                if item.strip()
+                            ]
+                        if isinstance(raw_run_ids, list):
+                            run_ids.extend(
+                                str(item).strip()
+                                for item in raw_run_ids
+                                if str(item).strip()
+                            )
+                        if not run_ids:
+                            for raw_output in step_outputs.values():
+                                try:
+                                    parsed_output = json.loads(raw_output)
+                                except Exception:
+                                    continue
+                                candidate = str(parsed_output.get("agent_run_id") or "").strip()
+                                if candidate:
+                                    run_ids.append(candidate)
+                        seen_run_ids: set[str] = set()
+                        run_ids = [
+                            child_run_id
+                            for child_run_id in run_ids
+                            if not (child_run_id in seen_run_ids or seen_run_ids.add(child_run_id))
+                        ]
+                        timeout_seconds = float(step.get("timeout_seconds") or 300)
+                        deadline = _time.monotonic() + timeout_seconds
+                        collected: list[dict[str, str]] = []
+                        for child_run_id in run_ids:
+                            remaining = max(0.0, deadline - _time.monotonic())
+                            child_run = wait_for_agent_run_terminal(child_run_id, timeout=remaining)
+                            collected.append({
+                                "agent_run_id": child_run_id,
+                                "status": str((child_run or {}).get("status") or ""),
+                                "summary": str((child_run or {}).get("summary") or ""),
+                                "thread_id": str((child_run or {}).get("thread_id") or ""),
+                            })
+                        child_output = {"agent_runs": collected}
+                        step_outputs[step_id] = json.dumps(child_output, sort_keys=True)
+                        last_response = step_outputs[step_id]
+                        _task_log(
+                            f"Step {step_index + 1}: Collected {len(collected)} Agent run(s)"
+                        )
+                        nonterminal = [
+                            row for row in collected if not agent_run_is_terminal(row)
+                        ]
+                        if nonterminal:
+                            statuses = ", ".join(
+                                f"{row['agent_run_id']}={row.get('status') or 'unknown'}"
+                                for row in nonterminal[:4]
+                            )
+                            failure_message = (
+                                "Child Agent wait timed out before terminal status"
+                                + (f": {statuses}" if statuses else ".")
+                            )
+                            _task_log(f"Step {step_index + 1}: {failure_message[:120]}")
+                            if step.get("on_error", "stop") == "skip":
+                                failure_message = ""
+                            else:
+                                stopped = True
+                                break
+                    except Exception as exc:
+                        failure_message = str(exc)
+                        step_outputs[step_id] = failure_message
+                        logger.error(
+                            "Task '%s' step %d wait for Agents failed: %s",
+                            task["name"],
+                            step_index + 1,
+                            exc,
+                        )
+                        if step.get("on_error", "stop") == "skip":
+                            failure_message = ""
+                        else:
+                            stopped = True
+                            break
+
                 elif step_type == "notify":
                     notify_msg = step.get("message", "")
                     notify_msg = expand_template_vars(
@@ -5306,6 +5530,10 @@ _STEP_ICONS = {
 }
 
 
+_STEP_ICONS["delegate_agent"] = "Agent"
+_STEP_ICONS["wait_for_agents"] = "Wait"
+
+
 def generate_pipeline_mermaid(steps: list[dict]) -> str:
     """Generate a Mermaid flowchart string from pipeline steps."""
     if not steps:
@@ -5325,7 +5553,12 @@ def generate_pipeline_mermaid(steps: list[dict]) -> str:
         elif stype == "approval":
             label = f"{icon} Approval"
         elif stype == "subtask":
-            label = f"{icon} Sub-agent"
+            label = f"{icon} Run Workflow"
+        elif stype == "delegate_agent":
+            txt = (s.get("objective") or s.get("prompt") or "")[:25]
+            label = f"{icon} {txt}" if txt else f"{icon} Child Agent"
+        elif stype == "wait_for_agents":
+            label = "Wait for Child Agents"
         elif stype == "notify":
             ch = s.get("channel", "")
             label = f"{icon} Notify ({ch})" if ch else f"{icon} Notify"

@@ -444,13 +444,34 @@ class ShellTool(BaseTool):
         # safety classification (safe commands auto-run, others prompt).
         return set()
 
-    def _get_workspace_root(self) -> str | None:
-        """Read workspace root from the Filesystem tool's config (shared)."""
+    def _get_developer_workspace_root(self, thread_id: str) -> str | None:
+        """Infer the active Developer workspace for a thread, if one exists."""
+        clean_thread_id = str(thread_id or "").strip()
+        if not clean_thread_id or clean_thread_id == "default":
+            return None
+        try:
+            from row_bot.developer.storage import get_workspace
+            from row_bot.threads import _get_thread_developer_workspace
+
+            workspace_id = _get_thread_developer_workspace(clean_thread_id)
+            workspace = get_workspace(workspace_id) if workspace_id else None
+        except Exception:
+            logger.debug("Could not resolve Developer workspace for shell cwd", exc_info=True)
+            return None
+        if workspace and workspace.path and os.path.isdir(workspace.path):
+            return workspace.path
+        return None
+
+    def _get_workspace_root(self, thread_id: str = "") -> str | None:
+        """Read the explicit Filesystem root, then fall back to Developer thread cwd."""
         fs_tool = registry.get_tool("filesystem")
         if fs_tool:
             root = fs_tool.get_config("workspace_root", "")
             if root and os.path.isdir(root):
                 return root
+        developer_root = self._get_developer_workspace_root(thread_id)
+        if developer_root:
+            return developer_root
         return None
 
     def _get_extra_blocked(self) -> list[re.Pattern]:
@@ -519,7 +540,7 @@ class ShellTool(BaseTool):
             thread_id = "default"
 
         # Always use subprocess — reliable, cross-platform, no PTY contention
-        working_dir = self._get_workspace_root()
+        working_dir = self._get_workspace_root(thread_id)
         session = _session_manager.get_session(thread_id, working_dir)
         result = session.run_command(command)
 

@@ -7,7 +7,11 @@ from typing import Callable
 
 from nicegui import ui
 
-from row_bot.ui.render import open_agent_peek_dialog
+from row_bot.ui.render import (
+    _open_agent_worktree,
+    _show_agent_worktree_compare,
+    open_agent_peek_dialog,
+)
 from row_bot.ui.state import AppState, P, _active_generations
 
 logger = logging.getLogger(__name__)
@@ -56,7 +60,9 @@ def _open_agent_thread(
         from row_bot.memory_extraction import set_active_thread
         from row_bot.threads import (
             _get_thread_approval_mode,
+            _get_thread_developer_workspace,
             _get_thread_model_override,
+            _get_thread_type,
             get_thread_name,
         )
         from row_bot.ui.helpers import load_thread_messages
@@ -69,9 +75,14 @@ def _open_agent_thread(
 
             _detach_generation(prev_gen, state, "open_agent_child_thread")
         stop_voice_for_thread_change(state, p, reason="open_agent_child_thread")
+        target_thread_type = _get_thread_type(thread_id)
         state.active_designer_project = None
-        state.active_developer_workspace_id = None
         state.thread_id = thread_id
+        state.active_developer_workspace_id = (
+            None
+            if target_thread_type == "agent_child"
+            else _get_thread_developer_workspace(thread_id) or None
+        )
         state.thread_name = get_thread_name(thread_id) or str(
             agent_run.get("display_name") or "Agent"
         )
@@ -91,6 +102,24 @@ def _open_agent_thread(
         ui.notify(f"Could not open Agent thread: {exc}", type="negative", close_button=True)
 
 
+def open_agent_thread(
+    agent_run: dict,
+    *,
+    state: AppState,
+    p: P,
+    rebuild_main: Callable[..., None],
+    rebuild_thread_list: Callable[[], None] | None = None,
+) -> None:
+    """Open a child Agent's full thread in the current app shell."""
+    _open_agent_thread(
+        agent_run,
+        state=state,
+        p=p,
+        rebuild_main=rebuild_main,
+        rebuild_thread_list=rebuild_thread_list,
+    )
+
+
 def build_parent_agent_drawer(
     state: AppState,
     p: P,
@@ -99,7 +128,7 @@ def build_parent_agent_drawer(
     rebuild_thread_list: Callable[[], None] | None = None,
     limit: int = 6,
 ) -> None:
-    """Render the current parent thread's Agent runs with peek and full-thread actions."""
+    """Render the current parent thread's Agent runs with peek, thread, and Worktree actions."""
 
     if not state.thread_id:
         return
@@ -138,6 +167,21 @@ def build_parent_agent_drawer(
                 or agent_run.get("profile_slug")
                 or "Agent"
             )
+            workspace_mode = str(agent_run.get("workspace_mode") or "")
+            workspace_detail = ""
+            if workspace_mode == "worktree" and run_id:
+                try:
+                    from row_bot.developer.worktrees import get_worktree_for_run
+
+                    worktree = get_worktree_for_run(run_id)
+                    if worktree:
+                        branch = str(worktree.get("branch_name") or "")
+                        path = str(worktree.get("worktree_path") or "")
+                        workspace_detail = "\n".join(
+                            item for item in (branch, path) if item
+                        )
+                except Exception:
+                    logger.debug("Could not load Agent worktree details", exc_info=True)
             message = str(
                 agent_run.get("status_message")
                 or agent_run.get("summary")
@@ -160,17 +204,30 @@ def build_parent_agent_drawer(
                 ui.badge(status, color=_agent_status_color(status)).props("outline dense")
                 ui.label(name).classes("text-xs font-medium ellipsis").style("flex: 1; min-width: 0;")
                 ui.label(profile).classes("text-xs text-grey-6 ellipsis").style("max-width: 120px;")
+                if workspace_mode == "worktree":
+                    ui.badge("Worktree", color="blue-grey").props("outline dense").tooltip(
+                        workspace_detail or "Runs in its own local git Worktree."
+                    )
                 if message:
                     ui.label(message).classes("text-xs text-grey-7 ellipsis").style("max-width: 180px;")
                 if run_id:
                     ui.button(
                         icon="visibility",
-                        on_click=lambda rid=run_id: open_agent_peek_dialog(rid),
+                        on_click=lambda rid=run_id: open_agent_peek_dialog(
+                            rid,
+                            on_open_agent_thread=lambda row: open_agent_thread(
+                                row,
+                                state=state,
+                                p=p,
+                                rebuild_main=rebuild_main,
+                                rebuild_thread_list=rebuild_thread_list,
+                            ),
+                        ),
                     ).props("flat dense round size=xs").tooltip("Peek Agent activity")
                 if child_thread_id:
                     ui.button(
                         icon="open_in_new",
-                        on_click=lambda row=agent_run: _open_agent_thread(
+                        on_click=lambda row=agent_run: open_agent_thread(
                             row,
                             state=state,
                             p=p,
@@ -178,6 +235,15 @@ def build_parent_agent_drawer(
                             rebuild_thread_list=rebuild_thread_list,
                         ),
                     ).props("flat dense round size=xs").tooltip("Open full Agent thread")
+                if workspace_mode == "worktree":
+                    ui.button(
+                        icon="folder_open",
+                        on_click=lambda row=agent_run: _open_agent_worktree(row),
+                    ).props("flat dense round size=xs").tooltip("Open worktree")
+                    ui.button(
+                        icon="difference",
+                        on_click=lambda row=agent_run: _show_agent_worktree_compare(row),
+                    ).props("flat dense round size=xs").tooltip("Compare")
                 if status not in _TERMINAL_STATUSES:
                     ui.button(
                         icon="stop",
