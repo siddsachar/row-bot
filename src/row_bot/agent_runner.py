@@ -17,6 +17,21 @@ logger = logging.getLogger(__name__)
 _ACTIVE_LOCK = threading.RLock()
 _ACTIVE_AGENT_RUNS: dict[str, dict[str, Any]] = {}
 
+_RUNTIME_ERROR_TEXT_PREFIXES = (
+    "API error:",
+    "API quota exceeded",
+    "Authentication failed",
+    "Billing limit reached",
+    "Context too long",
+    "I got stuck in a tool loop",
+    "Rate limit reached",
+    "Request timed out",
+    "The AI provider",
+)
+_RUNTIME_ERROR_TEXT_FRAGMENTS = (
+    " does not support tool calling",
+)
+
 _READ_ONLY_DEFAULT_DENY_TOOLS = {
     "calendar",
     "custom_tool_builder",
@@ -43,6 +58,22 @@ def _short_title(text: str, *, limit: int = 64) -> str:
     if len(title) <= limit:
         return title
     return title[: limit - 1].rstrip() + "..."
+
+
+def _strip_leading_symbols(text: str) -> str:
+    cleaned = str(text or "").strip()
+    while cleaned and not cleaned[0].isalnum():
+        cleaned = cleaned[1:].lstrip()
+    return cleaned
+
+
+def _is_runtime_error_text(text: str) -> bool:
+    cleaned = _strip_leading_symbols(text)
+    if not cleaned:
+        return False
+    if cleaned.startswith(_RUNTIME_ERROR_TEXT_PREFIXES):
+        return True
+    return any(fragment in cleaned for fragment in _RUNTIME_ERROR_TEXT_FRAGMENTS)
 
 
 def _enabled_tool_names(enabled_tool_names: Sequence[str] | None) -> list[str]:
@@ -619,6 +650,16 @@ def _run_agent_thread(
             finish_agent_run(run_id, "failed", error=message, status_message=message)
             return
         text = str(result or "")
+        if _is_runtime_error_text(text):
+            finish_agent_run(
+                run_id,
+                "failed",
+                summary=text,
+                result_json={"response": text},
+                error=text,
+                status_message=text,
+            )
+            return
         append_agent_event(run_id, "turn.completed", {"length": len(text)})
         finish_agent_run(
             run_id,
@@ -639,6 +680,7 @@ def _run_agent_thread(
     finally:
         if lock_acquired:
             release_agent_write_lock(run_id=run_id)
+        _notify_child_agent_waiters(run_id)
         with _ACTIVE_LOCK:
             _ACTIVE_AGENT_RUNS.pop(run_id, None)
 
@@ -661,11 +703,13 @@ def resume_agent_run(
             "approval.resolved",
             {"approved": False, "resume_token": resume_token},
         )
-        return finish_agent_run(
+        run = finish_agent_run(
             run_id,
             "stopped",
             status_message="Approval denied by user",
         )
+        _notify_child_agent_waiters(run_id)
+        return run
     resume_state = run.get("resume_state_json") or {}
     config = resume_state.get("config")
     enabled_tool_names = resume_state.get("enabled_tool_names")
@@ -767,6 +811,16 @@ def _resume_agent_thread(
             finish_agent_run(run_id, "failed", error=message, status_message=message)
             return
         text = str(result or "")
+        if _is_runtime_error_text(text):
+            finish_agent_run(
+                run_id,
+                "failed",
+                summary=text,
+                result_json={"response": text, "resumed": True},
+                error=text,
+                status_message=text,
+            )
+            return
         append_agent_event(run_id, "turn.completed", {"length": len(text), "resumed": True})
         finish_agent_run(
             run_id,
@@ -787,6 +841,7 @@ def _resume_agent_thread(
     finally:
         if lock_acquired:
             release_agent_write_lock(run_id=run_id)
+        _notify_child_agent_waiters(run_id)
         with _ACTIVE_LOCK:
             _ACTIVE_AGENT_RUNS.pop(run_id, None)
 
@@ -842,13 +897,30 @@ def wait_for_agent_run_terminal(
     poll_interval: float = 0.25,
 ) -> dict[str, Any] | None:
     """Wait until an Agent Run reaches a durable terminal status."""
+    return wait_for_agent_run_terminal_or_status(
+        run_id,
+        timeout=timeout,
+        poll_interval=poll_interval,
+    )
+
+
+def wait_for_agent_run_terminal_or_status(
+    run_id: str,
+    timeout: float | None = None,
+    *,
+    statuses: set[str] | frozenset[str] | None = None,
+    poll_interval: float = 0.25,
+) -> dict[str, Any] | None:
+    """Wait until an Agent Run is terminal or reaches one of *statuses*."""
     from row_bot.agent_runs import get_agent_run
 
+    awaited_statuses = {str(status) for status in (statuses or set())}
     deadline = time.monotonic() + timeout if timeout is not None else None
     sleep_step = max(0.01, float(poll_interval or 0.25))
     while True:
         row = get_agent_run(run_id)
-        if agent_run_is_terminal(row):
+        row_status = str((row or {}).get("status") or "")
+        if agent_run_is_terminal(row) or row_status in awaited_statuses:
             return row
         if deadline is not None and time.monotonic() >= deadline:
             return row
@@ -871,7 +943,21 @@ def stop_agent_run(run_id: str) -> dict[str, Any] | None:
             entry["stop_event"].set()
     from row_bot.agent_runs import stop_agent_run as _stop_agent_run
 
-    return _stop_agent_run(run_id)
+    run = _stop_agent_run(run_id)
+    _notify_child_agent_waiters(run_id)
+    return run
+
+
+def _notify_child_agent_waiters(run_id: str) -> None:
+    try:
+        from row_bot.tasks import resume_workflows_waiting_for_child_agent
+
+        resume_workflows_waiting_for_child_agent(run_id)
+    except Exception:
+        logger.exception(
+            "Failed to notify workflows waiting for child Agent %s",
+            run_id,
+        )
 
 
 def list_active_agent_run_ids() -> list[str]:

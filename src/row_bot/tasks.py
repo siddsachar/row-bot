@@ -35,7 +35,7 @@ import uuid
 from contextvars import ContextVar
 from datetime import datetime, timedelta
 from functools import wraps
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping, Sequence, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence, TypeVar
 
 from row_bot.approval_policy import (
     DEFAULT_APPROVAL_MODE,
@@ -2866,6 +2866,7 @@ def run_task_background(
         last_response = ""
         stopped = False
         paused = False  # set True when pausing for approval
+        paused_message = "Waiting for approval"
         failure_message = ""
         step_outputs: dict[str, str] = resume_step_outputs.copy() if resume_step_outputs else {}
         # If resuming, seed last_response from the last step output
@@ -3337,7 +3338,7 @@ def run_task_background(
                             from row_bot.agent_runner import (
                                 agent_run_is_terminal,
                                 spawn_agent_run,
-                                wait_for_agent_run_terminal,
+                                wait_for_agent_run_terminal_or_status,
                             )
                             from row_bot.threads import _get_thread_developer_workspace
 
@@ -3382,21 +3383,14 @@ def run_task_background(
                             if wait_for_result:
                                 child_run_id = str((child_run or {}).get("id") or "")
                                 if child_run_id:
-                                    child_run = wait_for_agent_run_terminal(
+                                    child_run = wait_for_agent_run_terminal_or_status(
                                         child_run_id,
                                         timeout=timeout_seconds,
+                                        statuses={"waiting_approval"},
                                     )
                             child_status = str((child_run or {}).get("status") or "")
                             summary = str((child_run or {}).get("summary") or "")
-                            child_output = {
-                                "agent_run_id": str((child_run or {}).get("id") or ""),
-                                "status": child_status,
-                                "summary": summary,
-                                "thread_id": str((child_run or {}).get("thread_id") or ""),
-                                "workspace_id": str((child_run or {}).get("workspace_id") or ""),
-                                "workspace_path": str((child_run or {}).get("workspace_path") or ""),
-                                "workspace_mode": str((child_run or {}).get("workspace_mode") or ""),
-                            }
+                            child_output = _child_agent_output(child_run)
                             step_outputs[step_id] = json.dumps(child_output, sort_keys=True)
                             last_response = summary or step_outputs[step_id]
                             _task_log(
@@ -3406,9 +3400,28 @@ def run_task_background(
                             )
                             if wait_for_result and not agent_run_is_terminal(child_run):
                                 if child_status == "waiting_approval":
-                                    failure_message = (
+                                    paused_message = (
                                         f"Child Agent {child_output['agent_run_id']} is waiting for approval."
                                     )
+                                    _save_pipeline_state(
+                                        run_id=run_id,
+                                        task_id=task_id,
+                                        thread_id=thread_id,
+                                        current_step_index=step_index,
+                                        step_outputs=step_outputs,
+                                        config=config,
+                                        resume_token=f"child-agent:{run_id}:{child_output['agent_run_id']}",
+                                        status=_CHILD_AGENT_WAIT_STATUS,
+                                        graph_interrupted=_child_agent_wait_payload(
+                                            child_output["agent_run_id"],
+                                            step_id,
+                                        ),
+                                    )
+                                    _task_log(
+                                        f"Step {step_index + 1}: {paused_message[:120]}"
+                                    )
+                                    paused = True
+                                    break
                                 else:
                                     failure_message = (
                                         f"Child Agent {child_output['agent_run_id']} did not finish "
@@ -3421,6 +3434,22 @@ def run_task_background(
                                     failure_message = ""
                                 else:
                                     stopped = True
+                                    break
+                            if (
+                                wait_for_result
+                                and child_status
+                                and child_status not in _CHILD_AGENT_SUCCESS_STATUSES
+                            ):
+                                failure_message = _child_agent_failure_message(child_output)
+                                _task_log(
+                                    f"Step {step_index + 1}: {failure_message[:120]}"
+                                )
+                                if step.get("on_error", "stop") == "skip":
+                                    failure_message = ""
+                                else:
+                                    stopped = True
+                                    if child_status in _CHILD_AGENT_STOP_STATUSES:
+                                        failure_message = ""
                                     break
                         except Exception as exc:
                             failure_message = str(exc)
@@ -3631,7 +3660,7 @@ def run_task_background(
             # ── Handle paused task (waiting for approval) ─────────────
             if paused:
                 _finish_run(run_id, "paused",
-                            status_message="Waiting for approval")
+                            status_message=paused_message)
                 if _thread_exists(thread_id):
                     thread_name = (f"⚡ {task['name']} (paused) — "
                                    f"{datetime.now().strftime('%b %d, %I:%M %p')}")
@@ -4329,7 +4358,7 @@ def _save_pipeline_state(
     config: dict,
     resume_token: str | None = None,
     status: str = "running",
-    graph_interrupted: bool = False,
+    graph_interrupted: bool | str = False,
 ) -> None:
     """Persist pipeline state to the DB for later resumption."""
     conn = _get_conn()
@@ -4344,7 +4373,7 @@ def _save_pipeline_state(
     if graph_interrupted:
         extra_cols += ", graph_interrupted"
         extra_placeholders += ", ?"
-        extra_vals.append("true")
+        extra_vals.append("true" if graph_interrupted is True else str(graph_interrupted))
     conn.execute(
         "INSERT OR REPLACE INTO pipeline_state "
         "(run_id, task_id, thread_id, current_step_index, step_outputs, "
@@ -4403,6 +4432,174 @@ def _clear_graph_interrupted(run_id: str) -> None:
     )
     conn.commit()
     conn.close()
+
+
+_CHILD_AGENT_WAIT_STATUS = "waiting_child_agent"
+_CHILD_AGENT_WAIT_TYPE = "child_agent_wait"
+_CHILD_AGENT_SUCCESS_STATUSES = {"completed", "completed_delivery_failed"}
+_CHILD_AGENT_STOP_STATUSES = {"stopped", "cancelled"}
+
+
+def _child_agent_output(run: dict | None) -> dict[str, str]:
+    return {
+        "agent_run_id": str((run or {}).get("id") or ""),
+        "status": str((run or {}).get("status") or ""),
+        "summary": str((run or {}).get("summary") or ""),
+        "thread_id": str((run or {}).get("thread_id") or ""),
+        "workspace_id": str((run or {}).get("workspace_id") or ""),
+        "workspace_path": str((run or {}).get("workspace_path") or ""),
+        "workspace_mode": str((run or {}).get("workspace_mode") or ""),
+    }
+
+
+def _child_agent_failure_message(child_output: dict[str, str]) -> str:
+    run_id = child_output.get("agent_run_id") or "unknown"
+    status = child_output.get("status") or "unknown"
+    return f"Child Agent {run_id} finished with status: {status}."
+
+
+def _child_agent_parent_terminal_status(child_status: str) -> str:
+    if child_status in _CHILD_AGENT_STOP_STATUSES:
+        return "stopped"
+    return "failed"
+
+
+def _child_agent_wait_payload(child_run_id: str, step_id: str) -> str:
+    return json.dumps(
+        {
+            "type": _CHILD_AGENT_WAIT_TYPE,
+            "child_agent_run_id": child_run_id,
+            "step_id": step_id,
+        },
+        sort_keys=True,
+    )
+
+
+def _parse_child_agent_wait_payload(raw: str | None) -> dict[str, str] | None:
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return None
+    if not isinstance(payload, dict) or payload.get("type") != _CHILD_AGENT_WAIT_TYPE:
+        return None
+    return {
+        "child_agent_run_id": str(payload.get("child_agent_run_id") or ""),
+        "step_id": str(payload.get("step_id") or ""),
+    }
+
+
+@_schema_retry
+def _load_pipeline_states_waiting_for_child_agent(child_run_id: str) -> list[dict]:
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT * FROM pipeline_state WHERE status = ?",
+        (_CHILD_AGENT_WAIT_STATUS,),
+    ).fetchall()
+    conn.close()
+    states: list[dict] = []
+    for row in rows:
+        state = dict(row)
+        payload = _parse_child_agent_wait_payload(state.get("graph_interrupted"))
+        if not payload or payload.get("child_agent_run_id") != child_run_id:
+            continue
+        state["step_outputs"] = json.loads(state.get("step_outputs") or "{}")
+        state["config"] = json.loads(state.get("config") or "{}")
+        state["child_agent_wait"] = payload
+        states.append(state)
+    return states
+
+
+@_schema_retry
+def _claim_child_agent_wait_state(run_id: str) -> bool:
+    conn = _get_conn()
+    try:
+        cur = conn.execute(
+            "UPDATE pipeline_state SET status = ?, updated_at = ? "
+            "WHERE run_id = ? AND status = ?",
+            (
+                "running",
+                datetime.now().isoformat(),
+                run_id,
+                _CHILD_AGENT_WAIT_STATUS,
+            ),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def resume_workflows_waiting_for_child_agent(child_run_id: str) -> int:
+    """Resume paused workflows whose waited child Agent has reached terminal."""
+    if not child_run_id:
+        return 0
+    from row_bot.agent_runner import agent_run_is_terminal
+    from row_bot.agent_runs import get_agent_run
+    from row_bot.tools import registry as tool_registry
+    from row_bot.threads import _list_threads, _save_thread_meta
+
+    child_run = get_agent_run(child_run_id)
+    if not agent_run_is_terminal(child_run):
+        return 0
+    child_output = _child_agent_output(child_run)
+    child_status = child_output["status"]
+    resumed = 0
+    for state in _load_pipeline_states_waiting_for_child_agent(child_run_id):
+        run_id = str(state.get("run_id") or "")
+        if not run_id or not _claim_child_agent_wait_state(run_id):
+            continue
+        task_id = str(state.get("task_id") or "")
+        task = get_task(task_id)
+        if not task:
+            _finish_run(run_id, "failed", status_message=f"Task {task_id} not found")
+            continue
+        thread_id = str(state.get("thread_id") or "")
+        steps = task.get("steps") or []
+        step_index = int(state.get("current_step_index") or 0)
+        step = steps[step_index] if step_index < len(steps) else {}
+        step_id = str(
+            (state.get("child_agent_wait") or {}).get("step_id")
+            or step.get("id")
+            or f"step_{step_index + 1}"
+        )
+        step_outputs = dict(state.get("step_outputs") or {})
+        step_outputs[step_id] = json.dumps(child_output, sort_keys=True)
+        if child_status not in _CHILD_AGENT_SUCCESS_STATUSES:
+            parent_status = _child_agent_parent_terminal_status(child_status)
+            message = _child_agent_failure_message(child_output)
+            _update_pipeline_status(run_id, parent_status)
+            _finish_run(run_id, parent_status, status_message=message)
+            _emit_buddy_workflow_event(
+                "cancelled" if parent_status == "stopped" else "error",
+                task_id=task_id,
+                thread_id=thread_id,
+                label="Workflow stopped" if parent_status == "stopped" else "Workflow error",
+                error=message,
+            )
+            if any(t[0] == thread_id for t in _list_threads()):
+                suffix = "stopped" if parent_status == "stopped" else "failed"
+                thread_name = (
+                    f"{task['name']} ({suffix}) - "
+                    f"{datetime.now().strftime('%b %d, %I:%M %p')}"
+                )
+                _save_thread_meta(thread_id, thread_name)
+            resumed += 1
+            continue
+        _clear_graph_interrupted(run_id)
+        enabled = [t.name for t in tool_registry.get_enabled_tools()]
+        run_task_background(
+            task_id,
+            thread_id,
+            enabled,
+            start_step=step_index + 1,
+            notification=True,
+            resume_step_outputs=step_outputs,
+            resume_run_id=run_id,
+        )
+        resumed += 1
+    return resumed
 
 
 # ── Approval Request Management ─────────────────────────────────────────────
@@ -5877,10 +6074,26 @@ def seed_default_tasks() -> None:
 # Backward-compat aliases for legacy transition
 seed_default_workflows = seed_default_tasks
 list_workflows = list_tasks
-create_workflow = lambda name, prompts, description="", icon="⚡", schedule=None: create_task(
-    name=name, prompts=prompts, description=description, icon=icon, schedule=schedule,
-    agent_profile_id=DEFAULT_WORKFLOW_AGENT_PROFILE_ID, apply_default_skills=False,
-)
+
+
+def create_workflow(
+    name: str,
+    prompts: list[str],
+    description: str = "",
+    icon: str = "\u26a1",
+    schedule: str | None = None,
+) -> str:
+    return create_task(
+        name=name,
+        prompts=prompts,
+        description=description,
+        icon=icon,
+        schedule=schedule,
+        agent_profile_id=DEFAULT_WORKFLOW_AGENT_PROFILE_ID,
+        apply_default_skills=False,
+    )
+
+
 update_workflow = update_task
 delete_workflow = delete_task
 duplicate_workflow = duplicate_task

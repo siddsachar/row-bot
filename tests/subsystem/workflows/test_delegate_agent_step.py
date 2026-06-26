@@ -138,7 +138,10 @@ def test_delegate_agent_step_waits_and_records_child_run(tmp_path, monkeypatch) 
     assert calls[-1]["config"]["configurable"]["runtime_surface"] == "agent_child"
 
 
-def test_delegate_agent_wait_does_not_complete_on_child_approval(tmp_path, monkeypatch) -> None:
+def test_delegate_agent_wait_pauses_and_resumes_after_child_approval(
+    tmp_path,
+    monkeypatch,
+) -> None:
     tasks, threads, _profiles, agent_runs, _agent_runner, _worktrees = _fresh_modules(
         tmp_path,
         monkeypatch,
@@ -186,10 +189,131 @@ def test_delegate_agent_wait_does_not_complete_on_child_approval(tmp_path, monke
         limit=10,
     )
     assert len(child_runs) == 1
+    child_run_id = child_runs[0]["id"]
     assert child_runs[0]["status"] == "waiting_approval"
     history = tasks.get_run_history(task_id, limit=1)
-    assert history[0]["status"] == "failed"
+    assert history[0]["status"] == "paused"
     assert "waiting for approval" in history[0]["status_message"]
+
+    approvals = tasks.get_pending_approvals()
+    assert len(approvals) == 1
+    assert tasks.respond_to_approval(approvals[0]["resume_token"], True, source="test")
+
+    child = agent_runs.get_agent_run(child_run_id)
+    assert child["status"] == "completed"
+    assert child["summary"] == "resumed"
+    history = tasks.get_run_history(task_id, limit=1)
+    assert history[0]["status"] == "completed"
+
+
+def test_delegate_agent_wait_denial_stops_parent_workflow(tmp_path, monkeypatch) -> None:
+    tasks, threads, _profiles, agent_runs, _agent_runner, _worktrees = _fresh_modules(
+        tmp_path,
+        monkeypatch,
+    )
+    _run_workflow_synchronously(monkeypatch, tasks)
+    fake_agent = types.ModuleType("row_bot.agent")
+
+    class TaskStoppedError(Exception):
+        pass
+
+    fake_agent.TaskStoppedError = TaskStoppedError
+    fake_agent.RECURSION_LIMIT_TASK = 12
+    fake_agent.invoke_agent = lambda *args, **kwargs: {
+        "type": "interrupt",
+        "interrupts": [{"tool": "shell", "description": "Needs approval"}],
+    }
+    fake_agent.resume_invoke_agent = lambda *args, **kwargs: "should not run"
+    fake_agent.repair_orphaned_tool_calls = lambda *args, **kwargs: None
+    fake_agent._approval_mode_var = contextvars.ContextVar("approval_mode", default="approve")
+    fake_agent._background_workflow_var = contextvars.ContextVar("background_workflow", default=False)
+    fake_agent._persistent_thread_var = contextvars.ContextVar("persistent_thread", default=False)
+    monkeypatch.setitem(sys.modules, "row_bot.agent", fake_agent)
+
+    task_id = tasks.create_task(
+        "Delegate approval denied",
+        steps=[
+            {
+                "type": "delegate_agent",
+                "objective": "Run a gated command",
+                "profile": "worker",
+                "wait": True,
+            },
+        ],
+        channels=[],
+        apply_default_skills=False,
+    )
+    thread_id = threads.create_thread("Workflow run", thread_id="workflow-denial-run")
+
+    tasks.run_task_background(task_id, thread_id, ["shell"], notification=False)
+
+    approvals = tasks.get_pending_approvals()
+    assert len(approvals) == 1
+    assert tasks.respond_to_approval(approvals[0]["resume_token"], False, source="test")
+
+    child_runs = agent_runs.list_agent_runs(
+        parent_thread_id=thread_id,
+        kind="subagent",
+        limit=10,
+    )
+    assert len(child_runs) == 1
+    assert child_runs[0]["status"] == "stopped"
+    history = tasks.get_run_history(task_id, limit=1)
+    assert history[0]["status"] == "stopped"
+    assert "Child Agent" in history[0]["status_message"]
+
+
+def test_delegate_agent_wait_child_error_fails_parent_workflow(tmp_path, monkeypatch) -> None:
+    tasks, threads, _profiles, agent_runs, _agent_runner, _worktrees = _fresh_modules(
+        tmp_path,
+        monkeypatch,
+    )
+    _run_workflow_synchronously(monkeypatch, tasks)
+    fake_agent = types.ModuleType("row_bot.agent")
+
+    class TaskStoppedError(Exception):
+        pass
+
+    fake_agent.TaskStoppedError = TaskStoppedError
+    fake_agent.RECURSION_LIMIT_TASK = 12
+    fake_agent.invoke_agent = lambda *args, **kwargs: {
+        "type": "error",
+        "error": "boom",
+    }
+    fake_agent.resume_invoke_agent = lambda *args, **kwargs: "resumed"
+    fake_agent.repair_orphaned_tool_calls = lambda *args, **kwargs: None
+    fake_agent._approval_mode_var = contextvars.ContextVar("approval_mode", default="approve")
+    fake_agent._background_workflow_var = contextvars.ContextVar("background_workflow", default=False)
+    fake_agent._persistent_thread_var = contextvars.ContextVar("persistent_thread", default=False)
+    monkeypatch.setitem(sys.modules, "row_bot.agent", fake_agent)
+
+    task_id = tasks.create_task(
+        "Delegate child error",
+        steps=[
+            {
+                "type": "delegate_agent",
+                "objective": "Fail child",
+                "profile": "worker",
+                "wait": True,
+            },
+        ],
+        channels=[],
+        apply_default_skills=False,
+    )
+    thread_id = threads.create_thread("Workflow run", thread_id="workflow-child-error-run")
+
+    tasks.run_task_background(task_id, thread_id, ["shell"], notification=False)
+
+    child_runs = agent_runs.list_agent_runs(
+        parent_thread_id=thread_id,
+        kind="subagent",
+        limit=10,
+    )
+    assert len(child_runs) == 1
+    assert child_runs[0]["status"] == "failed"
+    history = tasks.get_run_history(task_id, limit=1)
+    assert history[0]["status"] == "failed"
+    assert "finished with status: failed" in history[0]["status_message"]
 
 
 def test_delegate_agent_step_can_start_background_and_wait_for_children(tmp_path, monkeypatch) -> None:

@@ -88,6 +88,34 @@ def test_spawn_agent_run_creates_child_thread_and_completes(tmp_path, monkeypatc
     assert {"run.created", "run.started", "turn.started", "turn.completed", "run.completed"} <= event_types
 
 
+def test_spawn_agent_run_marks_provider_error_text_failed(tmp_path, monkeypatch):
+    agent_runner, agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
+        tmp_path,
+        monkeypatch,
+    )
+    parent_thread_id = threads.create_thread("Parent")
+
+    def fake_invoke(prompt, enabled_tool_names, config, *, stop_event):
+        return "!!! API error: provider rejected the request"
+
+    monkeypatch.setattr(agent_runner, "_invoke_agent", fake_invoke)
+
+    run = agent_runner.spawn_agent_run(
+        "Use an unavailable model.",
+        parent_thread_id=parent_thread_id,
+        profile="worker",
+        wait=True,
+    )
+
+    assert run["status"] == "failed"
+    assert run["error"] == "!!! API error: provider rejected the request"
+    assert run["summary"] == "!!! API error: provider rejected the request"
+    event_types = {event["type"] for event in agent_runs.get_agent_events(run["id"])}
+    assert "run.failed" in event_types
+    assert "run.completed" not in event_types
+    assert "turn.completed" not in event_types
+
+
 def test_builtin_profile_skills_flow_to_child_agent(tmp_path, monkeypatch):
     agent_runner, agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
         tmp_path,

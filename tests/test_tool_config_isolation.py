@@ -86,6 +86,68 @@ def test_shell_workspace_root_falls_back_to_developer_thread(tmp_path, monkeypat
     assert tool._get_workspace_root("") is None
 
 
+def test_shell_run_command_uses_runnable_config_developer_workspace(tmp_path, monkeypatch):
+    import sys
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    for name in [
+        "row_bot.threads",
+        "row_bot.developer.storage",
+        "row_bot.tools.shell_tool",
+    ]:
+        sys.modules.pop(name, None)
+
+    import row_bot.threads as threads
+    import row_bot.developer.storage as storage
+    import row_bot.tools.shell_tool as shell_tool
+
+    threads = importlib.reload(threads)
+    storage = importlib.reload(storage)
+    shell_tool = importlib.reload(shell_tool)
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    global_root = tmp_path / "global-root"
+    global_root.mkdir()
+    workspace = storage.add_or_update_local_workspace(str(repo))
+    thread_id = threads.create_thread(
+        "Developer",
+        thread_type="code",
+        developer_workspace_id=workspace.id,
+    )
+
+    class FakeFilesystemTool:
+        def get_config(self, key: str, default: str = "") -> str:
+            if key == "workspace_root":
+                return str(global_root)
+            return default
+
+    monkeypatch.setattr(
+        shell_tool.registry,
+        "get_tool",
+        lambda name: FakeFilesystemTool() if name == "filesystem" else None,
+    )
+
+    tool = shell_tool.ShellTool()
+    run_command = next(
+        item for item in tool.as_langchain_tools() if item.name == "run_command"
+    )
+    output = run_command.invoke(
+        {"command": "pwd"},
+        config={
+            "configurable": {
+                "thread_id": thread_id,
+                "developer_workspace_id": workspace.id,
+            },
+        },
+    )
+
+    assert f"cwd: {repo.resolve()}" in output
+    assert str(global_root.resolve()) not in output
+    history = shell_tool.get_shell_history(thread_id)
+    assert Path(history[-1]["cwd"]).resolve() == repo.resolve()
+
+
 def test_pytest_default_data_dir_is_workspace_local():
     data_dir = Path(__import__("os").environ["ROW_BOT_DATA_DIR"]).resolve()
     assert ".tmp" in data_dir.parts
