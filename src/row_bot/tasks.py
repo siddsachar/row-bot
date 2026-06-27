@@ -3334,6 +3334,12 @@ def run_task_background(
                             stopped = True
                             break
                     else:
+                        child_run_id = ""
+                        requested_worktree = (
+                            bool(step.get("use_worktree"))
+                            or str(step.get("editing_safety") or "").strip() == "worktree"
+                            or str(step.get("workspace_mode") or "").strip() == "worktree"
+                        )
                         try:
                             from row_bot.agent_runner import (
                                 agent_run_is_terminal,
@@ -3380,8 +3386,8 @@ def run_task_background(
                                 use_worktree=use_worktree,
                                 wait=False,
                             )
+                            child_run_id = str((child_run or {}).get("id") or "")
                             if wait_for_result:
-                                child_run_id = str((child_run or {}).get("id") or "")
                                 if child_run_id:
                                     child_run = wait_for_agent_run_terminal_or_status(
                                         child_run_id,
@@ -3463,6 +3469,13 @@ def run_task_background(
                             _task_log(
                                 f"Step {step_index + 1} delegate failed: {failure_message[:80]}"
                             )
+                            if _is_child_agent_setup_failure(
+                                exc,
+                                child_run_id=child_run_id,
+                                use_worktree=requested_worktree,
+                            ):
+                                stopped = True
+                                break
                             if step.get("on_error", "stop") == "skip":
                                 failure_message = ""
                             else:
@@ -4438,6 +4451,37 @@ _CHILD_AGENT_WAIT_STATUS = "waiting_child_agent"
 _CHILD_AGENT_WAIT_TYPE = "child_agent_wait"
 _CHILD_AGENT_SUCCESS_STATUSES = {"completed", "completed_delivery_failed"}
 _CHILD_AGENT_STOP_STATUSES = {"stopped", "cancelled"}
+_CHILD_AGENT_SETUP_FAILURE_FRAGMENTS = (
+    "Worktree requires a git-backed Developer workspace",
+    "Worktree requires a git repository",
+    "Worktree requires a git repository root",
+    "Cannot create Worktree:",
+    "Failed to create Worktree",
+    "Worktree did not return a usable workspace",
+)
+
+
+def _is_child_agent_setup_failure(
+    exc: Exception,
+    *,
+    child_run_id: str = "",
+    use_worktree: bool = False,
+) -> bool:
+    """Return whether a delegate failure happened before a usable child run."""
+    if child_run_id:
+        return False
+    try:
+        from row_bot.agent_runner import AgentRunnerError
+
+        if isinstance(exc, AgentRunnerError):
+            return True
+    except Exception:
+        if exc.__class__.__name__ == "AgentRunnerError":
+            return True
+    if use_worktree:
+        message = str(exc)
+        return any(fragment in message for fragment in _CHILD_AGENT_SETUP_FAILURE_FRAGMENTS)
+    return False
 
 
 def _child_agent_output(run: dict | None) -> dict[str, str]:
@@ -5755,7 +5799,7 @@ def generate_pipeline_mermaid(steps: list[dict]) -> str:
             txt = (s.get("objective") or s.get("prompt") or "")[:25]
             label = f"{icon} {txt}" if txt else f"{icon} Child Agent"
         elif stype == "wait_for_agents":
-            label = "Wait for Child Agents"
+            label = "Wait for Agents"
         elif stype == "notify":
             ch = s.get("channel", "")
             label = f"{icon} Notify ({ch})" if ch else f"{icon} Notify"

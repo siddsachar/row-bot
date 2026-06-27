@@ -61,7 +61,7 @@ def test_delegate_agent_steps_keep_helper_profile_and_render(tmp_path, monkeypat
     assert task["steps"][0]["agent_profile_id"] == "develop"
     assert task["steps"][0]["profile"] == "develop"
     assert "Agent Fix failing tests" in mermaid
-    assert "Wait for Child Agents" in mermaid
+    assert "Wait for Agents" in mermaid
 
 
 def test_new_and_seeded_workflows_default_to_default_profile_without_old_overrides(

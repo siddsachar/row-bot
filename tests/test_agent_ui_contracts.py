@@ -120,8 +120,10 @@ def test_profile_library_lives_in_left_sidebar():
     assert "Delegate to Agent" not in task_dialog
     assert "What should the agent do?" in task_dialog
     assert "Editing safety" in task_dialog
-    assert "Wait for Child Agents" in task_dialog
-    assert "Wait for Agents" not in task_dialog
+    assert "Wait for Agents" in task_dialog
+    assert "Wait for Child Agents" not in task_dialog
+    assert "Agent run IDs (optional)" in task_dialog
+    assert "Select a Developer workspace for worktree mode." in task_dialog
     assert "Profile shortcut" not in library
     assert "Suggested skills" not in library
     assert "inherit_skills" not in library
@@ -176,6 +178,7 @@ def test_channel_monitor_component_preserves_channel_contract():
 
 def test_global_profile_picker_contract():
     picker = _read("ui/profile_picker.py")
+    controls = _read("ui/chat_components.py")
     chat = _read("ui/chat.py")
     designer = Path("src/row_bot/designer/editor.py").read_text(encoding="utf-8")
     developer = Path("src/row_bot/developer/ui.py").read_text(encoding="utf-8")
@@ -193,6 +196,9 @@ def test_global_profile_picker_contract():
     assert "row-bot-composer-control-group" in picker
     assert "row-bot-composer-select" in picker
     assert "dense borderless options-dense hide-bottom-space" in picker
+    assert "label=label" not in picker
+    assert ".row-bot-composer-select .q-field__label" in controls
+    assert "display: none !important;" in controls
     assert "build_profile_picker" in chat
     assert "build_profile_picker" in designer
     assert "build_profile_picker" in developer
@@ -215,11 +221,12 @@ def test_developer_studio_live_testing_polish_contracts():
     assert "Start in Worktree" in developer
     assert "Use current folder" in developer
     assert "def _worktree_action_state" in developer
-    assert "Folder inside Git repo" in developer
-    assert "Repo root" in developer
+    assert 'repo_label = "In Git"' in developer
+    assert "Repo root:" in developer
     assert "Original folder has changes not in this Worktree" in developer
     assert "row-bot-composer-select" in developer
-    assert 'label="Run in"' in developer
+    assert 'label="Run in"' not in developer
+    assert "Choose where Developer commands run" in developer
     assert "width: min(840px, 94vw)" in sidebar
     assert 'classes("w-96")' not in sidebar
     assert "Child Agent of" in chat

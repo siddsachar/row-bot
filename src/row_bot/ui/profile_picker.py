@@ -145,7 +145,6 @@ def build_profile_picker(
             picker = ui.select(
                 options=options,
                 value=current_value if current_value in options else _DEFAULT_VALUE,
-                label=label,
             ).props("dense borderless options-dense hide-bottom-space").classes(
                 "text-xs row-bot-profile-picker row-bot-composer-select"
             ).style(

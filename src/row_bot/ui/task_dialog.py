@@ -31,7 +31,7 @@ _STEP_TYPES = {
     "approval": "Approval",
     "subtask": "Run Workflow",
     "delegate_agent": "Child Agent",
-    "wait_for_agents": "Wait for Child Agents",
+    "wait_for_agents": "Wait for Agents",
     "notify": "Notify",
 }
 _STEP_TYPE_ICONS = {
@@ -136,7 +136,6 @@ def show_task_dialog(
         duplicate_task,
         list_tasks,
         get_global_approval_mode,
-        detect_circular_subtasks,
         generate_webhook_secret,
         get_workflow_draft,
         save_workflow_draft,
@@ -768,7 +767,6 @@ def show_task_dialog(
 
                         # Helper: short preview label for a step
                         def _step_preview(s, j):
-                            sid = s.get("id", f"step_{j+1}")
                             sicon = _STEP_TYPE_ICONS.get(s.get("type", "prompt"), "❓")
                             st = s.get("type", "prompt")
                             if st == "prompt":
@@ -783,7 +781,7 @@ def show_task_dialog(
                                 txt = (s.get("objective") or s.get("prompt") or "")[:25]
                                 return f"{sicon} #{j+1} Delegate - {txt}" if txt else f"{sicon} #{j+1} Delegate"
                             elif st == "wait_for_agents":
-                                return f"{sicon} #{j+1} Wait for Child Agents"
+                                return f"{sicon} #{j+1} Wait for Agents"
                             elif st == "approval":
                                 return f"{sicon} #{j+1} Approval"
                             elif st == "notify":
@@ -956,7 +954,6 @@ def show_task_dialog(
                                 def _update_field_visibility(op_value):
                                     """Show/hide fields based on selected operator."""
                                     is_std = op_value in _STANDARD_VALUE_OPS
-                                    is_no_val = op_value in _NO_VALUE_OPS
                                     is_json = op_value == "json:"
                                     is_llm = op_value == "llm:"
                                     _cond_val_input.set_visibility(is_std)
@@ -1126,12 +1123,12 @@ def show_task_dialog(
                                 try:
                                     from row_bot.developer.storage import list_workspaces
 
-                                    _workspace_opts = {"": "Current workflow workspace"}
+                                    _workspace_opts = {"": "Workflow thread workspace"}
                                     for _workspace in list_workspaces():
                                         _workspace_opts[_workspace.id] = _workspace.name
                                 except Exception:
                                     logger.debug("Could not load Developer workspaces", exc_info=True)
-                                    _workspace_opts = {"": "Current workflow workspace"}
+                                    _workspace_opts = {"": "Workflow thread workspace"}
                                 editors["developer_workspace_id"] = ui.select(
                                     label="Where should it work?",
                                     options=_workspace_opts,
@@ -1206,15 +1203,9 @@ def show_task_dialog(
 
                         elif stype == "wait_for_agents":
                             ui.label(
-                                "Wait for child Agents started earlier in this workflow."
+                                "Wait for Agents started earlier in this workflow."
                             ).style("font-size: 0.75rem; color: #666;")
                             with ui.row().classes("gap-2"):
-                                editors["run_ids"] = ui.input(
-                                    "Specific Agent run IDs",
-                                    value=", ".join(step.get("run_ids", []))
-                                    if isinstance(step.get("run_ids"), list)
-                                    else step.get("run_ids", ""),
-                                ).classes("flex-grow").props("dense")
                                 editors["timeout_seconds"] = ui.number(
                                     label="Timeout (s)",
                                     value=step.get("timeout_seconds", 300),
@@ -1226,6 +1217,13 @@ def show_task_dialog(
                                     options=["stop", "skip"],
                                     value=step.get("on_error", "stop"),
                                 ).classes("w-28").props("dense")
+                            with ui.expansion("Advanced").classes("w-full"):
+                                editors["run_ids"] = ui.input(
+                                    "Agent run IDs (optional)",
+                                    value=", ".join(step.get("run_ids", []))
+                                    if isinstance(step.get("run_ids"), list)
+                                    else step.get("run_ids", ""),
+                                ).classes("w-full").props("dense")
                             _wait_next_opts = {
                                 "__next__": "âž¡ï¸ Next step (continue)",
                             }
@@ -2003,6 +2001,15 @@ def show_task_dialog(
                         elif stype == "delegate_agent":
                             if not (s.get("objective") or s.get("prompt") or "").strip():
                                 errors.append(f"Step {si}: Agent objective is required.")
+                            wants_worktree = (
+                                bool(s.get("use_worktree"))
+                                or str(s.get("editing_safety") or "").strip() == "worktree"
+                                or str(s.get("workspace_mode") or "").strip() == "worktree"
+                            )
+                            if wants_worktree and not str(s.get("developer_workspace_id") or "").strip():
+                                errors.append(
+                                    f"Step {si}: Select a Developer workspace for worktree mode."
+                                )
                         elif stype == "notify":
                             if not (s.get("message") or "").strip():
                                 errors.append(f"Step {si}: Notification message is required.")

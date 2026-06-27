@@ -415,3 +415,51 @@ def test_delegate_agent_step_uses_worktree_workspace(tmp_path, monkeypatch) -> N
     assert child["workspace_mode"] == "worktree"
     assert child["workspace_id"].startswith("dev_worktree_")
     assert threads._get_thread_developer_workspace(child["thread_id"]) == child["workspace_id"]
+
+
+@pytest.mark.parametrize("on_error", ["stop", "skip"])
+def test_delegate_agent_worktree_requires_developer_workspace_even_when_skippable(
+    tmp_path,
+    monkeypatch,
+    on_error,
+) -> None:
+    tasks, threads, _profiles, agent_runs, _agent_runner, _worktrees = _fresh_modules(
+        tmp_path,
+        monkeypatch,
+    )
+    calls: list[dict] = []
+    _install_fake_agent(monkeypatch, calls)
+    _run_workflow_synchronously(monkeypatch, tasks)
+    task_id = tasks.create_task(
+        f"Delegate Worktree Missing Workspace {on_error}",
+        steps=[
+            {
+                "type": "delegate_agent",
+                "objective": "Edit safely",
+                "profile": "worker",
+                "editing_safety": "worktree",
+                "use_worktree": True,
+                "wait": True,
+                "on_error": on_error,
+            },
+        ],
+        channels=[],
+        apply_default_skills=False,
+    )
+    thread_id = threads.create_thread(
+        "Workflow run",
+        thread_id=f"workflow-worktree-missing-{on_error}",
+    )
+
+    tasks.run_task_background(task_id, thread_id, ["row_bot_status"], notification=False)
+
+    child_runs = agent_runs.list_agent_runs(
+        parent_thread_id=thread_id,
+        kind="subagent",
+        limit=10,
+    )
+    history = tasks.get_run_history(task_id, limit=1)
+    assert child_runs == []
+    assert calls == []
+    assert history[0]["status"] == "failed"
+    assert "Worktree requires a git-backed Developer workspace" in history[0]["status_message"]
