@@ -17,6 +17,21 @@ logger = logging.getLogger(__name__)
 _ACTIVE_LOCK = threading.RLock()
 _ACTIVE_AGENT_RUNS: dict[str, dict[str, Any]] = {}
 
+_RUNTIME_ERROR_TEXT_PREFIXES = (
+    "API error:",
+    "API quota exceeded",
+    "Authentication failed",
+    "Billing limit reached",
+    "Context too long",
+    "I got stuck in a tool loop",
+    "Rate limit reached",
+    "Request timed out",
+    "The AI provider",
+)
+_RUNTIME_ERROR_TEXT_FRAGMENTS = (
+    " does not support tool calling",
+)
+
 _READ_ONLY_DEFAULT_DENY_TOOLS = {
     "calendar",
     "custom_tool_builder",
@@ -43,6 +58,22 @@ def _short_title(text: str, *, limit: int = 64) -> str:
     if len(title) <= limit:
         return title
     return title[: limit - 1].rstrip() + "..."
+
+
+def _strip_leading_symbols(text: str) -> str:
+    cleaned = str(text or "").strip()
+    while cleaned and not cleaned[0].isalnum():
+        cleaned = cleaned[1:].lstrip()
+    return cleaned
+
+
+def _is_runtime_error_text(text: str) -> bool:
+    cleaned = _strip_leading_symbols(text)
+    if not cleaned:
+        return False
+    if cleaned.startswith(_RUNTIME_ERROR_TEXT_PREFIXES):
+        return True
+    return any(fragment in cleaned for fragment in _RUNTIME_ERROR_TEXT_FRAGMENTS)
 
 
 def _enabled_tool_names(enabled_tool_names: Sequence[str] | None) -> list[str]:
@@ -134,6 +165,15 @@ def _profile_workspace_mode(profile_snapshot: Mapping[str, Any]) -> str:
     return str(workspace_policy.get("workspace_mode_default") or "auto")
 
 
+def _normalize_workspace_mode(value: str, *, default: str = "auto") -> str:
+    raw = str(value or "").strip().lower().replace("-", "_")
+    if not raw:
+        raw = default
+    if raw not in {"auto", "read_only", "single_writer", "worktree"}:
+        raise AgentRunnerError(f"Unknown child Agent workspace mode: {value}")
+    return raw
+
+
 def _writer_lock_key(
     *,
     developer_workspace_id: str = "",
@@ -153,12 +193,14 @@ def _parent_thread_defaults(parent_thread_id: str) -> dict[str, Any]:
             "approval_mode": DEFAULT_APPROVAL_MODE,
             "model_override": "",
             "developer_workspace_id": "",
+            "project_workspace_id": "",
             "skills_override": None,
         }
     from row_bot.threads import (
         _get_thread_approval_mode,
         _get_thread_developer_workspace,
         _get_thread_model_override,
+        _get_thread_project_workspace,
         get_thread_skills_override,
     )
 
@@ -166,6 +208,7 @@ def _parent_thread_defaults(parent_thread_id: str) -> dict[str, Any]:
         "approval_mode": _get_thread_approval_mode(parent_thread_id),
         "model_override": _get_thread_model_override(parent_thread_id),
         "developer_workspace_id": _get_thread_developer_workspace(parent_thread_id),
+        "project_workspace_id": _get_thread_project_workspace(parent_thread_id),
         "skills_override": get_thread_skills_override(parent_thread_id),
     }
 
@@ -260,6 +303,9 @@ def spawn_agent_run(
     enabled_tool_names: Sequence[str] | None = None,
     model_override: str = "",
     approval_mode: str = "",
+    developer_workspace_id: str = "",
+    workspace_mode: str = "",
+    use_worktree: bool = False,
     wait: bool = False,
     timeout: float | None = None,
 ) -> dict[str, Any]:
@@ -286,11 +332,51 @@ def spawn_agent_run(
         parent_approval,
     )
     model = str(model_override or parent_defaults["model_override"] or "")
-    developer_workspace_id = str(parent_defaults["developer_workspace_id"] or "")
+    parent_developer_workspace_id = str(
+        developer_workspace_id or parent_defaults["developer_workspace_id"] or ""
+    )
+    profile_workspace_mode = _normalize_workspace_mode(_profile_workspace_mode(profile_snapshot))
+    effective_workspace_mode = _normalize_workspace_mode(
+        workspace_mode,
+        default=profile_workspace_mode,
+    )
+    if use_worktree:
+        effective_workspace_mode = "worktree"
 
     from row_bot.agent_context import build_child_agent_prompt
     from row_bot.agent_runs import append_agent_event, create_agent_run, create_agent_run_edge
     from row_bot.threads import create_thread, set_thread_skills_override
+
+    run_id = uuid.uuid4().hex[:12]
+    effective_developer_workspace_id = parent_developer_workspace_id
+    workspace_path = ""
+    worktree_allocation: dict[str, Any] | None = None
+    if effective_workspace_mode == "worktree":
+        if not parent_developer_workspace_id:
+            raise AgentRunnerError(
+                "Worktree requires a git-backed Developer workspace. Choose a repo before starting this child Agent."
+            )
+        try:
+            from row_bot.developer.worktrees import allocate_agent_worktree
+
+            worktree_allocation = allocate_agent_worktree(
+                run_id,
+                parent_developer_workspace_id,
+                objective=objective,
+                parent_thread_id=parent_thread_id,
+            )
+        except Exception as exc:
+            raise AgentRunnerError(str(exc)) from exc
+        if str(worktree_allocation.get("status") or "") != "active":
+            raise AgentRunnerError(
+                str(worktree_allocation.get("error") or "Failed to create Worktree.")
+            )
+        effective_developer_workspace_id = str(
+            worktree_allocation.get("worktree_workspace_id") or ""
+        )
+        workspace_path = str(worktree_allocation.get("worktree_path") or "")
+        if not effective_developer_workspace_id or not workspace_path:
+            raise AgentRunnerError("Worktree did not return a usable workspace.")
 
     packet = build_child_agent_prompt(
         objective=objective,
@@ -301,12 +387,16 @@ def spawn_agent_run(
         parent_run_id=parent_run_id,
         model_override=model,
     )
-    run_id = uuid.uuid4().hex[:12]
     child_display = display_name or f"{profile_snapshot.get('display_name', 'Agent')}: {_short_title(objective, limit=42)}"
     child_thread_id = create_thread(
         child_display,
         thread_type="agent_child",
-        developer_workspace_id=developer_workspace_id,
+        developer_workspace_id=effective_developer_workspace_id,
+        project_workspace_id=str(
+            (worktree_allocation or {}).get("project_workspace_id")
+            or parent_defaults.get("project_workspace_id")
+            or parent_developer_workspace_id
+        ),
         approval_mode=effective_approval,
         model_override=model,
         agent_profile_id=str(profile_snapshot.get("id") or ""),
@@ -324,19 +414,18 @@ def spawn_agent_run(
     requires_write_lock = _profile_requires_write_lock(profile_snapshot)
     write_lock_key = (
         _writer_lock_key(
-            developer_workspace_id=developer_workspace_id,
+            developer_workspace_id=effective_developer_workspace_id,
             parent_thread_id=parent_thread_id,
             child_thread_id=child_thread_id,
         )
         if requires_write_lock
         else ""
     )
-    workspace_mode = _profile_workspace_mode(profile_snapshot)
     config = _build_child_config(
         child_thread_id=child_thread_id,
         approval_mode=effective_approval,
         model_override=model,
-        developer_workspace_id=developer_workspace_id,
+        developer_workspace_id=effective_developer_workspace_id,
         parent_thread_id=parent_thread_id,
         parent_run_id=parent_run_id,
         profile_snapshot=profile_snapshot,
@@ -377,12 +466,28 @@ def spawn_agent_run(
         tools_override=tool_allowlist if tool_allowlist else child_tools,
         skills_override=child_skills,
         approval_mode=effective_approval,
-        workspace_id=developer_workspace_id,
-        workspace_mode=workspace_mode,
+        workspace_id=effective_developer_workspace_id,
+        workspace_path=workspace_path,
+        workspace_mode=effective_workspace_mode,
         write_lock_key=write_lock_key,
     )
     if parent_run_id:
         create_agent_run_edge(parent_run_id, run_id, "spawned_by_tool")
+    if worktree_allocation:
+        append_agent_event(
+            run_id,
+            "workspace.worktree_allocated",
+            {
+                "parent_workspace_id": parent_developer_workspace_id,
+                "workspace_id": effective_developer_workspace_id,
+                "workspace_path": workspace_path,
+                "branch_name": worktree_allocation.get("branch_name", ""),
+                "seeded_from_current_changes": bool(
+                    (worktree_allocation.get("metadata_json") or {}).get("seeded_from_current_changes")
+                ),
+            },
+            visibility="user_visible",
+        )
     append_agent_event(
         run_id,
         "context.packed",
@@ -488,6 +593,7 @@ def _run_agent_thread(
         append_agent_event,
         finish_agent_run,
         get_agent_parent_messages,
+        get_agent_run,
         release_agent_write_lock,
         start_agent_run,
         update_agent_status,
@@ -533,10 +639,27 @@ def _run_agent_thread(
             config,
             stop_event=stop_event,
         )
+        if stop_event.is_set() or (get_agent_run(run_id) or {}).get("stop_requested"):
+            finish_agent_run(run_id, "stopped", status_message="Stop requested")
+            return
         if isinstance(result, dict) and result.get("type") == "interrupt":
             _pause_agent_for_approval(run_id, result, config, enabled_tool_names)
             return
+        if isinstance(result, dict) and result.get("type") == "error":
+            message = str(result.get("error") or result.get("message") or "Agent resume failed.")
+            finish_agent_run(run_id, "failed", error=message, status_message=message)
+            return
         text = str(result or "")
+        if _is_runtime_error_text(text):
+            finish_agent_run(
+                run_id,
+                "failed",
+                summary=text,
+                result_json={"response": text},
+                error=text,
+                status_message=text,
+            )
+            return
         append_agent_event(run_id, "turn.completed", {"length": len(text)})
         finish_agent_run(
             run_id,
@@ -557,6 +680,7 @@ def _run_agent_thread(
     finally:
         if lock_acquired:
             release_agent_write_lock(run_id=run_id)
+        _notify_child_agent_waiters(run_id)
         with _ACTIVE_LOCK:
             _ACTIVE_AGENT_RUNS.pop(run_id, None)
 
@@ -579,11 +703,13 @@ def resume_agent_run(
             "approval.resolved",
             {"approved": False, "resume_token": resume_token},
         )
-        return finish_agent_run(
+        run = finish_agent_run(
             run_id,
             "stopped",
             status_message="Approval denied by user",
         )
+        _notify_child_agent_waiters(run_id)
+        return run
     resume_state = run.get("resume_state_json") or {}
     config = resume_state.get("config")
     enabled_tool_names = resume_state.get("enabled_tool_names")
@@ -594,11 +720,19 @@ def resume_agent_run(
             error="Missing Agent resume state",
             status_message="Missing Agent resume state",
         )
-    interrupt_ids = [
-        str(intr.get("id"))
-        for intr in resume_state.get("interrupts", [])
-        if isinstance(intr, dict) and intr.get("id")
-    ]
+    interrupt_ids: list[str] = []
+    seen_interrupt_ids: set[str] = set()
+    for intr in resume_state.get("interrupts", []):
+        if not isinstance(intr, dict):
+            continue
+        raw_id = intr.get("__interrupt_id") or intr.get("id")
+        if not raw_id:
+            continue
+        interrupt_id = str(raw_id)
+        if interrupt_id in seen_interrupt_ids:
+            continue
+        seen_interrupt_ids.add(interrupt_id)
+        interrupt_ids.append(interrupt_id)
     append_agent_event(
         run_id,
         "approval.resolved",
@@ -666,10 +800,27 @@ def _resume_agent_thread(
             interrupt_ids=interrupt_ids or None,
             stop_event=stop_event,
         )
+        if stop_event.is_set() or (get_agent_run(run_id) or {}).get("stop_requested"):
+            finish_agent_run(run_id, "stopped", status_message="Stop requested")
+            return
         if isinstance(result, dict) and result.get("type") == "interrupt":
             _pause_agent_for_approval(run_id, result, config, enabled_tool_names)
             return
+        if isinstance(result, dict) and result.get("type") == "error":
+            message = str(result.get("error") or result.get("message") or "Agent resume failed.")
+            finish_agent_run(run_id, "failed", error=message, status_message=message)
+            return
         text = str(result or "")
+        if _is_runtime_error_text(text):
+            finish_agent_run(
+                run_id,
+                "failed",
+                summary=text,
+                result_json={"response": text, "resumed": True},
+                error=text,
+                status_message=text,
+            )
+            return
         append_agent_event(run_id, "turn.completed", {"length": len(text), "resumed": True})
         finish_agent_run(
             run_id,
@@ -690,6 +841,7 @@ def _resume_agent_thread(
     finally:
         if lock_acquired:
             release_agent_write_lock(run_id=run_id)
+        _notify_child_agent_waiters(run_id)
         with _ACTIVE_LOCK:
             _ACTIVE_AGENT_RUNS.pop(run_id, None)
 
@@ -715,6 +867,74 @@ def wait_for_agent_run(run_id: str, timeout: float | None = None) -> dict[str, A
             return get_agent_run(run_id)
 
 
+def _agent_run_terminal_statuses() -> set[str]:
+    try:
+        from row_bot.agent_runs import TERMINAL_STATUSES
+
+        return set(TERMINAL_STATUSES)
+    except Exception:
+        return {
+            "completed",
+            "completed_delivery_failed",
+            "failed",
+            "stopped",
+            "blocked",
+            "timed_out",
+            "cancelled",
+        }
+
+
+def agent_run_is_terminal(run: Mapping[str, Any] | None) -> bool:
+    if not run:
+        return True
+    return str(run.get("status") or "") in _agent_run_terminal_statuses()
+
+
+def wait_for_agent_run_terminal(
+    run_id: str,
+    timeout: float | None = None,
+    *,
+    poll_interval: float = 0.25,
+) -> dict[str, Any] | None:
+    """Wait until an Agent Run reaches a durable terminal status."""
+    return wait_for_agent_run_terminal_or_status(
+        run_id,
+        timeout=timeout,
+        poll_interval=poll_interval,
+    )
+
+
+def wait_for_agent_run_terminal_or_status(
+    run_id: str,
+    timeout: float | None = None,
+    *,
+    statuses: set[str] | frozenset[str] | None = None,
+    poll_interval: float = 0.25,
+) -> dict[str, Any] | None:
+    """Wait until an Agent Run is terminal or reaches one of *statuses*."""
+    from row_bot.agent_runs import get_agent_run
+
+    awaited_statuses = {str(status) for status in (statuses or set())}
+    deadline = time.monotonic() + timeout if timeout is not None else None
+    sleep_step = max(0.01, float(poll_interval or 0.25))
+    while True:
+        row = get_agent_run(run_id)
+        row_status = str((row or {}).get("status") or "")
+        if agent_run_is_terminal(row) or row_status in awaited_statuses:
+            return row
+        if deadline is not None and time.monotonic() >= deadline:
+            return row
+
+        remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+        wait_for = sleep_step if remaining is None else min(sleep_step, remaining)
+        with _ACTIVE_LOCK:
+            entry = _ACTIVE_AGENT_RUNS.get(run_id)
+        if entry:
+            entry["thread"].join(timeout=wait_for)
+        else:
+            time.sleep(wait_for)
+
+
 def stop_agent_run(run_id: str) -> dict[str, Any] | None:
     """Request stop for a live child Agent and update durable state."""
     with _ACTIVE_LOCK:
@@ -723,7 +943,21 @@ def stop_agent_run(run_id: str) -> dict[str, Any] | None:
             entry["stop_event"].set()
     from row_bot.agent_runs import stop_agent_run as _stop_agent_run
 
-    return _stop_agent_run(run_id)
+    run = _stop_agent_run(run_id)
+    _notify_child_agent_waiters(run_id)
+    return run
+
+
+def _notify_child_agent_waiters(run_id: str) -> None:
+    try:
+        from row_bot.tasks import resume_workflows_waiting_for_child_agent
+
+        resume_workflows_waiting_for_child_agent(run_id)
+    except Exception:
+        logger.exception(
+            "Failed to notify workflows waiting for child Agent %s",
+            run_id,
+        )
 
 
 def list_active_agent_run_ids() -> list[str]:

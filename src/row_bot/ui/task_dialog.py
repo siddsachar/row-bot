@@ -29,7 +29,9 @@ _STEP_TYPES = {
     "prompt": "Prompt",
     "condition": "Condition",
     "approval": "Approval",
-    "subtask": "Sub-agent",
+    "subtask": "Run Workflow",
+    "delegate_agent": "Child Agent",
+    "wait_for_agents": "Wait for Agents",
     "notify": "Notify",
 }
 _STEP_TYPE_ICONS = {
@@ -39,6 +41,9 @@ _STEP_TYPE_ICONS = {
     "subtask": "🤖",
     "notify": "📢",
 }
+
+_STEP_TYPE_ICONS["delegate_agent"] = "Agent"
+_STEP_TYPE_ICONS["wait_for_agents"] = "Wait"
 
 _CONDITION_OPERATORS = [
     "contains:", "not_contains:", "equals:", "matches:",
@@ -131,7 +136,6 @@ def show_task_dialog(
         duplicate_task,
         list_tasks,
         get_global_approval_mode,
-        detect_circular_subtasks,
         generate_webhook_secret,
         get_workflow_draft,
         save_workflow_draft,
@@ -763,7 +767,6 @@ def show_task_dialog(
 
                         # Helper: short preview label for a step
                         def _step_preview(s, j):
-                            sid = s.get("id", f"step_{j+1}")
                             sicon = _STEP_TYPE_ICONS.get(s.get("type", "prompt"), "❓")
                             st = s.get("type", "prompt")
                             if st == "prompt":
@@ -773,7 +776,12 @@ def show_task_dialog(
                                 txt = (s.get("condition") or "")[:25]
                                 return f"{sicon} #{j+1} — {txt}" if txt else f"{sicon} #{j+1}"
                             elif st == "subtask":
-                                return f"{sicon} #{j+1} Sub-agent"
+                                return f"{sicon} #{j+1} Run Workflow"
+                            elif st == "delegate_agent":
+                                txt = (s.get("objective") or s.get("prompt") or "")[:25]
+                                return f"{sicon} #{j+1} Delegate - {txt}" if txt else f"{sicon} #{j+1} Delegate"
+                            elif st == "wait_for_agents":
+                                return f"{sicon} #{j+1} Wait for Agents"
                             elif st == "approval":
                                 return f"{sicon} #{j+1} Approval"
                             elif st == "notify":
@@ -946,7 +954,6 @@ def show_task_dialog(
                                 def _update_field_visibility(op_value):
                                     """Show/hide fields based on selected operator."""
                                     is_std = op_value in _STANDARD_VALUE_OPS
-                                    is_no_val = op_value in _NO_VALUE_OPS
                                     is_json = op_value == "json:"
                                     is_llm = op_value == "llm:"
                                     _cond_val_input.set_visibility(is_std)
@@ -1073,6 +1080,165 @@ def show_task_dialog(
                                     options=_appr_jump_opts,
                                     value=_deny_val if _deny_val in _appr_jump_opts else "end",
                                 ).classes("w-56").props("dense")
+
+                        elif stype == "delegate_agent":
+                            editors["objective"] = _build_var_textarea(
+                                "What should the agent do? *",
+                                step.get("objective") or step.get("prompt", ""),
+                                idx,
+                                props='rows="3" dense',
+                            )
+                            try:
+                                from row_bot.agent_profiles import list_agent_profiles
+
+                                _profiles = list_agent_profiles(
+                                    enabled_only=True,
+                                    include_builtins=True,
+                                )
+                                _profile_opts = {
+                                    str(p.get("slug") or p.get("id")): str(
+                                        p.get("display_name")
+                                        or p.get("slug")
+                                        or p.get("id")
+                                    )
+                                    for p in _profiles
+                                    if str(p.get("slug") or p.get("id") or "").strip()
+                                }
+                            except Exception:
+                                logger.debug("Could not load Agent Profiles for delegate step", exc_info=True)
+                                _profile_opts = {"worker": "Worker"}
+                            if "worker" not in _profile_opts:
+                                _profile_opts["worker"] = "Worker"
+                            _profile_value = (
+                                step.get("profile")
+                                or step.get("agent_profile_id")
+                                or "worker"
+                            )
+                            with ui.row().classes("w-full gap-2"):
+                                editors["profile"] = ui.select(
+                                    label="Helper",
+                                    options=_profile_opts,
+                                    value=_profile_value if _profile_value in _profile_opts else "worker",
+                                ).classes("w-56").props("dense")
+                                try:
+                                    from row_bot.developer.storage import list_workspaces
+
+                                    _workspace_opts = {"": "Workflow thread workspace"}
+                                    for _workspace in list_workspaces():
+                                        _workspace_opts[_workspace.id] = _workspace.name
+                                except Exception:
+                                    logger.debug("Could not load Developer workspaces", exc_info=True)
+                                    _workspace_opts = {"": "Workflow thread workspace"}
+                                editors["developer_workspace_id"] = ui.select(
+                                    label="Where should it work?",
+                                    options=_workspace_opts,
+                                    value=step.get("developer_workspace_id", ""),
+                                ).classes("w-64").props("dense")
+                            _editing_value = step.get("editing_safety") or (
+                                "worktree"
+                                if step.get("use_worktree") or step.get("workspace_mode") == "worktree"
+                                else step.get("workspace_mode") or "profile_default"
+                            )
+                            _editing_opts = {
+                                "profile_default": "Use helper default",
+                                "read_only": "No file edits",
+                                "single_writer": "Use parent working copy",
+                                "worktree": "Use worktree",
+                            }
+                            _return_value = step.get("return_mode") or (
+                                "wait" if step.get("wait", True) else "background"
+                            )
+                            with ui.row().classes("w-full gap-2"):
+                                editors["editing_safety"] = ui.select(
+                                    label="Editing safety",
+                                    options=_editing_opts,
+                                    value=_editing_value if _editing_value in _editing_opts else "profile_default",
+                                ).classes("w-56").props("dense")
+                                editors["return_mode"] = ui.select(
+                                    label="How should it return?",
+                                    options={
+                                        "wait": "Wait for result",
+                                        "background": "Start in background",
+                                    },
+                                    value=_return_value if _return_value in {"wait", "background"} else "wait",
+                                ).classes("w-56").props("dense")
+                            with ui.expansion("Advanced").classes("w-full"):
+                                editors["context"] = _build_var_textarea(
+                                    "Extra context",
+                                    step.get("context", ""),
+                                    idx,
+                                    props='rows="2" dense',
+                                )
+                                with ui.row().classes("gap-2"):
+                                    editors["timeout_seconds"] = ui.number(
+                                        label="Timeout (s)",
+                                        value=step.get("timeout_seconds", 300),
+                                        min=1,
+                                        max=7200,
+                                    ).classes("w-28").props("dense")
+                                    editors["on_error"] = ui.select(
+                                        label="On failure",
+                                        options=["stop", "skip"],
+                                        value=step.get("on_error", "stop"),
+                                    ).classes("w-28").props("dense")
+                                _delegate_next_opts = {
+                                    "__next__": "âž¡ï¸ Next step (continue)",
+                                }
+                                for j, s in enumerate(_steps_data):
+                                    if j == idx:
+                                        continue
+                                    sid = s.get("id", f"step_{j+1}")
+                                    _delegate_next_opts[sid] = _step_preview(s, j)
+                                _delegate_next_opts["end"] = "ðŸ›‘ End workflow"
+                                _delegate_next_val = step.get("next") or "__next__"
+                                editors["next"] = ui.select(
+                                    label="Then go to â†’",
+                                    options=_delegate_next_opts,
+                                    value=(
+                                        _delegate_next_val
+                                        if _delegate_next_val in _delegate_next_opts
+                                        else "__next__"
+                                    ),
+                                ).classes("w-56").props("dense")
+
+                        elif stype == "wait_for_agents":
+                            ui.label(
+                                "Wait for Agents started earlier in this workflow."
+                            ).style("font-size: 0.75rem; color: #666;")
+                            with ui.row().classes("gap-2"):
+                                editors["timeout_seconds"] = ui.number(
+                                    label="Timeout (s)",
+                                    value=step.get("timeout_seconds", 300),
+                                    min=1,
+                                    max=7200,
+                                ).classes("w-28").props("dense")
+                                editors["on_error"] = ui.select(
+                                    label="On failure",
+                                    options=["stop", "skip"],
+                                    value=step.get("on_error", "stop"),
+                                ).classes("w-28").props("dense")
+                            with ui.expansion("Advanced").classes("w-full"):
+                                editors["run_ids"] = ui.input(
+                                    "Agent run IDs (optional)",
+                                    value=", ".join(step.get("run_ids", []))
+                                    if isinstance(step.get("run_ids"), list)
+                                    else step.get("run_ids", ""),
+                                ).classes("w-full").props("dense")
+                            _wait_next_opts = {
+                                "__next__": "âž¡ï¸ Next step (continue)",
+                            }
+                            for j, s in enumerate(_steps_data):
+                                if j == idx:
+                                    continue
+                                sid = s.get("id", f"step_{j+1}")
+                                _wait_next_opts[sid] = _step_preview(s, j)
+                            _wait_next_opts["end"] = "ðŸ›‘ End workflow"
+                            _wait_next_val = step.get("next") or "__next__"
+                            editors["next"] = ui.select(
+                                label="Then go to â†’",
+                                options=_wait_next_opts,
+                                value=_wait_next_val if _wait_next_val in _wait_next_opts else "__next__",
+                            ).classes("w-56").props("dense")
 
                         elif stype == "subtask":
                             ui.label(
@@ -1224,6 +1390,51 @@ def show_task_dialog(
                             if "if_denied" in ed:
                                 v = ed["if_denied"].value
                                 s["if_denied"] = "" if v == "__next__" else (v or "")
+                        elif stype == "delegate_agent":
+                            if "objective" in ed:
+                                s["objective"] = ed["objective"].value
+                            if "profile" in ed:
+                                s["profile"] = ed["profile"].value or "worker"
+                            if "developer_workspace_id" in ed:
+                                s["developer_workspace_id"] = ed["developer_workspace_id"].value or ""
+                            if "editing_safety" in ed:
+                                editing_safety = ed["editing_safety"].value or "profile_default"
+                                s["editing_safety"] = editing_safety
+                                s["use_worktree"] = editing_safety == "worktree"
+                                if editing_safety == "profile_default":
+                                    s.pop("workspace_mode", None)
+                                elif editing_safety == "worktree":
+                                    s["workspace_mode"] = "worktree"
+                                else:
+                                    s["workspace_mode"] = editing_safety
+                            if "return_mode" in ed:
+                                return_mode = ed["return_mode"].value or "wait"
+                                s["return_mode"] = return_mode
+                                s["wait"] = return_mode != "background"
+                            if "context" in ed:
+                                s["context"] = ed["context"].value or ""
+                            if "timeout_seconds" in ed:
+                                s["timeout_seconds"] = int(ed["timeout_seconds"].value or 300)
+                            if "on_error" in ed:
+                                s["on_error"] = ed["on_error"].value
+                            if "next" in ed:
+                                v = ed["next"].value
+                                s["next"] = "" if v == "__next__" else (v or "")
+                        elif stype == "wait_for_agents":
+                            if "run_ids" in ed:
+                                raw = ed["run_ids"].value or ""
+                                s["run_ids"] = [
+                                    item.strip()
+                                    for item in str(raw).split(",")
+                                    if item.strip()
+                                ]
+                            if "timeout_seconds" in ed:
+                                s["timeout_seconds"] = int(ed["timeout_seconds"].value or 300)
+                            if "on_error" in ed:
+                                s["on_error"] = ed["on_error"].value
+                            if "next" in ed:
+                                v = ed["next"].value
+                                s["next"] = "" if v == "__next__" else (v or "")
                         elif stype == "subtask":
                             if "task_id" in ed:
                                 s["task_id"] = ed["task_id"].value or ""
@@ -1787,6 +1998,18 @@ def show_task_dialog(
                         elif stype == "subtask":
                             if not s.get("task_id"):
                                 errors.append(f"Step {si}: Workflow to run is required.")
+                        elif stype == "delegate_agent":
+                            if not (s.get("objective") or s.get("prompt") or "").strip():
+                                errors.append(f"Step {si}: Agent objective is required.")
+                            wants_worktree = (
+                                bool(s.get("use_worktree"))
+                                or str(s.get("editing_safety") or "").strip() == "worktree"
+                                or str(s.get("workspace_mode") or "").strip() == "worktree"
+                            )
+                            if wants_worktree and not str(s.get("developer_workspace_id") or "").strip():
+                                errors.append(
+                                    f"Step {si}: Select a Developer workspace for worktree mode."
+                                )
                         elif stype == "notify":
                             if not (s.get("message") or "").strip():
                                 errors.append(f"Step {si}: Notification message is required.")

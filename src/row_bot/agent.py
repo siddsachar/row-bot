@@ -28,6 +28,10 @@ class TaskStoppedError(Exception):
     """Raised when a running task is cancelled via its stop_event."""
 
 
+class AgentResumeError(RuntimeError):
+    """Raised when a paused agent graph cannot resume successfully."""
+
+
 apply_keys()
 
 
@@ -3982,7 +3986,7 @@ def resume_invoke_agent(enabled_tool_names: list[str], config: dict, approved: b
             _agent_runtime_diagnostics(config, _model_ov),
             exc_info=True,
         )
-        return _err_msg
+        raise AgentResumeError(_err_msg) from exc
 
     # Check for another interrupt (agent may call a second dangerous tool)
     state = agent.get_state(config)

@@ -107,6 +107,86 @@ def test_agent_interrupt_creates_approval_and_resume_routes_to_agent_runner(
     assert {"approval.requested", "approval.resolved", "run.completed"} <= events
 
 
+def test_agent_resume_uses_langgraph_interrupt_ids_for_multi_interrupts(
+    tmp_path,
+    monkeypatch,
+):
+    tasks, threads, _agent_runs, agent_runner = _fresh_agent_approval_modules(
+        tmp_path,
+        monkeypatch,
+    )
+    parent_thread_id = threads.create_thread("Parent", approval_mode="approve")
+
+    def fake_interrupt(prompt, enabled_tool_names, config, *, stop_event):
+        return {
+            "type": "interrupt",
+            "interrupts": [
+                {"__interrupt_id": "write-a", "id": "legacy-a", "tool": "filesystem"},
+                {"__interrupt_id": "write-b", "tool": "filesystem"},
+            ],
+        }
+
+    def fake_resume(enabled_tool_names, config, approved, *, interrupt_ids=None, stop_event):
+        assert approved is True
+        assert interrupt_ids == ["write-a", "write-b"]
+        return "approved child result"
+
+    monkeypatch.setattr(agent_runner, "_invoke_agent", fake_interrupt)
+    monkeypatch.setattr(agent_runner, "_resume_invoke_agent", fake_resume)
+
+    run = agent_runner.spawn_agent_run(
+        "Edit two files.",
+        parent_thread_id=parent_thread_id,
+        profile="worker",
+        enabled_tool_names=["filesystem"],
+        wait=True,
+    )
+    approval = next(row for row in tasks.get_pending_approvals() if row["agent_run_id"] == run["id"])
+
+    assert tasks.respond_to_approval(approval["resume_token"], True) is True
+    final = agent_runner.wait_for_agent_run(run["id"], timeout=2.0)
+
+    assert final["status"] == "completed"
+    assert final["summary"] == "approved child result"
+
+
+def test_agent_resume_error_marks_run_failed(tmp_path, monkeypatch):
+    tasks, threads, _agent_runs, agent_runner = _fresh_agent_approval_modules(
+        tmp_path,
+        monkeypatch,
+    )
+    parent_thread_id = threads.create_thread("Parent", approval_mode="approve")
+
+    monkeypatch.setattr(
+        agent_runner,
+        "_invoke_agent",
+        lambda prompt, enabled_tool_names, config, *, stop_event: {
+            "type": "interrupt",
+            "interrupts": [{"__interrupt_id": "write-a", "tool": "filesystem"}],
+        },
+    )
+
+    def fail_resume(*_args, **_kwargs):
+        raise RuntimeError("provider exploded")
+
+    monkeypatch.setattr(agent_runner, "_resume_invoke_agent", fail_resume)
+
+    run = agent_runner.spawn_agent_run(
+        "Resume should fail.",
+        parent_thread_id=parent_thread_id,
+        profile="worker",
+        enabled_tool_names=["filesystem"],
+        wait=True,
+    )
+    approval = next(row for row in tasks.get_pending_approvals() if row["agent_run_id"] == run["id"])
+
+    assert tasks.respond_to_approval(approval["resume_token"], True) is True
+    final = agent_runner.wait_for_agent_run(run["id"], timeout=2.0)
+
+    assert final["status"] == "failed"
+    assert "provider exploded" in final["error"]
+
+
 def test_agent_approval_denial_stops_child_run(tmp_path, monkeypatch):
     tasks, threads, _agent_runs, agent_runner = _fresh_agent_approval_modules(
         tmp_path,

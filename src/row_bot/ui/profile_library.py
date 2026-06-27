@@ -29,10 +29,10 @@ _CONTEXT_OPTIONS = {
 }
 
 _WORKSPACE_OPTIONS = {
-    "auto": "Automatic",
-    "read_only": "Read files only",
-    "single_writer": "Write files one at a time",
-    "worktree": "Advanced: isolated worktree",
+    "auto": "Use surface default",
+    "read_only": "No file edits",
+    "single_writer": "Use parent working copy",
+    "worktree": "Use Worktree",
 }
 
 _APPROVAL_OPTIONS = {
@@ -65,10 +65,10 @@ _CONTEXT_HELP = {
 }
 
 _WORKSPACE_HELP = {
-    "auto": "Uses the current surface's normal workspace behavior.",
-    "read_only": "Can inspect workspace files but should not write them.",
-    "single_writer": "Can write, one write-capable agent at a time.",
-    "worktree": "Advanced isolation for future worktree-backed execution.",
+    "auto": "Uses the current chat, workflow, or studio workspace behavior.",
+    "read_only": "Can inspect workspace files but should not edit them.",
+    "single_writer": "Can edit the parent working copy, with writer locking for write-capable helpers.",
+    "worktree": "Gives this helper its own local git Worktree before it edits files.",
 }
 
 _APPROVAL_HELP = {
@@ -415,7 +415,7 @@ def open_profile_editor_dialog(
             workspace_mode = _policy_select(
                 _WORKSPACE_OPTIONS,
                 value=str(workspace_policy.get("workspace_mode_default") or "read_only"),
-                label="Workspace",
+                label="File editing workspace",
                 help_map=_WORKSPACE_HELP,
             )
             approval_mode = _policy_select(

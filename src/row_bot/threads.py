@@ -33,6 +33,7 @@ _THREAD_META_COLUMNS = {
     "project_id": "TEXT DEFAULT ''",
     "thread_type": "TEXT DEFAULT ''",
     "developer_workspace_id": "TEXT DEFAULT ''",
+    "project_workspace_id": "TEXT DEFAULT ''",
     "approval_mode": "TEXT DEFAULT ''",
     "name_source": "TEXT DEFAULT ''",
     "agent_profile_id": "TEXT DEFAULT ''",
@@ -59,6 +60,13 @@ def _init_thread_db(*, raise_on_error: bool = False):
                 if column not in cols:
                     conn.execute(f"ALTER TABLE thread_meta ADD COLUMN {column} {definition}")
                     cols.add(column)
+            if "project_workspace_id" in cols and "developer_workspace_id" in cols:
+                conn.execute(
+                    "UPDATE thread_meta SET project_workspace_id = developer_workspace_id "
+                    "WHERE COALESCE(project_workspace_id, '') = '' "
+                    "AND COALESCE(developer_workspace_id, '') != '' "
+                    "AND COALESCE(thread_type, '') = 'code'"
+                )
             conn.commit()
         logger.debug("Thread database initialised at %s", DB_PATH)
     except Exception:
@@ -79,7 +87,7 @@ def _list_threads(*, include_details: bool = False):
             "COALESCE(project_id, ''), COALESCE(thread_type, ''), "
             "COALESCE(developer_workspace_id, ''), COALESCE(approval_mode, ''), "
             "COALESCE(name_source, ''), COALESCE(agent_profile_id, ''), "
-            "COALESCE(agent_profile_slug, '') "
+            "COALESCE(agent_profile_slug, ''), COALESCE(project_workspace_id, '') "
             "FROM thread_meta ORDER BY updated_at DESC"
         ).fetchall()
     else:
@@ -249,6 +257,18 @@ def _set_thread_developer_workspace(thread_id: str, workspace_id: str) -> None:
     conn.close()
 
 
+def _set_thread_project_workspace(thread_id: str, workspace_id: str) -> None:
+    """Link a Developer thread to its root project workspace."""
+    _ensure_thread_db()
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "UPDATE thread_meta SET project_workspace_id = ? WHERE thread_id = ?",
+        (workspace_id, thread_id),
+    )
+    conn.commit()
+    conn.close()
+
+
 def _get_thread_approval_mode_raw(thread_id: str) -> str:
     """Return the stored thread approval mode without applying defaults."""
     _ensure_thread_db()
@@ -337,6 +357,21 @@ def _get_thread_developer_workspace(thread_id: str) -> str:
     return row[0] if row else ""
 
 
+def _get_thread_project_workspace(thread_id: str) -> str:
+    """Return the Developer project/root workspace id for a thread."""
+    _ensure_thread_db()
+    conn = sqlite3.connect(DB_PATH)
+    row = conn.execute(
+        "SELECT COALESCE(project_workspace_id, ''), COALESCE(developer_workspace_id, '') "
+        "FROM thread_meta WHERE thread_id = ?",
+        (thread_id,),
+    ).fetchone()
+    conn.close()
+    if not row:
+        return ""
+    return str(row[0] or row[1] or "")
+
+
 def _thread_exists(thread_id: str) -> bool:
     """Return True if a thread_meta row exists for *thread_id*."""
     _ensure_thread_db()
@@ -368,6 +403,7 @@ def create_thread(
     thread_id: str | None = None,
     thread_type: str = "",
     developer_workspace_id: str = "",
+    project_workspace_id: str = "",
     project_id: str = "",
     approval_mode: str = "",
     model_override: str = "",
@@ -395,14 +431,15 @@ def create_thread(
         conn.execute(
             "INSERT INTO thread_meta ("
             "thread_id, name, created_at, updated_at, model_override, project_id, "
-            "thread_type, developer_workspace_id, approval_mode, name_source, "
+            "thread_type, developer_workspace_id, project_workspace_id, approval_mode, name_source, "
             "agent_profile_id, agent_profile_slug"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(thread_id) DO UPDATE SET "
             "name = excluded.name, updated_at = excluded.updated_at, "
             "model_override = excluded.model_override, project_id = excluded.project_id, "
             "thread_type = excluded.thread_type, "
             "developer_workspace_id = excluded.developer_workspace_id, "
+            "project_workspace_id = excluded.project_workspace_id, "
             "approval_mode = excluded.approval_mode, name_source = excluded.name_source, "
             "agent_profile_id = excluded.agent_profile_id, "
             "agent_profile_slug = excluded.agent_profile_slug",
@@ -415,6 +452,7 @@ def create_thread(
                 str(project_id or ""),
                 str(thread_type or ""),
                 str(developer_workspace_id or ""),
+                str(project_workspace_id or developer_workspace_id or ""),
                 safe_approval,
                 safe_source,
                 str(agent_profile_id or ""),
@@ -427,6 +465,7 @@ def create_thread(
         and not existed
         and not str(project_id or "").strip()
         and not str(developer_workspace_id or "").strip()
+        and not str(project_workspace_id or "").strip()
         and not str(thread_type or "").strip()
     ):
         _seed_thread_default_skills_safe(tid, surface="chat")
@@ -519,10 +558,12 @@ def list_developer_workspace_threads(workspace_id: str) -> list[tuple]:
             "SELECT thread_id, name, created_at, updated_at, COALESCE(model_override, ''), "
             "COALESCE(project_id, ''), COALESCE(thread_type, ''), "
             "COALESCE(developer_workspace_id, ''), COALESCE(approval_mode, ''), "
-            "COALESCE(name_source, '') "
-            "FROM thread_meta WHERE COALESCE(developer_workspace_id, '') = ? "
+            "COALESCE(name_source, ''), COALESCE(project_workspace_id, '') "
+            "FROM thread_meta WHERE COALESCE(thread_type, '') = 'code' "
+            "AND (COALESCE(project_workspace_id, '') = ? OR "
+            "(COALESCE(project_workspace_id, '') = '' AND COALESCE(developer_workspace_id, '') = ?)) "
             "ORDER BY updated_at DESC",
-            (workspace_id,),
+            (workspace_id, workspace_id),
         ).fetchall()
     return rows
 

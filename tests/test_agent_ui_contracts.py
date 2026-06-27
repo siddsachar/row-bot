@@ -18,7 +18,8 @@ def test_activity_center_uses_current_agent_goal_runs_and_channel_monitor():
     assert "Current work, approvals, schedules" not in src
     assert "prepare_channel_goal_start" not in src
     assert "list_goals" in src
-    assert 'statuses=["waiting_approval", "blocked"]' in src
+    assert "def _activity_attention_statuses" in src
+    assert '_ACTIVITY_AGENT_ATTENTION_STATUSES = ("waiting_approval", "waiting_user", "blocked")' in src
     goal_section = src.split("def _rebuild_goal_activity", 1)[1].split("def _render_goal_activity_row", 1)[0]
     assert "waiting_user" not in goal_section
     assert "failed" not in goal_section
@@ -55,10 +56,14 @@ def test_activity_center_uses_current_agent_goal_runs_and_channel_monitor():
     assert "_approvals_container" not in workflows_block
     assert "list_agent_runs" in src
     assert 'kind="subagent"' in src
+    agent_section = src.split("def _rebuild_agent_runs", 1)[1].split("ui.label(label)", 1)[0]
+    assert '"failed", "timed_out"' not in agent_section
     assert "stop_agent_run" in src
     assert "Current Chat Agents" in src
     assert "No active Agents" in src
     assert "open_agent_peek_dialog" in src
+    assert "Worktree" in src
+    assert "_agent_workspace_tooltip" in src
     assert "_agent_preview_state" in src
     assert "_agent_preview_container" in src
     assert "_show_agent_preview" in src
@@ -79,6 +84,7 @@ def test_activity_center_uses_current_agent_goal_runs_and_channel_monitor():
 def test_profile_library_lives_in_left_sidebar():
     sidebar = _read("ui/sidebar.py")
     library = _read("ui/profile_library.py")
+    task_dialog = _read("ui/task_dialog.py")
     profile_panel = library.split("def build_profile_library", 1)[1]
 
     assert "build_profile_library" in sidebar
@@ -108,6 +114,16 @@ def test_profile_library_lives_in_left_sidebar():
     assert "skills_override" in library
     assert "Pinned skills for this profile" in library
     assert "Smart skill suggestions still work normally" in library
+    assert "File editing workspace" in library
+    assert "Use Worktree" in library
+    assert "Child Agent" in task_dialog
+    assert "Delegate to Agent" not in task_dialog
+    assert "What should the agent do?" in task_dialog
+    assert "Editing safety" in task_dialog
+    assert "Wait for Agents" in task_dialog
+    assert "Wait for Child Agents" not in task_dialog
+    assert "Agent run IDs (optional)" in task_dialog
+    assert "Select a Developer workspace for worktree mode." in task_dialog
     assert "Profile shortcut" not in library
     assert "Suggested skills" not in library
     assert "inherit_skills" not in library
@@ -162,6 +178,7 @@ def test_channel_monitor_component_preserves_channel_contract():
 
 def test_global_profile_picker_contract():
     picker = _read("ui/profile_picker.py")
+    controls = _read("ui/chat_components.py")
     chat = _read("ui/chat.py")
     designer = Path("src/row_bot/designer/editor.py").read_text(encoding="utf-8")
     developer = Path("src/row_bot/developer/ui.py").read_text(encoding="utf-8")
@@ -175,9 +192,46 @@ def test_global_profile_picker_contract():
     assert "_apply_profile_picker_selection" in picker
     assert "open_profile_view_dialog" in picker
     assert "Developer workspace permissions still apply" in picker
+    assert "ensure_composer_control_css" in picker
+    assert "row-bot-composer-control-group" in picker
+    assert "row-bot-composer-select" in picker
+    assert "dense borderless options-dense hide-bottom-space" in picker
+    assert "label=label" not in picker
+    assert ".row-bot-composer-select .q-field__label" in controls
+    assert "display: none !important;" in controls
     assert "build_profile_picker" in chat
     assert "build_profile_picker" in designer
     assert "build_profile_picker" in developer
+
+
+def test_developer_studio_live_testing_polish_contracts():
+    developer = Path("src/row_bot/developer/ui.py").read_text(encoding="utf-8")
+    sidebar = _read("ui/sidebar.py")
+    chat = _read("ui/chat.py")
+
+    assert "Review this repo" not in developer
+    assert "Fix failing tests" not in developer
+    assert "Add a feature" not in developer
+    assert "Explain architecture" not in developer
+    assert "Prepare a PR" not in developer
+    assert "Branch" in developer
+    assert "Feature branch" not in developer
+    assert "New Thread in Worktree (Recommended)" in developer
+    assert "New Thread in Current Folder" in developer
+    assert "Start in Worktree" in developer
+    assert "Use current folder" in developer
+    assert "def _worktree_action_state" in developer
+    assert 'repo_label = "In Git"' in developer
+    assert "Repo root:" in developer
+    assert "Original folder has changes not in this Worktree" in developer
+    assert "row-bot-composer-select" in developer
+    assert 'label="Run in"' not in developer
+    assert "Choose where Developer commands run" in developer
+    assert "width: min(840px, 94vw)" in sidebar
+    assert 'classes("w-96")' not in sidebar
+    assert "Child Agent of" in chat
+    assert "Back to Parent" in chat
+    assert "get_agent_run_for_thread" in chat
 
 
 def test_agent_drawer_contract_and_surface_usage():
@@ -201,6 +255,17 @@ def test_agent_drawer_contract_and_surface_usage():
     assert "stop_agent_run" in drawer
     assert "get_agent_parent_messages" in drawer
     assert "Note queued:" in drawer
+    assert "Worktree" in drawer
+    assert "_open_agent_worktree" in drawer
+    assert "_show_agent_worktree_compare" in drawer
+    assert "folder_open" in drawer
+    assert "difference" in drawer
+    assert "Open worktree" in drawer
+    assert "Compare" in drawer
+    assert "open_agent_thread" in drawer
+    assert "_get_thread_developer_workspace" in drawer
+    assert "_get_thread_type" in drawer
+    assert 'target_thread_type == "agent_child"' in drawer
     assert "build_profile_picker" in chat
     assert "_render_thread_profile_chip" not in chat
     assert "_render_parent_agent_strip" in chat
@@ -338,7 +403,10 @@ def test_agent_card_uses_compact_peek_contract():
 
     assert "open_agent_peek_dialog" in src
     assert "Peek Agent activity" in src
+    assert "Open thread" in src
+    assert "Open worktree" in src
+    assert "Compare" in src
     assert "agent_lifecycle" in src
     assert "-webkit-line-clamp: 2" in src
     assert "Raw Agent tool output" in src
-    assert "Agents drawer" in src
+    assert "Open the full child thread from the Agents drawer" not in src

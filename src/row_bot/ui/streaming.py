@@ -1339,7 +1339,103 @@ def _direct_agent_terminal_summary(run_row: dict | None) -> str:
     return prefix
 
 
-def _append_direct_agent_completion_messages(messages: list[dict], run_ids: list[str]) -> bool:
+def _checkpoint_ui_metadata(msg: dict) -> dict:
+    metadata: dict = {}
+    for key in (
+        "timestamp",
+        "turn_boundary",
+        "agent_run_ids",
+        "agent_run_refresh_key",
+        "agent_lifecycle",
+        "agent_completion_for",
+    ):
+        if key in msg:
+            metadata[key] = msg[key]
+    return metadata
+
+
+def _append_ui_messages_to_checkpoint(thread_id: str, messages: list[dict]) -> None:
+    if not thread_id or not messages:
+        return
+    try:
+        from langchain_core.messages import AIMessage, HumanMessage
+        from row_bot.threads import append_checkpoint_messages
+
+        checkpoint_messages: list = []
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            role = str(msg.get("role") or "").strip()
+            content = str(msg.get("content") or "")
+            metadata = _checkpoint_ui_metadata(msg)
+            kwargs = {"row_bot_ui": metadata} if metadata else {}
+            if role == "user":
+                checkpoint_messages.append(HumanMessage(content=content, additional_kwargs=kwargs))
+            elif role == "assistant":
+                checkpoint_messages.append(AIMessage(content=content, additional_kwargs=kwargs))
+        if checkpoint_messages:
+            append_checkpoint_messages(thread_id, checkpoint_messages)
+    except Exception:
+        logger.debug("Could not append UI Agent messages to checkpoint", exc_info=True)
+
+
+def _coalesce_agent_completion_message(messages: list[dict], run_id: str, summary: str) -> tuple[bool, bool]:
+    """Return whether *summary* already exists, removing duplicate plain rows."""
+    clean_run_id = str(run_id or "").strip()
+    clean_summary = str(summary or "").strip()
+    if not clean_run_id or not clean_summary:
+        return False, False
+    found = False
+    changed = False
+    compacted: list[dict] = []
+    for msg in messages:
+        if not (
+            isinstance(msg, dict)
+            and str(msg.get("role") or "") == "assistant"
+            and str(msg.get("content") or "").strip() == clean_summary
+        ):
+            compacted.append(msg)
+            continue
+        completion_for = str(msg.get("agent_completion_for") or "").strip()
+        if completion_for and completion_for != clean_run_id:
+            compacted.append(msg)
+            continue
+        if found:
+            changed = True
+            continue
+        found = True
+        if msg.get("agent_completion_for") != clean_run_id:
+            msg["agent_completion_for"] = clean_run_id
+            changed = True
+        compacted.append(msg)
+    if len(compacted) != len(messages):
+        messages[:] = compacted
+    return found, changed
+
+
+def _lifecycle_agent_run_ids(messages: list[dict]) -> set[str]:
+    run_ids: set[str] = set()
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        lifecycle = msg.get("agent_lifecycle")
+        if not isinstance(lifecycle, dict):
+            continue
+        kind = str(lifecycle.get("kind") or "")
+        if kind not in {"direct_agent_spawn", "delegated_agent_spawn"}:
+            continue
+        run_id = str(lifecycle.get("run_id") or "").strip()
+        if run_id:
+            run_ids.add(run_id)
+    return run_ids
+
+
+def _append_direct_agent_completion_messages(
+    messages: list[dict],
+    run_ids: list[str],
+    *,
+    checkpoint_thread_id: str = "",
+) -> bool:
     clean_ids = {str(run_id) for run_id in run_ids if str(run_id or "").strip()}
     if not clean_ids:
         return False
@@ -1358,7 +1454,7 @@ def _append_direct_agent_completion_messages(messages: list[dict], run_ids: list
         if lifecycle_kind not in {"direct_agent_spawn", "delegated_agent_spawn"}:
             continue
         run_id = str(lifecycle.get("run_id") or "").strip()
-        if run_id not in clean_ids or lifecycle.get("completion_summary_emitted"):
+        if run_id not in clean_ids:
             continue
         if lifecycle_kind == "delegated_agent_spawn" and lifecycle.get("wait_mode"):
             continue
@@ -1369,6 +1465,19 @@ def _append_direct_agent_completion_messages(messages: list[dict], run_ids: list
             continue
         summary = _direct_agent_terminal_summary(run_row)
         if not summary:
+            continue
+        exists, coalesced = _coalesce_agent_completion_message(messages, run_id, summary)
+        changed = changed or coalesced
+        if exists:
+            if not lifecycle.get("completion_summary_emitted"):
+                lifecycle["completion_summary_emitted"] = True
+                changed = True
+            completed_status = str((run_row or {}).get("status") or "")
+            if lifecycle.get("completed_status") != completed_status:
+                lifecycle["completed_status"] = completed_status
+                changed = True
+            continue
+        if lifecycle.get("completion_summary_emitted"):
             continue
         lifecycle["completion_summary_emitted"] = True
         lifecycle["completed_status"] = str((run_row or {}).get("status") or "")
@@ -1383,6 +1492,8 @@ def _append_direct_agent_completion_messages(messages: list[dict], run_ids: list
             completion_msg,
             current_generation_id=str(lifecycle.get("source_generation_id") or ""),
         )
+        if checkpoint_thread_id:
+            _append_ui_messages_to_checkpoint(checkpoint_thread_id, [completion_msg])
         changed = True
     return changed
 
@@ -1448,11 +1559,7 @@ def _append_async_delegated_agent_completion_messages(
         for msg in messages
         if isinstance(msg, dict)
     }
-    existing_assistant_content = {
-        str(msg.get("content") or "").strip()
-        for msg in messages
-        if isinstance(msg, dict) and str(msg.get("role") or "") == "assistant"
-    }
+    lifecycle_run_ids = _lifecycle_agent_run_ids(messages)
 
     changed = False
     try:
@@ -1462,7 +1569,7 @@ def _append_async_delegated_agent_completion_messages(
         return False
 
     for run_id in candidate_ids:
-        if run_id in existing_completion_ids or run_id in wait_candidate_ids:
+        if run_id in wait_candidate_ids:
             continue
         try:
             run_row = get_agent_run(run_id)
@@ -1472,7 +1579,9 @@ def _append_async_delegated_agent_completion_messages(
         summary = _direct_agent_terminal_summary(run_row)
         if not summary:
             continue
-        if summary.strip() in existing_assistant_content:
+        exists, coalesced = _coalesce_agent_completion_message(messages, run_id, summary)
+        changed = changed or coalesced
+        if exists or run_id in existing_completion_ids or run_id in lifecycle_run_ids:
             continue
         completion_msg = {
             "role": "assistant",
@@ -1493,7 +1602,6 @@ def _append_async_delegated_agent_completion_messages(
                     exc_info=True,
                 )
         existing_completion_ids.add(run_id)
-        existing_assistant_content.add(summary.strip())
         changed = True
     return changed
 
@@ -1516,7 +1624,11 @@ def _schedule_direct_agent_card_refresh(
         attempts["count"] += 1
         messages = _direct_agent_thread_messages(state, thread_id)
         changed, terminal = _update_direct_agent_refresh_keys(messages, clean_ids)
-        summary_changed = _append_direct_agent_completion_messages(messages, clean_ids)
+        summary_changed = _append_direct_agent_completion_messages(
+            messages,
+            clean_ids,
+            checkpoint_thread_id=thread_id,
+        )
         if changed or summary_changed:
             try:
                 from row_bot.ui.helpers import persist_thread_media_state
@@ -1876,6 +1988,9 @@ async def _handle_direct_agent_spawn(
                 parent_thread_id,
                 request,
                 enabled_tool_names=enabled_tool_names,
+                developer_workspace_id=str(
+                    getattr(state, "active_developer_workspace_id", None) or ""
+                ),
             )
         )
         run_id = str((run_row or {}).get("id") or "").strip()
@@ -1900,6 +2015,7 @@ async def _handle_direct_agent_spawn(
         }
 
     parent_messages.extend([user_msg, assistant_msg])
+    _append_ui_messages_to_checkpoint(parent_thread_id, [user_msg, assistant_msg])
     persist_thread_media_state(parent_thread_id, parent_messages)
     if state.thread_id == parent_thread_id:
         state.cache_active_messages()

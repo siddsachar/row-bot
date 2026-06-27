@@ -89,6 +89,9 @@ def test_delegate_work_uses_runner_and_returns_public_run(tmp_path, monkeypatch)
             "profile_id": "builtin:review",
             "profile_slug": "review",
             "profile_display_name": "Review",
+            "workspace_id": kwargs.get("developer_workspace_id", ""),
+            "workspace_path": "D:/tmp/repo-wt" if kwargs.get("use_worktree") else "",
+            "workspace_mode": "worktree" if kwargs.get("use_worktree") else "auto",
         }
 
     monkeypatch.setattr(agent_tool.agent_runner, "spawn_agent_run", fake_spawn)
@@ -98,6 +101,8 @@ def test_delegate_work_uses_runner_and_returns_public_run(tmp_path, monkeypatch)
         profile="quality_reviewer",
         context="Changed files: app.py",
         parent_thread_id="parent-thread",
+        developer_workspace_id="dev_parent",
+        use_worktree=True,
         wait=False,
     ))
 
@@ -109,6 +114,10 @@ def test_delegate_work_uses_runner_and_returns_public_run(tmp_path, monkeypatch)
     assert calls["kwargs"]["context"] == "Changed files: app.py"
     assert calls["kwargs"]["parent_thread_id"] == "parent-thread"
     assert calls["kwargs"]["model_override"] == ""
+    assert calls["kwargs"]["developer_workspace_id"] == "dev_parent"
+    assert calls["kwargs"]["use_worktree"] is True
+    assert payload["run"]["workspace"]["mode"] == "worktree"
+    assert payload["run"]["workspace"]["id"] == "dev_parent"
 
 
 def test_delegate_work_resolves_optional_model_to_canonical_ref(tmp_path, monkeypatch):
@@ -232,6 +241,10 @@ def test_delegate_work_schema_is_async_first() -> None:
     assert "prefer false" in wait_description
     assert "asynchronously" in wait_description
     assert "explicitly asks" in wait_description
+    worktree_description = str(
+        _DelegateWorkInput.model_fields["use_worktree"].description or ""
+    ).lower()
+    assert "local git worktree" in worktree_description
 
     delegate_tool = next(
         tool
