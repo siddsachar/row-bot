@@ -35,7 +35,7 @@ _BUDDY_HEAD = """
     }
 })();
 </script>
-<script src="/static/buddy/runtime/buddy.js?v=row-bot-buddy-v6"></script>
+<script src="/static/buddy/runtime/buddy.js?v=row-bot-buddy-v7"></script>
 <style>
 html.row-bot-buddy-overlay-html,
 html.row-bot-buddy-overlay-html body,
@@ -499,10 +499,11 @@ def _surface_html(surface: str) -> str:
                 motion_url = static_url_for_path(motion_path)
                 motion_pack_path = str(pack.motion_pack_path)
     motion_pack_json = json.dumps(_motion_pack_payload(motion_pack_path), separators=(",", ":")) if motion_pack_path else "{}"
+    rendered_motion_url = "" if motion_pack_json != "{}" else motion_url
     element_id = f"buddy-{surface}-{uuid.uuid4().hex[:10]}"
     unavailable = "Loading motion pack" if motion_pack_json != "{}" else ("Loading motion" if motion_url else ("Loading companion" if preview_url else "Generate a companion look to activate animation"))
     return f"""
-    <div id="{element_id}" class="row-bot-buddy-wrap" data-row-bot-buddy data-surface="{html.escape(surface)}" data-personality="{html.escape(personality)}" data-bubble-verbosity="{html.escape(bubble_verbosity)}" data-preview="{html.escape(preview_url)}" data-motion="{html.escape(motion_url)}" data-motion-pack="{html.escape(motion_pack_json, quote=True)}" data-generated-fit="{html.escape(render_fit)}">
+    <div id="{element_id}" class="row-bot-buddy-wrap" data-row-bot-buddy data-surface="{html.escape(surface)}" data-personality="{html.escape(personality)}" data-bubble-verbosity="{html.escape(bubble_verbosity)}" data-preview="{html.escape(preview_url)}" data-motion="{html.escape(rendered_motion_url)}" data-motion-pack="{html.escape(motion_pack_json, quote=True)}" data-generated-fit="{html.escape(render_fit)}">
       <div class="row-bot-buddy-stage">
         <canvas id="{element_id}-canvas" width="220" height="220" aria-label="Companion animation"></canvas>
         <div class="row-bot-buddy-fallback" aria-hidden="true">*</div>

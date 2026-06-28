@@ -43,6 +43,35 @@ def test_selected_provider_sources_select_focused_legacy_regressions() -> None:
     assert "tests/test_provider_catalog.py" in selection.test_paths
 
 
+def test_agent_profile_workflow_sources_select_profile_and_workflow_regressions() -> None:
+    selection = select_tests_for_changes(
+        [
+            "src/row_bot/tools/agent_tool.py",
+            "src/row_bot/tools/task_tool.py",
+            "src/row_bot/tools/row_bot_status_tool.py",
+            "src/row_bot/ui/task_dialog.py",
+            "src/row_bot/agent_runs.py",
+            "src/row_bot/agent_commands.py",
+            "src/row_bot/agent_context.py",
+            "src/row_bot/agent_runner.py",
+            "src/row_bot/ui/streaming.py",
+        ]
+    )
+
+    assert "agent_profile_workflows" in selection.matched_rules
+    assert "tests/test_agent_commands.py" in selection.test_paths
+    assert "tests/test_agent_context.py" in selection.test_paths
+    assert "tests/test_agent_profiles.py" in selection.test_paths
+    assert "tests/test_agent_runner.py" in selection.test_paths
+    assert "tests/test_agent_tool.py" in selection.test_paths
+    assert "tests/test_agent_runs.py" in selection.test_paths
+    assert "tests/test_active_run_queue.py" in selection.test_paths
+    assert "tests/test_chat_tool_trace_ui.py" in selection.test_paths
+    assert "tests/test_row_bot_status_agents.py" in selection.test_paths
+    assert "tests/subsystem/workflows" in selection.test_paths
+    assert not selection.unmatched_files
+
+
 def test_memory_tool_change_selects_tool_and_graph_coverage() -> None:
     selection = select_tests_for_changes(["src/row_bot/tools/memory_tool.py"])
 

@@ -95,7 +95,7 @@ def test_runtime_brand_assets_are_file_backed_and_visible():
     assert "APP_BRAND_ACCENT" in page_navigator_src
     assert "APP_BRAND_ACCENT" in interaction_src
 
-    assert "row-bot-buddy-v6" in buddy_src
+    assert "row-bot-buddy-v7" in buddy_src
     assert "window.RowBotBuddy" in buddy_src
     assert f"window.{LEGACY_SERVICE_PREFIX}Buddy" not in buddy_src
 

@@ -14,7 +14,7 @@ import os
 import pathlib
 import sys
 import time
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 from row_bot.brand import APP_NATIVE_ENV
 from nicegui import events, run, ui
@@ -106,6 +106,9 @@ def ensure_composer_control_css() -> None:
           min-height: 30px !important;
           padding: 0 2px !important;
           align-items: center !important;
+        }
+        .row-bot-composer-select .q-field__label {
+          display: none !important;
         }
         .row-bot-composer-select .q-field__control-container,
         .row-bot-composer-select .q-field__native,
@@ -1107,8 +1110,11 @@ def _build_inline_model_picker(
         if on_model_switch:
             on_model_switch()
         _policy = await run.io_bound(lambda: get_context_policy(_eff))
-        if _policy.native_max is not None and _policy.user_cap > _policy.native_max:
-            _ml = CONTEXT_SIZE_LABELS.get(_policy.native_max, f"{_policy.native_max:,}")
+        _native_max = _policy.native_max
+        if _native_max is None:
+            _native_max = await run.io_bound(lambda: get_model_max_context(_eff))
+        if _native_max is not None and _policy.user_cap > _native_max:
+            _ml = CONTEXT_SIZE_LABELS.get(_native_max, f"{_native_max:,}")
             _ul = CONTEXT_SIZE_LABELS.get(_policy.user_cap, f"{_policy.user_cap:,}")
             ui.notify(
                 f"Context capped: {_eff} max is {_ml} (you selected {_ul}). "

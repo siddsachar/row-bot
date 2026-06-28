@@ -74,6 +74,8 @@ def test_spawn_agent_run_creates_child_thread_and_completes(tmp_path, monkeypatc
     assert run["context_mode"] == "focused"
     assert "Review the auth change." in captured["prompt"]
     assert "PROFILE INSTRUCTIONS" in captured["prompt"]
+    assert "Runtime model override: model:test" in captured["prompt"]
+    assert "Do not call row_bot_update_setting(setting='model')" in captured["prompt"]
     assert "agents" not in captured["tools"]
     assert captured["config"]["configurable"]["runtime_surface"] == "agent_child"
     assert captured["config"]["configurable"]["approval_mode"] == "block"
@@ -84,6 +86,34 @@ def test_spawn_agent_run_creates_child_thread_and_completes(tmp_path, monkeypatc
     assert threads._get_thread_type(run["thread_id"]) == "agent_child"
     event_types = {event["type"] for event in agent_runs.get_agent_events(run["id"])}
     assert {"run.created", "run.started", "turn.started", "turn.completed", "run.completed"} <= event_types
+
+
+def test_spawn_agent_run_marks_provider_error_text_failed(tmp_path, monkeypatch):
+    agent_runner, agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
+        tmp_path,
+        monkeypatch,
+    )
+    parent_thread_id = threads.create_thread("Parent")
+
+    def fake_invoke(prompt, enabled_tool_names, config, *, stop_event):
+        return "!!! API error: provider rejected the request"
+
+    monkeypatch.setattr(agent_runner, "_invoke_agent", fake_invoke)
+
+    run = agent_runner.spawn_agent_run(
+        "Use an unavailable model.",
+        parent_thread_id=parent_thread_id,
+        profile="worker",
+        wait=True,
+    )
+
+    assert run["status"] == "failed"
+    assert run["error"] == "!!! API error: provider rejected the request"
+    assert run["summary"] == "!!! API error: provider rejected the request"
+    event_types = {event["type"] for event in agent_runs.get_agent_events(run["id"])}
+    assert "run.failed" in event_types
+    assert "run.completed" not in event_types
+    assert "turn.completed" not in event_types
 
 
 def test_builtin_profile_skills_flow_to_child_agent(tmp_path, monkeypatch):
@@ -388,3 +418,191 @@ def test_stop_agent_run_sets_live_stop_event_and_durable_status(tmp_path, monkey
     assert stopped["stop_requested"] is True
     assert final["status"] == "stopped"
     assert agent_runner.list_active_agent_run_ids() == []
+
+
+def test_stop_agent_run_preserves_stop_when_invocation_returns_late_success(tmp_path, monkeypatch):
+    agent_runner, _agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
+        tmp_path,
+        monkeypatch,
+    )
+    parent_thread_id = threads.create_thread("Parent")
+    started = threading.Event()
+
+    def fake_slow_success(prompt, enabled_tool_names, config, *, stop_event):
+        started.set()
+        while not stop_event.is_set():
+            time.sleep(0.01)
+        return "late success"
+
+    monkeypatch.setattr(agent_runner, "_invoke_agent", fake_slow_success)
+
+    run = agent_runner.spawn_agent_run(
+        "Wait until stopped.",
+        parent_thread_id=parent_thread_id,
+        profile="worker",
+        enabled_tool_names=[],
+        wait=False,
+    )
+
+    assert started.wait(timeout=1.0)
+    stopped = agent_runner.stop_agent_run(run["id"])
+    final = agent_runner.wait_for_agent_run(run["id"], timeout=2.0)
+
+    assert stopped["status"] == "stopped"
+    assert final["status"] == "stopped"
+    assert final["summary"] == ""
+    event_types = [event["type"] for event in _agent_runs.get_agent_events(run["id"])]
+    assert "run.completed" not in event_types
+    assert agent_runner.list_active_agent_run_ids() == []
+
+
+def test_worktree_workspace_mode_allocates_child_workspace(tmp_path, monkeypatch):
+    agent_runner, agent_runs, profiles, _context, threads = _fresh_agent_runner_modules(
+        tmp_path,
+        monkeypatch,
+    )
+    parent_thread_id = threads.create_thread(
+        "Parent",
+        developer_workspace_id="dev_parent",
+    )
+    custom = profiles.save_agent_profile(
+        slug="parallel_coder",
+        display_name="Parallel Coder",
+        instructions="Edit in isolation.",
+        tool_policy_json={"capability": "write_capable"},
+        workspace_policy_json={"workspace_mode_default": "worktree"},
+    )
+    calls = []
+
+    def fake_allocate(
+        run_id,
+        parent_workspace_id,
+        *,
+        objective="",
+        branch_slug="",
+        seed_mode="current_changes",
+        parent_thread_id="",
+    ):
+        calls.append((run_id, parent_workspace_id, objective, branch_slug, seed_mode, parent_thread_id))
+        return {
+            "status": "active",
+            "owner_kind": "agent_run",
+            "owner_id": run_id,
+            "project_workspace_id": parent_workspace_id,
+            "worktree_workspace_id": "dev_worktree",
+            "worktree_path": str(tmp_path / "repo-wt"),
+            "branch_name": f"row-bot/{run_id}-parallel-coder",
+            "metadata_json": {"seeded_from_current_changes": True},
+        }
+
+    import row_bot.developer.worktrees as worktrees
+
+    monkeypatch.setattr(worktrees, "allocate_agent_worktree", fake_allocate)
+    captured = {}
+
+    def fake_invoke(prompt, enabled_tool_names, config, *, stop_event):
+        captured["config"] = config
+        return "done"
+
+    monkeypatch.setattr(agent_runner, "_invoke_agent", fake_invoke)
+
+    run = agent_runner.spawn_agent_run(
+        "Fix tests.",
+        parent_thread_id=parent_thread_id,
+        profile=custom["id"],
+        enabled_tool_names=["filesystem"],
+        wait=True,
+    )
+
+    assert calls == [(run["id"], "dev_parent", "Fix tests.", "", "current_changes", parent_thread_id)]
+    assert run["status"] == "completed"
+    assert run["workspace_id"] == "dev_worktree"
+    assert run["workspace_path"] == str(tmp_path / "repo-wt")
+    assert run["workspace_mode"] == "worktree"
+    assert run["write_lock_key"] == "developer:dev_worktree"
+    assert threads._get_thread_developer_workspace(run["thread_id"]) == "dev_worktree"
+    assert captured["config"]["configurable"]["developer_workspace_id"] == "dev_worktree"
+    events = agent_runs.get_agent_events(run["id"])
+    worktree_event = next(event for event in events if event["type"] == "workspace.worktree_allocated")
+    assert worktree_event["payload_json"]["branch_name"].endswith("parallel-coder")
+    assert worktree_event["payload_json"]["seeded_from_current_changes"] is True
+
+
+def test_two_worktree_child_agents_receive_distinct_workspaces(tmp_path, monkeypatch):
+    agent_runner, _agent_runs, profiles, _context, threads = _fresh_agent_runner_modules(
+        tmp_path,
+        monkeypatch,
+    )
+    parent_thread_id = threads.create_thread(
+        "Parent",
+        developer_workspace_id="dev_parent",
+    )
+    custom = profiles.save_agent_profile(
+        slug="parallel_coder",
+        display_name="Parallel Coder",
+        instructions="Edit in isolation.",
+        workspace_policy_json={"workspace_mode_default": "worktree"},
+    )
+
+    def fake_allocate(
+        run_id,
+        parent_workspace_id,
+        *,
+        objective="",
+        branch_slug="",
+        seed_mode="current_changes",
+        parent_thread_id="",
+    ):
+        return {
+            "status": "active",
+            "owner_kind": "agent_run",
+            "owner_id": run_id,
+            "project_workspace_id": parent_workspace_id,
+            "worktree_workspace_id": f"dev_worktree_{run_id}",
+            "worktree_path": str(tmp_path / f"repo-wt-{run_id}"),
+            "branch_name": f"row-bot/{run_id}-parallel-coder",
+            "metadata_json": {"seeded_from_current_changes": False},
+        }
+
+    import row_bot.developer.worktrees as worktrees
+
+    monkeypatch.setattr(worktrees, "allocate_agent_worktree", fake_allocate)
+    monkeypatch.setattr(agent_runner, "_invoke_agent", lambda *a, **k: "done")
+
+    first = agent_runner.spawn_agent_run(
+        "Fix tests.",
+        parent_thread_id=parent_thread_id,
+        profile=custom["id"],
+        wait=True,
+    )
+    second = agent_runner.spawn_agent_run(
+        "Update docs.",
+        parent_thread_id=parent_thread_id,
+        profile=custom["id"],
+        wait=True,
+    )
+
+    assert first["workspace_mode"] == "worktree"
+    assert second["workspace_mode"] == "worktree"
+    assert first["workspace_id"] != second["workspace_id"]
+    assert first["workspace_path"] != second["workspace_path"]
+
+
+def test_worktree_requires_developer_workspace(tmp_path, monkeypatch):
+    agent_runner, _agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
+        tmp_path,
+        monkeypatch,
+    )
+    parent_thread_id = threads.create_thread("Parent")
+
+    try:
+        agent_runner.spawn_agent_run(
+            "Fix tests.",
+            parent_thread_id=parent_thread_id,
+            profile="worker",
+            use_worktree=True,
+        )
+    except agent_runner.AgentRunnerError as exc:
+        assert "Choose a repo" in str(exc)
+    else:
+        raise AssertionError("Expected AgentRunnerError")

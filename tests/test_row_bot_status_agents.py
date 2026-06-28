@@ -38,6 +38,26 @@ def _fresh_status_modules(tmp_path, monkeypatch):
     return threads, agent_profiles, agent_runs, goals, agent, row_bot_status_tool
 
 
+def _isolated_model_choices(tmp_path, monkeypatch):
+    import row_bot.providers.config as provider_config
+    import row_bot.providers.selection as selection
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    monkeypatch.setattr(selection, "load_provider_config", provider_config.load_provider_config)
+    monkeypatch.setattr(selection, "save_provider_config", provider_config.save_provider_config)
+    provider_config.save_provider_config({})
+    selection._provider_status_picker_cache.clear()
+    return selection
+
+
+def _chat_snapshot() -> dict:
+    return {
+        "tasks": ["chat"],
+        "input_modalities": ["text"],
+        "output_modalities": ["text"],
+    }
+
+
 def test_row_bot_status_reports_agents_profiles_and_goals(tmp_path, monkeypatch):
     threads, profiles, agent_runs, goals, agent, status_tool = _fresh_status_modules(
         tmp_path,
@@ -155,6 +175,9 @@ def test_row_bot_status_agent_goal_categories_are_discoverable(tmp_path, monkeyp
     assert "effective thread tool scope" in guide
     assert "runtime-bound" in guide
     assert "read-only through row_bot_status in v1" in guide
+    assert "pinned brain choices" in guide
+    assert "row_bot_status with category='model'" in guide
+    assert "canonical ref" in guide
 
     manifest_source = Path("scripts/app_payload_manifest.py").read_text(encoding="utf-8")
     assert '"tool_guides"' in manifest_source
@@ -236,3 +259,121 @@ def test_row_bot_status_tools_reports_inherited_profile_scope(tmp_path, monkeypa
     assert "inherits all globally enabled tools" in tools
     assert "selected tools are runtime-bound" not in tools
     assert "Active profile tool mode: inherited enabled tools" in agent_profiles
+
+
+def test_row_bot_status_model_setting_uses_strict_canonical_refs(tmp_path, monkeypatch):
+    selection = _isolated_model_choices(tmp_path, monkeypatch)
+    selection.add_quick_choice_for_model(
+        "gpt-4o-mini",
+        provider_id="openai",
+        display_name="Fast OpenAI",
+        capabilities_snapshot=_chat_snapshot(),
+    )
+    *_modules, agent, status_tool = _fresh_status_modules(tmp_path, monkeypatch)
+    captured = {}
+
+    monkeypatch.setattr(status_tool, "_approval_gate_bool", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("row_bot.models.set_model", lambda value: captured.setdefault("model", value))
+    monkeypatch.setattr(agent, "clear_agent_cache", lambda: captured.setdefault("cache_cleared", True))
+
+    result = status_tool._update_setting("model", "Fast OpenAI")
+
+    assert result == "Active model changed to: model:openai:gpt-4o-mini"
+    assert captured["model"] == "model:openai:gpt-4o-mini"
+    assert captured["cache_cleared"] is True
+
+
+def test_row_bot_status_model_lists_pinned_brain_choices(tmp_path, monkeypatch):
+    selection = _isolated_model_choices(tmp_path, monkeypatch)
+    selection.add_quick_choice_for_model(
+        "gpt-4o-mini",
+        provider_id="openai",
+        display_name="Fast OpenAI",
+        capabilities_snapshot=_chat_snapshot(),
+    )
+    *_modules, status_tool = _fresh_status_modules(tmp_path, monkeypatch)
+
+    result = status_tool._row_bot_status("model")
+
+    assert "Pinned Brain Model Choices" in result
+    assert "For natural Brain model requests" in result
+    assert "Fast OpenAI - OpenAI API" in result
+    assert "Canonical ref: model:openai:gpt-4o-mini" in result
+    assert "provider_id: openai" in result
+    assert "model_id: gpt-4o-mini" in result
+
+
+def test_row_bot_status_model_lists_all_pinned_brain_choices_but_overview_stays_compact(tmp_path, monkeypatch):
+    selection = _isolated_model_choices(tmp_path, monkeypatch)
+    for index in range(10):
+        selection.add_quick_choice_for_model(
+            f"model-{index}",
+            provider_id="openai",
+            display_name=f"Model {index}",
+            capabilities_snapshot=_chat_snapshot(),
+        )
+    *_modules, status_tool = _fresh_status_modules(tmp_path, monkeypatch)
+
+    full = status_tool._row_bot_status("model")
+    compact = status_tool._query_model(compact_pinned=True)
+
+    assert "Model 9 - OpenAI API" in full
+    assert "Plus" not in full
+    assert "Plus" in compact
+
+
+def test_row_bot_status_model_setting_blocks_child_runtime_self_switch_before_approval(tmp_path, monkeypatch):
+    *_modules, agent, status_tool = _fresh_status_modules(tmp_path, monkeypatch)
+
+    def fail_approval(*_args, **_kwargs):
+        raise AssertionError("child model switch should not request approval")
+
+    monkeypatch.setattr(status_tool, "_approval_gate_bool", fail_approval)
+    agent._set_active_runtime_context(runtime_surface="agent_child")
+    try:
+        result = status_tool._update_setting("model", "model:openai:gpt-5.5")
+    finally:
+        agent._set_active_runtime_context()
+
+    assert "Child Agents cannot switch their own runtime model" in result
+    assert "delegate_work(model=...)" in result
+
+
+def test_row_bot_status_model_setting_rejects_unpinned_canonical_ref(tmp_path, monkeypatch):
+    _isolated_model_choices(tmp_path, monkeypatch)
+    *_modules, status_tool = _fresh_status_modules(tmp_path, monkeypatch)
+    captured = {}
+
+    monkeypatch.setattr(status_tool, "_approval_gate_bool", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("row_bot.models.set_model", lambda value: captured.setdefault("model", value))
+
+    result = status_tool._update_setting("model", "model:openai:gpt-4o-mini")
+
+    assert "not pinned for Brain" in result
+    assert captured == {}
+
+
+def test_row_bot_status_model_setting_rejects_ambiguous_model(tmp_path, monkeypatch):
+    selection = _isolated_model_choices(tmp_path, monkeypatch)
+    selection.add_quick_choice_for_model(
+        "shared-model",
+        provider_id="openai",
+        display_name="Shared Model",
+        capabilities_snapshot=_chat_snapshot(),
+    )
+    selection.add_quick_choice_for_model(
+        "shared-model",
+        provider_id="anthropic",
+        display_name="Shared Model",
+        capabilities_snapshot=_chat_snapshot(),
+    )
+    *_modules, status_tool = _fresh_status_modules(tmp_path, monkeypatch)
+    captured = {}
+
+    monkeypatch.setattr(status_tool, "_approval_gate_bool", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("row_bot.models.set_model", lambda value: captured.setdefault("model", value))
+
+    result = status_tool._update_setting("model", "Shared Model")
+
+    assert "Ambiguous model selection" in result
+    assert captured == {}

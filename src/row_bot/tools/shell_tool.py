@@ -23,16 +23,16 @@ from __future__ import annotations
 import json
 import logging
 import os
-import pathlib
 import platform
 import re
 import subprocess
 import threading
 import time
-import uuid
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import StructuredTool
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.tools.base import BaseTool
@@ -444,14 +444,100 @@ class ShellTool(BaseTool):
         # safety classification (safe commands auto-run, others prompt).
         return set()
 
-    def _get_workspace_root(self) -> str | None:
-        """Read workspace root from the Filesystem tool's config (shared)."""
+    def _get_developer_workspace_root(
+        self,
+        thread_id: str = "",
+        developer_workspace_id: str = "",
+    ) -> str | None:
+        """Infer the active Developer workspace for a thread, if one exists."""
+        clean_thread_id = str(thread_id or "").strip()
+        clean_workspace_id = str(developer_workspace_id or "").strip()
+        if not clean_workspace_id and (
+            not clean_thread_id or clean_thread_id == "default"
+        ):
+            return None
+        try:
+            from row_bot.developer.storage import get_workspace
+            from row_bot.threads import _get_thread_developer_workspace
+
+            workspace_id = clean_workspace_id or _get_thread_developer_workspace(
+                clean_thread_id
+            )
+            workspace = get_workspace(workspace_id) if workspace_id else None
+        except Exception:
+            logger.debug("Could not resolve Developer workspace for shell cwd", exc_info=True)
+            return None
+        if workspace and workspace.path and os.path.isdir(workspace.path):
+            return workspace.path
+        return None
+
+    def _get_workspace_root(
+        self,
+        thread_id: str = "",
+        developer_workspace_id: str = "",
+    ) -> str | None:
+        """Resolve shell cwd, preferring Developer workspaces for Developer threads."""
+        developer_root = self._get_developer_workspace_root(
+            thread_id,
+            developer_workspace_id,
+        )
+        if developer_root:
+            return developer_root
         fs_tool = registry.get_tool("filesystem")
         if fs_tool:
             root = fs_tool.get_config("workspace_root", "")
             if root and os.path.isdir(root):
                 return root
         return None
+
+    def _get_runtime_configurable(
+        self,
+        runtime_config: RunnableConfig | None,
+    ) -> Mapping[str, Any]:
+        """Return LangChain runtime ``configurable`` values, if available."""
+        if isinstance(runtime_config, Mapping):
+            configurable = runtime_config.get("configurable")
+            if isinstance(configurable, Mapping):
+                return configurable
+        return {}
+
+    def _get_shell_context_ids(
+        self,
+        runtime_config: RunnableConfig | None = None,
+    ) -> tuple[str, str]:
+        """Resolve the current thread and Developer workspace for shell execution."""
+        configurable = self._get_runtime_configurable(runtime_config)
+        thread_id = str(configurable.get("thread_id") or "").strip()
+        developer_workspace_id = str(
+            configurable.get("developer_workspace_id") or ""
+        ).strip()
+
+        if not thread_id or not developer_workspace_id:
+            try:
+                from row_bot.developer import tool_context
+
+                thread_id = thread_id or str(tool_context.get_thread_id() or "").strip()
+                developer_workspace_id = developer_workspace_id or str(
+                    tool_context.get_workspace_id() or ""
+                ).strip()
+                if thread_id and not developer_workspace_id:
+                    developer_workspace_id = str(
+                        tool_context.infer_workspace_id_from_thread(thread_id) or ""
+                    ).strip()
+            except Exception:
+                logger.debug("Could not resolve Developer shell context", exc_info=True)
+
+        if not thread_id:
+            try:
+                from row_bot.agent import _current_thread_id_var
+
+                thread_id = _current_thread_id_var.get() or ""
+            except ImportError:
+                thread_id = ""
+
+        if not thread_id:
+            thread_id = "default"
+        return thread_id, developer_workspace_id
 
     def _get_extra_blocked(self) -> list[re.Pattern]:
         """Parse user-configured additional blocked patterns."""
@@ -468,7 +554,11 @@ class ShellTool(BaseTool):
                     pass
         return patterns
 
-    def execute(self, command: str) -> str:
+    def execute(
+        self,
+        command: str,
+        runtime_config: RunnableConfig | None = None,
+    ) -> str:
         """Run a shell command.  Self-gates with ``interrupt()`` for
         non-safe commands."""
         command = command.strip()
@@ -512,20 +602,21 @@ class ShellTool(BaseTool):
                 return blocked
 
         # ── Execute ──────────────────────────────────────────────────────
-        try:
-            from row_bot.agent import _current_thread_id_var
-            thread_id = _current_thread_id_var.get() or "default"
-        except ImportError:
-            thread_id = "default"
+        thread_id, developer_workspace_id = self._get_shell_context_ids(runtime_config)
 
         # Always use subprocess — reliable, cross-platform, no PTY contention
-        working_dir = self._get_workspace_root()
-        session = _session_manager.get_session(thread_id, working_dir)
+        working_dir = self._get_workspace_root(thread_id, developer_workspace_id)
+        session_key = (
+            thread_id
+            if thread_id and thread_id != "default"
+            else f"developer:{developer_workspace_id}" if developer_workspace_id else "default"
+        )
+        session = _session_manager.get_session(session_key, working_dir)
         result = session.run_command(command)
 
         # Persist to history
         result["timestamp"] = datetime.now().isoformat()
-        append_shell_history(thread_id, result)
+        append_shell_history(session_key, result)
 
         # Format for LLM
         output = result["output"]
@@ -544,7 +635,7 @@ class ShellTool(BaseTool):
         """Return ``run_command`` and ``read_terminal`` tools."""
         tool_instance = self
 
-        def run_command(command: str) -> str:
+        def run_command(command: str, config: RunnableConfig = None) -> str:
             """Execute a shell command on the user's computer.
 
             Commands run in a persistent session — cd, environment changes,
@@ -558,7 +649,7 @@ class ShellTool(BaseTool):
                          'git status').
             """
             try:
-                return tool_instance.execute(command)
+                return tool_instance.execute(command, runtime_config=config)
             except Exception as exc:
                 from langgraph.errors import GraphInterrupt
                 if isinstance(exc, GraphInterrupt):

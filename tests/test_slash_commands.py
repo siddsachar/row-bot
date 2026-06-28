@@ -97,6 +97,15 @@ def test_registry_aliases_generated_skills_and_hidden_entries(tmp_path):
     filtered = slash_commands.filter_command_specs(specs, "meet")
     assert filtered and filtered[0].skill_name == "meeting_notes"
 
+    builtin_specs = slash_commands.get_builtin_commands()
+    fuzzy_agent = slash_commands.filter_command_specs(builtin_specs, "agt")
+    assert fuzzy_agent and fuzzy_agent[0].slash == "/agent"
+    fuzzy_worktree = slash_commands.filter_command_specs(builtin_specs, "wrk")
+    assert fuzzy_worktree and fuzzy_worktree[0].slash == "/agent"
+    prefix_profile = slash_commands.filter_command_specs(builtin_specs, "prof")
+    assert prefix_profile and prefix_profile[0].slash == "/profile"
+    assert slash_commands.argument_hint(prefix_profile[0]) == "Type details after the command"
+
     all_visible = slash_commands.filter_command_specs(specs, "", limit=len(specs))
     assert len(all_visible) == len(specs)
     assert all_visible.index(by_id["help"]) < all_visible.index(by_id["skill:meeting_notes"])

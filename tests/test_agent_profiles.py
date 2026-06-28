@@ -297,7 +297,7 @@ def test_thread_profile_pointer_helpers(tmp_path, monkeypatch):
         threads._set_thread_agent_profile(tid, "missing_profile")
 
 
-def test_workflow_profile_fields_and_step_resolution(tmp_path, monkeypatch):
+def test_workflow_profile_fields_strip_step_profile_policy(tmp_path, monkeypatch):
     agent_profiles, tasks, _threads = _fresh_agent_modules(tmp_path, monkeypatch)
 
     task_id = tasks.create_task(
@@ -314,7 +314,7 @@ def test_workflow_profile_fields_and_step_resolution(tmp_path, monkeypatch):
     task = tasks.get_task(task_id)
 
     assert task["agent_profile_id"] == "builtin:review"
-    assert task["steps"][0]["agent_profile_id"] == "builtin:verify"
+    assert "agent_profile_id" not in task["steps"][0]
     with pytest.raises(agent_profiles.AgentProfileError):
         tasks.create_task("Bad workflow", prompts=["hi"], agent_profile_id="missing")
 

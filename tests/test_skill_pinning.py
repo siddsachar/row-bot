@@ -105,25 +105,25 @@ def test_new_threads_snapshot_pins_without_retroactive_resolution(tmp_path, monk
     ]
 
 
-def test_task_defaults_snapshot_pinned_skills_and_preserve_empty_override(tmp_path, monkeypatch):
-    skills, activation, _threads, tasks = _reload_skill_pinning_modules(tmp_path, monkeypatch)
+def test_profile_based_tasks_do_not_snapshot_pinned_skills(tmp_path, monkeypatch):
+    skills, _activation, _threads, tasks = _reload_skill_pinning_modules(tmp_path, monkeypatch)
     skills.load_skills()
 
     task_id = tasks.create_task(name="Pinned task", prompts=["say hi"])
     task = tasks.get_task(task_id)
-    assert task["skills_override"] == ["proactive_agent"]
-    assert activation.resolve_active_skill_names(
-        "task-thread",
-        explicit_override=task["skills_override"],
-        is_background=True,
-    ) == ["proactive_agent"]
+    assert task["agent_profile_id"] == tasks.DEFAULT_WORKFLOW_AGENT_PROFILE_ID
+    assert task["skills_override"] is None
+    assert task["tools_override"] is None
 
     no_skills_id = tasks.create_task(
         name="No skills task",
         prompts=["say hi"],
         skills_override=[],
     )
-    assert tasks.get_task(no_skills_id)["skills_override"] == []
+    no_skills_task = tasks.get_task(no_skills_id)
+    assert no_skills_task["agent_profile_id"] == tasks.DEFAULT_WORKFLOW_AGENT_PROFILE_ID
+    assert no_skills_task["skills_override"] is None
+    assert no_skills_task["tools_override"] is None
 
     notify_id = tasks.create_task(
         name="Notify only",
@@ -181,6 +181,18 @@ def test_task_advanced_mode_is_persisted(tmp_path, monkeypatch):
     dialog_source = Path("src/row_bot/ui/task_dialog.py").read_text(encoding="utf-8")
     assert "task.get(\"advanced_mode\")" in dialog_source
     assert "advanced_mode=is_advanced" in dialog_source
+
+
+def test_workflow_dialog_is_profile_first_source_contract() -> None:
+    dialog_source = Path("src/row_bot/ui/task_dialog.py").read_text(encoding="utf-8")
+
+    assert "Agent Profile" in dialog_source
+    assert "agent_profile_id=cur_agent_profile_id" in dialog_source
+    assert "apply_default_skills=False" in dialog_source
+    assert "Tools override" not in dialog_source
+    assert "Skills override" not in dialog_source
+    assert "tools_override" not in dialog_source
+    assert "skills_override" not in dialog_source
 
 
 def test_developer_threads_snapshot_pinned_skills(tmp_path, monkeypatch):

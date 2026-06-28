@@ -14,6 +14,8 @@ class GitStatus:
     remote: str = ""
     dirty: bool = False
     ahead_behind: str = ""
+    repo_root: str = ""
+    is_repo_root: bool = False
     error: str = ""
 
 
@@ -36,6 +38,9 @@ def get_git_status(path: str) -> GitStatus:
         inside = _run_git(folder, ["rev-parse", "--is-inside-work-tree"])
         if inside.lower() != "true":
             return GitStatus(path=str(folder), is_git=False)
+        repo_root = _run_git(folder, ["rev-parse", "--show-toplevel"])
+        repo_root_path = pathlib.Path(repo_root).expanduser().resolve()
+        folder_resolved = folder.resolve()
         branch = _run_git(folder, ["branch", "--show-current"])
         remote = ""
         try:
@@ -55,7 +60,14 @@ def get_git_status(path: str) -> GitStatus:
             remote=remote,
             dirty=dirty,
             ahead_behind=ahead_behind,
+            repo_root=str(repo_root_path),
+            is_repo_root=repo_root_path == folder_resolved,
         )
+    except subprocess.CalledProcessError as exc:
+        detail = f"{exc.stderr or ''}\n{exc.stdout or ''}".lower()
+        if "not a git repository" in detail or "not a git repo" in detail:
+            return GitStatus(path=str(folder), is_git=False)
+        return GitStatus(path=str(folder), error=str(exc))
     except Exception as exc:
         return GitStatus(path=str(folder), error=str(exc))
 

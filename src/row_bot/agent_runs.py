@@ -779,26 +779,42 @@ def finish_agent_run(
         return update_agent_status(run_id, status, status_message)
     now = _now()
     conn = _get_conn()
+    preserve_stopped = False
     try:
-        conn.execute(
-            "UPDATE agent_runs SET status = ?, status_message = ?, "
-            "summary = ?, result_json = ?, error = ?, finished_at = ?, updated_at = ? "
-            "WHERE id = ?",
-            (
-                status,
-                str(status_message or error or summary or ""),
-                str(summary or ""),
-                _json_text(result_json),
-                str(error or ""),
-                now,
-                now,
-                str(run_id),
-            ),
-        )
-        changed = conn.total_changes
-        conn.commit()
+        current = conn.execute(
+            "SELECT status, stop_requested FROM agent_runs WHERE id = ?",
+            (str(run_id),),
+        ).fetchone()
+        if (
+            current
+            and str(current["status"] or "") == "stopped"
+            and int(current["stop_requested"] or 0)
+            and status not in {"stopped", "cancelled"}
+        ):
+            preserve_stopped = True
+            changed = 0
+        else:
+            conn.execute(
+                "UPDATE agent_runs SET status = ?, status_message = ?, "
+                "summary = ?, result_json = ?, error = ?, finished_at = ?, updated_at = ? "
+                "WHERE id = ?",
+                (
+                    status,
+                    str(status_message or error or summary or ""),
+                    str(summary or ""),
+                    _json_text(result_json),
+                    str(error or ""),
+                    now,
+                    now,
+                    str(run_id),
+                ),
+            )
+            changed = conn.total_changes
+            conn.commit()
     finally:
         conn.close()
+    if preserve_stopped:
+        return get_agent_run(run_id)
     if not changed:
         return None
     event_type = {
@@ -901,6 +917,21 @@ def get_agent_run(run_id: str) -> dict[str, Any] | None:
     conn = _get_conn()
     try:
         row = conn.execute("SELECT * FROM agent_runs WHERE id = ?", (str(run_id),)).fetchone()
+    finally:
+        conn.close()
+    return _run_from_row(row)
+
+
+def get_agent_run_for_thread(thread_id: str) -> dict[str, Any] | None:
+    """Return the child Agent run that owns a child thread, if any."""
+    ensure_agent_run_schema()
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT * FROM agent_runs WHERE thread_id = ? AND kind = 'subagent' "
+            "ORDER BY updated_at DESC, created_at DESC LIMIT 1",
+            (str(thread_id),),
+        ).fetchone()
     finally:
         conn.close()
     return _run_from_row(row)
@@ -1385,6 +1416,7 @@ def mirror_workflow_run_start(
     display_name: str,
     steps_total: int = 0,
     profile_id: str = "",
+    profile_snapshot_json: Mapping[str, Any] | None = None,
     approval_mode: str = "",
     model_override: str = "",
     tools_override: Sequence[str] | str | None = None,
@@ -1399,6 +1431,7 @@ def mirror_workflow_run_start(
         thread_id=thread_id,
         display_name=display_name,
         profile_id=profile_id,
+        profile_snapshot_json=profile_snapshot_json,
         approval_mode=approval_mode,
         model_override=model_override,
         tools_override=tools_override,

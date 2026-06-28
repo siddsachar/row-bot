@@ -130,7 +130,10 @@ def test_agent_tool_cards_dedupe_runs_by_id_without_dropping_raw_payloads():
 
 
 def test_chat_tool_trace_source_contracts():
+    agent_src = Path("src/row_bot/agent.py").read_text(encoding="utf-8")
+    app_src = Path("src/row_bot/app.py").read_text(encoding="utf-8")
     render_src = Path("src/row_bot/ui/render.py").read_text(encoding="utf-8")
+    state_src = Path("src/row_bot/ui/state.py").read_text(encoding="utf-8")
     streaming_src = Path("src/row_bot/ui/streaming.py").read_text(encoding="utf-8")
     chat_src = Path("src/row_bot/ui/chat.py").read_text(encoding="utf-8")
     components_src = Path("src/row_bot/ui/chat_components.py").read_text(encoding="utf-8")
@@ -139,28 +142,79 @@ def test_chat_tool_trace_source_contracts():
     assert "group_tool_results" in render_src
     assert "render_agent_tool_result" in render_src
     assert "render_agent_tool_results" in render_src
+    assert "safe_timer(1.0, _tick)" in render_src
+    assert "_agent_run_is_terminal" in render_src
     assert "_agent_card_runs_from_tool_results" in render_src
     assert "agent_tool_results: list[dict]" in render_src
-    assert "render_agent_tool_results(agent_tool_results" in render_src
+    assert "agent_tool_results," in render_src
     assert "agent_run_ids" in render_src
-    assert "_render_agent_run_card(run)" in render_src
+    assert "agent_result_use_prompt" in render_src
+    assert "agent_result_use_available" in render_src
+    assert "on_use_agent_result" in render_src
+    assert "agent_result_use_prompt" in app_src
+    assert "_ask_parent_to_use_agent_result" in app_src
+    assert "_ask_parent_to_use_agent_result" in chat_src
+    assert "asyncio.create_task(send_message(prompt))" in chat_src
+    assert "on_use_agent_result=_ask_parent_to_use_agent_result" in chat_src
     assert "Raw Agent tool output" in render_src
     assert "group_tool_results" in streaming_src or "_finish_live_tool_result" in streaming_src
     assert "refresh_parent_agent_strip" in streaming_src
     assert "parse_agent_spawn_text" in streaming_src
+    assert "if direct_agent_command_text:" in streaming_src
     assert "_handle_direct_agent_spawn" in streaming_src
     assert "turn_boundary" in streaming_src
     assert "agent_run_refresh_key" in streaming_src
     assert "is_agent_tool_result" in streaming_src
     assert "has_agent_tool_results = any(" in streaming_src
     assert "or has_agent_tool_results" in streaming_src
-    assert "live_row" in Path("src/row_bot/ui/state.py").read_text(encoding="utf-8")
+    assert "live_row" in state_src
     assert "def _delete_live_generation_row" in streaming_src
     assert "_delete_live_generation_row(gen)" in streaming_src
     assert "_add_live_tool_pending" in streaming_src
     assert "_finish_live_tool_result" in streaming_src
-    assert "render_agent_tool_results(_agent_tool_results" in chat_src
+    assert "_agent_tool_results," in chat_src
     assert "is_agent_tool_result(_tr)" in chat_src
+    assert "ToolCallPayload" in agent_src
+    assert "_tool_call_payload(tc)" in agent_src
+    assert "_tool_event_raw_name" in streaming_src
+    assert "_schedule_delegated_agent_card_probe" in streaming_src
+    assert "_append_delegated_agent_card_message" in streaming_src
+    assert "_thread_has_attached_live_generation" in streaming_src
+    assert "_render_live_agent_run_card" in streaming_src
+    assert "_agent_tool_result_already_live" in streaming_src
+    assert "live_agent_run_ids" in state_src
+    assert "live_async_agent_run_ids" in state_src
+    assert "baseline_child_agent_run_ids" in state_src
+    assert "render_agent_run_cards" in render_src
+    assert "_filter_visible_agent_tool_results" in streaming_src
+    assert "_ordered_agent_run_ids_from_tool_results" in streaming_src
+    assert "promoted_agent_run_ids" in streaming_src
+    assert "_ordered_agent_run_ids_from_tool_results" in chat_src
+    assert "_schedule_direct_agent_card_refresh" in chat_src
+    assert "_schedule_agent_tool_result_card_refresh" in streaming_src
+    assert "_schedule_agent_tool_result_card_refresh" in chat_src
+    assert "_append_async_delegated_agent_completion_messages" in streaming_src
+    assert "_append_async_delegated_agent_completion_messages" in app_src
+    assert "_async_delegated_run_ids_from_tool_results" in streaming_src
+    assert "_async_child_agent_run_ids_for_generation" in streaming_src
+    assert "_current_child_agent_run_ids" in app_src
+    assert "candidate_run_ids=_current_child_agent_run_ids(tid)" in app_src
+    assert "async_completion_run_ids" in streaming_src
+    assert "refresh_model_controls_on_done" in state_src
+    assert "model_controls_container" in state_src
+    assert "refresh_model_controls" in state_src
+    assert "cb.refresh_model_controls" in app_src
+    assert "_poll_agent_card_refresh" in app_src
+    assert "_last_agent_run_refresh" in app_src
+    assert "list_agent_runs(parent_thread_id=tid, kind=\"subagent\"" in app_src
+    assert "def _thread_has_live_generation(tid: str)" in app_src
+    assert "if _thread_has_live_generation(tid):" in app_src
+    assert "p.transcript_rendered_keys = []" in app_src
+    assert "p.refresh_model_controls = _refresh_model_controls" in chat_src
+    assert "_interrupt_changes_model_setting(pending)" in streaming_src
+    assert "_schedule_model_controls_refresh(cb)" in streaming_src
+    assert "persistent transition-show=fade transition-hide=fade" in streaming_src
+    assert "defer_ui(p.interrupt_dlg.open" in streaming_src
     assert "browser_step_count += 1" in streaming_src
     assert "_capture_balanced_browser_screenshot" in streaming_src
     assert "render_image_with_save(\n                                _b64_ss" not in streaming_src

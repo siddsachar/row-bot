@@ -77,6 +77,25 @@ def test_recent_context_includes_summary_and_recent_turns(monkeypatch):
     assert "User: Focus on token handling." in packet["prompt"]
 
 
+def test_child_prompt_includes_runtime_model_boundary(monkeypatch):
+    import row_bot.agent_context as agent_context
+
+    agent_context = importlib.reload(agent_context)
+    _patch_parent_context(monkeypatch)
+
+    packet = agent_context.build_child_agent_prompt(
+        objective="Review auth.",
+        profile_snapshot=_profile(),
+        context_mode="focused",
+        parent_thread_id="parent-thread",
+        model_override="model:claude_subscription:claude-opus-4-8",
+    )
+
+    assert "RUNTIME MODEL:" in packet["prompt"]
+    assert "Runtime model override: model:claude_subscription:claude-opus-4-8" in packet["prompt"]
+    assert "Do not call row_bot_update_setting(setting='model')" in packet["prompt"]
+
+
 def test_full_context_falls_back_to_recent_when_over_budget(monkeypatch):
     import row_bot.agent_context as agent_context
 

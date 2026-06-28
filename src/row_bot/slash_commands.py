@@ -76,7 +76,7 @@ BUILTIN_COMMANDS: tuple[SlashCommandSpec, ...] = (
     ),
     SlashCommandSpec(
         "agent", "/agent", ("/subagent",), "Start Agent",
-        "Start a child Agent with an optional explicit profile.", "hub",
+        "Start a child Agent with an optional profile or --worktree isolation.", "hub",
         "Agents", "prefix", "agent",
     ),
     SlashCommandSpec(
@@ -232,21 +232,65 @@ def filter_command_specs(
     q = normalize_command_name(query)
     if not q:
         return list(specs)[:limit]
+
+    def _subsequence_score(needle: str, haystack: str) -> int | None:
+        if not needle:
+            return 0
+        pos = -1
+        gaps = 0
+        first = -1
+        for char in needle:
+            next_pos = haystack.find(char, pos + 1)
+            if next_pos < 0:
+                return None
+            if first < 0:
+                first = next_pos
+            if pos >= 0:
+                gaps += max(0, next_pos - pos - 1)
+            pos = next_pos
+        return first + gaps + max(0, len(haystack) - len(needle)) // 8
+
     scored: list[tuple[int, int, SlashCommandSpec]] = []
     for index, spec in enumerate(specs):
-        names = [name.lstrip("/") for name in spec.all_names]
-        haystacks = [
-            *names,
-            normalize_command_name(spec.title),
-            normalize_command_name(spec.description),
-            normalize_command_name(spec.category),
-        ]
-        if any(item.startswith(q) for item in haystacks):
-            scored.append((0, index, spec))
-        elif any(q in item for item in haystacks):
-            scored.append((1, index, spec))
+        fields: list[tuple[int, str]] = []
+        for name_index, name in enumerate(spec.all_names):
+            fields.append((0 if name_index == 0 else 2, normalize_command_name(name.lstrip("/"))))
+        fields.extend(
+            [
+                (6, normalize_command_name(spec.title)),
+                (12, normalize_command_name(spec.category)),
+                (20, normalize_command_name(spec.description)),
+            ]
+        )
+        best: int | None = None
+        for weight, haystack in fields:
+            if not haystack:
+                continue
+            score: int | None
+            if haystack == q:
+                score = weight
+            elif haystack.startswith(q):
+                score = 10 + weight + len(haystack) - len(q)
+            elif q in haystack:
+                score = 30 + weight + haystack.index(q)
+            else:
+                fuzzy = _subsequence_score(q, haystack)
+                score = None if fuzzy is None else 60 + weight + fuzzy + len(haystack)
+            if score is not None:
+                best = score if best is None else min(best, score)
+        if best is not None:
+            scored.append((best, index, spec))
     scored.sort(key=lambda item: (item[0], item[1]))
     return [item[2] for item in scored[:limit]]
+
+
+def argument_hint(spec: SlashCommandSpec) -> str:
+    return {
+        "none": "",
+        "optional": "Optional argument",
+        "required": "Argument required",
+        "prefix": "Type details after the command",
+    }.get(spec.argument_behavior, "")
 
 
 def find_current_slash_token(text: str, cursor: int | None = None) -> tuple[int, int, str] | None:
@@ -385,11 +429,14 @@ def dispatch_text_command(
         request = parse_agent_spawn_text(text)
         if request is None:
             return format_agent_spawn_usage()
-        run = spawn_agent_from_request(
-            thread_id,
-            request,
-            enabled_tool_names=enabled_tool_names,
-        )
+        try:
+            run = spawn_agent_from_request(
+                thread_id,
+                request,
+                enabled_tool_names=enabled_tool_names,
+            )
+        except Exception as exc:
+            return f"Could not start Agent: {exc}"
         return format_agent_spawn_started(run, request)
     if spec.id == "goal":
         from row_bot.goals import handle_goal_command

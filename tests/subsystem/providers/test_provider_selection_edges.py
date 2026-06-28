@@ -165,6 +165,70 @@ def test_model_choice_options_include_diagnostics_and_inactive_include_values() 
     )
 
 
+def test_catalog_model_selection_requires_pinned_brain_choices() -> None:
+    with pytest.raises(selection.ModelSelectionError, match="not pinned for Brain"):
+        selection.resolve_catalog_model_selection(
+            "model:openai:gpt-4o",
+            surface="chat",
+            require_agent_ready=True,
+            require_pinned=True,
+        )
+
+    selection.add_quick_choice_for_model(
+        "gpt-4o",
+        provider_id="openai",
+        display_name="Fast OpenAI",
+        capabilities_snapshot={
+            "tasks": ["chat"],
+            "input_modalities": ["text"],
+            "output_modalities": ["text"],
+        },
+    )
+
+    resolved = selection.resolve_catalog_model_selection(
+        "model:openai:gpt-4o",
+        surface="chat",
+        require_agent_ready=True,
+        require_pinned=True,
+    )
+
+    assert resolved.ref == "model:openai:gpt-4o"
+    assert resolved.source == "quick_choice"
+    assert selection.resolve_catalog_model_selection(
+        "Fast OpenAI",
+        surface="chat",
+        require_agent_ready=True,
+        require_pinned=True,
+    ).ref == "model:openai:gpt-4o"
+
+
+def test_pinned_model_choice_summaries_are_agent_readable() -> None:
+    selection.add_quick_choice_for_model(
+        "qwen3:27b",
+        provider_id="ollama",
+        display_name="Qwen 27B",
+        capabilities_snapshot={
+            "tasks": ["chat"],
+            "input_modalities": ["text"],
+            "output_modalities": ["text"],
+        },
+    )
+
+    summaries = selection.pinned_model_choice_summaries("chat")
+
+    assert len(summaries) == 1
+    summary = summaries[0]
+    assert summary["ref"] == "model:ollama:qwen3:27b"
+    assert summary["canonical_ref"] == "model:ollama:qwen3:27b"
+    assert summary["config_value"] == "ollama/qwen3:27b"
+    assert summary["display_name"] == "Qwen 27B"
+    assert summary["provider_id"] == "ollama"
+    assert summary["model_id"] == "qwen3:27b"
+    assert summary["active"] is True
+    assert summary["reason"] == ""
+    assert summary["source"] == "manual"
+
+
 def test_capability_snapshot_helpers_and_validation_reason_cleanup(monkeypatch) -> None:
     provider_config.save_provider_config(
         {

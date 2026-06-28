@@ -49,6 +49,26 @@ def _public_run(run: dict[str, Any] | None) -> dict[str, Any]:
             parent_messages = get_agent_parent_messages(run_id, limit=20)
         except Exception:
             parent_messages = []
+    workspace: dict[str, Any] = {
+        "id": run.get("workspace_id", ""),
+        "path": run.get("workspace_path", ""),
+        "mode": run.get("workspace_mode", ""),
+    }
+    if workspace["mode"] == "worktree" and run_id:
+        try:
+            from row_bot.developer.worktrees import get_worktree_for_run
+
+            worktree = get_worktree_for_run(run_id)
+            if worktree:
+                metadata = worktree.get("metadata_json") or {}
+                workspace.update({
+                    "branch": worktree.get("branch_name", ""),
+                    "project_workspace_id": worktree.get("project_workspace_id", ""),
+                    "working_workspace_id": worktree.get("worktree_workspace_id", ""),
+                    "seeded_from_current_changes": bool(metadata.get("seeded_from_current_changes")),
+                })
+        except Exception:
+            pass
     return {
         "id": run.get("id", ""),
         "kind": run.get("kind", ""),
@@ -71,6 +91,8 @@ def _public_run(run: dict[str, Any] | None) -> dict[str, Any]:
         "max_turns": run.get("max_turns", 0),
         "summary": run.get("summary", ""),
         "error": run.get("error", ""),
+        "model_override": run.get("model_override", ""),
+        "workspace": workspace,
         "stop_requested": bool(run.get("stop_requested", False)),
         "parent_message_count": len(parent_messages),
         "latest_parent_message": parent_messages[-1] if parent_messages else "",
@@ -125,8 +147,6 @@ def _public_workflow(task: dict[str, Any] | None) -> dict[str, Any]:
         "advanced_mode": bool(task.get("advanced_mode", False)),
         "agent_profile_id": task.get("agent_profile_id", ""),
         "model_override": task.get("model_override", ""),
-        "tools_override": task.get("tools_override"),
-        "skills_override": task.get("skills_override"),
         "steps": task.get("steps", []),
     }
 
@@ -162,13 +182,39 @@ class _DelegateWorkInput(BaseModel):
         description="Context mode: auto, focused, recent, full, empty, or resume.",
     )
     display_name: str = Field(default="", description="Optional short display name for the child Agent run.")
+    model: str = Field(
+        default="",
+        description=(
+            "Optional active pinned Brain model canonical ref or exact pinned label for this child Agent. "
+            "For natural model requests, inspect row_bot_status category='model' first and pass the selected canonical ref. "
+            "Leave empty to inherit the parent model."
+        ),
+    )
     parent_thread_id: str = Field(
         default="",
         description="Optional parent thread id. Omit to use the current thread.",
     )
+    developer_workspace_id: str = Field(
+        default="",
+        description="Optional Developer workspace id to use. Omit to inherit the current thread workspace.",
+    )
+    use_worktree: bool = Field(
+        default=False,
+        description="Run the child in its own local git Worktree when a git-backed Developer workspace is available.",
+    )
+    workspace_mode: str = Field(
+        default="",
+        description="Optional workspace mode override: auto, read_only, single_writer, or worktree.",
+    )
     parent_run_id: str = Field(default="", description="Optional parent Agent Run id for nested tracking.")
     parent_message_id: str = Field(default="", description="Optional parent message id that triggered delegation.")
-    wait: bool = Field(default=False, description="If true, wait briefly for the child result before returning.")
+    wait: bool = Field(
+        default=False,
+        description=(
+            "Prefer false so the child runs asynchronously and the parent thread remains responsive. "
+            "Use true only when the user explicitly asks you to wait or same-turn synthesis is required."
+        ),
+    )
     timeout_seconds: float = Field(default=60.0, description="Maximum seconds to wait when wait=true.")
 
 
@@ -226,7 +272,11 @@ def _delegate_work(
     context: str = "",
     context_mode: str = "auto",
     display_name: str = "",
+    model: str = "",
     parent_thread_id: str = "",
+    developer_workspace_id: str = "",
+    use_worktree: bool = False,
+    workspace_mode: str = "",
     parent_run_id: str = "",
     parent_message_id: str = "",
     wait: bool = False,
@@ -235,19 +285,48 @@ def _delegate_work(
     runtime = _runtime_context()
     parent_thread_id = parent_thread_id or str(runtime.get("thread_id") or "")
     enabled_tool_names = list(runtime.get("enabled_tool_names") or ())
-    run = agent_runner.spawn_agent_run(
-        objective,
-        parent_thread_id=parent_thread_id,
-        parent_run_id=parent_run_id,
-        parent_message_id=parent_message_id,
-        profile=profile,
-        display_name=display_name,
-        context=context,
-        context_mode=context_mode,
-        enabled_tool_names=enabled_tool_names,
-        wait=wait,
-        timeout=timeout_seconds if wait else None,
-    )
+    model_override = ""
+    if str(model or "").strip():
+        try:
+            from row_bot.providers.selection import resolve_catalog_model_selection
+
+            resolved_model = resolve_catalog_model_selection(
+                model,
+                surface="chat",
+                require_agent_ready=True,
+                require_pinned=True,
+            )
+            model_override = resolved_model.ref
+        except Exception as exc:
+            return _json_response({
+                "ok": False,
+                "message": str(exc),
+                "model": str(model or "").strip(),
+            })
+    try:
+        run = agent_runner.spawn_agent_run(
+            objective,
+            parent_thread_id=parent_thread_id,
+            parent_run_id=parent_run_id,
+            parent_message_id=parent_message_id,
+            profile=profile,
+            display_name=display_name,
+            context=context,
+            context_mode=context_mode,
+            enabled_tool_names=enabled_tool_names,
+            model_override=model_override,
+            developer_workspace_id=developer_workspace_id,
+            use_worktree=use_worktree,
+            workspace_mode=workspace_mode,
+            wait=wait,
+            timeout=timeout_seconds if wait else None,
+        )
+    except Exception as exc:
+        return _json_response({
+            "ok": False,
+            "message": str(exc),
+            "run": {},
+        })
     if wait:
         status = str((run or {}).get("status") or "")
         if status in TERMINAL_STATUSES:
@@ -428,10 +507,6 @@ def _agent_promote(run_id: str, target: str = "profile") -> str:
                 "prompt": "\n".join(prompt_lines),
             }
         ]
-        if profile_ref:
-            steps[0]["agent_profile_id"] = profile_ref
-
-        tools_override = _as_list(run.get("tools_override"))
         task_id = tasks_db.create_task(
             name=f"Promoted {run.get('display_name') or run_id}",
             description=(
@@ -441,15 +516,11 @@ def _agent_promote(run_id: str, target: str = "profile") -> str:
             icon="hub",
             steps=steps,
             model_override=str(run.get("model_override") or "") or None,
-            skills_override=_as_list(run.get("skills_override")),
-            tools_override=tools_override if tools_override else None,
             safety_mode=str(run.get("approval_mode") or "block"),
             agent_profile_id=profile_ref or None,
             enabled=False,
             apply_default_skills=False,
         )
-        if not tools_override:
-            tasks_db.update_task(task_id, tools_override=[])
         task = tasks_db.get_task(task_id)
         return _json_response({
             "ok": True,
@@ -488,7 +559,7 @@ class AgentsTool(BaseTool):
             StructuredTool.from_function(
                 func=_delegate_work,
                 name="delegate_work",
-                description="Start a child Agent for focused background work.",
+                description="Start a child Agent for focused async background work.",
                 args_schema=_DelegateWorkInput,
             ),
             StructuredTool.from_function(

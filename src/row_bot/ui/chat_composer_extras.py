@@ -829,6 +829,8 @@ class ComposerExtrasController:
         self._set_slash_palette_flag(True)
         selected_index = int(self.slash_palette.get("index", 0) or 0)
         selected_row_id: int | None = None
+        from row_bot.slash_commands import argument_hint
+
         with self.slash_palette_col:
             with ui.column().classes("w-full gap-0 row-bot-slash-palette-list").style(
                 "max-height: 270px; overflow-y: auto; "
@@ -866,7 +868,9 @@ class ComposerExtrasController:
                             with ui.row().classes("items-center gap-2 no-wrap"):
                                 ui.label(spec.slash).classes("text-sm text-weight-medium")
                                 ui.label(spec.title).classes("text-xs text-grey-5 ellipsis")
-                            ui.label(spec.description).classes("text-xs text-grey-6 ellipsis")
+                            hint = argument_hint(spec)
+                            detail = f"{spec.description} - {hint}" if hint else spec.description
+                            ui.label(detail).classes("text-xs text-grey-6 ellipsis")
                         ui.label(spec.category).classes("text-xs text-grey-7")
         if selected_row_id is not None:
             client = self.client or ui.context.client

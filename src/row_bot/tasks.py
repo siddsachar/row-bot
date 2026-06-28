@@ -35,7 +35,7 @@ import uuid
 from contextvars import ContextVar
 from datetime import datetime, timedelta
 from functools import wraps
-from typing import TYPE_CHECKING, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence, TypeVar
 
 from row_bot.approval_policy import (
     DEFAULT_APPROVAL_MODE,
@@ -60,6 +60,21 @@ _DB_PATH = str(get_tasks_db_path())
 _OLD_WF_DB = str(_DATA_DIR / "workflows.db")
 _TASK_CONFIG_PATH = str(_DATA_DIR / "task_config.json")
 _SCHEMA_VERSION = 1
+DEFAULT_WORKFLOW_AGENT_PROFILE_ID = "builtin:row_bot_default"
+WORKFLOW_PROFILE_MIGRATION_VERSION = "workflow_profile_v1"
+_WORKFLOW_READ_ONLY_DEFAULT_DENY_TOOLS = {
+    "calendar",
+    "custom_tool_builder",
+    "designer",
+    "gmail",
+    "goal",
+    "image_gen",
+    "row_bot_updater",
+    "task",
+    "tracker",
+    "video_gen",
+    "x",
+}
 _SCHEMA_LOCK = threading.RLock()
 _SCHEMA_READY_PATH: str | None = None
 _LAST_SCHEMA_REPAIR: dict[str, object] = {}
@@ -96,7 +111,10 @@ _CREATE_TABLE_SQL = {
             tools_override      TEXT,
             channels            TEXT,
             advanced_mode       INTEGER DEFAULT 0,
-            agent_profile_id    TEXT DEFAULT ''
+            agent_profile_id    TEXT DEFAULT '',
+            profile_migration_status TEXT DEFAULT '',
+            profile_migration_note TEXT DEFAULT '',
+            profile_migration_snapshot_json TEXT DEFAULT '{}'
         )
     """,
     "task_runs": """
@@ -201,6 +219,9 @@ _COLUMN_MIGRATIONS = {
         ("channels", "TEXT"),
         ("advanced_mode", "INTEGER DEFAULT 0"),
         ("agent_profile_id", "TEXT DEFAULT ''"),
+        ("profile_migration_status", "TEXT DEFAULT ''"),
+        ("profile_migration_note", "TEXT DEFAULT ''"),
+        ("profile_migration_snapshot_json", "TEXT DEFAULT '{}'"),
     ],
     "task_runs": [
         ("finished_at", "TEXT"),
@@ -242,7 +263,8 @@ _REQUIRED_COLUMNS = {
         "persistent_thread_id", "delete_after_run", "allowed_commands",
         "allowed_recipients", "skills_override", "steps", "safety_mode",
         "concurrency_group", "trigger", "tools_override", "channels",
-        "advanced_mode", "agent_profile_id",
+        "advanced_mode", "agent_profile_id", "profile_migration_status",
+        "profile_migration_note", "profile_migration_snapshot_json",
     },
     "task_runs": {
         "id", "task_id", "thread_id", "started_at", "finished_at", "status",
@@ -568,7 +590,10 @@ def _init_db() -> None:
             tools_override      TEXT,                    -- JSON list of tool names (null = all enabled)
             channels            TEXT,                    -- JSON list of channel names (null = workflow default)
             advanced_mode       INTEGER DEFAULT 0,       -- 1 = reopen in Advanced editor mode
-            agent_profile_id    TEXT DEFAULT ''          -- optional Agent Profile id/slug
+            agent_profile_id    TEXT DEFAULT '',         -- optional Agent Profile id/slug
+            profile_migration_status TEXT DEFAULT '',
+            profile_migration_note TEXT DEFAULT '',
+            profile_migration_snapshot_json TEXT DEFAULT '{}'
         )
     """)
     conn.execute("""
@@ -655,6 +680,9 @@ def _init_db() -> None:
         ("channels", "TEXT"),
         ("advanced_mode", "INTEGER DEFAULT 0"),
         ("agent_profile_id", "TEXT DEFAULT ''"),
+        ("profile_migration_status", "TEXT DEFAULT ''"),
+        ("profile_migration_note", "TEXT DEFAULT ''"),
+        ("profile_migration_snapshot_json", "TEXT DEFAULT '{}'"),
     ]:
         try:
             conn.execute(f"ALTER TABLE tasks ADD COLUMN {col} {defn}")
@@ -829,8 +857,485 @@ def _migrate_from_workflows() -> None:
         conn.close()
 
 
+def _ordered_text_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        items = list(value)
+    else:
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        text = str(item or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            result.append(text)
+    return result
+
+
+def _json_list_value(value: Any) -> list[str] | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            loaded = json.loads(text)
+        except Exception:
+            return _ordered_text_list(text)
+        return _ordered_text_list(loaded)
+    return _ordered_text_list(value)
+
+
+def _default_task_skill_names_for_migration() -> set[str]:
+    defaults = {"proactive_agent"}
+    try:
+        from row_bot.skills import get_default_active_skill_names
+
+        defaults.update(get_default_active_skill_names("task"))
+    except Exception:
+        logger.debug("Could not load default task skills for workflow migration", exc_info=True)
+    return {name for name in defaults if name}
+
+
+def _custom_legacy_skill_names(skills_override: Sequence[str] | None) -> list[str]:
+    names = _ordered_text_list(skills_override)
+    if not names:
+        return []
+    default_names = _default_task_skill_names_for_migration()
+    custom = [name for name in names if name not in default_names]
+    if custom:
+        return custom
+    return []
+
+
+def _workflow_policy_key(
+    *,
+    tools_override: Sequence[str] | None,
+    skills_override: Sequence[str] | None,
+) -> dict[str, list[str]]:
+    return {
+        "tools": sorted(_ordered_text_list(tools_override)),
+        "skills": sorted(_custom_legacy_skill_names(skills_override)),
+    }
+
+
+def _infer_migrated_profile_capability(tools: Sequence[str], skills: Sequence[str]) -> str:
+    if not tools:
+        return "orchestrator" if skills else "read_only"
+    write_or_delivery_tools = {
+        "calendar",
+        "custom_tool_builder",
+        "designer",
+        "gmail",
+        "goal",
+        "image_gen",
+        "row_bot_updater",
+        "task",
+        "tracker",
+        "video_gen",
+        "x",
+    }
+    return "write_capable" if any(tool in write_or_delivery_tools for tool in tools) else "read_only"
+
+
+def _workflow_policy_signature(
+    *,
+    tools_override: Sequence[str] | None,
+    skills_override: Sequence[str] | None,
+) -> dict[str, Any]:
+    key = _workflow_policy_key(
+        tools_override=tools_override,
+        skills_override=skills_override,
+    )
+    return {
+        **key,
+        "capability": _infer_migrated_profile_capability(key["tools"], key["skills"]),
+    }
+
+
+def _profile_policy_key(profile: Mapping[str, Any]) -> dict[str, list[str]]:
+    tool_policy = profile.get("tool_policy_json") or {}
+    skill_policy = profile.get("skill_policy_json") or {}
+    if not isinstance(tool_policy, dict):
+        tool_policy = {}
+    if not isinstance(skill_policy, dict):
+        skill_policy = {}
+    return {
+        "tools": sorted(_ordered_text_list(tool_policy.get("allow_tools"))),
+        "skills": sorted(_ordered_text_list(skill_policy.get("skills_override"))),
+    }
+
+
+def _known_workflow_tool_ids() -> set[str]:
+    try:
+        from row_bot.agent_tool_catalog import list_agent_tool_catalog
+
+        return {
+            str(item.get("id") or "")
+            for item in list_agent_tool_catalog(include_unavailable=True)
+            if str(item.get("id") or "")
+        }
+    except Exception:
+        logger.debug("Could not load Agent Profile tool catalog for migration", exc_info=True)
+        return set()
+
+
+def _known_workflow_skill_names() -> set[str]:
+    try:
+        from row_bot.skills import get_all_skills, load_skills, skills_loaded
+
+        if not skills_loaded():
+            load_skills()
+        return {skill.name for skill in get_all_skills()}
+    except Exception:
+        logger.debug("Could not load skills for workflow migration", exc_info=True)
+        return set()
+
+
+def _missing_legacy_policy_items(
+    *,
+    tools_override: Sequence[str] | None,
+    skills_override: Sequence[str] | None,
+) -> dict[str, list[str]]:
+    missing: dict[str, list[str]] = {}
+    tools = _ordered_text_list(tools_override)
+    if tools:
+        known_tools = _known_workflow_tool_ids()
+        if known_tools:
+            missing_tools = sorted(tool for tool in tools if tool not in known_tools)
+            if missing_tools:
+                missing["tools"] = missing_tools
+    skills = _custom_legacy_skill_names(skills_override)
+    if skills:
+        known_skills = _known_workflow_skill_names()
+        if known_skills:
+            missing_skills = sorted(skill for skill in skills if skill not in known_skills)
+            if missing_skills:
+                missing["skills"] = missing_skills
+    return missing
+
+
+def _migration_profile_name(signature: Mapping[str, Any]) -> str:
+    tools = [str(item) for item in signature.get("tools") or []]
+    skills = [str(item) for item in signature.get("skills") or []]
+    if tools:
+        labels = [tool.replace("_", " ").replace("-", " ").title() for tool in tools[:3]]
+        joined = " + ".join(labels)
+        return f"Migrated {joined} Tools" if joined else "Migrated Workflow Profile"
+    if skills:
+        labels = [skill.replace("_", " ").replace("-", " ").title() for skill in skills[:3]]
+        joined = " + ".join(labels)
+        return f"Migrated {joined} Skills" if joined else "Migrated Workflow Profile"
+    return "Migrated Workflow Profile"
+
+
+def _find_matching_builtin_profile(policy_key: Mapping[str, list[str]]) -> dict[str, Any] | None:
+    try:
+        from row_bot.agent_profiles import list_agent_profiles
+
+        for profile in list_agent_profiles(enabled_only=True, include_builtins=True):
+            if profile.get("source") == "builtin" and _profile_policy_key(profile) == policy_key:
+                return profile
+    except Exception:
+        logger.debug("Could not match built-in Agent Profile for workflow migration", exc_info=True)
+    return None
+
+
+def _find_migration_profile(signature: Mapping[str, Any]) -> dict[str, Any] | None:
+    try:
+        from row_bot.agent_profiles import list_agent_profiles
+
+        for profile in list_agent_profiles(enabled_only=False, include_builtins=False):
+            provenance = profile.get("provenance_json") or {}
+            if not isinstance(provenance, dict):
+                continue
+            if provenance.get("migration") != WORKFLOW_PROFILE_MIGRATION_VERSION:
+                continue
+            if provenance.get("policy_signature") == dict(signature):
+                return profile
+    except Exception:
+        logger.debug("Could not find reusable migration profile", exc_info=True)
+    return None
+
+
+def _append_migration_profile_task_id(profile: Mapping[str, Any], task_id: str) -> None:
+    if not profile or str(profile.get("id") or "").startswith("builtin:"):
+        return
+    try:
+        from row_bot.agent_profiles import save_agent_profile
+
+        provenance = dict(profile.get("provenance_json") or {})
+        source_task_ids = _ordered_text_list(provenance.get("source_task_ids"))
+        if task_id not in source_task_ids:
+            provenance["source_task_ids"] = [*source_task_ids, task_id]
+            save_agent_profile({**dict(profile), "provenance_json": provenance})
+    except Exception:
+        logger.debug("Could not update migration profile provenance", exc_info=True)
+
+
+def _create_migration_profile(signature: Mapping[str, Any], task_id: str) -> dict[str, Any]:
+    from row_bot.agent_profiles import _unique_slug, normalize_profile_slug, save_agent_profile
+
+    name = _migration_profile_name(signature)
+    slug = _unique_slug(normalize_profile_slug(name) or "migrated_workflow_profile")
+    capability = str(signature.get("capability") or "read_only")
+    allow_tools = _ordered_text_list(signature.get("tools"))
+    skills = _ordered_text_list(signature.get("skills"))
+    return save_agent_profile(
+        slug=slug,
+        display_name=name,
+        description="Created by the workflow Agent Profile migration from legacy workflow policy.",
+        when_to_use="Use for workflows migrated from legacy tool or skill overrides with this policy.",
+        instructions=(
+            "Run the workflow using the migrated legacy workflow capability policy. "
+            "Review this profile before broad reuse."
+        ),
+        handoff_contract="Summarize workflow results, approvals, delivery status, and any follow-up needed.",
+        source="workflow_created",
+        tool_policy_json={
+            "capability": capability,
+            "allow_tools": allow_tools,
+            "allow_delegation": False,
+        },
+        skill_policy_json={"skills_override": skills},
+        context_policy_json={
+            "default_context_mode": "auto",
+            "include_parent_summary": True,
+            "include_selected_messages": False,
+            "include_workspace_context": True,
+            "max_context_tokens": 0,
+        },
+        workspace_policy_json={
+            "workspace_mode_default": "read_only" if capability == "read_only" else "auto",
+            "write_lock_required": capability in {"write_capable", "orchestrator"},
+            "worktree_allowed": False,
+            "developer_workspace_required": False,
+        },
+        approval_policy_json={"mode": "inherit"},
+        model_policy_json={"mode": "inherit"},
+        ui_json={"icon": "rule", "color": "blue-grey", "group": "Migrated"},
+        provenance_json={
+            "migration": WORKFLOW_PROFILE_MIGRATION_VERSION,
+            "source_task_ids": [task_id],
+            "policy_signature": dict(signature),
+        },
+    )
+
+
+def _resolve_workflow_profile_for_legacy_policy(
+    *,
+    task_id: str,
+    task_name: str = "",
+    agent_profile_id: str | None,
+    tools_override: Sequence[str] | None,
+    skills_override: Sequence[str] | None,
+    preserve_existing_profile: bool = False,
+) -> dict[str, Any]:
+    tools = _ordered_text_list(tools_override)
+    skills = _ordered_text_list(skills_override)
+    raw_policy_present = tools_override is not None or skills_override is not None
+    snapshot = {
+        "migration": WORKFLOW_PROFILE_MIGRATION_VERSION,
+        "task_id": task_id,
+        "task_name": task_name,
+        "old_tools_override": tools if tools_override is not None else None,
+        "old_skills_override": skills if skills_override is not None else None,
+    }
+
+    profile_ref = str(agent_profile_id or "").strip()
+    if preserve_existing_profile and profile_ref:
+        try:
+            from row_bot.agent_profiles import require_agent_profile
+
+            profile = require_agent_profile(profile_ref, enabled_only=True)
+            snapshot["selected_profile_id"] = profile["id"]
+            snapshot["selected_profile_slug"] = profile["slug"]
+            return {
+                "profile_id": profile["id"],
+                "status": "not_needed",
+                "note": "Workflow already had an Agent Profile; legacy overrides were retired.",
+                "snapshot": snapshot,
+                "clear_old_overrides": True,
+                "disable": False,
+            }
+        except Exception as exc:
+            snapshot["invalid_profile_reference"] = profile_ref
+            snapshot["invalid_profile_error"] = str(exc)
+
+    policy_key = _workflow_policy_key(
+        tools_override=tools,
+        skills_override=skills,
+    )
+    custom_policy = bool(policy_key["tools"] or policy_key["skills"])
+    if not custom_policy:
+        note = "Assigned Default Agent Profile."
+        status = "not_needed"
+        if raw_policy_present and skills:
+            note = "Ignored legacy task default skill snapshot and assigned Default Agent Profile."
+            status = "needs_review"
+        snapshot["policy_signature"] = _workflow_policy_signature(
+            tools_override=[],
+            skills_override=[],
+        )
+        return {
+            "profile_id": DEFAULT_WORKFLOW_AGENT_PROFILE_ID,
+            "status": status,
+            "note": note,
+            "snapshot": snapshot,
+            "clear_old_overrides": True,
+            "disable": False,
+        }
+
+    missing = _missing_legacy_policy_items(
+        tools_override=policy_key["tools"],
+        skills_override=policy_key["skills"],
+    )
+    if missing:
+        snapshot["missing_policy_items"] = missing
+        return {
+            "profile_id": profile_ref or "",
+            "status": "blocked",
+            "note": "Legacy workflow policy references missing tools or skills.",
+            "snapshot": snapshot,
+            "clear_old_overrides": False,
+            "disable": True,
+        }
+
+    builtin = _find_matching_builtin_profile(policy_key)
+    if builtin:
+        snapshot["policy_signature"] = _workflow_policy_signature(
+            tools_override=policy_key["tools"],
+            skills_override=policy_key["skills"],
+        )
+        snapshot["selected_profile_id"] = builtin["id"]
+        snapshot["selected_profile_slug"] = builtin["slug"]
+        return {
+            "profile_id": builtin["id"],
+            "status": "exact_profile",
+            "note": f"Legacy workflow policy matched built-in Agent Profile: {builtin['display_name']}.",
+            "snapshot": snapshot,
+            "clear_old_overrides": True,
+            "disable": False,
+        }
+
+    signature = _workflow_policy_signature(
+        tools_override=policy_key["tools"],
+        skills_override=policy_key["skills"],
+    )
+    profile = _find_migration_profile(signature)
+    if profile is None:
+        profile = _create_migration_profile(signature, task_id)
+    else:
+        _append_migration_profile_task_id(profile, task_id)
+    snapshot["policy_signature"] = signature
+    snapshot["selected_profile_id"] = profile["id"]
+    snapshot["selected_profile_slug"] = profile["slug"]
+    return {
+        "profile_id": profile["id"],
+        "status": "created_profile",
+        "note": f"Legacy workflow policy migrated to Agent Profile: {profile['display_name']}.",
+        "snapshot": snapshot,
+        "clear_old_overrides": True,
+        "disable": False,
+    }
+
+
+def _task_row_legacy_policy(row: sqlite3.Row | Mapping[str, Any]) -> tuple[list[str] | None, list[str] | None]:
+    raw = dict(row)
+    return (
+        _json_list_value(raw.get("tools_override")),
+        _json_list_value(raw.get("skills_override")),
+    )
+
+
+def migrate_workflow_profile_policies() -> dict[str, Any]:
+    """Migrate legacy workflow tool/skill overrides into Agent Profiles."""
+    ensure_task_schema()
+    conn = _raw_conn()
+    migrated = 0
+    blocked = 0
+    needs_review = 0
+    created_or_reused = 0
+    try:
+        rows = conn.execute(
+            "SELECT id, name, agent_profile_id, tools_override, skills_override, "
+            "enabled, profile_migration_status FROM tasks"
+        ).fetchall()
+        for row in rows:
+            raw_tools, raw_skills = _task_row_legacy_policy(row)
+            profile_ref = str(row["agent_profile_id"] or "")
+            status = str(row["profile_migration_status"] or "")
+            if (
+                status
+                and profile_ref
+                and raw_tools is None
+                and raw_skills is None
+            ):
+                continue
+            conversion = _resolve_workflow_profile_for_legacy_policy(
+                task_id=str(row["id"]),
+                task_name=str(row["name"] or ""),
+                agent_profile_id=profile_ref,
+                tools_override=raw_tools,
+                skills_override=raw_skills,
+                preserve_existing_profile=True,
+            )
+            new_enabled = 0 if conversion["disable"] else int(bool(row["enabled"]))
+            if conversion["status"] == "blocked":
+                blocked += 1
+            if conversion["status"] == "needs_review":
+                needs_review += 1
+            if conversion["status"] == "created_profile":
+                created_or_reused += 1
+            clear_old = bool(conversion["clear_old_overrides"])
+            conn.execute(
+                "UPDATE tasks SET agent_profile_id = ?, "
+                "tools_override = CASE WHEN ? THEN NULL ELSE tools_override END, "
+                "skills_override = CASE WHEN ? THEN NULL ELSE skills_override END, "
+                "enabled = ?, profile_migration_status = ?, "
+                "profile_migration_note = ?, profile_migration_snapshot_json = ? "
+                "WHERE id = ?",
+                (
+                    str(conversion["profile_id"] or profile_ref or DEFAULT_WORKFLOW_AGENT_PROFILE_ID),
+                    1 if clear_old else 0,
+                    1 if clear_old else 0,
+                    new_enabled,
+                    conversion["status"],
+                    conversion["note"],
+                    json.dumps(conversion["snapshot"], sort_keys=True),
+                    row["id"],
+                ),
+            )
+            conn.commit()
+            migrated += 1
+        conn.commit()
+    finally:
+        conn.close()
+    return {
+        "migrated": migrated,
+        "blocked": blocked,
+        "needs_review": needs_review,
+        "created_or_reused_profiles": created_or_reused,
+    }
+
+
+def _migrate_workflow_profile_policies_best_effort() -> None:
+    try:
+        result = migrate_workflow_profile_policies()
+        if result.get("migrated"):
+            logger.info("Workflow Agent Profile migration result: %s", result)
+    except Exception as exc:
+        logger.warning("Workflow Agent Profile migration failed (non-fatal): %s", exc)
+
+
 _init_db()
 _migrate_from_workflows()
+_migrate_workflow_profile_policies_best_effort()
 
 
 # ── Template Variables ───────────────────────────────────────────────────────
@@ -876,9 +1381,14 @@ def _canonicalize_workflow_model_override(value: str | None) -> str | None:
     raw = str(value or "").strip()
     if not raw:
         return None
-    from row_bot.providers.selection import canonicalize_model_selection
+    from row_bot.providers.selection import resolve_catalog_model_selection
 
-    canonical = canonicalize_model_selection(raw, "workflow", allow_default=True)
+    canonical = resolve_catalog_model_selection(
+        raw,
+        surface="workflow",
+        allow_default=True,
+        require_agent_ready=True,
+    )
     return canonical.ref or None
 
 
@@ -904,14 +1414,10 @@ def _canonicalize_workflow_steps(steps: list[dict] | None) -> list[dict] | None:
                 step["model_override"] = canonical
             else:
                 step.pop("model_override", None)
-        if "agent_profile_id" in step:
-            canonical_profile = _canonicalize_agent_profile_reference(
-                step.get("agent_profile_id")
-            )
-            if canonical_profile:
-                step["agent_profile_id"] = canonical_profile
-            else:
-                step.pop("agent_profile_id", None)
+        # Workflow prompt runtime policy is selected at the workflow level.
+        # Delegate steps are explicit child-Agent calls and may choose a helper.
+        if step.get("type") != "delegate_agent":
+            step.pop("agent_profile_id", None)
     return steps
 
 
@@ -1075,18 +1581,38 @@ def create_task(
     if advanced_mode is None:
         advanced_mode = bool(steps)
     model_override = _canonicalize_workflow_model_override(model_override)
-    agent_profile_id = _canonicalize_agent_profile_reference(agent_profile_id)
+    legacy_policy_input = tools_override is not None or skills_override is not None
+    agent_profile_id = _canonicalize_agent_profile_reference(
+        agent_profile_id or DEFAULT_WORKFLOW_AGENT_PROFILE_ID
+    )
     safety_mode = legacy_safety_mode_to_approval_mode(safety_mode)
+    profile_migration_status = "not_needed"
+    profile_migration_note = "Profile-first workflow."
+    profile_migration_snapshot: dict[str, Any] = {}
     if notify_only:
         skills_override = None
-    elif skills_override is None and apply_default_skills:
-        try:
-            from row_bot.skills import get_default_active_skill_names
-
-            skills_override = get_default_active_skill_names("task")
-        except Exception:
-            logger.debug("Failed to resolve default workflow skills", exc_info=True)
-            skills_override = []
+        tools_override = None
+    elif legacy_policy_input:
+        conversion = _resolve_workflow_profile_for_legacy_policy(
+            task_id=task_id,
+            task_name=name,
+            agent_profile_id=agent_profile_id,
+            tools_override=tools_override,
+            skills_override=skills_override,
+            preserve_existing_profile=False,
+        )
+        agent_profile_id = str(conversion["profile_id"] or agent_profile_id)
+        profile_migration_status = str(conversion["status"] or "not_needed")
+        profile_migration_note = str(conversion["note"] or "")
+        profile_migration_snapshot = dict(conversion["snapshot"] or {})
+        if conversion["clear_old_overrides"]:
+            tools_override = None
+            skills_override = None
+        if conversion["disable"]:
+            enabled = False
+    else:
+        skills_override = None
+        tools_override = None
     # If steps provided, also sync prompts for backward compat
     if steps:
         assign_step_ids(steps)
@@ -1099,8 +1625,9 @@ def create_task(
         "notify_label, delivery_channel, delivery_target, model_override, "
         "persistent_thread_id, delete_after_run, created_at, enabled, skills_override, "
         "steps, safety_mode, concurrency_group, trigger, tools_override, channels, "
-        "advanced_mode, agent_profile_id) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "advanced_mode, agent_profile_id, profile_migration_status, "
+        "profile_migration_note, profile_migration_snapshot_json) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             task_id, name, description, icon, json.dumps(prompts),
             schedule, at, int(notify_only), notify_label,
@@ -1115,6 +1642,9 @@ def create_task(
             json.dumps(channels) if channels is not None else None,
             int(bool(advanced_mode)),
             agent_profile_id,
+            profile_migration_status,
+            profile_migration_note,
+            json.dumps(profile_migration_snapshot, sort_keys=True),
         ),
     )
     conn.commit()
@@ -1170,9 +1700,35 @@ def update_task(task_id: str, **kwargs) -> None:
         "skills_override",
         "steps", "safety_mode", "concurrency_group", "trigger",
         "tools_override", "channels", "advanced_mode", "agent_profile_id",
+        "profile_migration_status", "profile_migration_note",
+        "profile_migration_snapshot_json",
     }
 
     # ── Validate delivery if either field is being changed ───────────
+    if {"tools_override", "skills_override"} & set(kwargs):
+        current = get_task(task_id) or {}
+        conversion = _resolve_workflow_profile_for_legacy_policy(
+            task_id=task_id,
+            task_name=str(kwargs.get("name") or current.get("name") or ""),
+            agent_profile_id=str(kwargs.get("agent_profile_id") or current.get("agent_profile_id") or ""),
+            tools_override=kwargs.get("tools_override", current.get("tools_override")),
+            skills_override=kwargs.get("skills_override", current.get("skills_override")),
+            preserve_existing_profile=False,
+        )
+        kwargs["agent_profile_id"] = str(
+            conversion["profile_id"]
+            or current.get("agent_profile_id")
+            or DEFAULT_WORKFLOW_AGENT_PROFILE_ID
+        )
+        kwargs["profile_migration_status"] = str(conversion["status"] or "not_needed")
+        kwargs["profile_migration_note"] = str(conversion["note"] or "")
+        kwargs["profile_migration_snapshot_json"] = dict(conversion["snapshot"] or {})
+        if conversion["clear_old_overrides"]:
+            kwargs["tools_override"] = None
+            kwargs["skills_override"] = None
+        if conversion["disable"]:
+            kwargs["enabled"] = False
+
     if "delivery_channel" in kwargs or "delivery_target" in kwargs:
         # Merge with existing values to get full picture
         task = get_task(task_id)
@@ -1190,14 +1746,14 @@ def update_task(task_id: str, **kwargs) -> None:
         if key == "safety_mode":
             value = legacy_safety_mode_to_approval_mode(value)
         if key == "agent_profile_id":
-            value = _canonicalize_agent_profile_reference(value)
+            value = _canonicalize_agent_profile_reference(value or DEFAULT_WORKFLOW_AGENT_PROFILE_ID)
         if key == "steps" and isinstance(value, list):
             assign_step_ids(value)
             _canonicalize_workflow_steps(value)
         if key in ("prompts", "allowed_commands", "allowed_recipients",
                    "skills_override", "steps", "trigger",
-                   "tools_override", "channels"):
-            value = json.dumps(value)
+                   "tools_override", "channels", "profile_migration_snapshot_json"):
+            value = json.dumps(value, sort_keys=True) if value is not None else None
         if key in ("notify_only", "delete_after_run", "advanced_mode"):
             value = int(value)
         conn.execute(
@@ -1342,6 +1898,13 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     raw_channels = d.get("channels")
     d["channels"] = json.loads(raw_channels) if raw_channels else None
     d["agent_profile_id"] = str(d.get("agent_profile_id") or "")
+    d["profile_migration_status"] = str(d.get("profile_migration_status") or "")
+    d["profile_migration_note"] = str(d.get("profile_migration_note") or "")
+    raw_migration = d.get("profile_migration_snapshot_json")
+    try:
+        d["profile_migration_snapshot_json"] = json.loads(raw_migration) if raw_migration else {}
+    except Exception:
+        d["profile_migration_snapshot_json"] = {}
     if d.get("safety_mode"):
         d["safety_mode"] = legacy_safety_mode_to_approval_mode(d.get("safety_mode"))
     # Auto-convert: if steps is empty but prompts exist, synthesize steps
@@ -1381,14 +1944,105 @@ def _steps_to_prompts(steps: list[dict]) -> list[str]:
 
 def _workflow_agent_profile_ref(task: dict | None) -> str:
     if not task:
-        return ""
+        return DEFAULT_WORKFLOW_AGENT_PROFILE_ID
     profile_ref = str(task.get("agent_profile_id") or "")
     if profile_ref:
         return profile_ref
-    for step in task.get("steps") or []:
-        if isinstance(step, dict) and step.get("agent_profile_id"):
-            return str(step.get("agent_profile_id") or "")
-    return ""
+    return DEFAULT_WORKFLOW_AGENT_PROFILE_ID
+
+
+def _workflow_agent_profile_snapshot(task: dict | None) -> dict[str, Any]:
+    profile_ref = _workflow_agent_profile_ref(task)
+    try:
+        from row_bot.agent_profiles import snapshot_agent_profile
+
+        return snapshot_agent_profile(profile_ref)
+    except Exception:
+        logger.debug("Could not snapshot workflow Agent Profile %s", profile_ref, exc_info=True)
+        return {}
+
+
+def _workflow_profile_tool_allowlist(profile_snapshot: Mapping[str, Any]) -> list[str]:
+    tool_policy = profile_snapshot.get("tool_policy_json") or {}
+    if not isinstance(tool_policy, dict):
+        return []
+    return _ordered_text_list(tool_policy.get("allow_tools"))
+
+
+def _workflow_default_task_skills() -> list[str]:
+    try:
+        from row_bot.skills import get_default_active_skill_names
+
+        return _ordered_text_list(get_default_active_skill_names("task"))
+    except Exception:
+        logger.debug("Could not load default task skills for workflow runtime", exc_info=True)
+        return []
+
+
+def _workflow_profile_skills(profile_snapshot: Mapping[str, Any]) -> list[str]:
+    skill_policy = profile_snapshot.get("skill_policy_json") or {}
+    if not isinstance(skill_policy, dict):
+        return []
+    base = _ordered_text_list(skill_policy.get("skills_override"))
+    if not base:
+        base = _workflow_default_task_skills()
+    deny = set(_ordered_text_list(skill_policy.get("deny_skills")))
+    return [name for name in base if name not in deny]
+
+
+def _filter_workflow_tools_for_profile(
+    enabled_tool_names: Sequence[str],
+    profile_snapshot: Mapping[str, Any],
+) -> list[str]:
+    requested = _ordered_text_list(enabled_tool_names)
+    tool_policy = profile_snapshot.get("tool_policy_json") or {}
+    if not isinstance(tool_policy, dict):
+        tool_policy = {}
+    allow = set(_ordered_text_list(tool_policy.get("allow_tools")))
+    capability = str(tool_policy.get("capability") or "read_only")
+    filtered = list(requested)
+    if capability == "read_only" and not allow:
+        filtered = [name for name in filtered if name not in _WORKFLOW_READ_ONLY_DEFAULT_DENY_TOOLS]
+    if allow:
+        mcp_allowed = "mcp" in allow or any(name.startswith("mcp_") for name in allow)
+        filtered = [
+            name
+            for name in filtered
+            if name in allow or (name == "mcp" and mcp_allowed)
+        ]
+    return filtered
+
+
+def _workflow_profile_runtime_policy(
+    task: dict,
+    enabled_tool_names: Sequence[str],
+) -> dict[str, Any]:
+    from row_bot.agent_profiles import resolve_profile_for_run
+
+    parent_approval = get_task_approval_mode(task)
+    resolved = resolve_profile_for_run(
+        _workflow_agent_profile_ref(task),
+        parent_approval_mode=parent_approval,
+        require_enabled=True,
+    )
+    profile_snapshot = dict(resolved["profile_snapshot"])
+    tool_allowlist = _workflow_profile_tool_allowlist(profile_snapshot)
+    return {
+        "agent_profile_id": str(resolved["profile_id"] or DEFAULT_WORKFLOW_AGENT_PROFILE_ID),
+        "agent_profile_slug": str(resolved["profile_slug"] or ""),
+        "agent_profile_snapshot": profile_snapshot,
+        "approval_mode": normalize_approval_mode(
+            str(resolved["effective_approval_mode"] or parent_approval),
+            parent_approval,
+        ),
+        "skills_override": _workflow_profile_skills(profile_snapshot),
+        "tool_allowlist": tool_allowlist,
+        "effective_tool_names": _filter_workflow_tools_for_profile(
+            enabled_tool_names,
+            profile_snapshot,
+        ),
+        "warnings": list(resolved.get("warnings") or []),
+    }
 
 
 def _mirror_workflow_agent_run_start(
@@ -1402,6 +2056,7 @@ def _mirror_workflow_agent_run_start(
     try:
         task = get_task(task_id)
         from row_bot.agent_runs import mirror_workflow_run_start
+        profile_snapshot = _workflow_agent_profile_snapshot(task)
 
         mirror_workflow_run_start(
             run_id,
@@ -1410,10 +2065,11 @@ def _mirror_workflow_agent_run_start(
             display_name=task_name or (task or {}).get("name", ""),
             steps_total=steps_total,
             profile_id=_workflow_agent_profile_ref(task),
+            profile_snapshot_json=profile_snapshot,
             approval_mode=get_task_approval_mode(task) if task else DEFAULT_APPROVAL_MODE,
             model_override=str((task or {}).get("model_override") or ""),
-            tools_override=(task or {}).get("tools_override"),
-            skills_override=(task or {}).get("skills_override"),
+            tools_override=_workflow_profile_tool_allowlist(profile_snapshot) or None,
+            skills_override=_workflow_profile_skills(profile_snapshot),
         )
     except Exception:
         logger.debug("Workflow agent-run mirror start failed for %s", run_id, exc_info=True)
@@ -2210,6 +2866,7 @@ def run_task_background(
         last_response = ""
         stopped = False
         paused = False  # set True when pausing for approval
+        paused_message = "Waiting for approval"
         failure_message = ""
         step_outputs: dict[str, str] = resume_step_outputs.copy() if resume_step_outputs else {}
         # If resuming, seed last_response from the last step output
@@ -2217,22 +2874,31 @@ def run_task_background(
             last_response = list(step_outputs.values())[-1]
 
         # Determine effective approval mode (block/approve/allow_all)
-        approval_mode = get_task_approval_mode(task)
-        effective_tool_names = enabled_tool_names
+        try:
+            runtime_policy = _workflow_profile_runtime_policy(task, enabled_tool_names)
+        except Exception:
+            logger.exception(
+                "Task '%s' could not resolve Agent Profile policy; falling back to Default profile",
+                task.get("name", ""),
+            )
+            fallback_task = {**task, "agent_profile_id": DEFAULT_WORKFLOW_AGENT_PROFILE_ID}
+            runtime_policy = _workflow_profile_runtime_policy(fallback_task, enabled_tool_names)
 
-        # Skills override — set on thread so the pre-model hook picks it up
-        if task.get("skills_override") is not None:
-            from row_bot.threads import set_thread_skills_override
-            set_thread_skills_override(thread_id, task["skills_override"])
+        approval_mode = str(runtime_policy["approval_mode"])
+        effective_tool_names = list(runtime_policy["effective_tool_names"])
+        profile_snapshot = dict(runtime_policy["agent_profile_snapshot"])
+        profile_skills = list(runtime_policy["skills_override"])
+        tool_allowlist = list(runtime_policy["tool_allowlist"])
 
-        # Apply tools_override (explicit selection from UI)
-        if task.get("tools_override"):
-            override_set = set(task["tools_override"])
-            effective_tool_names = [
-                t for t in effective_tool_names if t in override_set
-            ]
+        from row_bot.threads import _set_thread_agent_profile, _set_thread_approval_mode, set_thread_skills_override
+
+        _set_thread_agent_profile(thread_id, str(runtime_policy["agent_profile_id"]))
+        _set_thread_approval_mode(thread_id, approval_mode)
+        set_thread_skills_override(thread_id, profile_skills)
+
+        if tool_allowlist:
             logger.info(
-                "Task '%s' using tools_override — %d tool(s): %s",
+                "Task '%s' using Agent Profile tool allow-list - %d tool(s): %s",
                 task["name"], len(effective_tool_names), effective_tool_names,
             )
 
@@ -2249,9 +2915,13 @@ def run_task_background(
                     "runtime_surface": "workflow",
                     "runtime_mode": "agent",
                     "approval_mode": approval_mode,
+                    "agent_profile_id": str(runtime_policy["agent_profile_id"]),
+                    "agent_profile_snapshot": profile_snapshot,
                 },
                 "recursion_limit": RECURSION_LIMIT_TASK,
             }
+            if tool_allowlist:
+                config["configurable"]["tool_allowlist"] = tool_allowlist
 
             def _format_interrupt_details(interrupts: list[dict]) -> list[str]:
                 details = []
@@ -2637,6 +3307,270 @@ def run_task_background(
                                 break
 
                 # ── Notify step type ──────────────────────────────────
+                elif step_type == "delegate_agent":
+                    objective = expand_template_vars(
+                        step.get("objective") or step.get("prompt", ""),
+                        task_id=task_id,
+                        prev_output=last_response,
+                        step_outputs=step_outputs,
+                    ).strip()
+                    context = expand_template_vars(
+                        step.get("context", ""),
+                        task_id=task_id,
+                        prev_output=last_response,
+                        step_outputs=step_outputs,
+                    ).strip()
+                    if not objective:
+                        failure_message = "Child Agent step is missing an objective."
+                        logger.error(
+                            "Task '%s' step %d: %s",
+                            task["name"],
+                            step_index + 1,
+                            failure_message,
+                        )
+                        if step.get("on_error", "stop") == "skip":
+                            step_outputs[step_id] = failure_message
+                        else:
+                            stopped = True
+                            break
+                    else:
+                        child_run_id = ""
+                        requested_worktree = (
+                            bool(step.get("use_worktree"))
+                            or str(step.get("editing_safety") or "").strip() == "worktree"
+                            or str(step.get("workspace_mode") or "").strip() == "worktree"
+                        )
+                        try:
+                            from row_bot.agent_runner import (
+                                agent_run_is_terminal,
+                                spawn_agent_run,
+                                wait_for_agent_run_terminal_or_status,
+                            )
+                            from row_bot.threads import _get_thread_developer_workspace
+
+                            profile_ref = str(
+                                step.get("profile")
+                                or step.get("agent_profile_id")
+                                or "worker"
+                            ).strip()
+                            developer_workspace_id = str(
+                                step.get("developer_workspace_id")
+                                or _get_thread_developer_workspace(thread_id)
+                                or ""
+                            ).strip()
+                            editing_safety = str(step.get("editing_safety") or "").strip()
+                            use_worktree = bool(step.get("use_worktree")) or editing_safety == "worktree"
+                            workspace_mode = str(step.get("workspace_mode") or "").strip()
+                            if use_worktree and not workspace_mode:
+                                workspace_mode = "worktree"
+                            return_mode = str(step.get("return_mode") or "").strip().lower()
+                            wait_for_result = bool(step.get("wait", True))
+                            if return_mode in {"background", "start_in_background"}:
+                                wait_for_result = False
+                            timeout_seconds = float(
+                                step.get("timeout_seconds") or (300 if wait_for_result else 0)
+                            )
+                            _task_log(f"Step {step_index + 1}/{total}: Child Agent")
+                            child_run = spawn_agent_run(
+                                objective,
+                                parent_thread_id=thread_id,
+                                parent_run_id=run_id,
+                                profile=profile_ref,
+                                display_name=str(step.get("display_name") or ""),
+                                context=context,
+                                context_mode=str(step.get("context_mode") or "auto"),
+                                enabled_tool_names=effective_tool_names,
+                                model_override=str(step.get("model_override") or ""),
+                                developer_workspace_id=developer_workspace_id,
+                                workspace_mode=workspace_mode,
+                                use_worktree=use_worktree,
+                                wait=False,
+                            )
+                            child_run_id = str((child_run or {}).get("id") or "")
+                            if wait_for_result:
+                                if child_run_id:
+                                    child_run = wait_for_agent_run_terminal_or_status(
+                                        child_run_id,
+                                        timeout=timeout_seconds,
+                                        statuses={"waiting_approval"},
+                                    )
+                            child_status = str((child_run or {}).get("status") or "")
+                            summary = str((child_run or {}).get("summary") or "")
+                            child_output = _child_agent_output(child_run)
+                            step_outputs[step_id] = json.dumps(child_output, sort_keys=True)
+                            last_response = summary or step_outputs[step_id]
+                            _task_log(
+                                "Step "
+                                f"{step_index + 1}: Agent {child_output['agent_run_id']} "
+                                f"{child_status or 'started'}"
+                            )
+                            if wait_for_result and not agent_run_is_terminal(child_run):
+                                if child_status == "waiting_approval":
+                                    paused_message = (
+                                        f"Child Agent {child_output['agent_run_id']} is waiting for approval."
+                                    )
+                                    _save_pipeline_state(
+                                        run_id=run_id,
+                                        task_id=task_id,
+                                        thread_id=thread_id,
+                                        current_step_index=step_index,
+                                        step_outputs=step_outputs,
+                                        config=config,
+                                        resume_token=f"child-agent:{run_id}:{child_output['agent_run_id']}",
+                                        status=_CHILD_AGENT_WAIT_STATUS,
+                                        graph_interrupted=_child_agent_wait_payload(
+                                            child_output["agent_run_id"],
+                                            step_id,
+                                        ),
+                                    )
+                                    _task_log(
+                                        f"Step {step_index + 1}: {paused_message[:120]}"
+                                    )
+                                    paused = True
+                                    break
+                                else:
+                                    failure_message = (
+                                        f"Child Agent {child_output['agent_run_id']} did not finish "
+                                        f"before the workflow wait timeout (status: {child_status or 'unknown'})."
+                                    )
+                                _task_log(
+                                    f"Step {step_index + 1}: {failure_message[:120]}"
+                                )
+                                if step.get("on_error", "stop") == "skip":
+                                    failure_message = ""
+                                else:
+                                    stopped = True
+                                    break
+                            if (
+                                wait_for_result
+                                and child_status
+                                and child_status not in _CHILD_AGENT_SUCCESS_STATUSES
+                            ):
+                                failure_message = _child_agent_failure_message(child_output)
+                                _task_log(
+                                    f"Step {step_index + 1}: {failure_message[:120]}"
+                                )
+                                if step.get("on_error", "stop") == "skip":
+                                    failure_message = ""
+                                else:
+                                    stopped = True
+                                    if child_status in _CHILD_AGENT_STOP_STATUSES:
+                                        failure_message = ""
+                                    break
+                        except Exception as exc:
+                            failure_message = str(exc)
+                            step_outputs[step_id] = failure_message
+                            logger.error(
+                                "Task '%s' step %d delegate Agent failed: %s",
+                                task["name"],
+                                step_index + 1,
+                                exc,
+                            )
+                            _task_log(
+                                f"Step {step_index + 1} delegate failed: {failure_message[:80]}"
+                            )
+                            if _is_child_agent_setup_failure(
+                                exc,
+                                child_run_id=child_run_id,
+                                use_worktree=requested_worktree,
+                            ):
+                                stopped = True
+                                break
+                            if step.get("on_error", "stop") == "skip":
+                                failure_message = ""
+                            else:
+                                stopped = True
+                                break
+
+                elif step_type == "wait_for_agents":
+                    try:
+                        import time as _time
+
+                        from row_bot.agent_runner import (
+                            agent_run_is_terminal,
+                            wait_for_agent_run_terminal,
+                        )
+
+                        run_ids: list[str] = []
+                        raw_run_ids = step.get("run_ids") or []
+                        if isinstance(raw_run_ids, str):
+                            raw_run_ids = [
+                                item.strip()
+                                for item in raw_run_ids.split(",")
+                                if item.strip()
+                            ]
+                        if isinstance(raw_run_ids, list):
+                            run_ids.extend(
+                                str(item).strip()
+                                for item in raw_run_ids
+                                if str(item).strip()
+                            )
+                        if not run_ids:
+                            for raw_output in step_outputs.values():
+                                try:
+                                    parsed_output = json.loads(raw_output)
+                                except Exception:
+                                    continue
+                                candidate = str(parsed_output.get("agent_run_id") or "").strip()
+                                if candidate:
+                                    run_ids.append(candidate)
+                        seen_run_ids: set[str] = set()
+                        run_ids = [
+                            child_run_id
+                            for child_run_id in run_ids
+                            if not (child_run_id in seen_run_ids or seen_run_ids.add(child_run_id))
+                        ]
+                        timeout_seconds = float(step.get("timeout_seconds") or 300)
+                        deadline = _time.monotonic() + timeout_seconds
+                        collected: list[dict[str, str]] = []
+                        for child_run_id in run_ids:
+                            remaining = max(0.0, deadline - _time.monotonic())
+                            child_run = wait_for_agent_run_terminal(child_run_id, timeout=remaining)
+                            collected.append({
+                                "agent_run_id": child_run_id,
+                                "status": str((child_run or {}).get("status") or ""),
+                                "summary": str((child_run or {}).get("summary") or ""),
+                                "thread_id": str((child_run or {}).get("thread_id") or ""),
+                            })
+                        child_output = {"agent_runs": collected}
+                        step_outputs[step_id] = json.dumps(child_output, sort_keys=True)
+                        last_response = step_outputs[step_id]
+                        _task_log(
+                            f"Step {step_index + 1}: Collected {len(collected)} Agent run(s)"
+                        )
+                        nonterminal = [
+                            row for row in collected if not agent_run_is_terminal(row)
+                        ]
+                        if nonterminal:
+                            statuses = ", ".join(
+                                f"{row['agent_run_id']}={row.get('status') or 'unknown'}"
+                                for row in nonterminal[:4]
+                            )
+                            failure_message = (
+                                "Child Agent wait timed out before terminal status"
+                                + (f": {statuses}" if statuses else ".")
+                            )
+                            _task_log(f"Step {step_index + 1}: {failure_message[:120]}")
+                            if step.get("on_error", "stop") == "skip":
+                                failure_message = ""
+                            else:
+                                stopped = True
+                                break
+                    except Exception as exc:
+                        failure_message = str(exc)
+                        step_outputs[step_id] = failure_message
+                        logger.error(
+                            "Task '%s' step %d wait for Agents failed: %s",
+                            task["name"],
+                            step_index + 1,
+                            exc,
+                        )
+                        if step.get("on_error", "stop") == "skip":
+                            failure_message = ""
+                        else:
+                            stopped = True
+                            break
+
                 elif step_type == "notify":
                     notify_msg = step.get("message", "")
                     notify_msg = expand_template_vars(
@@ -2739,7 +3673,7 @@ def run_task_background(
             # ── Handle paused task (waiting for approval) ─────────────
             if paused:
                 _finish_run(run_id, "paused",
-                            status_message="Waiting for approval")
+                            status_message=paused_message)
                 if _thread_exists(thread_id):
                     thread_name = (f"⚡ {task['name']} (paused) — "
                                    f"{datetime.now().strftime('%b %d, %I:%M %p')}")
@@ -2999,7 +3933,12 @@ def _prepare_task_thread(task: dict) -> str:
     - thread_meta creation
     - model_override propagation
     """
-    from row_bot.threads import _save_thread_meta, _set_thread_approval_mode, _set_thread_model_override
+    from row_bot.threads import (
+        _save_thread_meta,
+        _set_thread_agent_profile,
+        _set_thread_approval_mode,
+        _set_thread_model_override,
+    )
 
     thread_id = task.get("persistent_thread_id") or uuid.uuid4().hex[:12]
     if not task.get("notify_only"):
@@ -3010,6 +3949,10 @@ def _prepare_task_thread(task: dict) -> str:
         _save_thread_meta(thread_id, thread_name)
     if task.get("model_override"):
         _set_thread_model_override(thread_id, task["model_override"])
+    try:
+        _set_thread_agent_profile(thread_id, _workflow_agent_profile_ref(task))
+    except Exception:
+        logger.debug("Could not set workflow thread Agent Profile", exc_info=True)
     _set_thread_approval_mode(thread_id, get_task_approval_mode(task))
     return thread_id
 
@@ -3428,7 +4371,7 @@ def _save_pipeline_state(
     config: dict,
     resume_token: str | None = None,
     status: str = "running",
-    graph_interrupted: bool = False,
+    graph_interrupted: bool | str = False,
 ) -> None:
     """Persist pipeline state to the DB for later resumption."""
     conn = _get_conn()
@@ -3443,7 +4386,7 @@ def _save_pipeline_state(
     if graph_interrupted:
         extra_cols += ", graph_interrupted"
         extra_placeholders += ", ?"
-        extra_vals.append("true")
+        extra_vals.append("true" if graph_interrupted is True else str(graph_interrupted))
     conn.execute(
         "INSERT OR REPLACE INTO pipeline_state "
         "(run_id, task_id, thread_id, current_step_index, step_outputs, "
@@ -3502,6 +4445,205 @@ def _clear_graph_interrupted(run_id: str) -> None:
     )
     conn.commit()
     conn.close()
+
+
+_CHILD_AGENT_WAIT_STATUS = "waiting_child_agent"
+_CHILD_AGENT_WAIT_TYPE = "child_agent_wait"
+_CHILD_AGENT_SUCCESS_STATUSES = {"completed", "completed_delivery_failed"}
+_CHILD_AGENT_STOP_STATUSES = {"stopped", "cancelled"}
+_CHILD_AGENT_SETUP_FAILURE_FRAGMENTS = (
+    "Worktree requires a git-backed Developer workspace",
+    "Worktree requires a git repository",
+    "Worktree requires a git repository root",
+    "Cannot create Worktree:",
+    "Failed to create Worktree",
+    "Worktree did not return a usable workspace",
+)
+
+
+def _is_child_agent_setup_failure(
+    exc: Exception,
+    *,
+    child_run_id: str = "",
+    use_worktree: bool = False,
+) -> bool:
+    """Return whether a delegate failure happened before a usable child run."""
+    if child_run_id:
+        return False
+    try:
+        from row_bot.agent_runner import AgentRunnerError
+
+        if isinstance(exc, AgentRunnerError):
+            return True
+    except Exception:
+        if exc.__class__.__name__ == "AgentRunnerError":
+            return True
+    if use_worktree:
+        message = str(exc)
+        return any(fragment in message for fragment in _CHILD_AGENT_SETUP_FAILURE_FRAGMENTS)
+    return False
+
+
+def _child_agent_output(run: dict | None) -> dict[str, str]:
+    return {
+        "agent_run_id": str((run or {}).get("id") or ""),
+        "status": str((run or {}).get("status") or ""),
+        "summary": str((run or {}).get("summary") or ""),
+        "thread_id": str((run or {}).get("thread_id") or ""),
+        "workspace_id": str((run or {}).get("workspace_id") or ""),
+        "workspace_path": str((run or {}).get("workspace_path") or ""),
+        "workspace_mode": str((run or {}).get("workspace_mode") or ""),
+    }
+
+
+def _child_agent_failure_message(child_output: dict[str, str]) -> str:
+    run_id = child_output.get("agent_run_id") or "unknown"
+    status = child_output.get("status") or "unknown"
+    return f"Child Agent {run_id} finished with status: {status}."
+
+
+def _child_agent_parent_terminal_status(child_status: str) -> str:
+    if child_status in _CHILD_AGENT_STOP_STATUSES:
+        return "stopped"
+    return "failed"
+
+
+def _child_agent_wait_payload(child_run_id: str, step_id: str) -> str:
+    return json.dumps(
+        {
+            "type": _CHILD_AGENT_WAIT_TYPE,
+            "child_agent_run_id": child_run_id,
+            "step_id": step_id,
+        },
+        sort_keys=True,
+    )
+
+
+def _parse_child_agent_wait_payload(raw: str | None) -> dict[str, str] | None:
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return None
+    if not isinstance(payload, dict) or payload.get("type") != _CHILD_AGENT_WAIT_TYPE:
+        return None
+    return {
+        "child_agent_run_id": str(payload.get("child_agent_run_id") or ""),
+        "step_id": str(payload.get("step_id") or ""),
+    }
+
+
+@_schema_retry
+def _load_pipeline_states_waiting_for_child_agent(child_run_id: str) -> list[dict]:
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT * FROM pipeline_state WHERE status = ?",
+        (_CHILD_AGENT_WAIT_STATUS,),
+    ).fetchall()
+    conn.close()
+    states: list[dict] = []
+    for row in rows:
+        state = dict(row)
+        payload = _parse_child_agent_wait_payload(state.get("graph_interrupted"))
+        if not payload or payload.get("child_agent_run_id") != child_run_id:
+            continue
+        state["step_outputs"] = json.loads(state.get("step_outputs") or "{}")
+        state["config"] = json.loads(state.get("config") or "{}")
+        state["child_agent_wait"] = payload
+        states.append(state)
+    return states
+
+
+@_schema_retry
+def _claim_child_agent_wait_state(run_id: str) -> bool:
+    conn = _get_conn()
+    try:
+        cur = conn.execute(
+            "UPDATE pipeline_state SET status = ?, updated_at = ? "
+            "WHERE run_id = ? AND status = ?",
+            (
+                "running",
+                datetime.now().isoformat(),
+                run_id,
+                _CHILD_AGENT_WAIT_STATUS,
+            ),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def resume_workflows_waiting_for_child_agent(child_run_id: str) -> int:
+    """Resume paused workflows whose waited child Agent has reached terminal."""
+    if not child_run_id:
+        return 0
+    from row_bot.agent_runner import agent_run_is_terminal
+    from row_bot.agent_runs import get_agent_run
+    from row_bot.tools import registry as tool_registry
+    from row_bot.threads import _list_threads, _save_thread_meta
+
+    child_run = get_agent_run(child_run_id)
+    if not agent_run_is_terminal(child_run):
+        return 0
+    child_output = _child_agent_output(child_run)
+    child_status = child_output["status"]
+    resumed = 0
+    for state in _load_pipeline_states_waiting_for_child_agent(child_run_id):
+        run_id = str(state.get("run_id") or "")
+        if not run_id or not _claim_child_agent_wait_state(run_id):
+            continue
+        task_id = str(state.get("task_id") or "")
+        task = get_task(task_id)
+        if not task:
+            _finish_run(run_id, "failed", status_message=f"Task {task_id} not found")
+            continue
+        thread_id = str(state.get("thread_id") or "")
+        steps = task.get("steps") or []
+        step_index = int(state.get("current_step_index") or 0)
+        step = steps[step_index] if step_index < len(steps) else {}
+        step_id = str(
+            (state.get("child_agent_wait") or {}).get("step_id")
+            or step.get("id")
+            or f"step_{step_index + 1}"
+        )
+        step_outputs = dict(state.get("step_outputs") or {})
+        step_outputs[step_id] = json.dumps(child_output, sort_keys=True)
+        if child_status not in _CHILD_AGENT_SUCCESS_STATUSES:
+            parent_status = _child_agent_parent_terminal_status(child_status)
+            message = _child_agent_failure_message(child_output)
+            _update_pipeline_status(run_id, parent_status)
+            _finish_run(run_id, parent_status, status_message=message)
+            _emit_buddy_workflow_event(
+                "cancelled" if parent_status == "stopped" else "error",
+                task_id=task_id,
+                thread_id=thread_id,
+                label="Workflow stopped" if parent_status == "stopped" else "Workflow error",
+                error=message,
+            )
+            if any(t[0] == thread_id for t in _list_threads()):
+                suffix = "stopped" if parent_status == "stopped" else "failed"
+                thread_name = (
+                    f"{task['name']} ({suffix}) - "
+                    f"{datetime.now().strftime('%b %d, %I:%M %p')}"
+                )
+                _save_thread_meta(thread_id, thread_name)
+            resumed += 1
+            continue
+        _clear_graph_interrupted(run_id)
+        enabled = [t.name for t in tool_registry.get_enabled_tools()]
+        run_task_background(
+            task_id,
+            thread_id,
+            enabled,
+            start_step=step_index + 1,
+            notification=True,
+            resume_step_outputs=step_outputs,
+            resume_run_id=run_id,
+        )
+        resumed += 1
+    return resumed
 
 
 # ── Approval Request Management ─────────────────────────────────────────────
@@ -4629,6 +5771,10 @@ _STEP_ICONS = {
 }
 
 
+_STEP_ICONS["delegate_agent"] = "Agent"
+_STEP_ICONS["wait_for_agents"] = "Wait"
+
+
 def generate_pipeline_mermaid(steps: list[dict]) -> str:
     """Generate a Mermaid flowchart string from pipeline steps."""
     if not steps:
@@ -4648,7 +5794,12 @@ def generate_pipeline_mermaid(steps: list[dict]) -> str:
         elif stype == "approval":
             label = f"{icon} Approval"
         elif stype == "subtask":
-            label = f"{icon} Sub-agent"
+            label = f"{icon} Run Workflow"
+        elif stype == "delegate_agent":
+            txt = (s.get("objective") or s.get("prompt") or "")[:25]
+            label = f"{icon} {txt}" if txt else f"{icon} Child Agent"
+        elif stype == "wait_for_agents":
+            label = "Wait for Agents"
         elif stype == "notify":
             ch = s.get("channel", "")
             label = f"{icon} Notify ({ch})" if ch else f"{icon} Notify"
@@ -4923,6 +6074,8 @@ def add_default_workflow_templates() -> int:
             steps=t.get("steps"),
             enabled=t.get("enabled", False),
             channels=t.get("channels"),
+            agent_profile_id=DEFAULT_WORKFLOW_AGENT_PROFILE_ID,
+            apply_default_skills=False,
         )
         created += 1
     return created
@@ -4955,6 +6108,8 @@ def seed_default_tasks() -> None:
             steps=t.get("steps"),
             enabled=t.get("enabled", False),
             channels=t.get("channels"),
+            agent_profile_id=DEFAULT_WORKFLOW_AGENT_PROFILE_ID,
+            apply_default_skills=False,
         )
     open(_MARKER, "w").close()
     logger.info("Seeded %d default tasks", len(_DEFAULT_TASKS))
@@ -4963,9 +6118,26 @@ def seed_default_tasks() -> None:
 # Backward-compat aliases for legacy transition
 seed_default_workflows = seed_default_tasks
 list_workflows = list_tasks
-create_workflow = lambda name, prompts, description="", icon="⚡", schedule=None: create_task(
-    name=name, prompts=prompts, description=description, icon=icon, schedule=schedule,
-)
+
+
+def create_workflow(
+    name: str,
+    prompts: list[str],
+    description: str = "",
+    icon: str = "\u26a1",
+    schedule: str | None = None,
+) -> str:
+    return create_task(
+        name=name,
+        prompts=prompts,
+        description=description,
+        icon=icon,
+        schedule=schedule,
+        agent_profile_id=DEFAULT_WORKFLOW_AGENT_PROFILE_ID,
+        apply_default_skills=False,
+    )
+
+
 update_workflow = update_task
 delete_workflow = delete_task
 duplicate_workflow = duplicate_task

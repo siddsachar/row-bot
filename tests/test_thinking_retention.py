@@ -45,7 +45,9 @@ def test_chat_reattach_preserves_thinking_text():
 
     assert "attach_thinking_to_message(a_msg, _reattach_gen.thinking_text)" in source
     assert "or _reattach_gen.thinking_text" not in source
-    assert "or _reattach_gen.tool_results" in source
+    assert "final_tool_results = list(_reattach_gen.tool_results or [])" in source
+    assert "or final_tool_results" in source
+    assert 'a_msg["tool_results"] = final_tool_results' in source
     assert "_reattach_gen.thinking_collapsed = True" in source
     assert '"\\U0001f4ad Thinking", icon="psychology"' in source
 

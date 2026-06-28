@@ -22,6 +22,12 @@ logger = logging.getLogger(__name__)
 _COMMAND_CENTER_EXPANDED_WIDTH = 440
 _COMMAND_CENTER_COLLAPSED_WIDTH = 64
 _COMMAND_CENTER_CONFIG_KEY = "workflow_console_collapsed"
+_ACTIVITY_AGENT_ATTENTION_STATUSES = ("waiting_approval", "waiting_user", "blocked")
+
+
+def _activity_attention_statuses() -> list[str]:
+    """Statuses that represent actionable child Agent attention."""
+    return list(_ACTIVITY_AGENT_ATTENTION_STATUSES)
 
 _COMMAND_CENTER_CSS = """
 <style>
@@ -278,6 +284,17 @@ def build_command_center(
     )
     from row_bot.memory_extraction import set_active_thread
 
+    def _open_agent_thread_from_center(agent_run: dict) -> None:
+        from row_bot.ui.agent_drawer import open_agent_thread
+
+        open_agent_thread(
+            agent_run,
+            state=state,
+            p=p,
+            rebuild_main=rebuild_main,
+            rebuild_thread_list=rebuild_thread_list,
+        )
+
     def _safe_workflow_read(label: str, fn: Callable[[], object], fallback):
         try:
             return fn()
@@ -470,6 +487,41 @@ def build_command_center(
                         "completed": "positive",
                     }.get(str(status or ""), "grey-6")
 
+                def _agent_workspace_tooltip(agent_run: dict) -> str:
+                    run_id = str(agent_run.get("id") or "").strip()
+                    if str(agent_run.get("workspace_mode") or "") != "worktree" or not run_id:
+                        return ""
+                    try:
+                        from row_bot.developer.worktrees import get_worktree_for_run
+
+                        worktree = get_worktree_for_run(run_id)
+                    except Exception:
+                        logger.debug("Could not load Agent worktree details", exc_info=True)
+                        worktree = None
+                    if not worktree:
+                        return "Runs in its own local git Worktree."
+                    metadata = worktree.get("metadata_json") or {}
+                    seeded = ""
+                    if metadata.get("seeded_from_current_changes"):
+                        parts = []
+                        if metadata.get("seeded_staged_diff"):
+                            parts.append("staged")
+                        if metadata.get("seeded_unstaged_diff"):
+                            parts.append("unstaged")
+                        copied = metadata.get("seeded_untracked_files") or []
+                        if copied:
+                            parts.append(f"{len(copied)} untracked")
+                        seeded = "Inherited current changes: " + (", ".join(parts) or "yes")
+                    return "\n".join(
+                        item
+                        for item in (
+                            str(worktree.get("branch_name") or ""),
+                            str(worktree.get("worktree_path") or ""),
+                            seeded,
+                        )
+                        if item
+                    ) or "Runs in its own local git Worktree."
+
                 def _rebuild_goal_activity() -> None:
                     _goal_activity_container.clear()
                     try:
@@ -563,6 +615,7 @@ def build_command_center(
                             return
                         status = str(run_row.get("status") or "unknown")
                         title = str(run_row.get("display_name") or run_row.get("id") or "Agent")
+                        workspace_tooltip = _agent_workspace_tooltip(run_row)
                         summary = str(
                             run_row.get("summary")
                             or run_row.get("status_message")
@@ -577,9 +630,16 @@ def build_command_center(
                             with ui.row().classes("w-full items-center no-wrap gap-1").style("overflow: hidden;"):
                                 ui.badge(status, color=_agent_status_color(status)).props("outline dense")
                                 ui.label(title).classes("text-xs font-bold ellipsis").style("flex: 1; min-width: 0;")
+                                if workspace_tooltip:
+                                    ui.badge("Worktree", color="blue-grey").props("outline dense").tooltip(
+                                        workspace_tooltip
+                                    )
                                 ui.button(
                                     icon="open_in_new",
-                                    on_click=lambda rid=run_id: open_agent_peek_dialog(rid),
+                                    on_click=lambda rid=run_id: open_agent_peek_dialog(
+                                        rid,
+                                        on_open_agent_thread=_open_agent_thread_from_center,
+                                    ),
                                 ).props("round flat dense size=xs").tooltip("Open preview dialog")
                                 ui.button(
                                     icon="close",
@@ -613,7 +673,7 @@ def build_command_center(
                         from row_bot.agent_runs import list_agent_runs, stop_agent_run
 
                         attention = list_agent_runs(
-                            statuses=["waiting_approval", "waiting_user", "blocked", "failed", "timed_out"],
+                            statuses=_activity_attention_statuses(),
                             kind="subagent",
                             limit=6,
                         )
@@ -681,12 +741,17 @@ def build_command_center(
                                 or agent_run.get("error")
                                 or ""
                             )
+                            workspace_tooltip = _agent_workspace_tooltip(agent_run)
                             with ui.row().classes(
                                 "w-full items-center no-wrap gap-1 q-py-xs"
                             ).style("overflow: hidden;"):
                                 ui.badge(status, color=_agent_status_color(status)).props("outline dense")
                                 ui.label(title).classes("text-xs ellipsis").style("flex: 1; min-width: 0;")
                                 ui.label(profile).classes("text-xs text-grey-6 ellipsis").style("max-width: 110px;")
+                                if workspace_tooltip:
+                                    ui.badge("Worktree", color="blue-grey").props("outline dense").tooltip(
+                                        workspace_tooltip
+                                    )
                                 if message:
                                     ui.label(message).classes("text-xs text-grey-7 ellipsis").style("max-width: 120px;")
                                 if run_id:

@@ -7,6 +7,7 @@ from typing import Callable
 
 from nicegui import ui
 
+from row_bot.ui.chat_components import ensure_composer_control_css
 from row_bot.ui.state import AppState, P
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,7 @@ def build_profile_picker(
     thread_id = str(getattr(state, "thread_id", "") or "")
     if not thread_id:
         return
+    ensure_composer_control_css()
 
     options, profiles_by_value = _profile_options()
 
@@ -137,19 +139,21 @@ def build_profile_picker(
         current_state = "error"
 
     with ui.row().classes("items-center gap-1 no-wrap").style("min-width: 0;"):
-        picker = ui.select(
-            options=options,
-            value=current_value if current_value in options else _DEFAULT_VALUE,
-            label=label,
-        ).props("dense outlined options-dense hide-bottom-space").classes(
-            "text-xs row-bot-profile-picker"
-        ).style(
+        with ui.element("div").classes("row-bot-composer-control-group").style(
             "min-width: 150px; max-width: 260px;"
-        ).tooltip(
-            "Choose the Agent Profile for this thread"
-            if surface != "developer"
-            else "Choose a behavior profile; Developer workspace permissions still apply"
-        )
+        ):
+            picker = ui.select(
+                options=options,
+                value=current_value if current_value in options else _DEFAULT_VALUE,
+            ).props("dense borderless options-dense hide-bottom-space").classes(
+                "text-xs row-bot-profile-picker row-bot-composer-select"
+            ).style(
+                "width: 100%; min-width: 0;"
+            ).tooltip(
+                "Choose the Agent Profile for this thread"
+                if surface != "developer"
+                else "Choose a behavior profile; Developer workspace permissions still apply"
+            )
 
         if current_state in {"missing", "disabled", "error"}:
             badge_label = {
