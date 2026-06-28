@@ -427,7 +427,7 @@ def _catalog_runtime_summary(
         return False, availability or "blocked", "Context window is too small for chat."
     if context_window and context_window < _AGENT_MODE_MIN_CONTEXT:
         return True, availability or "chat_only", "Chat Only: tools and actions are off."
-    if provider_id == "openrouter" and tool_calling is not True:
+    if provider_id in {"openrouter", "requesty"} and tool_calling is not True:
         return True, availability or "chat_only", "Chat Only: tools and actions are off."
     if tool_calling is False:
         return True, availability or "chat_only", "Chat Only: tools and actions are off."

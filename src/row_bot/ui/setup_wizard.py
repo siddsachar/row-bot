@@ -131,6 +131,7 @@ async def show_setup_wizard(
     from row_bot.models import (
         validate_ollama_cloud_key,
         validate_openrouter_key,
+        validate_requesty_key,
         validate_anthropic_key,
         validate_google_key,
         validate_xai_key,
@@ -314,6 +315,10 @@ async def show_setup_wizard(
                 ).classes("w-full")
                 setup_or_key = ui.input(
                     "OpenRouter API Key (optional)",
+                    password=True, password_toggle_button=True,
+                ).classes("w-full")
+                setup_requesty_key = ui.input(
+                    "Requesty API Key (optional)",
                     password=True, password_toggle_button=True,
                 ).classes("w-full")
                 setup_opencode_zen_key = ui.input(
@@ -740,9 +745,10 @@ async def show_setup_wizard(
                     minimax_val = setup_minimax_key.value.strip()
                     atlascloud_val = setup_atlascloud_key.value.strip()
                     or_val = setup_or_key.value.strip()
+                    requesty_val = setup_requesty_key.value.strip()
                     opencode_zen_val = setup_opencode_zen_key.value.strip()
                     opencode_go_val = setup_opencode_go_key.value.strip()
-                    if not oai_val and not ollama_cloud_val and not anth_val and not goog_val and not xai_val and not minimax_val and not atlascloud_val and not or_val and not opencode_zen_val and not opencode_go_val:
+                    if not oai_val and not ollama_cloud_val and not anth_val and not goog_val and not xai_val and not minimax_val and not atlascloud_val and not or_val and not requesty_val and not opencode_zen_val and not opencode_go_val:
                         ui.notify("Enter at least one API key", type="warning")
                         return
                     entered_providers = [
@@ -756,6 +762,7 @@ async def show_setup_wizard(
                             ("minimax", minimax_val),
                             ("atlascloud", atlascloud_val),
                             ("openrouter", or_val),
+                            ("requesty", requesty_val),
                             ("opencode_zen", opencode_zen_val),
                             ("opencode_go", opencode_go_val),
                         )
@@ -779,6 +786,14 @@ async def show_setup_wizard(
                             _update_finish()
                             return
                         set_key("OPENROUTER_API_KEY", or_val)
+                    if requesty_val:
+                        requesty_valid = await run.io_bound(validate_requesty_key, requesty_val)
+                        if not requesty_valid:
+                            cloud_status.text = "Invalid Requesty API key."
+                            cloud_done["value"] = False
+                            _update_finish()
+                            return
+                        set_key("REQUESTY_API_KEY", requesty_val)
                     if anth_val:
                         anth_valid = await run.io_bound(validate_anthropic_key, anth_val)
                         if not anth_valid:

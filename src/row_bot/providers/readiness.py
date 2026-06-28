@@ -260,6 +260,20 @@ def evaluate_agent_readiness(
             tool_round_trip = None
             errors.append("OpenRouter tool metadata is missing or inconclusive")
             actions.append("Choose a model with explicit OpenRouter tool support metadata.")
+    elif resolved.provider_id == "requesty":
+        if tool_calling is True:
+            tool_round_trip = True
+            tool_calling_source = "requesty_metadata"
+            source = "catalog"
+            confidence = "medium"
+        elif tool_calling is False:
+            tool_round_trip = False
+            errors.append("Requesty metadata says this model does not support structured tools")
+            actions.append("Choose a Requesty model whose metadata includes supports_tool_calling.")
+        else:
+            tool_round_trip = None
+            errors.append("Requesty tool metadata is missing or inconclusive")
+            actions.append("Choose a model with explicit Requesty tool support metadata.")
     elif resolved.provider_id in {"claude_subscription", "xai_oauth"}:
         provider_label = "Claude Subscription" if resolved.provider_id == "claude_subscription" else "xAI Grok"
         probe = status_info.get("last_runtime_probe") if isinstance(status_info.get("last_runtime_probe"), dict) else {}

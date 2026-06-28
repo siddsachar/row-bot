@@ -24,6 +24,7 @@ def list_configured_provider_ids() -> list[str]:
             "openai",
             "ollama_cloud",
             "openrouter",
+            "requesty",
             "opencode_zen",
             "opencode_go",
             "atlascloud",
@@ -454,6 +455,27 @@ def create_chat_model(model_name: str, provider_id: str | None = None):
                 "base_url": base_url,
                 "transport": "openai_chat",
                 "profile": "atlascloud",
+            },
+        )
+
+    if provider == "requesty":
+        from row_bot.providers.transports.openai_compatible import ChatOpenAICompatible
+
+        api_key = get_provider_secret("requesty")
+        if not api_key:
+            raise ValueError("Requesty API key not configured. Set it in Settings → Providers.")
+        definition = get_provider_definition("requesty")
+        base_url = definition.base_url if definition and definition.base_url else "https://router.requesty.ai/v1"
+        return ChatOpenAICompatible(
+            model_name=model_name,
+            api_key=api_key,
+            base_url=base_url,
+            endpoint={
+                "provider_id": "requesty",
+                "display_name": "Requesty",
+                "base_url": base_url,
+                "transport": "openai_chat",
+                "profile": "requesty",
             },
         )
 

@@ -32,6 +32,7 @@ Choose the model path that fits the task: local models through
 [Ollama](https://ollama.com/); provider keys for OpenAI, Anthropic, Google AI,
 xAI, MiniMax, OpenRouter,
 [Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=row_bot),
+[Requesty](https://requesty.ai/),
 and Ollama Cloud; subscription or OAuth sign-in for ChatGPT / Codex, Claude
 Subscription, and xAI Grok; or custom OpenAI-compatible endpoints such as oMLX,
 LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, and SGLang. Row-Bot keeps
@@ -137,7 +138,7 @@ On first launch, Row-Bot opens a setup wizard. Pick one of three paths:
 | Mode | Use it when | Setup |
 |------|-------------|-------|
 | Local | You want inference and embeddings on your machine. | Choose a local runtime, download a recommended model such as `qwen3:14b` or a smaller model such as `qwen3:8b`, then start chatting. Ollama is the supported local runtime today. |
-| Providers | You want hosted models, frontier reasoning, media generation, or no local model download. | Add an OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, Atlas Cloud, or Ollama Cloud key, refresh live catalogs where available, pick a default model, and save Quick Choices. ChatGPT / Codex, Claude Subscription, and xAI Grok OAuth sign-in are available in Settings after launch. |
+| Providers | You want hosted models, frontier reasoning, media generation, or no local model download. | Add an OpenAI, Anthropic, Google AI, xAI, MiniMax, OpenRouter, Atlas Cloud, Requesty, or Ollama Cloud key, refresh live catalogs where available, pick a default model, and save Quick Choices. ChatGPT / Codex, Claude Subscription, and xAI Grok OAuth sign-in are available in Settings after launch. |
 | Custom/Self-hosted | You run oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, or a private gateway. | Enter an OpenAI-compatible base URL such as `http://127.0.0.1:1234/v1`, choose the closest compatibility profile, add a key if your server requires one, fetch models, and choose a default. |
 
 For routine chats, use Row-Bot normally. For longer work, create a Goal so
