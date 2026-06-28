@@ -247,6 +247,7 @@ def open_settings(
         star_cloud_model,
         unstar_cloud_model,
         validate_openrouter_key,
+        validate_requesty_key,
         validate_anthropic_key,
         validate_google_key,
         validate_xai_key,
@@ -431,6 +432,7 @@ def open_settings(
         "OPENAI_API_KEY": "openai",
         "OLLAMA_API_KEY": "ollama_cloud",
         "OPENROUTER_API_KEY": "openrouter",
+        "REQUESTY_API_KEY": "requesty",
         "OPENCODE_ZEN_API_KEY": "opencode_zen",
         "OPENCODE_GO_API_KEY": "opencode_go",
         "ATLASCLOUD_API_KEY": "atlascloud",
@@ -2254,6 +2256,29 @@ def open_settings(
             with ui.row().classes("gap-2"):
                 ui.button("Save Key", icon="save", on_click=_save_or).props("flat dense")
                 ui.button("Clear", icon="delete", on_click=lambda: _clear_secret("OPENROUTER_API_KEY", "OpenRouter key", or_refresh)).props("flat dense color=negative")
+
+        with ui.expansion("Requesty", icon="route", value=False).classes("w-full"):
+            ui.label("OpenAI-compatible access through Requesty's routed model gateway.").classes("text-grey-6 text-sm")
+            requesty_input, requesty_refresh = _secret_input("Requesty API Key", "REQUESTY_API_KEY")
+
+            async def _save_requesty():
+                val = _secret_value_or_notify(requesty_input.value, "Requesty key")
+                if not val:
+                    return
+                valid = await run.io_bound(validate_requesty_key, val)
+                if not valid:
+                    ui.notify("Invalid Requesty API key", type="negative")
+                    return
+                set_key("REQUESTY_API_KEY", val)
+                clear_provider_runtime_cache()
+                requesty_input.value = ""
+                requesty_input.update()
+                requesty_refresh()
+                ui.notify("Requesty key saved", type="positive")
+                _start_catalog_refresh_ui(reason="provider_key_saved", provider_id="requesty", force=True)
+            with ui.row().classes("gap-2"):
+                ui.button("Save Key", icon="save", on_click=_save_requesty).props("flat dense")
+                ui.button("Clear", icon="delete", on_click=lambda: _clear_secret("REQUESTY_API_KEY", "Requesty key", requesty_refresh)).props("flat dense color=negative")
 
         with ui.expansion("OpenCode Zen", icon="hub", value=False).classes("w-full"):
             ui.label("Pay-per-request access to OpenCode's curated coding-agent models.").classes("text-grey-6 text-sm")

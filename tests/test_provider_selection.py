@@ -502,6 +502,7 @@ def test_grouped_quick_choices_separates_surface_models_and_routes(tmp_path, mon
 def test_grouped_quick_choices_refreshes_stale_capability_snapshots(tmp_path, monkeypatch):
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
+    _write_ollama_catalog_cache(monkeypatch, tmp_path, [])
 
     add_quick_choice_for_model(
         "qwen3.6:27b",

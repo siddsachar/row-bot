@@ -1368,6 +1368,30 @@ def validate_openrouter_key(api_key: str) -> bool:
         return False
 
 
+def validate_requesty_key(api_key: str) -> bool:
+    """Validate a Requesty API key by listing OpenAI-compatible models."""
+    import httpx
+    from row_bot.providers.requesty import requesty_models_url
+
+    try:
+        resp = httpx.get(
+            requesty_models_url(),
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            logger.warning("Requesty key validation: %d - %s", resp.status_code, resp.text[:200])
+            return False
+        try:
+            body_json = resp.json()
+        except Exception:
+            body_json = {}
+        return isinstance(body_json.get("data"), list)
+    except Exception as exc:
+        logger.warning("Requesty key validation error: %s", exc)
+        return False
+
+
 def validate_ollama_cloud_key(api_key: str) -> bool:
     """Validate an Ollama Cloud API key with a tiny authenticated chat probe."""
     import httpx
@@ -1612,9 +1636,10 @@ def _fetch_ollama_cloud_models(api_key: str) -> int:
 def fetch_cloud_models(provider: str) -> int:
     """Fetch available models from *provider*.
 
-    Supported providers: ``'openai'``, ``'ollama_cloud'``, ``'openrouter'``, ``'anthropic'``,
-    ``'google'``, ``'xai'``, ``'xai_oauth'``, and ``'minimax'``.  Populates ``_cloud_model_cache``.  Returns the number
-    of models found.  Safe to call from background threads.
+    Supported providers include OpenAI, Ollama Cloud, OpenRouter, Requesty,
+    Anthropic, Google, xAI, xAI OAuth, MiniMax, OpenCode, Atlas Cloud, and
+    Claude Subscription. Populates ``_cloud_model_cache`` and returns the
+    number of models found. Safe to call from background threads.
     """
     import httpx
     from row_bot.api_keys import get_key
@@ -1638,6 +1663,11 @@ def fetch_cloud_models(provider: str) -> int:
             return 0
         url = f"{OPENROUTER_BASE_URL}/models"
         headers = {"Authorization": f"Bearer {api_key}"}
+    elif provider == "requesty":
+        api_key = get_key("REQUESTY_API_KEY")
+        if not api_key:
+            return 0
+        return _fetch_requesty_models(api_key)
     elif provider == "anthropic":
         api_key = get_key("ANTHROPIC_API_KEY")
         if not api_key:
@@ -2118,6 +2148,84 @@ def _fetch_xai_models(api_key: str) -> int:
     return len(model_infos)
 
 
+def _fetch_requesty_models(api_key: str) -> int:
+    """Fetch models from Requesty's OpenAI-compatible ``/v1/models`` endpoint.
+
+    Requesty uses slash-style upstream model IDs such as ``openai/gpt-4o-mini``.
+    Cache entries are provider-qualified so they cannot collide with OpenRouter
+    rows or fallback provider inference.
+    """
+    import httpx
+    from row_bot.providers.capabilities import model_supports_surface
+    from row_bot.providers.catalog import model_info_to_cache_entry
+    from row_bot.providers.requesty import requesty_model_info_from_metadata, requesty_models_url
+
+    with _cloud_cache_lock:
+        existing_requesty_rows = {
+            str(model_id): dict(info)
+            for model_id, info in _cloud_model_cache.items()
+            if isinstance(info, dict) and str(info.get("provider") or "") == "requesty"
+        }
+
+    try:
+        resp = httpx.get(
+            requesty_models_url(),
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        raw_data = resp.json().get("data", [])
+        if not isinstance(raw_data, list):
+            logger.warning("Requesty model fetch returned malformed data payload")
+            return 0
+        data = [item for item in raw_data if isinstance(item, dict)]
+    except Exception as exc:
+        if existing_requesty_rows:
+            logger.warning("Failed to fetch requesty models: %s; preserving previous Requesty cache", exc)
+            return 0
+        logger.warning("Failed to fetch requesty models: %s", exc)
+        return 0
+
+    verified_at = _utc_now_iso()
+    model_infos = []
+    seen: set[str] = set()
+    for metadata in data:
+        model_id = str(metadata.get("id") or "").strip()
+        if not model_id or model_id in seen:
+            continue
+        seen.add(model_id)
+        model_info = requesty_model_info_from_metadata(
+            model_id,
+            metadata,
+            display_name=str(metadata.get("name") or metadata.get("display_name") or metadata.get("displayName") or model_id),
+            context_window=_catalog_or_heuristic(model_id),
+            last_verified_at=verified_at,
+        )
+        if not model_info:
+            continue
+        if not any(model_supports_surface(model_info, surface) for surface in ("chat", "vision")):
+            continue
+        model_infos.append(model_info)
+
+    if not model_infos:
+        logger.warning("Requesty model fetch returned no usable chat model rows; preserving previous cache")
+        return 0
+
+    with _cloud_cache_lock:
+        stale_keys = [
+            model_id
+            for model_id, info in _cloud_model_cache.items()
+            if isinstance(info, dict) and str(info.get("provider") or "") == "requesty"
+        ]
+        for model_id in stale_keys:
+            _cloud_model_cache.pop(model_id, None)
+        for model_info in model_infos:
+            _cloud_model_cache[model_info.selection_ref] = model_info_to_cache_entry(model_info)
+
+    logger.info("Fetched %d requesty models", len(model_infos))
+    return len(model_infos)
+
+
 def _fetch_atlascloud_models(api_key: str) -> int:
     """Fetch models from the Atlas Cloud OpenAI-compatible ``/v1/models`` endpoint.
 
@@ -2470,6 +2578,7 @@ def refresh_cloud_models() -> int:
             and (
                 _is_minimax_cache_entry(str(model_id), info)
                 or str(info.get("provider") or "") == "atlascloud"
+                or str(info.get("provider") or "") == "requesty"
             )
         }
         _cloud_model_cache.clear()
@@ -2478,6 +2587,7 @@ def refresh_cloud_models() -> int:
     total += fetch_cloud_models("openai")
     total += fetch_cloud_models("ollama_cloud")
     total += fetch_cloud_models("openrouter")
+    total += fetch_cloud_models("requesty")
     total += fetch_cloud_models("anthropic")
     total += fetch_cloud_models("google")
     total += fetch_cloud_models("xai")

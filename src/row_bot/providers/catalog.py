@@ -635,7 +635,8 @@ def classify_model_capabilities(
 
         # Requesty exposes the same provider/model IDs as OpenRouter but reports
         # capabilities via supports_tool_calling / supports_vision booleans.
-        if requesty_supports_vision(metadata) or _metadata_suggests_image_input(metadata):
+        vision = requesty_supports_vision(metadata)
+        if vision is True or (vision is None and _metadata_suggests_image_input(metadata)):
             input_modalities.add(ModelModality.IMAGE.value)
             capabilities.add("vision")
         tool_calling = requesty_tool_calling(metadata)
