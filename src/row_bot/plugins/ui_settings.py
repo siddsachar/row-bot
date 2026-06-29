@@ -1,12 +1,9 @@
-"""Plugins Settings tab — card grid for installed plugins.
-
-Called from ``ui/settings.py`` as ``_build_plugins_tab()``.
-"""
+"""Plugin Center settings tab."""
 
 from __future__ import annotations
 
 import logging
-from typing import Callable
+from typing import Any, Callable
 
 from nicegui import ui
 
@@ -17,296 +14,463 @@ def build_plugins_tab(
     *,
     on_browse_marketplace: Callable | None = None,
 ) -> None:
-    """Build the Plugins tab content inside the settings dialog."""
-    from row_bot.plugins import state as plugin_state
-    from row_bot.plugins import registry as plugin_registry
-    from row_bot.plugins import loader as plugin_loader
+    """Build the native Plugin Center inside the settings dialog."""
 
-    ui.label("🔌 Plugins").classes("text-h6")
+    from row_bot.plugins import loader as plugin_loader
+    from row_bot.plugins import registry as plugin_registry
+    from row_bot.plugins import state as plugin_state
+
+    ui.label("Plugin Center").classes("text-h6")
     ui.label(
-        "Manage installed plugins. Browse the marketplace to discover new ones."
+        "Discover, configure, test, enable, update, disable, and uninstall Row-Bot plugins."
     ).classes("text-grey-6 text-sm")
     ui.separator().classes("q-my-md")
 
-    # ── Top action bar ───────────────────────────────────────────────────
-    with ui.row().classes("w-full justify-end q-mb-md gap-2"):
-        if on_browse_marketplace:
+    with ui.row().classes("w-full items-center justify-between q-mb-md gap-2"):
+        with ui.row().classes("gap-2"):
+            if on_browse_marketplace:
+                ui.button(
+                    "Browse Marketplace",
+                    icon="shopping_cart",
+                    on_click=on_browse_marketplace,
+                ).props("color=primary outline no-caps")
             ui.button(
-                "Browse Marketplace", icon="shopping_cart",
-                on_click=on_browse_marketplace,
-            ).props("color=primary outline")
-        ui.button(
-            "Reload Plugins", icon="refresh",
-            on_click=lambda: _reload_and_refresh(),
+                "Reload",
+                icon="refresh",
+                on_click=lambda: _reload_and_refresh(),
+            ).props("outline no-caps")
+        summary = plugin_loader.get_load_summary()
+        ui.badge(
+            f"{summary.get('loaded', 0)} loaded / {summary.get('failed', 0)} failed",
+            color="blue-grey",
         ).props("outline")
 
-    # ── Plugin cards container ───────────────────────────────────────────
-    cards_container = ui.column().classes("w-full gap-2")
+    cards_container = ui.column().classes("w-full gap-3")
 
-    def _refresh_cards():
+    def _refresh_cards() -> None:
         cards_container.clear()
-        manifests = plugin_registry.get_loaded_manifests()
-        def _is_custom_tool_manifest(manifest) -> bool:
-            tags = set(getattr(manifest, "tags", []) or [])
-            return bool({"custom-tool", "tool-capsule"} & tags)
-
-        capsule_manifests = [
-            manifest for manifest in manifests
-            if _is_custom_tool_manifest(manifest)
-        ]
-        regular_manifests = [
-            manifest for manifest in manifests
-            if not _is_custom_tool_manifest(manifest)
-        ]
+        manifests = sorted(plugin_registry.get_loaded_manifests(), key=lambda m: m.name.lower())
 
         if not manifests:
             with cards_container:
                 with ui.column().classes("w-full items-center q-pa-lg"):
                     ui.icon("extension_off", size="64px").classes("text-grey-4")
-                    ui.label("No plugins installed").classes(
-                        "text-grey-5 text-h6 q-mt-sm"
+                    ui.label("No plugins installed").classes("text-grey-5 text-h6 q-mt-sm")
+                    ui.label("Browse the marketplace or link a local plugin to get started.").classes(
+                        "text-grey-5 text-sm"
                     )
-                    ui.label(
-                        "Browse the marketplace to discover and install plugins."
-                    ).classes("text-grey-5 text-sm")
                     if on_browse_marketplace:
                         ui.button(
-                            "Browse Marketplace", icon="shopping_cart",
+                            "Browse Marketplace",
+                            icon="shopping_cart",
                             on_click=on_browse_marketplace,
-                        ).props("color=primary q-mt-md")
+                        ).props("color=primary q-mt-md no-caps")
             return
 
         with cards_container:
-            for manifest in regular_manifests:
+            for manifest in manifests:
                 _build_plugin_card(manifest, _refresh_cards)
-            if capsule_manifests:
-                _build_tool_capsules_section(capsule_manifests, _refresh_cards)
 
-    def _build_plugin_card(manifest, refresh_fn):
+    def _build_plugin_card(manifest: Any, refresh_fn: Callable[[], None]) -> None:
         plugin_id = manifest.id
         enabled = plugin_state.is_plugin_enabled(plugin_id)
-        tools = plugin_registry.get_plugin_tools(plugin_id)
-        skills = plugin_registry.get_plugin_skills(plugin_id)
+        missing_settings = _get_missing_settings(manifest)
+        missing_secrets = _get_missing_secrets(manifest)
+        update_entry = _plugin_update_entry(manifest)
+        status_label, status_color = _plugin_status(
+            manifest,
+            enabled=enabled,
+            update_entry=update_entry,
+        )
+        install_info = plugin_state.get_plugin_install_info(plugin_id)
+        source_label = install_info.get("source") or "bundled/local"
+        counts = _manifest_counts(manifest)
 
-        # Check for missing required API keys
-        missing_keys = _get_missing_keys(manifest)
+        with ui.card().classes("w-full q-pa-md"):
+            with ui.row().classes("w-full items-start no-wrap gap-3"):
+                ui.icon(getattr(manifest, "icon", "extension") or "extension").classes("text-primary q-mt-xs")
+                with ui.column().classes("gap-1").style("min-width: 0; flex: 1;"):
+                    with ui.row().classes("w-full items-center gap-2 no-wrap"):
+                        ui.label(manifest.name).classes("text-body1 text-weight-medium")
+                        ui.badge(f"v{manifest.version}", color="blue-grey").props("outline")
+                        ui.badge(status_label, color=status_color).props("outline")
+                    ui.label(manifest.description).classes("text-grey-6 text-sm")
+                    ui.label(f"Source: {source_label}").classes("text-grey-6 text-xs")
 
-        with ui.card().classes("w-full q-pa-sm"):
-            with ui.row().classes("w-full items-center no-wrap"):
-                ui.switch(
-                    "",
-                    value=enabled,
-                    on_change=lambda e, pid=plugin_id: _toggle_plugin(
-                        pid, e.value, refresh_fn
-                    ),
-                )
-                ui.label(f"{manifest.icon} {manifest.name}").classes(
-                    "text-body1 text-weight-medium"
-                )
-                ui.space()
-                ui.label(f"v{manifest.version}").classes("text-grey-5 text-sm")
+                    with ui.row().classes("q-mt-xs gap-2 flex-wrap"):
+                        _summary_badge("tools", counts["native_tools"], "build", "blue-grey")
+                        _summary_badge("MCP servers", counts["mcp_servers"], "hub", "indigo")
+                        _summary_badge("channels", counts["channels"], "forum", "teal")
+                        _summary_badge("skills", counts["skills"], "auto_fix_high", "green")
 
-            # Description
-            ui.label(manifest.description).classes(
-                "text-grey-6 text-sm q-pl-lg"
-            )
+                    if manifest.permissions:
+                        with ui.row().classes("q-mt-xs gap-1 flex-wrap"):
+                            for permission in manifest.permissions:
+                                ui.badge(_permission_label(permission), color="orange").props("outline dense")
 
-            # Stats + warnings row
-            with ui.row().classes("q-pl-lg q-mt-xs gap-2 items-center"):
-                if tools:
-                    ui.badge(
-                        f"🔧 {len(tools)} tool{'s' if len(tools) != 1 else ''}",
-                        color="blue-grey",
-                    ).props("outline")
-                if skills:
-                    ui.badge(
-                        f"📜 {len(skills)} skill{'s' if len(skills) != 1 else ''}",
-                        color="teal",
-                    ).props("outline")
+                    if missing_settings or missing_secrets:
+                        ui.label(
+                            "Setup needed: " + ", ".join(missing_settings + missing_secrets)
+                        ).classes("text-warning text-xs q-mt-xs")
 
-                if missing_keys:
-                    ui.badge(
-                        f"⚠️ {len(missing_keys)} missing key{'s' if len(missing_keys) != 1 else ''}",
-                        color="warning",
-                    ).props("outline").tooltip(
-                        "Missing: " + ", ".join(missing_keys)
-                    )
+                with ui.column().classes("items-end gap-2"):
+                    ui.button(
+                        "Configure",
+                        icon="settings",
+                        on_click=lambda _, m=manifest: _open_config(m, refresh_fn),
+                    ).props("flat dense no-caps")
+                    ui.button(
+                        "Test",
+                        icon="fact_check",
+                        on_click=lambda _, m=manifest: _test_plugin(m, refresh_fn),
+                    ).props("flat dense no-caps")
+                    if update_entry:
+                        ui.button(
+                            f"Update to v{update_entry.version}",
+                            icon="update",
+                            on_click=lambda _, m=manifest, entry=update_entry: _update_plugin(
+                                m, entry, refresh_fn
+                            ),
+                        ).props("flat dense no-caps color=warning")
+                    ui.button(
+                        "Disable" if enabled else "Enable",
+                        icon="toggle_on" if enabled else "toggle_off",
+                        on_click=lambda _, m=manifest, value=not enabled: _toggle_plugin(
+                            m, value, refresh_fn
+                        ),
+                    ).props(("flat dense no-caps color=negative") if enabled else "flat dense no-caps color=primary")
 
-                ui.space()
-
-                # Configure button
-                ui.button(
-                    "Configure", icon="settings",
-                    on_click=lambda _, m=manifest: _open_config(m, refresh_fn),
-                ).props("flat dense size=sm")
-
-    def _toggle_plugin(plugin_id: str, enabled: bool, refresh_fn):
-        from row_bot.agent import clear_agent_cache
-
+    def _toggle_plugin(manifest: Any, enabled: bool, refresh_fn: Callable[[], None]) -> None:
+        plugin_id = manifest.id
+        if enabled:
+            ok, reason = _can_enable_plugin(manifest)
+            if not ok:
+                ui.notify(reason, type="warning")
+                return
         plugin_state.set_plugin_enabled(plugin_id, enabled)
-        clear_agent_cache()
-        label = "enabled" if enabled else "disabled"
-        ui.notify(f"Plugin {plugin_id} {label}", type="info")
+        try:
+            from row_bot.agent import clear_agent_cache
+
+            clear_agent_cache()
+        except Exception:
+            logger.debug("Could not clear agent cache after plugin toggle", exc_info=True)
+        ui.notify(f"Plugin {plugin_id} {'enabled' if enabled else 'disabled'}", type="info")
         refresh_fn()
 
-    def _open_config(manifest, refresh_fn):
+    def _open_config(manifest: Any, refresh_fn: Callable[[], None]) -> None:
         from row_bot.plugins.ui_plugin_dialog import open_plugin_dialog
-
-        def _after_uninstall(plugin_id):
-            _uninstall_plugin(plugin_id, refresh_fn)
 
         open_plugin_dialog(
             manifest,
             on_change=refresh_fn,
-            on_uninstall=_after_uninstall,
+            on_uninstall=lambda plugin_id: _uninstall_plugin(plugin_id, refresh_fn),
         )
 
-    def _uninstall_plugin(plugin_id: str, refresh_fn):
-        """Uninstall a plugin — remove files, state, and registry entries."""
-        from row_bot.plugins import registry as reg
+    def _test_plugin(manifest: Any, refresh_fn: Callable[[], None]) -> None:
+        checks = _record_manifest_health(manifest)
+        failed = _blocking_health_checks(checks)
+        if failed:
+            ui.notify(
+                f"{manifest.name} needs setup: {', '.join(check['label'] for check in failed)}",
+                type="warning",
+            )
+        else:
+            ui.notify(f"{manifest.name} passed local setup checks", type="positive")
+        refresh_fn()
+
+    async def _update_plugin(manifest: Any, entry: Any, refresh_fn: Callable[[], None]) -> None:
+        import asyncio
+        from row_bot.plugins import installer
+        from row_bot.plugins.ui_marketplace import _marketplace_install_kwargs
+
+        result = await asyncio.to_thread(
+            installer.update_plugin,
+            manifest.id,
+            **_marketplace_install_kwargs(entry),
+        )
+        if result.success:
+            ui.notify(result.message, type="positive")
+            await _reload_and_refresh()
+        else:
+            ui.notify(result.message, type="negative")
+            refresh_fn()
+
+    def _uninstall_plugin(plugin_id: str, refresh_fn: Callable[[], None]) -> None:
+        from row_bot.plugins import installer
 
         with ui.dialog() as confirm_dlg, ui.card():
             ui.label(f"Uninstall plugin '{plugin_id}'?").classes("text-body1")
-            ui.label(
-                "This will remove the plugin files and all saved settings."
-            ).classes("text-grey-6 text-sm")
+            ui.label("This removes plugin files, saved settings, and secret metadata.").classes(
+                "text-grey-6 text-sm"
+            )
             with ui.row().classes("w-full justify-end gap-2 q-mt-md"):
-                ui.button("Cancel", on_click=confirm_dlg.close).props("flat")
+                ui.button("Cancel", on_click=confirm_dlg.close).props("flat no-caps")
 
-                def _do_uninstall():
-                    try:
-                        import shutil
-                        plugin_dir = plugin_loader.PLUGINS_DIR / plugin_id
-                        if plugin_dir.exists():
-                            shutil.rmtree(plugin_dir)
-                        reg.unregister_plugin(plugin_id)
-                        plugin_state.remove_plugin_state(plugin_id)
-                        ui.notify(
-                            f"✅ Plugin '{plugin_id}' uninstalled",
-                            type="positive",
-                        )
-                    except Exception as exc:
-                        logger.error("Uninstall error: %s", exc, exc_info=True)
-                        ui.notify(
-                            f"Error uninstalling: {exc}", type="negative"
-                        )
-                    confirm_dlg.close()
-                    refresh_fn()
-
-                ui.button(
-                    "Uninstall", on_click=_do_uninstall
-                ).props("color=negative")
-        confirm_dlg.open()
-
-    def _build_tool_capsules_section(capsule_manifests, refresh_fn):
-        from row_bot.developer import tool_capsules
-
-        ui.separator().classes("q-my-md")
-        with ui.row().classes("items-center gap-2"):
-            ui.icon("extension").classes("text-blue-4")
-            ui.label("Custom Tools").classes("text-body1 text-weight-bold")
-            ui.badge(f"{len(capsule_manifests)} promoted", color="blue-grey").props("outline")
-        ui.label(
-            "Developer-created Custom Tools promoted into Row-Bot's normal plugin tool surface."
-        ).classes("text-grey-6 text-sm q-mb-sm")
-
-        capsules_by_plugin = {
-            capsule.promoted_plugin_id: capsule
-            for capsule in tool_capsules.list_promoted_capsules()
-        }
-        for manifest in capsule_manifests:
-            plugin_id = manifest.id
-            capsule = capsules_by_plugin.get(plugin_id)
-            enabled = plugin_state.is_plugin_enabled(plugin_id)
-            tools = plugin_registry.get_plugin_tools(plugin_id)
-
-            with ui.card().classes("w-full q-pa-sm"):
-                with ui.row().classes("w-full items-center no-wrap gap-2"):
-                    ui.switch(
-                        "",
-                        value=enabled,
-                        on_change=lambda e, pid=plugin_id: _toggle_plugin(
-                            pid, e.value, refresh_fn
-                        ),
+                def _do_uninstall() -> None:
+                    result = installer.uninstall_plugin(plugin_id)
+                    ui.notify(
+                        result.message,
+                        type="positive" if result.success else "negative",
                     )
-                    ui.icon("extension").classes("text-blue-4")
-                    ui.label(manifest.name).classes("text-body1 text-weight-medium")
-                    ui.space()
-                    ui.badge(f"{len(tools)} tool{'s' if len(tools) != 1 else ''}", color="blue-grey").props("outline")
-                    ui.button(
-                        "Remove", icon="delete",
-                        on_click=lambda _, cid=(capsule.id if capsule else ""): _remove_capsule_tool(cid, refresh_fn),
-                    ).props("flat dense color=negative")
-                ui.label(manifest.description).classes("text-grey-6 text-sm q-pl-lg")
-                if capsule:
-                    ui.label(f"Source: {capsule.source_url}").classes("text-grey-6 text-xs q-pl-lg")
-                    ui.label(f"Path: {capsule.installed_path}").classes("text-grey-6 text-xs q-pl-lg")
-
-    def _remove_capsule_tool(capsule_id: str, refresh_fn):
-        if not capsule_id:
-            ui.notify("Custom Tool metadata was not found", type="warning")
-            return
-
-        with ui.dialog() as confirm_dlg, ui.card():
-            ui.label("Remove Custom Tool from chat tools?").classes("text-body1")
-            ui.label(
-                "This removes the plugin-style tool from Row-Bot. The source folder is not deleted."
-            ).classes("text-grey-6 text-sm")
-            with ui.row().classes("w-full justify-end gap-2 q-mt-md"):
-                ui.button("Cancel", on_click=confirm_dlg.close).props("flat")
-
-                def _do_remove():
-                    try:
-                        from row_bot.developer.tool_capsules import remove_promoted_capsule_tool
-                        from row_bot.agent import clear_agent_cache
-
-                        remove_promoted_capsule_tool(capsule_id)
-                        clear_agent_cache()
-                        ui.notify("Custom Tool removed from plugin tools", type="positive")
-                    except Exception as exc:
-                        logger.error("Custom Tool removal error: %s", exc, exc_info=True)
-                        ui.notify(f"Error removing Custom Tool: {exc}", type="negative")
                     confirm_dlg.close()
                     refresh_fn()
 
-                ui.button("Remove", on_click=_do_remove).props("color=negative")
+                ui.button("Uninstall", on_click=_do_uninstall).props("color=negative no-caps")
         confirm_dlg.open()
 
-    async def _reload_and_refresh():
+    async def _reload_and_refresh() -> None:
         import asyncio
-        from row_bot.plugins import loader
-        from row_bot.plugins import registry as reg
-        from row_bot.agent import clear_agent_cache
+        from row_bot.plugins import loader, registry as reg
 
-        # Clear current registry
-        for m in list(reg.get_loaded_manifests()):
-            reg.unregister_plugin(m.id)
+        for manifest in list(reg.get_loaded_manifests()):
+            reg.unregister_plugin(manifest.id)
 
-        # Reload
         results = await asyncio.to_thread(loader.load_plugins)
-        # Clear agent cache so new plugin tools are picked up
-        clear_agent_cache()
-        loaded = sum(1 for r in results if r.success)
-        failed = sum(1 for r in results if not r.success)
-        msg = f"Loaded {loaded} plugin{'s' if loaded != 1 else ''}"
-        if failed:
-            msg += f", {failed} failed"
-        ui.notify(msg, type="positive" if not failed else "warning")
+        try:
+            from row_bot.agent import clear_agent_cache
+
+            clear_agent_cache()
+        except Exception:
+            logger.debug("Could not clear agent cache after plugin reload", exc_info=True)
+        loaded = sum(1 for result in results if result.success)
+        failed = sum(1 for result in results if not result.success)
+        ui.notify(
+            f"Loaded {loaded} plugin{'s' if loaded != 1 else ''}"
+            + (f", {failed} failed" if failed else ""),
+            type="positive" if not failed else "warning",
+        )
         _refresh_cards()
 
     _refresh_cards()
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
-def _get_missing_keys(manifest) -> list[str]:
-    """Return list of required API key names that are not set."""
+def _summary_badge(label: str, count: int, icon: str, color: str) -> None:
+    if count <= 0:
+        return
+    ui.badge(f"{count} {label}", color=color).props("outline dense").tooltip(label)
+
+
+def _permission_label(permission: str) -> str:
+    return str(permission).replace("_", " ").title()
+
+
+def _manifest_counts(manifest: Any) -> dict[str, int]:
+    provides = getattr(manifest, "provides", None)
+    return {
+        "native_tools": len(getattr(provides, "native_tools", []) or []),
+        "mcp_servers": len(getattr(provides, "mcp_servers", []) or []),
+        "channels": len(getattr(provides, "channels", []) or []),
+        "skills": len(getattr(provides, "skills", []) or []),
+    }
+
+
+def _plugin_status(
+    manifest: Any,
+    *,
+    enabled: bool,
+    update_entry: Any | None = None,
+) -> tuple[str, str]:
+    if update_entry:
+        return f"Update available v{update_entry.version}", "warning"
+    if enabled:
+        return "Enabled", "positive"
+    if _get_missing_settings(manifest) or _get_missing_secrets(manifest):
+        return "Needs setup", "warning"
     from row_bot.plugins import state as plugin_state
 
-    missing = []
-    api_keys = manifest.settings.get("api_keys", {})
-    for key_name, key_info in api_keys.items():
-        if key_info.get("required", False):
-            val = plugin_state.get_plugin_secret(manifest.id, key_name)
-            if not val:
-                missing.append(key_info.get("label", key_name))
+    health = plugin_state.get_plugin_health_result(manifest.id)
+    if health.get("ok"):
+        return "Ready to enable", "positive"
+    return "Not tested", "orange"
+
+
+def _plugin_update_entry(manifest: Any) -> Any | None:
+    try:
+        from row_bot.plugins import marketplace
+
+        return marketplace.get_update_entry(manifest)
+    except Exception:
+        logger.debug("Plugin update lookup skipped for %s", getattr(manifest, "id", "?"), exc_info=True)
+        return None
+
+
+def _get_missing_keys(manifest: Any) -> list[str]:
+    """Compatibility helper for old API-key tests; now backed by v2 secrets."""
+
+    return _get_missing_secrets(manifest)
+
+
+def _get_missing_settings(manifest: Any) -> list[str]:
+    from row_bot.plugins import state as plugin_state
+
+    missing: list[str] = []
+    for name, spec in _iter_setting_specs(manifest):
+        if not spec.get("required", False):
+            continue
+        default = spec.get("default")
+        value = plugin_state.get_plugin_config(manifest.id, name, default)
+        if value in (None, "", []):
+            missing.append(str(spec.get("label") or name))
     return missing
+
+
+def _get_missing_secrets(manifest: Any) -> list[str]:
+    from row_bot.plugins import state as plugin_state
+
+    missing: list[str] = []
+    for name, spec in _iter_secret_specs(manifest):
+        if spec.get("required", False):
+            value = plugin_state.get_plugin_secret(manifest.id, name)
+            if not value:
+                missing.append(str(spec.get("label") or name))
+    return missing
+
+
+def _iter_setting_specs(manifest: Any) -> list[tuple[str, dict[str, Any]]]:
+    settings = getattr(manifest, "settings", {}) or {}
+    if not isinstance(settings, dict):
+        return []
+    # v1 compatibility: settings.config nested field specs.
+    if isinstance(settings.get("config"), dict):
+        source = settings.get("config", {})
+    else:
+        source = settings
+    return [
+        (str(name), dict(spec))
+        for name, spec in source.items()
+        if isinstance(name, str) and isinstance(spec, dict)
+    ]
+
+
+def _iter_secret_specs(manifest: Any) -> list[tuple[str, dict[str, Any]]]:
+    secrets = getattr(manifest, "secrets", {}) or {}
+    if isinstance(secrets, dict) and secrets:
+        source = secrets
+    else:
+        settings = getattr(manifest, "settings", {}) or {}
+        source = settings.get("api_keys", {}) if isinstance(settings, dict) else {}
+    if not isinstance(source, dict):
+        return []
+    return [
+        (str(name), dict(spec))
+        for name, spec in source.items()
+        if isinstance(name, str) and isinstance(spec, dict)
+    ]
+
+
+def _run_manifest_health(manifest: Any) -> list[dict[str, str]]:
+    checks: list[dict[str, str]] = []
+    missing_settings = _get_missing_settings(manifest)
+    missing_secrets = _get_missing_secrets(manifest)
+    for label in missing_settings:
+        checks.append({"label": label, "status": "missing_setting"})
+    for label in missing_secrets:
+        checks.append({"label": label, "status": "missing_secret"})
+
+    for check in getattr(manifest, "health_checks", []) or []:
+        if not isinstance(check, dict):
+            continue
+        checks.append(
+            _run_declared_health_check(
+                manifest,
+                check,
+                missing_settings=missing_settings,
+                missing_secrets=missing_secrets,
+            )
+        )
+
+    if not checks:
+        checks.append({"label": "Required local setup", "status": "ok"})
+    return checks
+
+
+def _run_declared_health_check(
+    manifest: Any,
+    check: dict[str, Any],
+    *,
+    missing_settings: list[str],
+    missing_secrets: list[str],
+) -> dict[str, str]:
+    check_type = str(check.get("type") or check.get("id") or "custom")
+    label = _health_check_label(check)
+    if missing_settings or missing_secrets:
+        return {"label": label, "status": "blocked_missing_setup"}
+
+    provides = getattr(manifest, "provides", None)
+    if check_type in {"required_settings", "required_secrets", "required_setup"}:
+        return {"label": label, "status": "ok"}
+    if check_type == "channel_configured":
+        channels = getattr(provides, "channels", []) or []
+        return {
+            "label": label,
+            "status": "ok" if channels else "missing_channel",
+        }
+    if check_type in {"mcp_server_starts", "mcp_tools_discovered"}:
+        servers = getattr(provides, "mcp_servers", []) or []
+        return {
+            "label": label,
+            "status": "ok" if _mcp_servers_have_launch_config(servers) else "missing_mcp_server",
+        }
+    if check_type in {"api_probe", "oauth_refresh", "dry_run_send"}:
+        return {"label": label, "status": "manual_required"}
+    return {"label": label, "status": "unknown_check"}
+
+
+def _health_check_label(check: dict[str, Any]) -> str:
+    label = check.get("label") or check.get("name") or check.get("id") or check.get("type") or "Health check"
+    return str(label).replace("_", " ").title()
+
+
+def _mcp_servers_have_launch_config(servers: list[Any]) -> bool:
+    if not servers:
+        return False
+    for server in servers:
+        if not isinstance(server, dict):
+            return False
+        transport = str(server.get("transport") or "stdio")
+        if transport == "stdio" and not server.get("command"):
+            return False
+        if transport in {"sse", "streamable_http"} and not server.get("url"):
+            return False
+    return True
+
+
+def _record_manifest_health(manifest: Any) -> list[dict[str, str]]:
+    from row_bot.plugins import state as plugin_state
+
+    checks = _run_manifest_health(manifest)
+    plugin_state.set_plugin_health_result(
+        manifest.id,
+        ok=_health_checks_ok(checks),
+        checks=checks,
+    )
+    return checks
+
+
+def _can_enable_plugin(manifest: Any) -> tuple[bool, str]:
+    checks = _run_manifest_health(manifest)
+    failed = _blocking_health_checks(checks)
+    if failed:
+        return (
+            False,
+            f"{manifest.name} needs setup: {', '.join(check['label'] for check in failed)}",
+        )
+
+    from row_bot.plugins import state as plugin_state
+
+    health = plugin_state.get_plugin_health_result(manifest.id)
+    if not health.get("ok"):
+        return False, f"Run Test for {manifest.name} before enabling it."
+    return True, ""
+
+
+def _health_checks_ok(checks: list[dict[str, str]]) -> bool:
+    return bool(checks) and not _blocking_health_checks(checks)
+
+
+def _blocking_health_checks(checks: list[dict[str, str]]) -> list[dict[str, str]]:
+    return [
+        check
+        for check in checks
+        if check.get("status") not in {"ok", "manual_required"}
+    ]

@@ -92,6 +92,12 @@ def _plugin_runtime_allowed(
     return runtime_name in allow or parent_name in allow or plugin_id in allow
 
 
+def _plugin_mcp_allow_names(plugin_id: str, allow: set[str] | None) -> set[str] | None:
+    if allow is None or plugin_id in allow:
+        return None
+    return allow
+
+
 def get_langchain_tools(allow_names: Iterable[str] | None = None) -> list:
     """Return LangChain tool wrappers for all tools from enabled plugins."""
     from row_bot.plugins import state
@@ -110,6 +116,22 @@ def get_langchain_tools(allow_names: Iterable[str] | None = None) -> list:
                     plugin_id=plugin_id,
                 ):
                     tools.append(lc_tool)
+    try:
+        from row_bot.mcp_client import runtime as mcp_runtime
+
+        for plugin_id, manifest in _loaded_manifests.items():
+            if not state.is_plugin_enabled(plugin_id):
+                continue
+            if not getattr(getattr(manifest, "provides", None), "mcp_servers", []):
+                continue
+            tools.extend(
+                mcp_runtime.get_plugin_langchain_tools(
+                    plugin_id,
+                    allow_names=_plugin_mcp_allow_names(plugin_id, allow),
+                )
+            )
+    except Exception as exc:
+        logger.debug("Plugin MCP tool injection skipped: %s", exc, exc_info=True)
     return tools
 
 
@@ -125,7 +147,9 @@ def get_skills_prompt() -> str:
             if instructions:
                 icon = skill_info.get("icon", "🔌")
                 display = skill_info.get("display_name", skill_name)
-                parts.append(f"\n### {icon} {display} (plugin)\n{instructions}\n")
+                manifest = _loaded_manifests.get(plugin_id)
+                plugin_name = str(getattr(manifest, "name", "") or plugin_id)
+                parts.append(f"\n### {icon} {display} (plugin: {plugin_name})\n{instructions}\n")
 
     if not parts:
         return ""
@@ -155,6 +179,22 @@ def get_destructive_names(allow_names: Iterable[str] | None = None) -> set[str]:
                 names.update(tool.destructive_tool_names)
             else:
                 names.update(name for name in tool.destructive_tool_names if name in allow)
+    try:
+        from row_bot.mcp_client import runtime as mcp_runtime
+
+        for plugin_id, manifest in _loaded_manifests.items():
+            if not state.is_plugin_enabled(plugin_id):
+                continue
+            if not getattr(getattr(manifest, "provides", None), "mcp_servers", []):
+                continue
+            names.update(
+                mcp_runtime.get_plugin_destructive_tool_names(
+                    plugin_id,
+                    allow_names=_plugin_mcp_allow_names(plugin_id, allow),
+                )
+            )
+    except Exception as exc:
+        logger.debug("Plugin MCP destructive lookup skipped: %s", exc, exc_info=True)
     return names
 
 
@@ -173,10 +213,25 @@ def get_background_allowed_names() -> set[str]:
 def get_enabled_plugin_tool_names() -> list[str]:
     """Return names of tools from enabled plugins only."""
     from row_bot.plugins import state
-    return [
+    names = [
         name for name, tool in _plugin_tools.items()
         if state.is_plugin_enabled(_tool_to_plugin.get(name, ""))
     ]
+    try:
+        from row_bot.mcp_client import runtime as mcp_runtime
+
+        for plugin_id, manifest in _loaded_manifests.items():
+            if not state.is_plugin_enabled(plugin_id):
+                continue
+            if not getattr(getattr(manifest, "provides", None), "mcp_servers", []):
+                continue
+            names.extend(
+                record["runtime_name"]
+                for record in mcp_runtime.get_plugin_tool_records(plugin_id)
+            )
+    except Exception as exc:
+        logger.debug("Plugin MCP name lookup skipped: %s", exc, exc_info=True)
+    return names
 
 
 def get_enabled_plugin_tool_records() -> list[dict]:
@@ -218,6 +273,17 @@ def get_enabled_plugin_tool_records() -> list[dict]:
                 ),
                 "destructive": runtime_name in destructive,
             })
+    try:
+        from row_bot.mcp_client import runtime as mcp_runtime
+
+        for plugin_id, manifest in _loaded_manifests.items():
+            if not state.is_plugin_enabled(plugin_id):
+                continue
+            if not getattr(getattr(manifest, "provides", None), "mcp_servers", []):
+                continue
+            records.extend(mcp_runtime.get_plugin_tool_records(plugin_id))
+    except Exception as exc:
+        logger.debug("Plugin MCP catalog records skipped: %s", exc, exc_info=True)
     return records
 
 
@@ -238,8 +304,17 @@ def get_plugin_tools(plugin_id: str) -> list["PluginTool"]:
     ]
 
 
-def get_plugin_skills(plugin_id: str) -> list[dict]:
-    """Return all skills belonging to a specific plugin."""
+def get_plugin_skills(plugin_id: str, *, enabled_only: bool = True) -> list[dict]:
+    """Return skills belonging to a specific plugin.
+
+    By default this mirrors runtime visibility: disabled plugin skills
+    disappear from inventory as well as prompt injection.
+    """
+    if enabled_only:
+        from row_bot.plugins import state
+
+        if not state.is_plugin_enabled(plugin_id):
+            return []
     return [
         info for name, info in _plugin_skills.items()
         if _skill_to_plugin.get(name) == plugin_id

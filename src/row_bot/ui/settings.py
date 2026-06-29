@@ -4950,9 +4950,9 @@ def open_settings(
                 ).props("flat dense no-caps")
 
         for ch in channels:
-            _build_channel_panel(ch, _ch_config)
+            _build_channel_panel(ch, _ch_config, _ch_registry)
 
-    def _build_channel_panel(ch, _ch_config) -> None:
+    def _build_channel_panel(ch, _ch_config, _ch_registry) -> None:
         """Render a single channel's settings panel, auto-generated from its
         config_fields, capabilities, and setup_guide properties."""
 
@@ -5120,7 +5120,8 @@ def open_settings(
                         ).props("flat dense size=xs")
 
             # ── Custom UI hook ───────────────────────────────────────
-            ch.build_custom_ui(panel)
+            if _ch_registry.allows_custom_ui(ch.name):
+                ch.build_custom_ui(panel)
 
             # ── DM Pairing Code ──────────────────────────────────────
             with ui.expansion("🔑 DM Pairing Code").classes("w-full mt-2"):

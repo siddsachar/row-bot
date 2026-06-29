@@ -2952,10 +2952,12 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                 try:
                     from row_bot.channels.registry import running_channels as _running_channels
                     from row_bot.channels.tool_factory import create_channel_tools as _create_ch_tools
+                    from row_bot.channels.tool_factory import destructive_channel_tool_names as _channel_destructive_names
                     for _ch in _running_channels():
                         try:
                             _ch_tools = _create_ch_tools(_ch)
                             lc_tools.extend(_ch_tools)
+                            destructive_names.update(_channel_destructive_names(_ch))
                             logger.debug("Injected %d tools for channel %s",
                                          len(_ch_tools), _ch.name)
                         except Exception as exc:

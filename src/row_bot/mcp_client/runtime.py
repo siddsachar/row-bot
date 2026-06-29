@@ -55,6 +55,7 @@ class McpToolInfo:
     enabled: bool = False
     destructive: bool = False
     requires_approval: bool = False
+    source: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -78,6 +79,23 @@ _runtime_lock = threading.RLock()
 _servers: dict[str, "McpServerRuntime"] = {}
 _catalog: dict[str, dict[str, McpToolInfo]] = {}
 _statuses: dict[str, McpServerStatus] = {}
+
+
+def _get_effective_config() -> dict[str, Any]:
+    cfg = mcp_config.get_config()
+    try:
+        from row_bot.plugins.mcp import with_plugin_mcp_servers
+
+        return with_plugin_mcp_servers(cfg)
+    except Exception as exc:
+        logger.debug("Plugin MCP overlay skipped: %s", exc, exc_info=True)
+        return cfg
+
+
+def _get_effective_server_config(name: str) -> dict[str, Any]:
+    servers = _get_effective_config().get("servers", {})
+    server = servers.get(name, {}) if isinstance(servers, dict) else {}
+    return dict(server) if isinstance(server, dict) else {}
 
 
 class McpStdioCommandNotFound(RuntimeError):
@@ -147,7 +165,7 @@ def _update_status(name: str, **updates: Any) -> None:
     with _runtime_lock:
         status = _statuses.get(name)
         if not status:
-            server = mcp_config.get_servers().get(name, {})
+            server = _get_effective_server_config(name)
             status = McpServerStatus(
                 name=name,
                 enabled=bool(server.get("enabled")),
@@ -198,12 +216,13 @@ def _normalize_tools(server_name: str, server_cfg: dict[str, Any], tools: list[A
             enabled=enabled,
             destructive=destructive,
             requires_approval=requires,
+            source=dict(server_cfg.get("source") or {}),
         )
     return normalized
 
 
 def _sync_catalog_from_config(config: dict[str, Any] | None = None) -> None:
-    cfg = config or mcp_config.get_config()
+    cfg = config or _get_effective_config()
     servers_cfg = cfg.get("servers", {}) if isinstance(cfg.get("servers"), dict) else {}
     with _runtime_lock:
         for server_name, tools in _catalog.items():
@@ -460,7 +479,7 @@ class McpServerRuntime:
 
 def discover_enabled_servers() -> None:
     """Start or refresh enabled MCP servers without blocking startup."""
-    cfg = mcp_config.get_config()
+    cfg = _get_effective_config()
     if not cfg.get("enabled"):
         with _runtime_lock:
             running_names = list(_servers)
@@ -629,15 +648,37 @@ def _mcp_runtime_name_allowed(name: str, allow: set[str] | None) -> bool:
     return allow is None or "mcp" in allow or str(name or "") in allow
 
 
-def get_langchain_tools(allow_names: Iterable[str] | None = None) -> list[StructuredTool]:
-    if not mcp_config.is_globally_enabled():
+def _source_plugin_allowed(info: McpToolInfo, plugin_id: str | None) -> bool:
+    if plugin_id is None:
+        return True
+    source = info.source or {}
+    return source.get("kind") == "plugin" and source.get("plugin_id") == plugin_id
+
+
+def _server_source_plugin_allowed(server_cfg: dict[str, Any], plugin_id: str | None) -> bool:
+    if plugin_id is None:
+        return True
+    source = server_cfg.get("source", {}) if isinstance(server_cfg, dict) else {}
+    return source.get("kind") == "plugin" and source.get("plugin_id") == plugin_id
+
+
+def get_langchain_tools(
+    allow_names: Iterable[str] | None = None,
+    *,
+    source_plugin_id: str | None = None,
+) -> list[StructuredTool]:
+    cfg = _get_effective_config()
+    if not cfg.get("enabled"):
         return []
     allow = _allow_names_set(allow_names)
     discover_enabled_servers()
-    _sync_catalog_from_config()
+    _sync_catalog_from_config(cfg)
     wrappers: list[StructuredTool] = []
     with _runtime_lock:
-        infos = [info for tools in _catalog.values() for info in tools.values() if info.enabled]
+        infos = [
+            info for tools in _catalog.values() for info in tools.values()
+            if info.enabled and _source_plugin_allowed(info, source_plugin_id)
+        ]
     for info in infos:
         if not _mcp_runtime_name_allowed(info.prefixed_name, allow):
             continue
@@ -650,8 +691,9 @@ def get_langchain_tools(allow_names: Iterable[str] | None = None) -> list[Struct
             ))
         except Exception as exc:
             log_event("mcp.tool.wrap_failed", level=logging.WARNING, server=info.server_name, tool=info.name, error=str(exc))
-    cfg = mcp_config.get_config()
     for server_name, server_cfg in cfg.get("servers", {}).items():
+        if not _server_source_plugin_allowed(server_cfg, source_plugin_id):
+            continue
         if server_name not in _servers:
             continue
         tools_cfg = server_cfg.get("tools", {})
@@ -691,7 +733,18 @@ def get_langchain_tools(allow_names: Iterable[str] | None = None) -> list[Struct
     return wrappers
 
 
-def get_destructive_tool_names(allow_names: Iterable[str] | None = None) -> set[str]:
+def get_plugin_langchain_tools(
+    plugin_id: str,
+    allow_names: Iterable[str] | None = None,
+) -> list[StructuredTool]:
+    return get_langchain_tools(allow_names=allow_names, source_plugin_id=plugin_id)
+
+
+def get_destructive_tool_names(
+    allow_names: Iterable[str] | None = None,
+    *,
+    source_plugin_id: str | None = None,
+) -> set[str]:
     allow = _allow_names_set(allow_names)
     _sync_catalog_from_config()
     with _runtime_lock:
@@ -699,8 +752,45 @@ def get_destructive_tool_names(allow_names: Iterable[str] | None = None) -> set[
             info.prefixed_name
             for tools in _catalog.values()
             for info in tools.values()
-            if info.enabled and info.requires_approval and _mcp_runtime_name_allowed(info.prefixed_name, allow)
+            if (
+                info.enabled
+                and info.requires_approval
+                and _source_plugin_allowed(info, source_plugin_id)
+                and _mcp_runtime_name_allowed(info.prefixed_name, allow)
+            )
         }
+
+
+def get_plugin_destructive_tool_names(
+    plugin_id: str,
+    allow_names: Iterable[str] | None = None,
+) -> set[str]:
+    return get_destructive_tool_names(allow_names=allow_names, source_plugin_id=plugin_id)
+
+
+def get_plugin_tool_records(plugin_id: str) -> list[dict[str, Any]]:
+    _sync_catalog_from_config()
+    with _runtime_lock:
+        infos = [
+            info for tools in _catalog.values() for info in tools.values()
+            if info.enabled and _source_plugin_allowed(info, plugin_id)
+        ]
+    records: list[dict[str, Any]] = []
+    for info in infos:
+        source = dict(info.source or {})
+        records.append({
+            "runtime_name": info.prefixed_name,
+            "parent_name": source.get("server_id") or info.server_name,
+            "plugin_id": plugin_id,
+            "plugin_name": source.get("plugin_name") or plugin_id,
+            "tags": ["mcp"],
+            "label": info.name,
+            "description": info.description,
+            "destructive": info.requires_approval,
+            "source": "mcp",
+            "server_name": info.server_name,
+        })
+    return records
 
 
 def get_catalog_snapshot() -> dict[str, list[dict[str, Any]]]:
@@ -713,7 +803,7 @@ def get_catalog_snapshot() -> dict[str, list[dict[str, Any]]]:
 
 
 def get_status_summary() -> dict[str, Any]:
-    cfg = mcp_config.get_config()
+    cfg = _get_effective_config()
     _sync_catalog_from_config(cfg)
     with _runtime_lock:
         statuses = {name: status.__dict__.copy() for name, status in _statuses.items()}

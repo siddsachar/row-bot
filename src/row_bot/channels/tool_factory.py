@@ -175,6 +175,24 @@ def create_channel_tools(channel: Channel) -> list[StructuredTool]:
     return tools
 
 
+def channel_tool_names(channel: Channel) -> list[str]:
+    """Return generated outbound tool names for *channel*."""
+
+    names = [f"send_{channel.name}_message"]
+    caps = channel.capabilities
+    if caps.photo_out:
+        names.append(f"send_{channel.name}_photo")
+    if caps.document_out:
+        names.append(f"send_{channel.name}_document")
+    return names
+
+
+def destructive_channel_tool_names(channel: Channel) -> set[str]:
+    """Outbound channel sends are external side effects and need approval policy."""
+
+    return set(channel_tool_names(channel))
+
+
 def _get_default_target(channel: Channel) -> str | int:
     """Resolve the default delivery target for a channel.
 

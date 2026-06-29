@@ -14,6 +14,7 @@ PRIORITY_SUBSYSTEMS = {
     "channels",
     "workflows",
     "mcp",
+    "plugins",
     "knowledge_graph",
     "memory_extraction",
     "tools_memory",
@@ -85,6 +86,21 @@ COVERAGE_INVENTORY: tuple[CoverageEntry, ...] = (
             "tests/test_mcp_client.py",
         ),
         invariants=("real MCP/network checks are opt-in", "destructive tools default to approval-gated"),
+    ),
+    CoverageEntry(
+        "plugins",
+        ("tests/test_suite.py", "tests/integration_tests.py"),
+        (
+            "tests/contracts/plugins/test_plugin_api_contract.py",
+            "tests/subsystem/plugins/test_plugin_registry_and_loader.py",
+            "tests/subsystem/plugins/test_plugin_state_installer_marketplace.py",
+            "tests/subsystem/plugins/test_plugin_ui_contracts.py",
+            "tests/subsystem/plugins/test_plugin_devtools.py",
+        ),
+        invariants=(
+            "plugin installs default disabled until configured, tested, and enabled",
+            "default plugin tests use local fixtures, not live network or providers",
+        ),
     ),
     CoverageEntry(
         "knowledge_graph",

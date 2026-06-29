@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from row_bot.plugins.api import PluginAPI, PluginTool
+from row_bot.plugins.api import Channel, ChannelCapabilities, ConfigField, PluginAPI, PluginTool
 
 
 pytestmark = pytest.mark.contract
@@ -81,12 +81,21 @@ def test_plugin_api_registers_tools_and_skills(tmp_path: Path) -> None:
     api = PluginAPI("sample-plugin", tmp_path / "plugin", FakeStateBackend())
     tool = EchoTool(api)
     skill = {"name": "sample_skill", "instructions": "Use the sample skill."}
+    channel = object()
 
     api.register_tool(tool)
     api.register_skill(skill)
+    api.register_channel(channel)
 
     assert api._registered_tools == [tool]
     assert api._registered_skills == [skill]
+    assert api._registered_channels == [channel]
+
+
+def test_plugin_api_exports_channel_base_types() -> None:
+    assert Channel.__name__ == "Channel"
+    assert ChannelCapabilities().__class__.__name__ == "ChannelCapabilities"
+    assert ConfigField(key="target", label="Target").key == "target"
 
 
 def test_plugin_api_background_context_is_read_from_agent_context(

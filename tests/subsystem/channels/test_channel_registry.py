@@ -37,6 +37,50 @@ def test_registry_delivers_only_to_running_channels() -> None:
     assert registry.configured_channels() == [channel]
 
 
+def test_registry_tracks_channel_sources_and_unregisters_plugin_channels() -> None:
+    from row_bot.channels import registry
+
+    core = FakeChannel(name="fake")
+    plugin = FakeChannel(name="matrix", display_name="Matrix Plugin")
+
+    registry.register(core)
+    registry.register(
+        plugin,
+        source=registry.ChannelSource(kind="plugin", plugin_id="matrix-plugin", label="Matrix"),
+    )
+
+    assert registry.get_source("fake") == registry.ChannelSource()
+    assert registry.get_source("matrix").kind == "plugin"
+    assert registry.get_source("matrix").plugin_id == "matrix-plugin"
+    assert registry.allows_custom_ui("fake") is True
+    assert registry.allows_custom_ui("matrix") is False
+
+    with pytest.raises(ValueError, match="already registered"):
+        registry.register(FakeChannel(name="matrix"))
+
+    registry.unregister_plugin_channels("matrix-plugin")
+
+    assert registry.get("matrix") is None
+    assert registry.get("fake") is core
+
+
+def test_generated_channel_send_tools_are_destructive_names() -> None:
+    from row_bot.channels.tool_factory import channel_tool_names, destructive_channel_tool_names
+
+    channel = FakeChannel(name="fake")
+
+    assert channel_tool_names(channel) == [
+        "send_fake_message",
+        "send_fake_photo",
+        "send_fake_document",
+    ]
+    assert destructive_channel_tool_names(channel) == {
+        "send_fake_message",
+        "send_fake_photo",
+        "send_fake_document",
+    }
+
+
 def test_registry_validation_reports_unknown_or_incomplete_delivery() -> None:
     from row_bot.channels import registry
 

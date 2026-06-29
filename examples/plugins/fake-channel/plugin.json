@@ -1,0 +1,22 @@
+{
+  "schema_version": 2,
+  "id": "fake-channel",
+  "name": "Fake Channel",
+  "version": "0.1.0",
+  "min_row_bot_version": "0.0.0",
+  "author": {"name": "Row-Bot"},
+  "description": "In-memory channel plugin used for deterministic development tests.",
+  "provides": {
+    "native_tools": [],
+    "mcp_servers": [],
+    "channels": [{"id": "fake_plugin_channel"}],
+    "skills": []
+  },
+  "permissions": ["messaging", "external_send"],
+  "settings": {
+    "default_target": {"type": "text", "label": "Default Target", "required": true}
+  },
+  "secrets": {},
+  "auth": {},
+  "health_checks": [{"id": "channel_configured", "type": "channel_configured"}]
+}

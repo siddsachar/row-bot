@@ -12,7 +12,17 @@ from typing import Any
 
 from langchain_core.tools import StructuredTool
 
+from row_bot.channels.base import Channel, ChannelCapabilities, ConfigField
+
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "Channel",
+    "ChannelCapabilities",
+    "ConfigField",
+    "PluginAPI",
+    "PluginTool",
+]
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -41,6 +51,7 @@ class PluginAPI:
         self._state = state_backend
         self._registered_tools: list[PluginTool] = []
         self._registered_skills: list[dict] = []
+        self._registered_channels: list[Any] = []
 
     @property
     def plugin_id(self) -> str:
@@ -62,6 +73,15 @@ class PluginAPI:
         self._registered_skills.append(skill_info)
         logger.debug("Plugin '%s' registered skill: %s",
                       self._plugin_id, skill_info.get("name", "?"))
+
+    def register_channel(self, channel: Any) -> None:
+        """Register a Row-Bot channel adapter owned by this plugin."""
+        self._registered_channels.append(channel)
+        logger.debug(
+            "Plugin '%s' registered channel: %s",
+            self._plugin_id,
+            getattr(channel, "name", "?"),
+        )
 
     # ── Configuration ────────────────────────────────────────────────────
     def get_config(self, key: str, default: Any = None) -> Any:

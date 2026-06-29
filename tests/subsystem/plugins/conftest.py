@@ -34,7 +34,7 @@ def plugin_modules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
 
     import row_bot.secret_store as secret_store
-    from row_bot.plugins import installer, loader, marketplace, registry, state
+    from row_bot.plugins import devtools, installer, loader, marketplace, registry, state
 
     secret_store._set_backend_for_tests(MemoryKeyring())
 
@@ -44,6 +44,7 @@ def plugin_modules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
         "loader": importlib.reload(loader),
         "installer": importlib.reload(installer),
         "marketplace": importlib.reload(marketplace),
+        "devtools": importlib.reload(devtools),
     }
     modules["registry"]._reset()
     modules["state"]._reset()
@@ -62,6 +63,7 @@ def plugin_modules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
 
 def manifest_payload(plugin_id: str = "sample-plugin", **overrides: object) -> dict[str, object]:
     payload: dict[str, object] = {
+        "schema_version": 2,
         "id": plugin_id,
         "name": plugin_id.replace("-", " ").title(),
         "version": "1.0.0",
@@ -69,11 +71,22 @@ def manifest_payload(plugin_id: str = "sample-plugin", **overrides: object) -> d
         "author": {"name": "Tester", "github": "tester"},
         "description": "A deterministic test plugin.",
         "provides": {
-            "tools": [{"name": "sample_tool", "display_name": "Sample Tool"}],
+            "native_tools": [
+                {
+                    "id": "sample_tool",
+                    "entrypoint": "plugin_main.py",
+                    "name": "Sample Tool",
+                }
+            ],
+            "mcp_servers": [],
+            "channels": [],
             "skills": [],
         },
+        "permissions": [],
         "settings": {},
-        "python_dependencies": [],
+        "secrets": {},
+        "auth": {},
+        "health_checks": [],
     }
     payload.update(overrides)
     return payload

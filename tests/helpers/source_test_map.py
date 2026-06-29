@@ -144,6 +144,23 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
         "MCP changes need fake transport, safety, and client coverage.",
     ),
     SourceTestRule(
+        "plugins",
+        (
+            "src/row_bot/plugins/**",
+            "scripts/validate_plugin.py",
+            "scripts/build_plugin_index.py",
+            "examples/plugins/**",
+            "docs/PLUGIN_SYSTEM_V2.md",
+        ),
+        (
+            "tests/contracts/plugins/test_plugin_api_contract.py",
+            "tests/subsystem/plugins",
+            "tests/subsystem/mcp/test_mcp_runtime_tools.py",
+            "tests/subsystem/channels/test_channel_registry.py",
+        ),
+        "Plugin runtime, marketplace, templates, examples, and docs need plugin contracts plus MCP/channel integration coverage.",
+    ),
+    SourceTestRule(
         "memory_and_knowledge",
         (
             "src/row_bot/knowledge_graph.py",

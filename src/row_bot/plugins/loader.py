@@ -6,7 +6,9 @@ their manifests, and loads enabled plugins safely (try/except + timeout).
 
 from __future__ import annotations
 
+import ast
 import importlib.util
+import json
 import logging
 import os
 import pathlib
@@ -16,6 +18,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 from row_bot.data_paths import get_row_bot_data_dir
@@ -29,28 +32,39 @@ logger = logging.getLogger(__name__)
 
 DATA_DIR = get_row_bot_data_dir()
 PLUGINS_DIR = DATA_DIR / "installed_plugins"
+PLUGIN_LOGS_DIR = DATA_DIR / "plugin_logs"
 
 # Timeout for plugin register() calls (seconds)
 REGISTER_TIMEOUT = 5.0
 
-# Characters not allowed in plugin code (security scan)
-_DANGEROUS_PATTERNS = [
-    re.compile(r'\beval\s*\('),
-    re.compile(r'\bexec\s*\('),
-    re.compile(r'\bos\.system\s*\('),
-    re.compile(r'\bsubprocess\b'),
-    re.compile(r'\b__import__\s*\('),
-]
-
-# Core modules plugins must not import
-_FORBIDDEN_IMPORTS = {
-    "tools", "tools.base", "tools.registry",
-    "agent", "app", "models", "prompts",
-    "knowledge_graph", "memory_extraction", "dream_cycle",
-    "threads", "tasks", "documents",
-    "ui", "ui.settings", "ui.streaming", "ui.chat",
-    "ui.render", "ui.helpers", "ui.home",
+# Plugin code may import this public API and ordinary third-party/local modules.
+# Row-Bot internals stay behind PluginAPI so plugins cannot bypass lifecycle,
+# approval, channel, MCP, or data-access boundaries.
+_ALLOWED_CORE_IMPORTS = {"plugins.api", "row_bot.plugins.api"}
+_FORBIDDEN_TOP_LEVEL_IMPORTS = {
+    "agent",
+    "app",
+    "channels",
+    "documents",
+    "dream_cycle",
+    "knowledge_graph",
+    "memory",
+    "memory_extraction",
+    "models",
+    "prompts",
+    "tasks",
+    "threads",
+    "tools",
+    "ui",
 }
+_FORBIDDEN_UI_FRAMEWORK_IMPORTS = {
+    "gradio",
+    "nicegui",
+    "pywebview",
+    "streamlit",
+    "webview",
+}
+_DANGEROUS_BUILTIN_CALLS = {"eval", "exec", "__import__"}
 
 
 @dataclass
@@ -92,10 +106,19 @@ def load_plugins() -> list[LoadResult]:
         PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
         logger.info("Created plugins directory: %s", PLUGINS_DIR)
 
+    try:
+        from row_bot.plugins.devtools import iter_linked_plugin_dirs
+
+        linked_dirs = iter_linked_plugin_dirs()
+    except Exception:
+        linked_dirs = {}
+
     for entry in sorted(PLUGINS_DIR.iterdir()):
         if not entry.is_dir():
             continue
         if entry.name.startswith((".", "_")):
+            continue
+        if entry.name in linked_dirs:
             continue
 
         result = _load_single_plugin(entry)
@@ -113,6 +136,21 @@ def load_plugins() -> list[LoadResult]:
 
         for w in result.warnings:
             logger.warning("⚠️  %s", w)
+
+    for plugin_id, linked_dir in sorted(linked_dirs.items()):
+        result = _load_single_plugin(linked_dir)
+        _load_results.append(result)
+
+        if result.success:
+            logger.info(
+                "Linked plugin '%s' v%s loaded",
+                result.plugin_id,
+                result.manifest.version if result.manifest else "?",
+            )
+        else:
+            logger.warning("Linked plugin '%s' failed to load: %s", result.plugin_id, result.error)
+        for warning in result.warnings:
+            logger.warning("Plugin warning: %s", warning)
 
     try:
         from row_bot.developer.tool_capsules import (
@@ -158,14 +196,74 @@ def get_load_results() -> list[LoadResult]:
     return list(_load_results)
 
 
+def get_plugin_log_path(plugin_id: str) -> pathlib.Path:
+    """Return the persisted JSONL load log path for a plugin."""
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", plugin_id).strip("._")
+    return PLUGIN_LOGS_DIR / f"{safe_name or 'unknown'}.jsonl"
+
+
+def read_plugin_logs(plugin_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
+    """Read recent persisted load log entries for the Plugin Center."""
+    path = get_plugin_log_path(plugin_id)
+    if not path.exists():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    entries: list[dict[str, Any]] = []
+    for line in lines[-limit:]:
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(entry, dict):
+            entries.append(entry)
+    return entries
+
+
+def _append_plugin_log(result: LoadResult) -> None:
+    try:
+        PLUGIN_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        entry = {
+            "ts": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            "plugin_id": result.plugin_id,
+            "success": result.success,
+            "version": result.manifest.version if result.manifest else "",
+            "error": _redact_log_text(result.error),
+            "warnings": [_redact_log_text(warning) for warning in result.warnings],
+        }
+        with open(get_plugin_log_path(result.plugin_id), "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, sort_keys=True) + "\n")
+    except Exception:
+        logger.debug("Plugin load log write skipped for %s", result.plugin_id, exc_info=True)
+
+
+def _redact_log_text(text: str) -> str:
+    if not text:
+        return ""
+    return re.sub(
+        r"(?i)\b(api[_-]?key|token|secret|password)\b\s*[:=]\s*[^,\s;]+",
+        r"\1=<redacted>",
+        str(text),
+    )
+
+
 # ── Single Plugin Loader ─────────────────────────────────────────────────────
 def _load_single_plugin(plugin_dir: pathlib.Path) -> LoadResult:
+    result = _load_single_plugin_impl(plugin_dir)
+    _append_plugin_log(result)
+    return result
+
+
+def _load_single_plugin_impl(plugin_dir: pathlib.Path) -> LoadResult:
     """Load a single plugin from its directory. Never raises."""
     plugin_id = plugin_dir.name
 
     # Step 1: Parse manifest
     try:
         manifest = parse_manifest(plugin_dir)
+        plugin_id = manifest.id
     except ManifestError as exc:
         return LoadResult(plugin_id=plugin_id, success=False, error=str(exc))
     except Exception as exc:
@@ -182,6 +280,12 @@ def _load_single_plugin(plugin_dir: pathlib.Path) -> LoadResult:
     if not plugin_state.is_plugin_enabled(plugin_id):
         # Still register the manifest so the plugin appears in the UI
         # (users need to see the card to re-enable the plugin).
+        try:
+            from row_bot.channels import registry as channel_registry
+
+            channel_registry.unregister_plugin_channels(plugin_id)
+        except Exception:
+            logger.debug("Plugin channel unregister skipped for %s", plugin_id, exc_info=True)
         plugin_registry.register_plugin(
             manifest=manifest, tools=[], skills=[],
         )
@@ -227,6 +331,7 @@ def _load_single_plugin(plugin_dir: pathlib.Path) -> LoadResult:
             tools=api._registered_tools,
             skills=api._registered_skills,
         )
+        _register_plugin_channels(manifest, api._registered_channels)
     except Exception as exc:
         return LoadResult(
             plugin_id=plugin_id, success=False, manifest=manifest,
@@ -237,6 +342,21 @@ def _load_single_plugin(plugin_dir: pathlib.Path) -> LoadResult:
         plugin_id=plugin_id, success=True, manifest=manifest,
         warnings=warnings,
     )
+
+
+def _register_plugin_channels(manifest: PluginManifest, channels: list[Any]) -> None:
+    if not channels:
+        return
+    from row_bot.channels import registry as channel_registry
+
+    channel_registry.unregister_plugin_channels(manifest.id)
+    source = channel_registry.ChannelSource(
+        kind="plugin",
+        plugin_id=manifest.id,
+        label=manifest.name,
+    )
+    for channel in channels:
+        channel_registry.register(channel, source=source)
 
 
 # ── Version Check ────────────────────────────────────────────────────────────
@@ -284,7 +404,7 @@ def _version_tuple(v: str) -> tuple[int, ...]:
 
 # ── Security Scan ────────────────────────────────────────────────────────────
 def _security_scan(plugin_dir: pathlib.Path) -> str | None:
-    """Scan plugin Python files for dangerous patterns.
+    """Scan plugin Python files for blocked calls and core imports.
 
     Returns error string or None.
     """
@@ -293,39 +413,104 @@ def _security_scan(plugin_dir: pathlib.Path) -> str | None:
             content = py_file.read_text(encoding="utf-8")
         except Exception:
             continue
+        try:
+            tree = ast.parse(content, filename=str(py_file))
+        except SyntaxError as exc:
+            rel_path = py_file.relative_to(plugin_dir)
+            return f"Security violation in {rel_path}:{exc.lineno}: Python syntax error: {exc.msg}"
 
-        # Check for dangerous function calls
-        for pattern in _DANGEROUS_PATTERNS:
-            match = pattern.search(content)
-            if match:
-                rel_path = py_file.relative_to(plugin_dir)
-                return (
-                    f"Security violation in {rel_path}: "
-                    f"forbidden pattern '{match.group()}' detected. "
-                    f"Plugins must not use eval(), exec(), os.system(), "
-                    f"subprocess, or __import__()."
-                )
-
-        # Check for forbidden core imports
-        for line_no, line in enumerate(content.splitlines(), 1):
-            stripped = line.strip()
-            if stripped.startswith("#"):
-                continue
-            for forbidden in _FORBIDDEN_IMPORTS:
-                # Match: import agent, from agent import ..., import tools.registry
-                if (re.search(rf'\bimport\s+{re.escape(forbidden)}\b', stripped)
-                        or re.search(rf'\bfrom\s+{re.escape(forbidden)}\b', stripped)):
-                    # Allow "from plugins.api import" (that's the expected import)
-                    if forbidden.startswith("plugins"):
-                        continue
-                    rel_path = py_file.relative_to(plugin_dir)
-                    return (
-                        f"Security violation in {rel_path}:{line_no}: "
-                        f"plugins must not import core module '{forbidden}'. "
-                        f"Use the PluginAPI object instead."
-                    )
+        rel_path = py_file.relative_to(plugin_dir)
+        error = _scan_ast_for_security_errors(tree, rel_path)
+        if error:
+            return error
 
     return None
+
+
+def _scan_ast_for_security_errors(tree: ast.AST, rel_path: pathlib.Path) -> str | None:
+    os_aliases = {"os"}
+    os_system_aliases: set[str] = set()
+    subprocess_aliases: set[str] = set()
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                module = alias.name
+                forbidden = _forbidden_import(module)
+                if forbidden:
+                    return _security_error(rel_path, node.lineno, forbidden)
+                if module == "os":
+                    os_aliases.add(alias.asname or "os")
+                if module == "subprocess" or module.startswith("subprocess."):
+                    subprocess_aliases.add(alias.asname or module.split(".", 1)[0])
+                    return _dangerous_error(rel_path, node.lineno, "subprocess")
+
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                continue
+            module = node.module or ""
+            forbidden = _forbidden_import(module)
+            if forbidden:
+                return _security_error(rel_path, node.lineno, forbidden)
+            if module == "subprocess" or module.startswith("subprocess."):
+                return _dangerous_error(rel_path, node.lineno, "subprocess")
+            if module == "os":
+                for alias in node.names:
+                    if alias.name == "system":
+                        os_system_aliases.add(alias.asname or alias.name)
+
+        elif isinstance(node, ast.Call):
+            target = node.func
+            if isinstance(target, ast.Name):
+                if target.id in _DANGEROUS_BUILTIN_CALLS:
+                    return _dangerous_error(rel_path, node.lineno, target.id)
+                if target.id in os_system_aliases:
+                    return _dangerous_error(rel_path, node.lineno, "os.system")
+                if target.id in subprocess_aliases:
+                    return _dangerous_error(rel_path, node.lineno, "subprocess")
+            elif isinstance(target, ast.Attribute):
+                if (
+                    target.attr == "system"
+                    and isinstance(target.value, ast.Name)
+                    and target.value.id in os_aliases
+                ):
+                    return _dangerous_error(rel_path, node.lineno, "os.system")
+                if isinstance(target.value, ast.Name) and target.value.id in subprocess_aliases:
+                    return _dangerous_error(rel_path, node.lineno, "subprocess")
+
+    return None
+
+
+def _forbidden_import(module: str) -> str | None:
+    if not module:
+        return None
+    if module in _ALLOWED_CORE_IMPORTS:
+        return None
+    if module == "subprocess" or module.startswith("subprocess."):
+        return "subprocess"
+    if module == "row_bot" or module.startswith("row_bot."):
+        return module
+    if module == "plugins" or module.startswith("plugins."):
+        return module
+    top_level = module.split(".", 1)[0]
+    if top_level in _FORBIDDEN_TOP_LEVEL_IMPORTS | _FORBIDDEN_UI_FRAMEWORK_IMPORTS:
+        return module
+    return None
+
+
+def _dangerous_error(rel_path: pathlib.Path, line_no: int, name: str) -> str:
+    return (
+        f"Security violation in {rel_path}:{line_no}: forbidden pattern "
+        f"'{name}' detected. Plugins must not use eval(), exec(), os.system(), "
+        f"subprocess, or __import__()."
+    )
+
+
+def _security_error(rel_path: pathlib.Path, line_no: int, module: str) -> str:
+    return (
+        f"Security violation in {rel_path}:{line_no}: plugins must not import "
+        f"module '{module}'. Use plugins.api and the native Plugin Center contract instead."
+    )
 
 
 # ── Plugin Registration ──────────────────────────────────────────────────────

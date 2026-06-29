@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-from row_bot.plugins.manifest import PluginAuthor, PluginManifest
+from row_bot.plugins.manifest import PluginAuthor, PluginManifest, PluginProvides
 
 
 pytestmark = pytest.mark.subsystem
@@ -42,6 +43,144 @@ def test_plugin_settings_missing_required_keys_respects_secret_state(
     assert _get_missing_keys(manifest) == []
 
 
+def test_plugin_center_v2_settings_secrets_and_sections(
+    plugin_modules: dict[str, Any],
+) -> None:
+    state = plugin_modules["state"]
+    from row_bot.plugins.ui_plugin_dialog import PLUGIN_DETAIL_SECTIONS
+    from row_bot.plugins.ui_settings import (
+        _can_enable_plugin,
+        _get_missing_secrets,
+        _get_missing_settings,
+        _iter_secret_specs,
+        _iter_setting_specs,
+        _plugin_status,
+        _record_manifest_health,
+        _run_manifest_health,
+    )
+
+    manifest = PluginManifest(
+        id="v2-ui-plugin",
+        name="V2 UI Plugin",
+        version="1.0.0",
+        min_row_bot_version="0.0.0",
+        author=PluginAuthor(name="Tester"),
+        description="UI settings contract",
+        settings={
+            "workspace": {"type": "local_path", "label": "Workspace", "required": True},
+            "mode": {"type": "select", "label": "Mode", "options": ["safe"], "default": "safe"},
+        },
+        secrets={
+            "TOKEN": {"type": "secret", "label": "Token", "required": True},
+        },
+    )
+
+    assert PLUGIN_DETAIL_SECTIONS == (
+        "Overview",
+        "Permissions",
+        "Setup",
+        "Auth",
+        "Tools",
+        "Channels",
+        "Skills",
+        "Health",
+        "Logs",
+        "Updates",
+    )
+    assert [name for name, _spec in _iter_setting_specs(manifest)] == ["workspace", "mode"]
+    assert [name for name, _spec in _iter_secret_specs(manifest)] == ["TOKEN"]
+    assert _get_missing_settings(manifest) == ["Workspace"]
+    assert _get_missing_secrets(manifest) == ["Token"]
+    assert _plugin_status(manifest, enabled=False)[0] == "Needs setup"
+    assert _plugin_status(
+        manifest,
+        enabled=True,
+        update_entry=SimpleNamespace(version="2.0.0"),
+    ) == ("Update available v2.0.0", "warning")
+    ok, reason = _can_enable_plugin(manifest)
+    assert ok is False
+    assert "needs setup" in reason
+
+    state.set_plugin_config("v2-ui-plugin", "workspace", "D:/example")
+    state.set_plugin_secret("v2-ui-plugin", "TOKEN", "secret-value")
+
+    assert _get_missing_settings(manifest) == []
+    assert _get_missing_secrets(manifest) == []
+    assert _plugin_status(manifest, enabled=False)[0] == "Not tested"
+    ok, reason = _can_enable_plugin(manifest)
+    assert ok is False
+    assert "Run Test" in reason
+
+    checks = _record_manifest_health(manifest)
+
+    assert checks == [{"label": "Required local setup", "status": "ok"}]
+    assert _plugin_status(manifest, enabled=False)[0] == "Ready to enable"
+    assert _can_enable_plugin(manifest) == (True, "")
+
+    live_check_manifest = PluginManifest(
+        id="live-check-ui-plugin",
+        name="Live Check UI Plugin",
+        version="1.0.0",
+        min_row_bot_version="0.0.0",
+        author=PluginAuthor(name="Tester"),
+        description="UI health contract",
+        health_checks=[{"id": "api_probe", "type": "api_probe"}],
+    )
+
+    assert _run_manifest_health(live_check_manifest) == [
+        {"label": "Api Probe", "status": "manual_required"}
+    ]
+    assert _record_manifest_health(live_check_manifest) == [
+        {"label": "Api Probe", "status": "manual_required"}
+    ]
+    assert state.get_plugin_health_result("live-check-ui-plugin")["ok"] is True
+    assert _can_enable_plugin(live_check_manifest) == (True, "")
+
+
+def test_declared_plugin_health_checks_are_evaluated_locally(
+    plugin_modules: dict[str, Any],
+) -> None:
+    state = plugin_modules["state"]
+    from row_bot.plugins.ui_settings import _record_manifest_health, _run_manifest_health
+
+    channel_manifest = PluginManifest(
+        id="channel-health-plugin",
+        name="Channel Health Plugin",
+        version="1.0.0",
+        min_row_bot_version="0.0.0",
+        author=PluginAuthor(name="Tester"),
+        description="Health check contract",
+        provides=PluginProvides(channels=[{"id": "fake_channel"}]),
+        settings={"target": {"type": "text", "label": "Target", "required": True}},
+        health_checks=[{"id": "channel_configured", "type": "channel_configured"}],
+    )
+
+    blocked = _run_manifest_health(channel_manifest)
+    assert {"label": "Target", "status": "missing_setting"} in blocked
+    assert {"label": "Channel Configured", "status": "blocked_missing_setup"} in blocked
+
+    state.set_plugin_config("channel-health-plugin", "target", "me")
+
+    assert _record_manifest_health(channel_manifest) == [
+        {"label": "Channel Configured", "status": "ok"}
+    ]
+
+    mcp_manifest = PluginManifest(
+        id="mcp-health-plugin",
+        name="MCP Health Plugin",
+        version="1.0.0",
+        min_row_bot_version="0.0.0",
+        author=PluginAuthor(name="Tester"),
+        description="MCP health check contract",
+        provides=PluginProvides(
+            mcp_servers=[{"id": "example_mcp", "transport": "stdio", "command": "python"}],
+        ),
+        health_checks=[{"id": "mcp_starts", "type": "mcp_server_starts"}],
+    )
+
+    assert _run_manifest_health(mcp_manifest) == [{"label": "Mcp Starts", "status": "ok"}]
+
+
 def test_plugin_ui_entrypoints_are_importable_callables() -> None:
     from row_bot.plugins.ui_marketplace import open_marketplace_dialog
     from row_bot.plugins.ui_plugin_dialog import open_plugin_dialog
@@ -61,6 +200,8 @@ def test_settings_dialog_contains_plugins_tab_wiring() -> None:
     assert '"Plugins": tab_plugins' in source
     assert "_build_plugins_tab" in source
     assert "open_marketplace_dialog(on_install" in source
+    assert "if _ch_registry.allows_custom_ui(ch.name):" in source
+    assert "ch.build_custom_ui(panel)" in source
 
 
 def test_plugin_rich_return_markers_are_rendered_in_streaming_and_reload_paths() -> None:

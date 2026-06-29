@@ -1,0 +1,27 @@
+{
+  "schema_version": 2,
+  "id": "mcp-backed-tool",
+  "name": "MCP Backed Tool",
+  "version": "0.1.0",
+  "min_row_bot_version": "0.0.0",
+  "author": {"name": "Row-Bot"},
+  "description": "Example plugin that declares an MCP server.",
+  "provides": {
+    "native_tools": [],
+    "mcp_servers": [
+      {
+        "id": "example_mcp",
+        "transport": "stdio",
+        "command": "python",
+        "args": ["-m", "example_mcp_server"]
+      }
+    ],
+    "channels": [],
+    "skills": []
+  },
+  "permissions": ["network"],
+  "settings": {},
+  "secrets": {},
+  "auth": {},
+  "health_checks": [{"id": "mcp_starts", "type": "mcp_server_starts"}]
+}

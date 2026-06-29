@@ -89,15 +89,80 @@ def _write_json(path: pathlib.Path, data: dict, restricted: bool = False):
 # ── Enabled State ────────────────────────────────────────────────────────────
 def is_plugin_enabled(plugin_id: str) -> bool:
     _ensure_loaded()
-    return _state.get(plugin_id, {}).get("enabled", True)  # auto-enable by default
+    return _state.get(plugin_id, {}).get("enabled", False)
 
 
 def set_plugin_enabled(plugin_id: str, enabled: bool) -> None:
     _ensure_loaded()
     _state.setdefault(plugin_id, {})["enabled"] = enabled
     _save_state()
+    if not enabled:
+        try:
+            from row_bot.channels import registry as channel_registry
+
+            channel_registry.unregister_plugin_channels(str(plugin_id))
+        except Exception:
+            logger.debug("Plugin channel unregister skipped for %s", plugin_id, exc_info=True)
     _invalidate_agent_cache()
     logger.info("Plugin '%s' %s", plugin_id, "enabled" if enabled else "disabled")
+
+
+def mark_plugin_installed(
+    plugin_id: str,
+    *,
+    version: str = "",
+    source: str = "local",
+    source_ref: str = "",
+) -> None:
+    """Record an installed plugin without enabling it by default."""
+
+    _ensure_loaded()
+    record = _state.setdefault(str(plugin_id), {})
+    record["enabled"] = False
+    record.pop("health", None)
+    record["installed"] = {
+        "version": str(version or ""),
+        "source": str(source or "local"),
+        "source_ref": str(source_ref or ""),
+        "installed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _save_state()
+
+
+def get_plugin_install_info(plugin_id: str) -> dict[str, Any]:
+    _ensure_loaded()
+    installed = _state.get(str(plugin_id), {}).get("installed", {})
+    return dict(installed) if isinstance(installed, dict) else {}
+
+
+def set_plugin_health_result(
+    plugin_id: str,
+    *,
+    ok: bool,
+    checks: list[dict[str, Any]],
+) -> None:
+    """Record the latest local Plugin Center health/test result."""
+
+    _ensure_loaded()
+    _state.setdefault(str(plugin_id), {})["health"] = {
+        "ok": bool(ok),
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "checks": list(checks),
+    }
+    _save_state()
+
+
+def get_plugin_health_result(plugin_id: str) -> dict[str, Any]:
+    _ensure_loaded()
+    health = _state.get(str(plugin_id), {}).get("health", {})
+    return dict(health) if isinstance(health, dict) else {}
+
+
+def clear_plugin_health_result(plugin_id: str) -> None:
+    _ensure_loaded()
+    record = _state.get(str(plugin_id), {})
+    if isinstance(record, dict) and record.pop("health", None) is not None:
+        _save_state()
 
 
 # ── Configuration ────────────────────────────────────────────────────────────
@@ -108,7 +173,9 @@ def get_plugin_config(plugin_id: str, key: str, default: Any = None) -> Any:
 
 def set_plugin_config(plugin_id: str, key: str, value: Any) -> None:
     _ensure_loaded()
-    _state.setdefault(plugin_id, {}).setdefault("config", {})[key] = value
+    record = _state.setdefault(plugin_id, {})
+    record.setdefault("config", {})[key] = value
+    record.pop("health", None)
     _save_state()
 
 
@@ -149,15 +216,19 @@ def set_plugin_secret(plugin_id: str, key: str, value: str) -> None:
         secret_store.set_secret(_secret_name(plugin_id, key), value, namespace=_SECRETS_NAMESPACE)
     except secret_store.SecretStoreError as exc:
         _session_secrets.setdefault(plugin_id, {})[key] = value
+        _state.setdefault(plugin_id, {}).pop("health", None)
+        _save_state()
         logger.warning("Using session-only plugin secret storage for %s/%s: %s", plugin_id, key, exc)
         return
     _session_secrets.get(plugin_id, {}).pop(key, None)
+    _state.setdefault(plugin_id, {}).pop("health", None)
     metadata = _ensure_secret_metadata()
     metadata.setdefault("plugins", {}).setdefault(plugin_id, {})[key] = {
         "configured": True,
         "fingerprint": secret_store.fingerprint(value),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+    _save_state()
     _save_secrets()
 
 
@@ -165,6 +236,7 @@ def delete_plugin_secret(plugin_id: str, key: str) -> None:
     _ensure_loaded()
     plugin_id = str(plugin_id)
     key = str(key)
+    _state.setdefault(plugin_id, {}).pop("health", None)
     try:
         secret_store.delete_secret(_secret_name(plugin_id, key), namespace=_SECRETS_NAMESPACE)
     except secret_store.SecretStoreError:
@@ -174,12 +246,14 @@ def delete_plugin_secret(plugin_id: str, key: str) -> None:
         plugin_secrets = _secrets.get(plugin_id, {})
         if isinstance(plugin_secrets, dict):
             plugin_secrets.pop(key, None)
+        _save_state()
         _save_secrets()
         return
     metadata = _ensure_secret_metadata()
     plugin_meta = metadata.setdefault("plugins", {}).get(plugin_id, {})
     if isinstance(plugin_meta, dict):
         plugin_meta.pop(key, None)
+    _save_state()
     _save_secrets()
 
 
@@ -213,6 +287,12 @@ def remove_plugin_state(plugin_id: str) -> None:
         except secret_store.SecretStoreError:
             pass
     _state.pop(plugin_id, None)
+    try:
+        from row_bot.channels import registry as channel_registry
+
+        channel_registry.unregister_plugin_channels(plugin_id)
+    except Exception:
+        logger.debug("Plugin channel unregister skipped for %s", plugin_id, exc_info=True)
     _secrets.pop(plugin_id, None)
     if not _is_legacy_secrets_file(_secrets):
         metadata = _ensure_secret_metadata()

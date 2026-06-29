@@ -1,0 +1,24 @@
+{
+  "schema_version": 2,
+  "id": "settings-secrets-tool",
+  "name": "Settings Secrets Tool",
+  "version": "0.1.0",
+  "min_row_bot_version": "0.0.0",
+  "author": {"name": "Row-Bot"},
+  "description": "Example plugin that declares required settings and secrets.",
+  "provides": {
+    "native_tools": [{"id": "settings_echo", "entrypoint": "plugin_main.py"}],
+    "mcp_servers": [],
+    "channels": [],
+    "skills": []
+  },
+  "permissions": ["network", "account"],
+  "settings": {
+    "workspace": {"type": "local_path", "label": "Workspace", "required": true}
+  },
+  "secrets": {
+    "API_KEY": {"type": "secret", "label": "API Key", "required": true}
+  },
+  "auth": {},
+  "health_checks": [{"id": "required_setup", "type": "required_settings"}]
+}

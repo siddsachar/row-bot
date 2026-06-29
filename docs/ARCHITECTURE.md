@@ -834,25 +834,26 @@ The v4 rebrand migration is separate from the Hermes/OpenClaw migration wizard. 
 
 ## Plugin System & Marketplace
 
-A sandboxed, hot-reloadable extension system lets plugins add new tools and skills without modifying the core codebase.
+A sandboxed, hot-reloadable extension system lets plugins add native tools,
+plugin-packaged MCP-backed tools, bundled skills, and channels without
+modifying the core codebase.
 
 ### Plugin Architecture
 
-- **Plugin API** — `PluginAPI` and `PluginTool` are the core abstractions available to plugins
-- **Manifest system** — each plugin declares metadata, tools, skills, settings, and dependencies in `plugin.json`
-- **Row-Bot version metadata** — plugin manifests use Row-Bot minimum-version metadata; migrated legacy Thoth plugin manifests are repaired where possible during the v4 rebrand migration
-- **Security sandbox** — static scans block dangerous constructs like `eval`, `exec`, and shell escape paths; imports from sensitive core modules are restricted
-- **Dependency safety** — plugin dependency installs cannot silently downgrade core packages required by Row-Bot
+- **Plugin API** — `PluginAPI`, `PluginTool`, and public channel base exports are the abstractions available to plugins through `plugins.api`
+- **Manifest system** — each plugin declares v2 metadata, supported surfaces (`native_tools`, `mcp_servers`, `channels`, and `skills`), settings, secrets, auth, permissions, and health checks in `plugin.json`
+- **Security sandbox** — AST scans block dangerous constructs like `eval`, `exec`, `subprocess`, shell escape paths, UI frameworks, and imports from Row-Bot internals
+- **Dependency safety** — v2 plugins do not install Python dependencies into Row-Bot's runtime environment; plugin-packaged MCP servers provide an external process boundary when needed
 - **State persistence** — enablement and non-secret config are stored under `~/.row-bot/plugin_state.json`; plugin API-key secrets use the OS credential store with metadata-only `plugin_secrets.json` state and session-only fallback for new saves when keyring is unavailable
 - **Hot reload** — Settings can reload plugins without restarting the app; agent caches are cleared automatically
-- **Skill auto-discovery** — plugin `skills/` directories are scanned for `SKILL.md` definitions and injected like built-in skills
+- **Skill auto-discovery** — plugin `skills/` directories are scanned for `SKILL.md` definitions and injected only while the owning plugin is enabled
 
 ### Marketplace
 
-- **Marketplace index** — remote plugin catalog fetched from GitHub-hosted JSON with caching and update checks
-- **Browse dialog** — search, inspect, and install plugins from within the app
-- **Install / update / uninstall** — plugin archives are validated before install and reloaded immediately afterward
-- **Per-plugin settings UI** — each installed plugin gets config controls, secret inputs, and enable/disable toggles in Settings
+- **Marketplace index** — v2 plugin catalog fetched from GitHub-hosted JSON or a local fixture index, with caching, stale-cache fallback, checksums, source metadata, and update checks
+- **Browse dialog** — search, inspect, review permissions, and install plugins from within the app
+- **Install / update / uninstall** — plugins are validated before install, installed disabled by default, checksum-verified when catalog data provides a `sha256:` value, and reloaded immediately afterward
+- **Native Plugin Center** — one Row-Bot-owned UI renders per-plugin metadata, permissions, settings, secrets, auth, health checks, tools, channels, skills, logs, updates, and enable/disable controls; plugin-owned channels do not render arbitrary custom UI
 - **Custom Tool bridge** — promoted Custom Tools are registered through the plugin/tool surface as synthetic local tools so normal chat can use them without adding a separate extension mechanism
 
 ---

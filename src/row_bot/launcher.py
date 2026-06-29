@@ -2377,6 +2377,18 @@ def _restore_data(selector: str | None = None) -> int:
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=f"Launch {APP_DISPLAY_NAME}")
+    subparsers = parser.add_subparsers(dest="command")
+    plugins_parser = subparsers.add_parser("plugins", help="Plugin developer utilities")
+    plugin_sub = plugins_parser.add_subparsers(dest="plugins_command", required=True)
+    validate_parser = plugin_sub.add_parser("validate", help="Validate a plugin directory")
+    validate_parser.add_argument("path")
+    link_parser = plugin_sub.add_parser("link", help="Link a local plugin directory")
+    link_parser.add_argument("path")
+    reload_parser = plugin_sub.add_parser("reload", help="Reload one linked or installed plugin")
+    reload_parser.add_argument("plugin_id")
+    doctor_parser = plugin_sub.add_parser("doctor", help="Validate setup and required config for a plugin")
+    doctor_parser.add_argument("plugin")
+
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--browser", action="store_true", help=f"Open {APP_DISPLAY_NAME} in the system browser")
     mode.add_argument("--native", action="store_true", help=f"Open {APP_DISPLAY_NAME} in a pywebview native window")
@@ -2426,6 +2438,10 @@ def main(argv: list[str] | None = None) -> None:
         frozen=getattr(sys, "frozen", False),
     )
     args = _build_arg_parser().parse_args(argv)
+    if getattr(args, "command", "") == "plugins":
+        from row_bot.plugins import devtools as plugin_devtools
+
+        raise SystemExit(plugin_devtools.run_cli(args))
     preferred_mode = "browser" if args.browser else "native" if args.native else None
     linux_default_direct = sys.platform.startswith("linux") and not args.tray
     direct = args.server or args.no_tray or linux_default_direct

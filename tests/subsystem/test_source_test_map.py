@@ -109,6 +109,25 @@ def test_updater_change_selects_updater_and_installer_contracts() -> None:
     assert "tests/contracts/installers" in selection.test_paths
 
 
+def test_plugin_change_selects_plugin_contracts_and_integration_lanes() -> None:
+    selection = select_tests_for_changes(
+        [
+            "src/row_bot/plugins/manifest.py",
+            "src/row_bot/plugins/mcp.py",
+            "scripts/build_plugin_index.py",
+            "docs/PLUGIN_SYSTEM_V2.md",
+            "examples/plugins/hello-tool/plugin.json",
+        ]
+    )
+
+    assert "plugins" in selection.matched_rules
+    assert "tests/contracts/plugins/test_plugin_api_contract.py" in selection.test_paths
+    assert "tests/subsystem/plugins" in selection.test_paths
+    assert "tests/subsystem/mcp/test_mcp_runtime_tools.py" in selection.test_paths
+    assert "tests/subsystem/channels/test_channel_registry.py" in selection.test_paths
+    assert not selection.unmatched_files
+
+
 def test_installer_change_selects_installer_contracts() -> None:
     selection = select_tests_for_changes([".github/workflows/release.yml", "installer/build_linux_app.sh"])
 

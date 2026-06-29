@@ -45,7 +45,7 @@ def build_channel_monitor(open_settings: Callable[..., None]) -> None:
     def _build_channel_monitor() -> None:
         try:
             from row_bot.channels.base import get_last_activity
-            from row_bot.channels.registry import all_channels
+            from row_bot.channels.registry import all_channels, get_source
 
             channels = all_channels()
         except Exception:
@@ -116,6 +116,11 @@ def build_channel_monitor(open_settings: Callable[..., None]) -> None:
                         "font-size: 0.8rem; flex-grow: 1;"
                         + ("opacity: 0.45;" if not is_configured else "")
                     )
+                    source = get_source(channel.name)
+                    if source.kind == "plugin":
+                        ui.badge("plugin", color="blue-grey").props("outline dense").tooltip(
+                            source.label or source.plugin_id
+                        )
                     ui.label(status_text).classes("text-grey-6").style(
                         "font-size: 0.7rem; flex-shrink: 0;"
                     )

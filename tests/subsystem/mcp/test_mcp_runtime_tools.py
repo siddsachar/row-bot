@@ -240,3 +240,77 @@ def test_langchain_wrappers_allow_filters_destructive_names_and_status(monkeypat
     assert summary["connected_server_count"] == 1
     assert summary["tool_count"] == 2
     assert summary["destructive_tool_count"] == 1
+
+
+def test_plugin_mcp_runtime_filters_tools_by_plugin_source(monkeypatch) -> None:
+    from row_bot.mcp_client import runtime
+
+    plugin_cfg = {
+        "enabled": True,
+        "transport": "stdio",
+        "source": {
+            "kind": "plugin",
+            "plugin_id": "office-plugin",
+            "plugin_name": "Office Plugin",
+            "server_id": "office",
+        },
+        "tools": {"enabled": {"search_mail": True, "delete_mail": True}},
+    }
+    other_cfg = {
+        "enabled": True,
+        "transport": "stdio",
+        "source": {
+            "kind": "plugin",
+            "plugin_id": "other-plugin",
+            "plugin_name": "Other Plugin",
+            "server_id": "other",
+        },
+        "tools": {"enabled": {"search_mail": True}},
+    }
+    monkeypatch.setattr(
+        runtime,
+        "_get_effective_config",
+        lambda: {
+            "enabled": True,
+            "servers": {
+                "plugin_office_plugin_office": plugin_cfg,
+                "plugin_other_plugin_other": other_cfg,
+            },
+        },
+    )
+    monkeypatch.setattr(runtime, "discover_enabled_servers", lambda: None)
+
+    with runtime._runtime_lock:
+        runtime._servers["plugin_office_plugin_office"] = runtime.McpServerRuntime(
+            "plugin_office_plugin_office",
+            {"tool_timeout": 1},
+        )
+        runtime._servers["plugin_other_plugin_other"] = runtime.McpServerRuntime(
+            "plugin_other_plugin_other",
+            {"tool_timeout": 1},
+        )
+        runtime._catalog["plugin_office_plugin_office"] = runtime._normalize_tools(
+            "plugin_office_plugin_office",
+            plugin_cfg,
+            [
+                FakeMcpTool("search_mail", "Search mail", {"type": "object"}),
+                FakeMcpTool("delete_mail", "Delete mail", {"type": "object"}),
+            ],
+        )
+        runtime._catalog["plugin_other_plugin_other"] = runtime._normalize_tools(
+            "plugin_other_plugin_other",
+            other_cfg,
+            [FakeMcpTool("search_mail", "Search mail", {"type": "object"})],
+        )
+
+    tools = runtime.get_plugin_langchain_tools("office-plugin")
+    destructive = runtime.get_plugin_destructive_tool_names("office-plugin")
+    records = runtime.get_plugin_tool_records("office-plugin")
+
+    assert [tool.name for tool in tools] == [
+        "mcp_plugin_office_plugin_office_search_mail",
+        "mcp_plugin_office_plugin_office_delete_mail",
+    ]
+    assert destructive == {"mcp_plugin_office_plugin_office_delete_mail"}
+    assert [record["plugin_id"] for record in records] == ["office-plugin", "office-plugin"]
+    assert all(record["source"] == "mcp" for record in records)

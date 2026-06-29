@@ -16,6 +16,8 @@ import tempfile
 import zipfile
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 from row_bot.data_paths import get_row_bot_data_dir
 
@@ -42,7 +44,15 @@ class InstallResult:
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
-def install_plugin(plugin_id: str, *, source_dir: pathlib.Path | None = None) -> InstallResult:
+def install_plugin(
+    plugin_id: str,
+    *,
+    source_dir: pathlib.Path | None = None,
+    source: str | None = None,
+    source_ref: str = "",
+    archive_url: str = "",
+    expected_checksum: str | None = None,
+) -> InstallResult:
     """Install a plugin.
 
     If *source_dir* is provided, copies from that directory (local install).
@@ -66,23 +76,41 @@ def install_plugin(plugin_id: str, *, source_dir: pathlib.Path | None = None) ->
                     message=f"Source directory not found: {source_dir}",
                 )
             shutil.copytree(source_dir, dest)
+        elif archive_url:
+            _download_plugin_archive(plugin_id, dest, archive_url)
         else:
             # Download from repo
             _download_plugin(plugin_id, dest)
 
-        # Validate manifest exists
-        manifest_path = dest / "plugin.json"
-        if not manifest_path.exists():
+        checksum_error = _verify_checksum(dest, expected_checksum)
+        if checksum_error:
             shutil.rmtree(dest, ignore_errors=True)
             return InstallResult(
                 success=False, plugin_id=plugin_id,
-                message="Downloaded plugin is missing plugin.json",
+                message=checksum_error,
             )
 
-        # Parse manifest for version
-        with open(manifest_path, "r", encoding="utf-8") as f:
-            manifest_data = json.load(f)
-        version = manifest_data.get("version", "?")
+        # Validate manifest exists and conforms to the v2 contract.
+        try:
+            from row_bot.plugins.manifest import parse_manifest
+
+            manifest = parse_manifest(dest)
+        except Exception as exc:
+            shutil.rmtree(dest, ignore_errors=True)
+            return InstallResult(
+                success=False, plugin_id=plugin_id,
+                message=f"Installed plugin manifest is invalid: {exc}",
+            )
+        if manifest.id != plugin_id:
+            shutil.rmtree(dest, ignore_errors=True)
+            return InstallResult(
+                success=False, plugin_id=plugin_id,
+                message=(
+                    f"Manifest id '{manifest.id}' does not match requested "
+                    f"plugin id '{plugin_id}'"
+                ),
+            )
+        version = manifest.version
 
         # Security scan
         from row_bot.plugins.loader import _security_scan
@@ -94,21 +122,21 @@ def install_plugin(plugin_id: str, *, source_dir: pathlib.Path | None = None) ->
                 message=f"Security check failed: {sec_err}",
             )
 
-        # Check and install dependencies
-        deps = manifest_data.get("python_dependencies", [])
-        if deps:
-            dep_result = _install_plugin_deps(deps)
-            if not dep_result.success:
-                shutil.rmtree(dest, ignore_errors=True)
-                return InstallResult(
-                    success=False, plugin_id=plugin_id,
-                    message=f"Dependency conflict: {dep_result.message}",
-                )
+        from row_bot.plugins import state as plugin_state
+
+        install_source = source or ("local" if source_dir else "marketplace")
+        install_ref = source_ref or (str(source_dir) if source_dir else archive_url or DEFAULT_REPO_URL)
+        plugin_state.mark_plugin_installed(
+            plugin_id,
+            version=version,
+            source=install_source,
+            source_ref=install_ref,
+        )
 
         logger.info("Plugin '%s' v%s installed to %s", plugin_id, version, dest)
         return InstallResult(
             success=True, plugin_id=plugin_id, version=version,
-            message=f"Plugin '{plugin_id}' v{version} installed successfully",
+            message=f"Plugin '{plugin_id}' v{version} installed disabled pending setup",
         )
 
     except Exception as exc:
@@ -122,7 +150,15 @@ def install_plugin(plugin_id: str, *, source_dir: pathlib.Path | None = None) ->
         )
 
 
-def update_plugin(plugin_id: str, *, source_dir: pathlib.Path | None = None) -> InstallResult:
+def update_plugin(
+    plugin_id: str,
+    *,
+    source_dir: pathlib.Path | None = None,
+    source: str | None = None,
+    source_ref: str = "",
+    archive_url: str = "",
+    expected_checksum: str | None = None,
+) -> InstallResult:
     """Update an installed plugin.
 
     Backs up the current version, installs the new one, and rolls back
@@ -143,7 +179,14 @@ def update_plugin(plugin_id: str, *, source_dir: pathlib.Path | None = None) -> 
         shutil.move(str(dest), str(backup))
 
         # Install new version
-        result = install_plugin(plugin_id, source_dir=source_dir)
+        result = install_plugin(
+            plugin_id,
+            source_dir=source_dir,
+            source=source,
+            source_ref=source_ref,
+            archive_url=archive_url,
+            expected_checksum=expected_checksum,
+        )
 
         if result.success:
             # Remove backup
@@ -226,58 +269,111 @@ def get_installed_version(plugin_id: str) -> str | None:
 
 
 # ── Download ─────────────────────────────────────────────────────────────────
+def _verify_checksum(plugin_dir: pathlib.Path, expected_checksum: str | None) -> str | None:
+    expected = (expected_checksum or "").strip()
+    if not expected:
+        return None
+    if not expected.lower().startswith("sha256:"):
+        return f"Unsupported plugin checksum format: {expected}"
+    from row_bot.plugins.devtools import compute_plugin_checksum
+
+    actual = compute_plugin_checksum(plugin_dir)
+    if actual.lower() != expected.lower():
+        return f"Checksum mismatch: expected {expected}, got {actual}"
+    return None
+
+
 def _download_plugin(plugin_id: str, dest: pathlib.Path) -> None:
     """Download a plugin from the monorepo.
 
     Downloads the plugin directory as a zip from GitHub's archive API
     and extracts just the plugin's subdirectory.
     """
-    import urllib.request
-
     # GitHub archive URL: downloads entire repo as zip
     archive_url = f"{DEFAULT_REPO_URL}/archive/refs/heads/main.zip"
+    _download_plugin_archive(plugin_id, dest, archive_url)
+
+
+def _download_plugin_archive(plugin_id: str, dest: pathlib.Path, archive_url: str) -> None:
+    """Download or read a zip archive and extract one plugin directory."""
+
     logger.info("Downloading plugin '%s' from %s", plugin_id, archive_url)
 
     with tempfile.TemporaryDirectory() as tmp:
         zip_path = pathlib.Path(tmp) / "repo.zip"
+        _download_to_file(archive_url, zip_path)
 
-        req = urllib.request.Request(
-            archive_url, headers={"User-Agent": "Row-Bot-Plugin-Installer"}
-        )
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            with open(zip_path, "wb") as f:
-                f.write(resp.read())
-
-        # Extract the plugin directory from the zip
         with zipfile.ZipFile(zip_path, "r") as zf:
-            # GitHub zips have a top-level dir like "row-bot-plugins-main/"
-            top_dirs = {name.split("/")[0] for name in zf.namelist() if "/" in name}
-            if len(top_dirs) != 1:
-                raise ValueError(f"Unexpected zip structure: {top_dirs}")
-            top = top_dirs.pop()
-
-            # The plugin should be at top/plugins/{plugin_id}/
-            prefix = f"{top}/plugins/{plugin_id}/"
-            members = [n for n in zf.namelist() if n.startswith(prefix)]
-            if not members:
-                raise FileNotFoundError(
-                    f"Plugin '{plugin_id}' not found in marketplace repo"
-                )
-
-            # Extract to temp, then move to dest
             extract_dir = pathlib.Path(tmp) / "extracted"
-            for member in members:
-                zf.extract(member, extract_dir)
+            _safe_extract_zip(zf, extract_dir)
 
-            extracted_plugin = extract_dir / top / "plugins" / plugin_id
-            if not extracted_plugin.is_dir():
-                raise FileNotFoundError(
-                    f"Extracted plugin directory not found: {extracted_plugin}"
-                )
-
-            shutil.copytree(extracted_plugin, dest)
+        extracted_plugin = _find_extracted_plugin_dir(extract_dir, plugin_id)
+        shutil.copytree(extracted_plugin, dest)
 
     logger.info("Downloaded plugin '%s' to %s", plugin_id, dest)
+
+
+def _download_to_file(ref: str, dest: pathlib.Path) -> None:
+    local_path = _local_path_from_ref(ref)
+    if local_path is not None:
+        shutil.copyfile(local_path, dest)
+        return
+
+    import urllib.request
+
+    req = urllib.request.Request(
+        ref, headers={"User-Agent": "Row-Bot-Plugin-Installer"}
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        with open(dest, "wb") as f:
+            f.write(resp.read())
+
+
+def _safe_extract_zip(zf: zipfile.ZipFile, dest: pathlib.Path) -> None:
+    dest.mkdir(parents=True, exist_ok=True)
+    dest_resolved = dest.resolve()
+    for member in zf.infolist():
+        target = (dest / member.filename).resolve()
+        try:
+            target.relative_to(dest_resolved)
+        except ValueError:
+            raise ValueError(f"Unsafe zip member path: {member.filename}")
+        zf.extract(member, dest)
+
+
+def _find_extracted_plugin_dir(extract_dir: pathlib.Path, plugin_id: str) -> pathlib.Path:
+    candidates = sorted({path.parent for path in extract_dir.rglob("plugin.json")})
+    matching: list[pathlib.Path] = []
+    for candidate in candidates:
+        try:
+            raw = json.loads((candidate / "plugin.json").read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(raw, dict) and str(raw.get("id", "")) == plugin_id:
+            matching.append(candidate)
+    if len(matching) == 1:
+        return matching[0]
+    if len(matching) > 1:
+        raise ValueError(f"Archive contains multiple plugin.json files for '{plugin_id}'")
+    if len(candidates) == 1:
+        return candidates[0]
+    raise FileNotFoundError(f"Plugin '{plugin_id}' not found in archive")
+
+
+def _local_path_from_ref(ref: str) -> pathlib.Path | None:
+    if not ref:
+        return None
+    candidate = pathlib.Path(ref).expanduser()
+    if candidate.is_file():
+        return candidate.resolve()
+    parsed = urlparse(ref)
+    if parsed.scheme != "file":
+        return None
+    raw_path = url2pathname(parsed.path)
+    if parsed.netloc:
+        raw_path = f"//{parsed.netloc}{raw_path}"
+    path = pathlib.Path(raw_path).expanduser()
+    return path.resolve() if path.is_file() else None
 
 
 # ── Dependency Installation ──────────────────────────────────────────────────
