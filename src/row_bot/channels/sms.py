@@ -163,6 +163,7 @@ def build_channel_runtime_config(config: dict, purpose: str) -> dict:
             **(config.get("configurable") or {}),
             "runtime_surface": runtime_surface,
             "runtime_mode": runtime_mode,
+            "channel_streaming": False,
             "approval_mode": approval_mode_for_config(config),
         },
     }

@@ -96,7 +96,10 @@ def _mode_guidelines(mode: str) -> str:
             "  (b) split content to an additional page via designer_add_page.\n"
             "  Never ship a document with an unresolved overflow finding.\n"
             "- After the tool calls, give a one- or two-sentence chat summary of\n"
-            "  what you wrote — never repeat the full document body in chat.\n"
+            "  what you wrote or changed; never repeat the full document body in\n"
+            "  chat. Brief live progress updates while inspecting, editing,\n"
+            "  rendering, or validating are allowed, but keep them concise and\n"
+            "  do not paste document/page body content into chat.\n"
         )
     if m == "storyboard":
         return (

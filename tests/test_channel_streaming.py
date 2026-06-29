@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 import queue
 
 
@@ -88,3 +89,36 @@ def test_telegram_stream_consumer_returns_none_when_final_edit_fails():
     assert result is None
     assert edits[0] == "first"
     assert any("complete" in edit for edit in edits)
+
+
+def test_channel_final_answer_prefers_model_text_over_tool_reports():
+    from row_bot.channels.agent_output import assemble_agent_answer
+
+    answer = assemble_agent_answer("Here is the answer.", ["Using Search...", "Search done"])
+
+    assert answer == "Here is the answer."
+
+
+def test_channel_final_answer_falls_back_to_tool_reports_without_model_text():
+    from row_bot.channels.agent_output import assemble_agent_answer
+
+    answer = assemble_agent_answer("  ", ["Using Search...", "Search done"])
+
+    assert answer == "Using Search...\nSearch done"
+
+
+def test_channel_runtime_marks_stream_capable_adapters_and_leaves_sms_nonstreaming():
+    streaming_paths = [
+        "src/row_bot/channels/telegram.py",
+        "src/row_bot/channels/slack.py",
+        "src/row_bot/channels/discord_channel.py",
+        "src/row_bot/channels/whatsapp.py",
+    ]
+    for path in streaming_paths:
+        source = Path(path).read_text(encoding="utf-8")
+        assert '"channel_streaming": purpose != "approval"' in source
+        assert "assemble_agent_answer" in source
+
+    sms_source = Path("src/row_bot/channels/sms.py").read_text(encoding="utf-8")
+    assert '"channel_streaming": False' in sms_source
+    assert "assemble_agent_answer" not in sms_source

@@ -203,6 +203,7 @@ def build_channel_runtime_config(config: dict, purpose: str) -> dict:
             **(config.get("configurable") or {}),
             "runtime_surface": runtime_surface,
             "runtime_mode": runtime_mode,
+            "channel_streaming": purpose != "approval",
             "approval_mode": approval_mode_for_config(config),
         },
     }
@@ -255,11 +256,9 @@ def _run_agent_sync(user_text: str, config: dict,
         if event_queue is not None:
             event_queue.put((event_type, payload))
 
-    answer = "".join(full_answer)
-    if tool_reports and answer:
-        answer = "\n".join(tool_reports) + "\n\n" + answer
-    elif tool_reports:
-        answer = "\n".join(tool_reports)
+    from row_bot.channels.agent_output import assemble_agent_answer
+
+    answer = assemble_agent_answer("".join(full_answer), tool_reports)
 
     if event_queue is not None:
         event_queue.put(None)  # sentinel
@@ -318,11 +317,9 @@ def _resume_agent_sync(config: dict, approved: bool,
             if payload and not full_answer:
                 full_answer.append(payload)
 
-    answer = "".join(full_answer)
-    if tool_reports and answer:
-        answer = "\n".join(tool_reports) + "\n\n" + answer
-    elif tool_reports:
-        answer = "\n".join(tool_reports)
+    from row_bot.channels.agent_output import assemble_agent_answer
+
+    answer = assemble_agent_answer("".join(full_answer), tool_reports)
 
     captured_images: list[bytes] = []
     captured_video_paths: list[str] = []

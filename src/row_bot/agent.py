@@ -831,6 +831,37 @@ def _agent_runtime_system_context() -> str:
         f"Approval mode for action-capable tools: {get_approval_mode()}. "
         f"{tool_line}"
     )
+
+
+def _interactive_progress_contract(runtime_surface: str) -> str:
+    """Return progress-update guidance for interactive streamed agent turns."""
+    selected_mode = str(_current_selected_runtime_mode_var.get("") or "")
+    surface = str(runtime_surface or "").strip()
+    if selected_mode != "agent":
+        return ""
+    if is_background_workflow():
+        return ""
+    if surface == "channel" and not _current_channel_streaming_var.get(False):
+        return ""
+    if surface not in {"normal_chat", "designer", "developer", "channel"}:
+        return ""
+
+    parts = [
+        "INTERACTIVE PROGRESS:",
+        "For interactive work that will take multiple tool calls or more than a few seconds, "
+        "stream occasional short user-facing progress updates before or between meaningful phases.",
+        "Write them naturally in your own voice. Do not use a fixed template, do not narrate "
+        "every tool call, and do not mention low-level tool names unless the user needs that detail.",
+        "Never reveal hidden reasoning, private secrets, raw logs, or unapproved content.",
+        "Skip progress updates for quick answers. Keep the final answer focused on results and "
+        "avoid repeating the live updates.",
+    ]
+    if surface == "channel":
+        parts.append(
+            "For channel conversations, keep progress updates especially sparse because message "
+            "edits may notify the user."
+        )
+    return "\n".join(parts)
 # Extra tokens to account for content injected by _pre_model_trim that is NOT
 # stored in the checkpoint: skills prompt, date/time line, auto-recalled
 # memories, per-message framing tokens.
@@ -1579,6 +1610,16 @@ def _pre_model_trim(state: dict) -> dict:
     except Exception:
         pass
 
+    progress_contract = _interactive_progress_contract(_current_runtime_surface_var.get(""))
+    if progress_contract:
+        _section = ephemeral_section(
+            "turn.interactive_progress",
+            progress_contract,
+            source="agent",
+        )
+        if _section is not None:
+            _ephemeral_injection_sections.append(_section)
+
     # Background-mode override
     if is_background_workflow():
         from row_bot.prompts import AGENT_BG_OVERRIDE
@@ -2045,6 +2086,9 @@ _current_agent_profile_snapshot_var: _contextvars.ContextVar[dict] = _contextvar
 _current_tool_allowlist_var: _contextvars.ContextVar[tuple[str, ...]] = _contextvars.ContextVar(
     "current_tool_allowlist", default=()
 )
+_current_channel_streaming_var: _contextvars.ContextVar[bool] = _contextvars.ContextVar(
+    "current_channel_streaming", default=False
+)
 
 
 def get_current_thread_id() -> str:
@@ -2068,6 +2112,7 @@ def get_active_runtime_context() -> dict:
         "enabled_tool_names": tuple(_current_enabled_tool_names_var.get(()) or ()),
         "tool_allowlist": tuple(_current_tool_allowlist_var.get(()) or ()),
         "agent_profile_id": _current_agent_profile_id_var.get(""),
+        "channel_streaming": bool(_current_channel_streaming_var.get(False)),
     }
 
 
@@ -2085,6 +2130,7 @@ def _set_active_runtime_context(
     tool_allowlist: list[str] | tuple[str, ...] | None = None,
     agent_profile_id: str = "",
     agent_profile_snapshot: dict | None = None,
+    channel_streaming: bool = False,
 ) -> None:
     _current_thread_id_var.set(thread_id or "")
     _current_runtime_surface_var.set(runtime_surface or "")
@@ -2098,6 +2144,7 @@ def _set_active_runtime_context(
     _current_tool_allowlist_var.set(tuple(tool_allowlist or ()))
     _current_agent_profile_id_var.set(agent_profile_id or "")
     _current_agent_profile_snapshot_var.set(dict(agent_profile_snapshot or {}))
+    _current_channel_streaming_var.set(bool(channel_streaming))
 
 
 def _agent_profile_system_context(thread_id: str = "") -> str:
@@ -3051,6 +3098,7 @@ def invoke_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         tool_allowlist=_tool_allowlist,
         agent_profile_id=str(configurable.get("agent_profile_id") or ""),
         agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
+        channel_streaming=bool(configurable.get("channel_streaming")),
     )
     _developer_context_var.set(
         configurable.get("developer_context", "") or ""
@@ -3456,6 +3504,7 @@ def stream_chat_only(
         enabled_tool_names=(),
         agent_profile_id=str(configurable.get("agent_profile_id") or ""),
         agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
+        channel_streaming=bool(configurable.get("channel_streaming")),
     )
     set_active_model_override(model_label)
     _readiness_started = time.perf_counter()
@@ -3687,6 +3736,7 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         tool_allowlist=_tool_allowlist,
         agent_profile_id=str(configurable.get("agent_profile_id") or ""),
         agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
+        channel_streaming=bool(configurable.get("channel_streaming")),
     )
     auto_allowed = runtime_mode == "auto" and runtime_surface in {"normal_chat", "channel"}
     if runtime_mode == "chat_only" or auto_allowed:
@@ -3781,6 +3831,7 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         tool_allowlist=_tool_allowlist,
         agent_profile_id=str(configurable.get("agent_profile_id") or ""),
         agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
+        channel_streaming=bool(configurable.get("channel_streaming")),
     )
     _developer_context_var.set(
         (config.get("configurable") or {}).get("developer_context", "") or ""
@@ -3903,6 +3954,7 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
         tool_allowlist=_tool_allowlist,
         agent_profile_id=str(configurable.get("agent_profile_id") or ""),
         agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
+        channel_streaming=bool(configurable.get("channel_streaming")),
     )
     _developer_context_var.set(
         configurable.get("developer_context", "") or ""
@@ -3951,6 +4003,7 @@ def resume_invoke_agent(enabled_tool_names: list[str], config: dict, approved: b
         tool_allowlist=_tool_allowlist,
         agent_profile_id=str(configurable.get("agent_profile_id") or ""),
         agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
+        channel_streaming=bool(configurable.get("channel_streaming")),
     )
     _developer_context_var.set(
         configurable.get("developer_context", "") or ""
