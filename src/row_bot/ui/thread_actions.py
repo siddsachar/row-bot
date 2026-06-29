@@ -36,6 +36,14 @@ def apply_thread_rename(thread_id: str, new_name: str, *, state: Any | None = No
     return saved_name
 
 
+def apply_thread_pin(thread_id: str, pinned: bool) -> str:
+    """Set a conversation pin state and return the stored pin timestamp."""
+
+    from row_bot.threads import set_thread_pinned
+
+    return set_thread_pinned(thread_id, pinned)
+
+
 def _dialog_initial_name(thread_id: str, current_name: str) -> str:
     try:
         from row_bot.threads import _get_thread_project_id

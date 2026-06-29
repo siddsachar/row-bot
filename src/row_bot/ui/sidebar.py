@@ -35,6 +35,8 @@ THREAD_FILTER_DESCRIPTORS: tuple[dict[str, str], ...] = (
     {"key": "code", "label": "Code", "icon": "code"},
     {"key": "workflow", "label": "Workflows", "icon": "task_alt"},
 )
+_THREAD_DETAIL_PINNED_AT_INDEX = 13
+_SIDEBAR_PINNED_VISIBLE_LIMIT = 5
 _SIDEBAR_AVATAR_CSS = """
 .sb-avatar { position: relative; }
 .sb-idle { color: #64748b; }
@@ -48,6 +50,33 @@ _SIDEBAR_AVATAR_CSS = """
 .sb-state-label { font-size: 11px; }
 .sb-ring-spin { animation: sb-ring-spin 1.1s linear infinite; }
 @keyframes sb-ring-spin { to { transform: rotate(360deg); } }
+.row-bot-thread-row .row-bot-pin-toggle {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+.row-bot-thread-row .row-bot-pin-toggle-unpinned {
+  opacity: 0;
+}
+.row-bot-thread-row:hover .row-bot-pin-toggle-unpinned,
+.row-bot-thread-row:focus-within .row-bot-pin-toggle-unpinned,
+.row-bot-pin-toggle-unpinned:focus {
+  opacity: 0.64;
+}
+.row-bot-thread-row .row-bot-pin-toggle-unpinned:hover,
+.row-bot-thread-row .row-bot-pin-toggle-unpinned:focus {
+  opacity: 1;
+}
+.row-bot-thread-row .row-bot-pin-toggle-pinned {
+  opacity: 0.95;
+}
+@media (hover: none), (pointer: coarse) {
+  .row-bot-thread-row .row-bot-pin-toggle-unpinned {
+    opacity: 0.56;
+  }
+}
 """
 
 
@@ -57,6 +86,136 @@ def _is_hidden_agent_child_run(agent_run: dict) -> bool:
     thread_id = str(agent_run.get("thread_id") or "")
     parent_thread_id = str(agent_run.get("parent_thread_id") or "")
     return bool(thread_id) and thread_id != parent_thread_id
+
+
+def _thread_row_pinned_at(row: tuple) -> str:
+    return str(row[_THREAD_DETAIL_PINNED_AT_INDEX] or "") if len(row) > _THREAD_DETAIL_PINNED_AT_INDEX else ""
+
+
+def _thread_row_is_pinned(row: tuple) -> bool:
+    return bool(_thread_row_pinned_at(row).strip())
+
+
+def _thread_row_updated_at(row: tuple) -> str:
+    return str(row[3] or "") if len(row) > 3 else ""
+
+
+def _sort_classified_thread_rows(
+    rows: list[tuple],
+    *,
+    active_thread_id: str | None = "",
+    running_thread_ids: set[str] | None = None,
+) -> list[tuple]:
+    """Sort classified sidebar rows by real conversation recency.
+
+    Active, running, and pinned states are rendered as UI affordances. They do
+    not change row order, so merely selecting a thread cannot make it jump.
+    """
+
+    _ = (active_thread_id, running_thread_ids)
+    return sorted(rows, key=lambda item: _thread_row_updated_at(item[0]), reverse=True)
+
+
+def _sort_classified_thread_rows_pinned_first(rows: list[tuple]) -> list[tuple]:
+    """Sort pinned rows first, then all remaining rows by conversation recency."""
+
+    pinned_rows = sorted(
+        [item for item in rows if _thread_row_is_pinned(item[0])],
+        key=lambda item: (_thread_row_pinned_at(item[0]), _thread_row_updated_at(item[0])),
+        reverse=True,
+    )
+    recent_rows = _sort_classified_thread_rows(
+        [item for item in rows if not _thread_row_is_pinned(item[0])]
+    )
+    return pinned_rows + recent_rows
+
+
+def _filter_classified_thread_rows(rows: list[tuple], filter_key: str) -> list[tuple]:
+    if filter_key == "all":
+        return [item for item in rows if item[1] != "agents"]
+    return [item for item in rows if item[1] == filter_key]
+
+
+def _sidebar_visible_classified_sections(
+    rows: list[tuple],
+    *,
+    max_items: int = SIDEBAR_MAX_THREADS,
+    pinned_limit: int = _SIDEBAR_PINNED_VISIBLE_LIMIT,
+) -> tuple[list[tuple], list[tuple]]:
+    """Return visible pinned and recent rows for the compact sidebar."""
+
+    if max_items <= 0:
+        return [], []
+
+    pinned_rows = sorted(
+        [item for item in rows if _thread_row_is_pinned(item[0])],
+        key=lambda item: (_thread_row_pinned_at(item[0]), _thread_row_updated_at(item[0])),
+        reverse=True,
+    )
+    recent_rows = _sort_classified_thread_rows(
+        [item for item in rows if not _thread_row_is_pinned(item[0])]
+    )
+    if len(rows) <= max_items:
+        visible_pinned = pinned_rows
+    else:
+        visible_pinned = pinned_rows[: max(0, min(pinned_limit, max_items))]
+    visible_recent = recent_rows[: max(0, max_items - len(visible_pinned))]
+    return visible_pinned, visible_recent
+
+
+def _render_pin_toggle_button(
+    *,
+    is_pinned: bool,
+    on_click: Callable[[], None],
+) -> None:
+    label = "Unpin conversation" if is_pinned else "Pin conversation"
+    btn = ui.button(icon="push_pin", on_click=on_click).props(
+        f'flat dense round size=xs aria-label="{label}" '
+        + ("color=primary" if is_pinned else "color=grey-6")
+    ).classes(
+        "row-bot-pin-toggle "
+        + ("row-bot-pin-toggle-pinned" if is_pinned else "row-bot-pin-toggle-unpinned")
+    ).tooltip(label)
+    btn.on("click", js_handler="(e) => e.stopPropagation()")
+
+
+def _render_action_menu_item(
+    *,
+    label: str,
+    icon: str,
+    on_click: Callable[[], None],
+    menu: Any | None = None,
+    icon_classes: str = "text-grey-7",
+) -> None:
+    def _clicked() -> None:
+        on_click()
+        if menu is not None:
+            try:
+                menu.close()
+            except Exception:
+                logger.debug("Could not close action menu", exc_info=True)
+
+    with ui.item(on_click=_clicked).props("clickable").classes("row-bot-action-menu-item"):
+        with ui.item_section().props("avatar").style("min-width: 28px;"):
+            ui.icon(icon, size="xs").classes(icon_classes)
+        with ui.item_section():
+            ui.item_label(label)
+
+
+def _render_pin_menu_item(
+    *,
+    label: str,
+    icon: str,
+    on_click: Callable[[], None],
+    menu: Any | None = None,
+) -> None:
+    _render_action_menu_item(
+        label=label,
+        icon=icon,
+        on_click=on_click,
+        menu=menu,
+        icon_classes="text-primary",
+    )
 
 
 def _render_filter_button(
@@ -189,10 +348,11 @@ def build_sidebar(
     """
     from row_bot.threads import _list_threads, _save_thread_meta, _delete_thread, _get_thread_project_id, _get_thread_approval_mode
     from row_bot.tasks import get_running_tasks, stop_task
-    from row_bot.models import is_cloud_model, get_current_model
     from row_bot.memory_extraction import set_active_thread
     from row_bot.agent import clear_summary_cache
-    from row_bot.ui.thread_actions import show_rename_thread_dialog
+    from row_bot.ui.thread_actions import apply_thread_pin, show_rename_thread_dialog
+
+    ui.add_head_html(f"<style>{_SIDEBAR_AVATAR_CSS}</style>")
 
     # Keep a reference the caller can use
     _rebuild_thread_list_ref: list[Callable[[], None]] = [lambda: None]
@@ -405,11 +565,7 @@ def build_sidebar(
                         on_click=_set_filter,
                     )
 
-        # Apply filter
-        if _SIDEBAR_FILTER == "all":
-            classified = [c for c in classified if c[1] != "agents"]
-        else:
-            classified = [c for c in classified if c[1] == _SIDEBAR_FILTER]
+        classified = _filter_classified_thread_rows(classified, _SIDEBAR_FILTER)
 
         def _workspace_display(dev_ws: str) -> tuple[str, str]:
             try:
@@ -422,9 +578,20 @@ def build_sidebar(
                 logger.debug("Failed to load Developer workspace %s for sidebar", dev_ws, exc_info=True)
             return "Missing workspace", dev_ws
 
-        def _sidebar_display_items(rows: list[tuple], filter_key: str) -> list[tuple[str, object, str, bool]]:
+        def _sidebar_display_items(
+            rows: list[tuple],
+            filter_key: str,
+            *,
+            sort_rows: bool = True,
+        ) -> list[tuple[str, object, str, bool]]:
             global _SIDEBAR_DEV_DEFAULT_APPLIED
             _ensure_sidebar_dev_state_loaded()
+            if sort_rows:
+                rows = _sort_classified_thread_rows(
+                    rows,
+                    active_thread_id=state.thread_id,
+                    running_thread_ids=running_tids,
+                )
             if filter_key not in {"all", "code"}:
                 return [("thread", row, cat, False) for row, cat in rows]
             groups: dict[str, dict] = {}
@@ -444,9 +611,14 @@ def build_sidebar(
                         "name": workspace_name,
                         "path": workspace_path,
                         "updated": row[3] if len(row) > 3 else "",
+                        "pinned_count": 0,
                         "rows": [],
                     }
                     groups[project_ws] = group
+                if _thread_row_updated_at(row) > str(group.get("updated") or ""):
+                    group["updated"] = _thread_row_updated_at(row)
+                if _thread_row_is_pinned(row):
+                    group["pinned_count"] = int(group.get("pinned_count") or 0) + 1
                 group["rows"].append((row, cat))
 
             if (
@@ -494,9 +666,24 @@ def build_sidebar(
                 )
                 return
 
-            display_items = _sidebar_display_items(classified, _SIDEBAR_FILTER)
-            visible = display_items[:SIDEBAR_MAX_THREADS]
-            for item_kind, payload, _cat, is_developer_child in visible:
+            pinned_rows, recent_rows = _sidebar_visible_classified_sections(classified)
+            pinned_items = _sidebar_display_items(pinned_rows, _SIDEBAR_FILTER, sort_rows=False)
+            recent_items = _sidebar_display_items(recent_rows, _SIDEBAR_FILTER, sort_rows=False)
+            display_items: list[tuple[str, object, str, bool]] = []
+            if pinned_items:
+                display_items.append(("section_header", "Pinned", "", False))
+                display_items.extend(pinned_items)
+            if recent_items:
+                display_items.append(("section_header", "Recent", "", False))
+                display_items.extend(recent_items)
+            for item_kind, payload, _cat, is_developer_child in display_items:
+                if item_kind == "section_header":
+                    ui.label(str(payload)).classes(
+                        "text-grey-6 text-uppercase q-px-sm q-pt-xs"
+                    ).style(
+                        "font-size: 0.68rem; font-weight: 600; letter-spacing: 0.04em;"
+                    )
+                    continue
                 if item_kind == "developer_group":
                     group = payload
                     workspace_id = str(group.get("workspace_id", ""))
@@ -505,6 +692,7 @@ def build_sidebar(
                     is_active_workspace = (
                         state.active_developer_workspace_id == workspace_id
                         or any(row[0] == state.thread_id for row, _child_cat in group_rows)
+                        or any(row[0] in running_tids for row, _child_cat in group_rows)
                     )
 
                     def _toggle_workspace(wsid=workspace_id):
@@ -518,6 +706,9 @@ def build_sidebar(
                     caption_bits = [
                         f"{len(group_rows)} thread{'s' if len(group_rows) != 1 else ''}",
                     ]
+                    pinned_count = int(group.get("pinned_count") or 0)
+                    if pinned_count:
+                        caption_bits.append(f"{pinned_count} pinned")
                     latest = str(group.get("updated") or "")
                     if latest:
                         caption_bits.append(_fmt_ts(latest))
@@ -546,11 +737,7 @@ def build_sidebar(
                 _thread_approval_mode = _rest[4] if len(_rest) > 4 else ""
                 name = name or ""
                 is_active = tid == state.thread_id
-                is_running = tid in running_tids
-                is_generating_tid = tid in _active_generations
-                is_cloud_thread = is_cloud_model(_thread_model_ov or get_current_model())
-                is_designer_thread = bool(_thread_project_id)
-                is_code_thread = _thread_type == "code" or bool(_dev_workspace_id)
+                is_pinned = _thread_row_is_pinned(row)
 
                 async def _select(t=tid, n=name, mo=_thread_model_ov, pid=_thread_project_id, dev_ws=_dev_workspace_id, app_mode=_thread_approval_mode):
                     from row_bot.ui.voice_lifecycle import stop_voice_for_thread_change
@@ -662,7 +849,24 @@ def build_sidebar(
                         rebuild_main=rebuild_main,
                     )
 
-                item_classes = "w-full rounded"
+                def _pin(t=tid, pinned=not is_pinned):
+                    try:
+                        apply_thread_pin(t, pinned)
+                    except Exception as exc:
+                        ui.notify(str(exc), type="negative", close_button=True)
+                        return
+                    ui.notify(
+                        "Pinned conversation" if pinned else "Unpinned conversation",
+                        type="positive" if pinned else "info",
+                    )
+                    _rebuild_thread_list_ref[0]()
+                    if state.thread_id == t and state.active_developer_workspace_id:
+                        try:
+                            rebuild_main(immediate=True, reason="thread_pin")
+                        except TypeError:
+                            rebuild_main()
+
+                item_classes = "w-full rounded row-bot-thread-row"
                 item_style = "min-height: 40px; padding: 4px 8px;"
                 if is_developer_child:
                     item_classes += " developer-thread-child sidebar-thread-child"
@@ -672,41 +876,18 @@ def build_sidebar(
                     "clickable" + (" active" if is_active else "")
                 ).style(item_style):
                     with ui.item_section().props("avatar").style("min-width: 28px;"):
-                        if is_generating_tid:
-                            _thr_icon = "autorenew"
-                        elif is_running:
-                            _thr_icon = "hourglass_top"
-                        elif is_designer_thread:
-                            _thr_icon = "brush"
-                        elif is_code_thread:
-                            _thr_icon = "code"
-                        elif is_cloud_thread:
-                            _thr_icon = "cloud"
-                        elif name.startswith("\u2708\ufe0f"):
-                            _thr_icon = "send"
-                        elif name.startswith("\U0001f4e7"):
-                            _thr_icon = "email"
-                        elif name.startswith("\u26a1"):
-                            _thr_icon = "electric_bolt"
-                        elif name.startswith(chr(0xFFFD)) or "WhatsApp" in name:
-                            _thr_icon = "forum"
-                        elif name.startswith("\U0001f3ae") or "Discord" in name:
-                            _thr_icon = "sports_esports"
-                        elif name.startswith(chr(0xFFFD) + "\U0001f4f1"):
-                            _thr_icon = "textsms"
-                        elif name.startswith("\U0001f4ac"):
-                            _thr_icon = "chat"
-                        else:
-                            _thr_icon = "computer"
-                        _icon_el = ui.icon(_thr_icon, size="xs").classes(
-                            "text-primary" if is_active else "text-grey-6"
+                        _render_pin_toggle_button(
+                            is_pinned=is_pinned,
+                            on_click=lambda t=tid, pinned=not is_pinned: _pin(t, pinned),
                         )
-                        if is_generating_tid:
-                            _icon_el.classes(add="row-bot-spin")
                     with ui.item_section():
-                        ui.item_label(name).classes("ellipsis").style(
-                            "font-size: 0.85rem;" + ("font-weight: 600;" if is_active else "")
-                        )
+                        with ui.row().classes("items-center no-wrap gap-1").style(
+                            "min-width: 0; max-width: 100%;"
+                        ):
+                            ui.item_label(name).classes("ellipsis").style(
+                                "font-size: 0.85rem; min-width: 0; flex: 1 1 auto;"
+                                + ("font-weight: 600;" if is_active else "")
+                            )
                         if updated:
                             ui.item_label(_fmt_ts(updated)).props("caption").classes("text-grey-7").style(
                                 "font-size: 0.7rem;"
@@ -715,10 +896,28 @@ def build_sidebar(
                         action_btn = ui.button(icon="more_vert").props("flat dense round size=xs color=grey-6")
                         action_btn.on("click", js_handler="(e) => e.stopPropagation()")
                         with action_btn:
-                            with ui.menu():
-                                ui.menu_item("Rename", on_click=lambda t=tid, n=name: _rename(t, n))
+                            with ui.menu() as action_menu:
+                                _render_pin_menu_item(
+                                    label="Unpin" if is_pinned else "Pin",
+                                    icon="push_pin",
+                                    on_click=lambda t=tid, pinned=not is_pinned: _pin(t, pinned),
+                                    menu=action_menu,
+                                )
                                 ui.separator()
-                                ui.menu_item("Delete", on_click=lambda t=tid: _delete(t))
+                                _render_action_menu_item(
+                                    label="Rename",
+                                    icon="edit",
+                                    on_click=lambda t=tid, n=name: _rename(t, n),
+                                    menu=action_menu,
+                                )
+                                ui.separator()
+                                _render_action_menu_item(
+                                    label="Delete",
+                                    icon="delete",
+                                    on_click=lambda t=tid: _delete(t),
+                                    menu=action_menu,
+                                    icon_classes="text-negative",
+                                )
 
             if len(threads) > SIDEBAR_MAX_THREADS:
                 def _show_all():
@@ -727,6 +926,8 @@ def build_sidebar(
                     from row_bot.threads import delete_threads as _bulk_delete_threads
 
                     bulk = BulkSelect()
+                    modal_threads = list(threads)
+                    modal_pin_changed = False
 
                     def _purge_external(t: str) -> None:
                         """Cleanup outside threads.py: session kills, history,
@@ -765,6 +966,16 @@ def build_sidebar(
                             pass
 
                     with ui.dialog() as dlg, ui.card().style("width: min(840px, 94vw); max-width: 94vw;"):
+                        def _refresh_after_modal_hide(_event=None) -> None:
+                            _rebuild_thread_list_ref[0]()
+                            if modal_pin_changed and state.active_developer_workspace_id:
+                                try:
+                                    rebuild_main(immediate=True, reason="thread_pin")
+                                except TypeError:
+                                    rebuild_main()
+
+                        dlg.on("hide", _refresh_after_modal_hide)
+
                         with ui.row().classes("w-full items-center justify-between"):
                             ui.label("All Conversations").classes("text-h6")
                             select_btn = ui.button("Select").props(
@@ -796,7 +1007,7 @@ def build_sidebar(
                         _modal_counts = {"all": 0, "chat": 0,
                                          "designer": 0, "code": 0, "workflow": 0,
                                          "agents": 0}
-                        for _r in threads:
+                        for _r in modal_threads:
                             _pid = _r[5] if len(_r) > 5 else ""
                             _tt = _r[6] if len(_r) > 6 else ""
                             _dw = _r[7] if len(_r) > 7 else ""
@@ -850,7 +1061,7 @@ def build_sidebar(
                             list_container.clear()
                             # Filtered view of threads
                             _filtered = []
-                            for r in threads:
+                            for r in modal_threads:
                                 _cat = _cat_modal(
                                     r[5] if len(r) > 5 else "",
                                     r[0],
@@ -862,13 +1073,18 @@ def build_sidebar(
                                     or _cat == _MODAL_FILTER
                                 ):
                                     _filtered.append((r, _cat))
+                            _filtered = _sort_classified_thread_rows_pinned_first(_filtered)
                             with list_container:
                                 if not _filtered:
                                     ui.label("Nothing in this filter.").classes(
                                         "text-grey-6 q-pa-md"
                                     )
                                     return
-                                display_items = _sidebar_display_items(_filtered, _MODAL_FILTER)
+                                display_items = _sidebar_display_items(
+                                    _filtered,
+                                    _MODAL_FILTER,
+                                    sort_rows=False,
+                                )
                                 with ui.list().props("bordered separator").classes("w-full"):
                                     for item_kind, payload, _cat, is_developer_child in display_items:
                                         if item_kind == "developer_group":
@@ -879,6 +1095,7 @@ def build_sidebar(
                                             is_active_workspace = (
                                                 state.active_developer_workspace_id == workspace_id
                                                 or any(row[0] == state.thread_id for row, _child_cat in group_rows)
+                                                or any(row[0] in running_tids for row, _child_cat in group_rows)
                                             )
 
                                             def _toggle_workspace(wsid=workspace_id):
@@ -892,6 +1109,9 @@ def build_sidebar(
                                             caption_bits = [
                                                 f"{len(group_rows)} thread{'s' if len(group_rows) != 1 else ''}",
                                             ]
+                                            pinned_count = int(group.get("pinned_count") or 0)
+                                            if pinned_count:
+                                                caption_bits.append(f"{pinned_count} pinned")
                                             latest = str(group.get("updated") or "")
                                             if latest:
                                                 caption_bits.append(_fmt_ts(latest))
@@ -912,6 +1132,7 @@ def build_sidebar(
                                         _mo2 = _rest2[0] if _rest2 else ""
                                         _pid2 = _rest2[1] if len(_rest2) > 1 else ""
                                         _dev_ws2 = _rest2[3] if len(_rest2) > 3 else ""
+                                        is_pinned = _thread_row_is_pinned(row)
 
                                         def _sel(t=tid, n=name, mo=_mo2, pid=_pid2, dev_ws=_dev_ws2):
                                             # In selection mode, clicking a row toggles selection
@@ -970,10 +1191,26 @@ def build_sidebar(
                                                 on_renamed=lambda _saved: dlg.close(),
                                             )
 
-                                        item_classes = ""
+                                        def _pin_modal(t=tid, pinned=not is_pinned):
+                                            nonlocal modal_threads
+                                            nonlocal modal_pin_changed
+                                            try:
+                                                apply_thread_pin(t, pinned)
+                                            except Exception as exc:
+                                                ui.notify(str(exc), type="negative", close_button=True)
+                                                return
+                                            modal_threads = _list_threads(include_details=True)
+                                            modal_pin_changed = True
+                                            ui.notify(
+                                                "Pinned conversation" if pinned else "Unpinned conversation",
+                                                type="positive" if pinned else "info",
+                                            )
+                                            _rebuild_dialog_list()
+
+                                        item_classes = "row-bot-thread-row"
                                         item_style = ""
                                         if is_developer_child:
-                                            item_classes = "developer-thread-child"
+                                            item_classes += " developer-thread-child"
                                             item_style = "margin-left: 18px; width: calc(100% - 18px);"
 
                                         with ui.item(on_click=_sel).classes(item_classes).props("clickable").style(item_style):
@@ -992,9 +1229,17 @@ def build_sidebar(
                                                     )
                                             else:
                                                 with ui.item_section().props("avatar").style("min-width: 28px;"):
-                                                    ui.icon("code" if is_developer_child else "chat_bubble_outline", size="xs")
+                                                    _render_pin_toggle_button(
+                                                        is_pinned=is_pinned,
+                                                        on_click=lambda t=tid, pinned=not is_pinned: _pin_modal(t, pinned),
+                                                    )
                                             with ui.item_section():
-                                                ui.item_label(name)
+                                                with ui.row().classes("items-center no-wrap gap-1").style(
+                                                    "min-width: 0; max-width: 100%;"
+                                                ):
+                                                    ui.item_label(name).classes("ellipsis").style(
+                                                        "min-width: 0; flex: 1 1 auto;"
+                                                    )
                                                 if updated:
                                                     ui.item_label(_fmt_ts(updated)).props("caption")
                                             if not bulk.active:
@@ -1004,10 +1249,28 @@ def build_sidebar(
                                                     )
                                                     action_btn.on("click", js_handler="(e) => e.stopPropagation()")
                                                     with action_btn:
-                                                        with ui.menu():
-                                                            ui.menu_item("Rename", on_click=lambda t=tid, n=name: _ren(t, n))
+                                                        with ui.menu() as action_menu:
+                                                            _render_pin_menu_item(
+                                                                label="Unpin" if is_pinned else "Pin",
+                                                                icon="push_pin",
+                                                                on_click=lambda t=tid, pinned=not is_pinned: _pin_modal(t, pinned),
+                                                                menu=action_menu,
+                                                            )
                                                             ui.separator()
-                                                            ui.menu_item("Delete", on_click=lambda t=tid: _del(t))
+                                                            _render_action_menu_item(
+                                                                label="Rename",
+                                                                icon="edit",
+                                                                on_click=lambda t=tid, n=name: _ren(t, n),
+                                                                menu=action_menu,
+                                                            )
+                                                            ui.separator()
+                                                            _render_action_menu_item(
+                                                                label="Delete",
+                                                                icon="delete",
+                                                                on_click=lambda t=tid: _del(t),
+                                                                menu=action_menu,
+                                                                icon_classes="text-negative",
+                                                            )
 
                         action_slot = ui.column().classes("w-full")
 
@@ -1055,7 +1318,7 @@ def build_sidebar(
                             def _delete_all():
                                 # Respect current filter: only nuke what's visible.
                                 all_ids = []
-                                for r in threads:
+                                for r in modal_threads:
                                     cat = _cat_modal(
                                         r[5] if len(r) > 5 else "",
                                         r[0],

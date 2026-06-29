@@ -38,6 +38,7 @@ _THREAD_META_COLUMNS = {
     "name_source": "TEXT DEFAULT ''",
     "agent_profile_id": "TEXT DEFAULT ''",
     "agent_profile_slug": "TEXT DEFAULT ''",
+    "pinned_at": "TEXT DEFAULT ''",
 }
 
 THREAD_NAME_SOURCE_AUTO = "auto"
@@ -87,7 +88,8 @@ def _list_threads(*, include_details: bool = False):
             "COALESCE(project_id, ''), COALESCE(thread_type, ''), "
             "COALESCE(developer_workspace_id, ''), COALESCE(approval_mode, ''), "
             "COALESCE(name_source, ''), COALESCE(agent_profile_id, ''), "
-            "COALESCE(agent_profile_slug, ''), COALESCE(project_workspace_id, '') "
+            "COALESCE(agent_profile_slug, ''), COALESCE(project_workspace_id, ''), "
+            "COALESCE(pinned_at, '') "
             "FROM thread_meta ORDER BY updated_at DESC"
         ).fetchall()
     else:
@@ -522,6 +524,52 @@ def touch_thread(thread_id: str) -> None:
         conn.commit()
 
 
+def set_thread_pinned(thread_id: str, pinned: bool) -> str:
+    """Set a thread's pin state without changing its recency timestamp."""
+
+    _ensure_thread_db()
+    tid = str(thread_id or "").strip()
+    if not tid:
+        raise ValueError("Thread id cannot be empty.")
+    pinned_at = datetime.now().isoformat() if pinned else ""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            "UPDATE thread_meta SET pinned_at = ? WHERE thread_id = ?",
+            (pinned_at, tid),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError(f"Thread not found: {tid}")
+        conn.commit()
+    return pinned_at
+
+
+def pin_thread(thread_id: str) -> str:
+    """Pin a thread and return the stored pin timestamp."""
+
+    return set_thread_pinned(thread_id, True)
+
+
+def unpin_thread(thread_id: str) -> None:
+    """Clear a thread's pin state."""
+
+    set_thread_pinned(thread_id, False)
+
+
+def is_thread_pinned(thread_id: str) -> bool:
+    """Return True when a thread has a non-empty pin timestamp."""
+
+    _ensure_thread_db()
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return False
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT COALESCE(pinned_at, '') FROM thread_meta WHERE thread_id = ?",
+            (tid,),
+        ).fetchone()
+    return bool(str(row[0] or "").strip()) if row else False
+
+
 def get_thread_name_source(thread_id: str) -> str:
     """Return ``auto``, ``manual``, or an empty legacy source marker."""
     _ensure_thread_db()
@@ -558,7 +606,8 @@ def list_developer_workspace_threads(workspace_id: str) -> list[tuple]:
             "SELECT thread_id, name, created_at, updated_at, COALESCE(model_override, ''), "
             "COALESCE(project_id, ''), COALESCE(thread_type, ''), "
             "COALESCE(developer_workspace_id, ''), COALESCE(approval_mode, ''), "
-            "COALESCE(name_source, ''), COALESCE(project_workspace_id, '') "
+            "COALESCE(name_source, ''), COALESCE(project_workspace_id, ''), "
+            "COALESCE(pinned_at, '') "
             "FROM thread_meta WHERE COALESCE(thread_type, '') = 'code' "
             "AND (COALESCE(project_workspace_id, '') = ? OR "
             "(COALESCE(project_workspace_id, '') = '' AND COALESCE(developer_workspace_id, '') = ?)) "

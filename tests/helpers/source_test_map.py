@@ -97,6 +97,7 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
         (
             "tests/test_developer_workspace_threads.py",
             "tests/test_thread_approval_mode.py",
+            "tests/test_thread_pinning.py",
             "tests/test_thread_rename.py",
             "tests/test_sidebar_developer_grouping.py",
         ),

@@ -65,7 +65,7 @@ from row_bot.ui.chat_components import (
 )
 from row_bot.ui.helpers import browse_folder, load_thread_messages
 from row_bot.ui.state import AppState, P
-from row_bot.ui.thread_actions import show_rename_thread_dialog
+from row_bot.ui.thread_actions import apply_thread_pin, show_rename_thread_dialog
 from row_bot.ui.timer_utils import safe_timer, safe_ui_task
 
 
@@ -79,6 +79,21 @@ _APPROVAL_MODE_HELP: dict[str, str] = {
 }
 
 _developer_workspace_css_added = False
+_DEVELOPER_THREAD_PINNED_AT_INDEX = 11
+
+
+def _developer_thread_row_pinned_at(row: tuple) -> str:
+    return str(row[_DEVELOPER_THREAD_PINNED_AT_INDEX] or "") if len(row) > _DEVELOPER_THREAD_PINNED_AT_INDEX else ""
+
+
+def _sort_developer_thread_rows(rows: list[tuple], current_thread_id: str | None = "") -> list[tuple]:
+    """Order Developer thread choices for display without changing storage recency."""
+
+    ordered = sorted(rows, key=lambda row: str(row[3] or "") if len(row) > 3 else "", reverse=True)
+    ordered.sort(key=lambda row: 0 if _developer_thread_row_pinned_at(row).strip() else 1)
+    if current_thread_id:
+        ordered.sort(key=lambda row: 0 if str(row[0] or "") == str(current_thread_id) else 1)
+    return ordered
 
 
 def _ensure_developer_workspace_css() -> None:
@@ -1723,6 +1738,35 @@ def build_developer_workspace(
             rebuild_main=rebuild_main,
         )
 
+    def _is_current_thread_pinned() -> bool:
+        if not state.thread_id:
+            return False
+        try:
+            from row_bot.threads import is_thread_pinned
+
+            return is_thread_pinned(state.thread_id)
+        except Exception:
+            logger.debug("Could not load Developer thread pin state", exc_info=True)
+            return False
+
+    def _toggle_current_thread_pin() -> None:
+        if not state.thread_id:
+            return
+        pinned = not _is_current_thread_pinned()
+        try:
+            apply_thread_pin(state.thread_id, pinned)
+        except Exception as exc:
+            ui.notify(str(exc), type="negative", close_button=True)
+            return
+        ui.notify(
+            "Pinned conversation" if pinned else "Unpinned conversation",
+            type="positive" if pinned else "info",
+        )
+        if rebuild_thread_list is not None:
+            rebuild_thread_list()
+        if rebuild_main is not None:
+            rebuild_main(immediate=True, reason="developer_thread_pin")
+
     def _show_workspace_details(current_workspace: DeveloperWorkspace, current_git: dict) -> None:
         rows = [
             ("Project", project_workspace.path),
@@ -1806,11 +1850,24 @@ def build_developer_workspace(
                             with ui.row().classes("items-center gap-1 no-wrap row-bot-dev-subtitle"):
                                 ui.label(str(state.thread_name or "Untitled")).classes("ellipsis").style("min-width: 0;")
                                 ui.button(icon="edit", on_click=_show_current_thread_rename).props("flat dense round size=xs").tooltip("Rename")
+                                current_pinned = _is_current_thread_pinned()
+                                ui.button(
+                                    icon="keep_off" if current_pinned else "push_pin",
+                                    on_click=_toggle_current_thread_pin,
+                                ).props("flat dense round size=xs").tooltip(
+                                    "Unpin thread" if current_pinned else "Pin thread"
+                                )
                     with ui.row().classes("items-center no-wrap gap-2 row-bot-dev-thread-zone"):
-                        thread_rows = list_workspace_threads(project_workspace.id)
+                        thread_rows = _sort_developer_thread_rows(
+                            list_workspace_threads(project_workspace.id),
+                            current_thread_id=state.thread_id,
+                        )
                         thread_options = {row[0]: row[1] or "Untitled" for row in thread_rows}
                         if state.thread_id and state.thread_id not in thread_options:
-                            thread_options[state.thread_id] = str(state.thread_name or "Untitled")
+                            thread_options = {
+                                state.thread_id: str(state.thread_name or "Untitled"),
+                                **thread_options,
+                            }
                         with ui.element("div").classes("row-bot-composer-control-group").style(
                             "flex: 1 1 240px; min-width: 0; max-width: 430px;"
                         ):
