@@ -405,14 +405,15 @@ def test_requesty_model_catalog_rows_are_chat_only_without_tool_metadata(monkeyp
 
 
 def test_requesty_settings_and_setup_wizard_are_wired():
-    settings_source = Path("src/row_bot/ui/settings.py").read_text(encoding="utf-8")
+    provider_settings_source = Path("src/row_bot/ui/provider_settings.py").read_text(encoding="utf-8")
     setup_source = Path("src/row_bot/ui/setup_wizard.py").read_text(encoding="utf-8")
+    from row_bot.ui.provider_settings import _api_key_provider_action_state, _api_key_provider_ids, _api_key_provider_ui
 
-    assert '"REQUESTY_API_KEY": "requesty"' in settings_source
-    assert 'ui.expansion("Requesty"' in settings_source
-    assert "validate_requesty_key" in settings_source
-    assert 'set_key("REQUESTY_API_KEY", val)' in settings_source
-    assert 'provider_id="requesty"' in settings_source
+    assert "requesty" in _api_key_provider_ids()
+    assert _api_key_provider_action_state({"provider_id": "requesty"})["can_manage_api_key"] is True
+    assert _api_key_provider_ui("requesty").validator_name == "validate_requesty_key"
+    assert "set_provider_secret(provider_id, \"api_key\", value" in provider_settings_source
+    assert "provider_key_saved" in provider_settings_source
     assert "Requesty API Key (optional)" in setup_source
     assert '("requesty", requesty_val)' in setup_source
     assert 'set_key("REQUESTY_API_KEY", requesty_val)' in setup_source

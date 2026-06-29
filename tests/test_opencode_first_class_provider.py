@@ -707,19 +707,18 @@ def test_followup_openrouter_nested_input_modalities_enable_vision():
     assert "vision" in result["capabilities"]
 
 
-def test_ux_settings_exposes_opencode_keyring_controls():
-    source = Path("src/row_bot/ui/settings.py").read_text(encoding="utf-8")
+def test_ux_provider_rows_expose_opencode_keyring_controls():
+    from row_bot.providers.auth_store import PROVIDER_API_KEY_ENV
+    from row_bot.ui.provider_settings import _api_key_provider_action_state, _api_key_provider_ids, _api_key_provider_ui
 
-    assert '"OPENCODE_ZEN_API_KEY": "opencode_zen"' in source
-    assert '"OPENCODE_GO_API_KEY": "opencode_go"' in source
-    assert 'ui.expansion("OpenCode Zen"' in source
-    assert 'ui.expansion("OpenCode Go"' in source
-    assert 'set_key("OPENCODE_ZEN_API_KEY", val)' in source
-    assert 'set_key("OPENCODE_GO_API_KEY", val)' in source
-    assert '_clear_secret("OPENCODE_ZEN_API_KEY", "OpenCode Zen key", zen_refresh)' in source
-    assert '_clear_secret("OPENCODE_GO_API_KEY", "OpenCode Go key", go_refresh)' in source
-    assert 'provider_id="opencode_zen"' in source
-    assert 'provider_id="opencode_go"' in source
+    assert PROVIDER_API_KEY_ENV["opencode_zen"] == "OPENCODE_ZEN_API_KEY"
+    assert PROVIDER_API_KEY_ENV["opencode_go"] == "OPENCODE_GO_API_KEY"
+    assert "opencode_zen" in _api_key_provider_ids()
+    assert "opencode_go" in _api_key_provider_ids()
+    assert _api_key_provider_action_state({"provider_id": "opencode_zen"})["can_manage_api_key"] is True
+    assert _api_key_provider_action_state({"provider_id": "opencode_go"})["can_manage_api_key"] is True
+    assert _api_key_provider_ui("opencode_zen").validator_name == ""
+    assert _api_key_provider_ui("opencode_go").validator_name == ""
 
 
 def test_ux_setup_wizard_exposes_and_saves_opencode_keys():

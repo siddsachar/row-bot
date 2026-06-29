@@ -173,6 +173,8 @@ def provider_status_cards(*, refresh_tokens: bool = False) -> list[dict]:
             "oauth_client_id_source": status.get("oauth_client_id_source") or "",
             "oauth_client_id_fingerprint": status.get("oauth_client_id_fingerprint") or "",
             "oauth_client_id_detail": status.get("oauth_client_id_detail") or "",
+            "auth_methods": tuple(method.value for method in definition.auth_methods),
+            "supports_catalog": bool(definition.supports_catalog),
             "risk_label": definition.risk_label,
             "icon": definition.icon,
             "group": _provider_group(definition.id, definition.risk_label),

@@ -202,6 +202,12 @@ def delete_provider_secret(provider_id: str, credential_name: str = "api_key") -
         secret_store.delete_secret(name, namespace=_namespace(provider_id))
     except secret_store.SecretStoreError:
         pass
+    if name == "api_key":
+        env_var = PROVIDER_API_KEY_ENV.get(provider_id)
+        if env_var:
+            status = api_keys.key_status(env_var)
+            if status.get("configured") and status.get("source") != "environment":
+                api_keys.delete_key(env_var)
 
     def _update(cfg: dict[str, Any]) -> None:
         entry = cfg.setdefault("providers", {}).setdefault(provider_id, {})

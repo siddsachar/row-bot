@@ -3,14 +3,235 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+from dataclasses import dataclass
+from typing import Callable
 
 from row_bot.brand import APP_DISPLAY_NAME
 from nicegui import run, ui
 
-from row_bot.ui.timer_utils import defer_ui
+from row_bot.ui.timer_utils import defer_ui, safe_ui_task
 
 
 _xai_oauth_vision_probe_task: asyncio.Task | None = None
+
+
+@dataclass(frozen=True)
+class _ApiKeyProviderUi:
+    key_label: str
+    help_text: str = ""
+    help_url: str = ""
+    validator_name: str = ""
+    normalizer_name: str = ""
+    validation_failure: str = "block"
+
+
+_API_KEY_PROVIDER_UI: dict[str, _ApiKeyProviderUi] = {
+    "openai": _ApiKeyProviderUi(
+        key_label="OpenAI API key",
+        help_text="Create keys from the OpenAI Platform API keys page.",
+        help_url="https://platform.openai.com/api-keys",
+    ),
+    "ollama_cloud": _ApiKeyProviderUi(
+        key_label="Ollama Cloud API key",
+        help_text="Paste a direct Ollama Cloud API key. Local daemon cloud models still use ollama signin.",
+        help_url="https://ollama.com",
+        validator_name="validate_ollama_cloud_key",
+        normalizer_name="normalize_ollama_cloud_api_key",
+    ),
+    "openrouter": _ApiKeyProviderUi(
+        key_label="OpenRouter API key",
+        help_text="Create keys from OpenRouter account settings.",
+        help_url="https://openrouter.ai/settings/keys",
+        validator_name="validate_openrouter_key",
+    ),
+    "requesty": _ApiKeyProviderUi(
+        key_label="Requesty API key",
+        help_text="Create keys from Requesty's routed model gateway settings.",
+        help_url="https://router.requesty.ai",
+        validator_name="validate_requesty_key",
+    ),
+    "opencode_zen": _ApiKeyProviderUi(
+        key_label="OpenCode Zen API key",
+        help_text="Use a Zen key for pay-per-request coding-agent models.",
+        help_url="https://opencode.ai",
+    ),
+    "opencode_go": _ApiKeyProviderUi(
+        key_label="OpenCode Go API key",
+        help_text="Use a Go key for OpenCode's open coding model subscription.",
+        help_url="https://opencode.ai",
+    ),
+    "atlascloud": _ApiKeyProviderUi(
+        key_label="Atlas Cloud API key",
+        help_text="Create keys from Atlas Cloud and use them with the OpenAI-compatible gateway.",
+        help_url="https://atlascloud.ai",
+        validator_name="validate_atlascloud_key",
+    ),
+    "anthropic": _ApiKeyProviderUi(
+        key_label="Anthropic API key",
+        help_text="Create keys from the Anthropic Console API keys page.",
+        help_url="https://console.anthropic.com/settings/keys",
+        validator_name="validate_anthropic_key",
+    ),
+    "google": _ApiKeyProviderUi(
+        key_label="Google AI API key",
+        help_text="Create keys from Google AI Studio.",
+        help_url="https://aistudio.google.com/apikey",
+        validator_name="validate_google_key",
+    ),
+    "xai": _ApiKeyProviderUi(
+        key_label="xAI API key",
+        help_text="Create keys from the xAI Console API keys page.",
+        help_url="https://console.x.ai",
+        validator_name="validate_xai_key",
+        validation_failure="warn",
+    ),
+    "minimax": _ApiKeyProviderUi(
+        key_label="MiniMax API key",
+        help_text="Create keys from MiniMax Platform account settings.",
+        help_url="https://platform.minimax.io",
+        validator_name="validate_minimax_key",
+        validation_failure="warn",
+    ),
+}
+
+
+def _api_key_provider_ids() -> list[str]:
+    from row_bot.providers.catalog import PROVIDER_DEFINITIONS
+    from row_bot.providers.models import AuthMethod
+
+    return [
+        definition.id
+        for definition in PROVIDER_DEFINITIONS.values()
+        if AuthMethod.API_KEY in definition.auth_methods
+    ]
+
+
+def _api_key_provider_ui(provider_id: str) -> _ApiKeyProviderUi:
+    from row_bot.providers.catalog import get_provider_definition
+
+    provider_id = str(provider_id or "").strip()
+    configured = _API_KEY_PROVIDER_UI.get(provider_id)
+    if configured is not None:
+        return configured
+    definition = get_provider_definition(provider_id)
+    display_name = definition.display_name if definition is not None else provider_id or "Provider"
+    return _ApiKeyProviderUi(key_label=f"{display_name} API key")
+
+
+def _api_key_provider_action_state(card: dict) -> dict[str, bool]:
+    from row_bot.providers.catalog import get_provider_definition
+    from row_bot.providers.models import AuthMethod
+
+    provider_id = str(card.get("provider_id") or "").strip()
+    definition = get_provider_definition(provider_id)
+    can_manage = bool(definition and AuthMethod.API_KEY in definition.auth_methods)
+    return {"can_manage_api_key": can_manage}
+
+
+def _provider_api_key_validator(provider_id: str) -> Callable[[str], bool] | None:
+    validator_name = _api_key_provider_ui(provider_id).validator_name
+    if not validator_name:
+        return None
+    from row_bot import models
+
+    validator = getattr(models, validator_name, None)
+    return validator if callable(validator) else None
+
+
+def _normalize_provider_api_key(provider_id: str, raw_value: object) -> str:
+    value = str(raw_value or "").strip()
+    normalizer_name = _api_key_provider_ui(provider_id).normalizer_name
+    if normalizer_name == "normalize_ollama_cloud_api_key":
+        from row_bot.providers.transports.ollama_cloud import normalize_ollama_cloud_api_key
+
+        return normalize_ollama_cloud_api_key(value)
+    return value
+
+
+def _clear_provider_runtime_cache() -> None:
+    try:
+        from row_bot.agent import clear_agent_cache
+
+        clear_agent_cache()
+    except Exception:
+        pass
+    try:
+        from row_bot.models import clear_llm_cache
+
+        clear_llm_cache()
+    except Exception:
+        pass
+
+
+def _save_provider_api_key_value(provider_id: str, value: str) -> dict:
+    from row_bot.providers.auth_store import delete_provider_secret, provider_secret_status, set_provider_secret
+    from row_bot.providers.models import AuthMethod
+
+    delete_provider_secret(provider_id, "api_key")
+    set_provider_secret(provider_id, "api_key", value, auth_method=AuthMethod.API_KEY)
+    _clear_provider_runtime_cache()
+    return provider_secret_status(provider_id, "api_key")
+
+
+def _clear_provider_api_key_value(provider_id: str) -> dict:
+    from row_bot.providers.auth_store import delete_provider_secret, provider_secret_status
+
+    delete_provider_secret(provider_id, "api_key")
+    _clear_provider_runtime_cache()
+    return provider_secret_status(provider_id, "api_key")
+
+
+def _credential_status_text(status: dict) -> str:
+    source = str(status.get("source") or "")
+    fingerprint = str(status.get("fingerprint") or "")
+    if not status.get("configured"):
+        return "No saved API key"
+    label = _source_label(source)
+    return f"{label} ({fingerprint})" if fingerprint else label
+
+
+def _start_provider_catalog_refresh_ui(
+    *,
+    reason: str,
+    provider_id: str,
+    force: bool = True,
+    on_done: Callable[[], object] | None = None,
+) -> bool:
+    from row_bot.providers.model_catalog_cache import (
+        is_model_catalog_refresh_running,
+        model_catalog_refresh_state,
+        start_model_catalog_refresh_background,
+    )
+
+    started = start_model_catalog_refresh_background(reason=reason, provider_id=provider_id, force=force)
+    if not started:
+        ui.notify("Model catalog refresh is already running", type="info")
+        if on_done:
+            defer_ui(on_done)
+        return False
+    ui.notify("Refreshing model catalog in the background...", type="info")
+
+    async def _watch() -> None:
+        while is_model_catalog_refresh_running():
+            await asyncio.sleep(0.75)
+        state_info = model_catalog_refresh_state()
+        result = state_info.get("last_result") if isinstance(state_info.get("last_result"), dict) else {}
+        if result.get("ok"):
+            warnings = result.get("warnings") if isinstance(result.get("warnings"), list) else []
+            rows = int(result.get("rows") or 0)
+            if warnings:
+                ui.notify(f"Model catalog refreshed: {rows} models, {len(warnings)} warning(s)", type="warning")
+            else:
+                ui.notify(f"Model catalog refreshed: {rows} models", type="positive")
+        else:
+            ui.notify("Catalog refresh failed. Showing last cached catalog.", type="negative")
+        if on_done:
+            result = on_done()
+            if asyncio.iscoroutine(result):
+                await result
+
+    safe_ui_task(_watch, context="provider catalog refresh watcher")
+    return True
 
 
 def _probe_detail(last_probe: dict) -> str:
@@ -156,6 +377,138 @@ def _source_label(source: str) -> str:
         "not_running": "Not running",
     }
     return labels.get(source, f"Using {source}" if source else "Connected")
+
+
+def _open_provider_api_key_dialog(card: dict, *, on_change: Callable[[], object] | None = None) -> None:
+    from row_bot.providers.auth_store import PROVIDER_API_KEY_ENV, get_storage_warning, provider_secret_status
+    from row_bot.providers.catalog import get_provider_definition
+
+    provider_id = str(card.get("provider_id") or "").strip()
+    definition = get_provider_definition(provider_id)
+    display_name = str(card.get("display_name") or (definition.display_name if definition else provider_id))
+    api_key_ui = _api_key_provider_ui(provider_id)
+    env_var = PROVIDER_API_KEY_ENV.get(provider_id, "")
+    current_status = provider_secret_status(provider_id, "api_key")
+    state_label = "Connected" if card.get("configured") or current_status.get("configured") else "Not connected"
+    source = str(current_status.get("source") or "")
+    fingerprint = str(current_status.get("fingerprint") or "")
+
+    def _queue_reload() -> None:
+        if on_change:
+            defer_ui(on_change)
+
+    with ui.dialog() as dialog:
+        with ui.card().classes("w-full").style("max-width: 34rem;"):
+            with ui.row().classes("items-start justify-between gap-2 no-wrap w-full"):
+                with ui.column().classes("gap-0").style("min-width: 0;"):
+                    ui.label(f"{display_name} API Key").classes("text-h6")
+                    ui.label(state_label).classes("text-grey-6 text-sm")
+                ui.badge(str(card.get("risk_label") or "api_key"), color="grey").props("outline dense")
+
+            with ui.row().classes("items-center gap-2 no-wrap"):
+                ui.label(_credential_status_text(current_status)).classes("text-grey-6 text-xs")
+                if fingerprint:
+                    ui.badge(fingerprint, color="blue-grey").props("outline dense").tooltip("Credential fingerprint")
+            if env_var:
+                if source == "environment":
+                    ui.label(f"{env_var} is set by the environment; local saves are stored but the environment value stays active.").classes("text-grey-6 text-xs")
+                else:
+                    ui.label(f"Compatible environment variable: {env_var}").classes("text-grey-6 text-xs")
+
+            if api_key_ui.help_text:
+                ui.label(api_key_ui.help_text).classes("text-grey-6 text-sm")
+            if api_key_ui.help_url:
+                ui.link("Provider key page", api_key_ui.help_url, new_tab=True).classes("text-primary text-sm")
+
+            key_input = ui.input(
+                api_key_ui.key_label,
+                value="",
+                placeholder="Paste a new value",
+                password=True,
+                password_toggle_button=True,
+            ).props("outlined dense").classes("w-full")
+            status_label = ui.label("").classes("text-grey-6 text-sm")
+
+            async def _save_key() -> None:
+                value = _normalize_provider_api_key(provider_id, key_input.value)
+                if not value:
+                    ui.notify(f"{api_key_ui.key_label} unchanged - enter a new value to save it", type="info")
+                    return
+
+                validator = _provider_api_key_validator(provider_id)
+                if validator is not None:
+                    validation_note = ui.notification(f"Validating {display_name} key...", type="ongoing", spinner=True, timeout=None)
+                    try:
+                        valid = await run.io_bound(validator, value)
+                    except Exception as exc:
+                        valid = False
+                        status_label.text = f"Validation failed: {exc}"
+                        status_label.update()
+                    validation_note.dismiss()
+                    if not valid and api_key_ui.validation_failure == "block":
+                        ui.notify(f"Invalid {display_name} API key", type="negative")
+                        return
+                    if not valid:
+                        ui.notify(
+                            f"{display_name} key validation failed; saving anyway. Models will appear if the key is valid.",
+                            type="warning",
+                            timeout=5000,
+                        )
+
+                save_note = ui.notification(f"Saving {display_name} key...", type="ongoing", spinner=True, timeout=None)
+                try:
+                    await run.io_bound(_save_provider_api_key_value, provider_id, value)
+                except Exception as exc:
+                    save_note.dismiss()
+                    status_label.text = f"Save failed: {exc}"
+                    status_label.update()
+                    ui.notify(f"Could not save {display_name} key: {exc}", type="negative")
+                    return
+                save_note.dismiss()
+                warning = get_storage_warning()
+                if warning:
+                    ui.notify(warning, type="warning", close_button=True)
+                dialog.close()
+                ui.notify(f"{display_name} key saved", type="positive")
+                _queue_reload()
+                _start_provider_catalog_refresh_ui(
+                    reason="provider_key_saved",
+                    provider_id=provider_id,
+                    force=True,
+                    on_done=on_change,
+                )
+
+            async def _clear_key() -> None:
+                before = await run.io_bound(provider_secret_status, provider_id, "api_key")
+                clear_note = ui.notification(f"Clearing {display_name} key...", type="ongoing", spinner=True, timeout=None)
+                try:
+                    after = await run.io_bound(_clear_provider_api_key_value, provider_id)
+                except Exception as exc:
+                    clear_note.dismiss()
+                    status_label.text = f"Clear failed: {exc}"
+                    status_label.update()
+                    ui.notify(f"Could not clear {display_name} key: {exc}", type="negative")
+                    return
+                clear_note.dismiss()
+                dialog.close()
+                if before.get("source") == "environment" and after.get("configured"):
+                    ui.notify(f"Local {display_name} key cleared; {env_var} is still active", type="info")
+                else:
+                    ui.notify(f"{display_name} key cleared", type="info")
+                _queue_reload()
+                _start_provider_catalog_refresh_ui(
+                    reason="provider_key_cleared",
+                    provider_id=provider_id,
+                    force=True,
+                    on_done=on_change,
+                )
+
+            with ui.row().classes("w-full items-center justify-end gap-2"):
+                ui.button("Clear key", icon="delete", on_click=_clear_key).props("flat dense color=negative")
+                ui.button("Cancel", icon="close", on_click=dialog.close).props("flat dense")
+                action = "Replace key" if current_status.get("configured") else "Save key"
+                ui.button(action, icon="save", on_click=_save_key).props("flat dense color=primary")
+    dialog.open()
 
 
 def _codex_action_state(card: dict) -> dict[str, bool]:
@@ -744,6 +1097,19 @@ def build_provider_summary_cards() -> None:
             ui.notify(f"xAI Grok runtime test failed: {detail}", type="warning")
         defer_ui(_load)
 
+    def _refresh_provider_row(card: dict) -> None:
+        provider_id = str(card.get("provider_id") or "").strip()
+        if not provider_id:
+            defer_ui(_load)
+            return
+        defer_ui(_load)
+        _start_provider_catalog_refresh_ui(
+            reason="manual",
+            provider_id=provider_id,
+            force=True,
+            on_done=_load,
+        )
+
     def _render_row(card: dict) -> None:
         _queue_xai_oauth_vision_probe_if_needed(card)
         source = str(card.get("source") or "")
@@ -844,7 +1210,16 @@ def build_provider_summary_cards() -> None:
                     ui.button(icon="science", on_click=_test_xai_oauth_runtime).props("flat dense round size=sm").tooltip("Test xAI Grok runtime")
                 if xai_oauth_actions.get("can_disconnect"):
                     ui.button(icon="link_off", on_click=_disconnect_xai_oauth).props("flat dense round size=sm color=negative").tooltip("Disconnect xAI Grok metadata")
-                ui.button(icon="refresh", on_click=lambda: defer_ui(_load)).props("flat dense round size=sm").tooltip("Refresh status")
+                api_key_actions = _api_key_provider_action_state(card)
+                if api_key_actions.get("can_manage_api_key"):
+                    ui.button(
+                        icon="key",
+                        on_click=lambda card=card: _open_provider_api_key_dialog(card, on_change=_load),
+                    ).props("flat dense round size=sm").tooltip("Manage API key")
+                ui.button(
+                    icon="refresh",
+                    on_click=lambda card=card: _refresh_provider_row(card),
+                ).props("flat dense round size=sm").tooltip("Refresh provider status and catalog")
 
     def _render(cards: list[dict]) -> None:
         container.clear()
