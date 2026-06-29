@@ -40,8 +40,11 @@ def test_sidebar_developer_grouping_preserves_thread_action_menu_on_children():
     )[0]
 
     assert "show_rename_thread_dialog" in list_block
-    assert 'ui.menu_item("Rename"' in list_block
-    assert 'ui.menu_item("Delete"' in list_block
+    assert "_render_action_menu_item(" in list_block
+    assert 'label="Rename"' in list_block
+    assert 'icon="edit"' in list_block
+    assert 'label="Delete"' in list_block
+    assert 'icon="delete"' in list_block
     assert "is_developer_child" in list_block
 
 
@@ -52,12 +55,15 @@ def test_all_conversations_modal_reuses_developer_workspace_grouping():
         1,
     )[0]
 
-    assert "_sidebar_display_items(_filtered, _MODAL_FILTER)" in modal_block
+    assert "_sidebar_display_items(" in modal_block
+    assert "_filtered" in modal_block
+    assert "_MODAL_FILTER" in modal_block
+    assert "sort_rows=False" in modal_block
     assert 'if item_kind == "developer_group"' in modal_block
     assert '"folder_open" if is_expanded else "folder"' in modal_block
     assert "def _toggle_workspace" in modal_block
     assert "developer-thread-child" in modal_block
-    assert 'ui.icon("code" if is_developer_child else "chat_bubble_outline", size="xs")' in modal_block
+    assert "_render_pin_toggle_button(" in modal_block
     assert "show_rename_thread_dialog" in modal_block
 
 

@@ -393,7 +393,9 @@ def test_sidebar_hides_child_agent_threads_by_default():
     assert "for run in _agent_run_rows" not in src
     assert "_is_hidden_agent_child_run(agent_run)" in src
     assert '_SIDEBAR_FILTER == "all"' in src
-    assert 'c[1] != "agents"' in src
+    assert "def _filter_classified_thread_rows" in src
+    assert 'item[1] != "agents"' in src
+    assert "_filter_classified_thread_rows(classified, _SIDEBAR_FILTER)" in src
     assert "Show child Agent threads" not in src
     assert "valid_modal_keys" in src
 

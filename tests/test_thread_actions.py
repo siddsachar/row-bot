@@ -62,7 +62,9 @@ def test_rename_affordances_are_wired_into_sidebar_chat_and_developer_header():
     developer_source = (ROOT / "src" / "row_bot" / "developer" / "ui.py").read_text(encoding="utf-8")
 
     assert "show_rename_thread_dialog" in sidebar_source
-    assert "ui.menu_item(\"Rename\"" in sidebar_source
+    assert "_render_action_menu_item(" in sidebar_source
+    assert 'label="Rename"' in sidebar_source
+    assert 'icon="edit"' in sidebar_source
     assert "icon=\"more_vert\"" in sidebar_source
     assert "show_rename_thread_dialog" in chat_source
     assert ".tooltip(\"Rename\")" in chat_source
