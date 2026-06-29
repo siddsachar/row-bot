@@ -17,6 +17,19 @@ def test_developer_home_opens_latest_workspace_thread():
     assert 'state.thread_name = thread_name or f"Developer: {workspace.name}"' in open_block
 
 
+def test_developer_home_renders_all_recent_workspaces_in_scroll_area():
+    source = (ROOT / "src" / "row_bot" / "developer" / "ui.py").read_text(encoding="utf-8")
+    home_block = source.split("def _render_developer_workspaces_home", 1)[1].split(
+        "def _render_workspace_card",
+        1,
+    )[0]
+
+    assert 'ui.scroll_area().classes("w-full h-full")' in source
+    assert "workspaces = list_workspaces()" in home_block
+    assert "for workspace in workspaces:" in home_block
+    assert "workspaces[:8]" not in home_block
+
+
 def test_developer_workspace_has_thread_switcher_and_new_thread_action():
     source = (ROOT / "src" / "row_bot" / "developer" / "ui.py").read_text(encoding="utf-8")
     workspace_block = source.split("def build_developer_workspace(", 1)[1].split(

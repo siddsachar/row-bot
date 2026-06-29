@@ -606,7 +606,7 @@ def _render_developer_workspaces_home(show_workspace_dialog: Callable, on_open: 
             with ui.element("div").classes("w-full").style(
                 "display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0.85rem;"
             ):
-                for workspace in workspaces[:8]:
+                for workspace in workspaces:
                     _render_workspace_card(workspace, on_open=on_open, on_remove=on_remove)
         else:
             with ui.card().classes("w-full").style(
