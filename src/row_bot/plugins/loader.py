@@ -14,6 +14,7 @@ import os
 import pathlib
 import re
 import signal
+import shutil
 import sys
 import threading
 import time
@@ -33,6 +34,8 @@ logger = logging.getLogger(__name__)
 DATA_DIR = get_row_bot_data_dir()
 PLUGINS_DIR = DATA_DIR / "installed_plugins"
 PLUGIN_LOGS_DIR = DATA_DIR / "plugin_logs"
+STALE_PLUGINS_DIR = DATA_DIR / "stale_plugins"
+STALE_PLUGIN_REPORT = "stale_plugins.json"
 
 # Timeout for plugin register() calls (seconds)
 REGISTER_TIMEOUT = 5.0
@@ -75,6 +78,8 @@ class LoadResult:
     manifest: PluginManifest | None = None
     error: str = ""
     warnings: list[str] = field(default_factory=list)
+    stale: bool = False
+    stale_path: str = ""
 
 
 # ── Module-level state ───────────────────────────────────────────────────────
@@ -98,6 +103,7 @@ def load_plugins() -> list[LoadResult]:
     """
     global _load_results
     _load_results = []
+    _unregister_loaded_plugins()
 
     # Re-read state from disk so enable/disable changes are picked up
     plugin_state.reload()
@@ -121,10 +127,21 @@ def load_plugins() -> list[LoadResult]:
         if entry.name in linked_dirs:
             continue
 
-        result = _load_single_plugin(entry)
+        stale_reason = classify_stale_legacy_plugin(entry)
+        result = (
+            _quarantine_stale_plugin(entry, stale_reason)
+            if stale_reason
+            else _load_single_plugin(entry)
+        )
         _load_results.append(result)
 
-        if result.success:
+        if result.stale:
+            logger.info(
+                "Plugin '%s' moved aside as stale legacy plugin: %s",
+                result.plugin_id,
+                stale_reason,
+            )
+        elif result.success:
             logger.info("✅ Plugin '%s' v%s loaded (%d tools, %d skills)",
                          result.plugin_id,
                          result.manifest.version if result.manifest else "?",
@@ -175,9 +192,10 @@ def load_plugins() -> list[LoadResult]:
     except Exception as exc:
         logger.debug("Custom Tool plugin registration skipped: %s", exc)
 
-    loaded = sum(1 for r in _load_results if r.success)
+    loaded = sum(1 for r in _load_results if r.success and not r.stale)
     failed = sum(1 for r in _load_results if not r.success)
-    logger.info("Plugin loading complete: %d loaded, %d failed", loaded, failed)
+    stale = sum(1 for r in _load_results if r.stale)
+    logger.info("Plugin loading complete: %d loaded, %d failed, %d stale", loaded, failed, stale)
 
     return _load_results
 
@@ -186,8 +204,9 @@ def get_load_summary() -> dict:
     """Return a summary dict for the status bar / UI."""
     return {
         "total": len(_load_results),
-        "loaded": sum(1 for r in _load_results if r.success),
+        "loaded": sum(1 for r in _load_results if r.success and not r.stale),
         "failed": sum(1 for r in _load_results if not r.success),
+        "stale": sum(1 for r in _load_results if r.stale),
         "results": _load_results,
     }
 
@@ -200,6 +219,53 @@ def get_plugin_log_path(plugin_id: str) -> pathlib.Path:
     """Return the persisted JSONL load log path for a plugin."""
     safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", plugin_id).strip("._")
     return PLUGIN_LOGS_DIR / f"{safe_name or 'unknown'}.jsonl"
+
+
+def refresh_plugin_runtime(
+    reason: str = "",
+    *,
+    discover_mcp: bool = True,
+    clear_agent: bool = True,
+) -> list[LoadResult]:
+    """Reload plugin runtime state and dependent agent/MCP caches."""
+
+    _unregister_loaded_plugins()
+    results = load_plugins()
+    if discover_mcp:
+        try:
+            from row_bot.mcp_client.runtime import discover_enabled_servers
+
+            discover_enabled_servers()
+        except Exception as exc:
+            logger.debug("Plugin runtime MCP refresh skipped: %s", exc, exc_info=True)
+    if clear_agent:
+        try:
+            from row_bot.agent import clear_agent_cache
+
+            clear_agent_cache()
+        except Exception:
+            logger.debug("Plugin runtime agent cache clear skipped", exc_info=True)
+    logger.info("Plugin runtime refreshed%s", f" ({reason})" if reason else "")
+    return results
+
+
+def _unregister_loaded_plugins() -> None:
+    manifests = list(plugin_registry.get_loaded_manifests())
+    if not manifests:
+        return
+    try:
+        from row_bot.channels import registry as channel_registry
+    except Exception:
+        channel_registry = None
+    for manifest in manifests:
+        plugin_id = str(getattr(manifest, "id", "") or "")
+        if channel_registry is not None and plugin_id:
+            try:
+                channel_registry.unregister_plugin_channels(plugin_id)
+            except Exception:
+                logger.debug("Plugin channel unregister skipped for %s", plugin_id, exc_info=True)
+        if plugin_id:
+            plugin_registry.unregister_plugin(plugin_id)
 
 
 def read_plugin_logs(plugin_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
@@ -232,6 +298,8 @@ def _append_plugin_log(result: LoadResult) -> None:
             "version": result.manifest.version if result.manifest else "",
             "error": _redact_log_text(result.error),
             "warnings": [_redact_log_text(warning) for warning in result.warnings],
+            "stale": result.stale,
+            "stale_path": result.stale_path,
         }
         with open(get_plugin_log_path(result.plugin_id), "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, sort_keys=True) + "\n")
@@ -247,6 +315,125 @@ def _redact_log_text(text: str) -> str:
         r"\1=<redacted>",
         str(text),
     )
+
+
+def classify_stale_legacy_plugin(plugin_dir: pathlib.Path) -> str | None:
+    """Return a stale legacy reason for unsupported pre-v2 plugin directories."""
+
+    manifest_path = plugin_dir / "plugin.json"
+    if manifest_path.exists():
+        try:
+            raw = manifest_path.read_text(encoding="utf-8")
+        except OSError:
+            raw = ""
+        try:
+            data = json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            data = {}
+            if "thoth" in raw.lower():
+                return "legacy Thoth manifest"
+        if isinstance(data, dict) and data:
+            if "min_thoth_version" in data:
+                return "legacy min_thoth_version manifest"
+            provides = data.get("provides")
+            if isinstance(provides, dict) and "tools" in provides:
+                return "legacy provides.tools manifest"
+            if data.get("schema_version") != 2:
+                return "missing manifest schema_version 2"
+
+    for py_file in sorted(plugin_dir.rglob("*.py")):
+        try:
+            text = py_file.read_text(encoding="utf-8", errors="ignore").lower()
+        except OSError:
+            continue
+        if "thoth" in text or "min_thoth_version" in text:
+            rel_path = py_file.relative_to(plugin_dir).as_posix()
+            return f"legacy Thoth plugin code in {rel_path}"
+    return None
+
+
+def _quarantine_stale_plugin(plugin_dir: pathlib.Path, reason: str) -> LoadResult:
+    plugin_id = _stale_plugin_id(plugin_dir)
+    try:
+        STALE_PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
+        destination = _unique_stale_destination(plugin_id)
+        shutil.move(str(plugin_dir), str(destination))
+        _record_stale_plugin(plugin_id, plugin_dir, destination, reason)
+        result = LoadResult(
+            plugin_id=plugin_id,
+            success=True,
+            warnings=[f"Legacy plugin moved to {destination}: {reason}"],
+            stale=True,
+            stale_path=str(destination),
+        )
+        _append_plugin_log(result)
+        return result
+    except Exception as exc:
+        return LoadResult(
+            plugin_id=plugin_id,
+            success=False,
+            error=f"Failed to move stale legacy plugin aside: {exc}",
+        )
+
+
+def _stale_plugin_id(plugin_dir: pathlib.Path) -> str:
+    manifest_path = plugin_dir / "plugin.json"
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        data = {}
+    if isinstance(data, dict):
+        plugin_id = str(data.get("id") or "").strip()
+        if plugin_id:
+            return plugin_id
+    return plugin_dir.name
+
+
+def _unique_stale_destination(plugin_id: str) -> pathlib.Path:
+    safe_id = re.sub(r"[^A-Za-z0-9_.-]+", "-", plugin_id).strip(".-") or "legacy-plugin"
+    destination = STALE_PLUGINS_DIR / safe_id
+    if not destination.exists():
+        return destination
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    stamped = STALE_PLUGINS_DIR / f"{safe_id}-{stamp}"
+    if not stamped.exists():
+        return stamped
+    suffix = 2
+    while True:
+        candidate = STALE_PLUGINS_DIR / f"{safe_id}-{stamp}-{suffix}"
+        if not candidate.exists():
+            return candidate
+        suffix += 1
+
+
+def _record_stale_plugin(
+    plugin_id: str,
+    source: pathlib.Path,
+    destination: pathlib.Path,
+    reason: str,
+) -> None:
+    report_path = STALE_PLUGINS_DIR / STALE_PLUGIN_REPORT
+    try:
+        if report_path.exists():
+            raw = json.loads(report_path.read_text(encoding="utf-8"))
+            report = raw if isinstance(raw, dict) else {}
+        else:
+            report = {}
+    except (OSError, json.JSONDecodeError):
+        report = {}
+    entries = report.setdefault("plugins", [])
+    if not isinstance(entries, list):
+        entries = []
+        report["plugins"] = entries
+    entries.append({
+        "plugin_id": plugin_id,
+        "source_path": str(source),
+        "destination_path": str(destination),
+        "reason": reason,
+        "moved_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+    })
+    report["version"] = 1
+    report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 # ── Single Plugin Loader ─────────────────────────────────────────────────────

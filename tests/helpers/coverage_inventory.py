@@ -98,7 +98,7 @@ COVERAGE_INVENTORY: tuple[CoverageEntry, ...] = (
             "tests/subsystem/plugins/test_plugin_devtools.py",
         ),
         invariants=(
-            "plugin installs default disabled until configured, tested, and enabled",
+            "plugin installs are kept off until configured, tested, and enabled",
             "default plugin tests use local fixtures, not live network or providers",
         ),
     ),

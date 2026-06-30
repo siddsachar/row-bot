@@ -163,9 +163,10 @@ def open_marketplace_dialog(
                     ui.label(f"Checksum: {entry.checksum}").classes("text-grey-6 text-xs")
                 source = entry.archive_url or entry.path or "marketplace"
                 ui.label(f"Source: {source}").classes("text-grey-6 text-xs")
-                ui.label("The plugin will be installed disabled until configured, tested, and enabled.").classes(
-                    "text-grey-6 text-sm"
-                )
+                ui.label(
+                    "Row-Bot will copy this plugin now and keep it off. After install, "
+                    "configure settings or secrets, run Test, then enable it in Plugin Center."
+                ).classes("text-grey-6 text-sm")
 
                 with ui.row().classes("w-full justify-end gap-2 q-mt-md"):
                     ui.button("Cancel", on_click=confirm_dlg.close).props("flat no-caps")
@@ -174,7 +175,7 @@ def open_marketplace_dialog(
                         confirm_dlg.close()
                         await _do_install(entry)
 
-                    ui.button("Install Disabled", icon="download", on_click=_install_and_close).props(
+                    ui.button("Install and Keep Off", icon="download", on_click=_install_and_close).props(
                         "color=primary no-caps"
                     )
             confirm_dlg.open()
@@ -219,17 +220,9 @@ def open_marketplace_dialog(
 
         async def _reload_plugins_and_agent() -> None:
             import asyncio
-            from row_bot.plugins import loader, registry as reg
+            from row_bot.plugins import loader
 
-            for manifest in list(reg.get_loaded_manifests()):
-                reg.unregister_plugin(manifest.id)
-            await asyncio.to_thread(loader.load_plugins)
-            try:
-                from row_bot.agent import clear_agent_cache
-
-                clear_agent_cache()
-            except Exception:
-                logger.debug("Could not clear agent cache after marketplace install", exc_info=True)
+            await asyncio.to_thread(loader.refresh_plugin_runtime, "marketplace install/update")
 
         async def _fetch_and_refresh(force: bool = False) -> None:
             import asyncio

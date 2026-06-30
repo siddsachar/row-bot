@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -88,6 +89,9 @@ def test_registry_tracks_enabled_tools_skills_and_permission_sets(
     assert "Test Skill" in prompt
     assert "plugin: Test Plugin" in prompt
     assert "Use the test skill." in prompt
+    assert "Test Skill" in registry.get_skills_prompt(allow_names=["test-plugin"])
+    assert "Test Skill" in registry.get_skills_prompt(allow_names=["test_tool"])
+    assert registry.get_skills_prompt(allow_names=["other_tool"]) == ""
     assert registry.get_plugin_skills("test-plugin")[0]["name"] == "test_skill"
 
     records = registry.get_enabled_plugin_tool_records()
@@ -144,10 +148,23 @@ def test_registry_includes_plugin_owned_mcp_tools_when_enabled(
     monkeypatch.setattr(mcp_runtime, "get_plugin_tool_records", fake_get_plugin_tool_records)
 
     state.set_plugin_enabled("mcp-plugin", True)
-    registry.register_plugin(manifest=manifest, tools=[], skills=[])
+    registry.register_plugin(
+        manifest=manifest,
+        tools=[],
+        skills=[{
+            "name": "mcp_skill",
+            "display_name": "MCP Skill",
+            "icon": "*",
+            "description": "A plugin MCP skill",
+            "instructions": "Use the plugin MCP tool.",
+        }],
+    )
 
     assert [tool.name for tool in registry.get_langchain_tools()] == ["mcp_plugin_fake_read"]
     assert registry.get_langchain_tools(allow_names=["mcp-plugin"])[0].name == "mcp_plugin_fake_read"
+    assert "MCP Skill" in registry.get_skills_prompt(allow_names=["mcp-plugin"])
+    assert "MCP Skill" in registry.get_skills_prompt(allow_names=["mcp_plugin_fake_read"])
+    assert registry.get_skills_prompt(allow_names=["other_tool"]) == ""
     assert registry.get_destructive_names() == {"mcp_plugin_fake_delete"}
     assert registry.get_enabled_plugin_tool_names() == ["mcp_plugin_fake_read"]
     assert registry.get_enabled_plugin_tool_records()[0]["source"] == "mcp"
@@ -430,3 +447,135 @@ def test_unregister_removes_plugin_manifest_tools_and_skills(
     assert registry.get_manifest("sample-plugin") is None
     assert registry.get_plugin_tool_names() == []
     assert registry.get_plugin_skills("sample-plugin") == []
+
+
+def test_load_plugins_quarantines_legacy_thoth_manifest(
+    plugin_modules: dict[str, Any],
+) -> None:
+    loader = plugin_modules["loader"]
+    registry = plugin_modules["registry"]
+    plugin_dir = loader.PLUGINS_DIR / "legacy-plugin"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps({
+            "id": "legacy-plugin",
+            "name": "Legacy Plugin",
+            "version": "0.1.0",
+            "min_thoth_version": "0.9.0",
+            "provides": {"tools": [{"id": "old_tool"}]},
+        }),
+        encoding="utf-8",
+    )
+    (plugin_dir / "plugin_main.py").write_text("def register(api): pass\n", encoding="utf-8")
+
+    results = loader.load_plugins()
+
+    assert len(results) == 1
+    assert results[0].success is True
+    assert results[0].stale is True
+    assert "min_thoth_version" in results[0].warnings[0]
+    assert not plugin_dir.exists()
+    stale_dir = Path(results[0].stale_path)
+    assert stale_dir.exists()
+    assert stale_dir.parent == loader.STALE_PLUGINS_DIR
+    assert registry.get_loaded_manifests() == []
+    assert loader.get_load_summary()["failed"] == 0
+    assert loader.get_load_summary()["stale"] == 1
+
+    report = json.loads((loader.STALE_PLUGINS_DIR / loader.STALE_PLUGIN_REPORT).read_text(encoding="utf-8"))
+    assert report["plugins"][0]["plugin_id"] == "legacy-plugin"
+    assert "min_thoth_version" in report["plugins"][0]["reason"]
+
+
+def test_stale_plugin_quarantine_uses_unique_destination(
+    plugin_modules: dict[str, Any],
+) -> None:
+    loader = plugin_modules["loader"]
+    existing = loader.STALE_PLUGINS_DIR / "legacy-plugin"
+    existing.mkdir(parents=True)
+    plugin_dir = loader.PLUGINS_DIR / "legacy-plugin"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps({
+            "id": "legacy-plugin",
+            "name": "Legacy Plugin",
+            "version": "0.1.0",
+            "provides": {"tools": []},
+        }),
+        encoding="utf-8",
+    )
+
+    result = loader.load_plugins()[0]
+
+    assert result.stale is True
+    assert Path(result.stale_path) != existing
+    assert Path(result.stale_path).exists()
+    assert existing.exists()
+
+
+def test_invalid_v2_plugin_remains_load_failure(
+    plugin_modules: dict[str, Any],
+) -> None:
+    loader = plugin_modules["loader"]
+    plugin_dir = loader.PLUGINS_DIR / "broken-v2-plugin"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps({"schema_version": 2, "id": "broken-v2-plugin"}),
+        encoding="utf-8",
+    )
+
+    result = loader.load_plugins()[0]
+
+    assert result.success is False
+    assert result.stale is False
+    assert plugin_dir.exists()
+    assert not loader.STALE_PLUGINS_DIR.exists()
+
+
+def test_refresh_plugin_runtime_registers_enabled_tool_for_agent_graph(
+    plugin_modules: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = plugin_modules["state"]
+    loader = plugin_modules["loader"]
+    registry = plugin_modules["registry"]
+    plugin_dir = write_plugin(loader.PLUGINS_DIR, "sample-plugin")
+    state.set_plugin_enabled("sample-plugin", True)
+
+    import row_bot.agent as agent
+
+    agent.clear_agent_cache()
+    monkeypatch.setattr(agent, "get_current_model", lambda: "model:test")
+    monkeypatch.setattr(agent, "get_llm", lambda: object())
+    monkeypatch.setattr(agent, "get_context_size", lambda model_name=None: 32_768)
+    monkeypatch.setattr(agent, "get_agent_system_prompt", lambda: "system")
+    monkeypatch.setattr(
+        agent,
+        "_ensure_agent_mode_ready",
+        lambda model_name: type(
+            "Ready",
+            (),
+            {
+                "provider_id": "test",
+                "runtime_model": "test",
+                "capability_source": "test",
+                "confidence": "high",
+            },
+        )(),
+    )
+    monkeypatch.setattr(agent, "create_react_agent", lambda **kwargs: type("Graph", (), kwargs)())
+    monkeypatch.setattr(agent.tool_registry, "get_enabled_tools", lambda: [])
+    monkeypatch.setattr(agent.tool_registry, "get_tool", lambda name: None)
+    from row_bot.mcp_client import runtime as mcp_runtime
+
+    mcp_calls: list[str] = []
+    monkeypatch.setattr(mcp_runtime, "discover_enabled_servers", lambda: mcp_calls.append("discover"))
+
+    loader.refresh_plugin_runtime("test")
+    loader.refresh_plugin_runtime("test again")
+    graph = agent.get_agent_graph([])
+
+    assert registry.get_plugin_tool_names() == ["sample_tool"]
+    assert [tool.name for tool in graph.tools] == ["sample_tool"]
+    assert mcp_calls == ["discover", "discover"]
+    assert plugin_dir.exists()

@@ -51,7 +51,7 @@ contain real API keys, tokens, private local paths, or real user data.
 
 ## Runtime Rules
 
-Plugins are installed disabled by default. A user should review permissions,
+Plugins are installed and kept off by default. A user should review permissions,
 configure required settings and secrets, run Plugin Center health checks, then
 enable the plugin.
 
@@ -69,7 +69,9 @@ setup is rendered by Plugin Center metadata.
 
 Plugin-packaged MCP servers follow plugin enablement. Disabling a plugin removes
 native tools, plugin MCP tools, plugin skills, and plugin-owned channels from
-the runtime inventory.
+the runtime inventory. Agent Profiles that use `Selected tools only` also scope
+plugin-bundled skills: if the profile does not select the plugin's runtime tool,
+the plugin's auto-injected skill instructions are not included for that profile.
 
 ## Local Developer Workflow
 

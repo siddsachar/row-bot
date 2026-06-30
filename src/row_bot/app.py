@@ -508,6 +508,33 @@ async def _run_startup_sequence():
     except Exception as exc:
         logger.warning("Model catalog refresh scheduler failed to start (non-fatal): %s", exc)
 
+    # ── Load Plugins ────────────────────────────────────────────────────────
+    _set("🔌 Loading plugins…")
+    try:
+        from row_bot.plugins.loader import refresh_plugin_runtime
+        results = await asyncio.to_thread(
+            refresh_plugin_runtime,
+            "startup",
+            discover_mcp=False,
+            clear_agent=False,
+        )
+        loaded = sum(1 for r in results if r.success and not getattr(r, "stale", False))
+        failed = sum(1 for r in results if not r.success)
+        stale = sum(1 for r in results if getattr(r, "stale", False))
+        if loaded or failed or stale:
+            _safe_console_print(
+                f"[startup] 🔌 Plugins: {loaded} loaded, {failed} failed, {stale} stale"
+            )
+        for r in results:
+            if not r.success and r.error:
+                _st.startup_warnings.append(f"⚠️ Plugin '{r.plugin_id}' failed: {r.error}")
+            elif getattr(r, "stale", False):
+                _st.startup_warnings.append(
+                    f"⚠️ Legacy plugin '{r.plugin_id}' moved to stale plugins."
+                )
+    except Exception as exc:
+        logger.warning("Plugin loading failed (non-fatal): %s", exc)
+
     _set("🔌 Starting MCP servers…")
     try:
         from row_bot.mcp_client.runtime import discover_enabled_servers
@@ -522,21 +549,6 @@ async def _run_startup_sequence():
         await asyncio.to_thread(get_agent_graph)
     except Exception as exc:
         logger.warning("Agent graph pre-warm failed (non-fatal): %s", exc)
-
-    # ── Load Plugins ────────────────────────────────────────────────────────
-    _set("🔌 Loading plugins…")
-    try:
-        from row_bot.plugins import load_plugins
-        results = await asyncio.to_thread(load_plugins)
-        loaded = sum(1 for r in results if r.success)
-        failed = sum(1 for r in results if not r.success)
-        if loaded or failed:
-            _safe_console_print(f"[startup] 🔌 Plugins: {loaded} loaded, {failed} failed")
-        for r in results:
-            if not r.success and r.error:
-                _st.startup_warnings.append(f"⚠️ Plugin '{r.plugin_id}' failed: {r.error}")
-    except Exception as exc:
-        logger.warning("Plugin loading failed (non-fatal): %s", exc)
 
     # Auto-start channels via registry
     _set("📡 Starting channels…")

@@ -91,7 +91,7 @@ def test_plugin_center_v2_settings_secrets_and_sections(
     assert [name for name, _spec in _iter_secret_specs(manifest)] == ["TOKEN"]
     assert _get_missing_settings(manifest) == ["Workspace"]
     assert _get_missing_secrets(manifest) == ["Token"]
-    assert _plugin_status(manifest, enabled=False)[0] == "Needs setup"
+    assert _plugin_status(manifest, enabled=False)[0] == "Setup needed"
     assert _plugin_status(
         manifest,
         enabled=True,
@@ -106,7 +106,7 @@ def test_plugin_center_v2_settings_secrets_and_sections(
 
     assert _get_missing_settings(manifest) == []
     assert _get_missing_secrets(manifest) == []
-    assert _plugin_status(manifest, enabled=False)[0] == "Not tested"
+    assert _plugin_status(manifest, enabled=False)[0] == "Test required"
     ok, reason = _can_enable_plugin(manifest)
     assert ok is False
     assert "Run Test" in reason
@@ -114,7 +114,7 @@ def test_plugin_center_v2_settings_secrets_and_sections(
     checks = _record_manifest_health(manifest)
 
     assert checks == [{"label": "Required local setup", "status": "ok"}]
-    assert _plugin_status(manifest, enabled=False)[0] == "Ready to enable"
+    assert _plugin_status(manifest, enabled=False)[0] == "Test passed"
     assert _can_enable_plugin(manifest) == (True, "")
 
     live_check_manifest = PluginManifest(
@@ -220,3 +220,37 @@ def test_agent_collects_plugin_destructive_tool_names() -> None:
 
     assert "plugin_registry_mod.get_destructive_names()" in agent
     assert "plugin_registry_mod.get_destructive_names(allow_names=allow_set)" in agent
+
+
+def test_app_startup_loads_plugins_before_mcp_and_agent_prewarm() -> None:
+    app_source = (REPO_ROOT / "src" / "row_bot" / "app.py").read_text(encoding="utf-8")
+
+    plugin_index = app_source.index("from row_bot.plugins.loader import refresh_plugin_runtime")
+    mcp_index = app_source.index("from row_bot.mcp_client.runtime import discover_enabled_servers")
+    graph_index = app_source.index("from row_bot.agent import get_agent_graph")
+
+    assert plugin_index < mcp_index < graph_index
+    assert "refresh_plugin_runtime," in app_source
+    assert "discover_mcp=False" in app_source
+
+
+def test_plugin_center_and_marketplace_use_runtime_refresh_helper() -> None:
+    settings_source = (REPO_ROOT / "src" / "row_bot" / "plugins" / "ui_settings.py").read_text(encoding="utf-8")
+    marketplace_source = (REPO_ROOT / "src" / "row_bot" / "plugins" / "ui_marketplace.py").read_text(encoding="utf-8")
+
+    assert "plugin_loader.refresh_plugin_runtime" in settings_source
+    assert "loader.refresh_plugin_runtime" in marketplace_source
+    assert "clear_agent_cache after plugin toggle" not in settings_source
+
+
+def test_plugin_center_install_flow_copy_is_clear_about_kept_off_state() -> None:
+    settings_source = (REPO_ROOT / "src" / "row_bot" / "plugins" / "ui_settings.py").read_text(encoding="utf-8")
+    marketplace_source = (REPO_ROOT / "src" / "row_bot" / "plugins" / "ui_marketplace.py").read_text(encoding="utf-8")
+
+    assert "Install Disabled" not in marketplace_source
+    assert "installed disabled until" not in marketplace_source
+    assert "Install and Keep Off" in marketplace_source
+    assert "copy this plugin now and keep it off" in marketplace_source
+    assert '"Run Test"' in settings_source
+    assert '"Enable Plugin"' in settings_source
+    assert '"Disable Plugin"' in settings_source

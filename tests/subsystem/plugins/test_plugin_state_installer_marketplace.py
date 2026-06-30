@@ -102,6 +102,8 @@ def test_installer_local_install_update_uninstall_and_rollback(
 
     assert result.success is True
     assert result.version == "1.0.0"
+    assert "kept it off" in result.message
+    assert "Configure, test, then enable" in result.message
     assert installer.is_installed("install-plugin") is True
     assert installer.get_installed_version("install-plugin") == "1.0.0"
     assert plugin_modules["state"].is_plugin_enabled("install-plugin") is False

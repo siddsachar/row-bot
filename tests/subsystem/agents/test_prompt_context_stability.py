@@ -42,6 +42,76 @@ def _marked_messages(messages) -> list[tuple[str, str]]:
     ]
 
 
+def _combined_text(messages) -> str:
+    return "\n".join(_message_text(message) for message in messages)
+
+
+def test_plugin_skill_prompt_receives_active_profile_tool_allowlist(tmp_path, monkeypatch):
+    agent = _fresh_agent(tmp_path, monkeypatch)
+
+    captured_allowlists: list[tuple[str, ...] | None] = []
+
+    def fake_plugin_skills_prompt(*, allow_names=None) -> str:
+        captured_allowlists.append(
+            None if allow_names is None else tuple(str(name) for name in allow_names)
+        )
+        allowed = set(allow_names or []) if allow_names is not None else None
+        if allowed is None or "rss_reader" in allowed:
+            return "RSS_PLUGIN_SKILL_SENTINEL"
+        return ""
+
+    monkeypatch.setattr(agent, "get_context_size", lambda: 200_000)
+    monkeypatch.setattr(agent, "trim_messages", lambda messages, **kwargs: list(messages))
+    monkeypatch.setattr(agent, "get_current_model", lambda: "model:openai:gpt-4o")
+    monkeypatch.setattr(agent, "is_cloud_model", lambda model: True)
+    monkeypatch.setattr(agent, "get_cloud_provider", lambda model: "openai")
+    monkeypatch.setattr(agent, "is_background_workflow", lambda: False)
+    monkeypatch.setattr("row_bot.self_knowledge.build_static_self_knowledge_block", lambda: "")
+    monkeypatch.setattr("row_bot.self_knowledge.build_dynamic_self_knowledge_block", lambda: "")
+    monkeypatch.setattr("row_bot.skills.get_skills_prompt", lambda *args, **kwargs: "")
+    monkeypatch.setattr("row_bot.plugins.registry.get_skills_prompt", fake_plugin_skills_prompt)
+
+    agent._set_active_runtime_context(
+        thread_id="plugin-skill-selected",
+        enabled_tool_names=("filesystem", "rss_reader"),
+        tool_allowlist=["filesystem"],
+    )
+    selected_without_plugin = agent._pre_model_trim({
+        "messages": [
+            SystemMessage(content="ROOT_STABLE_SENTINEL"),
+            HumanMessage(content="Use tools."),
+        ]
+    })["llm_input_messages"]
+
+    agent._set_active_runtime_context(
+        thread_id="plugin-skill-selected",
+        enabled_tool_names=("filesystem", "rss_reader"),
+        tool_allowlist=["rss_reader"],
+    )
+    selected_with_plugin = agent._pre_model_trim({
+        "messages": [
+            SystemMessage(content="ROOT_STABLE_SENTINEL"),
+            HumanMessage(content="Use tools."),
+        ]
+    })["llm_input_messages"]
+
+    agent._set_active_runtime_context(
+        thread_id="plugin-skill-inherited",
+        enabled_tool_names=("filesystem", "rss_reader"),
+    )
+    inherited = agent._pre_model_trim({
+        "messages": [
+            SystemMessage(content="ROOT_STABLE_SENTINEL"),
+            HumanMessage(content="Use tools."),
+        ]
+    })["llm_input_messages"]
+
+    assert captured_allowlists == [("filesystem",), ("rss_reader",), None]
+    assert "RSS_PLUGIN_SKILL_SENTINEL" not in _combined_text(selected_without_plugin)
+    assert "RSS_PLUGIN_SKILL_SENTINEL" in _combined_text(selected_with_plugin)
+    assert "RSS_PLUGIN_SKILL_SENTINEL" in _combined_text(inherited)
+
+
 def test_anthropic_cache_markers_stay_on_stable_system_context_only(tmp_path, monkeypatch):
     agent = _fresh_agent(tmp_path, monkeypatch)
 
@@ -70,7 +140,7 @@ def test_anthropic_cache_markers_stay_on_stable_system_context_only(tmp_path, mo
     monkeypatch.setattr("row_bot.self_knowledge.build_static_self_knowledge_block", lambda: "SELF_STATIC_SENTINEL")
     monkeypatch.setattr("row_bot.self_knowledge.build_dynamic_self_knowledge_block", lambda: "DYNAMIC_STATE_SENTINEL")
     monkeypatch.setattr("row_bot.skills.get_skills_prompt", lambda *args, **kwargs: "")
-    monkeypatch.setattr("row_bot.plugins.registry.get_skills_prompt", lambda: "")
+    monkeypatch.setattr("row_bot.plugins.registry.get_skills_prompt", lambda *args, **kwargs: "")
     monkeypatch.setattr("row_bot.memory_policy.build_auto_recall", lambda *args, **kwargs: decision)
     monkeypatch.setattr("row_bot.memory_policy.touch_selected_memories", lambda recall_decision: None)
     monkeypatch.setattr("row_bot.memory_policy.record_recall_trace", lambda recall_decision, **kwargs: None)

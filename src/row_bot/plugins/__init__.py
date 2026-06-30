@@ -8,10 +8,10 @@ The plugin system intentionally avoids importing anything from ``tools/``,
 ``skills.py``, or any other core module.  The only integration points are:
 
 - ``agent.py``  appends plugin LangChain tools + skills prompt
-- ``app.py``    calls ``load_plugins()`` at startup
+- ``app.py``    calls ``refresh_plugin_runtime()`` at startup
 - ``ui/settings.py``  adds a Plugins tab
 """
 
-from row_bot.plugins.loader import load_plugins, get_load_summary
+from row_bot.plugins.loader import get_load_summary, load_plugins, refresh_plugin_runtime
 
-__all__ = ["load_plugins", "get_load_summary"]
+__all__ = ["load_plugins", "get_load_summary", "refresh_plugin_runtime"]

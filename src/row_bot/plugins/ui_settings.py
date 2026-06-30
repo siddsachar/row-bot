@@ -120,7 +120,7 @@ def build_plugins_tab(
                         on_click=lambda _, m=manifest: _open_config(m, refresh_fn),
                     ).props("flat dense no-caps")
                     ui.button(
-                        "Test",
+                        "Run Test",
                         icon="fact_check",
                         on_click=lambda _, m=manifest: _test_plugin(m, refresh_fn),
                     ).props("flat dense no-caps")
@@ -133,7 +133,7 @@ def build_plugins_tab(
                             ),
                         ).props("flat dense no-caps color=warning")
                     ui.button(
-                        "Disable" if enabled else "Enable",
+                        "Disable Plugin" if enabled else "Enable Plugin",
                         icon="toggle_on" if enabled else "toggle_off",
                         on_click=lambda _, m=manifest, value=not enabled: _toggle_plugin(
                             m, value, refresh_fn
@@ -149,11 +149,9 @@ def build_plugins_tab(
                 return
         plugin_state.set_plugin_enabled(plugin_id, enabled)
         try:
-            from row_bot.agent import clear_agent_cache
-
-            clear_agent_cache()
+            plugin_loader.refresh_plugin_runtime(f"plugin {'enable' if enabled else 'disable'}")
         except Exception:
-            logger.debug("Could not clear agent cache after plugin toggle", exc_info=True)
+            logger.debug("Could not refresh plugin runtime after plugin toggle", exc_info=True)
         ui.notify(f"Plugin {plugin_id} {'enabled' if enabled else 'disabled'}", type="info")
         refresh_fn()
 
@@ -208,6 +206,11 @@ def build_plugins_tab(
 
                 def _do_uninstall() -> None:
                     result = installer.uninstall_plugin(plugin_id)
+                    if result.success:
+                        try:
+                            plugin_loader.refresh_plugin_runtime("plugin uninstall")
+                        except Exception:
+                            logger.debug("Could not refresh plugin runtime after uninstall", exc_info=True)
                     ui.notify(
                         result.message,
                         type="positive" if result.success else "negative",
@@ -220,23 +223,15 @@ def build_plugins_tab(
 
     async def _reload_and_refresh() -> None:
         import asyncio
-        from row_bot.plugins import loader, registry as reg
 
-        for manifest in list(reg.get_loaded_manifests()):
-            reg.unregister_plugin(manifest.id)
-
-        results = await asyncio.to_thread(loader.load_plugins)
-        try:
-            from row_bot.agent import clear_agent_cache
-
-            clear_agent_cache()
-        except Exception:
-            logger.debug("Could not clear agent cache after plugin reload", exc_info=True)
-        loaded = sum(1 for result in results if result.success)
+        results = await asyncio.to_thread(plugin_loader.refresh_plugin_runtime, "plugin center reload")
+        loaded = sum(1 for result in results if result.success and not getattr(result, "stale", False))
         failed = sum(1 for result in results if not result.success)
+        stale = sum(1 for result in results if getattr(result, "stale", False))
         ui.notify(
             f"Loaded {loaded} plugin{'s' if loaded != 1 else ''}"
-            + (f", {failed} failed" if failed else ""),
+            + (f", {failed} failed" if failed else "")
+            + (f", {stale} stale moved aside" if stale else ""),
             type="positive" if not failed else "warning",
         )
         _refresh_cards()
@@ -275,13 +270,13 @@ def _plugin_status(
     if enabled:
         return "Enabled", "positive"
     if _get_missing_settings(manifest) or _get_missing_secrets(manifest):
-        return "Needs setup", "warning"
+        return "Setup needed", "warning"
     from row_bot.plugins import state as plugin_state
 
     health = plugin_state.get_plugin_health_result(manifest.id)
     if health.get("ok"):
-        return "Ready to enable", "positive"
-    return "Not tested", "orange"
+        return "Test passed", "positive"
+    return "Test required", "orange"
 
 
 def _plugin_update_entry(manifest: Any) -> Any | None:

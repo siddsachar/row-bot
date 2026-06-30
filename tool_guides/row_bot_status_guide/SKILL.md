@@ -17,7 +17,8 @@ QUERYING STATUS (row_bot_status):
 - Use category='channels' to see which messaging channels are running.
 - Use category='memory' for knowledge graph entity/relation counts.
 - Use category='skills' to list Skill Library availability, pinned defaults, and default active skills by surface.
-- Use category='tools' to list global enabled/disabled tools and the effective thread tool scope when an Agent Profile is active.
+- Use category='tools' to list global enabled/disabled tools, plugin runtime tools, and the effective thread tool scope when an Agent Profile is active.
+- Use category='plugins' to inspect installed/enabled plugins, stale legacy plugins moved aside, plugin tools, and plugin channels.
 - Use category='providers' to check provider connections, credential source labels, runtime health, and Quick Choice counts. Model catalog browsing, pinning, and defaults live in Settings -> Models.
 - Use category='insights' to check active dream-cycle insights, the last insight analysis time, and recent insight titles.
 - Use category='api_keys' only for legacy/API key storage status. It never shows key values.

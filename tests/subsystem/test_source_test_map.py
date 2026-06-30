@@ -114,8 +114,12 @@ def test_plugin_change_selects_plugin_contracts_and_integration_lanes() -> None:
         [
             "src/row_bot/plugins/manifest.py",
             "src/row_bot/plugins/mcp.py",
+            "src/row_bot/app.py",
+            "src/row_bot/tools/row_bot_status_tool.py",
+            "src/row_bot/ui/status_checks.py",
             "scripts/build_plugin_index.py",
             "docs/PLUGIN_SYSTEM_V2.md",
+            "docs/ARCHITECTURE.md",
             "examples/plugins/hello-tool/plugin.json",
         ]
     )
@@ -125,6 +129,7 @@ def test_plugin_change_selects_plugin_contracts_and_integration_lanes() -> None:
     assert "tests/subsystem/plugins" in selection.test_paths
     assert "tests/subsystem/mcp/test_mcp_runtime_tools.py" in selection.test_paths
     assert "tests/subsystem/channels/test_channel_registry.py" in selection.test_paths
+    assert "tests/test_row_bot_status_agents.py" in selection.test_paths
     assert not selection.unmatched_files
 
 
