@@ -48,6 +48,7 @@ class _StatusQueryInput(BaseModel):
             "'memory' (knowledge graph stats), "
             "'skills' (Skill Library availability and pinned defaults), "
             "'tools' (effective active profile tools plus global enabled/disabled tools), "
+            "'plugins' (installed plugins, stale legacy plugins, and plugin runtime tools), "
             "'mcp' (external MCP server/tool status), "
             "'providers' (provider connections, credential sources, and Quick Choices), "
             "'insights' (active dream-cycle insights and last analysis), "
@@ -390,7 +391,7 @@ def _query_overview() -> str:
     from row_bot.version import __version__
     parts = [f"**Row-Bot v{__version__}**"]
     for cat in ("model", "providers", "vision", "image_gen", "video_gen", "voice", "api_keys", "memory",
-                "channels", "skills", "tools", "mcp", "identity", "tasks", "agents", "agent_profiles", "goals",
+                "channels", "skills", "tools", "plugins", "mcp", "identity", "tasks", "agents", "agent_profiles", "goals",
                 "insights", "evolution", "config", "designer", "updates"):
         try:
             if cat == "model":
@@ -613,9 +614,92 @@ def _query_tools() -> str:
             lines.append(f"- contextual: {t.display_name} (active for the current Developer workspace)")
         for t in disabled:
             lines.append(f"- ❌ {t.display_name}")
+        try:
+            from row_bot.plugins import registry as plugin_registry
+
+            plugin_records = plugin_registry.get_enabled_plugin_tool_records()
+            if plugin_records:
+                lines.append("")
+                lines.append("Plugin tools:")
+                for item in plugin_records:
+                    runtime_name = str(item.get("runtime_name") or "").strip()
+                    if not runtime_name:
+                        continue
+                    plugin_name = str(item.get("plugin_name") or item.get("plugin_id") or "Plugin")
+                    label = str(item.get("label") or runtime_name)
+                    lines.append(f"- ✅ {plugin_name}: {label} ({runtime_name})")
+            else:
+                lines.append("")
+                lines.append("Plugin tools: none currently registered.")
+        except Exception as exc:
+            lines.append("")
+            lines.append(f"Plugin tools: unavailable ({exc})")
         return "\n".join(lines)
     except Exception as exc:
         return f"**Tools**\nError: {exc}"
+
+
+def _query_plugins() -> str:
+    try:
+        from row_bot.channels import registry as channel_registry
+        from row_bot.plugins import loader as plugin_loader
+        from row_bot.plugins import registry as plugin_registry
+        from row_bot.plugins import state as plugin_state
+
+        summary = plugin_loader.get_load_summary()
+        manifests = sorted(plugin_registry.get_loaded_manifests(), key=lambda item: item.name.lower())
+        enabled_manifests = [manifest for manifest in manifests if plugin_state.is_plugin_enabled(manifest.id)]
+        plugin_records = plugin_registry.get_enabled_plugin_tool_records()
+        stale_results = [result for result in summary.get("results", []) if getattr(result, "stale", False)]
+        failed_results = [result for result in summary.get("results", []) if not getattr(result, "success", False)]
+
+        lines = [
+            "**Plugins**",
+            (
+                f"- Installed/loaded: {len(manifests)}; enabled: {len(enabled_manifests)}; "
+                f"failed: {len(failed_results)}; stale legacy: {len(stale_results)}"
+            ),
+        ]
+        if manifests:
+            lines.append("- Plugin states:")
+            for manifest in manifests:
+                state_label = "enabled" if plugin_state.is_plugin_enabled(manifest.id) else "disabled"
+                lines.append(f"  - {manifest.name} ({manifest.id}) v{manifest.version}: {state_label}")
+        if plugin_records:
+            lines.append("- Enabled plugin tools:")
+            for item in plugin_records:
+                runtime_name = str(item.get("runtime_name") or "").strip()
+                if not runtime_name:
+                    continue
+                plugin_name = str(item.get("plugin_name") or item.get("plugin_id") or "Plugin")
+                label = str(item.get("label") or runtime_name)
+                lines.append(f"  - {plugin_name}: {label} ({runtime_name})")
+        else:
+            lines.append("- Enabled plugin tools: none")
+
+        plugin_channels: list[str] = []
+        for channel in channel_registry.all_channels():
+            source = channel_registry.get_source(channel.name)
+            if source.kind == "plugin":
+                plugin_channels.append(f"{source.label or source.plugin_id}: {channel.display_name} ({channel.name})")
+        if plugin_channels:
+            lines.append("- Plugin channels:")
+            lines.extend(f"  - {item}" for item in sorted(plugin_channels))
+
+        if stale_results:
+            lines.append("- Stale legacy plugins moved aside:")
+            for result in stale_results:
+                detail = result.stale_path or "stale_plugins"
+                lines.append(f"  - {result.plugin_id}: {detail}")
+        if failed_results:
+            lines.append("- Failed plugins:")
+            for result in failed_results:
+                lines.append(f"  - {result.plugin_id}: {result.error or 'unknown error'}")
+        if not manifests and not stale_results and not failed_results:
+            lines.append("- No plugins installed.")
+        return "\n".join(lines)
+    except Exception as exc:
+        return f"**Plugins**\nError: {exc}"
 
 
 def _query_mcp() -> str:
@@ -1588,6 +1672,7 @@ _QUERY_HANDLERS = {
     "memory": _query_memory,
     "skills": _query_skills,
     "tools": _query_tools,
+    "plugins": _query_plugins,
     "mcp": _query_mcp,
     "providers": _query_providers,
     "insights": _query_insights,
@@ -2314,7 +2399,7 @@ class RowBotStatusTool(BaseTool):
                 description=(
                     "Query Row-Bot's current status and configuration. "
                     "Categories: overview, version, model, channels, memory, skills, "
-                    "tools, mcp, providers, insights, evolution, api_keys, identity, tasks, "
+                    "tools, plugins, mcp, providers, insights, evolution, api_keys, identity, tasks, "
                     "agents, agent_profiles, goals, vision, "
                     "image_gen, video_gen, voice, config, designer, updates, logs, errors."
                 ),

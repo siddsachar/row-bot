@@ -98,6 +98,63 @@ def _plugin_mcp_allow_names(plugin_id: str, allow: set[str] | None) -> set[str] 
     return allow
 
 
+def _plugin_native_runtime_names(plugin_id: str) -> set[str]:
+    names: set[str] = set()
+    for tool_name, tool in _plugin_tools.items():
+        if _tool_to_plugin.get(tool_name) != plugin_id:
+            continue
+        names.add(tool_name)
+        try:
+            for lc_tool in tool.as_langchain_tools():
+                runtime_name = str(getattr(lc_tool, "name", "") or tool_name).strip()
+                if runtime_name:
+                    names.add(runtime_name)
+        except Exception as exc:
+            logger.debug(
+                "Plugin native tool name lookup skipped for %s/%s: %s",
+                plugin_id,
+                tool_name,
+                exc,
+                exc_info=True,
+            )
+    return names
+
+
+def _plugin_mcp_runtime_names(plugin_id: str) -> set[str]:
+    names: set[str] = set()
+    manifest = _loaded_manifests.get(plugin_id)
+    if not manifest or not getattr(getattr(manifest, "provides", None), "mcp_servers", []):
+        return names
+    try:
+        from row_bot.mcp_client import runtime as mcp_runtime
+
+        for record in mcp_runtime.get_plugin_tool_records(plugin_id):
+            for key in ("runtime_name", "parent_name", "server_name"):
+                name = str(record.get(key) or "").strip()
+                if name:
+                    names.add(name)
+    except Exception as exc:
+        logger.debug(
+            "Plugin MCP tool name lookup skipped for %s: %s",
+            plugin_id,
+            exc,
+            exc_info=True,
+        )
+    return names
+
+
+def _plugin_skill_allowed(plugin_id: str, allow: set[str] | None) -> bool:
+    if allow is None:
+        return True
+    if plugin_id in allow:
+        return True
+    if _plugin_native_runtime_names(plugin_id) & allow:
+        return True
+    if _plugin_mcp_runtime_names(plugin_id) & allow:
+        return True
+    return False
+
+
 def get_langchain_tools(allow_names: Iterable[str] | None = None) -> list:
     """Return LangChain tool wrappers for all tools from enabled plugins."""
     from row_bot.plugins import state
@@ -135,21 +192,28 @@ def get_langchain_tools(allow_names: Iterable[str] | None = None) -> list:
     return tools
 
 
-def get_skills_prompt() -> str:
-    """Return skills prompt text from all enabled plugins."""
+def get_skills_prompt(allow_names: Iterable[str] | None = None) -> str:
+    """Return skills prompt text from enabled plugins allowed for this runtime."""
     from row_bot.plugins import state
 
+    allow = _allow_set(allow_names)
     parts: list[str] = []
+    allowed_plugins: dict[str, bool] = {}
     for skill_name, skill_info in _plugin_skills.items():
         plugin_id = _skill_to_plugin.get(skill_name)
-        if plugin_id and state.is_plugin_enabled(plugin_id):
-            instructions = skill_info.get("instructions", "")
-            if instructions:
-                icon = skill_info.get("icon", "🔌")
-                display = skill_info.get("display_name", skill_name)
-                manifest = _loaded_manifests.get(plugin_id)
-                plugin_name = str(getattr(manifest, "name", "") or plugin_id)
-                parts.append(f"\n### {icon} {display} (plugin: {plugin_name})\n{instructions}\n")
+        if not plugin_id or not state.is_plugin_enabled(plugin_id):
+            continue
+        if plugin_id not in allowed_plugins:
+            allowed_plugins[plugin_id] = _plugin_skill_allowed(plugin_id, allow)
+        if not allowed_plugins[plugin_id]:
+            continue
+        instructions = skill_info.get("instructions", "")
+        if instructions:
+            icon = skill_info.get("icon", "🔌")
+            display = skill_info.get("display_name", skill_name)
+            manifest = _loaded_manifests.get(plugin_id)
+            plugin_name = str(getattr(manifest, "name", "") or plugin_id)
+            parts.append(f"\n### {icon} {display} (plugin: {plugin_name})\n{instructions}\n")
 
     if not parts:
         return ""

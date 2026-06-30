@@ -722,11 +722,20 @@ def check_plugins() -> CheckResult:
         total = len(manifests) or int(summary.get("total") or 0)
         enabled = sum(1 for manifest in manifests if plugin_state.is_plugin_enabled(manifest.id))
         failed = int(summary.get("failed") or 0)
+        stale = int(summary.get("stale") or 0)
         if failed:
-            return CheckResult("Plugins", "warn", f"{enabled} enabled · {failed} failed", settings_tab="Plugins")
+            detail = f"{enabled} enabled · {failed} failed"
+            if stale:
+                detail += f" · {stale} stale"
+            return CheckResult("Plugins", "warn", detail, settings_tab="Plugins")
+        if stale and not manifests:
+            return CheckResult("Plugins", "warn", f"{stale} stale legacy moved aside", settings_tab="Plugins")
         if not total:
             return CheckResult("Plugins", "inactive", "No plugins installed", settings_tab="Plugins")
-        return CheckResult("Plugins", "ok", f"{enabled} / {total} enabled", settings_tab="Plugins")
+        detail = f"{enabled} / {len(manifests)} enabled"
+        if stale:
+            detail += f" · {stale} stale moved aside"
+        return CheckResult("Plugins", "ok", detail, settings_tab="Plugins")
     except Exception as exc:
         return CheckResult("Plugins", "error", str(exc), settings_tab="Plugins")
 

@@ -27,7 +27,7 @@ def _quiet_prompt_dependencies(agent, monkeypatch) -> None:
     monkeypatch.setattr("row_bot.self_knowledge.build_static_self_knowledge_block", lambda: "")
     monkeypatch.setattr("row_bot.self_knowledge.build_dynamic_self_knowledge_block", lambda: "")
     monkeypatch.setattr("row_bot.skills.get_skills_prompt", lambda *args, **kwargs: "")
-    monkeypatch.setattr("row_bot.plugins.registry.get_skills_prompt", lambda: "")
+    monkeypatch.setattr("row_bot.plugins.registry.get_skills_prompt", lambda *args, **kwargs: "")
     monkeypatch.setattr("row_bot.memory_policy.build_auto_recall", lambda *args, **kwargs: decision)
     monkeypatch.setattr("row_bot.memory_policy.record_recall_trace", lambda *args, **kwargs: None)
     monkeypatch.setattr("row_bot.memory_policy.touch_selected_memories", lambda *args, **kwargs: None)

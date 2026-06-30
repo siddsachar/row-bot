@@ -136,7 +136,10 @@ def install_plugin(
         logger.info("Plugin '%s' v%s installed to %s", plugin_id, version, dest)
         return InstallResult(
             success=True, plugin_id=plugin_id, version=version,
-            message=f"Plugin '{plugin_id}' v{version} installed disabled pending setup",
+            message=(
+                f"Installed '{plugin_id}' v{version} and kept it off. "
+                "Configure, test, then enable it in Plugin Center."
+            ),
         )
 
     except Exception as exc:

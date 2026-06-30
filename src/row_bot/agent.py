@@ -1738,7 +1738,14 @@ def _pre_model_trim(state: dict) -> dict:
     if not compact_custom_endpoint:
         try:
             from row_bot.plugins import registry as _plugin_reg
-            plugin_skills_text = _plugin_reg.get_skills_prompt()
+            plugin_skill_allowlist = (
+                _current_tool_allowlist_var.get()
+                if _current_tool_allowlist_active_var.get(False)
+                else None
+            )
+            plugin_skills_text = _plugin_reg.get_skills_prompt(
+                allow_names=plugin_skill_allowlist
+            )
             if plugin_skills_text:
                 _section = stable_section(
                     "skills.plugins",
@@ -2086,6 +2093,9 @@ _current_agent_profile_snapshot_var: _contextvars.ContextVar[dict] = _contextvar
 _current_tool_allowlist_var: _contextvars.ContextVar[tuple[str, ...]] = _contextvars.ContextVar(
     "current_tool_allowlist", default=()
 )
+_current_tool_allowlist_active_var: _contextvars.ContextVar[bool] = _contextvars.ContextVar(
+    "current_tool_allowlist_active", default=False
+)
 _current_channel_streaming_var: _contextvars.ContextVar[bool] = _contextvars.ContextVar(
     "current_channel_streaming", default=False
 )
@@ -2111,6 +2121,7 @@ def get_active_runtime_context() -> dict:
         "model_override": _model_override_var.get(""),
         "enabled_tool_names": tuple(_current_enabled_tool_names_var.get(()) or ()),
         "tool_allowlist": tuple(_current_tool_allowlist_var.get(()) or ()),
+        "tool_allowlist_active": bool(_current_tool_allowlist_active_var.get(False)),
         "agent_profile_id": _current_agent_profile_id_var.get(""),
         "channel_streaming": bool(_current_channel_streaming_var.get(False)),
     }
@@ -2142,6 +2153,7 @@ def _set_active_runtime_context(
     _model_override_var.set(model_override or "")
     _current_enabled_tool_names_var.set(tuple(enabled_tool_names or ()))
     _current_tool_allowlist_var.set(tuple(tool_allowlist or ()))
+    _current_tool_allowlist_active_var.set(tool_allowlist is not None)
     _current_agent_profile_id_var.set(agent_profile_id or "")
     _current_agent_profile_snapshot_var.set(dict(agent_profile_snapshot or {}))
     _current_channel_streaming_var.set(bool(channel_streaming))

@@ -146,17 +146,22 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
     SourceTestRule(
         "plugins",
         (
+            "src/row_bot/app.py",
             "src/row_bot/plugins/**",
+            "src/row_bot/tools/row_bot_status_tool.py",
+            "src/row_bot/ui/status_checks.py",
             "scripts/validate_plugin.py",
             "scripts/build_plugin_index.py",
             "examples/plugins/**",
             "docs/PLUGIN_SYSTEM_V2.md",
+            "docs/ARCHITECTURE.md",
         ),
         (
             "tests/contracts/plugins/test_plugin_api_contract.py",
             "tests/subsystem/plugins",
             "tests/subsystem/mcp/test_mcp_runtime_tools.py",
             "tests/subsystem/channels/test_channel_registry.py",
+            "tests/test_row_bot_status_agents.py",
         ),
         "Plugin runtime, marketplace, templates, examples, and docs need plugin contracts plus MCP/channel integration coverage.",
     ),

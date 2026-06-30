@@ -1136,7 +1136,7 @@ def test_custom_openai_pre_model_trim_compacts_32k_agent_payload(tmp_path, monke
     monkeypatch.setattr(self_knowledge, "build_static_self_knowledge_block", lambda: "SELF_SENTINEL " * 1000)
     monkeypatch.setattr(self_knowledge, "build_dynamic_self_knowledge_block", lambda: "SELF_DYNAMIC_SENTINEL " * 1000)
     monkeypatch.setattr(skills, "get_skills_prompt", lambda *args, **kwargs: "SKILL_SENTINEL " * 1000)
-    monkeypatch.setattr(plugin_registry, "get_skills_prompt", lambda: "PLUGIN_SENTINEL " * 1000)
+    monkeypatch.setattr(plugin_registry, "get_skills_prompt", lambda *args, **kwargs: "PLUGIN_SENTINEL " * 1000)
 
     tool_token = agent._current_enabled_tool_names_var.set(tuple(f"tool_{i}" for i in range(30)))
     agent.set_active_model_override("model:custom_openai_lab:local")
@@ -1662,7 +1662,7 @@ def test_openai_pre_model_trim_keeps_standard_skill_injections(tmp_path, monkeyp
     monkeypatch.setattr(self_knowledge, "build_static_self_knowledge_block", lambda: "SELF_SENTINEL")
     monkeypatch.setattr(self_knowledge, "build_dynamic_self_knowledge_block", lambda: "")
     monkeypatch.setattr(skills, "get_skills_prompt", lambda *args, **kwargs: "SKILL_SENTINEL")
-    monkeypatch.setattr(plugin_registry, "get_skills_prompt", lambda: "PLUGIN_SENTINEL")
+    monkeypatch.setattr(plugin_registry, "get_skills_prompt", lambda *args, **kwargs: "PLUGIN_SENTINEL")
 
     agent.set_active_model_override("gpt-4o")
     try:

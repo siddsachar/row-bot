@@ -846,13 +846,13 @@ modifying the core codebase.
 - **Dependency safety** — v2 plugins do not install Python dependencies into Row-Bot's runtime environment; plugin-packaged MCP servers provide an external process boundary when needed
 - **State persistence** — enablement and non-secret config are stored under `~/.row-bot/plugin_state.json`; plugin API-key secrets use the OS credential store with metadata-only `plugin_secrets.json` state and session-only fallback for new saves when keyring is unavailable
 - **Hot reload** — Settings can reload plugins without restarting the app; agent caches are cleared automatically
-- **Skill auto-discovery** — plugin `skills/` directories are scanned for `SKILL.md` definitions and injected only while the owning plugin is enabled
+- **Skill auto-discovery** — plugin `skills/` directories are scanned for `SKILL.md` definitions and injected only while the owning plugin is enabled and selected by the active Agent Profile tool boundary
 
 ### Marketplace
 
 - **Marketplace index** — v2 plugin catalog fetched from GitHub-hosted JSON or a local fixture index, with caching, stale-cache fallback, checksums, source metadata, and update checks
 - **Browse dialog** — search, inspect, review permissions, and install plugins from within the app
-- **Install / update / uninstall** — plugins are validated before install, installed disabled by default, checksum-verified when catalog data provides a `sha256:` value, and reloaded immediately afterward
+- **Install / update / uninstall** — plugins are validated before install, installed and kept off by default, checksum-verified when catalog data provides a `sha256:` value, and reloaded immediately afterward
 - **Native Plugin Center** — one Row-Bot-owned UI renders per-plugin metadata, permissions, settings, secrets, auth, health checks, tools, channels, skills, logs, updates, and enable/disable controls; plugin-owned channels do not render arbitrary custom UI
 - **Custom Tool bridge** — promoted Custom Tools are registered through the plugin/tool surface as synthetic local tools so normal chat can use them without adding a separate extension mechanism
 

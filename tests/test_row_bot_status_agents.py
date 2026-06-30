@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 
 def _fresh_status_modules(tmp_path, monkeypatch):
@@ -157,18 +158,19 @@ def test_row_bot_status_reports_agents_profiles_and_goals(tmp_path, monkeypatch)
 def test_row_bot_status_agent_goal_categories_are_discoverable(tmp_path, monkeypatch):
     *_modules, status_tool = _fresh_status_modules(tmp_path, monkeypatch)
 
-    assert {"agents", "agent_profiles", "goals"} <= set(status_tool._QUERY_HANDLERS)
+    assert {"agents", "agent_profiles", "goals", "plugins"} <= set(status_tool._QUERY_HANDLERS)
     tool = next(
         item
         for item in status_tool.RowBotStatusTool().as_langchain_tools()
         if item.name == "row_bot_status"
     )
-    assert "agents, agent_profiles, goals" in tool.description
+    assert "tools, plugins, mcp" in tool.description
 
     guide = Path("tool_guides/row_bot_status_guide/SKILL.md").read_text(encoding="utf-8").lower()
     assert "category='agents'" in guide
     assert "category='agent_profiles'" in guide
     assert "category='goals'" in guide
+    assert "category='plugins'" in guide
     assert "current durable agent runs" in guide
     assert "current goal mode status" in guide
     assert "global enabled/disabled tools" in guide
@@ -181,6 +183,55 @@ def test_row_bot_status_agent_goal_categories_are_discoverable(tmp_path, monkeyp
 
     manifest_source = Path("scripts/app_payload_manifest.py").read_text(encoding="utf-8")
     assert '"tool_guides"' in manifest_source
+
+
+def test_row_bot_status_reports_plugin_tools_and_stale_plugins(tmp_path, monkeypatch):
+    *_modules, status_tool = _fresh_status_modules(tmp_path, monkeypatch)
+
+    from row_bot.plugins import loader as plugin_loader
+    from row_bot.plugins import registry as plugin_registry
+    from row_bot.plugins import state as plugin_state
+
+    manifest = SimpleNamespace(
+        id="rss-reader",
+        name="RSS Reader",
+        version="1.0.0",
+    )
+    monkeypatch.setattr(plugin_registry, "get_loaded_manifests", lambda: [manifest])
+    monkeypatch.setattr(plugin_state, "is_plugin_enabled", lambda plugin_id: plugin_id == "rss-reader")
+    monkeypatch.setattr(
+        plugin_registry,
+        "get_enabled_plugin_tool_records",
+        lambda: [{
+            "runtime_name": "rss_fetch_feed",
+            "plugin_id": "rss-reader",
+            "plugin_name": "RSS Reader",
+            "label": "Fetch Feed",
+            "description": "Read RSS feeds",
+            "destructive": False,
+        }],
+    )
+    stale = plugin_loader.LoadResult(
+        plugin_id="old-thoth",
+        success=True,
+        stale=True,
+        stale_path=str(tmp_path / "data" / "stale_plugins" / "old-thoth"),
+    )
+    monkeypatch.setattr(
+        plugin_loader,
+        "get_load_summary",
+        lambda: {"total": 2, "loaded": 1, "failed": 0, "stale": 1, "results": [stale]},
+    )
+
+    plugins = status_tool._row_bot_status("plugins")
+    tools = status_tool._row_bot_status("tools")
+
+    assert "**Plugins**" in plugins
+    assert "RSS Reader (rss-reader) v1.0.0: enabled" in plugins
+    assert "RSS Reader: Fetch Feed (rss_fetch_feed)" in plugins
+    assert "old-thoth" in plugins
+    assert "Plugin tools:" in tools
+    assert "rss_fetch_feed" in tools
 
 
 def test_row_bot_status_agents_goals_empty_state_and_overview(tmp_path, monkeypatch):
