@@ -7,7 +7,20 @@ from typing import Any
 
 import pytest
 
-from row_bot.plugins.api import Channel, ChannelCapabilities, ConfigField, PluginAPI, PluginTool
+from row_bot.plugins.api import (
+    Channel,
+    ChannelAttachment,
+    ChannelAttachmentResult,
+    ChannelCapabilities,
+    ChannelInboundMessage,
+    ChannelOutboundCallbacks,
+    ChannelRunResult,
+    ConfigField,
+    PluginAPI,
+    PluginTool,
+    PluginWebhookRequest,
+    PluginWebhookResponse,
+)
 
 
 pytestmark = pytest.mark.contract
@@ -96,6 +109,67 @@ def test_plugin_api_exports_channel_base_types() -> None:
     assert Channel.__name__ == "Channel"
     assert ChannelCapabilities().__class__.__name__ == "ChannelCapabilities"
     assert ConfigField(key="target", label="Target").key == "target"
+
+
+def test_plugin_api_exports_public_channel_runtime_types() -> None:
+    attachment = ChannelAttachment(filename="image.png", kind="image")
+    message = ChannelInboundMessage(
+        channel_name="teams",
+        external_conversation_id="conversation-1",
+        sender_id="user-1",
+        attachments=[attachment],
+    )
+    callbacks = ChannelOutboundCallbacks(send_text=lambda text: None)
+    result = ChannelRunResult(thread_id="teams_conversation-1")
+    attachment_result = ChannelAttachmentResult(prompt_text="content")
+    request = PluginWebhookRequest(
+        method="POST",
+        path="/plugin-webhooks/sample/hook",
+        query={"a": "b"},
+        headers={"content-type": "application/json"},
+        body=b'{"ok": true}',
+    )
+    response = PluginWebhookResponse(status_code=202, body="accepted")
+
+    assert message.attachments == [attachment]
+    assert callbacks.send_text("hello") is None
+    assert result.thread_id == "teams_conversation-1"
+    assert attachment_result.prompt_text == "content"
+    assert request.json() == {"ok": True}
+    assert response.status_code == 202
+
+
+def test_plugin_api_compat_alias_exports_channel_runtime_types() -> None:
+    from row_bot.plugins.loader import _install_plugin_api_compat_aliases
+
+    _install_plugin_api_compat_aliases()
+    imported_api = __import__(
+        "plugins.api",
+        fromlist=["ChannelInboundMessage", "PluginWebhookResponse"],
+    )
+
+    assert imported_api.ChannelInboundMessage is ChannelInboundMessage
+    assert imported_api.PluginWebhookResponse is PluginWebhookResponse
+
+
+def test_plugin_api_exposes_channel_runtime_methods(tmp_path: Path) -> None:
+    api = PluginAPI("sample-plugin", tmp_path / "plugin", FakeStateBackend())
+
+    for name in [
+        "handle_channel_message",
+        "handle_channel_approval",
+        "process_channel_attachment",
+        "record_channel_activity",
+        "generate_channel_pairing_code",
+        "verify_channel_pairing_code",
+        "is_channel_user_approved",
+        "get_channel_approved_users",
+        "revoke_channel_user",
+        "register_webhook_route",
+        "get_webhook_path",
+        "get_webhook_url",
+    ]:
+        assert hasattr(api, name)
 
 
 def test_plugin_api_background_context_is_read_from_agent_context(

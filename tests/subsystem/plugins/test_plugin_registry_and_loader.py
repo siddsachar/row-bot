@@ -344,6 +344,135 @@ def test_loader_registers_plugin_channel_and_disable_unregisters(
     assert channel_registry.get("plugin_fake") is None
 
 
+def test_loader_rejects_plugin_channel_manifest_mismatch(
+    plugin_modules: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    state = plugin_modules["state"]
+    loader = plugin_modules["loader"]
+    from row_bot.channels import registry as channel_registry
+
+    plugin_dir = write_plugin(
+        tmp_path,
+        "channel-plugin",
+        manifest=manifest_payload(
+            "channel-plugin",
+            provides={
+                "native_tools": [],
+                "mcp_servers": [],
+                "channels": [{"id": "teams"}],
+                "skills": [],
+            },
+        ),
+        main=(
+            "from plugins.api import Channel\n\n"
+            "class OtherChannel(Channel):\n"
+            "    @property\n"
+            "    def name(self): return 'other'\n"
+            "    @property\n"
+            "    def display_name(self): return 'Other'\n"
+            "    async def start(self): return True\n"
+            "    async def stop(self): pass\n"
+            "    def is_configured(self): return True\n"
+            "    def is_running(self): return True\n"
+            "    def send_message(self, target, text): pass\n\n"
+            "def register(api):\n"
+            "    api.register_channel(OtherChannel())\n"
+        ),
+    )
+
+    state.set_plugin_enabled("channel-plugin", True)
+    result = loader._load_single_plugin(plugin_dir)
+
+    assert result.success is False
+    assert "undeclared channel" in result.error
+    assert channel_registry.get("other") is None
+
+
+def test_loader_rejects_declared_channel_without_registration(
+    plugin_modules: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    state = plugin_modules["state"]
+    loader = plugin_modules["loader"]
+    plugin_dir = write_plugin(
+        tmp_path,
+        "channel-plugin",
+        manifest=manifest_payload(
+            "channel-plugin",
+            provides={
+                "native_tools": [],
+                "mcp_servers": [],
+                "channels": [{"id": "teams"}],
+                "skills": [],
+            },
+        ),
+        main="def register(api):\n    return None\n",
+    )
+
+    state.set_plugin_enabled("channel-plugin", True)
+    result = loader._load_single_plugin(plugin_dir)
+
+    assert result.success is False
+    assert "registered none" in result.error
+
+
+def test_loader_failure_after_register_cleans_up_webhooks(
+    plugin_modules: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = plugin_modules["state"]
+    loader = plugin_modules["loader"]
+    webhooks = plugin_modules["webhooks"]
+    monkeypatch.setattr(webhooks, "_ensure_route_mounted", lambda: None)
+    plugin_dir = write_plugin(
+        tmp_path,
+        "channel-plugin",
+        manifest=manifest_payload(
+            "channel-plugin",
+            provides={
+                "native_tools": [],
+                "mcp_servers": [],
+                "channels": [{"id": "teams"}],
+                "skills": [],
+            },
+        ),
+        main=(
+            "from plugins.api import PluginWebhookResponse\n\n"
+            "def register(api):\n"
+            "    api.register_webhook_route(\n"
+            "        'events', lambda request: PluginWebhookResponse(body='ok')\n"
+            "    )\n"
+        ),
+    )
+
+    state.set_plugin_enabled("channel-plugin", True)
+    result = loader._load_single_plugin(plugin_dir)
+
+    assert result.success is False
+    assert "registered none" in result.error
+    assert webhooks._webhooks == {}
+
+
+def test_unregister_removes_plugin_webhooks(
+    plugin_modules: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = plugin_modules["registry"]
+    webhooks = plugin_modules["webhooks"]
+    monkeypatch.setattr(webhooks, "_ensure_route_mounted", lambda: None)
+    webhooks.register_plugin_webhook(
+        "sample-plugin",
+        "events",
+        lambda request: None,
+    )
+
+    registry.unregister_plugin("sample-plugin")
+
+    assert webhooks._webhooks == {}
+
+
 def test_loader_reports_broken_plugin_without_crashing(
     plugin_modules: dict[str, Any],
     tmp_path: Path,

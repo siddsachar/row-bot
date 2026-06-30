@@ -34,7 +34,7 @@ def plugin_modules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
 
     import row_bot.secret_store as secret_store
-    from row_bot.plugins import devtools, installer, loader, marketplace, registry, state
+    from row_bot.plugins import devtools, installer, loader, marketplace, registry, state, webhooks
 
     secret_store._set_backend_for_tests(MemoryKeyring())
 
@@ -45,11 +45,13 @@ def plugin_modules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
         "installer": importlib.reload(installer),
         "marketplace": importlib.reload(marketplace),
         "devtools": importlib.reload(devtools),
+        "webhooks": importlib.reload(webhooks),
     }
     modules["registry"]._reset()
     modules["state"]._reset()
     modules["loader"]._reset()
     modules["marketplace"]._reset()
+    modules["webhooks"]._reset()
 
     try:
         yield modules
@@ -58,6 +60,7 @@ def plugin_modules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
         modules["state"]._reset()
         modules["loader"]._reset()
         modules["marketplace"]._reset()
+        modules["webhooks"]._reset()
         secret_store._set_backend_for_tests(None)
 
 
