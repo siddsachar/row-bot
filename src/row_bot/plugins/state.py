@@ -101,8 +101,11 @@ def set_plugin_enabled(plugin_id: str, enabled: bool) -> None:
             from row_bot.channels import registry as channel_registry
 
             channel_registry.unregister_plugin_channels(str(plugin_id))
+            from row_bot.plugins.webhooks import unregister_plugin_webhooks
+
+            unregister_plugin_webhooks(str(plugin_id))
         except Exception:
-            logger.debug("Plugin channel unregister skipped for %s", plugin_id, exc_info=True)
+            logger.debug("Plugin runtime unregister skipped for %s", plugin_id, exc_info=True)
     _invalidate_agent_cache()
     logger.info("Plugin '%s' %s", plugin_id, "enabled" if enabled else "disabled")
 
@@ -291,8 +294,11 @@ def remove_plugin_state(plugin_id: str) -> None:
         from row_bot.channels import registry as channel_registry
 
         channel_registry.unregister_plugin_channels(plugin_id)
+        from row_bot.plugins.webhooks import unregister_plugin_webhooks
+
+        unregister_plugin_webhooks(plugin_id)
     except Exception:
-        logger.debug("Plugin channel unregister skipped for %s", plugin_id, exc_info=True)
+        logger.debug("Plugin runtime unregister skipped for %s", plugin_id, exc_info=True)
     _secrets.pop(plugin_id, None)
     if not _is_legacy_secrets_file(_secrets):
         metadata = _ensure_secret_metadata()

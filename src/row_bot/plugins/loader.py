@@ -253,19 +253,29 @@ def _unregister_loaded_plugins() -> None:
     manifests = list(plugin_registry.get_loaded_manifests())
     if not manifests:
         return
-    try:
-        from row_bot.channels import registry as channel_registry
-    except Exception:
-        channel_registry = None
     for manifest in manifests:
         plugin_id = str(getattr(manifest, "id", "") or "")
-        if channel_registry is not None and plugin_id:
-            try:
-                channel_registry.unregister_plugin_channels(plugin_id)
-            except Exception:
-                logger.debug("Plugin channel unregister skipped for %s", plugin_id, exc_info=True)
         if plugin_id:
-            plugin_registry.unregister_plugin(plugin_id)
+            _cleanup_plugin_runtime(plugin_id)
+
+
+def _cleanup_plugin_runtime(plugin_id: str) -> None:
+    try:
+        plugin_registry.unregister_plugin(plugin_id)
+    except Exception:
+        logger.debug("Plugin registry unregister skipped for %s", plugin_id, exc_info=True)
+    try:
+        from row_bot.channels import registry as channel_registry
+
+        channel_registry.unregister_plugin_channels(plugin_id)
+    except Exception:
+        logger.debug("Plugin channel unregister skipped for %s", plugin_id, exc_info=True)
+    try:
+        from row_bot.plugins.webhooks import unregister_plugin_webhooks
+
+        unregister_plugin_webhooks(plugin_id)
+    except Exception:
+        logger.debug("Plugin webhook unregister skipped for %s", plugin_id, exc_info=True)
 
 
 def read_plugin_logs(plugin_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
@@ -467,12 +477,7 @@ def _load_single_plugin_impl(plugin_dir: pathlib.Path) -> LoadResult:
     if not plugin_state.is_plugin_enabled(plugin_id):
         # Still register the manifest so the plugin appears in the UI
         # (users need to see the card to re-enable the plugin).
-        try:
-            from row_bot.channels import registry as channel_registry
-
-            channel_registry.unregister_plugin_channels(plugin_id)
-        except Exception:
-            logger.debug("Plugin channel unregister skipped for %s", plugin_id, exc_info=True)
+        _cleanup_plugin_runtime(plugin_id)
         plugin_registry.register_plugin(
             manifest=manifest, tools=[], skills=[],
         )
@@ -496,11 +501,13 @@ def _load_single_plugin_impl(plugin_dir: pathlib.Path) -> LoadResult:
         )
         _call_register_with_timeout(plugin_dir, api)
     except TimeoutError:
+        _cleanup_plugin_runtime(plugin_id)
         return LoadResult(
             plugin_id=plugin_id, success=False, manifest=manifest,
             error=f"Plugin register() timed out after {REGISTER_TIMEOUT}s"
         )
     except Exception as exc:
+        _cleanup_plugin_runtime(plugin_id)
         return LoadResult(
             plugin_id=plugin_id, success=False, manifest=manifest,
             error=f"Plugin register() crashed: {exc}"
@@ -520,6 +527,7 @@ def _load_single_plugin_impl(plugin_dir: pathlib.Path) -> LoadResult:
         )
         _register_plugin_channels(manifest, api._registered_channels)
     except Exception as exc:
+        _cleanup_plugin_runtime(plugin_id)
         return LoadResult(
             plugin_id=plugin_id, success=False, manifest=manifest,
             error=f"Skill discovery / registry failed: {exc}"
@@ -532,8 +540,33 @@ def _load_single_plugin_impl(plugin_dir: pathlib.Path) -> LoadResult:
 
 
 def _register_plugin_channels(manifest: PluginManifest, channels: list[Any]) -> None:
+    declared_channels = [
+        str(item.get("id") or "").strip()
+        for item in getattr(getattr(manifest, "provides", None), "channels", []) or []
+        if isinstance(item, dict) and str(item.get("id") or "").strip()
+    ]
     if not channels:
+        if declared_channels:
+            raise ValueError(
+                f"Plugin '{manifest.id}' declares channel(s) "
+                f"{declared_channels} but registered none"
+            )
         return
+    if not declared_channels:
+        registered = [str(getattr(channel, "name", "") or "") for channel in channels]
+        raise ValueError(
+            f"Plugin '{manifest.id}' registered channel(s) {registered} "
+            "but declares no channels in plugin.json"
+        )
+    allowed = set(declared_channels) | {name.replace("-", "_") for name in declared_channels}
+    for channel in channels:
+        channel_name = str(getattr(channel, "name", "") or "").strip()
+        if channel_name not in allowed:
+            raise ValueError(
+                f"Plugin '{manifest.id}' registered undeclared channel "
+                f"'{channel_name}'. Declared channels: {declared_channels}"
+            )
+
     from row_bot.channels import registry as channel_registry
 
     channel_registry.unregister_plugin_channels(manifest.id)
@@ -543,6 +576,7 @@ def _register_plugin_channels(manifest: PluginManifest, channels: list[Any]) -> 
         label=manifest.name,
     )
     for channel in channels:
+        channel_name = str(getattr(channel, "name", "") or "").strip()
         channel_registry.register(channel, source=source)
 
 

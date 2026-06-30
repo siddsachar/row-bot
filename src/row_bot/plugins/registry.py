@@ -388,6 +388,13 @@ def get_plugin_skills(plugin_id: str, *, enabled_only: bool = True) -> list[dict
 # ── Unregister ───────────────────────────────────────────────────────────────
 def unregister_plugin(plugin_id: str) -> None:
     """Remove all tools and skills for a plugin."""
+    try:
+        from row_bot.plugins.webhooks import unregister_plugin_webhooks
+
+        unregister_plugin_webhooks(plugin_id)
+    except Exception:
+        logger.debug("Plugin webhook unregister skipped for %s", plugin_id, exc_info=True)
+
     tool_names = [n for n, pid in _tool_to_plugin.items() if pid == plugin_id]
     for name in tool_names:
         _plugin_tools.pop(name, None)

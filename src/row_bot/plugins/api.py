@@ -7,8 +7,11 @@ module plugins are allowed to import from Row-Bot core.  Everything else
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, Awaitable, Callable
+from urllib.parse import parse_qs
 
 from langchain_core.tools import StructuredTool
 
@@ -18,11 +21,127 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "Channel",
+    "ChannelAttachment",
+    "ChannelAttachmentResult",
     "ChannelCapabilities",
+    "ChannelInboundMessage",
+    "ChannelOutboundCallbacks",
+    "ChannelRunResult",
     "ConfigField",
     "PluginAPI",
     "PluginTool",
+    "PluginWebhookRequest",
+    "PluginWebhookResponse",
 ]
+
+
+@dataclass
+class ChannelAttachment:
+    """Public description of one inbound channel attachment."""
+
+    id: str = ""
+    filename: str = "attachment"
+    content_type: str = ""
+    size_bytes: int = 0
+    data: bytes | None = None
+    local_path: str = ""
+    url: str = ""
+    kind: str = "file"
+    caption: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ChannelInboundMessage:
+    """Public message envelope passed from a plugin channel into Row-Bot."""
+
+    channel_name: str
+    external_conversation_id: str
+    sender_id: str
+    text: str = ""
+    sender_display_name: str = ""
+    platform_message_id: str = ""
+    platform_thread_id: str = ""
+    conversation_type: str = ""
+    is_direct: bool = False
+    is_mention: bool = False
+    attachments: list[ChannelAttachment] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ChannelOutboundCallbacks:
+    """Platform-specific send/edit callbacks owned by a plugin channel."""
+
+    send_text: Callable[[str], Awaitable[Any] | Any]
+    send_typing: Callable[[], Awaitable[Any] | Any] | None = None
+    start_stream: Callable[[str], Awaitable[Any] | Any] | None = None
+    update_stream: Callable[[Any, str], Awaitable[Any] | Any] | None = None
+    finish_stream: Callable[[Any, str], Awaitable[Any] | Any] | None = None
+    send_photo: Callable[[str, str | None], Awaitable[Any] | Any] | None = None
+    send_document: Callable[[str, str | None], Awaitable[Any] | Any] | None = None
+    send_approval_request: (
+        Callable[[Any, dict], Awaitable[str | None] | str | None] | None
+    ) = None
+    update_approval_message: Callable[[str, str, str], Awaitable[Any] | Any] | None = None
+
+
+@dataclass
+class ChannelRunResult:
+    """Structured result returned after Row-Bot handles a plugin channel turn."""
+
+    thread_id: str
+    answer: str = ""
+    handled: bool = False
+    command: bool = False
+    interrupted: bool = False
+    interrupt_data: Any | None = None
+    generated_files: list[str] = field(default_factory=list)
+    error: str = ""
+
+
+@dataclass
+class ChannelAttachmentResult:
+    """Text/file outcome from shared inbound attachment processing."""
+
+    prompt_text: str = ""
+    saved_path: str = ""
+    workspace_path: str = ""
+    content_type: str = ""
+    kind: str = "file"
+    error: str = ""
+
+
+@dataclass
+class PluginWebhookRequest:
+    """Public request object for plugin webhook handlers."""
+
+    method: str
+    path: str
+    query: dict[str, str]
+    headers: dict[str, str]
+    body: bytes
+    client_host: str = ""
+
+    def json(self) -> Any:
+        return json.loads(self.body.decode("utf-8") if self.body else "{}")
+
+    def form(self) -> dict[str, Any]:
+        parsed = parse_qs(self.body.decode("utf-8", errors="replace"), keep_blank_values=True)
+        return {
+            key: values[0] if len(values) == 1 else values
+            for key, values in parsed.items()
+        }
+
+
+@dataclass
+class PluginWebhookResponse:
+    """Public response object returned by plugin webhook handlers."""
+
+    status_code: int = 200
+    body: str | bytes = ""
+    media_type: str = "text/plain"
+    headers: dict[str, str] = field(default_factory=dict)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -100,6 +219,141 @@ class PluginAPI:
     def set_secret(self, key: str, value: str) -> None:
         """Write a secret (API key) for this plugin."""
         self._state.set_plugin_secret(self._plugin_id, key, value)
+
+    async def handle_channel_message(
+        self,
+        message: ChannelInboundMessage,
+        callbacks: ChannelOutboundCallbacks,
+        *,
+        channel: Channel | None = None,
+        enabled_tool_names: list[str] | None = None,
+        stream: bool | None = None,
+        approval_context: dict[str, Any] | None = None,
+    ) -> ChannelRunResult:
+        """Route an inbound plugin-channel message through Row-Bot core."""
+        from row_bot.plugins.channel_runtime import handle_plugin_channel_message
+
+        return await handle_plugin_channel_message(
+            plugin_id=self._plugin_id,
+            message=message,
+            callbacks=callbacks,
+            channel=channel,
+            enabled_tool_names=enabled_tool_names,
+            stream=stream,
+            approval_context=approval_context,
+        )
+
+    async def handle_channel_approval(
+        self,
+        *,
+        channel_name: str,
+        thread_id: str,
+        approved: bool,
+        callbacks: ChannelOutboundCallbacks,
+        interrupt_ids: list[str] | None = None,
+        source: str = "",
+    ) -> ChannelRunResult:
+        """Resume an interrupted plugin-channel agent turn."""
+        from row_bot.plugins.channel_runtime import handle_plugin_channel_approval
+
+        return await handle_plugin_channel_approval(
+            plugin_id=self._plugin_id,
+            channel_name=channel_name,
+            thread_id=thread_id,
+            approved=approved,
+            callbacks=callbacks,
+            interrupt_ids=interrupt_ids,
+            source=source,
+        )
+
+    def process_channel_attachment(
+        self,
+        attachment: ChannelAttachment,
+        *,
+        question: str = "",
+        max_chars: int = 80000,
+    ) -> ChannelAttachmentResult:
+        """Process an inbound attachment through Row-Bot's shared media pipeline."""
+        from row_bot.plugins.channel_runtime import process_plugin_channel_attachment
+
+        return process_plugin_channel_attachment(
+            attachment,
+            question=question,
+            max_chars=max_chars,
+        )
+
+    def record_channel_activity(self, channel_name: str) -> None:
+        from row_bot.channels.base import record_activity
+
+        record_activity(channel_name)
+
+    def generate_channel_pairing_code(self, channel_name: str) -> str:
+        from row_bot.channels import auth as channel_auth
+
+        return channel_auth.generate_pairing_code(channel_name)
+
+    def verify_channel_pairing_code(
+        self,
+        channel_name: str,
+        user_id: str,
+        code: str,
+        *,
+        display_name: str = "",
+    ) -> bool:
+        from row_bot.channels import auth as channel_auth
+
+        return channel_auth.verify_pairing_code(
+            channel_name,
+            user_id,
+            code,
+            display_name=display_name,
+        )
+
+    def is_channel_user_approved(self, channel_name: str, user_id: str) -> bool:
+        from row_bot.channels import auth as channel_auth
+
+        return channel_auth.is_user_approved(channel_name, user_id)
+
+    def get_channel_approved_users(self, channel_name: str) -> list[str]:
+        from row_bot.channels import auth as channel_auth
+
+        return channel_auth.get_approved_users(channel_name)
+
+    def revoke_channel_user(self, channel_name: str, user_id: str) -> bool:
+        from row_bot.channels import auth as channel_auth
+
+        return channel_auth.revoke_user(channel_name, user_id)
+
+    def register_webhook_route(
+        self,
+        name: str,
+        handler: Callable[
+            [PluginWebhookRequest],
+            Awaitable[PluginWebhookResponse] | PluginWebhookResponse,
+        ],
+        *,
+        methods: list[str] | None = None,
+        max_body_bytes: int = 1048576,
+    ) -> str:
+        from row_bot.plugins.webhooks import register_plugin_webhook
+
+        return register_plugin_webhook(
+            self._plugin_id,
+            name,
+            handler,
+            methods=methods,
+            max_body_bytes=max_body_bytes,
+        )
+
+    def get_webhook_path(self, name: str) -> str:
+        from row_bot.plugins.webhooks import webhook_path
+
+        return webhook_path(self._plugin_id, name)
+
+    def get_webhook_url(self, name: str, *, start_tunnel: bool = False) -> str:
+        from row_bot.plugins.webhooks import webhook_url
+
+        return webhook_url(self._plugin_id, name, start_tunnel=start_tunnel)
 
     # ── Runtime Context ─────────────────────────────────────────────────
     def is_background_workflow(self) -> bool:
