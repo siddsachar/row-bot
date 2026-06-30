@@ -461,6 +461,32 @@ def _rewrite_installed_plugin_manifests(target: Path, report: dict[str, Any]) ->
         if "min_thoth_version" in data:
             data.pop("min_thoth_version", None)
             changed = True
+        if data.get("schema_version") != 2:
+            data["schema_version"] = 2
+            changed = True
+        provides = data.get("provides")
+        if not isinstance(provides, dict):
+            data["provides"] = {
+                "native_tools": [],
+                "mcp_servers": [],
+                "channels": [],
+                "skills": [],
+            }
+            changed = True
+        else:
+            if "tools" in provides and "native_tools" not in provides:
+                legacy_tools = provides.get("tools")
+                provides["native_tools"] = (
+                    legacy_tools if isinstance(legacy_tools, list) else []
+                )
+                changed = True
+            if "tools" in provides:
+                provides.pop("tools", None)
+                changed = True
+            for surface in ("native_tools", "mcp_servers", "channels", "skills"):
+                if surface not in provides:
+                    provides[surface] = []
+                    changed = True
         if not changed:
             continue
 

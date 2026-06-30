@@ -161,6 +161,12 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
         "Plugin runtime, marketplace, templates, examples, and docs need plugin contracts plus MCP/channel integration coverage.",
     ),
     SourceTestRule(
+        "migration",
+        ("src/row_bot/migration/**",),
+        ("tests/test_row_bot_legacy_rebrand.py",),
+        "Migration changes need legacy rebrand repair coverage.",
+    ),
+    SourceTestRule(
         "memory_and_knowledge",
         (
             "src/row_bot/knowledge_graph.py",

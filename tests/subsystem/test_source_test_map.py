@@ -128,6 +128,14 @@ def test_plugin_change_selects_plugin_contracts_and_integration_lanes() -> None:
     assert not selection.unmatched_files
 
 
+def test_migration_change_selects_legacy_rebrand_regressions() -> None:
+    selection = select_tests_for_changes(["src/row_bot/migration/row_bot_legacy_rebrand.py"])
+
+    assert "migration" in selection.matched_rules
+    assert "tests/test_row_bot_legacy_rebrand.py" in selection.test_paths
+    assert not selection.unmatched_files
+
+
 def test_installer_change_selects_installer_contracts() -> None:
     selection = select_tests_for_changes([".github/workflows/release.yml", "installer/build_linux_app.sh"])
 
