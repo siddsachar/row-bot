@@ -73,6 +73,25 @@ the runtime inventory.
 
 ## Local Developer Workflow
 
+The contributor-facing marketplace documentation lives in the
+`siddsachar/row-bot-plugins` repository:
+
+- `README.md`: quick start and repository layout
+- `CONTRIBUTING.md`: contribution workflow and review expectations
+- `AGENTS.md`: instructions for AI coding agents
+- `docs/PLUGIN_AUTHOR_GUIDE.md`: end-to-end plugin authoring guide
+- `docs/MANIFEST_V2_REFERENCE.md`: manifest field reference
+- `docs/VALIDATION_AND_CATALOG.md`: validation, index, and local marketplace flow
+- `docs/PLUGIN_REVIEW_CHECKLIST.md`: reviewer checklist
+
+Keep Row-Bot and the plugin repository adjacent while developing:
+
+```text
+Code/
+  row-bot/
+  row-bot-plugins/
+```
+
 Validate a plugin directory:
 
 ```powershell
@@ -92,6 +111,13 @@ Build a local marketplace index:
 
 ```powershell
 uv run python scripts/build_plugin_index.py "$PluginRepo" --source "$PluginRepo"
+```
+
+Validate the full marketplace repository from the Row-Bot checkout:
+
+```powershell
+$env:ROW_BOT_SOURCE = (Get-Location)
+uv run python "$PluginRepo\scripts\validate_repo.py" "$PluginRepo"
 ```
 
 For a local fixture repo, the expected shape is:
