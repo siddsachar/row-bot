@@ -437,8 +437,13 @@ from row_bot.tools import registry as tool_registry
 # ═════════════════════════════════════════════════════════════════════════════
 # ReAct Agent — LLM decides which tools to call
 # ═════════════════════════════════════════════════════════════════════════════
-from langgraph.prebuilt import create_react_agent
 from datetime import datetime as _datetime
+
+
+def create_react_agent(*args, **kwargs):
+    from langgraph.prebuilt import create_react_agent as _create_react_agent
+
+    return _create_react_agent(*args, **kwargs)
 
 
 # ── Content normalisation helpers ────────────────────────────────────────────

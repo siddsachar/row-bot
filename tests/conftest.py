@@ -10,12 +10,11 @@ from typing import Any
 
 import pytest
 
-from row_bot.migration.row_bot_legacy_rebrand import LEGACY_DATA_DIR_NAME
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TEST_DATA_DIR = PROJECT_ROOT / ".tmp" / "pytest_row_bot"
 DEFAULT_TEST_TMP_DIR = PROJECT_ROOT / ".tmp" / "pytest_tmp"
+LEGACY_DATA_DIR_NAME = ".thoth"
 LIVE_LEGACY_DATA_DIR = Path.home() / LEGACY_DATA_DIR_NAME
 LIVE_ROW_BOT_DATA_DIR = Path.home() / ".row-bot"
 

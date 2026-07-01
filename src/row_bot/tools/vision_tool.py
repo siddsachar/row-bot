@@ -14,25 +14,7 @@ from pydantic import BaseModel, Field
 
 from row_bot.tools.base import BaseTool
 from row_bot.tools import registry
-
-# The VisionService singleton is created in app.py and stored in
-# st.session_state.  We import capture + analyze at call-time so the
-# tool works outside of Streamlit too (falls back to a local instance).
-_vision_service = None
-
-
-def set_vision_service(svc):
-    """Called by app.py to inject the shared VisionService instance."""
-    global _vision_service
-    _vision_service = svc
-
-
-def _get_vision_service():
-    global _vision_service
-    if _vision_service is None:
-        from row_bot.vision import VisionService
-        _vision_service = VisionService()
-    return _vision_service
+from row_bot.vision_runtime import get_vision_service
 
 
 # ── Tool implementation ──────────────────────────────────────────────────────
@@ -42,7 +24,7 @@ def _analyze_image(
 ) -> str:
     """Capture an image from the user's camera or screen and analyze it,
     or analyze an existing image file."""
-    svc = _get_vision_service()
+    svc = get_vision_service()
     return svc.capture_and_analyze(question, source=source, file_path=file_path)
 
 

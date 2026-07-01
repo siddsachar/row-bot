@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import builtins
+from contextlib import contextmanager
 import logging
 import os
 import sys
@@ -74,23 +75,6 @@ def _app_boot_event(event: str, **fields) -> None:
 
 
 _app_boot_event("module_logger_ready", python=sys.executable, cwd=os.getcwd())
-
-try:
-    from row_bot.migration.row_bot_legacy_rebrand import ensure_legacy_rebrand_migration
-
-    _migration_result = ensure_legacy_rebrand_migration()
-    if _migration_result.get("status") in {"completed", "already_completed"}:
-        _migration_status = str(_migration_result.get("status") or "").replace("_", " ")
-        _migration_report = _migration_result.get("report_path", "")
-        if _migration_report:
-            logger.info("%s data migration %s; report=%s", APP_DISPLAY_NAME, _migration_status, _migration_report)
-        else:
-            logger.info("%s data migration %s", APP_DISPLAY_NAME, _migration_status)
-    for _warning in _migration_result.get("warnings", [])[:5]:
-        logger.warning("%s migration warning: %s", APP_DISPLAY_NAME, _warning)
-except Exception:
-    logger.exception("%s data migration failed", APP_DISPLAY_NAME)
-    raise
 
 
 def _safe_console_print(message: object) -> None:
@@ -248,7 +232,6 @@ from row_bot.models import (
     is_model_local, refresh_cloud_models,
 )
 from row_bot.api_keys import apply_keys
-from row_bot.agent import get_token_usage, clear_summary_cache
 from row_bot.memory_extraction import (
     mark_user_activity, schedule_idle_extraction, start_periodic_extraction, set_active_thread,
 )
@@ -287,6 +270,127 @@ def _load_channel_modules() -> list[str]:
             skipped.append(f"{module_name}: {exc}")
             logger.info("Optional channel module skipped: %s (%s)", module_name, exc)
     return skipped
+
+
+def _get_token_usage_lazy(config: dict | None = None, model_override: str | None = None) -> tuple[int, int]:
+    from row_bot.agent import get_token_usage
+
+    return get_token_usage(config, model_override=model_override)
+
+
+def _startup_fields(**fields) -> str:
+    parts: list[str] = []
+    for key, value in fields.items():
+        if value is None:
+            continue
+        text = str(value).replace("\n", " ")[:200]
+        parts.append(f"{key}={text}")
+    return " ".join(parts)
+
+
+@contextmanager
+def _startup_phase(name: str, **fields):
+    started = time.perf_counter()
+    try:
+        yield
+    except Exception:
+        duration_ms = (time.perf_counter() - started) * 1000.0
+        logger.info(
+            "startup.phase name=%s duration_ms=%.1f success=false %s",
+            name,
+            duration_ms,
+            _startup_fields(**fields),
+        )
+        raise
+    else:
+        duration_ms = (time.perf_counter() - started) * 1000.0
+        logger.info(
+            "startup.phase name=%s duration_ms=%.1f success=true %s",
+            name,
+            duration_ms,
+            _startup_fields(**fields),
+        )
+
+
+def _schedule_background_task(coro, *, name: str):
+    task = asyncio.create_task(coro, name=name)
+
+    def _log_failure(done_task: asyncio.Task) -> None:
+        if done_task.cancelled():
+            return
+        try:
+            exc = done_task.exception()
+        except Exception as callback_exc:
+            logger.debug("Could not inspect background task %s: %s", name, callback_exc)
+            return
+        if exc is not None:
+            logger.warning("Background startup task %s failed: %s", name, exc, exc_info=exc)
+
+    task.add_done_callback(_log_failure)
+    return task
+
+
+async def _auto_start_channel_background(channel, _st) -> None:
+    channel_name = str(getattr(channel, "name", "") or "")
+    display_name = str(getattr(channel, "display_name", channel_name) or channel_name)
+    started = time.perf_counter()
+    ok = False
+    try:
+        ok = bool(await channel.start())
+        if ok:
+            _safe_console_print(f"[startup] ✅ {display_name} auto-started")
+        else:
+            _st.startup_warnings.append(
+                f"⚠️ {display_name} failed to auto-start — check Settings → Channels"
+            )
+    except Exception as exc:
+        _st.startup_warnings.append(
+            f"⚠️ {display_name} failed to auto-start: {exc}"
+        )
+        logger.warning("Channel auto-start failed for %s: %s", channel_name, exc)
+    finally:
+        logger.info(
+            "startup.channel.auto_start channel=%s duration_ms=%.1f ok=%s",
+            channel_name,
+            (time.perf_counter() - started) * 1000.0,
+            ok,
+        )
+
+
+async def _auto_start_channels_background(channels: list, _st) -> None:
+    logger.info("startup.channels.auto_start_begin count=%d", len(channels))
+    for channel in channels:
+        await _auto_start_channel_background(channel, _st)
+    logger.info("startup.channels.auto_start_complete count=%d", len(channels))
+
+
+def _schedule_auto_start_channels(channels: list, _st):
+    if not channels:
+        logger.info("startup.channels.auto_start_none")
+        return None
+    for channel in channels:
+        logger.info(
+            "startup.channel.auto_start_scheduled channel=%s",
+            getattr(channel, "name", ""),
+        )
+    return _schedule_background_task(
+        _auto_start_channels_background(channels, _st),
+        name="row-bot-channel-autostart",
+    )
+
+
+async def _prewarm_agent_graph_background() -> None:
+    with _startup_phase("agent_graph_prewarm", background=True):
+        from row_bot.agent import get_agent_graph
+
+        await asyncio.to_thread(get_agent_graph)
+
+
+def _schedule_agent_graph_prewarm():
+    return _schedule_background_task(
+        _prewarm_agent_graph_background(),
+        name="row-bot-agent-graph-prewarm",
+    )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -396,6 +500,7 @@ async def on_startup():
 
 
 async def _run_startup_sequence_guarded():
+    startup_total_started = time.perf_counter()
     try:
         await _run_startup_sequence()
     except Exception as exc:
@@ -403,7 +508,16 @@ async def _run_startup_sequence_guarded():
 
         _st.startup_status = f"Startup error: {exc}"
         _st.startup_warnings.append(str(exc))
+        logger.info(
+            "startup.phase name=startup_sequence_total duration_ms=%.1f success=false",
+            (time.perf_counter() - startup_total_started) * 1000.0,
+        )
         logger.exception("%s background startup failed", APP_DISPLAY_NAME)
+    else:
+        logger.info(
+            "startup.phase name=startup_sequence_total duration_ms=%.1f success=true",
+            (time.perf_counter() - startup_total_started) * 1000.0,
+        )
 
 
 async def _run_startup_sequence():
@@ -412,7 +526,8 @@ async def _run_startup_sequence():
     start_performance_monitor()
     # Attach persistent file logging (daily JSONL to the Row-Bot data dir).
     from row_bot.logging_config import setup_file_logging
-    setup_file_logging()
+    with _startup_phase("file_logging"):
+        setup_file_logging()
 
     if docs_capture_disable_autostart():
         import row_bot.ui.state as _st
@@ -425,20 +540,23 @@ async def _run_startup_sequence():
 
     try:
         from row_bot.startup_diagnostics import preflight_required_runtime_packages
-        preflight_required_runtime_packages(logger)
+        with _startup_phase("required_runtime_diagnostics"):
+            preflight_required_runtime_packages(logger)
     except Exception:
         logger.debug("Required runtime diagnostics failed", exc_info=True)
 
     # Kill orphaned ngrok processes from previous runs
     from row_bot.tunnel import kill_stale_ngrok
-    kill_stale_ngrok()
+    with _startup_phase("kill_stale_ngrok"):
+        kill_stale_ngrok()
 
     # One-shot: clear project_id on thread_meta rows whose designer
     # project JSON is missing. Prevents the "All Conversations" view
     # from showing threads that claim to belong to a deleted project.
     try:
         from row_bot.threads import sweep_orphan_project_ids
-        sweep_orphan_project_ids()
+        with _startup_phase("orphan_project_sweep"):
+            sweep_orphan_project_ids()
     except Exception:
         logger.exception("Orphan project_id sweep failed")
 
@@ -457,34 +575,41 @@ async def _run_startup_sequence():
         _safe_console_print(f"[startup] {msg}")
 
     _set("🔑 Applying API keys…")
-    await asyncio.to_thread(apply_keys)
+    with _startup_phase("apply_keys"):
+        await asyncio.to_thread(apply_keys)
 
     from row_bot.models import fetch_context_catalog
     _set("📊 Fetching context catalog…")
-    await asyncio.to_thread(fetch_context_catalog)
+    with _startup_phase("fetch_context_catalog"):
+        await asyncio.to_thread(fetch_context_catalog)
 
     if is_cloud_available():
         _set("☁️ Loading cached model catalog...")
-        state.current_model = get_current_model()
+        with _startup_phase("load_cached_model_catalog"):
+            state.current_model = get_current_model()
 
     _set("🔄 Scheduling memory extraction…")
-    await asyncio.to_thread(start_periodic_extraction)
-    await asyncio.to_thread(schedule_idle_extraction)
+    with _startup_phase("memory_extraction_scheduler"):
+        await asyncio.to_thread(start_periodic_extraction)
+        await asyncio.to_thread(schedule_idle_extraction)
 
     _set("🌙 Starting dream cycle daemon…")
-    await asyncio.to_thread(start_dream_loop)
+    with _startup_phase("dream_cycle_daemon"):
+        await asyncio.to_thread(start_dream_loop)
 
     _set("⬆ Starting auto-update scheduler…")
     try:
         from row_bot.updater import start_update_scheduler
-        await asyncio.to_thread(start_update_scheduler)
+        with _startup_phase("update_scheduler"):
+            await asyncio.to_thread(start_update_scheduler)
     except Exception as exc:
         logger.warning("Updater scheduler failed to start (non-fatal): %s", exc)
 
     _set("⚡ Loading workflows…")
     try:
-        await asyncio.to_thread(ensure_task_schema)
-        await asyncio.to_thread(lambda: (seed_default_tasks(), start_task_scheduler()))
+        with _startup_phase("workflow_scheduler"):
+            await asyncio.to_thread(ensure_task_schema)
+            await asyncio.to_thread(lambda: (seed_default_tasks(), start_task_scheduler()))
     except Exception as exc:
         logger.warning("Workflow startup skipped after task DB repair failure: %s", exc)
         _st.startup_warnings.append(
@@ -496,7 +621,8 @@ async def _run_startup_sequence():
     try:
         from row_bot.agent_runs import recover_stale_agent_runs
 
-        recovery = await asyncio.to_thread(recover_stale_agent_runs)
+        with _startup_phase("agent_run_recovery"):
+            recovery = await asyncio.to_thread(recover_stale_agent_runs)
         if any(int(value or 0) for value in recovery.values()):
             logger.info("Agent Run startup recovery: %s", recovery)
     except Exception as exc:
@@ -504,7 +630,8 @@ async def _run_startup_sequence():
 
     try:
         from row_bot.providers.model_catalog_cache import schedule_model_catalog_refresh_jobs
-        await asyncio.to_thread(schedule_model_catalog_refresh_jobs)
+        with _startup_phase("model_catalog_refresh_scheduler"):
+            await asyncio.to_thread(schedule_model_catalog_refresh_jobs)
     except Exception as exc:
         logger.warning("Model catalog refresh scheduler failed to start (non-fatal): %s", exc)
 
@@ -512,12 +639,13 @@ async def _run_startup_sequence():
     _set("🔌 Loading plugins…")
     try:
         from row_bot.plugins.loader import refresh_plugin_runtime
-        results = await asyncio.to_thread(
-            refresh_plugin_runtime,
-            "startup",
-            discover_mcp=False,
-            clear_agent=False,
-        )
+        with _startup_phase("plugin_runtime_refresh"):
+            results = await asyncio.to_thread(
+                refresh_plugin_runtime,
+                "startup",
+                discover_mcp=False,
+                clear_agent=False,
+            )
         loaded = sum(1 for r in results if r.success and not getattr(r, "stale", False))
         failed = sum(1 for r in results if not r.success)
         stale = sum(1 for r in results if getattr(r, "stale", False))
@@ -538,32 +666,29 @@ async def _run_startup_sequence():
     _set("🔌 Starting MCP servers…")
     try:
         from row_bot.mcp_client.runtime import discover_enabled_servers
-        await asyncio.to_thread(discover_enabled_servers)
+        with _startup_phase("mcp_discovery"):
+            await asyncio.to_thread(discover_enabled_servers)
     except Exception as exc:
         logger.warning("MCP startup skipped (non-fatal): %s", exc)
 
-    # Pre-warm agent graph so first thread switch is fast
-    _set("🧠 Building agent graph…")
-    try:
-        from row_bot.agent import get_agent_graph
-        await asyncio.to_thread(get_agent_graph)
-    except Exception as exc:
-        logger.warning("Agent graph pre-warm failed (non-fatal): %s", exc)
-
-    # Auto-start channels via registry
-    _set("📡 Starting channels…")
+    # Prepare channels via registry. Actual live channel handshakes run after
+    # core UI readiness so slow providers do not block the local app shell.
+    _set("📡 Preparing channels…")
     # Ensure channel modules are imported so they self-register.
-    for skipped_channel in _load_channel_modules():
+    with _startup_phase("channel_module_import"):
+        skipped_channels = _load_channel_modules()
+    for skipped_channel in skipped_channels:
         _st.startup_warnings.append(
             f"Channel adapter unavailable: {skipped_channel}. "
             "Install the channels extra to enable it."
         )
     try:
         from row_bot.channels.auth_store import migrate_legacy_channel_secrets
-        migrated = await asyncio.to_thread(
-            migrate_legacy_channel_secrets,
-            _ch_registry.all_channels(),
-        )
+        with _startup_phase("channel_secret_migration"):
+            migrated = await asyncio.to_thread(
+                migrate_legacy_channel_secrets,
+                _ch_registry.all_channels(),
+            )
         if migrated.get("migrated"):
             _safe_console_print(
                 f"[startup] 🔐 Migrated {migrated['migrated']} channel credential(s) "
@@ -579,20 +704,17 @@ async def _run_startup_sequence():
             "Channel credential migration skipped; legacy fallback remains active: %s",
             exc,
         )
-    for _ch in _ch_registry.all_channels():
-        if _ch_config.get(_ch.name, "auto_start", False):
-            try:
-                ok = await _ch.start()
-                if ok:
-                    _safe_console_print(f"[startup] ✅ {_ch.display_name} auto-started")
-                else:
-                    _st.startup_warnings.append(
-                        f"⚠️ {_ch.display_name} failed to auto-start — check Settings → Channels"
-                    )
-            except Exception as exc:
-                _st.startup_warnings.append(
-                    f"⚠️ {_ch.display_name} failed to auto-start: {exc}"
-                )
+    auto_start_channels = []
+    with _startup_phase("channel_auto_start_plan"):
+        for _ch in _ch_registry.all_channels():
+            auto_start = bool(_ch_config.get(_ch.name, "auto_start", False))
+            logger.info(
+                "startup.channel.auto_start_config channel=%s enabled=%s",
+                _ch.name,
+                auto_start,
+            )
+            if auto_start:
+                auto_start_channels.append(_ch)
 
     # Auto-start tunnel if it was enabled before restart
     _main_app_tunnel = _ch_config.get("tunnel", "tunnel_main_app", False)
@@ -602,34 +724,38 @@ async def _run_startup_sequence():
     if _main_app_tunnel is True:
         try:
             from row_bot.tunnel import tunnel_manager
-            if tunnel_manager.is_available():
-                tunnel_manager.start_tunnel(_APP_PORT, label="main_app")
-                _safe_console_print(f"[startup] ✅ Main-app tunnel auto-started on port {_APP_PORT}")
-            else:
-                _status_code, status_detail = tunnel_manager.status()
-                warning = f"Tunnel auto-start skipped: {status_detail}"
-                logger.warning(warning)
-                _st.startup_warnings.append(f"⚠️ {warning}")
+            with _startup_phase("main_app_tunnel_autostart"):
+                if tunnel_manager.is_available():
+                    tunnel_manager.start_tunnel(_APP_PORT, label="main_app")
+                    _safe_console_print(f"[startup] ✅ Main-app tunnel auto-started on port {_APP_PORT}")
+                else:
+                    _status_code, status_detail = tunnel_manager.status()
+                    warning = f"Tunnel auto-start skipped: {status_detail}"
+                    logger.warning(warning)
+                    _st.startup_warnings.append(f"⚠️ {warning}")
         except Exception as exc:
             _st.startup_warnings.append(f"⚠️ Tunnel failed to auto-start: {exc}")
 
     # ── Proactive OAuth token health check ───────────────────────────
-    await asyncio.to_thread(_check_oauth_tokens, _st)
-    await asyncio.to_thread(_check_github_account_health, _st)
+    with _startup_phase("oauth_token_health_check"):
+        await asyncio.to_thread(_check_oauth_tokens, _st)
+    with _startup_phase("github_account_health_check"):
+        await asyncio.to_thread(_check_github_account_health, _st)
 
     # Schedule periodic re-check every 6 hours
     try:
         from row_bot.tasks import _get_scheduler
-        _sched = _get_scheduler()
-        _sched.add_job(
-            _periodic_oauth_check,
-            trigger="interval",
-            hours=6,
-            id="oauth_token_health",
-            replace_existing=True,
-            coalesce=True,
-            max_instances=1,
-        )
+        with _startup_phase("oauth_periodic_scheduler"):
+            _sched = _get_scheduler()
+            _sched.add_job(
+                _periodic_oauth_check,
+                trigger="interval",
+                hours=6,
+                id="oauth_token_health",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+            )
         _safe_console_print("[startup] ⏱️ OAuth periodic check scheduled (every 6 h)")
     except Exception as exc:
         logger.warning("Could not schedule periodic OAuth check: %s", exc)
@@ -649,17 +775,18 @@ async def _run_startup_sequence():
             except Exception:
                 logger.debug("Checkpoint cleanup failed", exc_info=True)
 
-        _sched = _get_scheduler()
-        _sched.add_job(
-            _run_checkpoint_cleanup,
-            trigger="interval",
-            hours=6,
-            id="checkpoint_cleanup",
-            replace_existing=True,
-            coalesce=True,
-            max_instances=1,
-            next_run_time=datetime.now() + timedelta(minutes=10),
-        )
+        with _startup_phase("checkpoint_cleanup_scheduler"):
+            _sched = _get_scheduler()
+            _sched.add_job(
+                _run_checkpoint_cleanup,
+                trigger="interval",
+                hours=6,
+                id="checkpoint_cleanup",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                next_run_time=datetime.now() + timedelta(minutes=10),
+            )
         _safe_console_print("[startup] 🧹 Checkpoint cleanup scheduled (idle, every 6 h)")
     except Exception as exc:
         logger.warning("Could not schedule checkpoint cleanup: %s", exc)
@@ -673,32 +800,35 @@ async def _run_startup_sequence():
     # ── Idle browser-tab eviction ────────────────────────────────────
     try:
         from row_bot.tasks import _get_scheduler
-        from row_bot.tools.browser_tool import get_session_manager as _get_bs_mgr
-
         def _evict_idle_browser_tabs() -> None:
             try:
+                from row_bot.tools.browser_tool import get_session_manager as _get_bs_mgr
+
                 closed = _get_bs_mgr().evict_idle(ttl_seconds=600.0)
                 if closed:
                     logger.info("browser: evicted %d idle tab(s)", closed)
             except Exception:
                 logger.debug("browser idle eviction failed", exc_info=True)
 
-        _sched = _get_scheduler()
-        _sched.add_job(
-            _evict_idle_browser_tabs,
-            trigger="interval",
-            minutes=5,
-            id="browser_idle_eviction",
-            replace_existing=True,
-            coalesce=True,
-            max_instances=1,
-        )
+        with _startup_phase("browser_idle_eviction_scheduler"):
+            _sched = _get_scheduler()
+            _sched.add_job(
+                _evict_idle_browser_tabs,
+                trigger="interval",
+                minutes=5,
+                id="browser_idle_eviction",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+            )
         _safe_console_print("[startup] ⏱️ Browser idle-tab eviction scheduled (every 5 min, 10 min TTL)")
     except Exception as exc:
         logger.warning("Could not schedule browser idle eviction: %s", exc)
 
     _set("✅ Ready")
     _st.startup_ready = True
+    _schedule_agent_graph_prewarm()
+    _schedule_auto_start_channels(auto_start_channels, _st)
     _app_boot_event("startup_sequence_complete")
     logger.info("%s startup complete", APP_DISPLAY_NAME)
 
@@ -1895,7 +2025,7 @@ async def index():
         started = time.perf_counter()
         try:
             used, max_tokens = await run.io_bound(
-                lambda: get_token_usage(config, model_override=model_override)
+                lambda: _get_token_usage_lazy(config, model_override=model_override)
             )
         except Exception:
             logger.debug("Token counter refresh failed", exc_info=True)
@@ -2009,12 +2139,6 @@ async def index():
                 )
 
         defer_ui(_open_setup_center_after_first_run, delay=0.15)
-    try:
-        from row_bot.ui.post_migration import maybe_show_post_migration_report
-
-        maybe_show_post_migration_report(open_settings=_open_settings)
-    except Exception:
-        logger.exception("Failed to render post-migration report")
     _update_token_counter()
 
 

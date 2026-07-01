@@ -4,8 +4,6 @@ from pathlib import Path
 
 from PIL import Image
 
-from row_bot.migration.row_bot_legacy_rebrand import LEGACY_SERVICE_PREFIX
-
 _RUNTIME_FILES = {"app.py", "launcher.py", "brand.py"}
 _RUNTIME_PREFIXES = (
     "buddy/",
@@ -13,6 +11,7 @@ _RUNTIME_PREFIXES = (
     "designer/",
     "ui/",
 )
+LEGACY_SERVICE_PREFIX = "Thoth"
 
 
 def _read(path: str) -> str:

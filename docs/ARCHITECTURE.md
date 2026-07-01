@@ -41,7 +41,7 @@ durable work lives in local data stores owned by the user.
 - [Video Generation](#video-generation)
 - [MCP Client & External Tools](#mcp-client--external-tools)
 - [Migration Wizard](#migration-wizard)
-- [Thoth-to-Row-Bot Rebrand Migration](#thoth-to-row-bot-rebrand-migration)
+- [Legacy Thoth Upgrade Policy](#legacy-thoth-upgrade-policy)
 - [Plugin System & Marketplace](#plugin-system--marketplace)
 - [Auto-Updates](#auto-updates)
 - [Habit & Health Tracker](#habit--health-tracker)
@@ -817,18 +817,14 @@ Row-Bot includes a one-time migration wizard for moving selected data from Herme
 
 ---
 
-## Thoth-to-Row-Bot Rebrand Migration
+## Legacy Thoth Upgrade Policy
 
-The v4 rebrand migration is separate from the Hermes/OpenClaw migration wizard. It is an automatic compatibility path for existing Thoth 3.x users who install Row-Bot v4 and launch it against a machine that already has Thoth data.
+Current Row-Bot releases no longer run the old automatic Thoth-to-Row-Bot rebrand migration during startup. That migration shipped for multiple Row-Bot releases after the v4 rename and has been removed from the hot startup path.
 
-- **Copy-first policy** — Row-Bot copies supported Thoth data into the new Row-Bot data locations and leaves the original Thoth data intact for rollback, manual inspection, or recovery
-- **Runtime entry point** — `migration/row_bot_legacy_rebrand.py` owns the legacy Thoth scan, copy plan, repair steps, and one-shot completion guard used by normal startup
-- **One-shot guard** — migration records completion state so subsequent Row-Bot launches do not repeatedly copy or repair already-migrated data
-- **Data coverage** — provider settings, channels, skills, MCP servers, plugins, Buddy assets, Designer workspaces, conversations, memories, tasks, media, updater state, and runtime config are covered by compatibility tests
-- **Plugin manifest repair** — legacy plugin manifests can be repaired from old Thoth minimum-version metadata to Row-Bot-compatible metadata during migration
-- **Post-migration notice** — `ui/post_migration.py` exposes completion state and user-facing context after the copy so users understand what moved and what stayed in place
-- **Non-destructive rollback posture** — because legacy data is copied rather than moved, users can keep a 3.x backup or inspect old files without depending on Row-Bot's new data directory
-- **Test coverage** — `tests/test_row_bot_legacy_rebrand.py`, `tests/test_row_bot_runtime_data_paths.py`, `tests/test_row_bot_runtime_brand_assets.py`, `tests/test_plugin_manifest_rebrand.py`, and `tests/test_post_migration_notice.py` cover migration contracts and compatibility behavior
+- **Supported path** - users who are still on Thoth or an early Row-Bot build must first install and launch a previous migration-capable Row-Bot release, then upgrade to the current release.
+- **Startup posture** - current startup reads Row-Bot data from `ROW_BOT_DATA_DIR` or the default `.row-bot` directory and does not scan, copy, repair, or rewrite `.thoth` data.
+- **Legacy plugin posture** - plugin loading can still quarantine old Thoth plugin manifests or code so stale plugins do not break startup.
+- **Current migration wizard** - the Preferences migration wizard remains focused on Hermes/OpenClaw archives and is separate from the removed rebrand bridge.
 
 ---
 
@@ -944,7 +940,7 @@ Row-Bot includes a stability layer for the kinds of failures that are hard to ca
 - **Safe timers** — `ui/timer_utils.py` wraps deferred UI callbacks and polling timers so disconnected clients or deleted NiceGUI slots do not crash the app silently
 - **Settings diagnostics** — model settings collection/render phases log timings and memory snapshots, while cached model catalogs and short-lived provider-status caches keep large provider refreshes and OAuth health checks off the critical UI path
 - **UI performance helpers** — `ui/performance.py` provides render generation tokens, timed UI sections, slow-section logging, and safe UI callback/task wrappers used by Settings, Knowledge, chat, and graph surfaces
-- **Startup sequencing** — startup status covers cached model catalog load, workflow scheduler, stale Agent Run recovery, MCP, plugins, channel migration/autostart, tunnel startup, legacy rebrand migration, and knowledge graph load
+- **Startup sequencing** — startup status covers cached model catalog load, workflow scheduler, stale Agent Run recovery, MCP, plugins, channel migration/autostart, tunnel startup, and knowledge graph load
 - **Clean shutdown** — app shutdown attempts ordered channel, tunnel, MCP, scheduler, and process cleanup to reduce locked logs and lingering child processes
 - **Task database diagnostics** — Home, Command Center, and Row-Bot Status can report workflow/agent/goal schema state, repair results, and launcher recovery guidance when workflow storage is missing or corrupt
 - **Frontend error reporting** — browser-side exceptions are reported back into the structured log with enough context to correlate with UI actions
@@ -1067,7 +1063,7 @@ Runtime code is packaged under `src/row_bot`. The paths below are package-relati
 | **`tools/`** + **`designer/tool.py`** | Self-registering core tool modules, registry, base classes, Wikipedia recovery behavior, and LangChain tool conversion |
 | **`plugins/`** | Plugin runtime, marketplace client, manifest validation, security scanner, and settings integration |
 | **`mcp_client/`** | External Model Context Protocol client: config, runtime sessions, marketplace search, requirements, safety classification, diagnostics, and result normalization |
-| **`migration/`** | Hermes/OpenClaw migration models plus Thoth-to-Row-Bot legacy rebrand migration, redaction, source detection, dry-run planning, realistic fixtures, guarded apply/report generation, copy-first rebrand repair, and migration tests |
+| **`migration/`** | Hermes/OpenClaw migration models, redaction, source detection, dry-run planning, realistic fixtures, guarded apply/report generation, and migration tests |
 | **`docs-site/`** + **`docs-content/`** + **`scripts/docs/`** | Public docs source, metadata, generated MDX, real UI screenshot capture, validation, Pagefind search build, and docs review automation |
 | **`static/`** | Bundled frontend assets such as Mermaid, graph/visualization helpers, and Buddy runtime/motion assets |
 | **`version.py`** | Single source of truth for the current Row-Bot version, located at `src/row_bot/version.py` |
@@ -1116,8 +1112,6 @@ All user data is stored under `~/.row-bot/` (or `%USERPROFILE%\\.row-bot\\` on W
 ├── skills/                        # User-installed skills; .hub/ stores Skills Hub lockfile, audit log, and quarantine
 ├── mcp_servers.json               # External MCP server config, global switch, tool enablement, approvals
 ├── mcp_marketplace_cache.json     # Cached MCP directory search results
-├── migrations/                    # One-shot migration markers, including row-bot-v4-rebrand.json
-├── migration_reports/             # Row-Bot v4 rebrand migration and repair reports
 ├── migration-reports/             # Redacted migration plans, results, summaries, and archive snapshots
 ├── migration-backups/             # Pre-migration backups of overwritten target files
 ├── runtimes/                      # Optional user-space runtimes installed by MCP requirement helper

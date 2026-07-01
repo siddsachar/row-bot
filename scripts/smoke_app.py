@@ -8,6 +8,7 @@ packaged release smoke can run it before any extra test dependencies are added.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import socket
 import subprocess
@@ -59,6 +60,7 @@ def run_app_smoke(
     port: int = 8080,
     timeout: float = 90.0,
     check_root: bool = True,
+    wait_startup_ready: bool = False,
     data_dir: Path | str | None = None,
 ) -> SmokeResult:
     """Run a live app smoke test and return structured status messages."""
@@ -104,6 +106,7 @@ def run_app_smoke(
             )
             result.add("PASS", f"app process started (PID {proc.pid})")
 
+            launched_at = time.monotonic()
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
                 if proc.poll() is not None:
@@ -118,7 +121,8 @@ def run_app_smoke(
                     with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/launcher-ping", timeout=2) as response:
                         body = response.read(512).decode("utf-8", errors="replace")
                     if response.status == 200 and '"app":"row-bot"' in body.replace(" ", "").lower():
-                        result.add("PASS", f"/api/launcher-ping responded on port {port}")
+                        elapsed = time.monotonic() - launched_at
+                        result.add("PASS", f"/api/launcher-ping responded on port {port} after {elapsed:.1f}s")
                         break
                 except Exception:
                     time.sleep(1)
@@ -130,6 +134,35 @@ def run_app_smoke(
                 _add_tail(result, "stderr", stderr_path)
                 _add_tail(result, "launcher app log", Path(env["ROW_BOT_DATA_DIR"]) / "row_bot_app.log")
                 return result
+
+            if wait_startup_ready:
+                while time.monotonic() < deadline:
+                    if proc.poll() is not None:
+                        result.add("FAIL", f"app exited before startup_ready with code {proc.returncode}")
+                        stdout_file.flush()
+                        stderr_file.flush()
+                        _add_tail(result, "stdout", stdout_path)
+                        _add_tail(result, "stderr", stderr_path)
+                        _add_tail(result, "launcher app log", Path(env["ROW_BOT_DATA_DIR"]) / "row_bot_app.log")
+                        return result
+                    try:
+                        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/startup-state", timeout=2) as response:
+                            body = response.read(2048).decode("utf-8", errors="replace")
+                        state = json.loads(body)
+                        if response.status == 200 and state.get("ready") is True:
+                            elapsed = time.monotonic() - launched_at
+                            result.add("PASS", f"/api/startup-state ready on port {port} after {elapsed:.1f}s")
+                            break
+                    except Exception:
+                        time.sleep(1)
+                else:
+                    result.add("FAIL", f"/api/startup-state did not become ready within {timeout:.0f}s")
+                    stdout_file.flush()
+                    stderr_file.flush()
+                    _add_tail(result, "stdout", stdout_path)
+                    _add_tail(result, "stderr", stderr_path)
+                    _add_tail(result, "launcher app log", Path(env["ROW_BOT_DATA_DIR"]) / "row_bot_app.log")
+                    return result
 
             if check_root:
                 try:
@@ -162,6 +195,7 @@ def main() -> int:
     parser.add_argument("--cwd", default=".")
     parser.add_argument("--data-dir", default=None)
     parser.add_argument("--no-root-check", action="store_true")
+    parser.add_argument("--wait-startup-ready", action="store_true")
     parser.add_argument("command", nargs=argparse.REMAINDER, help="Optional command after --")
     args = parser.parse_args()
 
@@ -174,6 +208,7 @@ def main() -> int:
         port=args.port,
         timeout=args.timeout,
         check_root=not args.no_root_check,
+        wait_startup_ready=args.wait_startup_ready,
         data_dir=args.data_dir,
     )
     for status, message in result.messages:

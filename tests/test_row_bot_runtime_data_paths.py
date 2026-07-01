@@ -7,7 +7,8 @@ import sys
 import textwrap
 from pathlib import Path
 
-from row_bot.migration.row_bot_legacy_rebrand import LEGACY_DATA_DIR_ENV, LEGACY_DATA_DIR_NAME
+LEGACY_DATA_DIR_ENV = "THOTH_DATA_DIR"
+LEGACY_DATA_DIR_NAME = ".thoth"
 
 
 def test_runtime_persistence_modules_use_row_bot_data_dir(tmp_path):
@@ -21,7 +22,7 @@ def test_runtime_persistence_modules_use_row_bot_data_dir(tmp_path):
         import json
         import pathlib
 
-        from row_bot.migration.row_bot_legacy_rebrand import LEGACY_DATA_DIR_NAME
+        LEGACY_DATA_DIR_NAME = ".thoth"
 
         def runtime_module(name):
             return importlib.import_module(f"row_bot.{name}")

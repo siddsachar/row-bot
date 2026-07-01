@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
-from row_bot.migration.row_bot_legacy_rebrand import LEGACY_DATA_DIR_ENV
+LEGACY_DATA_DIR_ENV = "THOTH_DATA_DIR"
 
 
 def test_brand_constants_define_row_bot_identity():

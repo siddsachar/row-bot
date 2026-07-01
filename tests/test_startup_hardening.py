@@ -1,4 +1,5 @@
 import importlib
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -136,6 +137,95 @@ def test_app_imports_with_startup_preflight():
     app_module = importlib.import_module("row_bot.app")
 
     assert hasattr(app_module, "_APP_PORT")
+
+
+def test_startup_speed_imports_are_lazy_source_contract():
+    app_src = Path("src/row_bot/app.py").read_text(encoding="utf-8")
+    launcher_src = Path("src/row_bot/launcher.py").read_text(encoding="utf-8")
+    state_src = Path("src/row_bot/ui/state.py").read_text(encoding="utf-8")
+    agent_src = Path("src/row_bot/agent.py").read_text(encoding="utf-8")
+    discord_src = Path("src/row_bot/channels/discord_channel.py").read_text(encoding="utf-8")
+    smoke_src = Path("scripts/smoke_app.py").read_text(encoding="utf-8")
+
+    assert "row_bot_legacy_rebrand" not in app_src
+    assert "ensure_legacy_rebrand_migration" not in app_src
+    assert "post_migration" not in app_src
+    assert "row_bot_legacy_rebrand" not in launcher_src
+    assert "ensure_legacy_rebrand_migration" not in launcher_src
+
+    assert not any(
+        line == "from row_bot.agent import get_token_usage"
+        for line in app_src.splitlines()
+    )
+    assert "from row_bot.tools.vision_tool import set_vision_service" not in state_src
+    assert "from row_bot.vision_runtime import set_vision_service" in state_src
+    assert "time.sleep(0.5)" not in discord_src
+    assert "await asyncio.sleep(0.5)" in discord_src
+    assert "--wait-startup-ready" in smoke_src
+
+    assert not any(
+        line == "from langgraph.prebuilt import create_react_agent"
+        for line in agent_src.splitlines()
+    )
+    assert "def create_react_agent" in agent_src
+
+
+def test_channel_adapters_do_not_import_agent_at_module_import_time():
+    for path in [
+        Path("src/row_bot/channels/telegram.py"),
+        Path("src/row_bot/channels/slack.py"),
+        Path("src/row_bot/channels/sms.py"),
+        Path("src/row_bot/channels/discord_channel.py"),
+        Path("src/row_bot/channels/whatsapp.py"),
+    ]:
+        src = path.read_text(encoding="utf-8")
+        assert not any(line == "import row_bot.agent as agent_mod" for line in src.splitlines())
+        assert "def _agent_mod" in src
+
+
+def test_auto_start_channels_are_scheduled_in_background():
+    app_module = importlib.import_module("row_bot.app")
+
+    class FakeState:
+        startup_warnings: list[str] = []
+
+    class FakeChannel:
+        name = "fake"
+        display_name = "Fake"
+
+        def __init__(self) -> None:
+            self.started = False
+
+        async def start(self) -> bool:
+            await asyncio.sleep(0)
+            self.started = True
+            return True
+
+    async def run_check() -> None:
+        channel = FakeChannel()
+        task = app_module._schedule_auto_start_channels([channel], FakeState())
+        assert task is not None
+        assert channel.started is False
+        await task
+        assert channel.started is True
+
+    asyncio.run(run_check())
+
+
+def test_sms_webhook_registration_is_scheduled_in_background(monkeypatch):
+    import row_bot.channels.sms as sms
+
+    calls: list[str] = []
+    monkeypatch.setattr(sms, "_auto_register_twilio_webhook", lambda url: calls.append(url))
+
+    async def run_check() -> None:
+        task = sms._schedule_twilio_webhook_registration("https://example.test")
+        assert task is not None
+        assert calls == []
+        await task
+        assert calls == ["https://example.test"]
+
+    asyncio.run(run_check())
 
 
 def test_app_import_survives_broken_cv2_module(tmp_path):
@@ -321,7 +411,7 @@ def test_window_mode_picker_uses_gui_result(tmp_path, monkeypatch):
     assert launcher._ask_window_mode() == "browser"
 
 
-def test_main_requests_early_splash_before_migration(monkeypatch):
+def test_main_requests_early_splash_before_tray_start(monkeypatch):
     calls = []
 
     class FakeSplashProc:
@@ -337,7 +427,6 @@ def test_main_requests_early_splash_before_migration(monkeypatch):
 
     monkeypatch.setattr(launcher.sys, "platform", "win32")
     monkeypatch.setattr(launcher, "_show_splash", lambda port: calls.append(("splash", port)) or FakeSplashProc())
-    monkeypatch.setattr(launcher, "_ensure_rebrand_migration", lambda: calls.append(("migration", None)))
     monkeypatch.setattr(launcher, "_has_display_server", lambda: True)
     monkeypatch.setattr(launcher, "RowBotTray", FakeTray)
     monkeypatch.setattr(launcher, "_ACTIVE_TRAY", None)
@@ -346,7 +435,7 @@ def test_main_requests_early_splash_before_migration(monkeypatch):
     launcher.main(["--no-ollama"])
 
     assert calls[0][0] == "splash"
-    assert calls[1][0] == "migration"
+    assert calls[1][0] == "tray_init"
     assert ("tray_run", True) in calls
 
 
