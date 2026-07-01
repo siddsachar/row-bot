@@ -875,11 +875,6 @@ def build_sidebar(
                 with ui.item(on_click=_select).classes(item_classes).props(
                     "clickable" + (" active" if is_active else "")
                 ).style(item_style):
-                    with ui.item_section().props("avatar").style("min-width: 28px;"):
-                        _render_pin_toggle_button(
-                            is_pinned=is_pinned,
-                            on_click=lambda t=tid, pinned=not is_pinned: _pin(t, pinned),
-                        )
                     with ui.item_section():
                         with ui.row().classes("items-center no-wrap gap-1").style(
                             "min-width: 0; max-width: 100%;"
@@ -893,31 +888,36 @@ def build_sidebar(
                                 "font-size: 0.7rem;"
                             )
                     with ui.item_section().props("side"):
-                        action_btn = ui.button(icon="more_vert").props("flat dense round size=xs color=grey-6")
-                        action_btn.on("click", js_handler="(e) => e.stopPropagation()")
-                        with action_btn:
-                            with ui.menu() as action_menu:
-                                _render_pin_menu_item(
-                                    label="Unpin" if is_pinned else "Pin",
-                                    icon="push_pin",
-                                    on_click=lambda t=tid, pinned=not is_pinned: _pin(t, pinned),
-                                    menu=action_menu,
-                                )
-                                ui.separator()
-                                _render_action_menu_item(
-                                    label="Rename",
-                                    icon="edit",
-                                    on_click=lambda t=tid, n=name: _rename(t, n),
-                                    menu=action_menu,
-                                )
-                                ui.separator()
-                                _render_action_menu_item(
-                                    label="Delete",
-                                    icon="delete",
-                                    on_click=lambda t=tid: _delete(t),
-                                    menu=action_menu,
-                                    icon_classes="text-negative",
-                                )
+                        with ui.row().classes("items-center no-wrap gap-1"):
+                            _render_pin_toggle_button(
+                                is_pinned=is_pinned,
+                                on_click=lambda t=tid, pinned=not is_pinned: _pin(t, pinned),
+                            )
+                            action_btn = ui.button(icon="more_vert").props("flat dense round size=xs color=grey-6")
+                            action_btn.on("click", js_handler="(e) => e.stopPropagation()")
+                            with action_btn:
+                                with ui.menu() as action_menu:
+                                    _render_pin_menu_item(
+                                        label="Unpin" if is_pinned else "Pin",
+                                        icon="push_pin",
+                                        on_click=lambda t=tid, pinned=not is_pinned: _pin(t, pinned),
+                                        menu=action_menu,
+                                    )
+                                    ui.separator()
+                                    _render_action_menu_item(
+                                        label="Rename",
+                                        icon="edit",
+                                        on_click=lambda t=tid, n=name: _rename(t, n),
+                                        menu=action_menu,
+                                    )
+                                    ui.separator()
+                                    _render_action_menu_item(
+                                        label="Delete",
+                                        icon="delete",
+                                        on_click=lambda t=tid: _delete(t),
+                                        menu=action_menu,
+                                        icon_classes="text-negative",
+                                    )
 
             if len(threads) > SIDEBAR_MAX_THREADS:
                 def _show_all():
@@ -1244,33 +1244,38 @@ def build_sidebar(
                                                     ui.item_label(_fmt_ts(updated)).props("caption")
                                             if not bulk.active:
                                                 with ui.item_section().props("side"):
-                                                    action_btn = ui.button(icon="more_vert").props(
-                                                        "flat dense round size=xs color=grey-6"
-                                                    )
-                                                    action_btn.on("click", js_handler="(e) => e.stopPropagation()")
-                                                    with action_btn:
-                                                        with ui.menu() as action_menu:
-                                                            _render_pin_menu_item(
-                                                                label="Unpin" if is_pinned else "Pin",
-                                                                icon="push_pin",
-                                                                on_click=lambda t=tid, pinned=not is_pinned: _pin_modal(t, pinned),
-                                                                menu=action_menu,
-                                                            )
-                                                            ui.separator()
-                                                            _render_action_menu_item(
-                                                                label="Rename",
-                                                                icon="edit",
-                                                                on_click=lambda t=tid, n=name: _ren(t, n),
-                                                                menu=action_menu,
-                                                            )
-                                                            ui.separator()
-                                                            _render_action_menu_item(
-                                                                label="Delete",
-                                                                icon="delete",
-                                                                on_click=lambda t=tid: _del(t),
-                                                                menu=action_menu,
-                                                                icon_classes="text-negative",
-                                                            )
+                                                    with ui.row().classes("items-center no-wrap gap-1"):
+                                                        _render_pin_toggle_button(
+                                                            is_pinned=is_pinned,
+                                                            on_click=lambda t=tid, pinned=not is_pinned: _pin_modal(t, pinned),
+                                                        )
+                                                        action_btn = ui.button(icon="more_vert").props(
+                                                            "flat dense round size=xs color=grey-6"
+                                                        )
+                                                        action_btn.on("click", js_handler="(e) => e.stopPropagation()")
+                                                        with action_btn:
+                                                            with ui.menu() as action_menu:
+                                                                _render_pin_menu_item(
+                                                                    label="Unpin" if is_pinned else "Pin",
+                                                                    icon="push_pin",
+                                                                    on_click=lambda t=tid, pinned=not is_pinned: _pin_modal(t, pinned),
+                                                                    menu=action_menu,
+                                                                )
+                                                                ui.separator()
+                                                                _render_action_menu_item(
+                                                                    label="Rename",
+                                                                    icon="edit",
+                                                                    on_click=lambda t=tid, n=name: _ren(t, n),
+                                                                    menu=action_menu,
+                                                                )
+                                                                ui.separator()
+                                                                _render_action_menu_item(
+                                                                    label="Delete",
+                                                                    icon="delete",
+                                                                    on_click=lambda t=tid: _del(t),
+                                                                    menu=action_menu,
+                                                                    icon_classes="text-negative",
+                                                                )
 
                         action_slot = ui.column().classes("w-full")
 
