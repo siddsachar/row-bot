@@ -22,7 +22,7 @@ from row_bot.voice.coordinator import VoiceSessionCoordinator
 from row_bot.voice.runtime import load_voice_runtime_settings
 from row_bot.tts import TTSService
 from row_bot.vision import VisionService
-from row_bot.tools.vision_tool import set_vision_service
+from row_bot.vision_runtime import set_vision_service
 from nicegui import ui
 from row_bot.approval_policy import DEFAULT_APPROVAL_MODE
 

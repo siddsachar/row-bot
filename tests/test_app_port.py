@@ -4,13 +4,12 @@ from types import SimpleNamespace
 
 import row_bot.app_port as app_port
 import row_bot.launcher as launcher
-from row_bot.migration.row_bot_legacy_rebrand import LEGACY_RUNTIME_ENV_VARS
 
 
-_LEGACY_PORT_ENV = next(name for name in LEGACY_RUNTIME_ENV_VARS if name.endswith("_PORT"))
-_LEGACY_HOST_ENV = next(name for name in LEGACY_RUNTIME_ENV_VARS if name.endswith("_HOST"))
-_LEGACY_DATA_ENV = next(name for name in LEGACY_RUNTIME_ENV_VARS if name.endswith("_DATA_DIR"))
-_LEGACY_NATIVE_ENV = next(name for name in LEGACY_RUNTIME_ENV_VARS if name.endswith("_NATIVE"))
+_LEGACY_PORT_ENV = "THOTH_PORT"
+_LEGACY_HOST_ENV = "THOTH_HOST"
+_LEGACY_DATA_ENV = "THOTH_DATA_DIR"
+_LEGACY_NATIVE_ENV = "THOTH_NATIVE"
 
 
 def test_get_app_port_defaults_and_validates_env():
@@ -176,8 +175,10 @@ def test_row_bot_process_passes_selected_port_to_app(monkeypatch, tmp_path):
 
     monkeypatch.setattr(launcher.subprocess, "Popen", _fake_popen)
     monkeypatch.setattr(launcher.Path, "home", classmethod(lambda cls: tmp_path))
-    monkeypatch.delenv(_LEGACY_PORT_ENV, raising=False)
-    monkeypatch.delenv(_LEGACY_HOST_ENV, raising=False)
+    monkeypatch.setenv(_LEGACY_DATA_ENV, str(tmp_path / ".thoth"))
+    monkeypatch.setenv(_LEGACY_PORT_ENV, "9000")
+    monkeypatch.setenv(_LEGACY_HOST_ENV, "0.0.0.0")
+    monkeypatch.setenv(_LEGACY_NATIVE_ENV, "1")
 
     process = launcher._RowBotProcess(port=8125, host="127.0.0.1")
     process.start()

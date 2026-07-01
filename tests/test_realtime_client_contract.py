@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from row_bot.migration.row_bot_legacy_rebrand import LEGACY_SERVICE_PREFIX
 from row_bot.voice.realtime_client import (
     send_realtime_function_output_js,
     send_realtime_run_event_js,
@@ -12,6 +11,7 @@ from row_bot.voice.realtime_client import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+LEGACY_SERVICE_PREFIX = "Thoth"
 
 
 def test_realtime_client_js_uses_voice_agent_webrtc_lifecycle():

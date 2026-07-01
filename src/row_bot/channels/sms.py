@@ -29,7 +29,6 @@ import threading
 import time
 from typing import Any
 
-import row_bot.agent as agent_mod
 from row_bot.app_port import get_app_port
 from row_bot.channels.base import Channel, ChannelCapabilities, ConfigField
 from row_bot.channels.auth_store import get_channel_secret
@@ -59,6 +58,12 @@ _rate_limits: dict[str, list[float]] = {}   # client IP → list of timestamps
 _RATE_LIMIT = 30                            # max requests per window
 _RATE_WINDOW = 60                           # window in seconds
 _seen_sids: dict[str, float] = {}           # MessageSid → timestamp (dedup)
+
+
+def _agent_mod():
+    import row_bot.agent as agent_mod
+
+    return agent_mod
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -172,6 +177,7 @@ def build_channel_runtime_config(config: dict, purpose: str) -> dict:
 def _run_agent_sync(user_text: str, config: dict) -> tuple[str, dict | None, list]:
     from row_bot.tools import registry as tool_registry
 
+    agent_mod = _agent_mod()
     config = {
         **build_channel_runtime_config(config, "message"),
         "recursion_limit": agent_mod.RECURSION_LIMIT_CHAT,
@@ -212,6 +218,7 @@ def _resume_agent_sync(config: dict, approved: bool,
     config = build_channel_runtime_config(config, "approval")
     from row_bot.tools import registry as tool_registry
 
+    agent_mod = _agent_mod()
     enabled = [t.name for t in tool_registry.get_enabled_tools()]
     full_answer: list[str] = []
     tool_reports: list[str] = []
@@ -623,7 +630,7 @@ async def start_bot() -> bool:
                 if public_url:
                     _webhook_public_url = public_url
                     log.info("SMS using main-app tunnel: %s/sms", public_url)
-                    _auto_register_twilio_webhook(public_url)
+                    _schedule_twilio_webhook_registration(public_url)
                 else:
                     _status_code, detail = tunnel_manager.status()
                     log.warning("SMS tunnel enabled but unavailable: %s", detail)
@@ -655,6 +662,9 @@ async def start_bot() -> bool:
 def _auto_register_twilio_webhook(public_url: str) -> None:
     """Update the Twilio phone number's SMS webhook URL via API."""
     try:
+        if _client is None:
+            log.warning("Twilio webhook auto-registration skipped: client unavailable")
+            return
         phone = _get_twilio_number()
         numbers = _client.incoming_phone_numbers.list(phone_number=phone)
         if numbers:
@@ -665,6 +675,34 @@ def _auto_register_twilio_webhook(public_url: str) -> None:
             log.warning("Could not find Twilio number %s for auto-registration", phone)
     except Exception as exc:
         log.warning("Twilio webhook auto-registration failed: %s", exc)
+
+
+def _schedule_twilio_webhook_registration(public_url: str):
+    """Register the Twilio webhook without blocking channel startup."""
+    async def _run() -> None:
+        await asyncio.to_thread(_auto_register_twilio_webhook, public_url)
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        _auto_register_twilio_webhook(public_url)
+        return None
+
+    task = loop.create_task(_run(), name="sms-webhook-auto-registration")
+
+    def _log_failure(done_task: asyncio.Task) -> None:
+        if done_task.cancelled():
+            return
+        try:
+            exc = done_task.exception()
+        except Exception as callback_exc:
+            log.debug("Could not inspect SMS webhook registration task: %s", callback_exc)
+            return
+        if exc is not None:
+            log.warning("Twilio webhook auto-registration task failed: %s", exc)
+
+    task.add_done_callback(_log_failure)
+    return task
 
 
 async def stop_bot() -> None:

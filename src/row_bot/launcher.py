@@ -74,28 +74,17 @@ _OLLAMA_AUTOSTART_ENV = APP_AUTO_START_OLLAMA_ENV
 _GRACEFUL_SHUTDOWN_REQUEST_TIMEOUT = 3.0
 _GRACEFUL_SHUTDOWN_EXIT_TIMEOUT = 30.0
 _QUIT_WATCHDOG_TIMEOUT = 75.0
-
-
-def _ensure_rebrand_migration() -> dict:
-    from row_bot.migration.row_bot_legacy_rebrand import ensure_legacy_rebrand_migration
-
-    result = ensure_legacy_rebrand_migration()
-    if result.get("status") in {"completed", "already_completed"}:
-        status = str(result.get("status") or "").replace("_", " ")
-        report_path = result.get("report_path", "")
-        if report_path:
-            logger.info("%s data migration %s; report=%s", APP_DISPLAY_NAME, status, report_path)
-        else:
-            logger.info("%s data migration %s", APP_DISPLAY_NAME, status)
-    for warning in result.get("warnings", [])[:5]:
-        logger.warning("%s migration warning: %s", APP_DISPLAY_NAME, warning)
-    return result
-
-
-def _legacy_runtime_env_vars() -> frozenset[str]:
-    from row_bot.migration.row_bot_legacy_rebrand import LEGACY_RUNTIME_ENV_VARS
-
-    return LEGACY_RUNTIME_ENV_VARS
+_LEGACY_RUNTIME_ENV_VARS = frozenset(
+    {
+        "THOTH_AUTO_START_OLLAMA",
+        "THOTH_DATA_DIR",
+        "THOTH_HOST",
+        "THOTH_NATIVE",
+        "THOTH_PORT",
+        "THOTH_STARTUP_TIMEOUT",
+        "THOTH_WEBVIEW_STORAGE_PATH",
+    }
+)
 
 
 # ── Ollama auto-start ────────────────────────────────────────────────────────
@@ -601,7 +590,7 @@ class _RowBotProcess:
         env = {
             key: value
             for key, value in os.environ.items()
-            if key not in _legacy_runtime_env_vars()
+            if key not in _LEGACY_RUNTIME_ENV_VARS
         }
         env.update({
             "PYTHONNOUSERSITE": "1",
@@ -2463,7 +2452,6 @@ def main(argv: list[str] | None = None) -> None:
             duration_ms=round((time.perf_counter() - splash_started) * 1000.0, 1),
             mode=preferred_mode or ("direct" if direct else "auto"),
         )
-    _ensure_rebrand_migration()
     if args.reset_tasks_db:
         raise SystemExit(_reset_tasks_db())
     if args.reset_db:

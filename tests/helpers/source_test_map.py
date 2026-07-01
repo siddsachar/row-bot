@@ -70,6 +70,22 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
         "Memory tool changes need graph-backed tool contracts and deterministic memory regressions.",
     ),
     SourceTestRule(
+        "startup_runtime",
+        (
+            "src/row_bot/app.py",
+            "src/row_bot/startup_diagnostics.py",
+            "src/row_bot/ui/state.py",
+            "src/row_bot/tools/vision_tool.py",
+            "src/row_bot/vision_runtime.py",
+            "scripts/smoke_app.py",
+        ),
+        (
+            "tests/test_startup_hardening.py",
+            "tests/test_ui_performance.py",
+        ),
+        "Startup, app shell, and smoke harness changes need import, readiness, and UI performance regressions.",
+    ),
+    SourceTestRule(
         "channels",
         ("src/row_bot/channels/**",),
         (
@@ -168,8 +184,14 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
     SourceTestRule(
         "migration",
         ("src/row_bot/migration/**",),
-        ("tests/test_row_bot_legacy_rebrand.py",),
-        "Migration changes need legacy rebrand repair coverage.",
+        (
+            "tests/test_migration_core.py",
+            "tests/test_migration_detection.py",
+            "tests/test_migration_planner.py",
+            "tests/test_migration_apply.py",
+            "tests/test_migration_wizard_ui.py",
+        ),
+        "Migration wizard changes need deterministic core, detection, planning, apply, and UI coverage.",
     ),
     SourceTestRule(
         "memory_and_knowledge",

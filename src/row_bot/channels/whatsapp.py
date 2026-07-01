@@ -42,7 +42,6 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-import row_bot.agent as agent_mod
 from row_bot.channels.base import Channel, ChannelCapabilities, ConfigField
 from row_bot.channels.auth_store import get_channel_secret
 from row_bot.channels import commands as ch_commands
@@ -54,6 +53,12 @@ from row_bot.runtime_paths import app_root
 from row_bot.threads import _save_thread_meta
 
 log = logging.getLogger("row_bot.whatsapp")
+
+
+def _agent_mod():
+    import row_bot.agent as agent_mod
+
+    return agent_mod
 
 # ──────────────────────────────────────────────────────────────────────
 # Markdown → WhatsApp formatting converter
@@ -438,6 +443,7 @@ def _run_agent_sync(user_text: str, config: dict,
     from row_bot.tools import registry as tool_registry
     from row_bot.channels.media_capture import grab_vision_capture, grab_generated_image, grab_generated_video
 
+    agent_mod = _agent_mod()
     config = {
         **build_channel_runtime_config(config, "message"),
         "recursion_limit": agent_mod.RECURSION_LIMIT_CHAT,
@@ -502,6 +508,7 @@ def _run_agent_sync(user_text: str, config: dict,
 def _resume_agent_sync(config: dict, approved: bool,
                        *, interrupt_ids: list[str] | None = None) -> tuple[str, dict | None, list[bytes], list[str]]:
     """Resume a paused agent after interrupt approval/denial."""
+    agent_mod = _agent_mod()
     config = build_channel_runtime_config(config, "approval")
     from row_bot.tools import registry as tool_registry
     from row_bot.channels.media_capture import grab_vision_capture, grab_generated_image, grab_generated_video

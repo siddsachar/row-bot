@@ -3,12 +3,9 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
-from row_bot.migration.row_bot_legacy_rebrand import TOOL_ID_REPLACEMENTS
-
-
-LEGACY_STATUS_TOOL_ID = next(key for key, value in TOOL_ID_REPLACEMENTS.items() if value == "row_bot_status")
-LEGACY_UPDATER_TOOL_ID = next(key for key, value in TOOL_ID_REPLACEMENTS.items() if value == "row_bot_updater")
-LEGACY_UPDATE_SETTING_ID = next(key for key, value in TOOL_ID_REPLACEMENTS.items() if value == "row_bot_update_setting")
+LEGACY_STATUS_TOOL_ID = "thoth_status"
+LEGACY_UPDATER_TOOL_ID = "thoth_updater"
+LEGACY_UPDATE_SETTING_ID = "thoth_update_setting"
 
 
 def test_row_bot_agent_visible_tool_ids_are_registered(tmp_path, monkeypatch):

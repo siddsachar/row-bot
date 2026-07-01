@@ -36,16 +36,26 @@ from telegram.ext import (
     ContextTypes,
 )
 
-import row_bot.agent as agent_mod
 from row_bot.brand import APP_DISPLAY_NAME
 from row_bot.channels import commands as ch_commands
 from row_bot.channels import runtime as ch_runtime
 from row_bot.channels.base import Channel, ChannelCapabilities, ConfigField
 from row_bot.channels.auth_store import get_channel_secret
 from row_bot.threads import _save_thread_meta, _list_threads, _thread_exists
-from row_bot.tools import registry as tool_registry
 
 log = logging.getLogger("row_bot.telegram")
+
+
+def _agent_mod():
+    import row_bot.agent as agent_mod
+
+    return agent_mod
+
+
+def _tool_registry():
+    from row_bot.tools import registry as tool_registry
+
+    return tool_registry
 
 # ──────────────────────────────────────────────────────────────────────
 # Constants
@@ -218,11 +228,13 @@ def _run_agent_sync(user_text: str, config: dict,
     for live streaming.  Pushes ``None`` sentinel when done.
     """
     # Ensure recursion limit matches the web UI (default is too low)
+    agent_mod = _agent_mod()
     config = {
         **build_channel_runtime_config(config, "message"),
         "recursion_limit": agent_mod.RECURSION_LIMIT_CHAT,
     }
 
+    tool_registry = _tool_registry()
     enabled = [t.name for t in tool_registry.get_enabled_tools()]
     full_answer: list[str] = []
     tool_reports: list[str] = []
@@ -283,7 +295,9 @@ def _run_agent_sync(user_text: str, config: dict,
 def _resume_agent_sync(config: dict, approved: bool,
                        *, interrupt_ids: list[str] | None = None) -> tuple[str, dict | None, list[bytes], list[str]]:
     """Resume a paused agent after interrupt approval/denial."""
+    agent_mod = _agent_mod()
     config = build_channel_runtime_config(config, "approval")
+    tool_registry = _tool_registry()
     enabled = [t.name for t in tool_registry.get_enabled_tools()]
     full_answer: list[str] = []
     tool_reports: list[str] = []
@@ -707,6 +721,7 @@ async def _cmd_agent(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not _is_authorised(update):
         return
     thread_id = _thread_id_for_command(update, context)
+    tool_registry = _tool_registry()
     enabled_tool_names = [tool.name for tool in tool_registry.get_enabled_tools()]
     response = ch_commands.cmd_agent(
         "telegram",
@@ -765,6 +780,7 @@ async def _cmd_tools(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     """Handle /tools — list enabled tools."""
     if not _is_authorised(update):
         return
+    tool_registry = _tool_registry()
     enabled = tool_registry.get_enabled_tools()
     if not enabled:
         await update.message.reply_text("No tools are currently enabled.")
@@ -779,6 +795,7 @@ async def _cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     """Handle /status — show connection status."""
     if not _is_authorised(update):
         return
+    tool_registry = _tool_registry()
     enabled_count = len(tool_registry.get_enabled_tools())
     await update.message.reply_text(
         f"✅ Row-Bot Telegram bot is running.\n"
