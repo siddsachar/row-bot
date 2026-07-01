@@ -17,6 +17,10 @@ from row_bot.tools import registry
 from row_bot.vision_runtime import get_vision_service
 
 
+def _get_vision_service():
+    return get_vision_service()
+
+
 # ── Tool implementation ──────────────────────────────────────────────────────
 
 def _analyze_image(
@@ -24,7 +28,7 @@ def _analyze_image(
 ) -> str:
     """Capture an image from the user's camera or screen and analyze it,
     or analyze an existing image file."""
-    svc = get_vision_service()
+    svc = _get_vision_service()
     return svc.capture_and_analyze(question, source=source, file_path=file_path)
 
 
