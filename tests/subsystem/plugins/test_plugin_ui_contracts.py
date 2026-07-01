@@ -137,6 +137,52 @@ def test_plugin_center_v2_settings_secrets_and_sections(
     assert _can_enable_plugin(live_check_manifest) == (True, "")
 
 
+def test_plugin_center_readme_setup_guide_is_local_only(tmp_path: Path) -> None:
+    from row_bot.plugins.ui_plugin_dialog import _plugin_readme_path, _read_plugin_readme
+
+    plugin_dir = tmp_path / "plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "README.md").write_text("# Setup\n\nUse local docs only.\n", encoding="utf-8")
+
+    manifest = PluginManifest(
+        id="readme-plugin",
+        name="README Plugin",
+        version="1.0.0",
+        min_row_bot_version="0.0.0",
+        author=PluginAuthor(name="Tester"),
+        description="UI docs contract",
+        path=plugin_dir,
+    )
+
+    assert _plugin_readme_path(manifest) == plugin_dir / "README.md"
+    assert _read_plugin_readme(manifest).startswith("# Setup")
+
+    manifest.path = None
+
+    assert _plugin_readme_path(manifest) is None
+
+
+def test_plugin_center_readme_setup_guide_rejects_large_files(tmp_path: Path) -> None:
+    from row_bot.plugins.ui_plugin_dialog import README_MAX_BYTES, _read_plugin_readme
+
+    plugin_dir = tmp_path / "large-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "README.md").write_text("x" * (README_MAX_BYTES + 1), encoding="utf-8")
+
+    manifest = PluginManifest(
+        id="large-readme-plugin",
+        name="Large README Plugin",
+        version="1.0.0",
+        min_row_bot_version="0.0.0",
+        author=PluginAuthor(name="Tester"),
+        description="UI docs contract",
+        path=plugin_dir,
+    )
+
+    with pytest.raises(ValueError, match="too large"):
+        _read_plugin_readme(manifest)
+
+
 def test_declared_plugin_health_checks_are_evaluated_locally(
     plugin_modules: dict[str, Any],
 ) -> None:

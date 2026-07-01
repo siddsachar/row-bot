@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any, Callable
 
 from nicegui import ui
@@ -20,6 +21,8 @@ from row_bot.plugins.ui_settings import (
 )
 
 logger = logging.getLogger(__name__)
+
+README_MAX_BYTES = 256 * 1024
 
 PLUGIN_DETAIL_SECTIONS = (
     "Overview",
@@ -47,6 +50,7 @@ def open_plugin_dialog(
 
     plugin_id = manifest.id
     counts = _manifest_counts(manifest)
+    readme_path = _plugin_readme_path(manifest)
     setting_inputs: dict[str, Any] = {}
     secret_inputs: dict[str, Any] = {}
 
@@ -60,6 +64,12 @@ def open_plugin_dialog(
                     ui.label(manifest.name).classes("text-h6 text-weight-bold")
                     ui.badge(f"v{manifest.version}", color="blue-grey").props("outline")
                 ui.label(f"by {getattr(manifest.author, 'name', 'Unknown')}").classes("text-grey-6 text-sm")
+                if readme_path:
+                    ui.button(
+                        "Setup Guide",
+                        icon="article",
+                        on_click=lambda: _open_plugin_readme_dialog(manifest),
+                    ).props("flat color=primary size=sm no-caps").classes("q-mt-xs")
             ui.button(icon="close", on_click=dlg.close).props("flat round dense")
 
         ui.separator().classes("q-my-sm")
@@ -196,6 +206,59 @@ def open_plugin_dialog(
                 ui.button("Save", icon="save", on_click=_save).props("color=primary no-caps")
 
     dlg.open()
+
+
+def _plugin_readme_path(manifest: Any) -> Path | None:
+    plugin_path = getattr(manifest, "path", None)
+    if not plugin_path:
+        return None
+    try:
+        base_path = Path(plugin_path).resolve(strict=True)
+        readme_path = (base_path / "README.md").resolve(strict=True)
+        readme_path.relative_to(base_path)
+    except (OSError, ValueError):
+        return None
+    if not readme_path.is_file():
+        return None
+    return readme_path
+
+
+def _read_plugin_readme(manifest: Any) -> str:
+    readme_path = _plugin_readme_path(manifest)
+    if readme_path is None:
+        raise FileNotFoundError("README.md was not found for this plugin.")
+    size = readme_path.stat().st_size
+    if size > README_MAX_BYTES:
+        raise ValueError("README.md is too large to display in Plugin Center.")
+    return readme_path.read_bytes().decode("utf-8", errors="replace")
+
+
+def _open_plugin_readme_dialog(manifest: Any) -> None:
+    with ui.dialog().props("persistent") as docs_dlg, ui.card().classes("w-full").style(
+        "min-width: 640px; max-width: 900px; max-height: 88vh;"
+    ):
+        with ui.row().classes("w-full items-center no-wrap gap-3"):
+            ui.icon("article").classes("text-primary")
+            ui.label(f"{manifest.name} Setup Guide").classes("text-h6 text-weight-bold")
+            ui.space()
+            ui.button(icon="close", on_click=docs_dlg.close).props("flat round dense")
+
+        ui.separator().classes("q-my-sm")
+
+        with ui.scroll_area().classes("w-full").style("max-height: calc(88vh - 120px);"):
+            with ui.column().classes("w-full gap-2 q-pr-sm"):
+                try:
+                    content = _read_plugin_readme(manifest)
+                except Exception as exc:
+                    logger.warning("Unable to render plugin README for %s: %s", getattr(manifest, "id", "?"), exc)
+                    ui.label(str(exc)).classes("text-warning text-sm")
+                else:
+                    ui.markdown(
+                        content,
+                        extras=["code-friendly", "fenced-code-blocks", "tables"],
+                    ).classes("w-full")
+
+    docs_dlg.open()
 
 
 @contextmanager
