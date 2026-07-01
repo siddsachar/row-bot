@@ -28,10 +28,12 @@ __all__ = [
     "ChannelOutboundCallbacks",
     "ChannelRunResult",
     "ConfigField",
+    "BotFrameworkAuthResult",
     "PluginAPI",
     "PluginTool",
     "PluginWebhookRequest",
     "PluginWebhookResponse",
+    "verify_bot_framework_jwt",
 ]
 
 
@@ -145,8 +147,47 @@ class PluginWebhookResponse:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# PluginAPI — the object passed to register()
+# Bot Framework auth helpers
 # ═════════════════════════════════════════════════════════════════════════════
+@dataclass
+class BotFrameworkAuthResult:
+    """Result from verifying a Bot Framework Connector JWT."""
+
+    ok: bool
+    claims: dict[str, Any] = field(default_factory=dict)
+    error: str = ""
+    status_code: int = 401
+    service_url: str = ""
+    key_id: str = ""
+
+
+def verify_bot_framework_jwt(
+    authorization_header: str,
+    *,
+    app_id: str,
+    service_url: str = "",
+    channel_id: str = "",
+    required_endorsement: str = "",
+    metadata_url: str = "",
+    issuer: str = "",
+    timeout_seconds: float = 5.0,
+) -> BotFrameworkAuthResult:
+    """Verify a Bot Framework Connector bearer token for plugin channels."""
+    from row_bot.plugins.bot_framework_auth import verify_bot_framework_jwt as _verify
+
+    return _verify(
+        authorization_header,
+        app_id=app_id,
+        service_url=service_url,
+        channel_id=channel_id,
+        required_endorsement=required_endorsement,
+        metadata_url=metadata_url,
+        issuer=issuer,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+# PluginAPI - the object passed to register()
 class PluginAPI:
     """Bridge between a plugin and Row-Bot's plugin infrastructure.
 
@@ -355,7 +396,32 @@ class PluginAPI:
 
         return webhook_url(self._plugin_id, name, start_tunnel=start_tunnel)
 
-    # ── Runtime Context ─────────────────────────────────────────────────
+    # -- Channel Auth -----------------------------------------------------
+    def verify_bot_framework_jwt(
+        self,
+        authorization_header: str,
+        *,
+        app_id: str,
+        service_url: str = "",
+        channel_id: str = "",
+        required_endorsement: str = "",
+        metadata_url: str = "",
+        issuer: str = "",
+        timeout_seconds: float = 5.0,
+    ) -> BotFrameworkAuthResult:
+        """Verify a Bot Framework Connector bearer token for this plugin."""
+        return verify_bot_framework_jwt(
+            authorization_header,
+            app_id=app_id,
+            service_url=service_url,
+            channel_id=channel_id,
+            required_endorsement=required_endorsement,
+            metadata_url=metadata_url,
+            issuer=issuer,
+            timeout_seconds=timeout_seconds,
+        )
+
+    # -- Runtime Context --------------------------------------------------
     def is_background_workflow(self) -> bool:
         """Return True when the current tool call is running from a background task."""
         try:

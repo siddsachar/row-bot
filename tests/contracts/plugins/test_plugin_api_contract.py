@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from row_bot.plugins.api import (
+    BotFrameworkAuthResult,
     Channel,
     ChannelAttachment,
     ChannelAttachmentResult,
@@ -20,6 +21,7 @@ from row_bot.plugins.api import (
     PluginTool,
     PluginWebhookRequest,
     PluginWebhookResponse,
+    verify_bot_framework_jwt,
 )
 
 
@@ -139,15 +141,25 @@ def test_plugin_api_exports_public_channel_runtime_types() -> None:
     assert response.status_code == 202
 
 
+def test_plugin_api_exports_bot_framework_auth_contract() -> None:
+    result = BotFrameworkAuthResult(ok=False, error="missing bearer token")
+
+    assert result.ok is False
+    assert result.status_code == 401
+    assert result.error == "missing bearer token"
+    assert callable(verify_bot_framework_jwt)
+
+
 def test_plugin_api_compat_alias_exports_channel_runtime_types() -> None:
     from row_bot.plugins.loader import _install_plugin_api_compat_aliases
 
     _install_plugin_api_compat_aliases()
     imported_api = __import__(
         "plugins.api",
-        fromlist=["ChannelInboundMessage", "PluginWebhookResponse"],
+        fromlist=["BotFrameworkAuthResult", "ChannelInboundMessage", "PluginWebhookResponse"],
     )
 
+    assert imported_api.BotFrameworkAuthResult is BotFrameworkAuthResult
     assert imported_api.ChannelInboundMessage is ChannelInboundMessage
     assert imported_api.PluginWebhookResponse is PluginWebhookResponse
 
@@ -168,6 +180,7 @@ def test_plugin_api_exposes_channel_runtime_methods(tmp_path: Path) -> None:
         "register_webhook_route",
         "get_webhook_path",
         "get_webhook_url",
+        "verify_bot_framework_jwt",
     ]:
         assert hasattr(api, name)
 

@@ -546,7 +546,7 @@ def test_loader_security_scan_allows_plugin_api_import(
     plugin_dir = tmp_path / "safe-plugin"
     plugin_dir.mkdir()
     (plugin_dir / "plugin_main.py").write_text(
-        "from plugins.api import Channel, PluginAPI, PluginTool\n"
+        "from plugins.api import BotFrameworkAuthResult, Channel, PluginAPI, PluginTool\n"
         "def register(api):\n"
         "    return None\n",
         encoding="utf-8",
