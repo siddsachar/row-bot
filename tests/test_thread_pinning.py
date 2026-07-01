@@ -243,29 +243,34 @@ def test_sidebar_and_all_conversations_pin_affordances_are_wired():
     assert "_rebuild_thread_list_ref[0]()" not in pin_modal_block
 
 
-def test_sidebar_uses_left_slot_for_interactive_thread_pin_toggle():
+def test_sidebar_places_interactive_thread_pin_toggle_before_action_menu():
     source = (ROOT / "src" / "row_bot" / "ui" / "sidebar.py").read_text(encoding="utf-8")
     list_block = source.split("def _rebuild_thread_list()", 1)[1].split(
         "if len(threads) > SIDEBAR_MAX_THREADS:",
         1,
     )[0]
-    sidebar_thread_block = list_block.split("with ui.item(on_click=_select)", 1)[1].split(
+    sidebar_thread_block = list_block.split("with ui.item(on_click=_select)", 1)[1]
+    thread_main_block, thread_side_block = sidebar_thread_block.split(
         'with ui.item_section().props("side")',
         1,
-    )[0]
+    )
 
     assert '"folder_open" if is_expanded else "folder"' in list_block
     assert "row-bot-thread-row" in list_block
-    assert "_render_pin_toggle_button(" in sidebar_thread_block
-    assert "is_pinned=is_pinned" in sidebar_thread_block
-    assert "pinned=not is_pinned" in sidebar_thread_block
+    assert "_render_pin_toggle_button(" not in thread_main_block
+    assert "_render_pin_toggle_button(" in thread_side_block
+    assert "is_pinned=is_pinned" in thread_side_block
+    assert "pinned=not is_pinned" in thread_side_block
+    assert thread_side_block.index("_render_pin_toggle_button(") < thread_side_block.index(
+        'ui.button(icon="more_vert")'
+    )
     assert "row-bot-pin-toggle-unpinned" in source
     assert "row-bot-thread-row:hover .row-bot-pin-toggle-unpinned" in source
     assert "row-bot-thread-row:focus-within .row-bot-pin-toggle-unpinned" in source
-    assert "_thr_icon" not in sidebar_thread_block
-    assert 'ui.icon("computer"' not in sidebar_thread_block
-    assert 'ui.icon("cloud"' not in sidebar_thread_block
-    assert 'ui.icon("code"' not in sidebar_thread_block
+    assert "_thr_icon" not in thread_main_block
+    assert 'ui.icon("computer"' not in thread_main_block
+    assert 'ui.icon("cloud"' not in thread_main_block
+    assert 'ui.icon("code"' not in thread_main_block
     assert "_render_pinned_thread_icon" not in source
 
 
