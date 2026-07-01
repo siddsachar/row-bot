@@ -160,6 +160,7 @@ def test_full_extraction_flow_uses_thread_messages_filters_and_dedups(tmp_path, 
     stack = fresh_memory_stack(tmp_path, monkeypatch)
     kg = stack["kg"]
     memory_extraction = stack["memory_extraction"]
+    monkeypatch.setattr(kg, "rebuild_index", lambda: None)
 
     threads = [
         ("thread-1", "Family", "", "2099-01-01T00:00:00"),
