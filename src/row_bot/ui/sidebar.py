@@ -400,13 +400,13 @@ def build_sidebar(
                 rebuild_main(reason="home")
                 _rebuild_thread_list_ref[0]()
 
-            _home_btn = ui.button("🏠 Home", on_click=_go_home).classes("flex-grow").props("flat")
+            _home_btn = ui.button("Home", icon="home", on_click=_go_home).classes("flex-grow").props("flat")
 
             async def _new_thread():
                 from row_bot.ui.voice_lifecycle import stop_voice_for_thread_change
 
                 tid = uuid.uuid4().hex[:12]
-                name = f"💻 Thread {datetime.now().strftime('%b %d, %H:%M')}"
+                name = f"Thread {datetime.now().strftime('%b %d, %H:%M')}"
                 await run.io_bound(
                     lambda: _save_thread_meta(
                         tid,
@@ -477,10 +477,20 @@ def build_sidebar(
                     state=state,
                 )
 
-            ui.button("👋", on_click=_show_help).props("flat dense").style("font-size: 1.1rem;")
+            try:
+                from row_bot.ui.onboarding_state import onboarding_progress
+
+                _show_setup_button = not bool(onboarding_progress().get("setup_complete"))
+            except Exception:
+                _show_setup_button = True
+
+            if _show_setup_button:
+                ui.button(icon="waving_hand", on_click=_show_help).props(
+                    "flat dense round size=xs"
+                ).style("font-size: 1rem;").tooltip("Setup")
             ui.button(icon="settings", on_click=lambda: open_settings()).props(
-                "flat dense round size=sm"
-            ).classes("text-grey-5").style("font-size: 1.25rem;")
+                "flat dense round size=xs"
+            ).classes("text-grey-5").style("font-size: 1.05rem;")
         from row_bot.version import __version__ as _v
         ui.label(f"v{_v}").classes("text-xs text-grey-7 w-full text-center").style(
             "margin-top: -4px; letter-spacing: 0.3px; opacity: 0.5;"
@@ -1291,7 +1301,7 @@ def build_sidebar(
                                     state.thread_id = None
                                     state.thread_name = None
                                     state.messages = []
-                                msg = f"🗑️ Deleted {deleted} conversation{'s' if deleted != 1 else ''}."
+                                msg = f"Deleted {deleted} conversation{'s' if deleted != 1 else ''}."
                                 if failures:
                                     msg += f" {len(failures)} failed."
                                 ui.notify(msg, type="negative" if failures else "info")

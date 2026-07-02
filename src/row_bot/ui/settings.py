@@ -24,7 +24,7 @@ from nicegui import events, run, ui
 
 from row_bot.stability import log_performance_snapshot
 from row_bot.ui.state import AppState, P
-from row_bot.ui.constants import ICON_OPTIONS
+from row_bot.ui.iconography import icon_select_options, material_icon_for
 from row_bot.ui.helpers import browse_folder, browse_file
 from row_bot.ui.performance import (
     LoadGeneration,
@@ -2489,10 +2489,11 @@ def open_settings(
                     "Display Name", value=skill.display_name if skill else "",
                 ).classes("w-full")
 
-                _wf_icon_opts = list(ICON_OPTIONS)
-                _icon = skill.icon if skill else "✨"
-                if _icon not in _wf_icon_opts:
-                    _wf_icon_opts.insert(0, _icon)
+                _icon = material_icon_for(
+                    skill.icon if skill else "auto_awesome",
+                    fallback="auto_awesome",
+                )
+                _wf_icon_opts = icon_select_options(_icon, fallback="auto_awesome")
                 with ui.row().classes("w-full items-end gap-4"):
                     icon_sel = ui.select(label="Icon", options=_wf_icon_opts, value=_icon).classes("w-20")
                     desc_input = ui.input(
@@ -2526,7 +2527,7 @@ def open_settings(
                         _name = name_input.value.strip()
                         _display = display_input.value.strip() or _name.replace("_", " ").title()
                         _desc = desc_input.value.strip()
-                        _icon_val = icon_sel.value
+                        _icon_val = icon_sel.value or "auto_awesome"
                         _instr = instructions_input.value.strip()
                         _tags = [t.strip() for t in tags_input.value.split(",") if t.strip()]
                         if not _name:

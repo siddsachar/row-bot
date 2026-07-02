@@ -16,6 +16,7 @@ from row_bot.ui.timer_utils import defer_ui, safe_timer
 
 from row_bot.ui.state import AppState, P, _active_generations
 from row_bot.ui.render import open_agent_peek_dialog
+from row_bot.ui.iconography import material_icon_for
 
 logger = logging.getLogger(__name__)
 
@@ -786,11 +787,13 @@ def build_command_center(
                         pending = []
                     with _approvals_container:
                         count_label = f" ({len(pending)})" if pending else ""
-                        ui.label(f"⏳ Approvals{count_label}").classes(
-                            "text-xs font-bold text-grey-5"
-                        ).style(
-                            "letter-spacing: 0.8px; text-transform: uppercase;"
-                        )
+                        with ui.row().classes("w-full items-center no-wrap gap-1"):
+                            ui.icon("hourglass_empty", size="xs").classes("text-grey-5")
+                            ui.label(f"Approvals{count_label}").classes(
+                                "text-xs font-bold text-grey-5"
+                            ).style(
+                                "letter-spacing: 0.8px; text-transform: uppercase;"
+                            )
                         if not pending:
                             ui.label("No pending approvals").classes(
                                 "text-xs text-grey-7 q-ml-sm"
@@ -808,7 +811,7 @@ def build_command_center(
                         with ui.row().classes("w-full items-center no-wrap gap-1").style(
                             "overflow: hidden;"
                         ):
-                            ui.label("🔔").style("font-size: 0.9rem;")
+                            ui.icon("notifications", size="xs").classes("text-grey-5")
                             ui.label(
                                 appr.get("source_label") or appr.get("task_name") or "Approval"
                             ).classes(
@@ -844,7 +847,7 @@ def build_command_center(
                                     respond_to_approval, tok, True
                                 )
                                 ui.notify(
-                                    "✅ Approved" if ok else "ℹ️ Already handled",
+                                    "Approved" if ok else "Already handled",
                                     type="positive" if ok else "info",
                                 )
                                 _rebuild_approvals()
@@ -856,16 +859,16 @@ def build_command_center(
                                     respond_to_approval, tok, False
                                 )
                                 ui.notify(
-                                    "❌ Denied" if ok else "ℹ️ Already handled",
+                                    "Denied" if ok else "Already handled",
                                     type="warning" if ok else "info",
                                 )
                                 _rebuild_approvals()
                                 _rebuild_live()
 
-                            ui.button("✅ Approve", on_click=_approve).props(
+                            ui.button("Approve", icon="check", on_click=_approve).props(
                                 "unelevated dense no-caps size=xs"
                             ).style("background: #2d8a4e; color: white;")
-                            ui.button("❌ Deny", on_click=_deny).props(
+                            ui.button("Deny", icon="close", on_click=_deny).props(
                                 "flat dense no-caps size=xs"
                             ).style("color: #ff6b6b;")
 
@@ -903,7 +906,7 @@ def build_command_center(
                             _render_live_task(tid, info, is_paused=False)
 
                 def _render_live_task(tid: str, info: dict, *, is_paused: bool) -> None:
-                    icon = info.get("icon", "*")
+                    icon = material_icon_for(info.get("icon"))
                     name = info.get("name", "Task")
                     step = info.get("step", 0)
                     total = info.get("total", 0)
@@ -918,7 +921,7 @@ def build_command_center(
                         with ui.row().classes("w-full items-center no-wrap gap-1").style(
                             "overflow: hidden;"
                         ):
-                            ui.label(icon).style("font-size: 1rem;")
+                            ui.icon(icon, size="xs").classes("text-grey-5")
                             ui.label(name).classes(
                                 "font-bold text-xs ellipsis"
                             ).style("flex: 1; min-width: 0;")
@@ -1007,9 +1010,10 @@ def build_command_center(
                             with ui.row().classes(
                                 "w-full items-center no-wrap gap-1 q-py-xs"
                             ).style("overflow: hidden;"):
-                                ui.label(
-                                    item.get("task_icon", "*")
-                                ).style("font-size: 0.85rem;")
+                                ui.icon(
+                                    material_icon_for(item.get("task_icon")),
+                                    size="xs",
+                                ).classes("text-grey-5")
                                 ui.label(
                                     item.get("task_name", "?")
                                 ).classes(
@@ -1045,7 +1049,7 @@ def build_command_center(
                         _task_select.update()
                         return
                     opts = {
-                        t["id"]: f"{t.get('icon', '*')} {t['name']}"
+                        t["id"]: t["name"]
                         for t in tasks
                         if t.get("enabled", True)
                     }
@@ -1145,7 +1149,8 @@ def build_command_center(
                         with ui.row().classes(
                             "w-full items-center no-wrap gap-1"
                         ):
-                            ui.label("💡 Insights").classes(
+                            ui.icon("lightbulb", size="xs").classes("text-grey-5")
+                            ui.label("Insights").classes(
                                 "text-xs font-bold text-grey-5"
                             ).style(
                                 "letter-spacing: 0.8px;"
@@ -1227,7 +1232,10 @@ def build_command_center(
 
                     cat = ins.get("category", "system_health")
                     sev = ins.get("severity", "info")
-                    icon = CATEGORY_ICONS.get(cat, "💡")
+                    icon = material_icon_for(
+                        CATEGORY_ICONS.get(cat, "lightbulb"),
+                        fallback="lightbulb",
+                    )
                     title = ins.get("title", "Untitled")
                     body = ins.get("body", "")
                     suggestion = ins.get("suggestion", "")
@@ -1275,7 +1283,7 @@ def build_command_center(
                         with ui.row().classes(
                             "w-full items-center no-wrap gap-1"
                         ).style("overflow: hidden;"):
-                            ui.label(icon).style("font-size: 0.85rem;")
+                            ui.icon(icon, size="xs").classes("text-grey-5")
                             ui.label(title).classes(
                                 "text-xs font-bold ellipsis"
                             ).style("flex: 1; min-width: 0;")
@@ -1297,14 +1305,16 @@ def build_command_center(
 
                         # Suggestion
                         if suggestion:
-                            ui.label(
-                                f"💬 {suggestion}"
-                            ).classes("text-xs text-grey-5").style(
-                                "white-space: normal; overflow: hidden;"
-                                " overflow-wrap: anywhere; word-break: break-word;"
-                                " display: -webkit-box; -webkit-line-clamp: 3;"
-                                " -webkit-box-orient: vertical; font-style: italic;"
-                            )
+                            with ui.row().classes("w-full items-start no-wrap gap-1"):
+                                ui.icon("chat_bubble", size="xs").classes("text-grey-5")
+                                ui.label(suggestion).classes(
+                                    "text-xs text-grey-5"
+                                ).style(
+                                    "white-space: normal; overflow: hidden;"
+                                    " overflow-wrap: anywhere; word-break: break-word;"
+                                    " display: -webkit-box; -webkit-line-clamp: 3;"
+                                    " -webkit-box-orient: vertical; font-style: italic;"
+                                )
 
                         if proposals:
                             display_proposals = sorted(

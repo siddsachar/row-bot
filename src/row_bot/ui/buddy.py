@@ -92,8 +92,8 @@ html.row-bot-buddy-overlay-html body {
 }
 .row-bot-buddy-sidebar-action {
     position: relative;
-    width: 214px;
-    height: 214px;
+    width: 158px;
+    height: 158px;
     display: grid;
     place-items: center;
     border-radius: 999px;
@@ -103,7 +103,7 @@ html.row-bot-buddy-overlay-html body {
 .row-bot-buddy-sidebar-action::before {
     content: '';
     position: absolute;
-    inset: 8px;
+    inset: 5px;
     border-radius: 999px;
     border: 1px dashed rgba(77, 184, 171, 0.28);
     box-shadow: inset 0 0 24px rgba(77, 184, 171, 0.08), 0 0 18px rgba(228, 194, 94, 0.10);
@@ -127,7 +127,7 @@ html.row-bot-buddy-overlay-html body {
 .row-bot-buddy-in-app {
     position: relative;
     z-index: 2;
-    width: 198px;
+    width: 140px;
     cursor: grab;
     touch-action: none;
     user-select: none;
@@ -144,8 +144,8 @@ html.row-bot-buddy-overlay-html body {
     pointer-events: auto;
 }
 .row-bot-buddy-wrap[data-surface="sidebar"] .row-bot-buddy-stage {
-    width: 198px;
-    height: 198px;
+    width: 132px;
+    height: 132px;
     border-radius: 999px;
     border: 1px solid rgba(77, 184, 171, 0.34);
     box-shadow: 0 0 0 1px rgba(228, 194, 94, 0.10), 0 10px 28px rgba(0, 0, 0, 0.24);

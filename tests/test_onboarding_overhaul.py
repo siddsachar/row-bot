@@ -239,6 +239,10 @@ def test_onboarding_source_contracts_are_wired():
     assert "ui.navigate.reload()" in Path("src/row_bot/app.py").read_text(encoding="utf-8")
     assert "open_setup_center_on_next_load" in Path("src/row_bot/ui/state.py").read_text(encoding="utf-8")
     assert "show_setup_center" in sidebar_src
+    assert "setup_complete" in sidebar_src
+    assert "onboarding_progress().get(\"setup_complete\")" in sidebar_src
+    assert "ui.button(icon=\"waving_hand\"" in sidebar_src
+    assert "ui.button(\"👋\"" not in sidebar_src
     assert "state=state" in sidebar_src
     assert "Recommended from your choices" in center_src
     assert "Recommended" in center_src
@@ -265,7 +269,7 @@ def test_welcome_message_and_example_prompts_are_current():
         "Designer Studio",
         "Browser & tools",
         "Telegram, WhatsApp, Discord, Slack, or SMS",
-        "sidebar hello button",
+        "Use **Settings** to finish setup anytime",
     ):
         assert marker in local_msg
     assert "Everything runs locally" not in local_msg

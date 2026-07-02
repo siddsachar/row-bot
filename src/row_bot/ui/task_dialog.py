@@ -19,7 +19,7 @@ from nicegui import ui
 
 from row_bot.stability import log_performance_snapshot
 from row_bot.ui.state import AppState, P
-from row_bot.ui.constants import ICON_OPTIONS
+from row_bot.ui.iconography import icon_select_options, material_icon_for
 from row_bot.ui.timer_utils import safe_timer
 
 logger = logging.getLogger(__name__)
@@ -35,15 +35,15 @@ _STEP_TYPES = {
     "notify": "Notify",
 }
 _STEP_TYPE_ICONS = {
-    "prompt": "💬",
-    "condition": "🔀",
-    "approval": "⏸️",
-    "subtask": "🤖",
-    "notify": "📢",
+    "prompt": "chat_bubble",
+    "condition": "alt_route",
+    "approval": "pause_circle",
+    "subtask": "smart_toy",
+    "notify": "campaign",
 }
 
-_STEP_TYPE_ICONS["delegate_agent"] = "Agent"
-_STEP_TYPE_ICONS["wait_for_agents"] = "Wait"
+_STEP_TYPE_ICONS["delegate_agent"] = "support_agent"
+_STEP_TYPE_ICONS["wait_for_agents"] = "hourglass_empty"
 
 _CONDITION_OPERATORS = [
     "contains:", "not_contains:", "equals:", "matches:",
@@ -68,8 +68,8 @@ _SIMPLE_CONDITION_OPS = {
     "not_empty": "Is not empty",
     "true": "Always true",
     "false": "Always false",
-    "json:": "🔎 JSON field check",
-    "llm:": "🤖 LLM evaluation",
+    "json:": "JSON field check",
+    "llm:": "LLM evaluation",
 }
 _NO_VALUE_OPS = {"empty", "not_empty", "true", "false"}
 # Operators that use the standard single-value input
@@ -149,7 +149,7 @@ def show_task_dialog(
 
     # Editable data holders
     _name = task["name"] if task else ""
-    _icon = task["icon"] if task else "⚡"
+    _icon = material_icon_for(task["icon"] if task else "bolt")
     _desc = task.get("description", "") if task else ""
     _enabled = task.get("enabled", True) if task else True
     _model_ov = task.get("model_override") or "" if task else ""
@@ -171,7 +171,7 @@ def show_task_dialog(
     _draft_restored = bool(_draft_payload)
     if isinstance(_draft_payload, dict) and _draft_payload:
         _name = str(_draft_payload.get("name", _name) or "")
-        _icon = str(_draft_payload.get("icon", _icon) or "⚡")
+        _icon = material_icon_for(_draft_payload.get("icon", _icon))
         _desc = str(_draft_payload.get("description", _desc) or "")
         _enabled = bool(_draft_payload.get("enabled", _enabled))
         _model_ov = str(_draft_payload.get("model_override") or "")
@@ -290,9 +290,7 @@ def show_task_dialog(
             with ui.column().classes("w-full q-pa-lg gap-3"):
                 # Name + Icon row
                 with ui.row().classes("w-full items-center gap-2"):
-                    _wf_icon_opts = list(ICON_OPTIONS)
-                    if _icon not in _wf_icon_opts:
-                        _wf_icon_opts.insert(0, _icon)
+                    _wf_icon_opts = icon_select_options(_icon)
                     icon_sel = ui.select(
                         label="Icon", options=_wf_icon_opts, value=_icon,
                     ).classes("w-20")
@@ -514,9 +512,9 @@ def show_task_dialog(
                             )
 
                         with advanced_container:
-                            with ui.expansion("🗺️ Flow preview").classes("w-full"):
+                            with ui.expansion("Flow preview", icon="account_tree").classes("w-full"):
                                 ui.button(
-                                    "🔄 Refresh", on_click=_render_flow_preview,
+                                    "Refresh", icon="refresh", on_click=_render_flow_preview,
                                 ).props("flat dense no-caps").style(
                                     "font-size: 0.8rem; color: #888;"
                                 )
@@ -545,7 +543,7 @@ def show_task_dialog(
                         st = s.get("type", "prompt")
                         if st == "notify":
                             continue
-                        sicon = _STEP_TYPE_ICONS.get(st, "❓")
+                        st_label = _STEP_TYPES.get(st, st.replace("_", " ").title())
                         if st == "prompt":
                             prev = (s.get("prompt") or "")[:20]
                         elif st == "condition":
@@ -556,7 +554,7 @@ def show_task_dialog(
                             prev = "Sub-workflow"
                         else:
                             prev = ""
-                        desc = f"{sicon} #{j+1}"
+                        desc = f"#{j+1} {st_label}"
                         if prev:
                             desc += f" — {prev}"
                         pipeline_vars.append(
@@ -721,7 +719,7 @@ def show_task_dialog(
                                      parent_container) -> None:
                     """Build a single step card in the step builder."""
                     stype = step.get("type", "prompt")
-                    step_icon = _STEP_TYPE_ICONS.get(stype, "❓")
+                    step_icon = _STEP_TYPE_ICONS.get(stype, "help")
                     step_id = step.get("id", f"step_{idx + 1}")
 
                     with ui.card().classes("w-full q-pa-sm q-mb-xs").style(
@@ -732,7 +730,7 @@ def show_task_dialog(
 
                         # Header: type badge + ID + move/delete buttons
                         with ui.row().classes("w-full items-center gap-2"):
-                            ui.label(f"{step_icon}").style("font-size: 1.1rem;")
+                            ui.icon(step_icon, size="sm").classes("text-grey-5")
                             editors["type_sel"] = ui.select(
                                 options=_STEP_TYPES, value=stype,
                                 on_change=lambda e, i=idx: _change_step_type(i, e.value),
@@ -767,27 +765,27 @@ def show_task_dialog(
 
                         # Helper: short preview label for a step
                         def _step_preview(s, j):
-                            sicon = _STEP_TYPE_ICONS.get(s.get("type", "prompt"), "❓")
                             st = s.get("type", "prompt")
+                            st_label = _STEP_TYPES.get(st, st.replace("_", " ").title())
                             if st == "prompt":
                                 txt = (s.get("prompt") or "")[:30]
-                                return f"{sicon} #{j+1} — {txt}" if txt else f"{sicon} #{j+1}"
+                                return f"#{j+1} {st_label} — {txt}" if txt else f"#{j+1} {st_label}"
                             elif st == "condition":
                                 txt = (s.get("condition") or "")[:25]
-                                return f"{sicon} #{j+1} — {txt}" if txt else f"{sicon} #{j+1}"
+                                return f"#{j+1} {st_label} — {txt}" if txt else f"#{j+1} {st_label}"
                             elif st == "subtask":
-                                return f"{sicon} #{j+1} Run Workflow"
+                                return f"#{j+1} Run Workflow"
                             elif st == "delegate_agent":
                                 txt = (s.get("objective") or s.get("prompt") or "")[:25]
-                                return f"{sicon} #{j+1} Delegate - {txt}" if txt else f"{sicon} #{j+1} Delegate"
+                                return f"#{j+1} Delegate - {txt}" if txt else f"#{j+1} Delegate"
                             elif st == "wait_for_agents":
-                                return f"{sicon} #{j+1} Wait for Agents"
+                                return f"#{j+1} Wait for Agents"
                             elif st == "approval":
-                                return f"{sicon} #{j+1} Approval"
+                                return f"#{j+1} Approval"
                             elif st == "notify":
                                 ch = s.get("channel", "")
-                                return f"{sicon} #{j+1} Notify ({ch})" if ch else f"{sicon} #{j+1} Notify"
-                            return f"{sicon} #{j+1}"
+                                return f"#{j+1} Notify ({ch})" if ch else f"#{j+1} Notify"
+                            return f"#{j+1} {st_label}"
 
                         # Type-specific fields
                         if stype == "prompt":
@@ -795,7 +793,7 @@ def show_task_dialog(
                                 "Prompt *", step.get("prompt", ""),
                                 idx, props='rows="3"',
                             )
-                            with ui.expansion("⚙️ Step settings").classes("w-full"):
+                            with ui.expansion("Step settings", icon="tune").classes("w-full"):
                                 with ui.row().classes("gap-2"):
                                     editors["on_error"] = ui.select(
                                         label="On error",
@@ -813,14 +811,14 @@ def show_task_dialog(
                                         min=0, max=300,
                                     ).classes("w-28").props("dense")
                                 _next_opts = {
-                                    "__next__": "➡️ Next step (continue)",
+                                    "__next__": "Next step (continue)",
                                 }
                                 for j, s in enumerate(_steps_data):
                                     if j == idx:
                                         continue
                                     sid = s.get("id", f"step_{j+1}")
                                     _next_opts[sid] = _step_preview(s, j)
-                                _next_opts["end"] = "🛑 End workflow"
+                                _next_opts["end"] = "End workflow"
                                 _next_val = step.get("next") or "__next__"
                                 editors["next"] = ui.select(
                                     label="Then go to →",
@@ -1020,14 +1018,14 @@ def show_task_dialog(
                                 # Build rich step options for if_true/if_false
 
                                 _jump_opts = {
-                                    "__next__": "➡️ Next step (continue)",
+                                    "__next__": "Next step (continue)",
                                 }
                                 for j, s in enumerate(_steps_data):
                                     if j == idx:
                                         continue  # Can't jump to self
                                     sid = s.get("id", f"step_{j+1}")
                                     _jump_opts[sid] = _step_preview(s, j)
-                                _jump_opts["end"] = "🛑 End workflow"
+                                _jump_opts["end"] = "End workflow"
 
                                 _if_true_val = step.get("if_true") or "__next__"
                                 _if_false_val = step.get("if_false") or "__next__"
@@ -1057,14 +1055,14 @@ def show_task_dialog(
 
                             # Approval branching
                             _appr_jump_opts = {
-                                "__next__": "➡️ Next step (continue)",
+                                "__next__": "Next step (continue)",
                             }
                             for j, s in enumerate(_steps_data):
                                 if j == idx:
                                     continue
                                 sid = s.get("id", f"step_{j+1}")
                                 _appr_jump_opts[sid] = _step_preview(s, j)
-                            _appr_jump_opts["end"] = "🛑 End workflow"
+                            _appr_jump_opts["end"] = "End workflow"
 
                             _appr_val = step.get("if_approved") or "__next__"
                             _deny_val = step.get("if_denied") or "end"
@@ -1247,7 +1245,7 @@ def show_task_dialog(
                             ).style("font-size: 0.75rem; color: #666;")
                             all_tasks = list_tasks()
                             _task_opts = {
-                                t["id"]: f"{t['icon']} {t['name']}"
+                                t["id"]: t["name"]
                                 for t in all_tasks
                                 if t.get("id") != (task["id"] if task else None)
                             }
@@ -1266,14 +1264,14 @@ def show_task_dialog(
                                 value=step.get("on_error", "stop"),
                             ).classes("w-28").props("dense")
                             _sub_next_opts = {
-                                "__next__": "➡️ Next step (continue)",
+                                "__next__": "Next step (continue)",
                             }
                             for j, s in enumerate(_steps_data):
                                 if j == idx:
                                     continue
                                 sid = s.get("id", f"step_{j+1}")
                                 _sub_next_opts[sid] = _step_preview(s, j)
-                            _sub_next_opts["end"] = "🛑 End workflow"
+                            _sub_next_opts["end"] = "End workflow"
                             _sub_next_val = step.get("next") or "__next__"
                             editors["next"] = ui.select(
                                 label="Then go to →",
@@ -1301,20 +1299,20 @@ def show_task_dialog(
                             ).classes("w-36").props("dense")
                             if _ch_raw != _ch_val:
                                 ui.label(
-                                    f'⚠️ Unknown channel "{_ch_raw}" — defaulted to desktop'
+                                    f'Unknown channel "{_ch_raw}" — defaulted to desktop'
                                 ).style(
                                     "font-size: 0.7rem; color: #ff9800; "
                                     "margin-top: -4px;"
                                 )
                             _nfy_next_opts = {
-                                "__next__": "➡️ Next step (continue)",
+                                "__next__": "Next step (continue)",
                             }
                             for j, s in enumerate(_steps_data):
                                 if j == idx:
                                     continue
                                 sid = s.get("id", f"step_{j+1}")
                                 _nfy_next_opts[sid] = _step_preview(s, j)
-                            _nfy_next_opts["end"] = "🛑 End workflow"
+                            _nfy_next_opts["end"] = "End workflow"
                             _nfy_next_val = step.get("next") or "__next__"
                             editors["next"] = ui.select(
                                 label="Then go to →",
@@ -1609,7 +1607,7 @@ def show_task_dialog(
 
                 with advanced_extras_container:
                     # ── Pipeline settings (concurrency group + trigger) ──
-                    with ui.expansion("⚙️ Pipeline settings (optional)").classes("w-full"):
+                    with ui.expansion("Pipeline settings (optional)", icon="tune").classes("w-full"):
                         ui.label(
                             "Configure concurrency groups, completion triggers, "
                             "and webhook endpoints."
@@ -1641,7 +1639,7 @@ def show_task_dialog(
                         # -- task_complete: source task selector --
                         all_tasks_for_trigger = list_tasks()
                         _trig_task_opts = {
-                            t["id"]: f"{t['icon']} {t['name']}"
+                            t["id"]: t["name"]
                             for t in all_tasks_for_trigger
                             if t.get("id") != (task["id"] if task else None)
                         }
@@ -1714,18 +1712,20 @@ def show_task_dialog(
                 if not is_new:
                     runs = get_run_history(task["id"], limit=5)
                     if runs:
-                        with ui.expansion("📜 Recent runs").classes("w-full"):
+                        with ui.expansion("Recent runs", icon="history").classes("w-full"):
                             for r in runs:
-                                r_icon = "✅" if r["status"] == "completed" else (
-                                    "🔄" if r["status"] == "running" else "❌"
+                                r_icon = "check_circle" if r["status"] == "completed" else (
+                                    "sync" if r["status"] == "running" else "cancel"
                                 )
                                 started = datetime.fromisoformat(
                                     r["started_at"]
                                 ).strftime("%b %d, %I:%M %p")
-                                ui.label(
-                                    f"{r_icon} {started} — "
-                                    f"{r['steps_done']}/{r['steps_total']} steps"
-                                ).classes("text-xs")
+                                with ui.row().classes("items-center gap-1"):
+                                    ui.icon(r_icon, size="xs").classes("text-grey-5")
+                                    ui.label(
+                                        f"{started} — "
+                                        f"{r['steps_done']}/{r['steps_total']} steps"
+                                    ).classes("text-xs")
 
         def _current_schedule_value():
             sv = sched_sel.value
@@ -1782,7 +1782,7 @@ def show_task_dialog(
             return {
                 "advanced": is_advanced,
                 "name": name_input.value.strip(),
-                "icon": icon_sel.value or "⚡",
+                "icon": icon_sel.value or "bolt",
                 "description": desc_input.value.strip(),
                 "enabled": bool(enabled_switch.value),
                 "agent_profile_id": profile_sel.value or DEFAULT_WORKFLOW_AGENT_PROFILE_ID,
@@ -1877,10 +1877,10 @@ def show_task_dialog(
                     p.task_dlg.close()
                     on_done()
 
-                ui.button("📋 Duplicate", on_click=_dup_task).props(
+                ui.button("Duplicate", icon="content_copy", on_click=_dup_task).props(
                     "flat no-caps"
                 ).style("font-size: 0.85rem;")
-                ui.button("🗑️ Delete", on_click=_del_task).props(
+                ui.button("Delete", icon="delete", on_click=_del_task).props(
                     "flat no-caps"
                 ).style("color: #ff6b6b; font-size: 0.85rem;")
 
@@ -2021,7 +2021,7 @@ def show_task_dialog(
 
                 if errors:
                     ui.notify(
-                        "⚠️ " + errors[0],
+                        errors[0],
                         type="negative",
                         position="top",
                         close_button=True,
@@ -2053,7 +2053,7 @@ def show_task_dialog(
                     if v:
                         final_schedule = f"cron:{v}"
 
-                cur_icon = icon_sel.value or "⚡"
+                cur_icon = icon_sel.value or "bolt"
                 cur_desc = desc_input.value.strip()
                 cur_enabled = enabled_switch.value
                 cur_del_ch = del_ch_sel.value or None
@@ -2121,7 +2121,7 @@ def show_task_dialog(
                             len(clean_prompts),
                             "default" if cur_channels is None else len(cur_channels),
                         )
-                        ui.notify("✅ Task created", type="positive")
+                        ui.notify("Task created", type="positive")
                     else:
                         updates = {}
                         if cur_name != task["name"]:
@@ -2176,7 +2176,7 @@ def show_task_dialog(
                                 len(clean_prompts),
                                 "default" if cur_channels is None else len(cur_channels),
                             )
-                            ui.notify("💾 Saved", type="positive")
+                            ui.notify("Saved", type="positive")
                         else:
                             logger.info(
                                 "perf: workflow save no changes in %.3fs",

@@ -17,6 +17,7 @@ from nicegui import run, ui
 
 from row_bot.ui.state import AppState, P
 from row_bot.ui.constants import welcome_message, EXAMPLE_PROMPTS
+from row_bot.ui.iconography import material_icon_for
 from row_bot.ui.performance import log_ui_perf
 from row_bot.ui.timer_utils import defer_ui
 
@@ -141,7 +142,9 @@ def build_home(
                         _cloud_ob = is_cloud_model(get_current_model())
                         ui.markdown(welcome_message(cloud=_cloud_ob), extras=['code-friendly', 'fenced-code-blocks', 'tables'])
                         ui.separator()
-                        ui.label("💡 Try asking me something:").classes("font-bold")
+                        with ui.row().classes("items-center gap-2"):
+                            ui.icon("lightbulb").classes("text-grey-5")
+                            ui.label("Try asking me something:").classes("font-bold")
                         with ui.row().classes("w-full flex-wrap gap-2"):
                             for prompt in EXAMPLE_PROMPTS:
                                 def _try(pr=prompt):
@@ -178,7 +181,7 @@ def build_home(
                                     ui.label(f"Finish setting up {APP_DISPLAY_NAME}").classes("text-subtitle2")
                                     ui.label(
                                         f"{_setup_progress['done']} of {_setup_progress['total']} setup areas handled. "
-                                        "You can resume anytime from the hello button in the sidebar."
+                                        "You can resume anytime from this card or Settings."
                                     ).classes("text-grey-5 text-sm")
                                 def _open_setup_center():
                                     from row_bot.ui.onboarding_center import show_setup_center
@@ -270,7 +273,9 @@ def build_home(
                     with ui.column().classes("gap-1").style(
                         "min-width: 0; flex: 1 1 auto;"
                     ):
-                        ui.label("⚡ Workflows").classes("text-h5")
+                        with ui.row().classes("items-center gap-2"):
+                            ui.icon("bolt").classes("text-grey-5")
+                            ui.label("Workflows").classes("text-h5")
                         ui.label("Background Agents").classes(
                             "text-xs text-grey-6"
                         ).style("margin-top: -2px; letter-spacing: 0.3px;")
@@ -419,12 +424,16 @@ def build_home(
                                         )
                                 # Icon in a subtle circular badge
                                 with ui.element("div").classes("w-full flex justify-center q-mb-xs"):
-                                    ui.element("div").style(
+                                    with ui.element("div").style(
                                         "width: 40px; height: 40px; border-radius: 50%;"
                                         "background: rgba(255,255,255,0.06);"
                                         "display: flex; align-items: center; justify-content: center;"
                                         "font-size: 1.25rem;"
-                                    ).props(f'innerHTML="{tk["icon"]}"')
+                                    ):
+                                        ui.icon(
+                                            material_icon_for(tk.get("icon")),
+                                            size="sm",
+                                        ).classes("text-grey-4")
                                 ui.label(tk["name"]).classes("font-bold text-center w-full").style(
                                     "font-size: 0.85rem; line-height: 1.2;"
                                 )
@@ -445,20 +454,20 @@ def build_home(
                                         pass
                                 sched = tk.get("schedule") or ""
                                 if sched.startswith("daily"):
-                                    info += " · 📅 Daily"
+                                    info += " · Daily"
                                 elif sched.startswith("weekly"):
-                                    info += " · 📅 Weekly"
+                                    info += " · Weekly"
                                 elif sched.startswith("interval"):
-                                    info += " · 🔁 Interval"
+                                    info += " · Interval"
                                 elif sched.startswith("cron"):
-                                    info += " · ⏱️ Cron"
+                                    info += " · Cron"
                                 if tk.get("notify_only"):
-                                    info = "🔔 Reminder"
+                                    info = "Reminder"
                                     if sched:
                                         if sched.startswith("daily"):
-                                            info += " · 📅 Daily"
+                                            info += " · Daily"
                                         elif sched.startswith("weekly"):
-                                            info += " · 📅 Weekly"
+                                            info += " · Weekly"
                                 ui.label(info).classes("text-xs text-grey-6 text-center w-full")
 
                                 with ui.row().classes("w-full items-center justify-between").style(
@@ -487,7 +496,7 @@ def build_home(
                                             "min-width: 300px;"
                                         ):
                                             ui.label(
-                                                f"Delete '{t['icon']} {t['name']}'?"
+                                                f"Delete '{t['name']}'?"
                                             ).classes("font-bold")
                                             ui.label(
                                                 "This removes the workflow, its run "
@@ -502,7 +511,7 @@ def build_home(
                                                     delete_task(task["id"])
                                                     d.close()
                                                     ui.notify(
-                                                        f"🗑️ '{task['name']}' deleted.",
+                                                        f"'{task['name']}' deleted.",
                                                         type="negative",
                                                     )
                                                     _refresh_home_tiles()
@@ -527,7 +536,7 @@ def build_home(
                                             start_step=0, notification=True,
                                         )
                                         ui.notify(
-                                            f"⚡ {t['name']} started — you'll be notified when done.",
+                                            f"{t['name']} started — you'll be notified when done.",
                                             type="positive",
                                         )
                                         rebuild_thread_list()
@@ -537,7 +546,7 @@ def build_home(
                                     if _running_tid:
                                         def _stop_tk(tid=_running_tid, t=tk):
                                             stop_task(tid)
-                                            ui.notify(f"⏹️ Stopping {t['name']}…", type="warning")
+                                            ui.notify(f"Stopping {t['name']}...", type="warning")
                                             _refresh_home_tiles()
                                         ui.button(icon="stop", on_click=_stop_tk).props(
                                             "round color=red size=sm"
@@ -553,7 +562,7 @@ def build_home(
                         def _commit():
                             from row_bot.tasks import delete_tasks
                             deleted, failures = delete_tasks(ids)
-                            msg = f"🗑️ Deleted {deleted} workflow{'s' if deleted != 1 else ''}."
+                            msg = f"Deleted {deleted} workflow{'s' if deleted != 1 else ''}."
                             if failures:
                                 msg += f" {len(failures)} failed."
                             ui.notify(msg, type="negative" if failures else "info")
@@ -826,6 +835,11 @@ def _build_activity_content(container) -> None:
     with ui.scroll_area().classes("w-full h-full"):
         with ui.column().classes("w-full q-pa-sm gap-0"):
 
+            def _activity_heading(icon_name: str, label: str, classes: str = "text-subtitle1 font-bold") -> None:
+                with ui.row().classes("items-center gap-2"):
+                    ui.icon(icon_name).classes("text-grey-5")
+                    ui.label(label).classes(classes)
+
             with ui.row().classes("w-full items-center justify-between"):
                 ui.label("System Monitor").classes("text-h5")
                 def _refresh_activity():
@@ -838,7 +852,7 @@ def _build_activity_content(container) -> None:
 
             # Knowledge Extraction
             ui.separator().classes("q-my-sm")
-            ui.label("🧠 Knowledge Extraction").classes("text-subtitle1 font-bold")
+            _activity_heading("psychology", "Knowledge Extraction")
             mem_status = get_extraction_status()
             last_ext = mem_status.get("last_extraction")
             if last_ext:
@@ -868,7 +882,7 @@ def _build_activity_content(container) -> None:
             def _show_extraction_journal():
                 _ext_entries = _get_ext_journal(limit=20)
                 with ui.dialog() as dlg, ui.card().classes("w-full max-w-2xl").style("user-select: text;"):
-                    ui.label("🧠 Extraction Journal").classes("text-h6")
+                    _activity_heading("psychology", "Extraction Journal", "text-h6")
                     ui.separator()
                     with ui.scroll_area().classes("w-full").style("max-height: 60vh"):
                         if not _ext_entries:
@@ -922,7 +936,7 @@ def _build_activity_content(container) -> None:
 
             # Dream Cycle
             ui.separator().classes("q-my-sm")
-            ui.label("🌙 Dream Cycle").classes("text-subtitle1 font-bold")
+            _activity_heading("bedtime", "Dream Cycle")
             from row_bot.dream_cycle import get_dream_status, get_journal
             dream_status = get_dream_status()
             if dream_status.get("enabled"):
@@ -959,7 +973,7 @@ def _build_activity_content(container) -> None:
                     def _show_dream_journal():
                         _entries = get_journal(limit=20)
                         with ui.dialog() as dlg, ui.card().classes("w-full max-w-2xl").style("user-select: text;"):
-                            ui.label("🌙 Dream Cycle Journal").classes("text-h6")
+                            _activity_heading("bedtime", "Dream Cycle Journal", "text-h6")
                             ui.separator()
                             with ui.scroll_area().classes("w-full").style("max-height: 60vh"):
                                 if not _entries:
@@ -1033,22 +1047,9 @@ def _build_activity_content(container) -> None:
             else:
                 ui.label("Disabled — enable in Settings → Preferences.").classes("text-grey-6 text-sm q-ml-sm")
 
-            # Channels
-            ui.separator().classes("q-my-sm")
-            ui.label("📡 Channels").classes("text-subtitle1 font-bold")
-            from row_bot.channels.telegram import is_configured as tg_ok, is_running as tg_on
-            _any_channel = False
-            if tg_ok():
-                _any_channel = True
-                dot = "🟢" if tg_on() else "🔴"
-                lbl = "Running" if tg_on() else "Stopped"
-                ui.label(f"{dot} Telegram — {lbl}").classes("text-sm q-ml-sm")
-            if not _any_channel:
-                ui.label("No channels configured.").classes("text-grey-6 text-sm q-ml-sm")
-
             # Recent Logs
             ui.separator().classes("q-my-sm")
-            ui.label("📝 Recent Logs").classes("text-subtitle1 font-bold")
+            _activity_heading("article", "Recent Logs")
 
             from row_bot.logging_config import read_recent_logs, get_current_log_path
 
@@ -1096,7 +1097,7 @@ def _build_activity_content(container) -> None:
                     with ui.dialog() as dlg, ui.card().classes("w-full max-w-3xl").style(
                         "user-select: text; min-height: 80vh;"
                     ):
-                        ui.label("📝 Log Viewer").classes("text-h6")
+                        _activity_heading("article", "Log Viewer", "text-h6")
                         ui.separator()
                         log_path = get_current_log_path()
                         if log_path:

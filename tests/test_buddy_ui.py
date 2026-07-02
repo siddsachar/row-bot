@@ -388,7 +388,15 @@ def test_buddy_surface_sizing_and_docked_drag_are_targeted():
     runtime_src = _read("static/buddy/runtime/buddy.js")
 
     assert '.row-bot-buddy-wrap[data-surface="sidebar"] .row-bot-buddy-stage' in buddy_ui_src
-    assert "width: 198px" in buddy_ui_src
+    sidebar_stage = buddy_ui_src.split(
+        '.row-bot-buddy-wrap[data-surface="sidebar"] .row-bot-buddy-stage',
+        1,
+    )[1].split("}", 1)[0]
+    assert "width: 132px" in sidebar_stage
+    assert "height: 132px" in sidebar_stage
+    assert ".row-bot-buddy-sidebar-action" in buddy_ui_src
+    assert "width: 158px" in buddy_ui_src
+    assert "width: 140px" in buddy_ui_src
     assert "row-bot-buddy-sidebar-ring" in buddy_ui_src
     assert "data-buddy-display-name" not in buddy_ui_src
     assert "data-display-name" not in buddy_ui_src
