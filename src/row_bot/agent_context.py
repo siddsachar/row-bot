@@ -213,7 +213,8 @@ def build_child_agent_prompt(
             if model_ref
             else "Runtime model override: inherited from the parent/default runtime."
         ),
-        "Do not call row_bot_update_setting(setting='model') to satisfy your own runtime model request.",
+        "Do not call row_bot_update_setting(setting='model') to satisfy your own runtime model request. "
+        "Do not use setting='thread_model' or setting='default_model' for that either.",
     ]
     parts.extend(["", "RUNTIME MODEL:", "\n".join(runtime_lines)])
     for title, body in context_sections:

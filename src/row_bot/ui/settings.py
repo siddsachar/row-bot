@@ -1062,7 +1062,8 @@ def open_settings(
 
         local = local_models
         local_ref = [set(local_models)]
-        current = state.current_model
+        current = str(snapshot.get("current_model") or state.current_model or get_current_model())
+        state.current_model = current
         current_value = model_choice_value(current)
 
         def _is_local_runtime(runtime_model: str | None, local_override=None) -> bool:
@@ -2070,6 +2071,7 @@ def open_settings(
             "ollama_up": ollama_up,
             "trending": [],
             "local": local_models,
+            "current_model": current_model,
             "chat_options": chat_options,
             "vision_options": vision_options,
             "image_model": image_model,

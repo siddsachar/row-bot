@@ -824,7 +824,11 @@ def _interrupt_changes_model_setting(pending: Any) -> bool:
         if str(item.get("tool") or "").strip() != "row_bot_update_setting":
             continue
         args = item.get("args")
-        if isinstance(args, dict) and str(args.get("setting") or "").strip().lower() == "model":
+        if isinstance(args, dict) and str(args.get("setting") or "").strip().lower() in {
+            "model",
+            "thread_model",
+            "default_model",
+        }:
             return True
     return False
 
@@ -835,7 +839,12 @@ def _tool_result_changes_model_setting(raw_tool_name: Any, content: Any) -> bool
     if str(raw_tool_name or "").strip() != "row_bot_update_setting":
         return False
     text = str(content or "").strip()
-    return text.startswith("Active model changed to:")
+    return text.startswith((
+        "Active model changed to:",
+        "Thread model override changed to:",
+        "Thread model override cleared;",
+        "Global default model changed to:",
+    ))
 
 
 def _looks_like_new_agent_request(text: str) -> bool:

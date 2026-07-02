@@ -114,6 +114,15 @@ def test_settings_shell_is_providers_first_and_single_panel():
     assert "Current Video default is unavailable" in render_models_src
 
 
+def test_models_tab_uses_collected_current_model_snapshot():
+    collect_src = _function_source("_collect_models_tab_data")
+    render_src = _function_source("_render_models_tab_content")
+
+    assert '"current_model": current_model' in collect_src
+    assert 'snapshot.get("current_model")' in render_src
+    assert "state.current_model = current" in render_src
+
+
 def test_settings_shell_preserves_all_registered_tabs():
     open_src = _function_source("open_settings")
 

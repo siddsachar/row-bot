@@ -86,6 +86,7 @@ def test_phase3_telegram_model_command_stores_canonical_ref():
     assert 'config["configurable"]["model_override"] = canonical.ref' in source
     assert "_set_thread_model_override(tid, canonical.ref)" in source
     assert 'config["configurable"]["model_override"] = model_id' not in source
+    assert "visible_choices = choices[:12]" in source
 
 
 def test_phase3_telegram_thread_reload_keeps_full_model_ref(tmp_path, monkeypatch):
@@ -101,6 +102,51 @@ def test_phase3_telegram_thread_reload_keeps_full_model_ref(tmp_path, monkeypatc
     row = next(row for row in listed if row[0] == "tg_123_abc")
 
     assert row[4] == ref
+
+
+def test_telegram_refresh_thread_model_override_syncs_cached_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "threads"))
+    import row_bot.threads as threads
+    from row_bot.channels.telegram import _refresh_thread_model_override
+
+    threads = importlib.reload(threads)
+    thread_id = "tg_123_abc"
+    threads._save_thread_meta(thread_id, "Telegram 123")
+    threads._set_thread_model_override(thread_id, "model:openai:gpt-4o-mini")
+
+    refreshed = _refresh_thread_model_override({"configurable": {"thread_id": thread_id}})
+
+    assert refreshed["configurable"]["model_override"] == "model:openai:gpt-4o-mini"
+
+    threads._set_thread_model_override(thread_id, "")
+    refreshed = _refresh_thread_model_override({
+        "configurable": {
+            "thread_id": thread_id,
+            "model_override": "model:openai:gpt-4o-mini",
+        }
+    })
+
+    assert "model_override" not in refreshed["configurable"]
+
+
+def test_telegram_message_flow_refreshes_cached_model_override_before_agent_run():
+    source = pathlib.Path("src/row_bot/channels/telegram.py").read_text(encoding="utf-8")
+    message_flow = source.split("async def _run_agent_for_message", 1)[1].split(
+        "executor_future = loop.run_in_executor", 1
+    )[0]
+
+    assert "config = _refresh_thread_model_override(config)" in message_flow
+    assert 'context.chat_data["thread_config"] = config' in message_flow
+
+
+def test_telegram_approval_resume_refreshes_cached_model_override_before_agent_run():
+    source = pathlib.Path("src/row_bot/channels/telegram.py").read_text(encoding="utf-8")
+    callback_flow = source.split('approved = query.data == "interrupt_approve"', 1)[1].split(
+        "interrupt_ids = _extract_interrupt_ids", 1
+    )[0]
+
+    assert 'config = _refresh_thread_model_override(pending["config"])' in callback_flow
+    assert 'context.chat_data["thread_config"] = config' in callback_flow
 
 
 def test_phase0_workflow_delivery_status_is_separate_from_routing(tmp_path, monkeypatch):

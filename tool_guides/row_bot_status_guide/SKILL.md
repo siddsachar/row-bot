@@ -70,7 +70,9 @@ CHANGING SETTINGS (row_bot_update_setting):
 - After explaining the change, call row_bot_update_setting directly so the approval prompt collects the confirmation.
 - Do NOT ask for a separate plain-text confirmation instead of calling the tool.
 - Supported settings:
-  - model: switch the active Brain model (value = active pinned Brain Quick Choice canonical ref such as model:provider:id, or an exact pinned label/ref)
+  - thread_model: set the current conversation's Brain model override (value = active pinned Brain Quick Choice canonical ref such as model:provider:id, or an exact pinned label/ref; use 'default' to clear and inherit the global default)
+  - default_model: switch the global Brain default used by new conversations and workflows (value = active pinned Brain Quick Choice canonical ref such as model:provider:id, or an exact pinned label/ref)
+  - model: legacy global-default alias outside threaded chat; do not use this for conversation model changes
   - vision_model: switch the Vision model (value = installed local vision model, provider Vision model, model:provider:id ref, or Vision Quick Choice label/ref from Settings -> Models)
   - name: change the assistant name (value = new name)
   - personality: change personality text (value = new personality)
@@ -94,9 +96,10 @@ CHANGING SETTINGS (row_bot_update_setting):
   Do NOT pretend to make the change — you MUST call row_bot_update_setting.
 - When the user asks to pin/unpin a skill, make it active by default, or stop making it active by default in new chats/tasks/workflows, use skill_pin.
   Do NOT pretend to make the change — you MUST call row_bot_update_setting.
-- For natural Brain model requests like "gpt5.5 via codex" or "qwen 3.6 27 B via ollama", first call row_bot_status with category='model', inspect the pinned Brain choices, select the closest active pinned choice, then call row_bot_update_setting with the canonical ref. Do not pass the user's raw natural phrase. After success, report the friendly choice and canonical ref. If no pinned choice matches, say so and point to Settings -> Models.
+- For natural Brain model requests like "gpt5.5 via codex" or "qwen 3.6 27 B via ollama", first call row_bot_status with category='model', inspect the pinned Brain choices, select the closest active pinned choice, then call row_bot_update_setting with setting='thread_model' and the canonical ref. Do not pass the user's raw natural phrase. After success, report the friendly choice and canonical ref. If no pinned choice matches, say so and point to Settings -> Models.
+- Use setting='default_model' only when the user explicitly asks to change the global/default model used by new conversations or workflows.
 - When changing the active Brain model to a provider model, use an existing pinned Quick Choice from the Models catalog. Route selections may be visible in config but are not executable until routing runtime is enabled.
-- Child Agents cannot change their own runtime model with row_bot_update_setting setting='model'. The parent must spawn the child with `delegate_work(model=...)`, or the user must use `/agent --model=model:provider:model-id` for an explicit command spawn.
+- Child Agents cannot change their own runtime model with row_bot_update_setting setting='model', setting='thread_model', or setting='default_model'. The parent must spawn the child with `delegate_work(model=...)`, or the user must use `/agent --model=model:provider:model-id` for an explicit command spawn.
 - When changing the Vision model, prefer an existing Vision Quick Choice from Settings -> Models. If a provider/custom endpoint model is marked incompatible or Vision was manually disabled for that endpoint, do not use it for image/screen analysis until the user changes the endpoint override or selects another Vision-capable model.
 - When changing image/video generation models, values are resolved against the dynamic provider media catalog used by Settings -> Models. Prefer canonical provider/model-id when available, but unique bare IDs and labels such as "GPT Image 2" or "Veo 3.1" are acceptable. After a media default changes, the corresponding Image/Video Quick Choice is updated automatically when the provider key is configured.
 - Agent, Agent Profile, and Goal Mode settings are read-only through row_bot_status in V1. Do not call row_bot_update_setting to edit agent depth/concurrency/default profile/goal-budget settings; use the dedicated agent/profile/goal surfaces when available.

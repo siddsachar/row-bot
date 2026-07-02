@@ -76,7 +76,9 @@ class _SettingUpdateInput(BaseModel):
     setting: str = Field(
         description=(
             "The setting to change. One of: "
-            "'model' (switch active Brain model; value must be an active pinned Brain Quick Choice canonical ref or exact label), "
+            "'thread_model' (set the current conversation's Brain model override; value must be an active pinned Brain Quick Choice canonical ref or exact label; use 'default' to clear), "
+            "'default_model' (switch the global Brain default for new conversations and workflows; value must be an active pinned Brain Quick Choice canonical ref or exact label), "
+            "'model' (legacy alias for default_model outside threaded chat; do not use for conversation model changes), "
             "'vision_model' (switch Vision model; value may be an installed local vision model, provider vision model, or Vision Quick Choice), "
             "'name' (change assistant name), "
             "'personality' (change personality text), "
@@ -1751,22 +1753,85 @@ def _update_setting(setting: str, value: str) -> str:
     setting = setting.strip().lower()
     value = value.strip()
 
-    if setting == "model":
-        runtime_surface = str(_active_runtime_context().get("runtime_surface") or "").strip()
+    if setting in {"thread_model", "default_model", "model"}:
+        runtime_context = _active_runtime_context()
+        runtime_surface = str(runtime_context.get("runtime_surface") or "").strip()
+        thread_id = str(runtime_context.get("thread_id") or "").strip()
         if runtime_surface in {"agent_child", "agent_child_resume"}:
             return (
                 "Child Agents cannot switch their own runtime model. "
                 "Ask the parent to spawn the child with delegate_work(model=...) "
                 "or use /agent --model=model:provider:model-id for explicit command spawns."
             )
+        if setting == "model" and thread_id:
+            return (
+                "Model scope is ambiguous in this conversation, so I did not change anything. "
+                "Use setting='thread_model' to change this conversation, or "
+                "setting='default_model' to change the global default for new conversations and workflows."
+            )
+        if setting == "thread_model":
+            if not thread_id:
+                return (
+                    "Cannot change the conversation model because no active thread is in context. "
+                    "Use setting='default_model' only if you want to change the global default."
+                )
+            if value.lower() in {"", "default", "inherit", "global"}:
+                approval = interrupt({
+                    "tool": "row_bot_update_setting",
+                    "label": "Clear conversation model override",
+                    "description": "Use the global default model for this conversation.",
+                    "args": {"setting": "thread_model", "value": value or "default"},
+                })
+                if not approval:
+                    return "Thread model change cancelled."
+                try:
+                    from row_bot.agent import clear_agent_cache
+                    from row_bot.models import get_current_model
+                    from row_bot.threads import _set_thread_model_override
+
+                    _set_thread_model_override(thread_id, "")
+                    clear_agent_cache()
+                    return f"Thread model override cleared; using global default: {get_current_model()}"
+                except Exception as exc:
+                    return f"Failed to change thread model: {exc}"
+            try:
+                model_value, error = _resolve_model_update_value(value, surface="chat")
+                if error:
+                    return error
+                if not model_value:
+                    return f"Model '{value}' not found. Pin it in Settings -> Models first."
+            except Exception as exc:
+                return f"Failed to resolve thread model: {exc}"
+            approval = interrupt({
+                "tool": "row_bot_update_setting",
+                "label": "Change conversation model",
+                "description": f"Switch this conversation to: {model_value}",
+                "args": {"setting": "thread_model", "value": model_value},
+            })
+            if not approval:
+                return "Thread model change cancelled."
+            try:
+                from row_bot.agent import clear_agent_cache
+                from row_bot.threads import _set_thread_model_override
+
+                _set_thread_model_override(thread_id, model_value)
+                clear_agent_cache()
+                return f"Thread model override changed to: {model_value}"
+            except Exception as exc:
+                return f"Failed to change thread model: {exc}"
+        result_prefix = (
+            "Active model changed to:" if setting == "model"
+            else "Global default model changed to:"
+        )
+        cancel_text = "Model change cancelled." if setting == "model" else "Default model change cancelled."
         approval = interrupt({
             "tool": "row_bot_update_setting",
-            "label": "Change active model",
-            "description": f"Switch the active model to: {value}",
-            "args": {"setting": "model", "value": value},
+            "label": "Change global default model",
+            "description": f"Switch the global default model to: {value}",
+            "args": {"setting": setting, "value": value},
         })
         if not approval:
-            return "Model change cancelled."
+            return cancel_text
         try:
             from row_bot.models import set_model
             from row_bot.agent import clear_agent_cache
@@ -1777,7 +1842,7 @@ def _update_setting(setting: str, value: str) -> str:
                 return f"Model '{value}' not found. Pin it in Settings → Models first."
             set_model(model_value)
             clear_agent_cache()
-            return f"Active model changed to: {model_value}"
+            return f"{result_prefix} {model_value}"
         except Exception as exc:
             return f"Failed to change model: {exc}"
 
@@ -2410,7 +2475,10 @@ class RowBotStatusTool(BaseTool):
                 name="row_bot_update_setting",
                 description=(
                     "Change a Row-Bot setting. Requires user confirmation. "
-                    "Settings: model (pinned Brain canonical ref or exact pinned label), vision_model, name, personality, context_size, "
+                    "Settings: thread_model (current conversation Brain override; use 'default' to clear), "
+                    "default_model (global Brain default for new conversations/workflows), "
+                    "model (legacy global-default alias outside threaded chat), "
+                    "vision_model, name, personality, context_size, "
                     "cloud_context_size, dream_cycle (on/off), "
                     "dream_window (e.g. '1-5'), "
                     "skill_toggle for Skill Library Available/Off (e.g. 'deep_research:off'), "

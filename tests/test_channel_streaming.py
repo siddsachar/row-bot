@@ -107,6 +107,68 @@ def test_channel_final_answer_falls_back_to_tool_reports_without_model_text():
     assert answer == "Using Search...\nSearch done"
 
 
+def test_telegram_setting_audit_appends_to_model_answer():
+    from row_bot.channels.telegram import _assemble_telegram_agent_answer
+
+    answer = _assemble_telegram_agent_answer(
+        "Done.",
+        ["Using Row-Bot Status...", "Row-Bot Status done"],
+        ["Thread model override changed to: model:anthropic:claude-fable-5"],
+    )
+
+    assert answer == (
+        "Done.\n\n"
+        "Thread model override changed to: model:anthropic:claude-fable-5"
+    )
+
+
+def test_telegram_setting_audit_replaces_generic_tool_reports_without_model_text():
+    from row_bot.channels.telegram import _assemble_telegram_agent_answer
+
+    answer = _assemble_telegram_agent_answer(
+        "",
+        ["Using Row-Bot Status...", "Row-Bot Status done"],
+        ["Global default model changed to: model:codex:gpt-5.5"],
+    )
+
+    assert answer == "Global default model changed to: model:codex:gpt-5.5"
+
+
+def test_telegram_setting_audit_can_surface_legacy_scope_refusal():
+    from row_bot.channels.telegram import _setting_tool_audit_line
+
+    line = _setting_tool_audit_line({
+        "raw_name": "row_bot_update_setting",
+        "content": "Model scope is ambiguous in this conversation, so I did not change anything.",
+    })
+
+    assert line.startswith("Model scope is ambiguous")
+
+
+def test_telegram_send_html_splits_plain_text_fallback():
+    from row_bot.channels.telegram import MAX_TG_MESSAGE_LEN, _send_html
+
+    class FakeTarget:
+        def __init__(self):
+            self.sent = []
+
+        async def reply_text(self, text, **kwargs):
+            if kwargs.get("parse_mode") == "HTML":
+                raise RuntimeError("bad html")
+            self.sent.append((text, kwargs))
+
+    async def run_case():
+        target = FakeTarget()
+        await _send_html(target, "<b>" + ("x" * (MAX_TG_MESSAGE_LEN * 2 + 37)) + "</b>")
+        return target.sent
+
+    sent = asyncio.run(run_case())
+
+    assert len(sent) >= 3
+    assert all(len(text) <= MAX_TG_MESSAGE_LEN for text, _kwargs in sent)
+    assert all("parse_mode" not in kwargs for _text, kwargs in sent)
+
+
 def test_channel_runtime_marks_stream_capable_adapters_and_leaves_sms_nonstreaming():
     streaming_paths = [
         "src/row_bot/channels/telegram.py",

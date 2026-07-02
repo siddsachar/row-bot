@@ -192,6 +192,28 @@ def _new_thread(chat_id: int) -> dict:
 # ──────────────────────────────────────────────────────────────────────
 # Agent invocation (synchronous — runs in executor)
 # ──────────────────────────────────────────────────────────────────────
+def _refresh_thread_model_override(config: dict | None) -> dict:
+    """Refresh a cached Telegram config's model override from thread metadata."""
+    if not isinstance(config, dict):
+        return {"configurable": {}}
+    configurable = dict(config.get("configurable") or {})
+    thread_id = str(configurable.get("thread_id") or "").strip()
+    if not thread_id:
+        return config
+    try:
+        from row_bot.threads import _get_thread_model_override
+
+        model_override = _get_thread_model_override(thread_id)
+    except Exception:
+        log.debug("Could not refresh Telegram model override for %s", thread_id, exc_info=True)
+        return config
+    if model_override:
+        configurable["model_override"] = model_override
+    else:
+        configurable.pop("model_override", None)
+    return {**config, "configurable": configurable}
+
+
 from row_bot.channels.media_capture import grab_vision_capture as _grab_vision_capture
 from row_bot.channels.media_capture import grab_generated_image as _grab_generated_image
 from row_bot.channels.media_capture import grab_generated_video as _grab_generated_video
@@ -219,6 +241,46 @@ def build_channel_runtime_config(config: dict, purpose: str) -> dict:
     }
 
 
+_SETTING_AUDIT_PREFIXES = (
+    "Thread model override changed to:",
+    "Thread model override cleared;",
+    "Global default model changed to:",
+    "Active model changed to:",
+    "Thread model change cancelled.",
+    "Default model change cancelled.",
+    "Model change cancelled.",
+    "Model scope is ambiguous",
+)
+
+
+def _setting_tool_audit_line(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    if str(payload.get("raw_name") or "").strip() != "row_bot_update_setting":
+        return ""
+    text = str(payload.get("content") or "").strip()
+    if not text:
+        return ""
+    if any(text.startswith(prefix) for prefix in _SETTING_AUDIT_PREFIXES):
+        return text
+    return ""
+
+
+def _assemble_telegram_agent_answer(model_text: str, tool_reports: list[str], setting_audits: list[str]) -> str:
+    from row_bot.channels.agent_output import assemble_agent_answer
+
+    deduped_audits = list(dict.fromkeys(report for report in setting_audits if str(report).strip()))
+    if deduped_audits:
+        audit_text = "\n".join(deduped_audits)
+        if str(model_text or "").strip():
+            answer = assemble_agent_answer(model_text, tool_reports)
+            if audit_text not in answer:
+                return f"{answer.rstrip()}\n\n{audit_text}"
+            return answer
+        return audit_text
+    return assemble_agent_answer(model_text, tool_reports)
+
+
 def _run_agent_sync(user_text: str, config: dict,
                     event_queue=None) -> tuple[str, dict | None, list[bytes], list[str]]:
     """Run the agent synchronously, collecting the full response.
@@ -238,6 +300,7 @@ def _run_agent_sync(user_text: str, config: dict,
     enabled = [t.name for t in tool_registry.get_enabled_tools()]
     full_answer: list[str] = []
     tool_reports: list[str] = []
+    setting_audits: list[str] = []
     interrupt_data: dict | None = None
     used_vision = False
     used_image_gen = False
@@ -251,6 +314,9 @@ def _run_agent_sync(user_text: str, config: dict,
         elif event_type == "tool_done":
             name = payload['name'] if isinstance(payload, dict) else payload
             raw_name = payload.get('raw_name', '') if isinstance(payload, dict) else ''
+            audit_line = _setting_tool_audit_line(payload)
+            if audit_line:
+                setting_audits.append(audit_line)
             tool_reports.append(f"✅ {name} done")
             if name in ("analyze_image", "👁️ Vision"):
                 used_vision = True
@@ -268,9 +334,7 @@ def _run_agent_sync(user_text: str, config: dict,
         if event_queue is not None:
             event_queue.put((event_type, payload))
 
-    from row_bot.channels.agent_output import assemble_agent_answer
-
-    answer = assemble_agent_answer("".join(full_answer), tool_reports)
+    answer = _assemble_telegram_agent_answer("".join(full_answer), tool_reports, setting_audits)
 
     if event_queue is not None:
         event_queue.put(None)  # sentinel
@@ -301,6 +365,7 @@ def _resume_agent_sync(config: dict, approved: bool,
     enabled = [t.name for t in tool_registry.get_enabled_tools()]
     full_answer: list[str] = []
     tool_reports: list[str] = []
+    setting_audits: list[str] = []
     interrupt_data: dict | None = None
     used_vision = False
     used_image_gen = False
@@ -323,6 +388,9 @@ def _resume_agent_sync(config: dict, approved: bool,
                 used_image_gen = True
             if raw_name in ("generate_video", "animate_image"):
                 used_video_gen = True
+            audit_line = _setting_tool_audit_line(payload)
+            if audit_line:
+                setting_audits.append(audit_line)
         elif event_type == "interrupt":
             interrupt_data = payload
         elif event_type == "error":
@@ -331,9 +399,7 @@ def _resume_agent_sync(config: dict, approved: bool,
             if payload and not full_answer:
                 full_answer.append(payload)
 
-    from row_bot.channels.agent_output import assemble_agent_answer
-
-    answer = assemble_agent_answer("".join(full_answer), tool_reports)
+    answer = _assemble_telegram_agent_answer("".join(full_answer), tool_reports, setting_audits)
 
     captured_images: list[bytes] = []
     captured_video_paths: list[str] = []
@@ -613,10 +679,14 @@ async def _cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         )
         if choices:
             lines.append("<b>Channel Quick Choices:</b>")
-            for choice in choices:
+            visible_choices = choices[:12]
+            for choice in visible_choices:
                 value = str(choice.get("value") or "")
                 label = str(choice.get("label") or value)
                 lines.append(f"• {_escape_html(label)} — <code>{_escape_html(value)}</code>")
+            remaining = len(choices) - len(visible_choices)
+            if remaining > 0:
+                lines.append(f"...and {remaining} more pinned choice(s) in Settings -> Models.")
             lines.append("\nUsage: <code>/model model:provider:model-id</code>")
             lines.append("Reset to default: <code>/model default</code>")
         else:
@@ -865,21 +935,25 @@ async def _cmd_skill(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 async def _send_html(target, text: str, **kwargs) -> None:
     """Send a message as HTML, falling back to plain text on parse errors."""
-    try:
-        await target.reply_text(text, parse_mode="HTML", **kwargs)
-    except Exception:
-        # Strip HTML tags and send as plain text
-        plain = re.sub(r"<[^>]+>", "", text).replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
-        await target.reply_text(plain, **kwargs)
+    for chunk in _split_message(text):
+        try:
+            await target.reply_text(chunk, parse_mode="HTML", **kwargs)
+        except Exception:
+            # Strip HTML tags and send as plain text.
+            plain = re.sub(r"<[^>]+>", "", chunk).replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+            for plain_chunk in _split_message(plain):
+                await target.reply_text(plain_chunk, **kwargs)
 
 
 async def _send_html_msg(chat, text: str, **kwargs) -> None:
     """Send a message via chat.send_message as HTML with plain-text fallback."""
-    try:
-        await chat.send_message(text, parse_mode="HTML", **kwargs)
-    except Exception:
-        plain = re.sub(r"<[^>]+>", "", text).replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
-        await chat.send_message(plain, **kwargs)
+    for chunk in _split_message(text):
+        try:
+            await chat.send_message(chunk, parse_mode="HTML", **kwargs)
+        except Exception:
+            plain = re.sub(r"<[^>]+>", "", chunk).replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+            for plain_chunk in _split_message(plain):
+                await chat.send_message(plain_chunk, **kwargs)
 
 
 from row_bot.channels.thread_repair import is_corrupt_thread_error as _is_corrupt_thread_error
@@ -973,7 +1047,8 @@ async def _run_agent_for_message(
             context.chat_data.pop("thread_config", None)
     if config is None:
         config = _get_or_create_thread(chat_id)
-        context.chat_data["thread_config"] = config
+    config = _refresh_thread_model_override(config)
+    context.chat_data["thread_config"] = config
 
     # React + typing
     await _react(msg, "👀")
@@ -1208,7 +1283,8 @@ async def _handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     action = "Approved ✅" if approved else "Denied ❌"
     await query.edit_message_text(f"{action} — processing…")
 
-    config = pending["config"]
+    config = _refresh_thread_model_override(pending["config"])
+    context.chat_data["thread_config"] = config
     interrupt_ids = _extract_interrupt_ids(pending["data"])
     ch_runtime.resolve_goal_approval_for_config(config, approved)
 

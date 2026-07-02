@@ -969,6 +969,14 @@ def test_interrupt_changes_model_setting_detects_status_tool_payload(tmp_path, m
         "tool": "row_bot_update_setting",
         "args": {"setting": "model", "value": "openai:gpt-5"},
     })
+    assert streaming._interrupt_changes_model_setting({
+        "tool": "row_bot_update_setting",
+        "args": {"setting": "thread_model", "value": "anthropic:fable"},
+    })
+    assert streaming._interrupt_changes_model_setting({
+        "tool": "row_bot_update_setting",
+        "args": {"setting": "default_model", "value": "codex:gpt-5.5"},
+    })
     assert streaming._interrupt_changes_model_setting([
         {"tool": "row_bot_update_setting", "args": {"setting": "voice", "value": "off"}},
         {"tool": "row_bot_update_setting", "args": {"setting": "model", "value": "anthropic:opus"}},
@@ -989,6 +997,18 @@ def test_tool_result_changes_model_setting_detects_auto_success(tmp_path, monkey
     assert streaming._tool_result_changes_model_setting(
         "row_bot_update_setting",
         "Active model changed to: model:codex:gpt-5.4",
+    )
+    assert streaming._tool_result_changes_model_setting(
+        "row_bot_update_setting",
+        "Thread model override changed to: model:anthropic:claude-fable-5",
+    )
+    assert streaming._tool_result_changes_model_setting(
+        "row_bot_update_setting",
+        "Thread model override cleared; using global default: model:codex:gpt-5.5",
+    )
+    assert streaming._tool_result_changes_model_setting(
+        "row_bot_update_setting",
+        "Global default model changed to: model:codex:gpt-5.5",
     )
     assert not streaming._tool_result_changes_model_setting(
         "row_bot_update_setting",

@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 
 def _fresh_status_modules(tmp_path, monkeypatch):
     data_dir = tmp_path / "data"
@@ -332,6 +334,105 @@ def test_row_bot_status_model_setting_uses_strict_canonical_refs(tmp_path, monke
     assert result == "Active model changed to: model:openai:gpt-4o-mini"
     assert captured["model"] == "model:openai:gpt-4o-mini"
     assert captured["cache_cleared"] is True
+
+
+def test_row_bot_status_thread_model_setting_writes_thread_override(tmp_path, monkeypatch):
+    selection = _isolated_model_choices(tmp_path, monkeypatch)
+    selection.add_quick_choice_for_model(
+        "gpt-4o-mini",
+        provider_id="openai",
+        display_name="Fast OpenAI",
+        capabilities_snapshot=_chat_snapshot(),
+    )
+    threads, *_modules, agent, status_tool = _fresh_status_modules(tmp_path, monkeypatch)
+    thread_id = threads.create_thread("Thread model scope")
+    captured = {}
+
+    agent._set_active_runtime_context(thread_id=thread_id, runtime_surface="channel")
+    monkeypatch.setattr(status_tool, "_approval_gate_bool", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("row_bot.models.set_model", lambda _value: pytest.fail("thread_model must not change global default"))
+    monkeypatch.setattr(agent, "clear_agent_cache", lambda: captured.setdefault("cache_cleared", True))
+
+    try:
+        result = status_tool._update_setting("thread_model", "Fast OpenAI")
+    finally:
+        agent._set_active_runtime_context()
+
+    assert result == "Thread model override changed to: model:openai:gpt-4o-mini"
+    assert threads._get_thread_model_override(thread_id) == "model:openai:gpt-4o-mini"
+    assert captured["cache_cleared"] is True
+
+
+def test_row_bot_status_thread_model_default_clears_override(tmp_path, monkeypatch):
+    selection = _isolated_model_choices(tmp_path, monkeypatch)
+    selection.add_quick_choice_for_model(
+        "gpt-4o-mini",
+        provider_id="openai",
+        display_name="Fast OpenAI",
+        capabilities_snapshot=_chat_snapshot(),
+    )
+    threads, *_modules, agent, status_tool = _fresh_status_modules(tmp_path, monkeypatch)
+    thread_id = threads.create_thread("Thread model clear")
+    threads._set_thread_model_override(thread_id, "model:openai:gpt-4o-mini")
+    captured = {}
+
+    agent._set_active_runtime_context(thread_id=thread_id, runtime_surface="normal_chat")
+    monkeypatch.setattr(status_tool, "_approval_gate_bool", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(agent, "clear_agent_cache", lambda: captured.setdefault("cache_cleared", True))
+
+    try:
+        result = status_tool._update_setting("thread_model", "default")
+    finally:
+        agent._set_active_runtime_context()
+
+    assert result.startswith("Thread model override cleared; using global default:")
+    assert threads._get_thread_model_override(thread_id) == ""
+    assert captured["cache_cleared"] is True
+
+
+def test_row_bot_status_default_model_setting_changes_global_default(tmp_path, monkeypatch):
+    selection = _isolated_model_choices(tmp_path, monkeypatch)
+    selection.add_quick_choice_for_model(
+        "gpt-4o-mini",
+        provider_id="openai",
+        display_name="Fast OpenAI",
+        capabilities_snapshot=_chat_snapshot(),
+    )
+    *_modules, agent, status_tool = _fresh_status_modules(tmp_path, monkeypatch)
+    captured = {}
+
+    monkeypatch.setattr(status_tool, "_approval_gate_bool", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("row_bot.models.set_model", lambda value: captured.setdefault("model", value))
+    monkeypatch.setattr(agent, "clear_agent_cache", lambda: captured.setdefault("cache_cleared", True))
+
+    result = status_tool._update_setting("default_model", "Fast OpenAI")
+
+    assert result == "Global default model changed to: model:openai:gpt-4o-mini"
+    assert captured["model"] == "model:openai:gpt-4o-mini"
+    assert captured["cache_cleared"] is True
+
+
+def test_row_bot_status_legacy_model_refuses_threaded_ambiguity(tmp_path, monkeypatch):
+    selection = _isolated_model_choices(tmp_path, monkeypatch)
+    selection.add_quick_choice_for_model(
+        "gpt-4o-mini",
+        provider_id="openai",
+        display_name="Fast OpenAI",
+        capabilities_snapshot=_chat_snapshot(),
+    )
+    threads, *_modules, agent, status_tool = _fresh_status_modules(tmp_path, monkeypatch)
+    thread_id = threads.create_thread("Ambiguous model scope")
+
+    agent._set_active_runtime_context(thread_id=thread_id, runtime_surface="channel")
+    monkeypatch.setattr("row_bot.models.set_model", lambda _value: pytest.fail("ambiguous model must not change global default"))
+
+    try:
+        result = status_tool._update_setting("model", "Fast OpenAI")
+    finally:
+        agent._set_active_runtime_context()
+
+    assert "Model scope is ambiguous" in result
+    assert threads._get_thread_model_override(thread_id) == ""
 
 
 def test_row_bot_status_model_lists_pinned_brain_choices(tmp_path, monkeypatch):
