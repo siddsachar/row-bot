@@ -9,6 +9,13 @@ import platform
 import sys
 
 
+MACOS_APPKIT_MODULES = (
+    "AppKit",
+    "Foundation",
+    "objc",
+    "PyObjCTools.AppHelper",
+) if platform.system() == "Darwin" else ()
+
 GROUPS = {
     "core": (
         "nicegui",
@@ -55,6 +62,7 @@ GROUPS = {
         "PIL",
         "qrcode",
         "webview",
+        *MACOS_APPKIT_MODULES,
     ),
     "voice": (
         "sounddevice",

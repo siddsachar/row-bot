@@ -73,6 +73,7 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
         "startup_runtime",
         (
             "src/row_bot/app.py",
+            "src/row_bot/launcher.py",
             "src/row_bot/startup_diagnostics.py",
             "src/row_bot/ui/state.py",
             "src/row_bot/tools/vision_tool.py",

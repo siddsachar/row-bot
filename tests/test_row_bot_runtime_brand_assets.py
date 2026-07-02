@@ -68,9 +68,9 @@ def test_runtime_brand_assets_are_file_backed_and_visible():
     assert '_APP_FAVICON_PATH = static_dir() / "favicon.ico"' in launcher_src
     assert "_load_tray_base_icon" in launcher_src
     assert "_make_status_dot_icon" in launcher_src
-    assert "_MacStatusItemTrayIcon" not in launcher_src
-    assert "ROW_BOT_MAC_TRAY_BACKEND" not in launcher_src
-    assert "pyobjc-framework-Cocoa" not in Path("requirements.txt").read_text(encoding="utf-8")
+    assert "_MacStatusItemBackend" in launcher_src
+    assert "ROW_BOT_MAC_TRAY_BACKEND" in launcher_src
+    assert "pyobjc-framework-cocoa" in Path("requirements.txt").read_text(encoding="utf-8").lower()
     assert "green = running, grey = stopped" not in launcher_src
     assert "tk.PhotoImage(file=GLYPH_PATH)" in launcher_src
     assert 'text="RB"' in launcher_src

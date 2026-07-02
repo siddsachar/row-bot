@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import tomllib
 from pathlib import Path
+from types import SimpleNamespace
 
 import yaml
 
@@ -125,6 +126,15 @@ def test_high_risk_direct_dependencies_have_upper_bounds_or_pins():
     assert not unbounded, f"high-risk dependencies missing upper bounds or pins: {unbounded}"
 
 
+def test_macos_appkit_dependencies_are_direct_and_darwin_scoped():
+    dependency_map = _direct_dependency_map(_load_pyproject())
+
+    for name in ("pyobjc-core", "pyobjc-framework-cocoa"):
+        requirement = dependency_map[name]
+        assert "sys_platform == 'darwin'" in requirement
+        assert _has_upper_bound_or_pin(requirement)
+
+
 def test_lockfile_and_generated_requirements_are_committed():
     requirements = ROOT / "requirements.txt"
 
@@ -200,3 +210,26 @@ def test_runtime_verifier_presence_checks_pystray_on_headless_linux(monkeypatch)
     monkeypatch.setattr(verifier.importlib.util, "find_spec", lambda module: object())
 
     verifier._verify_module("pystray")
+
+
+def test_runtime_verifier_checks_appkit_modules_on_macos(monkeypatch):
+    import importlib
+
+    import scripts.verify_runtime_dependencies as verifier
+
+    imported = []
+    original_import_module = importlib.import_module
+
+    monkeypatch.setattr(verifier.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(
+        verifier.importlib,
+        "import_module",
+        lambda module: imported.append(module) or SimpleNamespace()
+        if module in {"AppKit", "Foundation", "objc", "PyObjCTools.AppHelper"}
+        else original_import_module(module),
+    )
+
+    for module in ("AppKit", "Foundation", "objc", "PyObjCTools.AppHelper"):
+        verifier._verify_module(module)
+
+    assert imported == ["AppKit", "Foundation", "objc", "PyObjCTools.AppHelper"]

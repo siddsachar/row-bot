@@ -81,6 +81,15 @@ def test_memory_tool_change_selects_tool_and_graph_coverage() -> None:
     assert "tests/test_memory_recall_uplift.py" in selection.test_paths
 
 
+def test_launcher_change_selects_startup_regressions() -> None:
+    selection = select_tests_for_changes(["src/row_bot/launcher.py"])
+
+    assert "startup_runtime" in selection.matched_rules
+    assert "tests/test_startup_hardening.py" in selection.test_paths
+    assert "tests/test_ui_performance.py" in selection.test_paths
+    assert not selection.unmatched_files
+
+
 def test_prompt_context_change_selects_prompt_and_provider_regressions() -> None:
     selection = select_tests_for_changes([
         "src/row_bot/agent.py",

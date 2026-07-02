@@ -5,10 +5,12 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import textwrap
 import builtins
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
+from PIL import Image
 import row_bot.launcher as launcher
 import row_bot.startup_diagnostics as startup_diagnostics
 
@@ -439,7 +441,276 @@ def test_main_requests_early_splash_before_tray_start(monkeypatch):
     assert ("tray_run", True) in calls
 
 
-def test_macos_tray_run_loop_starts_before_launcher_startup(monkeypatch):
+def _install_fake_appkit(monkeypatch, events, setup_ready: threading.Event | None = None):
+    class FakeNSObject:
+        @classmethod
+        def alloc(cls):
+            return cls()
+
+        def init(self):
+            return self
+
+    class FakeObjC(ModuleType):
+        def namedSelector(self, _selector):
+            return lambda func: func
+
+    class FakeApp:
+        def __init__(self):
+            self.activation_policy = None
+            self.run_called = False
+            self.stopped = False
+
+        def setActivationPolicy_(self, policy):
+            self.activation_policy = policy
+            events.append("activation_policy")
+
+        def run(self):
+            events.append("app_run")
+            self.run_called = True
+            if setup_ready is not None:
+                assert setup_ready.wait(1.0)
+
+        def stop_(self, _sender):
+            self.stopped = True
+
+        def postEvent_atStart_(self, _event, _at_start):
+            events.append("post_stop_event")
+
+    class FakeButton:
+        def __init__(self):
+            self.images = []
+            self.tooltips = []
+            self.hidden = None
+
+        def setImage_(self, image):
+            self.images.append(image)
+
+        def setToolTip_(self, value):
+            self.tooltips.append(value)
+
+        def setHidden_(self, value):
+            self.hidden = value
+
+    class FakeStatusItem:
+        def __init__(self):
+            self.button_obj = FakeButton()
+            self.menu = None
+            self.visible_values = []
+
+        def button(self):
+            return self.button_obj
+
+        def setMenu_(self, menu):
+            self.menu = menu
+
+        def setVisible_(self, visible):
+            self.visible_values.append(visible)
+            events.append(("visible", visible))
+
+    class FakeStatusBar:
+        def __init__(self):
+            self.status_item = FakeStatusItem()
+            self.removed = []
+
+        def statusItemWithLength_(self, length):
+            events.append(("status_item", length))
+            return self.status_item
+
+        def thickness(self):
+            return 22
+
+        def removeStatusItem_(self, item):
+            self.removed.append(item)
+
+    class FakeMenu:
+        def __init__(self):
+            self.title = ""
+            self.items = []
+
+        @classmethod
+        def alloc(cls):
+            return cls()
+
+        def initWithTitle_(self, title):
+            self.title = title
+            return self
+
+        def setAutoenablesItems_(self, value):
+            self.autoenables = value
+
+        def addItem_(self, item):
+            self.items.append(item)
+
+    class FakeMenuItem:
+        def __init__(self):
+            self.title = ""
+            self.target = None
+            self.tag_value = None
+            self.enabled = True
+            self.separator = False
+
+        @classmethod
+        def alloc(cls):
+            return cls()
+
+        @classmethod
+        def separatorItem(cls):
+            item = cls()
+            item.separator = True
+            return item
+
+        def initWithTitle_action_keyEquivalent_(self, title, action, key):
+            self.title = title
+            self.action = action
+            self.key = key
+            return self
+
+        def setTarget_(self, target):
+            self.target = target
+
+        def setTag_(self, tag):
+            self.tag_value = tag
+
+        def tag(self):
+            return self.tag_value
+
+        def setEnabled_(self, enabled):
+            self.enabled = enabled
+
+    class FakeNSImage:
+        @classmethod
+        def alloc(cls):
+            return cls()
+
+        def initWithData_(self, data):
+            self.data = data
+            return self
+
+    fake_app = FakeApp()
+    fake_status_bar = FakeStatusBar()
+
+    fake_appkit = ModuleType("AppKit")
+    fake_appkit.NSApplication = SimpleNamespace(sharedApplication=lambda: fake_app)
+    fake_appkit.NSStatusBar = SimpleNamespace(systemStatusBar=lambda: fake_status_bar)
+    fake_appkit.NSVariableStatusItemLength = -1
+    fake_appkit.NSApplicationActivationPolicyAccessory = 1
+    fake_appkit.NSMenu = FakeMenu
+    fake_appkit.NSMenuItem = FakeMenuItem
+    fake_appkit.NSImage = FakeNSImage
+    fake_appkit.NSEvent = SimpleNamespace()
+    fake_appkit.NSApplicationDefined = 15
+    fake_appkit.NSPoint = lambda x, y: (x, y)
+
+    fake_foundation = ModuleType("Foundation")
+    fake_foundation.NSObject = FakeNSObject
+    fake_foundation.NSData = lambda payload: payload
+
+    fake_apphelper = ModuleType("PyObjCTools.AppHelper")
+    fake_apphelper.callAfter = lambda func, *args, **kwargs: func(*args, **kwargs)
+    fake_pyobjc_tools = ModuleType("PyObjCTools")
+    fake_pyobjc_tools.AppHelper = fake_apphelper
+
+    monkeypatch.setitem(sys.modules, "AppKit", fake_appkit)
+    monkeypatch.setitem(sys.modules, "Foundation", fake_foundation)
+    monkeypatch.setitem(sys.modules, "objc", FakeObjC("objc"))
+    monkeypatch.setitem(sys.modules, "PyObjCTools", fake_pyobjc_tools)
+    monkeypatch.setitem(sys.modules, "PyObjCTools.AppHelper", fake_apphelper)
+    monkeypatch.setattr(launcher, "_MAC_STATUS_ITEM_DELEGATE_CLASS", None, raising=False)
+    monkeypatch.setattr(launcher, "_get_icon", lambda state: Image.new("RGBA", (64, 64), (0, 255, 0, 255)))
+    return SimpleNamespace(app=fake_app, status_bar=fake_status_bar)
+
+
+def test_macos_native_status_item_is_visible_before_launcher_startup(monkeypatch):
+    events = []
+    setup_ready = threading.Event()
+    fake = _install_fake_appkit(monkeypatch, events, setup_ready)
+
+    monkeypatch.setattr(launcher.sys, "platform", "darwin")
+    monkeypatch.delenv("ROW_BOT_MAC_TRAY_BACKEND", raising=False)
+    monkeypatch.setattr(launcher, "_launch_event", lambda event, **fields: events.append((event, fields)))
+
+    tray = launcher.RowBotTray(no_ollama=True)
+    monkeypatch.setattr(tray, "_run_startup_sequence", lambda: events.append("startup") or setup_ready.set())
+
+    tray.run()
+
+    assert isinstance(tray._icon, launcher._MacStatusItemBackend)
+    assert fake.app.run_called
+    assert fake.status_bar.status_item.visible_values == [False, True]
+    assert ("tray_status_item_visible", {"backend": "appkit", "visible": True}) in events
+    assert events.index(("visible", True)) < events.index("startup")
+
+
+def test_native_macos_status_item_wires_menu_callbacks(monkeypatch):
+    events = []
+    fake = _install_fake_appkit(monkeypatch, events)
+    calls = []
+    menu_entries = (
+        launcher._TrayMenuEntry("Open Row-Bot", lambda *_args: calls.append("open"), default=True),
+        launcher._tray_separator(),
+        launcher._TrayMenuEntry("Quit", lambda *_args: calls.append("quit")),
+    )
+    monkeypatch.setattr(launcher, "_launch_event", lambda *args, **kwargs: None)
+
+    backend = launcher._MacStatusItemBackend(menu_entries)
+
+    menu_items = fake.status_bar.status_item.menu.items
+    assert [item.title for item in menu_items if not item.separator] == ["Open Row-Bot", "Quit"]
+    backend._activate_menu_item(menu_items[0])
+    backend._activate_menu_item(menu_items[2])
+    assert calls == ["open", "quit"]
+
+
+def test_macos_appkit_import_failure_falls_back_to_pystray(monkeypatch):
+    events = []
+
+    class FakeMenu:
+        SEPARATOR = object()
+
+        def __init__(self, *items):
+            self.items = items
+
+    class FakeMenuItem:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+    class FakeIcon:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.visible = False
+
+        def run(self, setup=None):
+            if setup is not None:
+                setup(self)
+
+        def stop(self):
+            pass
+
+    fake_pystray = SimpleNamespace(Menu=FakeMenu, MenuItem=FakeMenuItem, Icon=FakeIcon)
+    monkeypatch.setitem(sys.modules, "pystray", fake_pystray)
+    monkeypatch.setattr(launcher.sys, "platform", "darwin")
+    monkeypatch.delenv("ROW_BOT_MAC_TRAY_BACKEND", raising=False)
+    monkeypatch.setattr(launcher, "_launch_event", lambda event, **fields: events.append((event, fields)))
+    monkeypatch.setattr(launcher, "_get_icon", lambda state: object())
+
+    real_import = builtins.__import__
+
+    def _raise_for_appkit(name, *args, **kwargs):
+        if name == "AppKit":
+            raise ImportError("no AppKit")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _raise_for_appkit)
+
+    backend = launcher._create_tray_backend((launcher._TrayMenuEntry("Quit", lambda *_args: None),))
+
+    assert isinstance(backend, launcher._PystrayTrayBackend)
+    assert any(event == "tray_backend_import_failed" for event, _fields in events)
+    assert any(event == "tray_backend_fallback" for event, _fields in events)
+
+
+def test_macos_pystray_fallback_sets_visible_before_launcher_startup(monkeypatch):
     events = []
 
     class FakeMenu:
@@ -457,6 +728,16 @@ def test_macos_tray_run_loop_starts_before_launcher_startup(monkeypatch):
         def __init__(self, **kwargs):
             events.append("icon_init")
             self.kwargs = kwargs
+            self._visible = False
+
+        @property
+        def visible(self):
+            return self._visible
+
+        @visible.setter
+        def visible(self, value):
+            self._visible = value
+            events.append(("visible", value))
 
         def run(self, setup=None):
             events.append("icon_run")
@@ -469,6 +750,7 @@ def test_macos_tray_run_loop_starts_before_launcher_startup(monkeypatch):
     fake_pystray = SimpleNamespace(Menu=FakeMenu, MenuItem=FakeMenuItem, Icon=FakeIcon)
     monkeypatch.setitem(sys.modules, "pystray", fake_pystray)
     monkeypatch.setattr(launcher.sys, "platform", "darwin")
+    monkeypatch.setenv("ROW_BOT_MAC_TRAY_BACKEND", "pystray")
     monkeypatch.setattr(launcher, "_get_icon", lambda state: object())
     monkeypatch.setattr(launcher, "_launch_event", lambda *args, **kwargs: None)
 
@@ -478,7 +760,56 @@ def test_macos_tray_run_loop_starts_before_launcher_startup(monkeypatch):
     tray.run()
 
     assert events[:2] == ["icon_init", "icon_run"]
+    assert ("visible", True) in events
     assert events.index("icon_run") < events.index("startup")
+    assert events.index(("visible", True)) < events.index("startup")
+
+
+def test_windows_tray_keeps_pystray_backend_and_menu(monkeypatch):
+    events = []
+
+    class FakeMenu:
+        SEPARATOR = object()
+
+        def __init__(self, *items):
+            self.items = items
+
+    class FakeMenuItem:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+    class FakeIcon:
+        def __init__(self, **kwargs):
+            events.append(("icon_init", kwargs))
+            self.kwargs = kwargs
+            self.icon = kwargs["icon"]
+            self.title = kwargs["title"]
+
+        def run(self, setup=None):
+            events.append(("icon_run", setup))
+            assert setup is None
+
+        def stop(self):
+            pass
+
+    fake_pystray = SimpleNamespace(Menu=FakeMenu, MenuItem=FakeMenuItem, Icon=FakeIcon)
+    monkeypatch.setitem(sys.modules, "pystray", fake_pystray)
+    monkeypatch.setattr(launcher.sys, "platform", "win32")
+    monkeypatch.setattr(launcher, "_get_icon", lambda state: object())
+    monkeypatch.setattr(launcher, "_launch_event", lambda *args, **kwargs: None)
+
+    tray = launcher.RowBotTray(no_ollama=True)
+    monkeypatch.setattr(tray, "_run_startup_sequence", lambda: events.append("startup"))
+
+    tray.run()
+
+    assert isinstance(tray._icon, launcher._PystrayTrayBackend)
+    assert events[0][0] == "icon_init"
+    menu = events[0][1]["menu"]
+    labels = [item.args[0] for item in menu.items if item is not FakeMenu.SEPARATOR]
+    assert labels == ["Open Row-Bot", "Open in Browser", "Show Buddy", "Hide Buddy", "Quit"]
+    assert events[-2:] == ["startup", ("icon_run", None)]
 
 
 def test_update_handoff_helper_is_targeted_and_logged():
