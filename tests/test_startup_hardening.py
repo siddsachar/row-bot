@@ -481,9 +481,17 @@ def _install_fake_appkit(monkeypatch, events, setup_ready: threading.Event | Non
             self.images = []
             self.tooltips = []
             self.hidden = None
+            self.title = ""
+            self.image_positions = []
 
         def setImage_(self, image):
             self.images.append(image)
+
+        def setImagePosition_(self, value):
+            self.image_positions.append(value)
+
+        def setTitle_(self, value):
+            self.title = value
 
         def setToolTip_(self, value):
             self.tooltips.append(value)
@@ -496,6 +504,7 @@ def _install_fake_appkit(monkeypatch, events, setup_ready: threading.Event | Non
             self.button_obj = FakeButton()
             self.menu = None
             self.visible_values = []
+            self.length_values = []
 
         def button(self):
             return self.button_obj
@@ -506,6 +515,10 @@ def _install_fake_appkit(monkeypatch, events, setup_ready: threading.Event | Non
         def setVisible_(self, visible):
             self.visible_values.append(visible)
             events.append(("visible", visible))
+
+        def setLength_(self, length):
+            self.length_values.append(length)
+            events.append(("length", length))
 
     class FakeStatusBar:
         def __init__(self):
@@ -594,6 +607,7 @@ def _install_fake_appkit(monkeypatch, events, setup_ready: threading.Event | Non
     fake_appkit.NSStatusBar = SimpleNamespace(systemStatusBar=lambda: fake_status_bar)
     fake_appkit.NSVariableStatusItemLength = -1
     fake_appkit.NSApplicationActivationPolicyAccessory = 1
+    fake_appkit.NSImageLeft = 2
     fake_appkit.NSMenu = FakeMenu
     fake_appkit.NSMenuItem = FakeMenuItem
     fake_appkit.NSImage = FakeNSImage
@@ -637,6 +651,10 @@ def test_macos_native_status_item_is_visible_before_launcher_startup(monkeypatch
     assert isinstance(tray._icon, launcher._MacStatusItemBackend)
     assert fake.app.run_called
     assert fake.status_bar.status_item.visible_values == [False, True]
+    assert fake.status_bar.status_item.length_values
+    assert all(value >= launcher._MAC_STATUS_ITEM_MIN_LENGTH for value in fake.status_bar.status_item.length_values)
+    assert fake.status_bar.status_item.button_obj.title == "RB"
+    assert fake.status_bar.status_item.button_obj.images
     assert ("tray_status_item_visible", {"backend": "appkit", "visible": True}) in events
     assert events.index(("visible", True)) < events.index("startup")
 
