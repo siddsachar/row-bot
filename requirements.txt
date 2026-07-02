@@ -146,7 +146,7 @@ openrouter==0.10.0
 orjson==3.11.9
 ormsgpack==1.12.2
 packaging==26.2
-pandas==2.3.3
+pandas==3.0.3
 phonemizer-fork==3.3.2
 pillow==12.2.0
 platformdirs==4.10.0
