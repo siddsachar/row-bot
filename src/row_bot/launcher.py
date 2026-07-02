@@ -481,6 +481,8 @@ class _PystrayTrayBackend:
 
 _MAC_MENU_ITEM_SELECTOR = b"activateMenuItem:"
 _MAC_STATUS_ITEM_DELEGATE_CLASS = None
+_MAC_STATUS_ITEM_FALLBACK_TITLE = "RB"
+_MAC_STATUS_ITEM_MIN_LENGTH = 44.0
 
 
 def _mac_status_item_delegate_class(Foundation, objc):
@@ -518,7 +520,7 @@ class _MacStatusItemBackend:
         self._app = AppKit.NSApplication.sharedApplication()
         self._status_bar = AppKit.NSStatusBar.systemStatusBar()
         self._status_item = self._status_bar.statusItemWithLength_(
-            AppKit.NSVariableStatusItemLength
+            _MAC_STATUS_ITEM_MIN_LENGTH
         )
         if self._status_item is None:
             raise RuntimeError("AppKit did not return an NSStatusItem")
@@ -542,10 +544,17 @@ class _MacStatusItemBackend:
             logger.debug("Could not set macOS tray activation policy", exc_info=True)
 
         self._status_item.setMenu_(self._menu)
+        self._set_status_item_length_on_main()
+        self._set_button_fallback_title_on_main()
         self._set_icon_on_main(self._icon)
         self._set_title_on_main(self._title)
         self._set_visible_on_main(False)
-        _launch_event("tray_status_item_created", backend=self.backend_name, visible=False)
+        _launch_event(
+            "tray_status_item_created",
+            backend=self.backend_name,
+            visible=False,
+            status="text_fallback",
+        )
         _launch_event("tray_backend_ready", backend=self.backend_name)
 
     def _create_menu(self, menu_entries: tuple[_TrayMenuEntry, ...]):
@@ -591,6 +600,10 @@ class _MacStatusItemBackend:
         thickness = max(18, min(32, thickness))
         return (thickness, thickness)
 
+    def _status_item_length(self) -> float:
+        width, _height = self._status_icon_size()
+        return max(_MAC_STATUS_ITEM_MIN_LENGTH, float(width + 22))
+
     def _to_nsimage(self, image):
         from PIL import Image as PILImage
 
@@ -606,6 +619,17 @@ class _MacStatusItemBackend:
     def _set_icon_on_main(self, image) -> None:
         self._nsimage = self._to_nsimage(image)
         self._button.setImage_(self._nsimage)
+        if hasattr(self._button, "setImagePosition_"):
+            image_left = getattr(self._AppKit, "NSImageLeft", 2)
+            self._button.setImagePosition_(image_left)
+
+    def _set_button_fallback_title_on_main(self) -> None:
+        if hasattr(self._button, "setTitle_"):
+            self._button.setTitle_(_MAC_STATUS_ITEM_FALLBACK_TITLE)
+
+    def _set_status_item_length_on_main(self) -> None:
+        if hasattr(self._status_item, "setLength_"):
+            self._status_item.setLength_(self._status_item_length())
 
     def _set_title_on_main(self, value: str) -> None:
         if hasattr(self._button, "setToolTip_"):
@@ -638,6 +662,8 @@ class _MacStatusItemBackend:
         self._schedule_on_main(self._set_title_on_main, value)
 
     def run(self, setup: Callable[[object], None] | None = None) -> None:
+        self._set_status_item_length_on_main()
+        self._set_button_fallback_title_on_main()
         self._set_visible_on_main(True)
         _launch_event("tray_status_item_visible", backend=self.backend_name, visible=True)
         if setup is not None:
