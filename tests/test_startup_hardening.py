@@ -1,5 +1,6 @@
 import importlib
 import asyncio
+import json
 import logging
 import os
 from pathlib import Path
@@ -781,6 +782,107 @@ def test_macos_pystray_fallback_sets_visible_before_launcher_startup(monkeypatch
     assert ("visible", True) in events
     assert events.index("icon_run") < events.index("startup")
     assert events.index(("visible", True)) < events.index("startup")
+
+
+def test_launcher_state_records_native_window_control(tmp_path, monkeypatch):
+    events = []
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(launcher, "_launch_event", lambda event, **fields: events.append((event, fields)))
+
+    launcher._write_launcher_state(
+        port=8091,
+        mode="native",
+        owns_server=True,
+        window_control_port=18091,
+        window_pid=12345,
+    )
+
+    state_path = tmp_path / "launcher_state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+
+    assert state["app"] == launcher.APP_PING_ID
+    assert state["port"] == 8091
+    assert state["mode"] == "native"
+    assert state["owns_server"] is True
+    assert state["window_control_port"] == 18091
+    assert state["window_pid"] == 12345
+    assert any(event == "launcher_state_written" for event, _fields in events)
+
+    launcher._clear_launcher_state()
+
+    assert not state_path.exists()
+
+
+def test_launcher_state_clear_preserves_other_session(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(launcher, "_launch_event", lambda *args, **kwargs: None)
+    state_path = tmp_path / "launcher_state.json"
+    state_path.write_text(json.dumps({"app": launcher.APP_PING_ID, "session": "other"}), encoding="utf-8")
+
+    launcher._clear_launcher_state()
+
+    assert state_path.exists()
+
+
+def test_direct_native_mode_writes_window_state(tmp_path, monkeypatch):
+    events = []
+    started = []
+    opened = []
+
+    class FakeServer:
+        def __init__(self, port, host=None):
+            self.port = port
+            self.host = host
+            self._proc = SimpleNamespace(pid=1111)
+
+        def start(self, port=None, host=None):
+            started.append((port, host))
+
+        def stop(self):
+            pass
+
+        @property
+        def is_alive(self):
+            return True
+
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(launcher, "_launch_event", lambda event, **fields: events.append((event, fields)))
+    monkeypatch.setattr(launcher, "_maybe_start_ollama", lambda **_kwargs: None)
+    monkeypatch.setattr(launcher, "_select_app_port", lambda preferred: (8092, False))
+    monkeypatch.setattr(launcher, "_claim_early_splash", lambda: None)
+    monkeypatch.setattr(launcher, "_show_splash", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(launcher, "_stop_launcher_helper", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(launcher, "_wait_for_server", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(launcher, "_has_display_server", lambda: True)
+    monkeypatch.setattr(launcher, "_find_free_port", lambda start, max_tries=50: 18092)
+    monkeypatch.setattr(launcher, "_RowBotProcess", FakeServer)
+    monkeypatch.setattr(launcher, "_block_until_interrupted", lambda server, owns_server: None)
+
+    def fake_open_window(port, control_port=None):
+        opened.append((port, control_port))
+        return SimpleNamespace(pid=2222)
+
+    monkeypatch.setattr(launcher, "_open_window", fake_open_window)
+    args = SimpleNamespace(
+        port=8092,
+        host=None,
+        no_ollama=True,
+        no_splash=True,
+        server=False,
+        no_open=False,
+        native=True,
+    )
+
+    launcher._run_direct(args)
+
+    assert started == [(8092, None)]
+    assert opened == [(8092, 18092)]
+    state = json.loads((tmp_path / "launcher_state.json").read_text(encoding="utf-8"))
+    assert state["port"] == 8092
+    assert state["mode"] == "native"
+    assert state["window_control_port"] == 18092
+    assert state["window_pid"] == 2222
+    assert any(event == "native_window_requested" for event, _fields in events)
 
 
 def test_windows_tray_keeps_pystray_backend_and_menu(monkeypatch):
