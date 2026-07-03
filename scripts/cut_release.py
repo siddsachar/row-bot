@@ -22,6 +22,14 @@ def replace_once(path: Path, pattern: str, replacement: str) -> None:
     path.write_text(new_text, encoding="utf-8")
 
 
+def replace_at_least_once(path: Path, pattern: str, replacement: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    new_text, count = re.subn(pattern, replacement, text, flags=re.MULTILINE)
+    if count < 1:
+        raise SystemExit(f"Expected at least one match in {path}: {pattern}")
+    path.write_text(new_text, encoding="utf-8")
+
+
 def validate_version(version: str) -> None:
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?", version):
         raise SystemExit("Version must look like 3.19.0 or 3.19.0-beta.1")
@@ -47,8 +55,13 @@ def main() -> None:
     )
     replace_once(
         ROOT / ".github" / "workflows" / "release.yml",
-        r'ROW_BOT_VERSION: "[^"]+"',
-        f'ROW_BOT_VERSION: "{version}"',
+        r'default: "\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?"',
+        f'default: "{version}"',
+    )
+    replace_at_least_once(
+        ROOT / ".github" / "workflows" / "release.yml",
+        r"inputs\.version \|\| '\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?'",
+        f"inputs.version || '{version}'",
     )
     for plist in [ROOT / "installer" / "Row-Bot.app" / "Contents" / "Info.plist"]:
         text = plist.read_text(encoding="utf-8")
