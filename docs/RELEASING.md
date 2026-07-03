@@ -22,7 +22,7 @@ Row-Bot uses semantic versioning:
    python scripts/export_locked_requirements.py --check
    uv sync --locked --all-extras --group test
    uv run python scripts/verify_runtime_dependencies.py all
-   uv run python tests/test_suite.py
+   uv run python scripts/run_test_matrix.py release
    ```
 
 3. Cut a release-prep branch:
@@ -116,10 +116,12 @@ Row-Bot uses semantic versioning:
 Row-Bot v4 uses Row-Bot release asset names and the Row-Bot SHA256 manifest
 marker. Pre-v4 in-app updaters recognize only the old 3.x artifact and manifest
 contract, so do not upload duplicate legacy-named v4 assets to bridge that gap.
-For the v4 jump, direct existing users to download and run the Row-Bot v4
-installer manually; the startup migration remains copy-first and non-destructive.
-Future Row-Bot releases are discoverable by the Row-Bot updater using the v4
-asset contract.
+For the v4 jump, direct existing users to download and run a Row-Bot v4
+installer manually. Current Row-Bot releases no longer run the old automatic
+Thoth-to-Row-Bot startup migration; users still on Thoth or an early Row-Bot
+build should first install and launch a previous migration-capable Row-Bot
+release, then upgrade to the current release. Future Row-Bot releases are
+discoverable by the Row-Bot updater using the v4 asset contract.
 
 ## Linux Release Notes
 

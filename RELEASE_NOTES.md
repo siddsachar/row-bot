@@ -2,6 +2,267 @@
 
 ---
 
+## v4.3.0 - Plugin System v2, Requesty, Prompt Cache & Release Hardening
+
+This release builds on v4.2.0 with a broad extension, provider, workflow, and
+release-readiness pass. It completes Plugin System v2, adds plugin-owned
+channels and marketplace tooling, introduces Requesty as a first-class
+provider, makes prompt context and Anthropic prompt-cache behavior explicit,
+moves workflows to profile-first agent execution, adds Developer Studio
+worktrees, replaces the macOS tray fallback with a native tray host, removes
+the old Thoth rebrand migration from startup, and hardens CI, dependency, and
+installer validation before the 4.3.0 release.
+
+### Plugin System v2 & Marketplace
+
+- **Manifest v2 contract** - defines `schema_version: 2` plugin manifests with
+  supported extension surfaces for native tools, plugin-packaged MCP servers,
+  bundled skills, and channels.
+- **Declarative plugin metadata** - adds validation for plugin IDs, versions,
+  minimum Row-Bot versions, permissions, settings, secrets, auth declarations,
+  health checks, and supported `provides` entries.
+- **Plugin API expansion** - extends `plugins.api` with public tool, channel,
+  attachment, outbound callback, result, settings, secret, webhook, pairing,
+  allowlist, and health-check helpers so plugins can integrate without
+  importing Row-Bot internals.
+- **Native Plugin Center** - expands the in-app plugin UI to render metadata,
+  permissions, settings, secrets, auth status, health checks, tools, channels,
+  bundled skills, logs, marketplace updates, enablement, reload, and uninstall
+  controls from Row-Bot-owned UI.
+- **Marketplace install/update flow** - adds cached marketplace indexes,
+  checksum-aware local or remote installs, stale-cache fallback, installed
+  version/update metadata, disabled-by-default installation, and immediate
+  runtime refresh after plugin changes.
+- **Plugin developer tools** - adds plugin linking, reload, doctor, validation,
+  local marketplace index generation, devtool helpers, and examples for native
+  tools, settings/secrets, MCP-backed tools, and fake channels.
+- **Plugin templates** - adds native-tool, MCP-tool, and channel templates under
+  `src/row_bot/plugins/templates/` for repeatable plugin authoring.
+- **Plugin safety sandbox** - tightens loader validation around dangerous
+  constructs, unsupported extension surfaces, UI framework imports, Row-Bot
+  internal imports, old Thoth manifests, stale code, plugin dependencies, and
+  runtime refresh behavior.
+- **Plugin skill scoping** - keeps plugin-provided skills tied to plugin
+  enablement and Agent Profile tool boundaries, so selected-tool profiles do
+  not receive unrelated plugin instructions.
+- **Plugin MCP bridge** - lets plugin-packaged MCP server declarations follow
+  plugin enablement and appear or disappear with the owning plugin's runtime
+  inventory.
+
+### Plugin Channels, Messaging & Bot Auth
+
+- **Public plugin channel runtime** - adds a core bridge that lets plugin-owned
+  channels route inbound messages through Row-Bot's normal channel, agent,
+  Goal Mode, approval, media, and generated-file delivery paths.
+- **Plugin channel attachment handling** - reuses the shared channel media
+  pipeline for plugin-channel audio transcription, image analysis, document
+  extraction, inbox persistence, workspace copy, size limits, and generated
+  image/video/file delivery.
+- **Plugin webhooks** - adds namespaced plugin webhook registration under
+  `/plugin-webhooks/{plugin_id}/{name}`, with webhook handlers disabled when
+  the owning plugin is disabled, unloaded, uninstalled, or fails load.
+- **Bot Framework auth helpers** - adds plugin-facing helpers for Bot Framework
+  JWT validation, OpenID/JWKS discovery, issuer/audience checks, and
+  display-safe failure reporting.
+- **Channel registry integration** - teaches the channel registry and tool
+  factory how to include plugin-owned channels while preserving native channel
+  capability checks and generated send/photo/document tools.
+- **Thread-scoped channel commands** - fixes Telegram model switching and
+  related channel commands so model changes stay scoped to the active channel
+  thread instead of leaking across conversations.
+- **Channel output assembly** - centralizes channel answer/tool-report assembly
+  so plugin and native channel responses have the same readable final shape.
+- **Channel UI polish** - refreshes channel monitor and sidebar status surfaces
+  so running native and plugin channels stay visible without crowding the
+  conversation list.
+
+### Providers, Prompt Context & Workflow Agents
+
+- **Requesty provider** - adds Requesty as a first-class OpenAI-compatible
+  provider with provider definition, setup/settings support, auth mapping,
+  catalog URL handling, provider-qualified refs, and routing through the shared
+  OpenAI-compatible transport.
+- **Requesty catalog normalization** - maps Requesty's `context_window`,
+  `supports_tool_calling`, `supports_reasoning`, `supports_vision`,
+  modality, task, and metadata fields into Row-Bot capability snapshots.
+- **Requesty surface filtering** - filters embedding, audio, image, video,
+  moderation, realtime, and other non-chat Requesty rows out of Brain/agent
+  surfaces while preserving vision and tool-capable chat models.
+- **Provider credential dialogs** - moves provider credential collection into
+  row-specific dialogs so Settings can avoid exposing or confusing unrelated
+  provider secret fields.
+- **Provider selection hardening** - improves provider resolution, catalog
+  cache behavior, readiness checks, and Quick Choice compatibility for
+  provider-qualified refs, Requesty, xAI OAuth, and existing providers.
+- **Explicit prompt context contract** - splits prompt assembly into named
+  stable and ephemeral sections so identity, profile, platform, self-knowledge,
+  tools, skills, plugins, background overrides, memory recall, date/time,
+  Developer, Designer, channel, and history context have deterministic cache
+  behavior.
+- **Anthropic prompt-cache markers** - applies Anthropic `cache_control`
+  markers only to eligible stable system content for the direct Anthropic API,
+  while keeping conversation history and ephemeral turn data unmarked.
+- **Prompt cache metrics** - normalizes provider prompt-cache read/write token
+  counts across common metadata shapes for diagnostics and status reporting.
+- **Profile-first workflow agents** - migrates workflows toward Agent Profile
+  execution, maps compatible legacy workflow policies to built-in or generated
+  profiles, preserves review/blocked status when policy cannot be mapped, and
+  surfaces migration notes in workflow editing.
+- **Workflow profile defaults** - adds a default workflow Agent Profile path so
+  new workflows start from explicit profile policy rather than implicit legacy
+  skill/tool snapshots.
+
+### Developer Studio, UI & Desktop Polish
+
+- **Developer worktrees** - adds durable per-thread, child-agent, and workflow
+  worktree allocation with owner records, branch naming, base branch/commit
+  tracking, cleanup state, metadata, and failure preservation.
+- **Worktree seeding** - can seed a Developer worktree from current staged,
+  unstaged, and untracked changes or from the last commit, while requiring a
+  real Git repository root and safe path handling.
+- **Developer workspace UI refresh** - reorganizes Developer Studio around
+  workspace identity, thread selection, profile/run controls, branch controls,
+  inspector panels, responsive layout, and safer overflow behavior.
+- **Recent workspace visibility** - fixes Developer Studio so all recent
+  workspaces can be shown instead of being hidden by an overly narrow recent
+  list.
+- **Sidebar pinning and thread actions** - adds thread pinning, places the pin
+  toggle before other row actions, and updates thread action helpers so pinned
+  chat and Developer threads sort predictably.
+- **Natural progress updates** - improves long-running interactive status text
+  so agent runs can report progress in a more human, less repetitive way while
+  preserving durable run state.
+- **Monochrome sidebar cleanup** - refreshes sidebar iconography, status
+  badges, action placement, and monitor styling for a cleaner desktop shell.
+- **Streaming/render reliability** - hardens streaming reattach, grouped tool
+  trace rendering, final content persistence, generated media handling, and
+  disconnected-client timer behavior across chat, Developer, workflows, and
+  channels.
+- **Native macOS tray host** - adds a native Objective-C macOS tray helper and
+  launcher integration so packaged macOS tray content stays visible and uses
+  platform-native status item behavior.
+- **Startup speed and legacy cleanup** - removes the old automatic
+  Thoth-to-Row-Bot rebrand migration and post-migration notice from the hot
+  startup path, keeping current startup focused on Row-Bot data only.
+
+### Docs, CI, Packaging & Supply Chain
+
+- **Public docs completion pass** - completes the user-guide pass across
+  Docusaurus docs, generated reference pages, settings/home/chat/integration
+  pages, real UI screenshot metadata, Pagefind integration, and docs validation.
+- **Plugin documentation** - adds the Plugin System v2 technical reference,
+  authoring workflow, validation commands, marketplace fixture layout, and
+  plugin test guidance.
+- **Prompt cache documentation** - adds the prompt context/cache contract with
+  stable/ephemeral section inventory, provider gating rules, and verification
+  expectations.
+- **Installer verification plan** - adds the installer and CI verification plan
+  covering local pre-push checks, PR gates, manual Installer Verify workflow,
+  release artifact builds, and deferred clean-machine smoke coverage.
+- **Test matrix source of truth** - adds `scripts/run_test_matrix.py` with fast,
+  contracts, subsystem, coverage, deterministic, installer, app-smoke, PR, and
+  release lanes aligned with repository ownership rules.
+- **Dependency discipline** - moves dependency truth to `pyproject.toml` and
+  `uv.lock`, adds locked `requirements.txt` export/check tooling, uses uv for
+  Dependabot updates, and verifies runtime extras before release builds.
+- **Supply-chain CI** - adds UV lockfile, OSV scanner, lint advisory/blocking,
+  live e2e, and installer verification workflows, with vulnerable-package
+  baselines tracked in `osv-scanner.toml`.
+- **Release workflow hardening** - updates release CI to run the release matrix,
+  verify version consistency, build/smoke Windows, Linux, and macOS artifacts,
+  upload SHA256 manifests, and keep Windows signing local-only.
+- **Installer payload coverage** - updates Windows, macOS, and Linux builders,
+  installer docs, dependency setup, source payload comments, macOS tray
+  bundling, Linux smoke paths, and packaged runtime dependency checks.
+- **Agent instructions** - adds canonical `AGENTS.md`, a Claude companion file,
+  updated contribution guidance, and clearer PR-template release/test prompts.
+
+### Tests & Release Validation
+
+- **Plugin coverage** - adds contract and subsystem tests for manifest v2,
+  plugin API, registry/loader, state, installer, marketplace, UI contracts,
+  devtools, webhooks, bot auth, plugin channels, plugin MCP tools, and plugin
+  skill scoping.
+- **Channel coverage** - adds channel contracts, registry tests, approval
+  tests, plugin-channel runtime tests, channel model routing tests, and
+  streaming/tool-output coverage.
+- **Provider coverage** - adds Requesty tests plus broader provider catalog,
+  runtime, selection, prompt-cache metric, prompt-cache payload, API-key dialog,
+  readiness, and optional dependency coverage.
+- **Workflow coverage** - adds profile-first workflow runtime, migration,
+  approvals, graph, delegate-agent step, and profile override coverage.
+- **Developer coverage** - adds Developer import gate, runtime command/process,
+  sandbox, inspector snapshot, worktree manager, workspace thread, and UI
+  contract coverage.
+- **Installer/release coverage** - adds installer metadata, CLI smoke,
+  release workflow contract, coverage summary, test matrix runner, dependency
+  metadata, optional import, Linux support, and app port/startup coverage.
+- **Migrated subsystem coverage** - adds contracts, fixtures, helper packages,
+  source-test maps, legacy inventory, coverage inventory, deterministic
+  subsystem lanes, and many focused tests while keeping retired monolith shim
+  files out of new substantive coverage.
+- **Regression coverage** - adds focused tests for memory graph regressions,
+  condition operators, workflow audit fixes, thread pinning, tool config
+  isolation, UI home contracts, sidebar grouping, and startup hardening.
+
+### Breaking Changes And Caveats
+
+- Plugin System v2 intentionally supports only native tools, plugin-packaged
+  MCP servers, bundled skills, and channels. Plugins cannot add arbitrary app
+  panels, custom NiceGUI, JavaScript, provider runtimes, memory providers,
+  workflow triggers, general hooks, or custom settings tabs.
+- Plugin manifests must use `schema_version: 2` and `provides.native_tools`;
+  old Thoth plugin manifests or plugin code that imports Row-Bot internals are
+  rejected or quarantined instead of loaded.
+- Plugins install disabled by default. Users must review permissions, configure
+  required settings/secrets, run health checks where relevant, and enable the
+  plugin before it contributes tools, skills, MCP servers, or channels.
+- Plugin channel adapters route through Row-Bot core for execution, approvals,
+  media, Goal Mode, pairing, and webhook lifecycle. URL-only attachments are
+  not fetched by core through the public plugin API.
+- Requesty uses provider id `requesty` and provider-qualified refs such as
+  `model:requesty:provider/model`. Its catalog is filtered so non-chat media,
+  audio, embedding, moderation, and realtime rows do not appear as Brain/agent
+  choices.
+- Direct Anthropic is the only provider receiving Anthropic prompt-cache
+  markers in this rollout. Anthropic-compatible providers such as MiniMax,
+  OpenCode Anthropic Messages, and Claude Subscription do not receive
+  `cache_control` markers until explicitly proven compatible.
+- Current Row-Bot startup no longer runs the old automatic Thoth-to-Row-Bot
+  rebrand migration. Users still on Thoth or very early Row-Bot builds should
+  first install and launch a previous migration-capable Row-Bot release, then
+  upgrade to 4.3.0.
+- Windows signing remains local-only, and macOS notarization plus final
+  clean-machine Windows/macOS/Linux smoke tests are still manual release gates
+  after release artifacts are built.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `src/row_bot/plugins/manifest.py`, `api.py`, `loader.py`, `registry.py`, `state.py` | Implements Plugin System v2 manifest validation, public plugin API, loader sandboxing, runtime registration, enablement state, and reload behavior. |
+| `src/row_bot/plugins/marketplace.py`, `installer.py`, `ui_marketplace.py`, `ui_plugin_dialog.py`, `ui_settings.py` | Adds marketplace caching/install/update flows and expands Plugin Center UI for settings, secrets, auth, health, logs, tools, skills, channels, and enablement. |
+| `src/row_bot/plugins/channel_runtime.py`, `webhooks.py`, `bot_framework_auth.py`, `mcp.py`, `devtools.py` | Adds public plugin channel execution, namespaced plugin webhooks, Bot Framework auth validation, plugin MCP integration, and local plugin developer commands. |
+| `src/row_bot/plugins/templates/*`, `examples/plugins/*`, `scripts/validate_plugin.py`, `scripts/build_plugin_index.py` | Adds plugin templates, example plugins, standalone plugin validation, and local marketplace index generation. |
+| `src/row_bot/channels/*`, `src/row_bot/slash_commands.py`, `src/row_bot/tools/__init__.py` | Integrates plugin-owned channels, shared channel output assembly, generated channel tools, thread-scoped model commands, and channel runtime/tool registration updates. |
+| `src/row_bot/providers/requesty.py`, `providers/catalog.py`, `providers/selection.py`, `providers/runtime.py`, `providers/readiness.py` | Adds Requesty provider support and hardens provider catalog normalization, model selection, runtime routing, and readiness behavior. |
+| `src/row_bot/prompt_context.py`, `prompt_cache.py`, `agent.py`, `agent_context.py`, `models.py` | Adds explicit prompt section stability, direct-Anthropic cache marker gating, prompt-cache metrics, and model/provider context handling. |
+| `src/row_bot/tasks.py`, `src/row_bot/ui/task_dialog.py`, `tests/subsystem/workflows/*` | Moves workflows toward profile-first agent execution with profile migration, defaults, review notes, and focused workflow coverage. |
+| `src/row_bot/developer/worktrees.py`, `developer/ui.py`, `developer/runtime.py`, `developer/storage.py`, `developer/git.py` | Adds durable Developer worktrees, worktree seeding, recent workspace fixes, and refreshed Developer Studio UI/runtime behavior. |
+| `src/row_bot/ui/sidebar.py`, `thread_actions.py`, `iconography.py`, `streaming.py`, `render.py`, `chat.py`, `command_center.py` | Adds thread pinning and UI polish while hardening streaming, transcript rendering, activity surfaces, and generated media handling. |
+| `src/row_bot/launcher.py`, `installer/macos/RowBotTrayHost.m`, `installer/build_mac_app.sh`, `installer/build_mac_release.sh` | Adds native macOS tray hosting and launcher/build integration for visible packaged tray behavior. |
+| `src/row_bot/migration/row_bot_legacy_rebrand.py`, `src/row_bot/ui/post_migration.py`, `tests/test_row_bot_legacy_rebrand.py`, `tests/test_post_migration_notice.py` | Removes the old automatic Thoth rebrand migration and post-migration notice from current startup. |
+| `.github/workflows/*`, `scripts/run_test_matrix.py`, `scripts/export_locked_requirements.py`, `scripts/verify_runtime_dependencies.py`, `osv-scanner.toml` | Adds release/test matrix automation, lockfile/export checks, runtime dependency verification, OSV scanning, live e2e, installer verify, and release workflow hardening. |
+| `pyproject.toml`, `uv.lock`, `requirements.txt`, `.github/dependabot.yml` | Moves dependency ownership to pyproject/uv lockfiles and keeps generated installer requirements in sync. |
+| `installer/row_bot_setup.iss`, `installer/README.md`, `installer/build_installer.ps1`, `installer/build_linux_app.sh`, `installer/install_deps.bat` | Updates versioned installer metadata, payload validation, installer docs, Linux smoke paths, and Windows dependency setup. |
+| `docs/PLUGIN_SYSTEM_V2.md`, `docs/PROMPT_CONTEXT_AND_CACHE.md`, `docs/INSTALLER_CI_VERIFICATION_PLAN.md`, `docs/RELEASING.md`, `docs/SOURCE_LAYOUT.md` | Adds plugin, prompt-cache, installer/CI verification, release, and source-layout documentation. |
+| `docs-site/*`, `docs-content/*`, `scripts/docs/*` | Completes the public docs/user-guide pass, generated reference content, metadata, screenshots, search, and validation tooling. |
+| `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `.github/PULL_REQUEST_TEMPLATE.md` | Adds and updates contributor/agent guidance, release-sensitive testing prompts, and project instructions. |
+| `tests/contracts/*`, `tests/subsystem/*`, `tests/fixtures/*`, `tests/helpers/*`, `tests/integration/wiki_vault/*` | Adds deterministic contract, subsystem, fixture, inventory, source-test-map, wiki-vault, installer, provider, plugin, channel, workflow, Developer, MCP, memory, and regression coverage. |
+| `tests/test_suite.py`, `tests/integration_tests.py`, `tests/test_memory_e2e.py` | Retires legacy monolith tests into compatibility shims while moved coverage lives in focused deterministic lanes. |
+
+---
+
 ## v4.2.0 - Agent Profiles, Goal Mode, xAI Grok & Public Docs
 
 This release builds on v4.1.0 with a larger orchestration and provider pass. It

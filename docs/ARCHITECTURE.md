@@ -65,6 +65,7 @@ durable work lives in local data stores owned by the user.
 - **Thinking indicators** — shows when the model is reasoning before responding
 - **Smart context management** — automatic conversation summarization compresses older turns when token usage exceeds 80% of the context window, preserving the 5 most recent turns and a running summary; a hard trim at 85% drops oldest messages as a safety net; oversized tool outputs are proportionally shrunk so multi-tool chains fit within context; accurate token counting via tiktoken (cl100k_base)
 - **Dynamic tool budgets** — the agent automatically adjusts how many tools are exposed to the model based on available context headroom; when context usage is high, lower-priority tools are temporarily hidden to prevent the system prompt from crowding out conversation history
+- **Explicit prompt context/cache sections** — `prompt_context.py` assembles named stable and ephemeral sections so identity, profile, platform, self-knowledge, tool guides, manual skills, plugin skills, turn state, memory recall, Developer context, Designer context, channel state, and history have deterministic cache behavior
 - **Runtime readiness routing** — before building the graph, selected models are evaluated for context headroom, provider capability metadata, tool support, and surface requirements; full agent mode, chat-only mode, and blocked states are explicit outcomes rather than accidental provider failures
 - **Chat-only runtime** — models that are useful for normal conversation but cannot reliably accept tool schemas use a compact tool-free prompt, a shaped transcript without full tool bodies, and the normal streaming/persistence path
 - **Profile- and skill-aware prompting** — Agent Profiles, manual Smart Skills, per-thread/per-workflow skill overrides, and tool guides are resolved before prompt assembly so the agent receives only the relevant operating instructions for the current surface
@@ -205,11 +206,11 @@ Uploaded documents are processed through a three-phase **map-reduce LLM pipeline
 
 ## Brain Model & Providers
 
-The brain model is Row-Bot's default LLM — the model used for conversations, memory extraction, dream analysis, and any thread, profile, child-agent run, or workflow without a specific override. It is selected during setup or later from Settings, and can come from the supported local runtime, a hosted provider, ChatGPT / Codex, Claude Subscription, xAI Grok OAuth, Ollama Cloud, or a custom OpenAI-compatible endpoint.
+The brain model is Row-Bot's default LLM — the model used for conversations, memory extraction, dream analysis, and any thread, profile, child-agent run, or workflow without a specific override. It is selected during setup or later from Settings, and can come from the supported local runtime, a hosted provider, Requesty, ChatGPT / Codex, Claude Subscription, xAI Grok OAuth, Ollama Cloud, or a custom OpenAI-compatible endpoint.
 
 Row-Bot is local-first in its data model, but model routing is provider-neutral. Local models remain a first-class path for offline and private use, while hosted and self-hosted models can be selected per thread, workflow, Agent Profile, child-agent run, Developer workspace, or media surface. The setup wizard determines the initial default; on the local path, Row-Bot uses one of the models already exposed by the local runtime, with 14B-class models recommended for stronger agent/tool behavior.
 
-Provider models are supported for users without a dedicated GPU, for frontier reasoning on demand, or for trying many providers without downloading large local weights. Row-Bot supports opt-in provider models through **OpenAI** (direct API), **Anthropic** (Claude through the API-key route), **Google AI** (Gemini), **xAI** (direct Grok API), **xAI Grok OAuth** (subscription/OAuth-backed Grok runtime and Grok Imagine media), **MiniMax** (live catalog through the Anthropic-compatible API), **OpenCode** providers, **OpenRouter** (many third-party models), **Atlas Cloud** (OpenAI-compatible access to Atlas-hosted chat, agent, and vision models discovered from the live provider catalog), **Ollama Cloud** (direct API and local daemon cloud-tagged models), **ChatGPT / Codex** (subscription-backed Codex models), **Claude Subscription** (subscription-backed Claude models), and Custom/Self-hosted OpenAI-compatible endpoints such as oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, or private gateways. Provider connections, health, and credential sources are configured from Settings -> Providers; model catalog browsing, pinning, and defaults live in Settings -> Models.
+Provider models are supported for users without a dedicated GPU, for frontier reasoning on demand, or for trying many providers without downloading large local weights. Row-Bot supports opt-in provider models through **OpenAI** (direct API), **Anthropic** (Claude through the API-key route), **Google AI** (Gemini), **xAI** (direct Grok API), **xAI Grok OAuth** (subscription/OAuth-backed Grok runtime and Grok Imagine media), **MiniMax** (live catalog through the Anthropic-compatible API), **OpenCode** providers, **OpenRouter** (many third-party models), **Atlas Cloud** (OpenAI-compatible access to Atlas-hosted chat, agent, and vision models discovered from the live provider catalog), **Requesty** (OpenAI-compatible model gateway with Requesty-specific catalog metadata), **Ollama Cloud** (direct API and local daemon cloud-tagged models), **ChatGPT / Codex** (subscription-backed Codex models), **Claude Subscription** (subscription-backed Claude models), and Custom/Self-hosted OpenAI-compatible endpoints such as oMLX, LM Studio, vLLM, llama.cpp, LocalAI, LiteLLM, SGLang, or private gateways. Provider connections, health, and credential sources are configured from Settings -> Providers; model catalog browsing, pinning, and defaults live in Settings -> Models.
 
 The `providers/` subsystem now owns provider config, auth metadata, model catalog normalization, capability resolution, runtime construction, display-safe status, runtime readiness, and Quick Choices. Model selections are preserved as provider-qualified refs (`model:<provider>:<model>`) at UI and settings boundaries so a local/custom model does not silently fall back to OpenRouter, xAI, or another provider when multiple providers expose the same or unknown bare model id. Existing public functions in `models.py` remain as compatibility facades while provider-backed selection is rolled through the app. Settings -> Models pickers are intentionally Quick Choice surfaces: catalog rows must be pinned before they become everyday Brain, Vision, Image, or Video choices, while the current default can still appear as a fallback value. `providers/model_catalog_cache.py` refreshes hosted-provider and local-runtime catalog rows in the background so Settings can render from cache without blocking on large remote catalogs.
 
@@ -218,6 +219,8 @@ Runtime readiness is evaluated before agent execution. `providers/readiness.py`,
 Atlas Cloud is a first-class provider with provider id `atlascloud`, not a generic custom endpoint profile. `providers/atlascloud.py` owns the Atlas setup copy, auth mapping to `ATLASCLOUD_API_KEY`, live catalog fetch, provider-qualified model refs, chat/agent/vision capability classification, and filtering rules. Atlas chat and multimodal rows can appear in Brain and Vision Quick Choices when their capability snapshot allows that surface, while Atlas image-generation and video-generation rows are intentionally filtered out of chat, agent, and vision pickers for this phase.
 
 Atlas uses the shared OpenAI-compatible transport, but endpoint-specific behavior is scoped by provider id. The transport keeps Atlas tool-call buffering, Claude-shaped stream/error normalization, native tool-history replay cleanup, and Atlas-specific timeout/error text out of OpenRouter, custom endpoints, and other OpenAI-compatible providers unless those providers explicitly opt into the same path.
+
+Requesty is a first-class OpenAI-compatible provider with provider id `requesty`. `providers/requesty.py` maps Requesty's live `/models` response into Row-Bot model metadata, including `context_window`, `supports_tool_calling`, `supports_reasoning`, `supports_vision`, task, modality, and nested capability fields. Requesty rows use provider-qualified refs and are filtered so embedding, image, video, audio, moderation, realtime, and other non-chat rows do not appear as Brain or agent choices.
 
 xAI has two explicit provider paths. The existing `xai` provider uses `XAI_API_KEY` for direct API access. The new `xai_oauth` provider represents xAI Grok subscription/OAuth access, stores Row-Bot-owned OAuth tokens through the provider auth store, reports token health and OAuth client-id status, and uses provider-qualified refs so OAuth-backed Grok rows never collapse into API-key xAI rows.
 
@@ -238,7 +241,8 @@ Claude Subscription's Settings card includes a runtime diagnostic that exercises
 - **Dynamic model switching** — change the brain model from Settings or approved `row_bot_update_setting` calls; choices are validated against pinned local/provider Quick Choices, installed local models, and provider catalogs before saving
 - **Per-thread, per-profile, per-child-run & per-workflow model override** — conversations, Agent Profiles, delegated child runs, and workflows can each run on a different model, with overrides persisted locally or snapshotted into the run
 - **Quick Choices** — models pinned from the consolidated Models catalog appear in chat, workflow, channel, Designer, status-tool, and Vision pickers when their capability snapshot supports that surface
-- **Live provider discovery** — provider catalogs can be refreshed from live APIs where supported; Atlas Cloud and MiniMax use API discovery and stale-model cleanup, xAI API-key rows merge the provider's available model endpoints, and Claude Subscription/xAI Grok OAuth use live catalog reads only with Row-Bot-owned OAuth so API-key and subscription model paths remain distinct
+- **Live provider discovery** — provider catalogs can be refreshed from live APIs where supported; Atlas Cloud, MiniMax, and Requesty use API discovery and stale-model cleanup, xAI API-key rows merge the provider's available model endpoints, and Claude Subscription/xAI Grok OAuth use live catalog reads only with Row-Bot-owned OAuth so API-key and subscription model paths remain distinct
+- **Prompt-cache gating** — `prompt_cache.py` applies Anthropic `cache_control` markers only to eligible stable system content for the direct Anthropic API and normalizes provider cache read/write token metadata for diagnostics
 - **Capability-aware surface filtering** — catalog rows carry chat, agent/tool, vision, image, video, context, and provider provenance metadata; Brain, Vision, Image, and Video pickers each filter against the relevant surface instead of treating every remote catalog row as a runnable chat model
 - **OpenCode provider runtime** — OpenCode-compatible providers are represented as first-class provider/runtime entries with auth, catalog, selection, and readiness coverage instead of being treated as generic custom endpoints
 - **Cost-efficient context management** — smart context trimming compresses older conversation turns and shrinks oversized tool outputs, reducing token usage and API costs for provider models
@@ -465,9 +469,11 @@ Developer Studio is Row-Bot's code-workspace subsystem. It is not a full IDE; it
 
 ### Workspace Model
 
-- **`developer/` package** — owns workspace storage, Git helpers, runtime profiles, approval policy, sandbox state, tool context, todos, change ledger, inspector snapshots, GitHub helpers, and UI
+- **`developer/` package** — owns workspace storage, Git helpers, worktree allocation, runtime profiles, approval policy, sandbox state, tool context, todos, change ledger, inspector snapshots, GitHub helpers, and UI
 - **Explicit repo linking** — users open an existing local repo or clone into a folder they choose. Row-Bot stores a workspace link and metadata, not a copy of the repo in app data
 - **Code threads** — Developer conversations are tagged as code threads and reopen directly into Developer Studio with the associated workspace context
+- **Developer worktrees** — `developer/worktrees.py` allocates durable Git worktrees for threads, child-agent runs, and workflow runs, tracking owner kind/id, project workspace, worktree workspace, branch name, base branch/commit, cleanup state, metadata, and failure preservation in `tasks.db`
+- **Worktree seeding** — worktrees can start from the current staged/unstaged/untracked state or from the last commit; seed application uses binary Git patches and safe untracked-file copying while requiring a real repository root
 - **Workspace context injection** — Developer turns receive compact hidden context with repo path, branch, dirty state, remote URL, top-level files, approval mode, execution mode, shell guidance, and sandbox state
 - **No user-message leakage** — Developer context is injected as model context and is not rendered as part of the visible user message
 
@@ -604,7 +610,10 @@ Controlled self-evolution turns insights, repeated user workflows, and explicit 
 
 ## Messaging Channels
 
-Row-Bot uses a generic **Channel** abstraction. Any messaging platform can plug in by subclassing the base adapter, declaring capabilities, and registering itself. The system then auto-generates tools, settings UI, monitoring, and approval routing around that channel.
+Row-Bot uses a generic **Channel** abstraction. Native adapters and plugin-owned
+channels declare capabilities and register through controlled runtime paths. The
+system then auto-generates tools, settings UI, monitoring, and approval routing
+around that channel.
 
 ### Channel Architecture
 
@@ -615,6 +624,7 @@ Row-Bot uses a generic **Channel** abstraction. Any messaging platform can plug 
 - **Channel credential store** — `channels/auth_store.py` stores channel secrets through a channel-specific OS keyring path with legacy fallback so running channels survive migrations even if UI fields are intentionally blank
 - **Shared media pipeline** — inbound audio transcription, image analysis, document extraction, inbox persistence, and workspace copy helpers are centralized in `channels/media.py`
 - **Shared utilities** — auth, command handling, goal/profile-aware runtime context, approval routing, media capture, and corrupt-thread repair live in reusable channel modules
+- **Plugin channel bridge** — plugin-owned channels use `plugins/channel_runtime.py` to route inbound text, attachments, approvals, Goal Mode continuation, generated files, typing/stream callbacks, and thread metadata through the same core channel runtime without importing Row-Bot internals
 - **Tool factory** — running channels contribute auto-generated send/photo/document tools through `channels/tool_factory.py`
 - **Activity tracking** — per-channel last-activity timestamps drive the sidebar monitor and status surfaces
 
@@ -851,6 +861,9 @@ modifying the core codebase.
 - **Install / update / uninstall** — plugins are validated before install, installed and kept off by default, checksum-verified when catalog data provides a `sha256:` value, and reloaded immediately afterward
 - **Native Plugin Center** — one Row-Bot-owned UI renders per-plugin metadata, permissions, settings, secrets, auth, health checks, tools, channels, skills, logs, updates, and enable/disable controls; plugin-owned channels do not render arbitrary custom UI
 - **Custom Tool bridge** — promoted Custom Tools are registered through the plugin/tool surface as synthetic local tools so normal chat can use them without adding a separate extension mechanism
+- **Public channel API** — channel plugins receive public inbound/outbound dataclasses, attachment helpers, approval resume helpers, pairing/allowlist helpers, and generated webhook URLs through `plugins.api`
+- **Plugin webhooks** — `plugins/webhooks.py` registers namespaced webhook routes under `/plugin-webhooks/{plugin_id}/{name}` and disables them when the owning plugin is disabled, unloaded, uninstalled, or fails load
+- **Bot Framework auth** — `plugins/bot_framework_auth.py` validates Bot Framework JWTs with OpenID/JWKS discovery, issuer/audience checks, and display-safe error reporting for channel plugins
 
 ---
 
@@ -884,6 +897,7 @@ modifying the core codebase.
 
 - **Native window** — runs in a desktop window via pywebview on Windows and macOS; Linux defaults to browser mode and can opt into `--native` when the desktop has the required GTK/Qt backend
 - **System tray** — `launcher.py` exposes open and quit controls plus running-state feedback on Windows and macOS; Linux defaults to no tray and can opt into `--tray` when AppIndicator/desktop support is available
+- **Native macOS tray host** — packaged macOS builds include `installer/macos/RowBotTrayHost.m`, a small native status-item host that keeps tray content visible and avoids fragile cross-platform tray fallbacks
 - **Splash screen** — Tk-based loading splash during startup; Tk failures are logged to launcher diagnostics, and the visible console fallback is opt-in for debugging instead of appearing during normal Windows launches
 - **Startup diagnostics** — `startup_diagnostics.py` runs early in `app.py` and probes fragile optional native packages. Missing optional packages are ignored; installed-but-broken packages such as TorchCodec are logged with recovery steps and patched out of optional Transformers availability checks where safe.
 - **First-launch setup wizard** — starts with model/provider choice, then migration and setup-center steps for Local, Providers, Custom/Self-hosted, memory/docs, workflows, Agent/Profile surfaces, Designer, Developer, channels, voice, and related setup without touching config files by hand
@@ -1011,7 +1025,7 @@ Runtime code is packaged under `src/row_bot`. The paths below are package-relati
 | **`brand.py`** + **`runtime_paths.py`** | Row-Bot product identity, public naming constants, runtime path detection, and packaged/source checkout path helpers |
 | **`buddy/`** + **`ui/buddy.py`** | Buddy companion event bus, behavior brain, config, asset validation, Hatch generation, in-app docked/undocked presence, and optional desktop overlay helpers |
 | **`designer/`** | Designer Studio subsystem: gallery, editor, tooling, storage, exports, presentation mode, publishing, and asset hydration |
-| **`developer/`** | Developer Studio subsystem: workspace links, Git helpers, approval policy, Docker/local runtime, sandbox state, inspector snapshots, todos, file tree, diffs, GitHub helpers, Custom Tool internals, and UI |
+| **`developer/`** | Developer Studio subsystem: workspace links, Git helpers, durable worktree allocation, approval policy, Docker/local runtime, sandbox state, inspector snapshots, todos, file tree, diffs, GitHub helpers, Custom Tool internals, and UI |
 | **`ui/chat_components.py`** | Shared chat input, upload, and message-area components reused by main chat, Designer Studio, and Developer Studio |
 | **`ui/chat_composer_extras.py`** | Shared slash palette, skill picker, skill chips, and composer-level Smart Skills controls reused across chat surfaces |
 | **`agent.py`** | LangGraph ReAct agent, prompt assembly, Agent Profile injection, tool allowlist handling, runtime readiness routing, chat-only execution, provider transcript normalization, streaming event generation, tool routing, interrupt handling, cache clearing, and background execution integration |
@@ -1028,7 +1042,8 @@ Runtime code is packaged under `src/row_bot`. The paths below are package-relati
 | **`evolution.py`** | Controlled self-evolution proposal store, validation, action runs, rejection memory, feedback reports, skill mutation bounds, and curator dry-runs |
 | **`document_extraction.py`** | Background document map-reduce extraction pipeline with provenance-aware graph writes |
 | **`models.py`** | Local model compatibility facades, context policy, context caps, Quick Choices, provider detection, xAI OAuth catalog bridge, model factories, and legacy model APIs |
-| **`providers/`** | Provider auth, normalized model catalogs, background catalog cache, capability resolution, Atlas Cloud, Claude Subscription, xAI Grok OAuth, xAI media/catalog helpers, provider-qualified resolution, readiness evaluation, custom endpoint profiles/probes, runtime construction, transports, and display-safe provider status |
+| **`prompt_context.py`** + **`prompt_cache.py`** | Prompt section assembly, stable/ephemeral section inventory, direct-Anthropic prompt-cache marker gating, stable fingerprint reporting, and provider cache usage normalization |
+| **`providers/`** | Provider auth, normalized model catalogs, background catalog cache, capability resolution, Atlas Cloud, Requesty, Claude Subscription, xAI Grok OAuth, xAI media/catalog helpers, provider-qualified resolution, readiness evaluation, custom endpoint profiles/probes, runtime construction, transports, and display-safe provider status |
 | **`embedding_config.py`** + **`embedding_providers.py`** | Embedding provider selection, local/cloud embedding backends, vector metadata, and stale-index detection |
 | **`documents.py`** | Document ingestion, chunking, embedding, vector-store persistence, and per-document cleanup |
 | **`voice.py`** | Classic faster-whisper-based speech input pipeline and voice-state management |
@@ -1038,7 +1053,7 @@ Runtime code is packaged under `src/row_bot`. The paths below are package-relati
 | **`data_reader.py`** | Shared structured-data loader for CSV, TSV, Excel, JSON, and JSONL |
 | **`data_paths.py`** | Shared Row-Bot data-directory and SQLite path resolution for tasks, memory, threads, diagnostics, and recovery commands |
 | **`docs_capture.py`** | App-side helpers for seeded real UI documentation capture and screenshot automation |
-| **`launcher.py`** | Desktop launcher, system tray, splash screen, first-run window picker, app lifecycle, logging bootstrap, local runtime startup decisions, and DB recovery commands |
+| **`launcher.py`** | Desktop launcher, native/tray selection, splash screen, first-run window picker, app lifecycle, logging bootstrap, local runtime startup decisions, macOS native tray host integration, and DB recovery commands |
 | **`update_handoff.py`** | Detached Windows update handoff helper that waits for Row-Bot processes/ports to exit before starting the installer |
 | **`stability.py`** | UI callback/error capture, asyncio/thread exception hooks, memory snapshots, event-loop lag logging, and crash diagnostics |
 | **`startup_diagnostics.py`** | Early startup probes for optional native packages that can break app import/startup when partially installed |
@@ -1053,15 +1068,15 @@ Runtime code is packaged under `src/row_bot`. The paths below are package-relati
 | **`skills_hub/`** | Skills Hub source adapters, import detection, installers, provenance, scanner, search index, source registry, and UI models |
 | **`bundled_skills/`** | 17 built-in manual skills as `SKILL.md` packages |
 | **`tool_guides/`** | 22 built-in tool-specific auto-activation guides |
-| **`tasks.py`** | Workflow engine, SQLite persistence, schema validation/repair, APScheduler scheduling, pipeline execution, run history, safety mode, delivery routing, and shared storage connection used by Agent Profiles/Runs/Goals |
+| **`tasks.py`** | Workflow engine, SQLite persistence, schema validation/repair, APScheduler scheduling, profile-first workflow migration, pipeline execution, run history, safety mode, delivery routing, and shared storage connection used by Agent Profiles/Runs/Goals/Developer worktrees |
 | **`notifications.py`** | Unified desktop, sound, and toast notification system |
-| **`channels/`** | Channel ABC, registry, media helpers, auth helpers, approval routing, command handling, tool generation, and bundled channel adapters |
+| **`channels/`** | Channel ABC, registry, media helpers, auth helpers, approval routing, command handling, tool generation, plugin-channel bridge integration, and bundled channel adapters |
 | **`tunnel.py`** | Tunnel provider abstraction, ngrok integration, and lifecycle manager |
 | **`tools/agent_tool.py`** + **`tools/goal_tool.py`** | Child-agent delegation/status/wait/stop/profile/promotion tools plus Goal Mode progress/status tools |
 | **`tools/row_bot_status_tool.py`** | Self-introspection and controlled self-management tool, including provider/media diagnostics, agent/goal reporting, skill pinning, and controlled self-evolution proposal operations |
 | **`tools/developer_tool.py`** + **`tools/custom_tool_builder_tool.py`** | Developer workspace operations plus hardened conversational Custom Tool creation/testing/promotion surface |
 | **`tools/`** + **`designer/tool.py`** | Self-registering core tool modules, registry, base classes, Wikipedia recovery behavior, and LangChain tool conversion |
-| **`plugins/`** | Plugin runtime, marketplace client, manifest validation, security scanner, and settings integration |
+| **`plugins/`** | Plugin System v2 runtime, marketplace client, manifest validation, security scanner, Plugin Center UI, public API, channel runtime bridge, webhooks, Bot Framework auth helpers, MCP bridge, devtools, templates, and settings integration |
 | **`mcp_client/`** | External Model Context Protocol client: config, runtime sessions, marketplace search, requirements, safety classification, diagnostics, and result normalization |
 | **`migration/`** | Hermes/OpenClaw migration models, redaction, source detection, dry-run planning, realistic fixtures, guarded apply/report generation, and migration tests |
 | **`docs-site/`** + **`docs-content/`** + **`scripts/docs/`** | Public docs source, metadata, generated MDX, real UI screenshot capture, validation, Pagefind search build, and docs review automation |
@@ -1078,7 +1093,7 @@ All user data is stored under `~/.row-bot/` (or `%USERPROFILE%\\.row-bot\\` on W
 ~/.row-bot/
 ├── threads.db                     # Conversation history and LangGraph checkpoints
 ├── media/                         # Per-thread media files and sidecar metadata
-├── tasks.db                       # Workflows, schedules, Agent Profiles, Agent Runs, thread goals, write locks, run history, and approval state
+├── tasks.db                       # Workflows, schedules, Agent Profiles, Agent Runs, thread goals, Developer worktree ownership, write locks, run history, and approval state
 ├── memory.db                      # Knowledge graph entities and relations
 ├── memory_vectors/                # FAISS vectors for semantic memory recall
 ├── memory_recall_trace.json       # Recent auto-recall decisions and include/reject diagnostics
@@ -1136,7 +1151,7 @@ All user data is stored under `~/.row-bot/` (or `%USERPROFILE%\\.row-bot\\` on W
 ├── wiki/                          # Obsidian-compatible markdown vault export
 ├── x/                             # X OAuth tokens and tier metadata
 ├── installed_plugins/             # Marketplace-installed plugins
-├── plugin_state.json              # Plugin config and enablement state
+├── plugin_state.json              # Plugin config, marketplace metadata, health, settings, and enablement state
 ├── plugin_secrets.json            # Plugin API-key metadata only; raw key values live in the OS credential store when available
 ├── recovery/                      # Backups created by task/local DB reset and restore helpers
 └── kokoro/                        # Kokoro TTS model and voice files
