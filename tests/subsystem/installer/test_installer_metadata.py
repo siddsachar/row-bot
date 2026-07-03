@@ -25,6 +25,39 @@ def test_linux_installer_contract_preserves_user_data_and_verifies_dependencies(
     assert "mktemp -d" in install_script
 
 
+def test_macos_installer_uses_native_tray_host() -> None:
+    build_script = pathlib.Path("installer/build_mac_app.sh").read_text(encoding="utf-8")
+    host_source = pathlib.Path("installer/macos/RowBotTrayHost.m").read_text(encoding="utf-8")
+
+    assert 'HOST_SOURCE="$SCRIPT_DIR/macos/RowBotTrayHost.m"' in build_script
+    assert "xcrun clang" in build_script
+    assert "-fobjc-arc" in build_script
+    assert "-fblocks" in build_script
+    assert "-framework Cocoa" in build_script
+    assert "-mmacosx-version-min=11.0" in build_script
+    assert 'cat > "$MACOS_DIR/row-bot"' not in build_script
+    assert '"$MACOS_DIR/row-bot" --self-test' in build_script
+    assert "<key>LSUIElement</key>" in build_script
+    assert "<true/>" in build_script.split("<key>LSUIElement</key>", 1)[1].split("<key>", 1)[0]
+
+    assert "NSStatusBar" in host_source
+    assert "statusItemWithLength" in host_source
+    assert '@"launcher.py", @"--no-tray", @"--native"' in host_source
+    assert "PYTHONDONTWRITEBYTECODE" in host_source
+    assert "launcher_state.json" in host_source
+    assert "window_pid" in host_source
+    assert "--self-test" in host_source
+
+
+def test_macos_installer_verify_smokes_native_host() -> None:
+    workflow = pathlib.Path(".github/workflows/installer-verify.yml").read_text(encoding="utf-8")
+
+    assert 'APP_EXEC="$APP_PATH/Contents/MacOS/row-bot"' in workflow
+    assert 'file "$APP_EXEC" | grep -q "Mach-O"' in workflow
+    assert 'plutil -lint "$APP_PATH/Contents/Info.plist"' in workflow
+    assert '"$APP_EXEC" --self-test' in workflow
+
+
 def test_ci_declares_subsystem_and_smoke_lanes() -> None:
     ci = pathlib.Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
 

@@ -235,59 +235,25 @@ fi
 ok "Source code copied"
 
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-#  4. Create launcher and Info.plist
+#  4. Compile native launcher and create Info.plist
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-info "[4/6] Creating launcher and Info.plist..."
+info "[4/6] Compiling native tray host and creating Info.plist..."
 
-cat > "$MACOS_DIR/row-bot" << 'LAUNCHER'
-#!/usr/bin/env bash
-# Row-Bot.app launcher â€” uses the bundled Python, no system deps required
-
-BUNDLE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-RESOURCES="$BUNDLE_DIR/Resources"
-PYTHON="$RESOURCES/python/bin/python3"
-APP_DIR="$RESOURCES/app"
-DATA_DIR="$HOME/.row-bot"
-
-# Ensure data directory exists
-mkdir -p "$DATA_DIR"
-
-export ROW_BOT_INSTALL_ROOT="$RESOURCES"
-export PYTHONNOUSERSITE=1
-export PYTHONIOENCODING=utf-8
-
-# Prefer bundled Playwright browsers when present; otherwise use a writable user path
-BUNDLED_BROWSERS="$RESOURCES/python/playwright-browsers"
-USER_BROWSERS="$DATA_DIR/playwright-browsers"
-if [ -d "$BUNDLED_BROWSERS" ]; then
-    export PLAYWRIGHT_BROWSERS_PATH="$BUNDLED_BROWSERS"
-else
-    mkdir -p "$USER_BROWSERS"
-    export PLAYWRIGHT_BROWSERS_PATH="$USER_BROWSERS"
+HOST_SOURCE="$SCRIPT_DIR/macos/RowBotTrayHost.m"
+if [ ! -f "$HOST_SOURCE" ]; then
+    fail "Native macOS tray host source missing: $HOST_SOURCE"
+fi
+if ! command -v xcrun >/dev/null 2>&1; then
+    fail "xcrun not found. Install Xcode command line tools to build the macOS app."
 fi
 
-# Try to start Ollama if installed (optional â€” cloud models work without it)
-OLLAMA_PORT=11434
-ollama_running() { (echo >/dev/tcp/127.0.0.1/$OLLAMA_PORT) 2>/dev/null; }
-if ! ollama_running; then
-    for candidate in \
-        "$(command -v ollama 2>/dev/null || true)" \
-        "/usr/local/bin/ollama" \
-        "/opt/homebrew/bin/ollama"; do
-        if [ -n "$candidate" ] && [ -x "$candidate" ]; then
-            "$candidate" serve &>/dev/null &
-            for _ in $(seq 1 30); do
-                ollama_running && break
-                sleep 0.5
-            done
-            break
-        fi
-    done
-fi
-
-cd "$APP_DIR"
-exec "$PYTHON" launcher.py
-LAUNCHER
+xcrun clang \
+    -fobjc-arc \
+    -fblocks \
+    -framework Cocoa \
+    -mmacosx-version-min=11.0 \
+    "$HOST_SOURCE" \
+    -o "$MACOS_DIR/row-bot"
 
 chmod +x "$MACOS_DIR/row-bot"
 
@@ -319,7 +285,7 @@ cat > "$CONTENTS/Info.plist" << PLIST
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>LSUIElement</key>
-    <false/>
+    <true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Row-Bot uses the microphone for voice-to-text input.</string>
     <key>NSCameraUsageDescription</key>
@@ -328,7 +294,8 @@ cat > "$CONTENTS/Info.plist" << PLIST
 </plist>
 PLIST
 
-ok "Launcher and Info.plist created"
+"$MACOS_DIR/row-bot" --self-test
+ok "Native tray host and Info.plist created"
 
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 #  5. Strip unnecessary files to reduce bundle size

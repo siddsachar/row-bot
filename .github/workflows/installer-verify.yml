@@ -242,8 +242,13 @@ jobs:
           }
 
           APP_PATH="$(pwd)/installer/build/mac/Row-Bot.app"
+          APP_EXEC="$APP_PATH/Contents/MacOS/row-bot"
           RESOURCES="$APP_PATH/Contents/Resources"
           APP_DIR="$RESOURCES/app"
+          test -x "$APP_EXEC"
+          file "$APP_EXEC" | grep -q "Mach-O"
+          plutil -lint "$APP_PATH/Contents/Info.plist"
+          "$APP_EXEC" --self-test
           if ! PYTHON="$(resolve_bundle_python "$RESOURCES")"; then
             echo "::error::Bundled Python not found under $RESOURCES/python/bin"
             find "$APP_PATH" -maxdepth 5 -path '*/python/bin/*' -print || true
@@ -271,8 +276,13 @@ jobs:
           sudo installer -pkg "$PKG" -target /
 
           APP_PATH="/Applications/Row-Bot.app"
+          APP_EXEC="$APP_PATH/Contents/MacOS/row-bot"
           RESOURCES="$APP_PATH/Contents/Resources"
           APP_DIR="$RESOURCES/app"
+          test -x "$APP_EXEC"
+          file "$APP_EXEC" | grep -q "Mach-O"
+          plutil -lint "$APP_PATH/Contents/Info.plist"
+          "$APP_EXEC" --self-test
           resolve_bundle_python() {
             local resources="$1"
             local candidate

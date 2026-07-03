@@ -76,6 +76,7 @@ _OLLAMA_AUTOSTART_ENV = APP_AUTO_START_OLLAMA_ENV
 _GRACEFUL_SHUTDOWN_REQUEST_TIMEOUT = 3.0
 _GRACEFUL_SHUTDOWN_EXIT_TIMEOUT = 30.0
 _QUIT_WATCHDOG_TIMEOUT = 75.0
+_LAUNCHER_STATE_FILENAME = "launcher_state.json"
 _LEGACY_RUNTIME_ENV_VARS = frozenset(
     {
         "THOTH_AUTO_START_OLLAMA",
@@ -142,6 +143,8 @@ def _launch_event(event: str, **fields) -> None:
             "selected",
             "visible",
             "reason",
+            "control_port",
+            "window_pid",
         }
     }
     compact.setdefault("session", _LAUNCH_SESSION_ID)
@@ -158,6 +161,61 @@ def _read_json_file(path: Path) -> dict:
     except Exception:
         logger.debug("Could not read launcher settings from %s", path, exc_info=True)
     return {}
+
+
+def _launcher_state_path() -> Path:
+    return _row_bot_data_dir() / _LAUNCHER_STATE_FILENAME
+
+
+def _write_launcher_state(
+    *,
+    port: int,
+    mode: str,
+    owns_server: bool,
+    window_control_port: int | None = None,
+    window_pid: int | None = None,
+) -> None:
+    path = _launcher_state_path()
+    payload = {
+        "app": APP_PING_ID,
+        "pid": os.getpid(),
+        "port": int(port),
+        "mode": mode,
+        "owns_server": bool(owns_server),
+        "session": _LAUNCH_SESSION_ID,
+        "updated_at": time.time(),
+    }
+    if window_control_port:
+        payload["window_control_port"] = int(window_control_port)
+    if window_pid:
+        payload["window_pid"] = int(window_pid)
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.tmp")
+        tmp.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+        tmp.replace(path)
+        _launch_event(
+            "launcher_state_written",
+            port=port,
+            mode=mode,
+            control_port=int(window_control_port or 0),
+            window_pid=int(window_pid or 0),
+        )
+    except Exception:
+        logger.debug("Could not write launcher state to %s", path, exc_info=True)
+
+
+def _clear_launcher_state() -> None:
+    path = _launcher_state_path()
+    state = _read_json_file(path)
+    if state and state.get("session") not in {None, _LAUNCH_SESSION_ID}:
+        return
+    try:
+        path.unlink(missing_ok=True)
+        _launch_event("launcher_state_cleared")
+    except Exception:
+        logger.debug("Could not clear launcher state at %s", path, exc_info=True)
 
 
 def _model_ref_requires_ollama(model_name: str | None) -> bool:
@@ -2404,6 +2462,7 @@ class RowBotTray:
                     self._window_proc = None
                 if self._owns_server:
                     self._server.stop()
+                _clear_launcher_state()
             finally:
                 try:
                     self._icon.stop()
@@ -2512,13 +2571,27 @@ class RowBotTray:
                 mode = _ask_window_mode() if _has_display_server() else "browser"
             if mode == "browser":
                 _open_in_browser(self._port)
+                _write_launcher_state(
+                    port=self._port,
+                    mode="browser",
+                    owns_server=self._owns_server,
+                )
             else:
                 self._window_proc = _open_window(self._port, self._ensure_window_control_port())
+                if self._window_proc is None:
+                    self._window_control_port = None
                 _launch_event(
                     "native_window_requested",
                     port=self._port,
                     pid=self._window_proc.pid if self._window_proc else 0,
                     mode=mode,
+                )
+                _write_launcher_state(
+                    port=self._port,
+                    mode=mode,
+                    owns_server=self._owns_server,
+                    window_control_port=self._window_control_port,
+                    window_pid=self._window_proc.pid if self._window_proc else None,
                 )
         else:
             logger.warning("Server did not start in time — opening browser as fallback")
@@ -2563,6 +2636,7 @@ def _block_until_interrupted(server: _RowBotProcess | None, owns_server: bool) -
     finally:
         if owns_server and server is not None:
             server.stop()
+            _clear_launcher_state()
 
 
 def _run_direct(args: argparse.Namespace) -> None:
@@ -2608,17 +2682,39 @@ def _run_direct(args: argparse.Namespace) -> None:
     _launch_event("server_ready", port=port, duration_ms=round((time.perf_counter() - wait_started) * 1000.0, 1))
     _stop_launcher_helper(splash_proc, name="splash_tk")
 
+    mode_for_state = "server" if args.server or args.no_open else "browser"
+    window_control_port: int | None = None
+    window_proc: subprocess.Popen | None = None
+
     if not args.no_open:
         if args.native and _has_display_server():
-            _open_window(port)
-            _launch_event("native_window_requested", port=port, mode="native")
+            mode_for_state = "native"
+            window_control_port = _find_free_port(port + 10000, max_tries=50)
+            window_proc = _open_window(port, window_control_port)
+            if window_proc is None:
+                window_control_port = None
+            _launch_event(
+                "native_window_requested",
+                port=port,
+                pid=window_proc.pid if window_proc else 0,
+                mode="native",
+            )
         elif _has_display_server() or not args.server:
+            mode_for_state = "browser"
             _open_in_browser(port)
             _launch_event("browser_opened", port=port, mode="browser")
         else:
             logger.info("%s is running at %s", APP_DISPLAY_NAME, _url_for_port(port))
     else:
         logger.info("%s is running at %s", APP_DISPLAY_NAME, _url_for_port(port))
+
+    _write_launcher_state(
+        port=port,
+        mode=mode_for_state,
+        owns_server=owns_server,
+        window_control_port=window_control_port,
+        window_pid=window_proc.pid if window_proc else None,
+    )
 
     if owns_server:
         _block_until_interrupted(server, owns_server=True)
