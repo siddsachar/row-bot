@@ -117,6 +117,53 @@ def _owner_from_payload(kind: str, payload: dict[str, Any]) -> str:
     return kind
 
 
+def _approval_key_values(payload: dict[str, Any], owner_id: str = "") -> set[str]:
+    keys = {
+        owner_id,
+        str(payload.get("approval_id") or ""),
+        str(payload.get("resume_token") or ""),
+        str(payload.get("request_id") or ""),
+        str(payload.get("run_id") or ""),
+        str(payload.get("step_id") or ""),
+    }
+    task_id = str(payload.get("task_id") or "")
+    if task_id and (payload.get("approval_id") or payload.get("resume_token") or payload.get("step_id")):
+        keys.add(task_id)
+    return {key for key in keys if key}
+
+
+def _is_durable_approval_activity(active: _Activity) -> bool:
+    payload = active.payload
+    if active.source in {"tasks", "tasks.reconcile"}:
+        return True
+    return bool(
+        payload.get("resume_token")
+        or payload.get("request_id")
+        or payload.get("run_id")
+        or payload.get("step_id")
+    )
+
+
+def _approval_activity_is_pending(active: _Activity, pending: list[dict[str, Any]]) -> bool:
+    active_keys = _approval_key_values(active.payload, active.owner_id)
+    if not active_keys:
+        return False
+    for approval in pending:
+        pending_keys = _approval_key_values(
+            {
+                "approval_id": approval.get("id"),
+                "resume_token": approval.get("resume_token"),
+                "run_id": approval.get("run_id"),
+                "task_id": approval.get("task_id"),
+                "step_id": approval.get("step_id"),
+            },
+            str(approval.get("id") or approval.get("resume_token") or ""),
+        )
+        if active_keys & pending_keys:
+            return True
+    return False
+
+
 class BuddyBrain:
     """Maps Row-Bot events into compact Buddy runtime values."""
 
@@ -314,7 +361,7 @@ class BuddyBrain:
         if now - self._last_reconcile_at < _DURABLE_RECONCILE_SECONDS:
             return
         self._last_reconcile_at = now
-        if "tasks" not in sys.modules:
+        if "row_bot.tasks" not in sys.modules and "tasks" not in sys.modules:
             return
         try:
             from row_bot.tasks import get_pending_approvals, get_running_tasks
@@ -327,6 +374,8 @@ class BuddyBrain:
         for owner_id, active in list(approval_owners.items()):
             if active.reconciled:
                 approval_owners.pop(owner_id, None)
+            elif _is_durable_approval_activity(active) and not _approval_activity_is_pending(active, pending):
+                approval_owners.pop(owner_id, None)
         for approval in pending:
             owner_id = str(approval.get("id") or approval.get("resume_token") or "approval")
             approval_owners[owner_id] = _Activity(
@@ -337,6 +386,10 @@ class BuddyBrain:
                 label=str(approval.get("task_name") or "Needs approval"),
                 payload={
                     "approval_id": owner_id,
+                    "resume_token": str(approval.get("resume_token") or ""),
+                    "run_id": str(approval.get("run_id") or ""),
+                    "task_id": str(approval.get("task_id") or ""),
+                    "step_id": str(approval.get("step_id") or ""),
                     "label": str(approval.get("task_name") or "Needs approval"),
                 },
                 updated_at=now,

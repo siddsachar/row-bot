@@ -4686,6 +4686,7 @@ def create_approval_request(
         task_id=task_id,
         step_id=step_id,
         approval_id=req_id,
+        resume_token=resume_token,
         label="Approval pending",
         message=message,
     )
@@ -4699,6 +4700,7 @@ def _emit_buddy_approval_event(
     task_id: str = "",
     step_id: str = "",
     approval_id: str = "",
+    resume_token: str = "",
     label: str = "",
     message: str = "",
 ) -> None:
@@ -4720,6 +4722,7 @@ def _emit_buddy_approval_event(
                 "task_id": task_id,
                 "step_id": step_id,
                 "approval_id": approval_id,
+                "resume_token": resume_token,
                 "label": label or message or status.replace("_", " ").title(),
                 "message": message,
             },
@@ -4776,6 +4779,7 @@ def respond_to_approval(resume_token: str, approved: bool,
             task_id=str(r.get("task_id") or ""),
             step_id=str(r.get("step_id") or ""),
             approval_id=str(r.get("id") or ""),
+            resume_token=str(r.get("resume_token") or ""),
             label="Approval timed out",
             message=str(r.get("message") or ""),
         )
@@ -4798,6 +4802,7 @@ def respond_to_approval(resume_token: str, approved: bool,
         task_id=str(r.get("task_id") or ""),
         step_id=str(r.get("step_id") or ""),
         approval_id=approval_id,
+        resume_token=resume_token,
         label="Approved" if approved else "Denied",
         message=str(r.get("message") or ""),
     )
@@ -4849,6 +4854,7 @@ def _check_approval_timeouts() -> None:
             task_id=str(r.get("task_id") or ""),
             step_id=str(r.get("step_id") or ""),
             approval_id=str(r.get("id") or ""),
+            resume_token=str(r.get("resume_token") or ""),
             label="Approval timed out",
             message=str(r.get("message") or ""),
         )

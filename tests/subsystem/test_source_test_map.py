@@ -90,6 +90,25 @@ def test_launcher_change_selects_startup_regressions() -> None:
     assert not selection.unmatched_files
 
 
+def test_settings_change_selects_mobile_companion_regressions() -> None:
+    selection = select_tests_for_changes(["src/row_bot/ui/settings.py"])
+
+    assert "mobile_companion" in selection.matched_rules
+    assert "tests/subsystem/mobile" in selection.test_paths
+    assert "tests/integration/mobile" in selection.test_paths
+    assert not selection.unmatched_files
+
+
+def test_chat_composer_change_selects_slash_skills_and_mobile_regressions() -> None:
+    selection = select_tests_for_changes(["src/row_bot/ui/chat_composer_extras.py"])
+
+    assert "chat_composer" in selection.matched_rules
+    assert "tests/subsystem/mobile" in selection.test_paths
+    assert "tests/test_slash_commands.py" in selection.test_paths
+    assert "tests/test_skills_activation.py" in selection.test_paths
+    assert not selection.unmatched_files
+
+
 def test_prompt_context_change_selects_prompt_and_provider_regressions() -> None:
     selection = select_tests_for_changes([
         "src/row_bot/agent.py",

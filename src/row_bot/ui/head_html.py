@@ -10,11 +10,25 @@ from row_bot.brand import APP_BRAND_ACCENT
 from nicegui import ui
 
 HEAD_HTML = """\
+<link rel="manifest" href="/mobile/manifest.webmanifest">
+<meta name="theme-color" content="__ROW_BOT_BRAND_ACCENT__">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Row-Bot">
 <link rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="/static/vis-network.min.js"></script>
 <script src="/static/mermaid.min.js"></script>
+<script>
+(function() {
+  if (!('serviceWorker' in navigator)) return;
+  if (location.protocol === 'file:') return;
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('/mobile/service-worker.js', {scope: '/'})
+      .catch(function() {});
+  });
+})();
+</script>
 <script>
 mermaid.initialize({
   startOnLoad: false,

@@ -87,6 +87,25 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
         "Startup, app shell, and smoke harness changes need import, readiness, and UI performance regressions.",
     ),
     SourceTestRule(
+        "mobile_companion",
+        ("src/row_bot/mobile/**", "src/row_bot/ui/mobile*.py", "src/row_bot/ui/settings.py"),
+        (
+            "tests/subsystem/mobile",
+            "tests/integration/mobile",
+        ),
+        "Mobile companion changes need auth, access-gate, pairing, PWA, and route coverage.",
+    ),
+    SourceTestRule(
+        "chat_composer",
+        ("src/row_bot/ui/chat_composer_extras.py",),
+        (
+            "tests/subsystem/mobile",
+            "tests/test_slash_commands.py",
+            "tests/test_skills_activation.py",
+        ),
+        "Shared composer extras affect slash commands, Smart Skills, and mobile chat controls.",
+    ),
+    SourceTestRule(
         "channels",
         ("src/row_bot/channels/**",),
         (

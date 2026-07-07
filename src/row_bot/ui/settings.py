@@ -38,6 +38,70 @@ from row_bot.ui.timer_utils import defer_ui, safe_ui_task
 
 logger = logging.getLogger(__name__)
 
+_MOBILE_SETTINGS_CSS = """
+<style>
+.row-bot-settings-mobile-shell {
+    max-width: none !important;
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    background: #071113;
+    color: #ecf4f5;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.row-bot-settings-mobile-header {
+    flex: 0 0 auto;
+    padding: calc(8px + env(safe-area-inset-top)) 12px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    background: #10191c;
+}
+.row-bot-settings-mobile-picker {
+    flex: 0 0 auto;
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    background: #0d171a;
+}
+.row-bot-settings-mobile-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 12px;
+}
+.row-bot-settings-mobile-shell .q-field,
+.row-bot-settings-mobile-shell .q-select,
+.row-bot-settings-mobile-shell .q-input,
+.row-bot-settings-mobile-shell .q-textarea,
+.row-bot-settings-mobile-shell .q-card,
+.row-bot-settings-mobile-shell .q-table__container {
+    min-width: 0;
+    max-width: 100%;
+}
+.row-bot-settings-mobile-shell .no-wrap {
+    flex-wrap: wrap !important;
+}
+.row-bot-settings-mobile-shell .w-64,
+.row-bot-settings-mobile-shell .w-48,
+.row-bot-settings-mobile-shell .w-36,
+.row-bot-settings-mobile-shell .w-32,
+.row-bot-settings-mobile-shell .w-28,
+.row-bot-settings-mobile-shell .w-24,
+.row-bot-settings-mobile-shell .w-20 {
+    width: 100% !important;
+}
+.row-bot-settings-mobile-shell .q-badge,
+.row-bot-settings-mobile-shell .q-chip {
+    max-width: 100%;
+    white-space: normal;
+}
+.row-bot-settings-mobile-shell .q-btn {
+    min-width: 0;
+}
+</style>
+"""
+
 
 def _agent_mode_badge_state(
     model_value: str,
@@ -222,6 +286,8 @@ def open_settings(
     state: AppState,
     p: P,
     initial_tab: str = "Providers",
+    *,
+    mobile: bool = False,
 ) -> None:
     """Build and open the maximised settings dialog.
 
@@ -292,7 +358,7 @@ def open_settings(
         p.settings_dlg.close()
         if tab == "Cloud":
             tab = "Providers"
-        open_settings(state, p, initial_tab=tab)
+        open_settings(state, p, initial_tab=tab, mobile=mobile)
 
     def _close_settings() -> None:
         settings_generation.invalidate()
@@ -2826,6 +2892,14 @@ def open_settings(
             )
 
         _build_tunnel_settings_section()
+
+        from row_bot.ui.mobile_access_settings import build_mobile_access_settings_section
+
+        build_mobile_access_settings_section(
+            settings_section=_settings_section,
+            status_dot=_status_dot,
+            metric_chip=_metric_chip,
+        )
 
         # ── Logging ──────────────────────────────────────────────────
         with _settings_section(
@@ -5399,6 +5473,132 @@ def open_settings(
     # ══════════════════════════════════════════════════════════════════
     # DIALOG SHELL
     # ══════════════════════════════════════════════════════════════════
+
+    if mobile:
+        ui.html(_MOBILE_SETTINGS_CSS, sanitize=False)
+        from row_bot.ui.mobile_settings import (
+            build_mobile_plugins_settings,
+            build_mobile_providers_settings,
+            build_mobile_skills_settings,
+        )
+
+        _tab_aliases = {
+            "Cloud": "Providers",
+            "Google": "Accounts",
+            "Gmail": "Accounts",
+            "Calendar": "Accounts",
+            "Migration": "Preferences",
+        }
+        _mobile_tab_defs: list[tuple[str, str, Callable]] = [
+            ("Providers", "cloud", lambda: build_mobile_providers_settings(on_change=lambda: _reopen("Providers"))),
+            ("Models", "smart_toy", _build_models_tab),
+            ("Knowledge", "psychology", _build_knowledge_tab),
+            ("Buddy", "pets", lambda: __import__("row_bot.ui.buddy", fromlist=["build_buddy_settings_tab"]).build_buddy_settings_tab(_reopen)),
+            ("Voice", "mic", _build_voice_tab),
+            ("System", "terminal", _build_system_access_tab),
+            ("Tracker", "checklist", _build_tracker_tab),
+            ("Documents", "description", _build_documents_tab),
+            ("Search", "search", _build_tools_tab),
+            ("Skills", "auto_fix_high", build_mobile_skills_settings),
+            ("Accounts", "group", _build_accounts_tab),
+            ("Channels", "forum", _build_channels_tab),
+            ("Utilities", "build", _build_utilities_tab),
+            ("MCP", "hub", lambda: __import__("row_bot.ui.mcp_settings", fromlist=["build_mcp_settings_tab"]).build_mcp_settings_tab(_reopen)),
+            ("Plugins", "extension", build_mobile_plugins_settings),
+            ("Preferences", "tune", _build_preferences_tab),
+        ]
+        _builder_map = {name: builder for name, _icon, builder in _mobile_tab_defs}
+        _section_options = {name: name for name, _icon, _builder in _mobile_tab_defs}
+        _initial_name = _tab_aliases.get(initial_tab, initial_tab)
+        if _initial_name not in _builder_map:
+            _initial_name = "Providers"
+
+        def _settings_tab_placeholder(text: str = "Loading settings...") -> None:
+            with ui.column().classes("items-center justify-center gap-3 w-full").style("min-height: 260px;"):
+                ui.spinner(size="lg").classes("text-blue-400")
+                ui.label(text).classes("text-grey-5 text-sm")
+
+        def _settings_tab_error(name: str, exc: BaseException) -> None:
+            with ui.column().classes("w-full gap-2"):
+                with ui.row().classes("items-center gap-2"):
+                    ui.icon("error_outline", color="warning")
+                    ui.label(f"Could not load {name} settings").classes("text-warning text-subtitle2")
+                ui.label(str(exc)).classes("text-grey-6 text-sm")
+                ui.button(
+                    "Retry",
+                    icon="refresh",
+                    on_click=lambda name=name: _schedule_settings_tab(name),
+                ).props("flat dense no-caps color=primary")
+
+        def _render_settings_tab(name: str, generation: int) -> None:
+            if not settings_generation.is_current(generation):
+                return
+            content_panel.clear()
+            with content_panel:
+                if not settings_generation.is_current(generation):
+                    return
+                start = time.perf_counter()
+                try:
+                    with timed_ui_section(
+                        f"settings.mobile.tab.render.{name.lower()}",
+                        threshold_ms=UI_SHELL_WARN_MS,
+                        tab=name,
+                    ):
+                        _builder_map[name]()
+                except Exception as exc:
+                    logger.exception("Mobile settings tab '%s' failed to render", name)
+                    _settings_tab_error(name, exc)
+                finally:
+                    log_ui_perf(
+                        f"settings.mobile.tab.load.{name.lower()}",
+                        (time.perf_counter() - start) * 1000.0,
+                        threshold_ms=UI_SHELL_WARN_MS,
+                        tab=name,
+                    )
+
+        def _schedule_settings_tab(name: str | None) -> None:
+            if not name or name not in _builder_map:
+                return
+            generation = settings_generation.next()
+            content_panel.clear()
+            with content_panel:
+                _settings_tab_placeholder(f"Loading {name} settings...")
+            defer_ui(lambda name=name, generation=generation: _render_settings_tab(name, generation), delay=0.01)
+
+        p.settings_dlg.clear()
+        with p.settings_dlg:
+            with ui.card().classes("row-bot-settings-mobile-shell no-shadow").props(
+                "data-docs-id=settings-dialog data-mobile-settings=true"
+            ):
+                with ui.row().classes("row-bot-settings-mobile-header w-full items-center gap-2 no-wrap"):
+                    ui.icon("settings", size="sm")
+                    with ui.column().classes("gap-0").style("min-width: 0; flex: 1;"):
+                        ui.label("Settings").classes("text-subtitle1 ellipsis")
+                        ui.label("Full settings").classes("text-grey-6 text-xs")
+                    ui.button(icon="close", on_click=_close_settings).props("flat dense round")
+                with ui.column().classes("row-bot-settings-mobile-picker w-full gap-1"):
+                    section_select = ui.select(
+                        options=_section_options,
+                        value=_initial_name,
+                        label="Section",
+                    ).classes("w-full").props("outlined dense data-docs-id=settings-mobile-section-select")
+                content_panel = ui.column().classes("row-bot-settings-mobile-content w-full").props(
+                    "data-docs-id=settings-mobile-tab-panel"
+                )
+                with content_panel:
+                    _settings_tab_placeholder()
+
+                section_select.on_value_change(lambda e: _schedule_settings_tab(str(e.value or "")))
+
+        p.settings_dlg.open()
+        log_ui_perf(
+            "settings.mobile.open.shell",
+            (time.perf_counter() - shell_started) * 1000.0,
+            threshold_ms=UI_SHELL_WARN_MS,
+            initial_tab=_initial_name,
+        )
+        defer_ui(lambda: _schedule_settings_tab(_initial_name), delay=0.05)
+        return
 
     p.settings_dlg.clear()
     with p.settings_dlg:

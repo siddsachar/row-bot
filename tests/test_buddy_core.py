@@ -163,6 +163,113 @@ def test_buddy_brain_clears_legacy_generic_approval_after_resolution(monkeypatch
     assert idle.message == "Idle"
 
 
+def test_buddy_brain_clears_resume_token_only_approval_after_resolution(monkeypatch):
+    import row_bot.buddy.brain as brain_mod
+    from row_bot.buddy.brain import BuddyBrain
+    from row_bot.buddy.events import BuddyEvent, BuddyEventType
+
+    now = 1000.0
+    monkeypatch.setattr(
+        brain_mod,
+        "get_buddy_config",
+        lambda: {"enabled": True, "mode": "sidebar", "pack_id": "glyph"},
+    )
+    monkeypatch.setattr(brain_mod.time, "time", lambda: now)
+    brain = BuddyBrain()
+
+    brain.resolve(BuddyEvent(
+        BuddyEventType.APPROVAL_NEEDED,
+        source="tasks",
+        payload={"resume_token": "resume-1", "label": "Approve step"},
+        id=40,
+    ))
+    now = 1001.0
+    approval = brain.resolve(None)
+
+    assert approval.animation == "tap_glass"
+
+    resolved = brain.resolve(BuddyEvent(
+        BuddyEventType.APPROVAL_APPROVED,
+        source="tasks",
+        payload={"resume_token": "resume-1", "label": "Approved"},
+        id=41,
+    ))
+
+    assert resolved.animation == "nod"
+
+    now = 1009.0
+    idle = brain.resolve(None)
+
+    assert idle.animation == "idle_breathe"
+    assert idle.message == "Idle"
+
+
+def test_buddy_reconcile_clears_stale_durable_approval(monkeypatch):
+    import row_bot.buddy.brain as brain_mod
+    from row_bot.buddy.brain import BuddyBrain
+    from row_bot.buddy.events import BuddyEvent, BuddyEventType
+    import row_bot.tasks as tasks
+
+    now = 1000.0
+    monkeypatch.setattr(
+        brain_mod,
+        "get_buddy_config",
+        lambda: {"enabled": True, "mode": "sidebar", "pack_id": "glyph"},
+    )
+    monkeypatch.setattr(brain_mod.time, "time", lambda: now)
+    monkeypatch.setattr(tasks, "get_pending_approvals", lambda: [])
+    monkeypatch.setattr(tasks, "get_running_tasks", lambda: {})
+    brain = BuddyBrain()
+
+    brain.resolve(BuddyEvent(
+        BuddyEventType.APPROVAL_NEEDED,
+        source="tasks",
+        payload={
+            "approval_id": "approval-1",
+            "resume_token": "resume-1",
+            "run_id": "run-1",
+            "task_id": "task-1",
+            "label": "Approve step",
+        },
+        id=42,
+    ))
+    now = 1007.0
+    idle = brain.resolve(None)
+
+    assert idle.animation == "idle_breathe"
+    assert idle.message == "Idle"
+
+
+def test_buddy_reconcile_keeps_transient_chat_approval(monkeypatch):
+    import row_bot.buddy.brain as brain_mod
+    from row_bot.buddy.brain import BuddyBrain
+    from row_bot.buddy.events import BuddyEvent, BuddyEventType
+    import row_bot.tasks as tasks
+
+    now = 1000.0
+    monkeypatch.setattr(
+        brain_mod,
+        "get_buddy_config",
+        lambda: {"enabled": True, "mode": "sidebar", "pack_id": "glyph"},
+    )
+    monkeypatch.setattr(brain_mod.time, "time", lambda: now)
+    monkeypatch.setattr(tasks, "get_pending_approvals", lambda: [])
+    monkeypatch.setattr(tasks, "get_running_tasks", lambda: {})
+    brain = BuddyBrain()
+
+    brain.resolve(BuddyEvent(
+        BuddyEventType.APPROVAL_NEEDED,
+        source="ui.streaming",
+        payload={"thread_id": "thread-1", "label": "Approval pending"},
+        id=43,
+    ))
+    now = 1007.0
+    approval = brain.resolve(None)
+
+    assert approval.animation == "tap_glass"
+    assert approval.message == "Approval pending"
+
+
 def test_buddy_tick_processes_approval_resolution_before_later_workflow_events(monkeypatch):
     import row_bot.buddy.brain as brain_mod
     from row_bot.buddy.brain import BuddyBrain

@@ -208,6 +208,7 @@ from row_bot.ui.task_dialog import show_task_dialog
 from row_bot.ui.sidebar import build_sidebar
 from row_bot.ui.command_center import build_command_center
 from row_bot.ui.settings import open_settings
+from row_bot.ui.mobile import build_mobile_shell, is_mobile_client
 from row_bot.ui.streaming import (
     Callbacks,
     _append_async_delegated_agent_completion_messages,
@@ -968,6 +969,12 @@ app.add_route("/api/launcher-shutdown", _launcher_shutdown_handler, methods=["PO
 app.add_route("/api/webhook/{task_id}", _webhook_handler, methods=["POST"])
 app.add_route("/api/client-error", _client_error_handler, methods=["POST"])
 
+from row_bot.mobile.routes import register_mobile_routes
+from row_bot.mobile.access_gate import MobileAccessGate
+
+register_mobile_routes(app)
+app.add_middleware(MobileAccessGate)
+
 
 @app.on_shutdown
 async def on_shutdown():
@@ -1208,7 +1215,7 @@ async def index():
 
     # ── Wrappers that close over (state, p, cb) ─────────────────────────
     def _open_settings(initial_tab: str = "Providers"):
-        open_settings(state, p, initial_tab)
+        open_settings(state, p, initial_tab, mobile=_mobile_client)
 
     def _open_export():
         open_export(state, p)
@@ -1291,48 +1298,61 @@ async def index():
     def _show_task_dialog(task, on_done):
         show_task_dialog(task, on_done, state=state, p=p)
 
+    _mobile_client = is_mobile_client(ui.context.client)
+
     # ══════════════════════════════════════════════════════════════════════
     # LAYOUT
     # ══════════════════════════════════════════════════════════════════════
 
     # ── Sidebar (left drawer) ────────────────────────────────────────────
-    rebuild_thread_list = build_sidebar(
-        state, p,
-        rebuild_main=lambda **kw: _rebuild_main(**kw),
-        open_settings=_open_settings,
-        load_thread_messages=load_thread_messages,
-    )
+    if _mobile_client:
+        rebuild_thread_list = lambda: None
+    else:
+        rebuild_thread_list = build_sidebar(
+            state, p,
+            rebuild_main=lambda **kw: _rebuild_main(**kw),
+            open_settings=_open_settings,
+            load_thread_messages=load_thread_messages,
+        )
 
     # ── Main content column ──────────────────────────────────────────────
     from row_bot.ui.terminal_widget import build_terminal_panel
     from row_bot.tools import registry as _tool_registry
 
-    _main_shell = ui.element("div").classes("row-bot-main-shell").props("data-docs-id=app-main-shell")
+    _main_shell_classes = "row-bot-main-shell row-bot-mobile-root" if _mobile_client else "row-bot-main-shell"
+    _main_shell = ui.element("div").classes(_main_shell_classes).props("data-docs-id=app-main-shell")
     with _main_shell:
-        _outer = ui.column().classes(
-            "w-full max-w-7xl mx-auto px-4 no-wrap row-bot-panel-card row-bot-main-card"
-        ).style(
-            "height: calc(100vh - 16px); overflow: hidden; padding-bottom: 12px;"
-            " border-radius: 12px; margin-top: 8px;"
-        )
+        if _mobile_client:
+            _outer = ui.column().classes("row-bot-mobile-outer w-full no-wrap").style(
+                "height: 100dvh; overflow: hidden; padding: 0; margin: 0;"
+            )
+        else:
+            _outer = ui.column().classes(
+                "w-full max-w-7xl mx-auto px-4 no-wrap row-bot-panel-card row-bot-main-card"
+            ).style(
+                "height: calc(100vh - 16px); overflow: hidden; padding-bottom: 12px;"
+                " border-radius: 12px; margin-top: 8px;"
+            )
         with _outer:
             p.main_col = ui.column().classes("w-full no-wrap flex-grow").props("data-docs-id=main-content").style(
                 "overflow: hidden;"
             )
         # Terminal panel — inline, pushes chat content up when expanded
-            build_terminal_panel(p, state, _tool_registry)
+            if not _mobile_client:
+                build_terminal_panel(p, state, _tool_registry)
 
     # ── Command Center (right drawer) ───────────────────────────────
-    build_command_center(
-        state, p,
-        rebuild_main=lambda **kw: _rebuild_main(**kw),
-        rebuild_thread_list=rebuild_thread_list,
-        show_task_dialog=_show_task_dialog,
-        load_thread_messages=load_thread_messages,
-        open_settings=_open_settings,
-    )
-    from row_bot.ui.buddy import build_in_app_buddy
-    build_in_app_buddy()
+    if not _mobile_client:
+        build_command_center(
+            state, p,
+            rebuild_main=lambda **kw: _rebuild_main(**kw),
+            rebuild_thread_list=rebuild_thread_list,
+            show_task_dialog=_show_task_dialog,
+            load_thread_messages=load_thread_messages,
+            open_settings=_open_settings,
+        )
+        from row_bot.ui.buddy import build_in_app_buddy
+        build_in_app_buddy()
     # Generation counter — every ``_rebuild_main`` bumps this. A
     # deferred hydration compares its captured id; if another rebuild
     # started in the meantime, the stale hydration aborts.
@@ -1354,12 +1374,16 @@ async def index():
             return
         _started = time.perf_counter()
         # Designer needs full width; other views use centered max-w-7xl
-        if state.active_designer_project is not None or state.active_developer_workspace_id is not None:
+        if _mobile_client:
+            pass
+        elif state.active_designer_project is not None or state.active_developer_workspace_id is not None:
             _outer.classes(remove="max-w-7xl mx-auto px-4", add="px-2")
         else:
             _outer.classes(remove="px-2", add="max-w-7xl mx-auto px-4")
 
         def _view_name() -> str:
+            if _mobile_client:
+                return "mobile"
             if state.active_designer_project is not None:
                 return "designer"
             if state.active_developer_workspace_id is not None:
@@ -1367,6 +1391,26 @@ async def index():
             if state.thread_id is None:
                 return "home"
             return "chat"
+
+        def _build_standard_chat() -> None:
+            build_chat(
+                state, p,
+                rebuild_main=_rebuild_main,
+                rebuild_thread_list=rebuild_thread_list,
+                send_message=_send_message,
+                open_settings=_open_settings,
+                open_export=_open_export,
+                show_interrupt=cb.show_interrupt,
+                add_chat_message=(
+                    lambda msg, **kwargs: add_chat_message(
+                        msg,
+                        p,
+                        state.thread_id,
+                        **kwargs,
+                    )
+                ),
+                browse_file=browse_file,
+            )
 
         def _build_real() -> None:
             if p.main_col is None:
@@ -1377,7 +1421,24 @@ async def index():
             except Exception:
                 logger.debug("Could not update docs capture surface selector", exc_info=True)
             with p.main_col:
-                if state.active_designer_project is not None:
+                if _mobile_client:
+                    build_mobile_shell(
+                        state, p,
+                        rebuild_main=_rebuild_main,
+                        rebuild_thread_list=rebuild_thread_list,
+                        send_message=_send_message,
+                        show_task_dialog=_show_task_dialog,
+                        load_thread_messages=load_thread_messages,
+                        open_settings=_open_settings,
+                        show_interrupt=cb.show_interrupt,
+                        add_chat_message=lambda msg, **kwargs: add_chat_message(
+                            msg,
+                            p,
+                            state.thread_id,
+                            **kwargs,
+                        ),
+                    )
+                elif state.active_designer_project is not None:
                     from row_bot.designer.editor import build_designer_editor
 
                     def _exit_designer():
@@ -1456,24 +1517,7 @@ async def index():
                         open_settings=_open_settings,
                     )
                 else:
-                    build_chat(
-                        state, p,
-                        rebuild_main=_rebuild_main,
-                        rebuild_thread_list=rebuild_thread_list,
-                        send_message=_send_message,
-                        open_settings=_open_settings,
-                        open_export=_open_export,
-                        show_interrupt=cb.show_interrupt,
-                        add_chat_message=(
-                            lambda msg, **kwargs: add_chat_message(
-                                msg,
-                                p,
-                                state.thread_id,
-                                **kwargs,
-                            )
-                        ),
-                        browse_file=browse_file,
-                    )
+                    _build_standard_chat()
             log_ui_perf(
                 "app.main.rebuild.build",
                 (time.perf_counter() - _real_started) * 1000.0,
@@ -1511,7 +1555,9 @@ async def index():
         )
         p.main_col.clear()
         with p.main_col:
-            if state.active_designer_project is not None:
+            if _mobile_client:
+                show_generic_skeleton()
+            elif state.active_designer_project is not None:
                 show_generic_skeleton()
             elif state.active_developer_workspace_id is not None:
                 show_generic_skeleton()

@@ -32,6 +32,7 @@ class ComposerExtrasConfig:
     enabled_tool_names: Callable[[], list[str]] | None = None
     last_user_text: Callable[[], str] | None = None
     skill_button_tooltip: str | None = None
+    compact_skill_chips: bool = False
 
 
 def chat_enabled_tool_names() -> list[str]:
@@ -64,6 +65,7 @@ def create_chat_composer_extras(
     new_thread: Callable[[], Any] | None = None,
     on_skills_changed: Callable[[], None] | None = None,
     enabled_tool_names: Callable[[], list[str]] | None = None,
+    compact_skill_chips: bool = False,
 ) -> "ComposerExtrasController":
     """Create extras using normal chat/Designer Smart Skills semantics."""
 
@@ -79,6 +81,7 @@ def create_chat_composer_extras(
             enabled_tool_names=enabled_tool_names or chat_enabled_tool_names,
             last_user_text=lambda: last_user_message_text(state),
             skill_button_tooltip="Choose skills for this chat",
+            compact_skill_chips=compact_skill_chips,
         ),
     )
 
@@ -408,6 +411,7 @@ class ComposerExtrasController:
 
     def _open_skill_picker(self) -> None:
         self._refresh_available_skills()
+        self.active_skill_names = self._load_active_skill_names()
         picker_text = str(self.draft_state.get("text") or "").strip()
         if not picker_text and self.config.last_user_text:
             picker_text = self.config.last_user_text()
@@ -527,6 +531,11 @@ class ComposerExtrasController:
             _render_skill_list()
         dlg.open()
 
+    def open_skill_picker(self) -> None:
+        """Open the shared skill picker from an external composer control."""
+
+        self._open_skill_picker()
+
     def _get_skill(self, name: str):
         try:
             import row_bot.skills as skills_mod
@@ -545,6 +554,34 @@ class ComposerExtrasController:
             self.active_skill_names = self._ordered_skill_names(self.active_skill_names)
             draft_suggestions = self._suggestions_for_text(draft_text, limit=3)
             with self.skill_chips_row:
+                if self.config.compact_skill_chips:
+                    active_count = len(self.active_skill_names)
+                    label = "Skills" if active_count == 0 else f"Skills {active_count}"
+                    ui.button(label, icon="auto_fix_high", on_click=self._open_skill_picker).props(
+                        "outline dense no-caps size=sm"
+                    ).classes("text-xs").tooltip(self.config.skill_button_tooltip or "Choose skills for this chat")
+                    for suggestion in draft_suggestions[:1]:
+                        with ui.button(
+                            f"{suggestion.icon} {suggestion.display_name}",
+                        ).props("flat dense no-caps size=sm").classes("text-xs"):
+                            with ui.menu().classes("q-pa-sm"):
+                                ui.label(suggestion.description or suggestion.reason).classes(
+                                    "text-xs text-grey-5 q-mb-xs"
+                                )
+                                ui.button(
+                                    "Use",
+                                    icon="add",
+                                    on_click=lambda _, n=suggestion.name: self.use_skill(
+                                        n,
+                                        source="ui_draft_suggestion",
+                                    ),
+                                ).props("flat dense no-caps size=sm")
+                                ui.button(
+                                    "Dismiss",
+                                    icon="close",
+                                    on_click=lambda _, n=suggestion.name: self._dismiss_suggestion(n),
+                                ).props("flat dense no-caps size=sm")
+                    return
                 label = "Skills"
                 ui.button(label, icon="auto_fix_high", on_click=self._open_skill_picker).props(
                     "outline dense no-caps size=sm"

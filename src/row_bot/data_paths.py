@@ -44,6 +44,12 @@ def get_threads_db_path(*, create_parent: bool = True) -> Path:
     return data_dir / "threads.db"
 
 
+def get_mobile_db_path(*, create_parent: bool = True) -> Path:
+    """Return the mobile companion auth database path."""
+    data_dir = get_row_bot_data_dir(create=create_parent)
+    return data_dir / "mobile.db"
+
+
 def describe_data_paths() -> dict[str, str]:
     """Return support-friendly local data paths."""
     data_dir = get_row_bot_data_dir()
@@ -52,5 +58,6 @@ def describe_data_paths() -> dict[str, str]:
         "tasks_db": str(data_dir / "tasks.db"),
         "memory_db": str(data_dir / "memory.db"),
         "threads_db": str(data_dir / "threads.db"),
+        "mobile_db": str(data_dir / "mobile.db"),
         "logs_dir": str(data_dir / "logs"),
     }

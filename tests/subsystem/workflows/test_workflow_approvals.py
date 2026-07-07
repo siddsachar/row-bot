@@ -51,6 +51,32 @@ def test_approval_resume_tokens_are_single_use(tmp_path, monkeypatch) -> None:
     assert tasks.get_pending_approvals() == []
 
 
+def test_approval_buddy_events_include_resume_token(tmp_path, monkeypatch) -> None:
+    tasks = fresh_tasks_module(tmp_path, monkeypatch)
+    from row_bot.buddy import events
+    from row_bot.buddy.events import BuddyEventBus, BuddyEventType
+
+    bus = BuddyEventBus()
+    monkeypatch.setattr(events, "_bus", bus)
+    monkeypatch.setattr(tasks, "_resume_pipeline", lambda *_args, **_kwargs: None)
+
+    token, request_id = tasks.create_approval_request("run-2", "task-2", "approval_1", "Approve?")
+    needed = bus.latest()
+
+    assert needed is not None
+    assert needed.type == BuddyEventType.APPROVAL_NEEDED
+    assert needed.payload["approval_id"] == request_id
+    assert needed.payload["resume_token"] == token
+
+    assert tasks.respond_to_approval(token, True, note="ok", source="web") is True
+    approved = bus.latest()
+
+    assert approved is not None
+    assert approved.type == BuddyEventType.APPROVAL_APPROVED
+    assert approved.payload["approval_id"] == request_id
+    assert approved.payload["resume_token"] == token
+
+
 def test_expired_approval_does_not_resume_pipeline(tmp_path, monkeypatch) -> None:
     tasks = fresh_tasks_module(tmp_path, monkeypatch)
     resumed: list[str] = []

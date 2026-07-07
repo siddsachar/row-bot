@@ -64,6 +64,7 @@ def test_runtime_persistence_modules_use_row_bot_data_dir(tmp_path):
             "insights",
             "memory_evolution",
             "memory_policy",
+            "data_paths",
         ]
         for name in modules:
             runtime_module(name)
@@ -105,6 +106,7 @@ def test_runtime_persistence_modules_use_row_bot_data_dir(tmp_path):
             "insights._DATA_DIR": runtime_module("insights")._DATA_DIR,
             "memory_evolution._DATA_DIR": runtime_module("memory_evolution")._DATA_DIR,
             "memory_policy._RECALL_TRACE_FILE": runtime_module("memory_policy")._RECALL_TRACE_FILE,
+            "data_paths.get_mobile_db_path": runtime_module("data_paths").get_mobile_db_path(),
         }
 
         payload = {

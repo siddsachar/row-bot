@@ -1,0 +1,108 @@
+from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
+
+
+def test_mobile_chat_has_list_detail_and_back_contract() -> None:
+    src = Path("src/row_bot/ui/mobile_chat.py").read_text(encoding="utf-8")
+
+    assert "def build_mobile_thread_list(" in src
+    assert "def build_mobile_thread_detail(" in src
+    assert "data-docs-id=mobile-chat-detail" in src
+    assert "arrow_back" in src
+    assert "mobile_chat_back" in src
+    assert "build_chat_input_bar" not in src
+
+
+def test_mobile_thread_list_creates_threads_before_composing() -> None:
+    src = Path("src/row_bot/ui/mobile_chat.py").read_text(encoding="utf-8")
+    list_section = src.split("def build_mobile_thread_list(", 1)[1].split("def build_mobile_thread_detail(", 1)[0]
+
+    assert "New thread" in list_section
+    assert "create_mobile_thread(" in list_section
+    assert "_build_mobile_thread_composer(" not in list_section
+    assert "send_message" not in list_section
+    assert "Send a message above" not in src
+    assert "create_thread(name, thread_id=tid" in src
+
+
+def test_mobile_active_thread_composer_uses_shared_chat_controls() -> None:
+    src = Path("src/row_bot/ui/mobile_chat.py").read_text(encoding="utf-8")
+
+    assert "data-docs-id=mobile-chat-composer" in src
+    assert "attach_file" in src
+    assert "mobile-chat-controls" in src
+    assert "send_message(text)" in src
+    assert "create_chat_composer_extras(" in src
+    assert "composer_extras.attach_input(text_input)" in src
+    assert "composer_extras.open_skill_picker()" in src
+    assert "compact_skill_chips=True" in src
+    assert "_set_thread_model_override" in src
+    assert "_set_thread_approval_mode" in src
+    assert "_set_thread_agent_profile" in src
+    assert "_clear_thread_agent_profile" in src
+
+
+def test_mobile_active_thread_removes_space_heavy_policy_chrome() -> None:
+    src = Path("src/row_bot/ui/mobile_chat.py").read_text(encoding="utf-8")
+    detail_section = src.split("def build_mobile_thread_detail(", 1)[1].split("def build_mobile_chat(", 1)[0]
+
+    assert "row-bot-mobile-policy-banner" not in detail_section
+    assert "Cloud model: messages may be sent to the provider." not in detail_section
+    assert "_current_model_label(state)} - {_current_agent_profile_label(state)}" not in detail_section
+    assert "row-bot-mobile-policy-chip" in src
+    assert "_mobile_generation_active(state)" in src
+
+
+def test_mobile_chat_mode_defaults_to_thread_list_without_active_thread() -> None:
+    from row_bot.ui.mobile_chat import mobile_chat_mode
+
+    state = SimpleNamespace(thread_id=None)
+
+    assert mobile_chat_mode(state) == "threads"
+    assert state.mobile_chat_mode == "threads"
+
+
+def test_create_mobile_thread_sets_active_detail_state(monkeypatch) -> None:
+    from row_bot.ui import mobile_chat
+
+    calls: list[tuple] = []
+    state = SimpleNamespace(
+        thread_id="previous",
+        thread_approval_mode="block",
+        active_designer_project="project",
+        active_developer_workspace_id="workspace",
+        messages=[{"role": "user", "content": "old"}],
+        tts_service=SimpleNamespace(stop=lambda: None),
+    )
+    p = SimpleNamespace(pending_files=[{"name": "x"}])
+
+    monkeypatch.setattr(mobile_chat.uuid, "uuid4", lambda: SimpleNamespace(hex="abc123def4567890"))
+    monkeypatch.setattr(mobile_chat, "create_thread", lambda name, **kwargs: calls.append(("create", name, kwargs)))
+    monkeypatch.setattr(mobile_chat, "set_active_thread", lambda tid, previous_id=None: calls.append(("active", tid, previous_id)))
+    monkeypatch.setattr(mobile_chat, "stop_voice_for_thread_change", lambda *args, **kwargs: calls.append(("voice", kwargs)))
+
+    def load_messages(thread_id: str) -> list[dict]:
+        calls.append(("load", thread_id))
+        return []
+
+    def rebuild_main(**kwargs) -> None:
+        calls.append(("rebuild", kwargs))
+
+    thread_id = mobile_chat.create_mobile_thread(
+        state=state,
+        p=p,
+        load_thread_messages=load_messages,
+        rebuild_main=rebuild_main,
+    )
+
+    assert thread_id == "abc123def456"
+    assert state.thread_id == "abc123def456"
+    assert state.mobile_chat_mode == "thread"
+    assert state.mobile_view == "Chat"
+    assert state.messages == []
+    assert p.pending_files == []
+    assert calls[0][0] == "voice"
+    assert calls[1][0] == "create"
+    assert calls[-1] == ("rebuild", {"immediate": True, "reason": "mobile_new_thread"})
