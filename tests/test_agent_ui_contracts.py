@@ -366,7 +366,8 @@ def test_main_shell_reserves_fixed_drawers_and_activity_center_width():
     assert "rightOverlap" in app
     assert "margin-left: var(--row-bot-left-drawer-width)" not in app
     assert "margin-right: var(--row-bot-command-center-width)" not in app
-    assert "_main_shell = ui.element(\"div\").classes(\"row-bot-main-shell\")" in app
+    assert '_main_shell_classes = "row-bot-main-shell row-bot-mobile-root" if _mobile_client else "row-bot-main-shell"' in app
+    assert '_main_shell = ui.element("div").classes(_main_shell_classes)' in app
     assert "with _main_shell:" in app
     assert "width: var(--row-bot-left-drawer-width, 280px);" in sidebar
     assert 'data-row-bot-left-drawer' in sidebar
