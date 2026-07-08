@@ -57,6 +57,17 @@ _SIDEBAR_AVATAR_CSS = """
   min-height: 24px;
   transition: opacity 120ms ease, color 120ms ease;
 }
+.row-bot-thread-row .row-bot-thread-activity-slot {
+  width: 18px;
+  min-width: 18px;
+  padding-right: 0;
+  align-items: center;
+}
+.row-bot-thread-row .row-bot-thread-activity-spinner {
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+}
 .row-bot-thread-row .row-bot-pin-toggle-unpinned {
   opacity: 0;
 }
@@ -98,6 +109,11 @@ def _thread_row_is_pinned(row: tuple) -> bool:
 
 def _thread_row_updated_at(row: tuple) -> str:
     return str(row[3] or "") if len(row) > 3 else ""
+
+
+def _thread_has_active_generation(thread_id: str) -> bool:
+    gen = _active_generations.get(thread_id)
+    return bool(gen and str(getattr(gen, "status", "") or "").lower() == "streaming")
 
 
 def _sort_classified_thread_rows(
@@ -177,6 +193,17 @@ def _render_pin_toggle_button(
         + ("row-bot-pin-toggle-pinned" if is_pinned else "row-bot-pin-toggle-unpinned")
     ).tooltip(label)
     btn.on("click", js_handler="(e) => e.stopPropagation()")
+
+
+def _render_thread_activity_indicator(label: str) -> None:
+    with ui.item_section().props("avatar").classes("row-bot-thread-activity-slot").style(
+        "width: 18px; min-width: 18px; padding-right: 0;"
+    ):
+        spinner = ui.spinner("oval", size="xs", color="primary").classes(
+            "row-bot-thread-activity-spinner"
+        )
+        spinner.props(f'role="status" aria-label="{label}"')
+        spinner.tooltip(label)
 
 
 def _render_action_menu_item(
@@ -748,6 +775,15 @@ def build_sidebar(
                 name = name or ""
                 is_active = tid == state.thread_id
                 is_pinned = _thread_row_is_pinned(row)
+                is_running = tid in running_tids
+                is_generating_tid = _thread_has_active_generation(tid)
+                activity_label = (
+                    "Generating response"
+                    if is_generating_tid
+                    else "Running workflow"
+                    if is_running
+                    else ""
+                )
 
                 async def _select(t=tid, n=name, mo=_thread_model_ov, pid=_thread_project_id, dev_ws=_dev_workspace_id, app_mode=_thread_approval_mode):
                     from row_bot.ui.voice_lifecycle import stop_voice_for_thread_change
@@ -885,6 +921,8 @@ def build_sidebar(
                 with ui.item(on_click=_select).classes(item_classes).props(
                     "clickable" + (" active" if is_active else "")
                 ).style(item_style):
+                    if activity_label:
+                        _render_thread_activity_indicator(activity_label)
                     with ui.item_section():
                         with ui.row().classes("items-center no-wrap gap-1").style(
                             "min-width: 0; max-width: 100%;"

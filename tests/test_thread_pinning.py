@@ -4,6 +4,7 @@ import importlib
 import sqlite3
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -272,6 +273,51 @@ def test_sidebar_places_interactive_thread_pin_toggle_before_action_menu():
     assert 'ui.icon("cloud"' not in thread_main_block
     assert 'ui.icon("code"' not in thread_main_block
     assert "_render_pinned_thread_icon" not in source
+
+
+def test_sidebar_places_active_thread_spinner_left_of_thread_title():
+    source = (ROOT / "src" / "row_bot" / "ui" / "sidebar.py").read_text(encoding="utf-8")
+    list_block = source.split("def _rebuild_thread_list()", 1)[1].split(
+        "if len(threads) > SIDEBAR_MAX_THREADS:",
+        1,
+    )[0]
+    sidebar_thread_block = list_block.split("with ui.item(on_click=_select)", 1)[1]
+    thread_main_block, thread_side_block = sidebar_thread_block.split(
+        'with ui.item_section().props("side")',
+        1,
+    )
+
+    assert "_thread_has_active_generation(tid)" in list_block
+    assert "is_running = tid in running_tids" in list_block
+    assert "row-bot-thread-activity-slot" in source
+    assert "row-bot-thread-activity-spinner" in source
+    assert 'ui.spinner("oval", size="xs", color="primary")' in source
+    assert "_render_thread_activity_indicator(activity_label)" in thread_main_block
+    assert thread_main_block.index("_render_thread_activity_indicator(activity_label)") < thread_main_block.index(
+        "ui.item_label(name)"
+    )
+    assert "_render_pin_toggle_button(" not in thread_main_block
+    assert "_render_pin_toggle_button(" in thread_side_block
+
+
+def test_sidebar_active_generation_indicator_only_tracks_streaming_status():
+    from row_bot.ui import sidebar
+    from row_bot.ui.state import _active_generations
+
+    previous = dict(_active_generations)
+    try:
+        _active_generations.clear()
+        _active_generations["streaming"] = SimpleNamespace(status="streaming")
+        _active_generations["done"] = SimpleNamespace(status="done")
+        _active_generations["stopped"] = SimpleNamespace(status="stopped")
+
+        assert sidebar._thread_has_active_generation("streaming") is True
+        assert sidebar._thread_has_active_generation("done") is False
+        assert sidebar._thread_has_active_generation("stopped") is False
+        assert sidebar._thread_has_active_generation("missing") is False
+    finally:
+        _active_generations.clear()
+        _active_generations.update(previous)
 
 
 def test_sidebar_developer_groups_keep_pinned_children_inside_project_folders():
