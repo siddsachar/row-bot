@@ -227,7 +227,7 @@ from row_bot.ui.transcript import (
 )
 
 # ── Backend imports ──────────────────────────────────────────────────────────
-from row_bot.threads import rename_thread, should_auto_rename_thread
+from row_bot.threads import build_auto_thread_title, rename_thread, should_auto_rename_thread
 from row_bot.models import (
     get_current_model, is_cloud_model, is_cloud_available,
     is_model_local, refresh_cloud_models,
@@ -2040,7 +2040,11 @@ async def index():
             if state.tts_service and state.tts_service.enabled:
                 state.tts_service.stop()
             if state.thread_id and should_auto_rename_thread(state.thread_id, state.thread_name):
-                state.thread_name = rename_thread(state.thread_id, text[:50], source="auto")
+                state.thread_name = rename_thread(
+                    state.thread_id,
+                    build_auto_thread_title(text, current_name=state.thread_name),
+                    source="auto",
+                )
                 rebuild_thread_list()
             asyncio.create_task(_voice_bridge.submit_user_transcript(text))
 

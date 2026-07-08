@@ -81,6 +81,20 @@ def test_voice_agent_bridge_can_cancel_active_run():
     assert gen.stop_event.is_set() is True
 
 
+def test_voice_agent_bridge_delegates_cancel_to_shared_callback():
+    gen = FakeGeneration()
+    calls = []
+    bridge = VoiceAgentBridge(
+        send_message=lambda *args, **kwargs: None,
+        active_generation=lambda: gen,
+        cancel_generation=lambda active: calls.append(active) or True,
+    )
+
+    assert bridge.cancel_active_run() is True
+    assert calls == [gen]
+    assert gen.stop_event.is_set() is False
+
+
 def test_voice_agent_bridge_idle_status_and_cancel():
     bridge = VoiceAgentBridge(send_message=lambda *args, **kwargs: None, active_generation=lambda: None)
 

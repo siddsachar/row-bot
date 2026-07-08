@@ -20,11 +20,13 @@ import queue
 import threading
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable
 
 from nicegui import run, ui
 
+from row_bot.cancellation import CancellationScope, use_cancellation_scope
 from row_bot.ui.state import AppState, GenerationState, P, _active_generations
 from row_bot.ui.constants import (
 
@@ -67,6 +69,17 @@ logger = logging.getLogger(__name__)
 STREAM_RENDER_MIN_INTERVAL_SECONDS = 0.075
 STREAM_RENDER_MIN_CHARS = 64
 STREAM_RENDER_MAX_INTERVAL_SECONDS = 0.25
+
+
+@dataclass(frozen=True)
+class StopResult:
+    status: str
+    thread_id: str
+    generation_id: str = ""
+
+    @property
+    def stopped(self) -> bool:
+        return self.status in {"stopped", "already_stopped"}
 
 
 def _profile_runtime_config_for_thread(thread_id: str) -> dict[str, Any]:
@@ -500,6 +513,142 @@ def _drop_terminal_active_generation(thread_id: str | None) -> bool:
 
 
 # ── Type alias for the callback bundle ───────────────────────────────
+def _stop_generation_voice_outputs(gen: GenerationState, state: AppState | None, p: P | None) -> None:
+    if state is None:
+        return
+    coordinator = getattr(state, "voice_coordinator", None)
+    if coordinator is not None and getattr(coordinator, "transport", "") == "realtime":
+        try:
+            from row_bot.voice.realtime_client import stop_realtime_client_js
+
+            if p is not None:
+                run_realtime_client_js(p, stop_realtime_client_js(), context="stop_realtime_on_stop")
+        except Exception:
+            logger.debug("Realtime stop JS dispatch failed", exc_info=True)
+        try:
+            state.voice_enabled = False
+            coordinator.stop()
+        except Exception:
+            logger.debug("Realtime coordinator stop failed", exc_info=True)
+    tts = getattr(state, "tts_service", None)
+    if tts and getattr(tts, "enabled", False):
+        try:
+            tts.stop()
+        except Exception:
+            logger.debug("TTS stop failed", exc_info=True)
+        try:
+            if coordinator is not None and getattr(coordinator, "is_running", False):
+                coordinator.unmute()
+        except Exception:
+            logger.debug("Voice coordinator unmute after stop failed", exc_info=True)
+    gen.tts_active = False
+
+
+def _stop_generation_child_agent_runs(gen: GenerationState) -> None:
+    run_ids = {
+        str(run_id).strip()
+        for run_id in [
+            *list(getattr(gen, "live_agent_run_ids", set()) or []),
+            *list(getattr(gen, "live_async_agent_run_ids", set()) or []),
+        ]
+        if str(run_id or "").strip()
+    }
+    try:
+        baseline = {
+            str(run_id).strip()
+            for run_id in getattr(gen, "baseline_child_agent_run_ids", set()) or set()
+            if str(run_id or "").strip()
+        }
+        run_ids.update(_child_agent_run_ids_for_thread(gen.thread_id) - baseline)
+    except Exception:
+        logger.debug("Could not enumerate child Agent runs during generation stop", exc_info=True)
+    if not run_ids:
+        return
+    try:
+        from row_bot.agent_runner import stop_agent_run
+    except Exception:
+        logger.debug("Could not import child Agent stop helper", exc_info=True)
+        return
+    for run_id in sorted(run_ids):
+        try:
+            stop_agent_run(run_id)
+        except Exception:
+            logger.debug("Failed to stop child Agent run %s", run_id, exc_info=True)
+
+
+def request_generation_stop(
+    thread_id: str | None,
+    *,
+    state: AppState | None = None,
+    p: P | None = None,
+    reason: str = "user",
+) -> StopResult:
+    """Request cancellation for the active generation and release the UI promptly."""
+
+    normalized_thread_id = str(thread_id or "")
+    gen = _active_generations.get(normalized_thread_id)
+    if gen is None:
+        fallback_event = getattr(state, "stop_event", None)
+        if fallback_event is not None:
+            try:
+                fallback_event.set()
+            except Exception:
+                logger.debug("Fallback state stop_event set failed", exc_info=True)
+        if p is not None and getattr(p, "stop_btn", None) and not _ui_handle_client_deleted(p.stop_btn):
+            try:
+                p.stop_btn.props("icon=stop")
+                p.stop_btn.disable()
+            except Exception:
+                logger.debug("Idle stop_btn reset failed", exc_info=True)
+        return StopResult(status="not_found", thread_id=normalized_thread_id)
+
+    already_stopped = bool(gen.stop_event.is_set() or str(getattr(gen, "status", "")) == "stopped")
+    gen.stop_reason = str(reason or "user")
+    if not gen.stop_requested_at:
+        gen.stop_requested_at = time.perf_counter()
+    gen.status = "stopped"
+
+    scope = getattr(gen, "cancel_scope", None)
+    if scope is not None:
+        try:
+            scope.cancel(gen.stop_reason)
+        except Exception:
+            logger.debug("Cancellation scope cancel failed", exc_info=True)
+            gen.stop_event.set()
+    else:
+        gen.stop_event.set()
+
+    _stop_generation_child_agent_runs(gen)
+    _stop_generation_voice_outputs(gen, state, p)
+
+    if p is not None and getattr(p, "stop_btn", None) and not _ui_handle_client_deleted(p.stop_btn):
+        try:
+            p.stop_btn.props("icon=stop")
+            p.stop_btn.disable()
+        except Exception:
+            logger.debug("Stop button immediate disable failed", exc_info=True)
+
+    if _active_generations.get(normalized_thread_id) is gen:
+        _active_generations.pop(normalized_thread_id, None)
+        logger.info(
+            "Stopped and detached active generation for thread %s generation=%s",
+            normalized_thread_id,
+            gen.generation_id,
+        )
+
+    if not already_stopped and not getattr(gen, "stopped_marker_rendered", False):
+        try:
+            gen.q.put(("stopped", {"reason": gen.stop_reason}))
+        except Exception:
+            logger.debug("Failed to enqueue stopped event", exc_info=True)
+
+    return StopResult(
+        status="already_stopped" if already_stopped else "stopped",
+        thread_id=normalized_thread_id,
+        generation_id=str(getattr(gen, "generation_id", "") or ""),
+    )
+
+
 def _set_expansion_title(expansion: Any, title: str, icon: str) -> None:
     """Update a NiceGUI expansion title without relying on a public setter."""
 
@@ -2081,7 +2230,6 @@ async def consume_generation(
     )
 
     _stopped_shown = False
-    _drain_deadline = 0.0
     _last_buddy_token_at = 0.0
     _consume_started = time.perf_counter()
     if not gen.generation_id:
@@ -2413,6 +2561,37 @@ async def consume_generation(
         _flush_answer_render(f"{reason} answer render", force=force)
         _flush_thinking_render(f"{reason} thinking render", force=force)
 
+    def _show_stopped(reason: str) -> None:
+        nonlocal _stopped_shown
+        if _stopped_shown:
+            return
+        _stopped_shown = True
+        gen.status = "stopped"
+        gen.stopped_marker_rendered = True
+        _set_realtime_generation_state("stopped", detail=reason)
+        if "*[Stopped]*" not in str(gen.accumulated or ""):
+            gen.accumulated += "\n\n*[Stopped]*"
+        if not gen.detached:
+            try:
+                if gen.thinking_label:
+                    gen.thinking_label.delete()
+                    gen.thinking_label = None
+                if gen.thinking_md:
+                    gen.thinking_md.delete()
+                    gen.thinking_md = None
+                if gen.assistant_md:
+                    gen.assistant_md.set_visibility(True)
+                _flush_live_renders("stop-handling", force=True)
+            except Exception as exc:
+                _handle_ui_runtime_error(gen, state, exc, "stop-handling UI cleanup")
+                logger.debug("Stop-handling UI cleanup failed", exc_info=True)
+        if gen.tts_active:
+            try:
+                state.tts_service.stop()
+            except Exception:
+                logger.debug("TTS stop failed during generation stop", exc_info=True)
+            gen.tts_active = False
+
     _buddy(BuddyEventType.GENERATION_STARTED, "Thinking")
     _set_realtime_generation_state("thinking", detail="generation_started")
     _voice_diag("generation_consumer_started")
@@ -2424,29 +2603,7 @@ async def consume_generation(
         _detach_if_thread_changed(gen, state, "active thread changed")
         # ── Stop handling ────────────────────────────────────────────
         if gen.stop_event.is_set() and not _stopped_shown:
-            _stopped_shown = True
-            gen.status = "stopped"
-            _set_realtime_generation_state("stopped", detail="stop_event")
-            gen.accumulated += "\n\n\u23f9\ufe0f *[Stopped]*"
-            _drain_deadline = asyncio.get_event_loop().time() + 30
-            if not gen.detached:
-                try:
-                    if gen.thinking_label:
-                        gen.thinking_label.delete()
-                        gen.thinking_label = None
-                    if gen.thinking_md:
-                        gen.thinking_md.delete()
-                        gen.thinking_md = None
-                    if gen.assistant_md:
-                        gen.assistant_md.set_visibility(True)
-                        _update_answer_render("stop-handling answer render", force=True)
-                except Exception as exc:
-                    _handle_ui_runtime_error(gen, state, exc, "stop-handling UI cleanup")
-                    logger.debug("Stop-handling UI cleanup failed", exc_info=True)
-            if gen.tts_active:
-                state.tts_service.stop()
-
-        if _stopped_shown and asyncio.get_event_loop().time() > _drain_deadline:
+            _show_stopped("stop_event")
             break
 
         try:
@@ -2480,6 +2637,9 @@ async def consume_generation(
             continue
 
         event_type, payload = event
+        if event_type == "stopped":
+            _show_stopped("stopped_event")
+            break
         event_seen_at = time.perf_counter()
         if not gen.first_producer_event_at:
             gen.first_producer_event_at = event_seen_at
@@ -2993,7 +3153,7 @@ async def consume_generation(
                     logger.debug("Empty queued-turn transcript refresh failed", exc_info=True)
 
     # Cleanup
-    queued_voice_controls = list(getattr(gen, "voice_control_queue", []) or [])
+    queued_voice_controls = [] if gen.stop_event.is_set() else list(getattr(gen, "voice_control_queue", []) or [])
     if _active_generations.get(gen.thread_id) is gen:
         _active_generations.pop(gen.thread_id, None)
 
@@ -3521,7 +3681,13 @@ async def send_message(
 ) -> None:
     """Send a message and stream the agent response."""
     from row_bot.agent import stream_agent, repair_orphaned_tool_calls, recursion_limit_for_mode
-    from row_bot.threads import create_thread, rename_thread, should_auto_rename_thread, touch_thread
+    from row_bot.threads import (
+        build_auto_thread_title,
+        create_thread,
+        rename_thread,
+        should_auto_rename_thread,
+        touch_thread,
+    )
     from row_bot.tools import registry as tool_registry
     from row_bot.ui.helpers import (
         materialize_chat_attachments,
@@ -3625,6 +3791,12 @@ async def send_message(
             bridge = VoiceAgentBridge(
                 send_message=lambda *args, **kwargs: None,
                 active_generation=lambda: _active_generations.get(state.thread_id),
+                cancel_generation=lambda _gen: request_generation_stop(
+                    state.thread_id,
+                    state=state,
+                    p=p,
+                    reason="voice_control",
+                ),
             )
             control = bridge.control_active_run(text)
             if control.get("handled"):
@@ -3857,7 +4029,7 @@ async def send_message(
             if should_auto_rename_thread(state.thread_id, state.thread_name):
                 state.thread_name = rename_thread(
                     state.thread_id,
-                    f"\U0001f4bb {display_content[:50]}",
+                    build_auto_thread_title(display_content, current_name=state.thread_name),
                     source="auto",
                 )
                 cb.rebuild_thread_list()
@@ -3930,7 +4102,7 @@ async def send_message(
     if not internal_goal_continuation and should_auto_rename_thread(state.thread_id, state.thread_name):
         state.thread_name = rename_thread(
             state.thread_id,
-            f"\U0001f4bb {display_content[:50]}",
+            build_auto_thread_title(display_content, current_name=state.thread_name),
             source="auto",
         )
         cb.rebuild_thread_list()
@@ -4015,10 +4187,12 @@ async def send_message(
 
     # ── Create generation state ──────────────────────────────────────
     stop_ev = threading.Event()
+    cancel_scope = CancellationScope(stop_ev)
     gen = GenerationState(
         thread_id=gen_thread_id,
         q=queue.Queue(),
         stop_event=stop_ev,
+        cancel_scope=cancel_scope,
         config=config,
         enabled_tools=enabled_tools,
         generation_id=generation_id,
@@ -4061,6 +4235,8 @@ async def send_message(
 
     # ── Start producer thread ────────────────────────────────────────
     def _sync_stream():
+        scope_cm = use_cancellation_scope(cancel_scope)
+        scope_cm.__enter__()
         gen.producer_thread_started_at = time.perf_counter()
         first_event_logged = False
         try:
@@ -4133,7 +4309,10 @@ async def send_message(
                         "first_event_logged": first_event_logged,
                     },
                 )
-            gen.q.put(None)
+            try:
+                gen.q.put(None)
+            finally:
+                scope_cm.__exit__(None, None, None)
 
     threading.Thread(target=_sync_stream, daemon=True).start()
 
@@ -4262,10 +4441,12 @@ async def resume_after_interrupt(
         enabled_tools = effective_tool_names(enabled_tools)
 
     stop_ev = threading.Event()
+    cancel_scope = CancellationScope(stop_ev)
     gen = GenerationState(
         thread_id=gen_thread_id,
         q=queue.Queue(),
         stop_event=stop_ev,
+        cancel_scope=cancel_scope,
         config=config,
         enabled_tools=enabled_tools,
         generation_id=generation_id,
@@ -4284,6 +4465,8 @@ async def resume_after_interrupt(
 
     # ── Start producer thread ────────────────────────────────────────
     def _sync_resume():
+        scope_cm = use_cancellation_scope(cancel_scope)
+        scope_cm.__enter__()
         gen.producer_thread_started_at = time.perf_counter()
         try:
             for ev in resume_stream_agent(
@@ -4317,7 +4500,10 @@ async def resume_after_interrupt(
                     repair_orphaned_tool_calls(enabled_tools, config)
                 except Exception:
                     logger.debug("repair_orphaned_tool_calls failed in resume finally", exc_info=True)
-            gen.q.put(None)
+            try:
+                gen.q.put(None)
+            finally:
+                scope_cm.__exit__(None, None, None)
 
     threading.Thread(target=_sync_resume, daemon=True).start()
 

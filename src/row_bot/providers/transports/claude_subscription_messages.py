@@ -10,6 +10,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, Huma
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import Runnable
 
+from row_bot.cancellation import current_cancellation_scope
 from row_bot.providers import claude_subscription as claude_auth
 
 CLAUDE_SUBSCRIPTION_MESSAGES_BASE_URL = claude_auth.CLAUDE_SUBSCRIPTION_API_ROOT_URL
@@ -66,7 +67,10 @@ class ChatClaudeSubscriptionMessages(BaseChatModel):
     ) -> Iterator[ChatGenerationChunk]:
         request = self._request_kwargs(messages, stop=stop, **kwargs)
         tool_blocks: dict[int, dict[str, str]] = {}
+        scope = current_cancellation_scope()
         for event in self._stream_message_events(request):
+            if scope is not None and scope.is_cancelled():
+                return
             payload = _plain_data(event)
             event_type = str(payload.get("type") or "")
             if event_type == "content_block_start":
@@ -109,6 +113,8 @@ class ChatClaudeSubscriptionMessages(BaseChatModel):
                     continue
             if event_type == "error":
                 raise RuntimeError(f"Claude Subscription stream failed: {_event_error_message(payload)}")
+        if scope is not None and scope.is_cancelled():
+            return
         yield ChatGenerationChunk(message=AIMessageChunk(content="", chunk_position="last"))
 
     def _request_kwargs(
@@ -147,17 +153,44 @@ class ChatClaudeSubscriptionMessages(BaseChatModel):
 
     def _stream_message_events(self, request: dict[str, Any]) -> Iterator[Any]:
         client = self._sdk_client()
+        scope = current_cancellation_scope()
+        unregister_callbacks: list[Any] = []
         try:
-            with client.messages.stream(**request) as stream:
-                yield from stream
+            stream_context = client.messages.stream(**request)
+            with stream_context as stream:
+                if scope is not None:
+                    unregister_callbacks.extend(_register_stream_cancellation(scope, (stream, stream_context), "claude_subscription_stream"))
+                    if scope.is_cancelled():
+                        return
+                for event in stream:
+                    if scope is not None and scope.is_cancelled():
+                        return
+                    yield event
         except Exception as exc:
+            if scope is not None and scope.is_cancelled():
+                logger.debug("claude_subscription_stream: stream cancelled model=%s", self.model_name)
+                return
             if _status_code_from_exception(exc) == 401 and self._refresh_access_token_if_possible():
                 client = self._sdk_client()
-                with client.messages.stream(**request) as stream:
-                    yield from stream
+                stream_context = client.messages.stream(**request)
+                with stream_context as stream:
+                    if scope is not None:
+                        unregister_callbacks.extend(_register_stream_cancellation(scope, (stream, stream_context), "claude_subscription_retry_stream"))
+                        if scope.is_cancelled():
+                            return
+                    for event in stream:
+                        if scope is not None and scope.is_cancelled():
+                            return
+                        yield event
                 return
             logger.warning("claude_subscription_stream: stream failed: %s", exc)
             raise RuntimeError(_normalized_exception(exc)) from exc
+        finally:
+            for unregister in reversed(unregister_callbacks):
+                try:
+                    unregister()
+                except Exception:
+                    logger.debug("claude_subscription_stream: unregister cancellation callback failed", exc_info=True)
 
     def _sdk_client(self) -> Any:
         if self.anthropic_client is not None:
@@ -207,6 +240,22 @@ def _plain_data(value: Any) -> Any:
             if not str(key).startswith("_")
         }
     return value
+
+
+def _register_stream_cancellation(scope: Any, targets: tuple[Any, ...], label: str) -> list[Any]:
+    unregister_callbacks: list[Any] = []
+    seen: set[tuple[int, str]] = set()
+    for target in targets:
+        for method_name in ("close", "cancel"):
+            method = getattr(target, method_name, None)
+            if not callable(method):
+                continue
+            key = (id(target), method_name)
+            if key in seen:
+                continue
+            seen.add(key)
+            unregister_callbacks.append(scope.register(method, f"{label}.{method_name}"))
+    return unregister_callbacks
 
 
 def _status_code_from_exception(exc: Exception) -> int:

@@ -45,7 +45,13 @@ THREAD_NAME_SOURCE_AUTO = "auto"
 THREAD_NAME_SOURCE_MANUAL = "manual"
 _THREAD_NAME_SOURCES = {THREAD_NAME_SOURCE_AUTO, THREAD_NAME_SOURCE_MANUAL}
 _THREAD_NAME_MAX_LENGTH = 120
-_DEFAULT_AUTO_NAME_PREFIXES = ("Thread ", "\U0001f4bb Thread ")
+_DESKTOP_THREAD_BADGE = "\U0001f4bb"
+_MOBILE_THREAD_BADGE = "\U0001f4f1"
+_DEFAULT_AUTO_NAME_PREFIXES = (
+    "Thread ",
+    f"{_DESKTOP_THREAD_BADGE} Thread ",
+    f"{_MOBILE_THREAD_BADGE} Thread ",
+)
 
 
 def _init_thread_db(*, raise_on_error: bool = False):
@@ -394,6 +400,24 @@ def _normalize_thread_name(name: str, *, fallback: str | None = None) -> str:
     return normalized[:_THREAD_NAME_MAX_LENGTH].rstrip() or (fallback or "Untitled")
 
 
+def _auto_thread_badge_for_name(name: str | None) -> str:
+    value = str(name or "").strip()
+    mobile_placeholder = f"{_MOBILE_THREAD_BADGE} Thread"
+    if value == mobile_placeholder or value.startswith(f"{mobile_placeholder} "):
+        return _MOBILE_THREAD_BADGE
+    return _DESKTOP_THREAD_BADGE
+
+
+def build_auto_thread_title(seed_text: str, *, current_name: str | None = None) -> str:
+    """Build a generated thread title while preserving the placeholder surface badge."""
+    badge = _auto_thread_badge_for_name(current_name)
+    seed = _normalize_thread_name(seed_text, fallback="Thread")
+    return _normalize_thread_name(
+        f"{badge} {seed[:50]}",
+        fallback=f"{badge} Thread",
+    )
+
+
 def _normalize_thread_name_source(source: str | None) -> str:
     value = str(source or "").strip().lower()
     return value if value in _THREAD_NAME_SOURCES else THREAD_NAME_SOURCE_AUTO
@@ -585,7 +609,11 @@ def _looks_like_auto_thread_name(name: str | None) -> bool:
     value = str(name or "").strip()
     if not value:
         return True
-    if value in {"Thread", "\U0001f4bb Thread"}:
+    if value in {
+        "Thread",
+        f"{_DESKTOP_THREAD_BADGE} Thread",
+        f"{_MOBILE_THREAD_BADGE} Thread",
+    }:
         return True
     return any(value.startswith(prefix) for prefix in _DEFAULT_AUTO_NAME_PREFIXES)
 

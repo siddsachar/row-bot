@@ -225,11 +225,17 @@ async def _handle_function_call(
 ) -> None:
     from row_bot.voice.agent_bridge import VoiceAgentBridge
     from row_bot.voice.realtime_client import send_realtime_function_output_js
-    from row_bot.ui.streaming import run_realtime_client_js
+    from row_bot.ui.streaming import request_generation_stop, run_realtime_client_js
 
     bridge = VoiceAgentBridge(
         send_message=send_message,
         active_generation=lambda: _active_generations.get(state.thread_id),
+        cancel_generation=lambda _gen: request_generation_stop(
+            state.thread_id,
+            state=state,
+            p=p,
+            reason="realtime_control",
+        ),
         surface=lambda: _active_surface(state),
         thread_id=lambda: state.thread_id,
     )
@@ -282,10 +288,16 @@ async def _handle_forced_fallback(
     session_id: int | None,
 ) -> None:
     from row_bot.voice.agent_bridge import VoiceAgentBridge
+    from row_bot.ui.streaming import request_generation_stop
 
     bridge = VoiceAgentBridge(
         send_message=send_message,
         active_generation=lambda: _active_generations.get(state.thread_id),
+        cancel_generation=lambda _gen: request_generation_stop(
+            state.thread_id,
+            state=state,
+            reason="realtime_forced_fallback",
+        ),
         surface=lambda: _active_surface(state),
         thread_id=lambda: state.thread_id,
     )

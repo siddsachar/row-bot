@@ -28,6 +28,7 @@ from row_bot.ui.render import (
     render_image_with_save,
 )
 from row_bot.ui.performance import log_ui_perf
+from row_bot.ui.streaming import request_generation_stop
 from row_bot.ui.timer_utils import defer_ui
 from row_bot.ui.transcript import (
     TRANSCRIPT_CHUNK_TARGET_MS,
@@ -1764,23 +1765,7 @@ def build_chat(
         )
 
         def _on_stop():
-            gen = _active_generations.get(state.thread_id)
-            if gen:
-                gen.stop_event.set()
-            if state.voice_coordinator and state.voice_coordinator.transport == "realtime":
-                from row_bot.voice.realtime_client import stop_realtime_client_js
-                from row_bot.ui.streaming import run_realtime_client_js
-
-                run_realtime_client_js(p, stop_realtime_client_js(), context="stop_realtime_on_stop")
-                state.voice_enabled = False
-                state.voice_coordinator.stop()
-            tts = state.tts_service
-            if tts and tts.enabled:
-                tts.stop()
-                if state.voice_coordinator and state.voice_coordinator.is_running:
-                    state.voice_coordinator.unmute()
-            if p.stop_btn:
-                p.stop_btn.props('icon=hourglass_top')
+            request_generation_stop(state.thread_id, state=state, p=p, reason="desktop_chat")
 
         # Bottom bar inside card: attach, model/approval, voice, spacer, send, stop
         with ui.row().classes("w-full row-bot-composer-toolbar q-px-sm q-pb-sm q-pt-none gap-1"):

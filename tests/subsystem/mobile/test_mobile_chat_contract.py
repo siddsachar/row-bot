@@ -35,6 +35,7 @@ def test_mobile_active_thread_composer_uses_shared_chat_controls() -> None:
     assert "mobile-chat-controls" in src
     assert "send_message(text)" in src
     assert "create_chat_composer_extras(" in src
+    assert "show_draft_suggestions=False" in src
     assert "composer_extras.attach_input(text_input)" in src
     assert "composer_extras.open_skill_picker()" in src
     assert "compact_skill_chips=True" in src
@@ -47,12 +48,42 @@ def test_mobile_active_thread_composer_uses_shared_chat_controls() -> None:
 def test_mobile_active_thread_removes_space_heavy_policy_chrome() -> None:
     src = Path("src/row_bot/ui/mobile_chat.py").read_text(encoding="utf-8")
     detail_section = src.split("def build_mobile_thread_detail(", 1)[1].split("def build_mobile_chat(", 1)[0]
+    composer = src.split("def _build_mobile_thread_composer(", 1)[1].split("def build_mobile_thread_list(", 1)[0]
 
     assert "row-bot-mobile-policy-banner" not in detail_section
     assert "Cloud model: messages may be sent to the provider." not in detail_section
     assert "_current_model_label(state)} - {_current_agent_profile_label(state)}" not in detail_section
+    assert "ui.badge(" not in composer
+    assert "row-bot-mobile-policy-badge" not in composer
     assert "row-bot-mobile-policy-chip" in src
     assert "_mobile_generation_active(state)" in src
+
+
+def test_mobile_composer_keeps_stop_button_visible_and_disabled_when_idle() -> None:
+    src = Path("src/row_bot/ui/mobile_chat.py").read_text(encoding="utf-8")
+    composer = src.split("def _build_mobile_thread_composer(", 1)[1].split("def build_mobile_thread_list(", 1)[0]
+
+    assert 'p.stop_btn = ui.button(icon="stop"' in composer
+    assert 'on_click=lambda: _stop_generation(state, p)' in composer
+    assert "p.stop_btn.disable()" in composer
+    assert 'if _mobile_generation_active(state):\n                ui.button(icon="stop"' not in composer
+
+
+def test_mobile_composer_places_skills_in_bottom_action_row_before_stop() -> None:
+    src = Path("src/row_bot/ui/mobile_chat.py").read_text(encoding="utf-8")
+    composer = src.split("def _build_mobile_thread_composer(", 1)[1].split("def build_mobile_thread_list(", 1)[0]
+
+    assert "composer_extras.render_before_input(" in composer
+    assert "render_skill_chips=False" in composer
+    assert "composer_extras.render_before_input()\n" not in composer
+    assert "row-bot-mobile-action-row" in composer
+    assert "row-bot-mobile-skill-chip-slot" in composer
+    assert "composer_extras.render_skill_chips(" in composer
+    assert (
+        composer.index("row-bot-mobile-skill-chip-slot")
+        < composer.index('p.stop_btn = ui.button(icon="stop"')
+        < composer.index('ui.button(icon="send"')
+    )
 
 
 def test_mobile_chat_mode_defaults_to_thread_list_without_active_thread() -> None:
@@ -105,4 +136,6 @@ def test_create_mobile_thread_sets_active_detail_state(monkeypatch) -> None:
     assert p.pending_files == []
     assert calls[0][0] == "voice"
     assert calls[1][0] == "create"
+    assert calls[1][1].startswith("\U0001f4f1 Thread ")
+    assert state.thread_name == calls[1][1]
     assert calls[-1] == ("rebuild", {"immediate": True, "reason": "mobile_new_thread"})

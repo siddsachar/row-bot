@@ -197,6 +197,43 @@ def test_tool_resource_and_prompt_wrappers_call_fake_runtime(monkeypatch) -> Non
         runtime._make_tool_func("missing", "read_file")(path="demo.txt")
 
 
+def test_mcp_tool_wrapper_returns_promptly_when_generation_scope_cancelled(monkeypatch) -> None:
+    from row_bot.cancellation import CancellationScope, use_cancellation_scope
+    from row_bot.mcp_client import runtime
+
+    class CancelFuture:
+        def __init__(self) -> None:
+            self.cancelled = False
+
+        def cancel(self):
+            self.cancelled = True
+            return True
+
+        def result(self, timeout=None):
+            raise AssertionError("cancelled MCP future should not be awaited")
+
+    server = runtime.McpServerRuntime("fake", {"tool_timeout": 1})
+    server.session = FakeSession()
+    future = CancelFuture()
+    with runtime._runtime_lock:
+        runtime._servers["fake"] = server
+
+    def fake_schedule(value):
+        if asyncio.iscoroutine(value):
+            value.close()
+        return future
+
+    monkeypatch.setattr(runtime, "_schedule", fake_schedule)
+    scope = CancellationScope()
+    scope.cancel("test")
+
+    with use_cancellation_scope(scope):
+        result = runtime._make_tool_func("fake", "read_file")(path="demo.txt")
+
+    assert result == "MCP tool call stopped by user."
+    assert future.cancelled is True
+
+
 def test_langchain_wrappers_allow_filters_destructive_names_and_status(monkeypatch) -> None:
     from row_bot.mcp_client import runtime
 

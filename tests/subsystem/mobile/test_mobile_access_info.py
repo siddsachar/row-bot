@@ -22,6 +22,18 @@ def test_access_info_marks_lan_setup_needed_without_remote_bind() -> None:
     assert "HTTP LAN" in lan["warning"]
 
 
+def test_access_info_preserves_multiple_lan_candidates_without_remote_bind() -> None:
+    info = build_access_info(port=8765, bind_host=None, lan_ips=("192.168.1.10", "10.0.0.7"))
+    lans = [candidate for candidate in info["candidates"] if candidate["access_mode"] == "lan"]
+
+    assert [candidate["url"] for candidate in lans] == [
+        "http://192.168.1.10:8765",
+        "http://10.0.0.7:8765",
+    ]
+    assert all(candidate["available"] is False for candidate in lans)
+    assert all(candidate["requires_bind"] is True for candidate in lans)
+
+
 def test_access_info_includes_tailscale_and_ngrok_candidates() -> None:
     state = TailscaleState(
         installed=True,
