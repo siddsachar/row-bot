@@ -110,7 +110,12 @@ class GenerationState:
     stop_event: threading.Event
     config: dict
     enabled_tools: list
+    cancel_scope: Any = None
     generation_id: str = ""
+    stop_requested_at: float = 0.0
+    stop_reason: str = ""
+    stopped_marker_rendered: bool = False
+    cleanup_complete: bool = False
     created_at: float = field(default_factory=time.perf_counter)
     producer_thread_started_at: float = 0.0
     first_producer_event_at: float = 0.0

@@ -12,7 +12,9 @@ def test_streaming_auto_title_uses_thread_name_source_guard():
 
     assert "should_auto_rename_thread" in send_block
     assert "rename_thread(" in send_block
+    assert "build_auto_thread_title(" in send_block
     assert "source=\"auto\"" in send_block
+    assert "f\"\\U0001f4bb {display_content[:50]}\"" not in send_block
     assert "state.thread_name.startswith(\"Thread \")" not in send_block
     assert "state.thread_name.startswith(\"\\U0001f4bb Thread \")" not in send_block
 
@@ -21,7 +23,9 @@ def test_voice_auto_title_uses_thread_name_source_guard():
     source = (ROOT / "src" / "row_bot" / "app.py").read_text(encoding="utf-8")
 
     assert "should_auto_rename_thread(state.thread_id, state.thread_name)" in source
-    assert "rename_thread(state.thread_id, text[:50], source=\"auto\")" in source
+    assert "build_auto_thread_title(text, current_name=state.thread_name)" in source
+    assert "source=\"auto\"" in source
+    assert "rename_thread(state.thread_id, text[:50], source=\"auto\")" not in source
     assert "state.thread_name.startswith(\"Thread \")" not in source
 
 

@@ -14,6 +14,7 @@ from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResu
 from langchain_core.runnables import Runnable
 from pydantic import Field
 
+from row_bot.cancellation import current_cancellation_scope
 from row_bot.providers import xai_oauth as xai_auth
 
 logger = logging.getLogger(__name__)
@@ -66,7 +67,10 @@ class ChatXAIOAuthResponses(BaseChatModel):
         tool_index = 0
         started = time.perf_counter()
         logger.info("xai_oauth_sse: stream start model=%s", self.model_name)
+        scope = current_cancellation_scope()
         for event in self._iter_response_events(body):
+            if scope is not None and scope.is_cancelled():
+                return
             event_type = event.get("type")
             if event_type == "response.output_text.delta":
                 delta = str(event.get("delta") or "")
@@ -95,6 +99,8 @@ class ChatXAIOAuthResponses(BaseChatModel):
                     if run_manager:
                         run_manager.on_llm_new_token(text, chunk=chunk)
                     yield chunk
+        if scope is not None and scope.is_cancelled():
+            return
         logger.info("xai_oauth_sse: stream complete after %.3fs model=%s", time.perf_counter() - started, self.model_name)
         yield ChatGenerationChunk(message=AIMessageChunk(content="", chunk_position="last"))
 
@@ -127,46 +133,84 @@ class ChatXAIOAuthResponses(BaseChatModel):
     def _iter_response_events(self, body: dict[str, Any]) -> Iterator[dict[str, Any]]:
         client = self.http_client or _new_http_client(self.timeout)
         owns_client = self.http_client is None
+        scope = current_cancellation_scope()
+        unregister_callbacks: list[Any] = []
         try:
+            if scope is not None and owns_client:
+                close_client = getattr(client, "close", None)
+                if callable(close_client):
+                    unregister_callbacks.append(scope.register(close_client, "xai_oauth_client.close"))
             if _body_has_input_image(body):
                 json_body = dict(body)
                 json_body.pop("stream", None)
-                yield from self._post_response_events(client, json_body)
+                yield from self._post_response_events(client, json_body, scope=scope)
                 return
             retry_after_refresh = False
             with self._stream_once(client, body) as response:
+                if scope is not None:
+                    close_response = getattr(response, "close", None)
+                    if callable(close_response):
+                        unregister_callbacks.append(scope.register(close_response, "xai_oauth_response.close"))
+                    if scope.is_cancelled():
+                        return
                 if int(getattr(response, "status_code", 0) or 0) == 401:
+                    if scope is not None and scope.is_cancelled():
+                        return
                     retry_after_refresh = self._refresh_access_token_if_possible()
                     if not retry_after_refresh:
                         self._raise_for_status(response)
                 else:
                     self._raise_for_status(response)
-                    yield from _iter_sse_events(response)
+                    yield from _iter_sse_events(response, scope=scope)
+            if scope is not None and scope.is_cancelled():
+                return
             if retry_after_refresh:
                 with self._stream_once(client, body) as response:
+                    if scope is not None:
+                        close_response = getattr(response, "close", None)
+                        if callable(close_response):
+                            unregister_callbacks.append(scope.register(close_response, "xai_oauth_retry_response.close"))
+                        if scope.is_cancelled():
+                            return
                     self._raise_for_status(response)
-                    yield from _iter_sse_events(response)
+                    yield from _iter_sse_events(response, scope=scope)
         except Exception as exc:
+            if scope is not None and scope.is_cancelled():
+                logger.debug("xai_oauth_sse: stream cancelled model=%s", self.model_name)
+                return
             logger.warning("xai_oauth_sse: stream failed: %s", exc)
             raise
         finally:
+            for unregister in reversed(unregister_callbacks):
+                try:
+                    unregister()
+                except Exception:
+                    logger.debug("xai_oauth_sse: unregister cancellation callback failed", exc_info=True)
             if owns_client:
                 client.close()
 
-    def _post_response_events(self, client: Any, body: dict[str, Any]) -> Iterator[dict[str, Any]]:
+    def _post_response_events(self, client: Any, body: dict[str, Any], *, scope: Any | None = None) -> Iterator[dict[str, Any]]:
         response = client.post(
             _responses_url(self.base_url),
             json=body,
             headers=self._headers(stream=False),
             timeout=self.timeout,
         )
-        if int(getattr(response, "status_code", 0) or 0) == 401 and self._refresh_access_token_if_possible():
+        if scope is not None and scope.is_cancelled():
+            return
+        if int(getattr(response, "status_code", 0) or 0) == 401:
+            if scope is not None and scope.is_cancelled():
+                return
+            if not self._refresh_access_token_if_possible():
+                self._raise_for_status(response)
             response = client.post(
                 _responses_url(self.base_url),
                 json=body,
                 headers=self._headers(stream=False),
                 timeout=self.timeout,
             )
+        if scope is not None and scope.is_cancelled():
+            return
         self._raise_for_status(response)
         yield from _events_from_response_payload(_json_response(response))
 
@@ -469,10 +513,12 @@ def _responses_tool(tool: Any) -> dict[str, Any]:
     return payload
 
 
-def _iter_sse_events(response: Any) -> Iterator[dict[str, Any]]:
+def _iter_sse_events(response: Any, *, scope: Any | None = None) -> Iterator[dict[str, Any]]:
     current_event = ""
     data_lines: list[str] = []
     for raw_line in response.iter_lines():
+        if scope is not None and scope.is_cancelled():
+            return
         line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else str(raw_line)
         if not line.strip():
             event = _sse_event_from_lines(current_event, data_lines)
@@ -485,6 +531,8 @@ def _iter_sse_events(response: Any) -> Iterator[dict[str, Any]]:
             current_event = line.split(":", 1)[1].strip()
         elif line.startswith("data:"):
             data_lines.append(line.split(":", 1)[1].strip())
+    if scope is not None and scope.is_cancelled():
+        return
     event = _sse_event_from_lines(current_event, data_lines)
     if event is not None:
         yield event

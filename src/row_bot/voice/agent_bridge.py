@@ -108,11 +108,13 @@ class VoiceAgentBridge:
         *,
         send_message: Callable[..., Any],
         active_generation: Callable[[], Any | None],
+        cancel_generation: Callable[[Any], Any] | None = None,
         surface: Callable[[], str] | str | None = None,
         thread_id: Callable[[], str] | str | None = None,
     ) -> None:
         self._send_message = send_message
         self._active_generation = active_generation
+        self._cancel_generation = cancel_generation
         self._surface = surface
         self._thread_id = thread_id
 
@@ -297,6 +299,11 @@ class VoiceAgentBridge:
         gen = self._active_generation()
         if gen is None:
             return False
+        if self._cancel_generation is not None:
+            result = self._cancel_generation(gen)
+            if isinstance(result, bool):
+                return result
+            return bool(getattr(result, "stopped", result))
         stop_event = getattr(gen, "stop_event", None)
         if stop_event is None:
             return False

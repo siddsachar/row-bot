@@ -13,6 +13,7 @@ from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResu
 from langchain_core.runnables import Runnable
 from pydantic import Field
 
+from row_bot.cancellation import current_cancellation_scope
 from row_bot.providers import codex as codex_auth
 
 CODEX_RESPONSES_BASE_URL = "https://chatgpt.com/backend-api/codex"
@@ -86,7 +87,10 @@ class ChatCodexResponses(BaseChatModel):
             thread_id,
             generation_id,
         )
+        scope = current_cancellation_scope()
         for event in self._iter_response_events(body):
+            if scope is not None and scope.is_cancelled():
+                return
             event_type = event.get("type")
             if event_type == "response.output_text.delta":
                 delta = str(event.get("delta") or "")
@@ -124,6 +128,8 @@ class ChatCodexResponses(BaseChatModel):
                     if run_manager:
                         run_manager.on_llm_new_token(text, chunk=chunk)
                     yield chunk
+        if scope is not None and scope.is_cancelled():
+            return
         logger.info(
             "codex_sse: stream complete after %.3fs thread_id=%s generation_id=%s",
             time.perf_counter() - started,
@@ -170,24 +176,54 @@ class ChatCodexResponses(BaseChatModel):
     def _iter_response_events(self, body: dict[str, Any]) -> Iterator[dict[str, Any]]:
         client = self.http_client or _new_http_client(self.timeout)
         owns_client = self.http_client is None
+        scope = current_cancellation_scope()
+        unregister_callbacks: list[Any] = []
         try:
+            if scope is not None and owns_client:
+                close_client = getattr(client, "close", None)
+                if callable(close_client):
+                    unregister_callbacks.append(scope.register(close_client, "codex_responses_client.close"))
             retry_after_refresh = False
             with self._stream_once(client, body) as response:
+                if scope is not None:
+                    close_response = getattr(response, "close", None)
+                    if callable(close_response):
+                        unregister_callbacks.append(scope.register(close_response, "codex_responses_response.close"))
+                    if scope.is_cancelled():
+                        return
                 if int(getattr(response, "status_code", 0) or 0) == 401:
+                    if scope is not None and scope.is_cancelled():
+                        return
                     retry_after_refresh = self._refresh_access_token_if_possible()
                     if not retry_after_refresh:
                         self._raise_for_status(response)
                 else:
                     self._raise_for_status(response)
-                    yield from _iter_sse_events(response)
+                    yield from _iter_sse_events(response, scope=scope)
+            if scope is not None and scope.is_cancelled():
+                return
             if retry_after_refresh:
                 with self._stream_once(client, body) as response:
+                    if scope is not None:
+                        close_response = getattr(response, "close", None)
+                        if callable(close_response):
+                            unregister_callbacks.append(scope.register(close_response, "codex_responses_retry_response.close"))
+                        if scope.is_cancelled():
+                            return
                     self._raise_for_status(response)
-                    yield from _iter_sse_events(response)
+                    yield from _iter_sse_events(response, scope=scope)
         except Exception as exc:
+            if scope is not None and scope.is_cancelled():
+                logger.debug("codex_sse: stream cancelled model=%s", self.model_name)
+                return
             logger.warning("codex_sse: stream failed: %s", exc)
             raise
         finally:
+            for unregister in reversed(unregister_callbacks):
+                try:
+                    unregister()
+                except Exception:
+                    logger.debug("codex_sse: unregister cancellation callback failed", exc_info=True)
             if owns_client:
                 client.close()
 
@@ -447,10 +483,12 @@ def _parse_sse_response(response: Any) -> list[dict[str, Any]]:
     return list(_iter_sse_events(response))
 
 
-def _iter_sse_events(response: Any) -> Iterator[dict[str, Any]]:
+def _iter_sse_events(response: Any, *, scope: Any | None = None) -> Iterator[dict[str, Any]]:
     current_event = ""
     data_lines: list[str] = []
     for raw_line in response.iter_lines():
+        if scope is not None and scope.is_cancelled():
+            return
         line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else str(raw_line)
         if not line.strip():
             event = _sse_event_from_lines(current_event, data_lines)
@@ -463,6 +501,8 @@ def _iter_sse_events(response: Any) -> Iterator[dict[str, Any]]:
             current_event = line.split(":", 1)[1].strip()
         elif line.startswith("data:"):
             data_lines.append(line.split(":", 1)[1].strip())
+    if scope is not None and scope.is_cancelled():
+        return
     event = _sse_event_from_lines(current_event, data_lines)
     if event is not None:
         yield event

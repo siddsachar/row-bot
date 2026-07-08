@@ -51,6 +51,7 @@ from typing import Any, Optional
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+from row_bot.cancellation import current_cancellation_scope
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.tools.base import BaseTool
 from row_bot.tools import registry
@@ -488,9 +489,11 @@ class BrowserSession:
             fn, future = item
             try:
                 result = fn()
-                future.set_result(result)
+                if not future.cancelled():
+                    future.set_result(result)
             except Exception as exc:
-                future.set_exception(exc)
+                if not future.cancelled():
+                    future.set_exception(exc)
 
         # Teardown (still on the PW thread)
         try:
@@ -553,6 +556,9 @@ class BrowserSession:
         """Submit *fn* to the Playwright thread and block until it returns."""
         if self._closed:
             raise RuntimeError("BrowserSession is closed")
+        scope = current_cancellation_scope()
+        if scope is not None and scope.is_cancelled():
+            return "Browser action stopped by user."
 
         # Start (or restart) the PW thread — up to _MAX_RETRIES recovery attempts
         _MAX_RETRIES = 2
@@ -613,8 +619,22 @@ class BrowserSession:
 
         future: concurrent.futures.Future = concurrent.futures.Future()
         self._work_q.put((fn, future))
+        unregister = None
+        if scope is not None:
+            unregister = scope.register(future.cancel, "browser_future.cancel")
         try:
-            return future.result(timeout=120)
+            deadline = time.monotonic() + 120.0
+            while True:
+                if scope is not None and scope.is_cancelled():
+                    future.cancel()
+                    return "Browser action stopped by user."
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise concurrent.futures.TimeoutError()
+                try:
+                    return future.result(timeout=min(0.1, remaining))
+                except concurrent.futures.TimeoutError:
+                    continue
         except Exception as exc:
             # If browser was closed externally, the _on_close handler sets
             # _launched=False and pushes a sentinel.  Detect this and retry
@@ -632,6 +652,9 @@ class BrowserSession:
                     self._pw_thread.join(timeout=10)
                 return self._run_on_pw_thread(fn)  # retry once
             raise
+        finally:
+            if unregister is not None:
+                unregister()
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 

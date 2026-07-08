@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from row_bot.ui.mobile_access_settings import _preferred_pairing_origin
+from row_bot.ui.mobile_access_settings import (
+    _lan_candidates,
+    _preferred_pairing_origin,
+    _recommended_pairing_candidate,
+    _route_kind,
+    _route_title,
+)
 
 
 def test_system_settings_include_mobile_access_section() -> None:
@@ -11,7 +17,10 @@ def test_system_settings_include_mobile_access_section() -> None:
 
     assert "build_mobile_access_settings_section" in settings_src
     assert "Mobile Access" in mobile_settings_src
-    assert "Create pairing QR" in mobile_settings_src
+    assert "Pair a phone" in mobile_settings_src
+    assert "Protected" in mobile_settings_src
+    assert "Manage devices" in mobile_settings_src
+    assert "Connection details" in mobile_settings_src
     assert "generate_qr_png_b64" in mobile_settings_src
     assert "qr_data_uri" not in mobile_settings_src
     assert "store.revoke_device" in mobile_settings_src
@@ -20,6 +29,44 @@ def test_system_settings_include_mobile_access_section() -> None:
     assert "data-mobile-settings=true" in settings_src
     assert "ui.splitter(value=18)" in settings_src
     assert "settings-mobile-section-select" in settings_src
+
+
+def test_mobile_access_settings_default_flow_hides_raw_connection_details() -> None:
+    mobile_settings_src = Path("src/row_bot/ui/mobile_access_settings.py").read_text(encoding="utf-8")
+
+    assert "Pair a phone" in mobile_settings_src
+    assert "Advanced connection details" in mobile_settings_src
+    assert "All access candidates" in mobile_settings_src
+    assert "Access candidates" not in mobile_settings_src
+    assert mobile_settings_src.index("Pair a phone") < mobile_settings_src.index("All access candidates")
+    assert mobile_settings_src.index("Advanced connection details") < mobile_settings_src.index("Custom origin")
+    assert "Create pairing QR" not in mobile_settings_src
+
+
+def test_mobile_access_settings_use_lan_terminology() -> None:
+    mobile_settings_src = Path("src/row_bot/ui/mobile_access_settings.py").read_text(encoding="utf-8")
+
+    assert "LAN" in mobile_settings_src
+    assert "Wi-Fi" not in mobile_settings_src
+    assert "Wifi" not in mobile_settings_src
+    assert "wifi" not in mobile_settings_src
+
+
+def test_mobile_access_route_helpers_use_plain_titles_and_lan_grouping() -> None:
+    candidates = [
+        {"access_mode": "localhost", "available": True, "url": "http://127.0.0.1:8080"},
+        {"access_mode": "lan", "available": False, "url": "http://192.168.68.87:8080", "requires_bind": True},
+        {"access_mode": "ngrok", "available": True, "url": "https://rowbot.ngrok-free.dev"},
+    ]
+
+    assert _route_kind(candidates[0]) == "desktop"
+    assert _route_title(candidates[0]) == "Desktop only"
+    assert _route_kind(candidates[1]) == "lan"
+    assert _route_title(candidates[1]) == "LAN"
+    assert _route_kind(candidates[2]) == "public"
+    assert _route_title(candidates[2]) == "Public tunnel"
+    assert _lan_candidates(candidates) == [candidates[1]]
+    assert _recommended_pairing_candidate(candidates) == candidates[2]
 
 
 def test_mobile_settings_use_mobile_safe_provider_skill_plugin_sections() -> None:
@@ -105,3 +152,18 @@ def test_pairing_origin_falls_back_to_localhost_when_no_remote_is_ready() -> Non
     ]
 
     assert _preferred_pairing_origin(candidates) == "http://127.0.0.1:8080"
+
+
+def test_pairing_origin_uses_full_mobile_route_priority() -> None:
+    candidates = [
+        {"access_mode": "localhost", "available": True, "url": "http://127.0.0.1:8080"},
+        {"access_mode": "lan", "available": True, "url": "http://192.168.68.87:8080"},
+        {"access_mode": "tailscale-direct", "available": True, "url": "http://100.64.0.10:8080"},
+        {"access_mode": "ngrok", "available": True, "url": "https://rowbot.ngrok-free.dev"},
+        {"access_mode": "tailscale-serve", "available": True, "url": "https://rowbot.tail.ts.net"},
+    ]
+
+    assert _preferred_pairing_origin(candidates) == "https://rowbot.tail.ts.net"
+    assert _preferred_pairing_origin(candidates[:-1]) == "https://rowbot.ngrok-free.dev"
+    assert _preferred_pairing_origin(candidates[:3]) == "http://100.64.0.10:8080"
+    assert _preferred_pairing_origin(candidates[:2]) == "http://192.168.68.87:8080"

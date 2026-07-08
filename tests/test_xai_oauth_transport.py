@@ -1,7 +1,9 @@
 import base64
 import json
+import threading
 
 import row_bot.providers.config as provider_config
+from row_bot.cancellation import CancellationScope, use_cancellation_scope
 from row_bot.providers.xai_catalog import XAI_COMPOSER_MODEL_ID
 from row_bot.providers.xai_oauth import XAIOAuthTokenSet, save_xai_oauth_tokens
 from row_bot.secret_store import _set_backend_for_tests
@@ -334,3 +336,66 @@ def test_xai_oauth_403_is_actionable_without_runtime_fallback(tmp_path, monkeypa
     assert "xAI OAuth access denied" in message
     assert "separate xAI API key provider" in message
     assert "fallback" not in message.lower()
+
+
+def test_xai_oauth_stream_cancellation_closes_blocking_response(tmp_path, monkeypatch):
+    from row_bot.providers.transports.xai_oauth_responses import ChatXAIOAuthResponses
+
+    class _BlockingResponse:
+        status_code = 200
+        text = ""
+
+        def __init__(self) -> None:
+            self.iterating = threading.Event()
+            self.closed = threading.Event()
+            self.close_calls = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def close(self):
+            self.close_calls += 1
+            self.closed.set()
+
+        def iter_lines(self):
+            self.iterating.set()
+            assert self.closed.wait(timeout=1)
+            if False:
+                yield b""
+
+    class _StreamingClient(_HttpClient):
+        def __init__(self) -> None:
+            super().__init__([])
+            self.response = _BlockingResponse()
+
+        def stream(self, method, url, **kwargs):
+            self.calls.append((url, kwargs))
+            return self.response
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    _set_backend_for_tests(_MemoryKeyring())
+    client = _StreamingClient()
+    model = ChatXAIOAuthResponses(model_name="grok-4", http_client=client)
+    scope = CancellationScope()
+    events: list[dict] = []
+
+    def consume() -> None:
+        with use_cancellation_scope(scope):
+            events.extend(model._iter_response_events({"stream": True, "input": []}))
+
+    try:
+        save_xai_oauth_tokens(XAIOAuthTokenSet(access_token=_valid_token(), refresh_token="refresh-token"))
+        worker = threading.Thread(target=consume)
+        worker.start()
+        assert client.response.iterating.wait(timeout=1)
+        scope.cancel("test")
+        worker.join(timeout=1)
+    finally:
+        _set_backend_for_tests(None)
+
+    assert not worker.is_alive()
+    assert client.response.close_calls == 1
+    assert events == []

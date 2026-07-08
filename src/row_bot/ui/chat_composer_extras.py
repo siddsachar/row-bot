@@ -13,6 +13,7 @@ from typing import Any, Callable, Literal
 from nicegui import run, ui
 
 from row_bot.ui.state import AppState, P, _active_generations
+from row_bot.ui.streaming import request_generation_stop
 from row_bot.ui.timer_utils import defer_ui
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ class ComposerExtrasConfig:
     last_user_text: Callable[[], str] | None = None
     skill_button_tooltip: str | None = None
     compact_skill_chips: bool = False
+    show_draft_suggestions: bool = True
 
 
 def chat_enabled_tool_names() -> list[str]:
@@ -66,6 +68,7 @@ def create_chat_composer_extras(
     on_skills_changed: Callable[[], None] | None = None,
     enabled_tool_names: Callable[[], list[str]] | None = None,
     compact_skill_chips: bool = False,
+    show_draft_suggestions: bool = True,
 ) -> "ComposerExtrasController":
     """Create extras using normal chat/Designer Smart Skills semantics."""
 
@@ -82,6 +85,7 @@ def create_chat_composer_extras(
             last_user_text=lambda: last_user_message_text(state),
             skill_button_tooltip="Choose skills for this chat",
             compact_skill_chips=compact_skill_chips,
+            show_draft_suggestions=show_draft_suggestions,
         ),
     )
 
@@ -162,17 +166,36 @@ class ComposerExtrasController:
             "items": [],
             "cursor": 0,
         }
+        self.controls_prepared = False
 
-    def render_before_input(self) -> None:
-        """Render controls that sit above the textarea inside the composer card."""
-
+    def _prepare_controls(self) -> None:
         self.client = ui.context.client
         self._ensure_skills_loaded_async()
         self._refresh_available_skills()
         self.active_skill_names = self._load_active_skill_names()
-        self.skill_chips_row = ui.row().classes("w-full flex-wrap items-center gap-1 q-px-md q-pt-xs")
-        self.slash_palette_col = ui.column().classes("w-full gap-0 q-px-md q-pt-sm")
-        self._render_skill_chips("")
+        self.controls_prepared = True
+
+    def render_before_input(
+        self,
+        *,
+        render_skill_chips: bool = True,
+        skill_chips_classes: str = "w-full flex-wrap items-center gap-1 q-px-md q-pt-xs",
+        slash_palette_classes: str = "w-full gap-0 q-px-md q-pt-sm",
+    ) -> None:
+        """Render controls that sit above the textarea inside the composer card."""
+
+        self._prepare_controls()
+        if render_skill_chips:
+            self.render_skill_chips(classes=skill_chips_classes)
+        self.slash_palette_col = ui.column().classes(slash_palette_classes)
+
+    def render_skill_chips(self, *, classes: str = "w-full flex-wrap items-center gap-1 q-px-md q-pt-xs") -> None:
+        """Render the Smart Skills chip row into the current UI container."""
+
+        if not self.controls_prepared:
+            self._prepare_controls()
+        self.skill_chips_row = ui.row().classes(classes)
+        self._render_skill_chips(self.draft_state.get("text", ""))
 
     def attach_input(self, chat_input) -> None:
         """Attach draft and key handlers after the textarea has been created."""
@@ -552,7 +575,11 @@ class ComposerExtrasController:
             self._refresh_available_skills()
             self.skill_chips_row.clear()
             self.active_skill_names = self._ordered_skill_names(self.active_skill_names)
-            draft_suggestions = self._suggestions_for_text(draft_text, limit=3)
+            draft_suggestions = (
+                self._suggestions_for_text(draft_text, limit=3)
+                if self.config.show_draft_suggestions
+                else []
+            )
             with self.skill_chips_row:
                 if self.config.compact_skill_chips:
                     active_count = len(self.active_skill_names)
@@ -732,11 +759,13 @@ class ComposerExtrasController:
         self.close_slash_palette()
 
     def _run_stop_from_palette(self) -> None:
-        gen = _active_generations.get(self._thread_id())
-        if gen:
-            gen.stop_event.set()
-            if self.p.stop_btn:
-                self.p.stop_btn.props("icon=hourglass_top")
+        result = request_generation_stop(
+            self._thread_id(),
+            state=self.state,
+            p=self.p,
+            reason="slash_palette",
+        )
+        if result.stopped:
             ui.notify("Stop signal sent.", type="warning")
         else:
             ui.notify("No active generation to stop.", type="info")

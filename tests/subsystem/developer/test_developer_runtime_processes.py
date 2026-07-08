@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import subprocess
 import sys
 
 import pytest
 
+from row_bot.process_cancellation import ProcessRunResult
 from tests.fixtures.developer import fake_workspace
 
 
@@ -88,9 +88,9 @@ def test_shell_command_uses_platform_shell_args_and_records_changed_files(monkey
     def fake_run(argv, **kwargs):
         assert argv == runtime._platform_shell_args("echo hi")
         assert kwargs["cwd"] == workspace.path
-        return subprocess.CompletedProcess(argv, 0, stdout="hi\n", stderr="")
+        return ProcessRunResult(argv, 0, stdout="hi\n", stderr="")
 
-    monkeypatch.setattr(runtime.subprocess, "run", fake_run)
+    monkeypatch.setattr(runtime, "run_cancellable_subprocess", fake_run)
 
     result = runtime.run_workspace_shell_command(
         workspace.path,
@@ -113,9 +113,9 @@ def test_shell_command_timeout_returns_structured_result(monkeypatch, tmp_path) 
     monkeypatch.setattr(runtime, "_snapshot_changed_files", lambda _root: {})
 
     def fake_run(argv, **_kwargs):
-        raise subprocess.TimeoutExpired(argv, timeout=1, output="partial")
+        return ProcessRunResult(argv, 124, stdout="partial", timed_out=True)
 
-    monkeypatch.setattr(runtime.subprocess, "run", fake_run)
+    monkeypatch.setattr(runtime, "run_cancellable_subprocess", fake_run)
 
     result = runtime.run_workspace_shell_command(
         workspace.path,

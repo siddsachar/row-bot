@@ -59,6 +59,31 @@ def test_legacy_empty_source_default_title_remains_auto_renamable(tmp_path, monk
     assert threads.should_auto_rename_thread("legacy") is True
 
 
+def test_mobile_placeholder_title_remains_auto_renamable(tmp_path, monkeypatch):
+    threads = _fresh_threads(tmp_path, monkeypatch)
+
+    tid = threads.create_thread("\U0001f4f1 Thread Jul 08, 10:40")
+
+    assert threads.get_thread_name_source(tid) == "auto"
+    assert threads.should_auto_rename_thread(tid) is True
+
+
+def test_generated_auto_title_preserves_placeholder_badge(tmp_path, monkeypatch):
+    threads = _fresh_threads(tmp_path, monkeypatch)
+
+    mobile_title = threads.build_auto_thread_title(
+        "Summarize release notes",
+        current_name="\U0001f4f1 Thread Jul 08, 10:40",
+    )
+    desktop_title = threads.build_auto_thread_title(
+        "Summarize release notes",
+        current_name="Thread Jul 08, 10:40",
+    )
+
+    assert mobile_title == "\U0001f4f1 Summarize release notes"
+    assert desktop_title == "\U0001f4bb Summarize release notes"
+
+
 def test_list_threads_detail_indexes_are_append_only(tmp_path, monkeypatch):
     threads = _fresh_threads(tmp_path, monkeypatch)
 

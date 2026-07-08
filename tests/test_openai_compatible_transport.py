@@ -1,8 +1,10 @@
 import json
+import threading
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
+from row_bot.cancellation import CancellationScope, use_cancellation_scope
 from row_bot.providers.custom import custom_endpoint_profile
 from row_bot.providers.tool_protocol import format_validation_retry_result
 from row_bot.providers.transports.openai_compatible import ChatOpenAICompatible
@@ -1339,3 +1341,64 @@ def test_openai_compatible_transport_reports_unread_stream_error_body():
     assert "llama.cpp local rejected the chat request (HTTP 400)" in message
     assert "prompt exceeds context window" in message
     assert "streaming response content" not in message
+
+
+def test_openai_compatible_stream_cancellation_closes_blocking_response():
+    class _BlockingResponse:
+        status_code = 200
+        text = ""
+
+        def __init__(self) -> None:
+            self.iterating = threading.Event()
+            self.closed = threading.Event()
+            self.close_calls = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def close(self):
+            self.close_calls += 1
+            self.closed.set()
+
+        def iter_lines(self):
+            self.iterating.set()
+            assert self.closed.wait(timeout=1)
+            if False:
+                yield b""
+
+    class _BlockingClient(_Client):
+        def __init__(self) -> None:
+            super().__init__()
+            self.response = _BlockingResponse()
+
+        def stream(self, method, url, **kwargs):
+            self.calls.append((url, kwargs))
+            return self.response
+
+    client = _BlockingClient()
+    model = ChatOpenAICompatible(
+        model_name="qwen",
+        base_url="http://127.0.0.1:1234/v1",
+        endpoint={"provider_id": "custom_openai_tools"},
+        http_client=client,
+    )
+    scope = CancellationScope()
+    events: list[dict] = []
+
+    def consume() -> None:
+        with use_cancellation_scope(scope):
+            events.extend(model._iter_stream_events({"stream": True, "messages": []}))
+
+    worker = threading.Thread(target=consume)
+    worker.start()
+    assert client.response.iterating.wait(timeout=1)
+
+    scope.cancel("test")
+    worker.join(timeout=1)
+
+    assert not worker.is_alive()
+    assert client.response.close_calls == 1
+    assert events == []

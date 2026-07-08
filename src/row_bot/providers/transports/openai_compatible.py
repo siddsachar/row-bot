@@ -12,6 +12,8 @@ from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResu
 from langchain_core.runnables import Runnable
 from pydantic import Field
 
+from row_bot.cancellation import current_cancellation_scope
+
 logger = logging.getLogger(__name__)
 
 
@@ -117,7 +119,10 @@ class ChatOpenAICompatible(BaseChatModel):
             provider=str(self.endpoint.get("provider_id") or "custom"),
             model=self.model_name,
         )
+        scope = current_cancellation_scope()
         for payload in self._iter_stream_events(body):
+            if scope is not None and scope.is_cancelled():
+                return
             payload_seen = True
             if atlas_anthropic_route and _is_anthropic_stream_payload(payload):
                 event_payload = _anthropic_event_payload(payload)
@@ -198,6 +203,8 @@ class ChatOpenAICompatible(BaseChatModel):
                 yield chunk
             for call in delta.get("tool_calls") or []:
                 tool_assembler.add(call)
+        if scope is not None and scope.is_cancelled():
+            return
         finalized_tool_calls = tool_assembler.finalize()
         if atlas_anthropic_route:
             finalized_tool_calls.extend(anthropic_tool_assembler.finalize())
@@ -359,6 +366,8 @@ class ChatOpenAICompatible(BaseChatModel):
     def _iter_stream_events(self, body: dict[str, Any]) -> Iterator[dict[str, Any]]:
         client = self.http_client or _new_http_client(self.timeout)
         owns_client = self.http_client is None
+        scope = current_cancellation_scope()
+        unregister_callbacks: list[Any] = []
         raw_lines = 0
         data_lines = 0
         decoded_events = 0
@@ -378,7 +387,17 @@ class ChatOpenAICompatible(BaseChatModel):
             ))
             with context as response:
                 _raise_for_status(response, self.endpoint)
+                if scope is not None:
+                    close_response = getattr(response, "close", None)
+                    if callable(close_response):
+                        unregister_callbacks.append(scope.register(close_response, "openai_compatible_response.close"))
+                    if owns_client:
+                        close_client = getattr(client, "close", None)
+                        if callable(close_client):
+                            unregister_callbacks.append(scope.register(close_client, "openai_compatible_client.close"))
                 for line in response.iter_lines():
+                    if scope is not None and scope.is_cancelled():
+                        return
                     if line:
                         raw_lines += 1
                         text = line.decode("utf-8", errors="replace") if isinstance(line, bytes) else str(line)
@@ -391,8 +410,28 @@ class ChatOpenAICompatible(BaseChatModel):
                     if payload:
                         decoded_events += 1
                         yield payload
+        except Exception:
+            if scope is not None and scope.is_cancelled():
+                logger.debug("custom_openai_stream: stream cancelled provider=%s model=%s", self.endpoint.get("provider_id") or "custom", self.model_name)
+                return
+            raise
         finally:
-            if decoded_events == 0:
+            cancelled = scope is not None and scope.is_cancelled()
+            for unregister in reversed(unregister_callbacks):
+                try:
+                    unregister()
+                except Exception:
+                    logger.debug("custom_openai_stream: unregister cancellation callback failed", exc_info=True)
+            if cancelled:
+                logger.debug(
+                    "custom_openai_stream: cancelled provider=%s model=%s raw_lines=%d data_lines=%d decoded=%d",
+                    self.endpoint.get("provider_id") or "custom",
+                    self.model_name,
+                    raw_lines,
+                    data_lines,
+                    decoded_events,
+                )
+            elif decoded_events == 0:
                 logger.warning(
                     "custom_openai_stream: no decoded SSE events provider=%s model=%s raw_lines=%d data_lines=%d done_seen=%s",
                     self.endpoint.get("provider_id") or "custom",

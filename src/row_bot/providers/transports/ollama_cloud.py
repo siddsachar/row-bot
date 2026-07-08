@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from contextlib import nullcontext
 from typing import Any, Iterator, Sequence
 
@@ -9,8 +10,11 @@ from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, Huma
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import Runnable
 
+from row_bot.cancellation import current_cancellation_scope
+
 
 OLLAMA_CLOUD_BASE_URL = "https://ollama.com"
+logger = logging.getLogger(__name__)
 
 
 def normalize_ollama_cloud_api_key(api_key: str | None) -> str:
@@ -88,7 +92,10 @@ class ChatOllamaCloud(BaseChatModel):
     ) -> Iterator[ChatGenerationChunk]:
         body = self._request_body(messages, stream=True, **kwargs)
         tool_index = 0
+        scope = current_cancellation_scope()
         for payload in self._iter_stream_events(body):
+            if scope is not None and scope.is_cancelled():
+                return
             message_payload = payload.get("message") if isinstance(payload.get("message"), dict) else {}
             content = str(message_payload.get("content") or "")
             if content:
@@ -103,6 +110,8 @@ class ChatOllamaCloud(BaseChatModel):
                     yield ChatGenerationChunk(message=AIMessageChunk(content="", tool_call_chunks=[chunk_payload]))
             if payload.get("done"):
                 break
+        if scope is not None and scope.is_cancelled():
+            return
         yield ChatGenerationChunk(message=AIMessageChunk(content="", chunk_position="last"))
 
     def _request_body(self, messages: list[BaseMessage], *, stream: bool, **kwargs: Any) -> dict[str, Any]:
@@ -139,7 +148,13 @@ class ChatOllamaCloud(BaseChatModel):
     def _iter_stream_events(self, body: dict[str, Any]) -> Iterator[dict[str, Any]]:
         client = self.http_client or _new_http_client(self.timeout)
         owns_client = self.http_client is None
+        scope = current_cancellation_scope()
+        unregister_callbacks: list[Any] = []
         try:
+            if scope is not None and owns_client:
+                close_client = getattr(client, "close", None)
+                if callable(close_client):
+                    unregister_callbacks.append(scope.register(close_client, "ollama_cloud_client.close"))
             context = client.stream(
                 "POST",
                 _chat_url(self.base_url),
@@ -154,7 +169,15 @@ class ChatOllamaCloud(BaseChatModel):
             ))
             with context as response:
                 _raise_for_status(response)
+                if scope is not None:
+                    close_response = getattr(response, "close", None)
+                    if callable(close_response):
+                        unregister_callbacks.append(scope.register(close_response, "ollama_cloud_response.close"))
+                    if scope.is_cancelled():
+                        return
                 for line in response.iter_lines():
+                    if scope is not None and scope.is_cancelled():
+                        return
                     if not line:
                         continue
                     if isinstance(line, bytes):
@@ -165,7 +188,17 @@ class ChatOllamaCloud(BaseChatModel):
                         continue
                     if isinstance(payload, dict):
                         yield payload
+        except Exception:
+            if scope is not None and scope.is_cancelled():
+                logger.debug("ollama_cloud_stream: stream cancelled model=%s", self.model_name)
+                return
+            raise
         finally:
+            for unregister in reversed(unregister_callbacks):
+                try:
+                    unregister()
+                except Exception:
+                    logger.debug("ollama_cloud_stream: unregister cancellation callback failed", exc_info=True)
             if owns_client:
                 client.close()
 

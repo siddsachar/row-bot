@@ -27,6 +27,7 @@ from row_bot.threads import (
 )
 from row_bot.ui.chat_components import build_chat_messages, build_file_upload
 from row_bot.ui.chat_composer_extras import create_chat_composer_extras
+from row_bot.ui.streaming import request_generation_stop
 from row_bot.ui.state import AppState, P, _active_generations
 from row_bot.ui.voice_lifecycle import stop_voice_for_thread_change
 
@@ -122,7 +123,7 @@ def create_mobile_thread(
                 logger.debug("Could not stop TTS while opening mobile thread", exc_info=True)
             previous_generation.tts_active = False
     tid = uuid.uuid4().hex[:12]
-    name = f"New chat {datetime.now().strftime('%b %d, %H:%M')}"
+    name = f"\U0001f4f1 Thread {datetime.now().strftime('%b %d, %H:%M')}"
     approval = normalize_approval_mode(
         getattr(state, "thread_approval_mode", "") or DEFAULT_APPROVAL_MODE,
         DEFAULT_APPROVAL_MODE,
@@ -228,13 +229,12 @@ def _current_agent_profile_label(state: AppState) -> str:
     return value
 
 
-def _stop_generation(state: AppState) -> None:
-    thread_id = state.thread_id or ""
-    generation = _active_generations.get(thread_id)
-    stop_event = getattr(generation, "stop_event", None) or getattr(state, "stop_event", None)
-    if stop_event is not None:
-        stop_event.set()
-    ui.notify("Stop signal sent", type="warning")
+def _stop_generation(state: AppState, p: P | None = None) -> None:
+    result = request_generation_stop(state.thread_id, state=state, p=p, reason="mobile_chat")
+    ui.notify(
+        "Stop signal sent" if result.stopped else "No active generation to stop",
+        type="warning" if result.stopped else "info",
+    )
 
 
 def _mobile_generation_active(state: AppState) -> bool:
@@ -362,25 +362,27 @@ def _build_mobile_thread_composer(
     composer_extras: Any | None,
 ) -> None:
     hidden_upload = build_file_upload(p, state)
-    with ui.column().classes("row-bot-mobile-composer w-full gap-2").props(
+    with ui.column().classes("row-bot-mobile-composer w-full gap-1").props(
         "data-docs-id=mobile-chat-composer"
     ):
         _build_file_chips(p)
-        if composer_extras is not None:
-            try:
-                composer_extras.render_before_input()
-            except Exception:
-                logger.debug("Mobile composer extras failed to render", exc_info=True)
         text_input = ui.textarea(placeholder="Ask anything...").classes("w-full").props(
             'borderless autogrow input-style="min-height: 44px; max-height: 108px; overflow-y: auto;"'
         )
         if composer_extras is not None:
             try:
+                composer_extras.render_before_input(
+                    render_skill_chips=False,
+                    slash_palette_classes="w-full gap-0",
+                )
+            except Exception:
+                logger.debug("Mobile composer extras failed to render", exc_info=True)
+        if composer_extras is not None:
+            try:
                 composer_extras.attach_input(text_input)
             except Exception:
                 logger.debug("Mobile composer extras failed to attach input", exc_info=True)
-        policy_icon, policy_label, policy_detail = _model_policy_summary(state)
-        with ui.row().classes("w-full items-center gap-1 no-wrap"):
+        with ui.row().classes("row-bot-mobile-action-row w-full items-center gap-1 no-wrap"):
             ui.button(
                 icon="attach_file",
                 on_click=lambda: ui.run_javascript(
@@ -397,14 +399,20 @@ def _build_mobile_thread_composer(
                     composer_extras=composer_extras,
                 ),
             ).props("flat dense no-caps").classes("row-bot-mobile-model-pill").tooltip("Controls")
-            ui.badge(policy_label, color="orange" if policy_icon == "cloud" else "blue-grey").props(
-                "outline dense"
-            ).tooltip(policy_detail)
             ui.space()
-            if _mobile_generation_active(state):
-                ui.button(icon="stop", on_click=lambda: _stop_generation(state)).props(
-                    "flat dense round color=warning"
-                ).tooltip("Stop")
+            if composer_extras is not None:
+                with ui.element("div").classes("row-bot-mobile-skill-chip-slot"):
+                    try:
+                        composer_extras.render_skill_chips(
+                            classes="row-bot-mobile-skill-chip-row flex-nowrap items-center gap-1"
+                        )
+                    except Exception:
+                        logger.debug("Mobile composer skill chips failed to render", exc_info=True)
+            p.stop_btn = ui.button(icon="stop", on_click=lambda: _stop_generation(state, p)).props(
+                "flat dense round color=warning"
+            ).tooltip("Stop")
+            if not _mobile_generation_active(state):
+                p.stop_btn.disable()
 
             async def _submit_async() -> None:
                 text = str(text_input.value or "").strip()
@@ -523,6 +531,7 @@ def build_mobile_thread_detail(
         p,
         surface="chat",
         compact_skill_chips=True,
+        show_draft_suggestions=False,
         new_thread=lambda: create_mobile_thread(
             state=state,
             p=p,

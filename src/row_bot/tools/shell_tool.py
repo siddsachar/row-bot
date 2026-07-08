@@ -25,7 +25,6 @@ import logging
 import os
 import platform
 import re
-import subprocess
 import threading
 import time
 from collections.abc import Mapping
@@ -35,6 +34,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import StructuredTool
 from row_bot.data_paths import get_row_bot_data_dir
+from row_bot.process_cancellation import run_cancellable_subprocess
 from row_bot.tools.base import BaseTool
 from row_bot.tools import registry
 from row_bot.tools.approval_gate import gate_action
@@ -145,6 +145,11 @@ def _strip_quoted(text: str) -> str:
     return "".join(result)
 
 
+def _append_process_note(output: str, note: str) -> str:
+    text = str(output or "").rstrip()
+    return f"{text}\n{note}" if text else note
+
+
 def classify_command(command: str, extra_blocked: list[re.Pattern] | None = None) -> str:
     """Classify a command as ``'safe'``, ``'needs_approval'``, or ``'blocked'``.
 
@@ -251,10 +256,11 @@ class ShellSession:
                         f"'___ROW_BOT_CWD___' + (Get-Location).Path)\n"
                         f"if (-not $_ok) {{ exit 1 }}"
                     )
-                    proc = subprocess.run(
+                    proc = run_cancellable_subprocess(
                         ["powershell", "-NoProfile", "-NoLogo", "-Command", wrapped],
-                        capture_output=True, text=True,
-                        cwd=self.cwd, timeout=timeout,
+                        cwd=self.cwd,
+                        timeout=timeout,
+                        text=True,
                         encoding="utf-8", errors="replace",
                     )
                 else:
@@ -264,15 +270,26 @@ class ShellSession:
                         f'echo "___ROW_BOT_CWD___$(pwd)" >&2'
                     )
                     shell = os.environ.get("SHELL", "/bin/bash")
-                    proc = subprocess.run(
+                    proc = run_cancellable_subprocess(
                         [shell, "-c", wrapped],
-                        capture_output=True, text=True,
-                        cwd=self.cwd, timeout=timeout,
+                        cwd=self.cwd,
+                        timeout=timeout,
+                        text=True,
                         encoding="utf-8", errors="replace",
                     )
 
+                if proc.timed_out:
+                    return {
+                        "command": command,
+                        "output": f"Command timed out after {timeout}s",
+                        "exit_code": -1,
+                        "cwd": self.cwd,
+                        "duration": timeout,
+                    }
                 stdout = proc.stdout or ""
                 stderr = proc.stderr or ""
+                if proc.cancelled:
+                    stderr = _append_process_note(stderr, "Command stopped by user.")
 
                 # stdout is pure command output — no marker to strip
                 actual_output = stdout.rstrip()
@@ -307,14 +324,6 @@ class ShellSession:
                     "duration": duration,
                 }
 
-            except subprocess.TimeoutExpired:
-                return {
-                    "command": command,
-                    "output": f"Command timed out after {timeout}s",
-                    "exit_code": -1,
-                    "cwd": self.cwd,
-                    "duration": timeout,
-                }
             except Exception as exc:
                 duration = round(time.time() - start, 2)
                 return {

@@ -11,6 +11,7 @@ from row_bot.developer import change_ledger
 from row_bot.developer.change_ledger import FileChange
 from row_bot.developer.sandbox import ApprovalDecision, decide_action
 from row_bot.developer.state import ApprovalMode
+from row_bot.process_cancellation import run_cancellable_subprocess
 
 
 @dataclass(frozen=True)
@@ -242,22 +243,28 @@ def run_workspace_command(
             sandbox_pending_change_id=outcome.pending_change_id,
         )
     args = split_command(command)
-    try:
-        completed = subprocess.run(
-            args,
-            cwd=str(root),
-            shell=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired as exc:
+    completed = run_cancellable_subprocess(
+        args,
+        cwd=str(root),
+        timeout=timeout,
+        text=True,
+    )
+    if completed.timed_out:
         return CommandResult(
             command=command,
             cwd=str(root),
             returncode=124,
-            stdout=(exc.stdout or "")[-20_000:] if isinstance(exc.stdout, str) else "",
+            stdout=completed.stdout[-20_000:],
             stderr=f"Command timed out after {timeout}s.",
+            decision=decision,
+        )
+    if completed.cancelled:
+        return CommandResult(
+            command=command,
+            cwd=str(root),
+            returncode=130,
+            stdout=completed.stdout[-20_000:],
+            stderr=_append_command_note(completed.stderr, "Command stopped by user.")[-20_000:],
             decision=decision,
         )
     return CommandResult(
@@ -332,22 +339,28 @@ def run_workspace_shell_command(
         )
 
     before = _snapshot_changed_files(root)
-    try:
-        completed = subprocess.run(
-            _platform_shell_args(command),
-            cwd=str(root),
-            shell=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired as exc:
+    completed = run_cancellable_subprocess(
+        _platform_shell_args(command),
+        cwd=str(root),
+        timeout=timeout,
+        text=True,
+    )
+    if completed.timed_out:
         return CommandResult(
             command=command,
             cwd=str(root),
             returncode=124,
-            stdout=(exc.stdout or "")[-20_000:] if isinstance(exc.stdout, str) else "",
+            stdout=completed.stdout[-20_000:],
             stderr=f"Command timed out after {timeout}s.",
+            decision=decision,
+        )
+    if completed.cancelled:
+        return CommandResult(
+            command=command,
+            cwd=str(root),
+            returncode=130,
+            stdout=completed.stdout[-20_000:],
+            stderr=_append_command_note(completed.stderr, "Command stopped by user.")[-20_000:],
             decision=decision,
         )
     after = _snapshot_changed_files(root)
@@ -412,6 +425,11 @@ def _platform_shell_args(command: str) -> list[str]:
     if os.name == "nt":
         return ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command]
     return ["/bin/sh", "-lc", command]
+
+
+def _append_command_note(output: str, note: str) -> str:
+    text = str(output or "").rstrip()
+    return f"{text}\n{note}" if text else note
 
 
 def _snapshot_changed_files(root: pathlib.Path) -> dict[str, str | None]:

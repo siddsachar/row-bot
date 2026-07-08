@@ -10,6 +10,7 @@ import logging
 import os
 import sys
 import threading
+import time
 import traceback
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
@@ -18,6 +19,7 @@ from typing import Any, Callable, Iterable
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
+from row_bot.cancellation import current_cancellation_scope
 from row_bot.mcp_client import config as mcp_config
 from row_bot.mcp_client.logging import log_event, mask_mapping
 from row_bot.mcp_client.requirements import apply_managed_runtime_env, missing_command_message, resolve_command
@@ -159,6 +161,41 @@ def _ensure_loop() -> asyncio.AbstractEventLoop:
 
 def _schedule(coro: Any) -> concurrent.futures.Future:
     return asyncio.run_coroutine_threadsafe(coro, _ensure_loop())
+
+
+def _future_result_with_generation_cancellation(
+    future: concurrent.futures.Future,
+    *,
+    timeout: float,
+    stopped_message: str,
+    label: str,
+) -> str:
+    scope = current_cancellation_scope()
+    if scope is None:
+        return future.result(timeout=timeout)
+    if scope.is_cancelled():
+        future.cancel()
+        return stopped_message
+    unregister = scope.register(future.cancel, label)
+    try:
+        deadline = time.monotonic() + timeout
+        while True:
+            if scope.is_cancelled():
+                future.cancel()
+                return stopped_message
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise concurrent.futures.TimeoutError()
+            try:
+                return future.result(timeout=min(0.1, remaining))
+            except concurrent.futures.TimeoutError:
+                continue
+            except concurrent.futures.CancelledError:
+                if scope.is_cancelled():
+                    return stopped_message
+                raise
+    finally:
+        unregister()
 
 
 def _update_status(name: str, **updates: Any) -> None:
@@ -588,7 +625,12 @@ def _call_tool_sync(server_name: str, tool_name: str, kwargs: dict[str, Any]) ->
     if not runtime:
         raise RuntimeError(f"MCP server '{server_name}' is not running")
     future = _schedule(runtime.call_tool(tool_name, kwargs))
-    return future.result(timeout=float(runtime.cfg.get("tool_timeout", 120)) + 5)
+    return _future_result_with_generation_cancellation(
+        future,
+        timeout=float(runtime.cfg.get("tool_timeout", 120)) + 5,
+        stopped_message="MCP tool call stopped by user.",
+        label=f"mcp_tool.{server_name}.{tool_name}.cancel",
+    )
 
 
 def _make_tool_func(server_name: str, tool_name: str) -> Callable[..., str]:
@@ -604,7 +646,13 @@ def _make_resource_list_func(server_name: str) -> Callable[[], str]:
             runtime = _servers.get(server_name)
         if not runtime:
             raise RuntimeError(f"MCP server '{server_name}' is not running")
-        return _schedule(runtime.list_resources()).result(timeout=float(runtime.cfg.get("tool_timeout", 120)) + 5)
+        future = _schedule(runtime.list_resources())
+        return _future_result_with_generation_cancellation(
+            future,
+            timeout=float(runtime.cfg.get("tool_timeout", 120)) + 5,
+            stopped_message="MCP resource listing stopped by user.",
+            label=f"mcp_resources.{server_name}.cancel",
+        )
     return _run
 
 
@@ -614,7 +662,13 @@ def _make_resource_read_func(server_name: str) -> Callable[..., str]:
             runtime = _servers.get(server_name)
         if not runtime:
             raise RuntimeError(f"MCP server '{server_name}' is not running")
-        return _schedule(runtime.read_resource(uri)).result(timeout=float(runtime.cfg.get("tool_timeout", 120)) + 5)
+        future = _schedule(runtime.read_resource(uri))
+        return _future_result_with_generation_cancellation(
+            future,
+            timeout=float(runtime.cfg.get("tool_timeout", 120)) + 5,
+            stopped_message="MCP resource read stopped by user.",
+            label=f"mcp_resource.{server_name}.cancel",
+        )
     return _run
 
 
@@ -624,7 +678,13 @@ def _make_prompt_list_func(server_name: str) -> Callable[[], str]:
             runtime = _servers.get(server_name)
         if not runtime:
             raise RuntimeError(f"MCP server '{server_name}' is not running")
-        return _schedule(runtime.list_prompts()).result(timeout=float(runtime.cfg.get("tool_timeout", 120)) + 5)
+        future = _schedule(runtime.list_prompts())
+        return _future_result_with_generation_cancellation(
+            future,
+            timeout=float(runtime.cfg.get("tool_timeout", 120)) + 5,
+            stopped_message="MCP prompt listing stopped by user.",
+            label=f"mcp_prompts.{server_name}.cancel",
+        )
     return _run
 
 
@@ -634,7 +694,13 @@ def _make_prompt_get_func(server_name: str) -> Callable[..., str]:
             runtime = _servers.get(server_name)
         if not runtime:
             raise RuntimeError(f"MCP server '{server_name}' is not running")
-        return _schedule(runtime.get_prompt(name, arguments)).result(timeout=float(runtime.cfg.get("tool_timeout", 120)) + 5)
+        future = _schedule(runtime.get_prompt(name, arguments))
+        return _future_result_with_generation_cancellation(
+            future,
+            timeout=float(runtime.cfg.get("tool_timeout", 120)) + 5,
+            stopped_message="MCP prompt read stopped by user.",
+            label=f"mcp_prompt.{server_name}.cancel",
+        )
     return _run
 
 

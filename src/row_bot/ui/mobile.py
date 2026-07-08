@@ -181,7 +181,7 @@ body:has(.row-bot-mobile-root) main {
 }
 .row-bot-mobile-composer {
     flex: 0 0 auto;
-    padding: 8px 10px max(8px, env(safe-area-inset-bottom));
+    padding: 6px 10px max(8px, env(safe-area-inset-bottom));
     border-top: 1px solid rgba(255,255,255,0.08);
     background: #10191c;
 }
@@ -192,7 +192,7 @@ body:has(.row-bot-mobile-root) main {
 }
 .row-bot-mobile-model-pill {
     min-width: 0;
-    max-width: 46vw;
+    max-width: 44vw;
 }
 .row-bot-mobile-model-pill .q-btn__content {
     min-width: 0;
@@ -202,6 +202,46 @@ body:has(.row-bot-mobile-root) main {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+.row-bot-mobile-action-row {
+    min-width: 0;
+    overflow: hidden;
+}
+.row-bot-mobile-action-row > .q-space {
+    min-width: 4px;
+}
+.row-bot-mobile-skill-chip-slot {
+    display: flex;
+    justify-content: flex-end;
+    flex: 0 0 84px;
+    min-width: 0;
+    max-width: 84px;
+    overflow: hidden;
+}
+.row-bot-mobile-skill-chip-row {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+}
+.row-bot-mobile-skill-chip-row .q-btn {
+    min-width: 0;
+    max-width: 100%;
+    padding-left: 6px;
+    padding-right: 6px;
+}
+.row-bot-mobile-skill-chip-row .q-btn__content {
+    min-width: 0;
+    flex-wrap: nowrap;
+    gap: 3px;
+}
+.row-bot-mobile-skill-chip-row .q-btn__content span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.row-bot-mobile-action-row > .q-btn {
+    flex: 0 0 auto;
 }
 .row-bot-mobile-policy-chip {
     display: flex;
@@ -293,6 +333,13 @@ body:has(.row-bot-mobile-root) main {
     }
     .row-bot-mobile-header .text-h6 {
         font-size: 1rem;
+    }
+    .row-bot-mobile-model-pill {
+        max-width: 42vw;
+    }
+    .row-bot-mobile-skill-chip-slot {
+        flex-basis: 80px;
+        max-width: 80px;
     }
 }
 </style>

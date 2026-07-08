@@ -1,8 +1,10 @@
 import base64
 import json
+import threading
 from types import SimpleNamespace
 
 import row_bot.providers.config as provider_config
+from row_bot.cancellation import CancellationScope, use_cancellation_scope
 from row_bot.providers.claude_subscription import ClaudeSubscriptionTokenSet, save_claude_subscription_oauth_tokens
 from row_bot.secret_store import _set_backend_for_tests
 
@@ -379,6 +381,58 @@ def test_claude_subscription_streams_tool_call_chunks_with_runtime_name(tmp_path
     merged = tool_chunks[0] + tool_chunks[1] + tool_chunks[2]
     assert merged.tool_call_chunks[0]["name"] == "lookup_order"
     assert merged.tool_calls == [{"name": "lookup_order", "args": {"order_id": "42"}, "id": "toolu_1", "type": "tool_call"}]
+
+
+def test_claude_subscription_stream_cancellation_closes_sdk_stream(tmp_path, monkeypatch):
+    from row_bot.providers.transports.claude_subscription_messages import ChatClaudeSubscriptionMessages
+
+    class _BlockingClaudeStream:
+        def __init__(self) -> None:
+            self.iterating = threading.Event()
+            self.closed = threading.Event()
+            self.close_calls = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def __iter__(self):
+            self.iterating.set()
+            assert self.closed.wait(timeout=1)
+            return iter(())
+
+        def close(self):
+            self.close_calls += 1
+            self.closed.set()
+
+    monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
+    _set_backend_for_tests(_MemoryKeyring())
+    _save_runtime_tokens()
+    stream = _BlockingClaudeStream()
+    client = _FakeAnthropicClient()
+    client.messages.stream = lambda **_kwargs: stream
+    model = ChatClaudeSubscriptionMessages(model_name="claude-sonnet-4-6", anthropic_client=client)
+    scope = CancellationScope()
+    events: list[object] = []
+
+    def consume() -> None:
+        with use_cancellation_scope(scope):
+            events.extend(model._stream_message_events({"model": "claude-sonnet-4-6"}))
+
+    try:
+        worker = threading.Thread(target=consume)
+        worker.start()
+        assert stream.iterating.wait(timeout=1)
+        scope.cancel("test")
+        worker.join(timeout=1)
+    finally:
+        _set_backend_for_tests(None)
+
+    assert not worker.is_alive()
+    assert stream.close_calls == 1
+    assert events == []
 
 
 def test_claude_subscription_refreshes_once_after_401(tmp_path, monkeypatch):
