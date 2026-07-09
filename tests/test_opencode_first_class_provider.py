@@ -5,11 +5,13 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import httpx
 import pytest
 
 import row_bot.models as models
 import row_bot.providers.runtime as runtime
 import row_bot.providers.config as provider_config
+from row_bot.cancellation import CancellationScope, use_cancellation_scope
 from row_bot.providers.auth_store import get_provider_secret, provider_secret_status
 from row_bot.providers.catalog import PROVIDER_DEFINITIONS, classify_model_capabilities, infer_provider_id, legacy_cache_to_model_infos
 from row_bot.providers.model_catalog import build_model_catalog_rows
@@ -23,6 +25,32 @@ from row_bot.providers.opencode import (
     opencode_model_transport,
     opencode_route_diagnostics,
 )
+from row_bot.providers.transports.anthropic_cancellable import CancellableChatAnthropic
+
+
+class _CloseCountingStream(httpx.SyncByteStream):
+    def __init__(self) -> None:
+        self.close_calls = 0
+
+    def __iter__(self):
+        return iter(())
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
+def _assert_sync_client_registered_with_cancellation_scope(client: httpx.Client) -> None:
+    stream = _CloseCountingStream()
+    response = httpx.Response(200, request=httpx.Request("GET", "https://example.test"), stream=stream)
+    scope = CancellationScope()
+
+    with use_cancellation_scope(scope):
+        for hook in client.event_hooks["response"]:
+            hook(response)
+
+    assert stream.close_calls == 0
+    scope.cancel("test")
+    assert stream.close_calls == 1
 from row_bot.providers.readiness import evaluate_agent_readiness, evaluate_runtime_readiness
 from row_bot.providers.resolution import resolve_provider_config
 from row_bot.providers.selection import ModelSelectionError, add_quick_choice_for_model, canonicalize_model_selection, list_quick_choices, model_choice_value
@@ -507,24 +535,20 @@ def test_phase4_opencode_responses_runtime_keeps_v1_base_url(monkeypatch):
     assert model.kwargs["base_url"] == "https://opencode.ai/zen/v1"
     assert model.kwargs["use_responses_api"] is True
     assert model.kwargs["output_version"] == "responses/v1"
+    assert isinstance(model.kwargs["http_client"], httpx.Client)
 
 
 def test_phase4_opencode_anthropic_runtime_strips_v1(monkeypatch):
-    fake_module = ModuleType("langchain_anthropic")
-
-    class _FakeChatAnthropic:
-        def __init__(self, **kwargs):
-            self.kwargs = kwargs
-
-    fake_module.ChatAnthropic = _FakeChatAnthropic
-    monkeypatch.setitem(sys.modules, "langchain_anthropic", fake_module)
     monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id, credential_name="api_key": "go-key")
 
     model = runtime.create_chat_model("model:opencode_go:minimax-m2.7")
 
-    assert model.kwargs["model"] == "minimax-m2.7"
-    assert model.kwargs["api_key"] == "go-key"
-    assert model.kwargs["base_url"] == "https://opencode.ai/zen/go"
+    assert isinstance(model, CancellableChatAnthropic)
+    assert model.model == "minimax-m2.7"
+    assert model.anthropic_api_key.get_secret_value() == "go-key"
+    assert model.anthropic_api_url == "https://opencode.ai/zen/go"
+    assert "http_client" not in model.model_kwargs
+    _assert_sync_client_registered_with_cancellation_scope(model._client._client)
 
 
 def test_phase4_opencode_gemini_runtime_is_blocked(monkeypatch):

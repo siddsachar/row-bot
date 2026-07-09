@@ -2,10 +2,14 @@ import sys
 import socket
 from types import ModuleType, SimpleNamespace
 
+import httpx
 import pytest
 
 import row_bot.providers.runtime as runtime
+from row_bot.cancellation import CancellationScope, use_cancellation_scope
 from row_bot.providers.errors import ProviderErrorKind, normalize_provider_error
+from row_bot.providers.transports.anthropic_cancellable import CancellableChatAnthropic
+from row_bot.providers.transports.openrouter_cancellable import CancellableChatOpenRouter
 
 
 class _FakeChatOpenAI:
@@ -14,6 +18,31 @@ class _FakeChatOpenAI:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
         self.calls.append(kwargs)
+
+
+class _CloseCountingStream(httpx.SyncByteStream):
+    def __init__(self) -> None:
+        self.close_calls = 0
+
+    def __iter__(self):
+        return iter(())
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
+def _assert_sync_client_registered_with_cancellation_scope(client: httpx.Client) -> None:
+    stream = _CloseCountingStream()
+    response = httpx.Response(200, request=httpx.Request("GET", "https://example.test"), stream=stream)
+    scope = CancellationScope()
+
+    with use_cancellation_scope(scope):
+        for hook in client.event_hooks["response"]:
+            hook(response)
+
+    assert stream.close_calls == 0
+    scope.cancel("test")
+    assert stream.close_calls == 1
 
 
 def test_openai_gpt5_family_uses_responses_api(monkeypatch):
@@ -28,6 +57,7 @@ def test_openai_gpt5_family_uses_responses_api(monkeypatch):
     assert model.kwargs["model"] == "gpt-5.5-pro"
     assert model.kwargs["use_responses_api"] is True
     assert model.kwargs["output_version"] == "responses/v1"
+    assert isinstance(model.kwargs["http_client"], httpx.Client)
 
 
 def test_openai_legacy_chat_model_keeps_chat_completions_path(monkeypatch):
@@ -41,23 +71,19 @@ def test_openai_legacy_chat_model_keeps_chat_completions_path(monkeypatch):
 
     assert model.kwargs["model"] == "gpt-4o"
     assert "use_responses_api" not in model.kwargs
+    assert isinstance(model.kwargs["http_client"], httpx.Client)
 
 
 def test_anthropic_provider_constructor_is_preserved(monkeypatch):
-    fake_module = ModuleType("langchain_anthropic")
-
-    class _FakeChatAnthropic:
-        def __init__(self, **kwargs):
-            self.kwargs = kwargs
-
-    fake_module.ChatAnthropic = _FakeChatAnthropic
-    monkeypatch.setitem(sys.modules, "langchain_anthropic", fake_module)
     monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id: "anthropic-key")
 
     model = runtime.create_chat_model("claude-sonnet-4-5", provider_id="anthropic")
 
-    assert model.kwargs["model"] == "claude-sonnet-4-5"
-    assert model.kwargs["api_key"] == "anthropic-key"
+    assert isinstance(model, CancellableChatAnthropic)
+    assert model.model == "claude-sonnet-4-5"
+    assert model.anthropic_api_key.get_secret_value() == "anthropic-key"
+    assert "http_client" not in model.model_kwargs
+    _assert_sync_client_registered_with_cancellation_scope(model._client._client)
 
 
 def test_google_provider_constructor_is_preserved(monkeypatch):
@@ -92,23 +118,18 @@ def test_xai_provider_constructor_is_preserved(monkeypatch):
 
     assert model.kwargs["model"] == "grok-4"
     assert model.kwargs["api_key"] == "xai-key"
+    assert isinstance(model.kwargs["http_client"], httpx.Client)
 
 
 def test_openrouter_provider_constructor_is_preserved(monkeypatch):
-    fake_module = ModuleType("langchain_openrouter")
-
-    class _FakeChatOpenRouter:
-        def __init__(self, **kwargs):
-            self.kwargs = kwargs
-
-    fake_module.ChatOpenRouter = _FakeChatOpenRouter
-    monkeypatch.setitem(sys.modules, "langchain_openrouter", fake_module)
     monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id: "openrouter-key")
 
     model = runtime.create_chat_model("anthropic/claude-sonnet-4", provider_id="openrouter")
 
-    assert model.kwargs["model_name"] == "anthropic/claude-sonnet-4"
-    assert model.kwargs["openrouter_api_key"] == "openrouter-key"
+    assert isinstance(model, CancellableChatOpenRouter)
+    assert model.model_name == "anthropic/claude-sonnet-4"
+    assert model.openrouter_api_key.get_secret_value() == "openrouter-key"
+    _assert_sync_client_registered_with_cancellation_scope(model.client.sdk_configuration.client)
 
 
 def test_codex_provider_constructor_is_preserved(monkeypatch):
@@ -723,21 +744,16 @@ def test_provider_errors_normalize_unsupported_capability():
 
 
 def test_minimax_provider_creates_chat_anthropic_with_minimax_base_url(monkeypatch):
-    fake_langchain_anthropic = ModuleType("langchain_anthropic")
-
-    class _FakeChatAnthropic:
-        def __init__(self, **kwargs):
-            self.kwargs = kwargs
-
-    fake_langchain_anthropic.ChatAnthropic = _FakeChatAnthropic
-    monkeypatch.setitem(sys.modules, "langchain_anthropic", fake_langchain_anthropic)
     monkeypatch.setattr(runtime, "get_provider_secret", lambda provider_id: "test-minimax-key")
 
     model = runtime.create_chat_model("MiniMax-M2.7", provider_id="minimax")
 
-    assert model.kwargs["model"] == "MiniMax-M2.7"
-    assert model.kwargs["api_key"] == "test-minimax-key"
-    assert model.kwargs["base_url"] == "https://api.minimax.io/anthropic"
+    assert isinstance(model, CancellableChatAnthropic)
+    assert model.model == "MiniMax-M2.7"
+    assert model.anthropic_api_key.get_secret_value() == "test-minimax-key"
+    assert "http_client" not in model.model_kwargs
+    assert model.anthropic_api_url == "https://api.minimax.io/anthropic"
+    _assert_sync_client_registered_with_cancellation_scope(model._client._client)
 
 
 def test_atlascloud_provider_creates_openai_compatible_client(monkeypatch):

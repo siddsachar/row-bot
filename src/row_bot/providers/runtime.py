@@ -321,6 +321,7 @@ def create_chat_model(model_name: str, provider_id: str | None = None):
             )
         if transport == "openai_responses" or transport.value == "openai_responses":
             from langchain_openai import ChatOpenAI
+            from row_bot.providers.transports.cancellable_http import cancellable_http_client
 
             return ChatOpenAI(
                 model=model_name,
@@ -328,11 +329,12 @@ def create_chat_model(model_name: str, provider_id: str | None = None):
                 base_url=opencode_base_url(provider),
                 use_responses_api=True,
                 output_version="responses/v1",
+                http_client=cancellable_http_client(),
             )
         if transport == "anthropic_messages" or transport.value == "anthropic_messages":
-            from langchain_anthropic import ChatAnthropic
+            from row_bot.providers.transports.anthropic_cancellable import CancellableChatAnthropic
 
-            return ChatAnthropic(
+            return CancellableChatAnthropic(
                 model=model_name,
                 api_key=api_key,
                 base_url=opencode_anthropic_base_url(provider),
@@ -351,11 +353,13 @@ def create_chat_model(model_name: str, provider_id: str | None = None):
         api_key = api_key or "not-needed"
         if endpoint.get("transport") == "openai_responses":
             from langchain_openai import ChatOpenAI
+            from row_bot.providers.transports.cancellable_http import cancellable_http_client
 
             kwargs = {
                 "model": model_name,
                 "api_key": api_key,
                 "base_url": endpoint["base_url"],
+                "http_client": cancellable_http_client(),
             }
             headers = endpoint.get("headers")
             if isinstance(headers, dict) and headers:
@@ -400,19 +404,20 @@ def create_chat_model(model_name: str, provider_id: str | None = None):
         return ChatXAIOAuthResponses(model_name=model_name)
     if provider == "openai":
         from langchain_openai import ChatOpenAI
+        from row_bot.providers.transports.cancellable_http import cancellable_http_client
         api_key = get_provider_secret("openai")
         if not api_key:
             raise ValueError("OpenAI API key not configured. Set it in Settings → Providers.")
-        kwargs = {"model": model_name, "api_key": api_key}
+        kwargs = {"model": model_name, "api_key": api_key, "http_client": cancellable_http_client()}
         if openai_model_uses_responses_api(model_name):
             kwargs.update({"use_responses_api": True, "output_version": "responses/v1"})
         return ChatOpenAI(**kwargs)
     if provider == "anthropic":
-        from langchain_anthropic import ChatAnthropic
+        from row_bot.providers.transports.anthropic_cancellable import CancellableChatAnthropic
         api_key = get_provider_secret("anthropic")
         if not api_key:
             raise ValueError("Anthropic API key not configured. Set it in Settings → Providers.")
-        return ChatAnthropic(model=model_name, api_key=api_key)
+        return CancellableChatAnthropic(model=model_name, api_key=api_key)
     if provider == "google":
         from langchain_google_genai import ChatGoogleGenerativeAI
         api_key = get_provider_secret("google")
@@ -421,18 +426,19 @@ def create_chat_model(model_name: str, provider_id: str | None = None):
         return ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key)
     if provider == "xai":
         from langchain_xai import ChatXAI
+        from row_bot.providers.transports.cancellable_http import cancellable_http_client
         api_key = get_provider_secret("xai")
         if not api_key:
             raise ValueError("xAI API key not configured. Set it in Settings → Providers.")
-        return ChatXAI(model=model_name, api_key=api_key)
+        return ChatXAI(model=model_name, api_key=api_key, http_client=cancellable_http_client())
     if provider == "minimax":
-        from langchain_anthropic import ChatAnthropic
+        from row_bot.providers.transports.anthropic_cancellable import CancellableChatAnthropic
         api_key = get_provider_secret("minimax")
         if not api_key:
             raise ValueError("MiniMax API key not configured. Set it in Settings → Providers.")
         definition = get_provider_definition("minimax")
         api_url = definition.base_url if definition and definition.base_url else "https://api.minimax.io/anthropic"
-        return ChatAnthropic(
+        return CancellableChatAnthropic(
             model=model_name,
             api_key=api_key,
             base_url=api_url,
@@ -479,11 +485,11 @@ def create_chat_model(model_name: str, provider_id: str | None = None):
             },
         )
 
-    from langchain_openrouter import ChatOpenRouter
+    from row_bot.providers.transports.openrouter_cancellable import CancellableChatOpenRouter
     api_key = get_provider_secret("openrouter")
     if not api_key:
         raise ValueError("OpenRouter API key not configured. Set it in Settings → Providers.")
-    return ChatOpenRouter(model_name=model_name, openrouter_api_key=api_key)
+    return CancellableChatOpenRouter(model_name=model_name, openrouter_api_key=api_key)
 
 
 def ensure_chat_model_compatible(model_name: str, provider_id: str | None = None) -> None:
