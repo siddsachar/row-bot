@@ -117,6 +117,28 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
         "Channel adapter changes need fake-channel contracts and channel runtime regressions.",
     ),
     SourceTestRule(
+        "approvals",
+        (
+            "src/row_bot/approval_messages.py",
+            "src/row_bot/tools/shell_tool.py",
+            "src/row_bot/tools/developer_tool.py",
+            "src/row_bot/ui/command_center.py",
+            "src/row_bot/ui/helpers.py",
+            "src/row_bot/ui/mobile.py",
+            "src/row_bot/ui/render.py",
+        ),
+        (
+            "tests/test_approval_messages.py",
+            "tests/test_shell_approval_policy.py",
+            "tests/test_agent_approvals.py",
+            "tests/test_active_run_queue.py",
+            "tests/test_agent_ui_contracts.py",
+            "tests/subsystem/channels/test_channel_approvals.py",
+            "tests/subsystem/mobile",
+        ),
+        "Approval presentation and approval actions need policy, child-agent, UI, mobile, and channel coverage.",
+    ),
+    SourceTestRule(
         "workflows",
         ("src/row_bot/tasks.py", "src/row_bot/workflows/**", "src/row_bot/agents/**"),
         (
@@ -144,6 +166,7 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
         (
             "src/row_bot/agent_commands.py",
             "src/row_bot/agent_context.py",
+            "src/row_bot/agent_run_messages.py",
             "src/row_bot/agent_runner.py",
             "src/row_bot/agent_profiles.py",
             "src/row_bot/agent_runs.py",
@@ -165,6 +188,7 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
             "tests/test_chat_tool_trace_ui.py",
             "tests/test_row_bot_status_agents.py",
             "tests/test_skill_pinning.py",
+            "tests/subsystem/channels/test_channel_thread_notifications.py",
             "tests/subsystem/workflows",
         ),
         "Agent Profile, Agent Run, workflow UI, and agent-facing workflow tools need profile/runtime and workflow regressions.",

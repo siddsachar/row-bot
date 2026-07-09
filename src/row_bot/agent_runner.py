@@ -529,6 +529,15 @@ def spawn_agent_run(
 
 
 def _interrupt_message(display_name: str, interrupts: list[dict[str, Any]]) -> str:
+    try:
+        from row_bot.approval_messages import compact_message, normalize_interrupts
+
+        payload = normalize_interrupts(interrupts, source_label=display_name or "Child Agent")
+        message = compact_message(payload)
+        if message:
+            return message
+    except Exception:
+        logger.debug("Could not build compact child approval message", exc_info=True)
     details: list[str] = []
     for intr in interrupts:
         tool = str(intr.get("tool") or "tool")
@@ -545,19 +554,29 @@ def _pause_agent_for_approval(
     enabled_tool_names: list[str],
 ) -> None:
     from row_bot.agent_runs import get_agent_run, save_agent_resume_state
-    from row_bot.tasks import create_approval_request
+    from row_bot.tasks import create_approval_request, push_approval_to_parent_channel
+    from row_bot.approval_messages import compact_message, normalize_interrupts
 
     run = get_agent_run(run_id) or {}
     interrupts = result.get("interrupts") or []
     if not isinstance(interrupts, list):
         interrupts = []
-    message = _interrupt_message(str(run.get("display_name") or ""), interrupts)
     configurable = config.get("configurable") or {}
+    source_label = str(run.get("display_name") or "Child Agent")
+    parent_thread_id = str(run.get("parent_thread_id") or "")
+    approval_payload = normalize_interrupts(
+        interrupts,
+        source_label=source_label,
+        agent_run_id=run_id,
+        parent_thread_id=parent_thread_id,
+    )
+    message = compact_message(approval_payload) or _interrupt_message(source_label, interrupts)
     resume_state = {
         "config": config,
         "enabled_tool_names": enabled_tool_names,
         "tool_allowlist": list(configurable.get("tool_allowlist") or []),
         "interrupts": interrupts,
+        "approval_payload": approval_payload,
     }
     resume_token, approval_id = create_approval_request(
         run_id=run_id,
@@ -566,8 +585,10 @@ def _pause_agent_for_approval(
         message=message,
         agent_run_id=run_id,
         resume_kind="agent_run",
-        source_label=str(run.get("display_name") or "Child Agent"),
+        source_label=source_label,
         source_thread_id=str(configurable.get("thread_id") or run.get("thread_id") or ""),
+        parent_thread_id=parent_thread_id,
+        approval_payload_json=approval_payload,
     )
     resume_state["resume_token"] = resume_token
     resume_state["approval_id"] = approval_id
@@ -577,6 +598,7 @@ def _pause_agent_for_approval(
         status="waiting_approval",
         status_message="Waiting for approval",
     )
+    push_approval_to_parent_channel(approval_id)
 
 
 def _run_agent_thread(

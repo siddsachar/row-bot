@@ -214,6 +214,57 @@ def test_direct_agent_completion_summary_appends_once(tmp_path, monkeypatch):
     assert len(messages) == 2
 
 
+def test_child_agent_approval_message_appends_and_dedupes(tmp_path, monkeypatch):
+    agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
+    import row_bot.tasks as tasks
+
+    agent_runs.create_agent_run(
+        run_id="run-approval",
+        kind="subagent",
+        status="waiting_approval",
+        parent_thread_id="parent",
+        display_name="Approval Child",
+    )
+    _token, approval_id = tasks.create_approval_request(
+        run_id="run-approval",
+        task_id="",
+        step_id="agent_interrupt",
+        message="Approval Child needs approval.",
+        agent_run_id="run-approval",
+        resume_kind="agent_run",
+        source_label="Approval Child",
+        source_thread_id="child-thread",
+        parent_thread_id="parent",
+        approval_payload_json={
+            "title": "Approval Child needs approval to run a command.",
+            "reason": "Check the focused tests.",
+            "tool": "run_command",
+            "raw_action": "uv run python -m pytest tests/test_agent_approvals.py -q",
+            "source_label": "Approval Child",
+        },
+    )
+    messages = [
+        {
+            "role": "assistant",
+            "content": "Started child.",
+            "agent_run_ids": ["run-approval"],
+            "agent_lifecycle": {
+                "kind": "delegated_agent_spawn",
+                "run_id": "run-approval",
+                "completion_summary_emitted": False,
+            },
+        }
+    ]
+
+    assert streaming._append_child_agent_approval_messages(messages, ["run-approval"]) is True
+    assert messages[0]["agent_lifecycle"]["approval_id"] == approval_id
+    assert messages[1]["approval_request_id"] == approval_id
+    assert messages[1]["agent_approval_for"] == "run-approval"
+    assert "Check the focused tests." in messages[1]["content"]
+    assert streaming._append_child_agent_approval_messages(messages, ["run-approval"]) is False
+    assert len([msg for msg in messages if msg.get("approval_request_id") == approval_id]) == 1
+
+
 def test_direct_agent_completion_summary_dedupes_existing_completion_row(tmp_path, monkeypatch):
     agent_runs, streaming, _transcript = _fresh_modules(tmp_path, monkeypatch)
 

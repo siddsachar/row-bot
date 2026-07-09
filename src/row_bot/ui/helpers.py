@@ -559,6 +559,14 @@ def langchain_messages_to_ui_messages(messages: list) -> list[dict]:
             "agent_run_refresh_key",
             "agent_lifecycle",
             "agent_completion_for",
+            "agent_approval_for",
+            "approval_request_id",
+            "approval_resume_token",
+            "approval_status",
+            "channel_notification_key",
+            "goal_completion_for",
+            "goal_run_id",
+            "goal_status",
         ):
             if key in metadata:
                 msg_dict[key] = metadata[key]

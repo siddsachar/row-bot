@@ -22,7 +22,6 @@ if str(ROOT) not in sys.path:
 
 from scripts.docs.schemas import (
     DocsPageRecord,
-    InventoryRecord,
     public_route_for_doc,
     repo_path,
     slugify,
@@ -250,6 +249,7 @@ def collect_channels() -> list[dict[str, Any]]:
         "__init__",
         "auth",
         "auth_store",
+        "agent_output",
         "approval",
         "base",
         "commands",
@@ -258,6 +258,8 @@ def collect_channels() -> list[dict[str, Any]]:
         "media_capture",
         "registry",
         "runtime",
+        "streaming",
+        "thread_notifications",
         "thread_repair",
         "tool_factory",
     }

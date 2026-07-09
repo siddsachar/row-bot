@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import sqlite3
 import sys
 from pathlib import Path
@@ -50,6 +51,8 @@ def test_approval_schema_has_agent_routing_columns(tmp_path, monkeypatch):
         "resume_kind",
         "source_label",
         "source_thread_id",
+        "parent_thread_id",
+        "approval_payload_json",
     } <= _approval_columns(tasks._DB_PATH)
 
 
@@ -67,7 +70,13 @@ def test_agent_interrupt_creates_approval_and_resume_routes_to_agent_runner(
         return {
             "type": "interrupt",
             "interrupts": [
-                {"id": "interrupt-1", "tool": "shell", "description": "Run shell"}
+                {
+                    "id": "interrupt-1",
+                    "tool": "run_command",
+                    "label": "Run shell command",
+                    "approval_reason": "Check the project state.",
+                    "args": {"command": "git status"},
+                }
             ],
         }
 
@@ -94,7 +103,12 @@ def test_agent_interrupt_creates_approval_and_resume_routes_to_agent_runner(
     assert approval["task_id"] == ""
     assert approval["step_id"] == "agent_interrupt"
     assert approval["source_thread_id"] == run["thread_id"]
+    assert approval["parent_thread_id"] == parent_thread_id
+    payload = json.loads(approval["approval_payload_json"])
+    assert payload["reason"] == "Check the project state."
+    assert payload["raw_action"] == "git status"
     assert "needs approval" in approval["message"]
+    assert "Check the project state." in approval["message"]
 
     assert tasks.respond_to_approval(approval["resume_token"], True) is True
     final = agent_runner.wait_for_agent_run(run["id"], timeout=2.0)

@@ -800,7 +800,8 @@ def _claim_turn(thread_id: str, turn_id: str) -> dict[str, Any] | None:
     conn = _get_conn()
     try:
         row = conn.execute(
-            "SELECT * FROM thread_goals WHERE thread_id = ? AND status = 'active' "
+            "SELECT * FROM thread_goals WHERE thread_id = ? "
+            "AND status IN ('active', 'waiting_approval', 'paused', 'completed', 'blocked') "
             "ORDER BY updated_at DESC LIMIT 1",
             (str(thread_id),),
         ).fetchone()

@@ -426,15 +426,25 @@ def _pending_tool_interrupt(state: AppState) -> Any | None:
     return None
 
 
+def respond_to_mobile_approval(
+    resume_token: str,
+    approved: bool,
+    note: str = "",
+) -> bool:
+    """Respond to a durable approval from the mobile surface."""
+    from row_bot import tasks
+
+    return bool(tasks.respond_to_approval(resume_token, approved, note=note, source="mobile"))
+
+
 def respond_to_mobile_workflow_approval(
     resume_token: str,
     approved: bool,
     note: str = "",
 ) -> bool:
-    """Respond to a workflow approval from the mobile surface."""
-    from row_bot import tasks
+    """Compatibility alias for older mobile workflow approval callers."""
 
-    return bool(tasks.respond_to_approval(resume_token, approved, note=note, source="mobile"))
+    return respond_to_mobile_approval(resume_token, approved, note=note)
 
 
 async def respond_to_mobile_workflow_approval_async(
@@ -442,8 +452,8 @@ async def respond_to_mobile_workflow_approval_async(
     approved: bool,
     note: str = "",
 ) -> bool:
-    """Respond to a workflow approval without blocking the NiceGUI event loop."""
-    return bool(await nicegui_run.io_bound(respond_to_mobile_workflow_approval, resume_token, approved, note))
+    """Respond to a durable approval without blocking the NiceGUI event loop."""
+    return bool(await nicegui_run.io_bound(respond_to_mobile_approval, resume_token, approved, note))
 
 
 def _build_mobile_header(state: AppState, *, open_settings: Callable[..., None]) -> None:
@@ -522,11 +532,23 @@ def _build_activity(
                 ).props("flat dense no-caps color=primary")
 
     if pending_approvals:
-        ui.label("Workflow approvals").classes("text-subtitle2 q-mt-sm")
+        ui.label("Pending approvals").classes("text-subtitle2 q-mt-sm")
     for approval in pending_approvals:
+        try:
+            from row_bot.approval_messages import compact_message, payload_from_row
+
+            approval_payload = payload_from_row(approval)
+            message = compact_message(approval_payload, max_chars=360)
+            task_name = str(
+                approval_payload.get("source_label")
+                or approval.get("source_label")
+                or approval.get("task_name")
+                or "Approval"
+            )
+        except Exception:
+            message = str(approval.get("message") or "Approval required.")
+            task_name = str(approval.get("source_label") or approval.get("task_name") or "Approval")
         resume_token = str(approval.get("resume_token") or "")
-        message = str(approval.get("message") or "Workflow step needs approval.")
-        task_name = str(approval.get("task_name") or "Workflow")
         busy_tokens = getattr(state, "mobile_workflow_approval_busy", None)
         if not isinstance(busy_tokens, set):
             busy_tokens = set()

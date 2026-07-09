@@ -43,6 +43,104 @@ def agent_result_use_available(run: dict) -> bool:
     status = str((run or {}).get("status") or "").strip().lower()
     return bool(run_id) and status in _AGENT_RESULT_USE_STATUSES
 
+
+def _load_pending_approval(
+    *,
+    approval_id: str = "",
+    agent_run_id: str = "",
+) -> dict | None:
+    try:
+        from row_bot.tasks import get_pending_approval_for_agent_run, get_pending_approvals
+
+        if approval_id:
+            rows = get_pending_approvals(approval_id=str(approval_id))
+            return rows[0] if rows else None
+        if agent_run_id:
+            return get_pending_approval_for_agent_run(str(agent_run_id))
+    except Exception:
+        logger.debug("Could not load pending approval", exc_info=True)
+    return None
+
+
+def _render_approval_request_card(
+    approval: dict | None,
+    *,
+    fallback_message: str = "",
+    compact: bool = False,
+) -> None:
+    try:
+        from row_bot.approval_messages import compact_message, payload_from_row
+    except Exception:
+        payload_from_row = None
+        compact_message = None
+
+    payload = payload_from_row(approval) if approval and payload_from_row else {}
+    title = str(payload.get("title") or fallback_message or "Approval required.").strip()
+    reason = str(payload.get("reason") or "").strip()
+    raw_action = str(payload.get("raw_action") or "").strip()
+    token = str((approval or {}).get("resume_token") or "")
+    pending = bool(approval and token)
+
+    if compact_message and payload:
+        display_text = compact_message(payload, max_chars=360 if compact else 520)
+    else:
+        display_text = title
+    if not pending:
+        display_text = fallback_message or title or "This approval is no longer pending."
+
+    with ui.column().classes("w-full gap-2 q-pa-sm").style(
+        "border: 1px solid rgba(240, 192, 64, 0.38); "
+        "border-radius: 8px; background: rgba(240, 192, 64, 0.08);"
+    ):
+        with ui.row().classes("w-full items-center gap-2 no-wrap"):
+            ui.icon("verified_user", size="16px").classes("text-warning")
+            ui.label(title or "Approval required").classes("text-sm font-semibold").style(
+                "flex: 1; min-width: 0;"
+            )
+            if not pending:
+                ui.badge("Handled", color="grey").props("outline dense")
+        if reason:
+            ui.label(f"Reason: {reason}").classes("text-xs text-grey-5").style(
+                "white-space: normal;"
+            )
+        elif display_text and display_text != title:
+            ui.label(display_text).classes("text-xs text-grey-5").style("white-space: pre-wrap;")
+        if raw_action and not compact:
+            ui.label(raw_action).classes("text-xs text-grey-6").style(
+                "font-family: monospace; white-space: pre-wrap; overflow-wrap: anywhere;"
+            )
+        if pending:
+            with ui.row().classes("w-full justify-end gap-2"):
+                async def _respond(approved: bool, resume_token: str = token) -> None:
+                    from nicegui import run as nicegui_run
+                    from row_bot.tasks import respond_to_approval
+
+                    ok = await nicegui_run.io_bound(
+                        lambda: respond_to_approval(
+                            resume_token,
+                            approved,
+                            source="desktop",
+                        )
+                    )
+                    ui.notify(
+                        "Approved" if ok and approved else "Denied" if ok else "Already handled",
+                        type="positive" if ok and approved else "warning" if ok else "info",
+                        close_button=True,
+                    )
+
+                async def _deny() -> None:
+                    await _respond(False)
+
+                async def _approve() -> None:
+                    await _respond(True)
+
+                ui.button("Deny", icon="close", on_click=_deny).props(
+                    "flat dense no-caps color=negative"
+                )
+                ui.button("Approve", icon="check", on_click=_approve).props(
+                    "unelevated dense no-caps color=positive"
+                )
+
 def _img_data_uri(b64: str) -> str:
     """Return a data URI with the correct MIME type for a base64-encoded image."""
     if b64.startswith("iVBOR"):
@@ -1122,6 +1220,14 @@ def _render_agent_run_card(
                 "-webkit-box-orient: vertical; overflow: hidden; line-height: 1.32;"
             )
 
+        if status.lower() == "waiting_approval" and run_id:
+            approval = _load_pending_approval(agent_run_id=run_id)
+            _render_approval_request_card(
+                approval,
+                fallback_message=activity or f"{name} is waiting for approval.",
+                compact=True,
+            )
+
         with ui.row().classes("w-full items-center gap-1"):
             if run_id:
                 ui.button(
@@ -1417,6 +1523,7 @@ def render_message_content(
 
     role = msg.get("role", "assistant")
     lifecycle_text_rendered = False
+    approval_text_rendered = False
 
     queued = msg.get("queued_control") if role == "user" else None
     if isinstance(queued, dict):
@@ -1453,10 +1560,18 @@ def render_message_content(
             render_text_with_embeds(lifecycle_text)
             lifecycle_text_rendered = True
 
+    if role == "assistant" and msg.get("approval_request_id"):
+        approval = _load_pending_approval(approval_id=str(msg.get("approval_request_id") or ""))
+        _render_approval_request_card(
+            approval,
+            fallback_message=str(msg.get("content") or "This approval is no longer pending."),
+        )
+        approval_text_rendered = True
+
     # Direct Agent runs started by the chat UI store durable run ids before
     # any Agent tool result exists. Render those as the same first-class card.
     agent_run_ids = msg.get("agent_run_ids") if role == "assistant" else None
-    if isinstance(agent_run_ids, list) and agent_run_ids:
+    if isinstance(agent_run_ids, list) and agent_run_ids and not msg.get("approval_request_id"):
         try:
             from row_bot.agent_runs import get_agent_run
 
@@ -1584,7 +1699,7 @@ def render_message_content(
         text = " ".join(str(t) for t in text)
     if not isinstance(text, str):
         text = str(text) if text else ""
-    if text and not lifecycle_text_rendered:
+    if text and not lifecycle_text_rendered and not approval_text_rendered:
         render_text_with_embeds(text)
 
     # Trigger highlight.js on new code blocks + render mermaid diagrams

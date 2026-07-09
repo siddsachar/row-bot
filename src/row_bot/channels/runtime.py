@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import inspect
+import logging
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
 from row_bot.approval_policy import DEFAULT_APPROVAL_MODE
+
+log = logging.getLogger(__name__)
 
 
 def approval_mode_for_config(config: dict) -> str:
@@ -96,6 +99,75 @@ def thread_id_from_config(config: dict | None) -> str:
     return str(configurable.get("thread_id") or "").strip()
 
 
+def _has_assistant_after_latest_human(messages: list[object]) -> bool:
+    start = 0
+    for idx, message in enumerate(messages):
+        if str(getattr(message, "type", "") or "") == "human":
+            start = idx + 1
+    return any(
+        str(getattr(message, "type", "") or "") == "ai"
+        for message in messages[start:]
+    )
+
+
+def _channel_delivery_metadata(delivery: Any | None) -> dict[str, Any]:
+    if delivery is None:
+        return {}
+    metadata: dict[str, Any] = {}
+    for key in ("delivered", "streamed", "finalized", "fallback_sent", "transport"):
+        if hasattr(delivery, key):
+            metadata[key] = getattr(delivery, key)
+    error = str(getattr(delivery, "error", "") or "").strip()
+    if error:
+        metadata["error"] = error[:500]
+    return metadata
+
+
+def persist_channel_assistant_message(
+    config: dict | None,
+    assistant_text: str,
+    *,
+    channel_name: str,
+    delivery: Any | None = None,
+) -> bool:
+    """Append a channel-delivered assistant answer when LangGraph did not.
+
+    Provider stream disconnects can leave the channel with a partial/error final
+    answer while the latest checkpoint still contains only the human message.
+    This helper repairs that UI-visible gap without duplicating normal graph
+    completions or tool/approval assistant turns.
+    """
+
+    thread_id = thread_id_from_config(config)
+    text = str(assistant_text or "").strip()
+    if not thread_id or not text:
+        return False
+    try:
+        from langchain_core.messages import AIMessage
+        from row_bot.threads import append_checkpoint_messages, get_latest_checkpoint_messages
+
+        messages = get_latest_checkpoint_messages(thread_id)
+        if _has_assistant_after_latest_human(messages):
+            return False
+        metadata = {
+            "channel_checkpoint_fallback": True,
+            "channel": str(channel_name or "channel"),
+            "channel_delivery": _channel_delivery_metadata(delivery),
+        }
+        appended = bool(
+            append_checkpoint_messages(
+                thread_id,
+                [AIMessage(content=text, additional_kwargs={"row_bot_ui": metadata})],
+            )
+        )
+        if appended:
+            _touch_thread(thread_id)
+        return appended
+    except Exception:
+        log.debug("Could not persist channel assistant message to checkpoint", exc_info=True)
+        return False
+
+
 def resolve_goal_approval_for_config(config: dict | None, approved: bool) -> bool:
     """Update a waiting channel Goal before resuming an approval interrupt."""
 
@@ -131,13 +203,65 @@ def _after_goal_turn(
 ):
     from row_bot import goals
 
-    return goals.after_turn(
+    decision = goals.after_turn(
         thread_id=thread_id,
         turn_id=_turn_id(channel_name, thread_id),
         assistant_text=assistant_text,
         model_override=_model_override_from_config(config),
         pending_approval=bool(interrupt_data),
     )
+    _touch_thread(thread_id)
+    return decision
+
+
+def _touch_thread(thread_id: str) -> None:
+    try:
+        from row_bot.threads import touch_thread
+
+        touch_thread(str(thread_id))
+    except Exception:
+        pass
+
+
+def _is_terminal_goal_status(status: str) -> bool:
+    return str(status or "").lower() in {"completed", "blocked", "failed", "cancelled", "timed_out"}
+
+
+def finalize_channel_goal_terminal_notification(
+    *,
+    thread_id: str,
+    goal: Mapping[str, Any] | None = None,
+) -> bool:
+    """Emit a compact channel goal terminal notification after answer delivery."""
+
+    clean_thread_id = thread_id_from_config({"configurable": {"thread_id": thread_id}})
+    if not clean_thread_id:
+        return False
+    _touch_thread(clean_thread_id)
+    try:
+        from row_bot import goals
+
+        current = dict(goal or goals.get_current_goal(clean_thread_id, include_terminal=True) or {})
+        if not current or not _is_terminal_goal_status(str(current.get("status") or "")):
+            return False
+        run_id = str(current.get("active_run_id") or "")
+        if not run_id:
+            return False
+        from row_bot.channels.thread_notifications import notify_agent_run_terminal
+
+        delivered = notify_agent_run_terminal(run_id)
+        _touch_thread(clean_thread_id)
+        return delivered
+    except Exception:
+        return False
+
+
+def _finalize_terminal_goal_decision(thread_id: str, decision: Any) -> None:
+    if not _is_terminal_goal_status(str(getattr(decision, "status", "") or "")):
+        return
+    goal = getattr(decision, "goal", None)
+    if isinstance(goal, Mapping):
+        finalize_channel_goal_terminal_notification(thread_id=thread_id, goal=goal)
 
 
 def run_channel_goal_sync(
@@ -173,6 +297,7 @@ def run_channel_goal_sync(
         status = decision.status or status
         reason = decision.reason or reason
         if interrupt_data or not decision.should_continue or not decision.continuation_prompt:
+            _finalize_terminal_goal_decision(thread_id, decision)
             return ChannelGoalRunResult(
                 turns=turns,
                 status=status,
@@ -204,6 +329,7 @@ def continue_channel_goal_after_turn_sync(
         interrupt_data=interrupt_data,
     )
     if interrupt_data or not decision.should_continue or not decision.continuation_prompt:
+        _finalize_terminal_goal_decision(thread_id, decision)
         return ChannelGoalRunResult(
             turns=0,
             status=decision.status,
@@ -260,6 +386,7 @@ async def run_channel_goal_async(
         status = decision.status or status
         reason = decision.reason or reason
         if interrupt_data or not decision.should_continue or not decision.continuation_prompt:
+            _finalize_terminal_goal_decision(thread_id, decision)
             return ChannelGoalRunResult(
                 turns=turns,
                 status=status,
@@ -291,6 +418,7 @@ async def continue_channel_goal_after_turn_async(
         interrupt_data=interrupt_data,
     )
     if interrupt_data or not decision.should_continue or not decision.continuation_prompt:
+        _finalize_terminal_goal_decision(thread_id, decision)
         return ChannelGoalRunResult(
             turns=0,
             status=decision.status,

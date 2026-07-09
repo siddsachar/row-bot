@@ -15,6 +15,8 @@ When Row-Bot uses a tool, the transcript can show a tool trace or result block. 
 
 Approval prompts appear when an action can change local files, run commands, contact external systems, use accounts, start servers, send messages, call MCP/plugin tools, or do something else that deserves review.
 
+If a child agent needs approval, Row-Bot posts a compact approval prompt in the parent thread, keeps the desktop Activity Center in sync, and routes channel-started work back to the originating channel when possible. The prompt may include a short model-written reason, but Row-Bot's approval policy still decides whether the action is blocked, allowed, or waiting for you.
+
 Before approving, check:
 
 - What action is being requested.
@@ -23,7 +25,7 @@ Before approving, check:
 - Whether the proposed command or file change matches your request.
 - Whether rejecting is safer until you inspect settings.
 
-Approving lets Row-Bot continue that action. Rejecting stops that action and returns control to the conversation.
+Approving lets Row-Bot continue that action. Rejecting stops that action and returns control to the conversation. On small screens and in channels, prompts stay brief; open the thread or Activity Center when you need more context.
 
 ## Terminal Output
 

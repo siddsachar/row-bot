@@ -176,7 +176,9 @@ _CREATE_TABLE_SQL = {
             agent_run_id    TEXT DEFAULT '',
             resume_kind     TEXT DEFAULT '',
             source_label    TEXT DEFAULT '',
-            source_thread_id TEXT DEFAULT ''
+            source_thread_id TEXT DEFAULT '',
+            parent_thread_id TEXT DEFAULT '',
+            approval_payload_json TEXT DEFAULT '{}'
         )
     """,
     "approval_channel_refs": """
@@ -186,6 +188,32 @@ _CREATE_TABLE_SQL = {
             channel         TEXT NOT NULL,
             message_ref     TEXT NOT NULL,
             FOREIGN KEY (approval_id) REFERENCES approval_requests(id) ON DELETE CASCADE
+        )
+    """,
+    "channel_thread_refs": """
+        CREATE TABLE IF NOT EXISTS channel_thread_refs (
+            thread_id        TEXT PRIMARY KEY,
+            channel          TEXT NOT NULL,
+            target           TEXT NOT NULL,
+            external_conversation_id TEXT DEFAULT '',
+            updated_at       TEXT NOT NULL
+        )
+    """,
+    "channel_thread_notifications": """
+        CREATE TABLE IF NOT EXISTS channel_thread_notifications (
+            key              TEXT PRIMARY KEY,
+            thread_id        TEXT NOT NULL,
+            channel          TEXT NOT NULL,
+            target           TEXT NOT NULL,
+            kind             TEXT NOT NULL,
+            text             TEXT NOT NULL,
+            payload_json     TEXT DEFAULT '{}',
+            status           TEXT NOT NULL DEFAULT 'pending',
+            attempts         INTEGER DEFAULT 0,
+            last_error       TEXT DEFAULT '',
+            created_at       TEXT NOT NULL,
+            updated_at       TEXT NOT NULL,
+            delivered_at     TEXT DEFAULT ''
         )
     """,
 }
@@ -252,6 +280,8 @@ _COLUMN_MIGRATIONS = {
         ("resume_kind", "TEXT DEFAULT ''"),
         ("source_label", "TEXT DEFAULT ''"),
         ("source_thread_id", "TEXT DEFAULT ''"),
+        ("parent_thread_id", "TEXT DEFAULT ''"),
+        ("approval_payload_json", "TEXT DEFAULT '{}'"),
     ],
 }
 
@@ -281,9 +311,16 @@ _REQUIRED_COLUMNS = {
         "id", "run_id", "task_id", "step_id", "resume_token", "message",
         "channel", "status", "requested_at", "responded_at", "timeout_at",
         "response_note", "agent_run_id", "resume_kind", "source_label",
-        "source_thread_id",
+        "source_thread_id", "parent_thread_id", "approval_payload_json",
     },
     "approval_channel_refs": {"id", "approval_id", "channel", "message_ref"},
+    "channel_thread_refs": {
+        "thread_id", "channel", "target", "external_conversation_id", "updated_at",
+    },
+    "channel_thread_notifications": {
+        "key", "thread_id", "channel", "target", "kind", "text", "payload_json",
+        "status", "attempts", "last_error", "created_at", "updated_at", "delivered_at",
+    },
 }
 
 
@@ -653,7 +690,9 @@ def _init_db() -> None:
             agent_run_id    TEXT DEFAULT '',
             resume_kind     TEXT DEFAULT '',
             source_label    TEXT DEFAULT '',
-            source_thread_id TEXT DEFAULT ''
+            source_thread_id TEXT DEFAULT '',
+            parent_thread_id TEXT DEFAULT '',
+            approval_payload_json TEXT DEFAULT '{}'
         )
     """)
     conn.execute("""
@@ -663,6 +702,32 @@ def _init_db() -> None:
             channel         TEXT NOT NULL,
             message_ref     TEXT NOT NULL,
             FOREIGN KEY (approval_id) REFERENCES approval_requests(id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS channel_thread_refs (
+            thread_id        TEXT PRIMARY KEY,
+            channel          TEXT NOT NULL,
+            target           TEXT NOT NULL,
+            external_conversation_id TEXT DEFAULT '',
+            updated_at       TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS channel_thread_notifications (
+            key              TEXT PRIMARY KEY,
+            thread_id        TEXT NOT NULL,
+            channel          TEXT NOT NULL,
+            target           TEXT NOT NULL,
+            kind             TEXT NOT NULL,
+            text             TEXT NOT NULL,
+            payload_json     TEXT DEFAULT '{}',
+            status           TEXT NOT NULL DEFAULT 'pending',
+            attempts         INTEGER DEFAULT 0,
+            last_error       TEXT DEFAULT '',
+            created_at       TEXT NOT NULL,
+            updated_at       TEXT NOT NULL,
+            delivered_at     TEXT DEFAULT ''
         )
     """)
     # Migrations for pre-existing databases
@@ -719,6 +784,8 @@ def _init_db() -> None:
         ("resume_kind", "TEXT DEFAULT ''"),
         ("source_label", "TEXT DEFAULT ''"),
         ("source_thread_id", "TEXT DEFAULT ''"),
+        ("parent_thread_id", "TEXT DEFAULT ''"),
+        ("approval_payload_json", "TEXT DEFAULT '{}'"),
     ]:
         try:
             conn.execute(f"ALTER TABLE approval_requests ADD COLUMN {col} {defn}")
@@ -2679,6 +2746,209 @@ def _push_approval_to_channels(task: dict, approval_id: str,
             logger.warning("Failed to push approval to %s: %s", ch.name, exc)
 
 
+def record_thread_channel_ref(
+    thread_id: str,
+    *,
+    channel: str,
+    target: str | int,
+    external_conversation_id: str = "",
+) -> None:
+    """Remember the channel conversation that owns a Row-Bot thread."""
+
+    clean_thread_id = str(thread_id or "").strip()
+    clean_channel = str(channel or "").strip()
+    clean_target = str(target or "").strip()
+    if not clean_thread_id or not clean_channel or not clean_target:
+        return
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO channel_thread_refs "
+            "(thread_id, channel, target, external_conversation_id, updated_at) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(thread_id) DO UPDATE SET "
+            "channel = excluded.channel, target = excluded.target, "
+            "external_conversation_id = excluded.external_conversation_id, "
+            "updated_at = excluded.updated_at",
+            (
+                clean_thread_id,
+                clean_channel,
+                clean_target,
+                str(external_conversation_id or ""),
+                datetime.now().isoformat(),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_thread_channel_ref(thread_id: str) -> dict | None:
+    """Return the channel origin for a Row-Bot thread, if known."""
+
+    clean_thread_id = str(thread_id or "").strip()
+    if not clean_thread_id:
+        return None
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT * FROM channel_thread_refs WHERE thread_id = ?",
+            (clean_thread_id,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_channel_thread_notification(key: str) -> dict | None:
+    """Return a durable parent-thread channel notification by key."""
+
+    clean_key = str(key or "").strip()
+    if not clean_key:
+        return None
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT * FROM channel_thread_notifications WHERE key = ?",
+            (clean_key,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def upsert_channel_thread_notification(
+    *,
+    key: str,
+    thread_id: str,
+    channel: str,
+    target: str | int,
+    kind: str,
+    text: str,
+    payload: Mapping[str, Any] | None = None,
+) -> dict | None:
+    """Create or refresh a durable notification intent for a channel thread."""
+
+    clean_key = str(key or "").strip()
+    clean_thread_id = str(thread_id or "").strip()
+    clean_channel = str(channel or "").strip()
+    clean_target = str(target or "").strip()
+    clean_kind = str(kind or "").strip()
+    clean_text = str(text or "").strip()
+    if not all((clean_key, clean_thread_id, clean_channel, clean_target, clean_kind, clean_text)):
+        return None
+    now = datetime.now().isoformat()
+    payload_text = json.dumps(dict(payload or {}), sort_keys=True)
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO channel_thread_notifications "
+            "(key, thread_id, channel, target, kind, text, payload_json, status, "
+            "attempts, last_error, created_at, updated_at, delivered_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, '', ?, ?, '')",
+            (
+                clean_key,
+                clean_thread_id,
+                clean_channel,
+                clean_target,
+                clean_kind,
+                clean_text,
+                payload_text,
+                now,
+                now,
+            ),
+        )
+        row = conn.execute(
+            "SELECT status FROM channel_thread_notifications WHERE key = ?",
+            (clean_key,),
+        ).fetchone()
+        status = str(row["status"] if row else "")
+        if status != "delivered":
+            conn.execute(
+                "UPDATE channel_thread_notifications SET "
+                "thread_id = ?, channel = ?, target = ?, kind = ?, text = ?, "
+                "payload_json = ?, updated_at = ? WHERE key = ?",
+                (
+                    clean_thread_id,
+                    clean_channel,
+                    clean_target,
+                    clean_kind,
+                    clean_text,
+                    payload_text,
+                    now,
+                    clean_key,
+                ),
+            )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM channel_thread_notifications WHERE key = ?",
+            (clean_key,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def mark_channel_thread_notification_delivered(key: str) -> bool:
+    """Mark a parent-thread notification as delivered to its channel."""
+
+    clean_key = str(key or "").strip()
+    if not clean_key:
+        return False
+    now = datetime.now().isoformat()
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "UPDATE channel_thread_notifications SET status = 'delivered', "
+            "last_error = '', updated_at = ?, delivered_at = ? WHERE key = ?",
+            (now, now, clean_key),
+        )
+        changed = conn.total_changes
+        conn.commit()
+        return bool(changed)
+    finally:
+        conn.close()
+
+
+def mark_channel_thread_notification_failed(key: str, error: str) -> bool:
+    """Record a failed parent-thread channel notification attempt."""
+
+    clean_key = str(key or "").strip()
+    if not clean_key:
+        return False
+    now = datetime.now().isoformat()
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "UPDATE channel_thread_notifications SET status = 'failed', "
+            "attempts = COALESCE(attempts, 0) + 1, last_error = ?, "
+            "updated_at = ? WHERE key = ?",
+            (str(error or "")[:1000], now, clean_key),
+        )
+        changed = conn.total_changes
+        conn.commit()
+        return bool(changed)
+    finally:
+        conn.close()
+
+
+def list_pending_channel_thread_notifications(limit: int = 50) -> list[dict]:
+    """Return pending/failed channel-thread notifications for retry."""
+
+    safe_limit = max(1, min(500, int(limit or 50)))
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM channel_thread_notifications "
+            "WHERE status IN ('pending', 'failed') "
+            "ORDER BY created_at ASC LIMIT ?",
+            (safe_limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
 def _store_approval_channel_ref(approval_id: str, channel: str,
                                 message_ref: str) -> None:
     """Store a channel message reference for an approval request."""
@@ -2690,6 +2960,76 @@ def _store_approval_channel_ref(approval_id: str, channel: str,
     )
     conn.commit()
     conn.close()
+
+
+def _approval_channel_ref_exists(approval_id: str, channel: str) -> bool:
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM approval_channel_refs "
+            "WHERE approval_id = ? AND channel = ? LIMIT 1",
+            (str(approval_id), str(channel)),
+        ).fetchone()
+        return bool(row)
+    finally:
+        conn.close()
+
+
+def push_approval_to_parent_channel(approval_id: str) -> bool:
+    """Push a child Agent approval to the parent thread's originating channel."""
+
+    rows = get_pending_approvals(approval_id=str(approval_id or ""))
+    approval = rows[0] if rows else None
+    if not approval:
+        return False
+    parent_thread_id = str(approval.get("parent_thread_id") or "").strip()
+    if not parent_thread_id:
+        return False
+    ref = get_thread_channel_ref(parent_thread_id)
+    if not ref:
+        return False
+    channel_name = str(ref.get("channel") or "").strip()
+    target = str(ref.get("target") or "").strip()
+    if not channel_name or not target:
+        return False
+    if _approval_channel_ref_exists(str(approval.get("id") or ""), channel_name):
+        return True
+    try:
+        from row_bot.approval_messages import channel_message, payload_from_row
+        from row_bot.channels import registry as channel_registry
+
+        ch = channel_registry.get(channel_name)
+        if not ch or not ch.is_running():
+            return False
+        payload = payload_from_row(approval)
+        msg_ref = ch.send_approval_request(
+            target,
+            {},
+            {
+                "approval_kind": "agent_run",
+                "task_name": str(
+                    payload.get("source_label")
+                    or approval.get("source_label")
+                    or "Child Agent"
+                ),
+                "message": channel_message(payload),
+                "resume_token": str(approval.get("resume_token") or ""),
+                "approval_id": str(approval.get("id") or ""),
+                "agent_run_id": str(approval.get("agent_run_id") or ""),
+                "parent_thread_id": parent_thread_id,
+            },
+        )
+        if msg_ref:
+            _store_approval_channel_ref(str(approval.get("id") or ""), channel_name, str(msg_ref))
+        return bool(msg_ref)
+    except Exception as exc:
+        logger.warning(
+            "Failed to push approval %s to parent channel %s: %s",
+            approval_id,
+            channel_name,
+            exc,
+        )
+        return False
 
 
 def _resolve_approval_on_channels(approval_id: str, status: str,
@@ -4660,6 +5000,8 @@ def create_approval_request(
     resume_kind: str = "",
     source_label: str = "",
     source_thread_id: str = "",
+    parent_thread_id: str = "",
+    approval_payload_json: Mapping[str, Any] | str | None = None,
 ) -> tuple[str, str]:
     """Create an approval request and return ``(resume_token, request_id)``."""
     req_id = uuid.uuid4().hex[:12]
@@ -4668,15 +5010,22 @@ def create_approval_request(
     if timeout_minutes > 0:
         timeout_at = (datetime.now() + timedelta(minutes=timeout_minutes)).isoformat()
     conn = _get_conn()
+    if isinstance(approval_payload_json, str):
+        payload_text = approval_payload_json.strip() or "{}"
+    elif approval_payload_json:
+        payload_text = json.dumps(approval_payload_json, ensure_ascii=False, sort_keys=True, default=str)
+    else:
+        payload_text = "{}"
     conn.execute(
         "INSERT INTO approval_requests "
         "(id, run_id, task_id, step_id, resume_token, message, channel, "
         "status, requested_at, timeout_at, agent_run_id, resume_kind, "
-        "source_label, source_thread_id) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)",
+        "source_label, source_thread_id, parent_thread_id, approval_payload_json) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)",
         (req_id, run_id, task_id, step_id, resume_token, message,
          channel, datetime.now().isoformat(), timeout_at,
-         agent_run_id, resume_kind, source_label, source_thread_id),
+         agent_run_id, resume_kind, source_label, source_thread_id,
+         parent_thread_id, payload_text),
     )
     conn.commit()
     conn.close()
@@ -4732,18 +5081,43 @@ def _emit_buddy_approval_event(
 
 
 @_schema_retry
-def get_pending_approvals() -> list[dict]:
+def get_pending_approvals(
+    *,
+    parent_thread_id: str = "",
+    agent_run_id: str = "",
+    approval_id: str = "",
+) -> list[dict]:
     """Return all pending approval requests."""
     conn = _get_conn()
+    clauses = ["a.status = 'pending'"]
+    params: list[str] = []
+    if parent_thread_id:
+        clauses.append("a.parent_thread_id = ?")
+        params.append(str(parent_thread_id))
+    if agent_run_id:
+        clauses.append("a.agent_run_id = ?")
+        params.append(str(agent_run_id))
+    if approval_id:
+        clauses.append("a.id = ?")
+        params.append(str(approval_id))
+    where_sql = " AND ".join(clauses)
     rows = conn.execute(
         "SELECT a.*, t.name AS task_name, t.icon AS task_icon "
         "FROM approval_requests a "
         "LEFT JOIN tasks t ON a.task_id = t.id "
-        "WHERE a.status = 'pending' "
-        "ORDER BY a.requested_at DESC"
+        f"WHERE {where_sql} "
+        "ORDER BY a.requested_at DESC",
+        params,
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def get_pending_approval_for_agent_run(agent_run_id: str) -> dict | None:
+    """Return the newest pending approval for a child Agent Run."""
+
+    rows = get_pending_approvals(agent_run_id=str(agent_run_id or ""))
+    return rows[0] if rows else None
 
 
 @_schema_retry

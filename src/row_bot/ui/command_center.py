@@ -803,6 +803,20 @@ def build_command_center(
                             _render_approval(appr)
 
                 def _render_approval(appr: dict) -> None:
+                    try:
+                        from row_bot.approval_messages import compact_message, payload_from_row
+
+                        approval_payload = payload_from_row(appr)
+                        approval_message = compact_message(approval_payload, max_chars=180)
+                        approval_label = (
+                            approval_payload.get("source_label")
+                            or appr.get("source_label")
+                            or appr.get("task_name")
+                            or "Approval"
+                        )
+                    except Exception:
+                        approval_message = str(appr.get("message", ""))
+                        approval_label = appr.get("source_label") or appr.get("task_name") or "Approval"
                     with ui.card().classes("w-full q-my-xs").style(
                         "padding: 0.4rem 0.5rem;"
                         "border-left: 3px solid #f0c040;"
@@ -813,7 +827,7 @@ def build_command_center(
                         ):
                             ui.icon("notifications", size="xs").classes("text-grey-5")
                             ui.label(
-                                appr.get("source_label") or appr.get("task_name") or "Approval"
+                                str(approval_label)
                             ).classes(
                                 "font-bold text-xs ellipsis"
                             ).style("flex: 1; min-width: 0;")
@@ -835,7 +849,7 @@ def build_command_center(
                                         )
                                 except (ValueError, TypeError):
                                     pass
-                        msg = appr.get("message", "")
+                        msg = approval_message or appr.get("message", "")
                         if msg:
                             ui.label(
                                 (msg[:100] + "…") if len(msg) > 100 else msg
