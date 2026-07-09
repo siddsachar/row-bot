@@ -17,6 +17,8 @@ Required keys (stored via api_keys):
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import inspect
 import logging
 import os
 import queue
@@ -41,6 +43,12 @@ from row_bot.channels import commands as ch_commands
 from row_bot.channels import runtime as ch_runtime
 from row_bot.channels.base import Channel, ChannelCapabilities, ConfigField
 from row_bot.channels.auth_store import get_channel_secret
+from row_bot.channels.streaming import (
+    ChannelDeliveryResult,
+    ChannelRateLimitError,
+    ChannelStreamConfig,
+    ChannelStreamConsumer,
+)
 from row_bot.threads import _save_thread_meta, _list_threads, _thread_exists
 
 log = logging.getLogger("row_bot.telegram")
@@ -389,8 +397,13 @@ def _run_agent_sync(user_text: str, config: dict,
     return answer or "_(No response)_", interrupt_data, captured_images, captured_video_paths
 
 
-def _resume_agent_sync(config: dict, approved: bool,
-                       *, interrupt_ids: list[str] | None = None) -> tuple[str, dict | None, list[bytes], list[str]]:
+def _resume_agent_sync(
+    config: dict,
+    approved: bool,
+    *,
+    interrupt_ids: list[str] | None = None,
+    event_queue=None,
+) -> tuple[str, dict | None, list[bytes], list[str]]:
     """Resume a paused agent after interrupt approval/denial."""
     agent_mod = _agent_mod()
     config = build_channel_runtime_config(config, "approval")
@@ -431,8 +444,13 @@ def _resume_agent_sync(config: dict, approved: bool,
         elif event_type == "done":
             if payload and not full_answer:
                 full_answer.append(payload)
+        if event_queue is not None:
+            event_queue.put((event_type, payload))
 
     answer = _assemble_telegram_agent_answer("".join(full_answer), tool_reports, setting_audits)
+
+    if event_queue is not None:
+        event_queue.put(None)
 
     captured_images: list[bytes] = []
     captured_video_paths: list[str] = []
@@ -454,36 +472,317 @@ def _resume_agent_sync(config: dict, approved: bool,
 # ──────────────────────────────────────────────────────────────────────
 # Message splitting
 # ──────────────────────────────────────────────────────────────────────
+def _telegram_text_units(text: str) -> int:
+    """Return Telegram-relevant UTF-16 code units for *text*."""
+    return len(str(text or "").encode("utf-16-le")) // 2
+
+
+def _prefix_units_index(text: str, max_units: int) -> int:
+    units = 0
+    for index, char in enumerate(text):
+        units += 2 if ord(char) > 0xFFFF else 1
+        if units > max_units:
+            return index
+    return len(text)
+
+
 def _split_message(text: str, max_len: int = MAX_TG_MESSAGE_LEN) -> list[str]:
-    """Split long text at paragraph or line boundaries."""
-    if len(text) <= max_len:
-        return [text]
+    """Split long text at paragraph or line boundaries using UTF-16 units."""
+    text = str(text or "")
+    if _telegram_text_units(text) <= max_len:
+        return [text] if text else []
 
     chunks: list[str] = []
     remaining = text
 
     while remaining:
-        if len(remaining) <= max_len:
+        if _telegram_text_units(remaining) <= max_len:
             chunks.append(remaining)
             break
 
-        break_at = max_len
-        para = remaining.rfind("\n\n", 0, max_len)
-        if para > max_len // 2:
+        hard_limit = max(1, _prefix_units_index(remaining, max_len))
+        break_at = hard_limit
+        para = remaining.rfind("\n\n", 0, hard_limit)
+        if para > hard_limit // 2:
             break_at = para + 2
         else:
-            line = remaining.rfind("\n", 0, max_len)
-            if line > max_len // 2:
+            line = remaining.rfind("\n", 0, hard_limit)
+            if line > hard_limit // 2:
                 break_at = line + 1
             else:
-                space = remaining.rfind(" ", 0, max_len)
-                if space > max_len // 2:
+                space = remaining.rfind(" ", 0, hard_limit)
+                if space > hard_limit // 2:
                     break_at = space + 1
 
         chunks.append(remaining[:break_at])
-        remaining = remaining[break_at:]
+        remaining = remaining[break_at:].lstrip()
 
     return chunks
+
+
+def _telegram_draft_id(seed: Any | None) -> int:
+    """Return a deterministic non-zero Telegram draft id for one stream turn."""
+    if seed is not None:
+        try:
+            value = abs(int(seed)) % 2_147_483_647
+            return value or 1
+        except Exception:
+            pass
+    text = str(seed or "telegram-stream")
+    digest = hashlib.blake2s(
+        text.encode("utf-8", errors="replace"),
+        digest_size=4,
+    ).digest()
+    value = int.from_bytes(digest, "big") % 2_147_483_647
+    return value or 1
+
+
+def _telegram_suffix_units(text: str, max_units: int) -> str:
+    """Return the longest suffix of *text* that fits within *max_units*."""
+    if max_units <= 0:
+        return ""
+    value = str(text or "")
+    units = 0
+    for index in range(len(value) - 1, -1, -1):
+        char = value[index]
+        units += 2 if ord(char) > 0xFFFF else 1
+        if units > max_units:
+            return value[index + 1:]
+    return value
+
+
+def _telegram_overflow_preview_text(
+    text: str,
+    *,
+    cursor: str = "...",
+    max_units: int = MAX_TG_MESSAGE_LEN,
+) -> str:
+    note = "Streaming preview; final answer will be sent in parts.\n\n...\n"
+    budget = max_units - _telegram_text_units(note) - _telegram_text_units(cursor)
+    tail = _telegram_suffix_units(str(text or ""), budget).lstrip()
+    candidate = f"{note}{tail}{cursor}"
+    while _telegram_text_units(candidate) > max_units and tail:
+        tail = tail[1:]
+        candidate = f"{note}{tail.lstrip()}{cursor}"
+    return candidate
+
+
+def _is_message_not_modified(exc: Exception) -> bool:
+    return "message is not modified" in str(exc).lower()
+
+
+def _retry_after_from_exception(exc: Exception) -> float | None:
+    for name in ("retry_after", "retry_after_seconds"):
+        value = getattr(exc, name, None)
+        if value is not None:
+            try:
+                return float(value)
+            except Exception:
+                pass
+    return None
+
+
+class TelegramStreamTransport:
+    """Telegram transport for the shared channel streaming engine."""
+
+    def __init__(
+        self,
+        chat,
+        *,
+        transport_mode: str = "auto",
+        message_thread_id: int | None = None,
+        draft_id: Any | None = None,
+        cursor: str = "...",
+    ) -> None:
+        self.chat = chat
+        self.requested_mode = str(transport_mode or "auto").lower()
+        self.message_thread_id = message_thread_id
+        draft_seed = (
+            draft_id
+            if draft_id is not None
+            else f"{getattr(chat, 'id', '')}:{message_thread_id or ''}"
+        )
+        self.draft_id = _telegram_draft_id(draft_seed)
+        self.cursor = cursor
+        self.transport_name = f"telegram:{self.requested_mode}"
+        self._selected_mode = "edit"
+        self.freeze_overflow_preview = True
+
+    @property
+    def final_delivery(self) -> str:
+        return "send" if self._selected_mode == "draft" else "update"
+
+    def split_text(self, text: str) -> list[str]:
+        return _split_message(str(text or ""))
+
+    def build_overflow_preview(self, text: str, *, cursor: str = "...") -> str:
+        return _telegram_overflow_preview_text(text, cursor=cursor)
+
+    async def send_typing(self) -> None:
+        try:
+            await self.chat.send_action("typing")
+            return
+        except AttributeError:
+            pass
+        await self.chat.send_chat_action(action="typing")
+
+    async def start(self, text: str):
+        mode = self._select_mode()
+        self._selected_mode = mode
+        self.transport_name = f"telegram:{mode}"
+        self.freeze_overflow_preview = mode != "draft"
+        if mode == "draft":
+            try:
+                await self._send_draft(text)
+                return {"mode": "draft"}
+            except Exception:
+                log.info(
+                    "Telegram draft streaming failed; falling back to edit",
+                    exc_info=True,
+                )
+                self._selected_mode = "edit"
+                self.transport_name = "telegram:edit"
+                self.freeze_overflow_preview = True
+        return await self._send_message(text)
+
+    async def update(self, handle, text: str, *, final: bool = False):
+        if self._selected_mode == "draft":
+            await self._send_draft(text)
+            return handle
+        html = _md_to_html(str(text or ""))
+        try:
+            result = await self._edit_message(handle, html, parse_mode="HTML")
+        except Exception as exc:
+            if _is_message_not_modified(exc):
+                return handle
+            retry_after = _retry_after_from_exception(exc)
+            if retry_after is not None:
+                raise ChannelRateLimitError(str(exc), retry_after=retry_after) from exc
+            try:
+                result = await self._edit_message(handle, str(text or ""))
+            except Exception as plain_exc:
+                if _is_message_not_modified(plain_exc):
+                    return handle
+                retry_after = _retry_after_from_exception(plain_exc)
+                if retry_after is not None:
+                    raise ChannelRateLimitError(
+                        str(plain_exc),
+                        retry_after=retry_after,
+                    ) from plain_exc
+                raise
+        if not final:
+            try:
+                await self.send_typing()
+            except Exception:
+                pass
+        return result or handle
+
+    async def send_final(self, text: str) -> list[Any]:
+        refs: list[Any] = []
+        for chunk in self.split_text(str(text or "")):
+            sent = await self._send_message_with_retry(chunk)
+            refs.append(getattr(sent, "message_id", sent))
+        return refs
+
+    async def cleanup_preview(self, handle) -> None:
+        if self._selected_mode == "draft":
+            return
+        try:
+            await handle.delete()
+        except Exception:
+            pass
+
+    def _select_mode(self) -> str:
+        if self.requested_mode == "off":
+            return "off"
+        if self.requested_mode in {"draft", "auto"}:
+            if self._is_private_chat() and self._draft_method() is not None:
+                return "draft"
+            if self.requested_mode == "draft":
+                log.info("Telegram draft streaming unavailable; falling back to edit")
+        return "edit"
+
+    def _is_private_chat(self) -> bool:
+        chat_type = str(getattr(self.chat, "type", "") or "").lower()
+        return chat_type == "private" or bool(getattr(self.chat, "is_private", False))
+
+    def _draft_method(self):
+        method = getattr(self.chat, "send_message_draft", None)
+        if callable(method):
+            return method
+        bot = getattr(self.chat, "bot", None) or getattr(self.chat, "_bot", None)
+        method = getattr(bot, "send_message_draft", None)
+        return method if callable(method) else None
+
+    async def _send_draft(self, text: str) -> Any:
+        method = self._draft_method()
+        if method is None:
+            raise RuntimeError("Telegram draft streaming is unavailable")
+        kwargs = self._thread_kwargs()
+        value = str(text or "")
+        try:
+            params = inspect.signature(method).parameters
+        except (TypeError, ValueError):
+            params = {}
+        if "draft_id" in params:
+            if "chat_id" in params:
+                return await method(
+                    chat_id=getattr(self.chat, "id", None),
+                    draft_id=self.draft_id,
+                    text=value,
+                    **kwargs,
+                )
+            return await method(self.draft_id, text=value, **kwargs)
+        try:
+            return await method(text=value, **kwargs)
+        except TypeError:
+            return await method(
+                chat_id=getattr(self.chat, "id", None),
+                text=value,
+                **kwargs,
+            )
+
+    async def _send_message(self, text: str) -> Any:
+        kwargs = self._thread_kwargs()
+        html = _md_to_html(str(text or ""))
+        try:
+            return await self.chat.send_message(html, parse_mode="HTML", **kwargs)
+        except Exception as exc:
+            retry_after = _retry_after_from_exception(exc)
+            if retry_after is not None:
+                raise ChannelRateLimitError(str(exc), retry_after=retry_after) from exc
+            plain = re.sub(r"<[^>]+>", "", html).replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+            return await self.chat.send_message(plain, **kwargs)
+
+    async def _send_message_with_retry(self, text: str) -> Any:
+        attempts = 2
+        last_error: Exception | None = None
+        for attempt in range(attempts + 1):
+            try:
+                return await self._send_message(text)
+            except ChannelRateLimitError as exc:
+                last_error = exc
+                if attempt >= attempts:
+                    raise
+                delay = max(
+                    0.0,
+                    float(
+                        getattr(exc, "retry_after", 0.0)
+                        or (0.25 * (2 ** attempt))
+                    ),
+                )
+                await asyncio.sleep(delay)
+        if last_error is not None:
+            raise last_error
+        return await self._send_message(text)
+
+    async def _edit_message(self, handle, text: str, **kwargs) -> Any:
+        return await handle.edit_text(text, **kwargs)
+
+    def _thread_kwargs(self) -> dict[str, Any]:
+        if self.message_thread_id:
+            return {"message_thread_id": self.message_thread_id}
+        return {}
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -845,16 +1144,16 @@ async def _cmd_goal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if goal_start is not None:
         chat_id = update.effective_chat.id
         config = {"configurable": {"thread_id": thread_id}}
-        loop = asyncio.get_event_loop()
+        _goal_run_turn, _goal_send_text = _telegram_goal_callbacks(
+            update.effective_chat,
+            message_thread_id=_telegram_message_thread_id(update.message),
+            draft_id_seed=getattr(update.message, "message_id", None),
+        )
 
-        async def _goal_run_turn(prompt: str, cfg: dict):
-            return await loop.run_in_executor(None, _run_agent_sync, prompt, cfg)
-
-        async def _goal_send_text(message: str) -> None:
-            await update.effective_chat.send_message(message)
-
-        await update.effective_chat.send_message(
-            ch_runtime.format_goal_started_ack(goal_start)
+        await _send_telegram_safe_text(
+            update.effective_chat,
+            ch_runtime.format_goal_started_ack(goal_start),
+            message_thread_id=_telegram_message_thread_id(update.message),
         )
         result = await ch_runtime.run_channel_goal_async(
             channel_name="telegram",
@@ -865,13 +1164,13 @@ async def _cmd_goal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             send_text=_goal_send_text,
         )
         if result.interrupt_data:
-            with _pending_lock:
-                _pending_interrupts[chat_id] = {
-                    "data": result.interrupt_data, "config": config
-                }
-            from row_bot.channels import approval as approval_helpers
-            detail = approval_helpers.format_interrupt_text(result.interrupt_data)
-            await update.effective_chat.send_message(detail + "\nReply YES or NO.")
+            await _send_interrupt_approval_card(
+                update.effective_chat,
+                chat_id,
+                result.interrupt_data,
+                config,
+                message_thread_id=_telegram_message_thread_id(update.message),
+            )
         return
     args = text.split(maxsplit=1)
     arg = args[1] if len(args) > 1 else ""
@@ -1009,6 +1308,7 @@ async def _send_agent_response(
     answer: str, interrupt_data: dict | None,
     captured_images: list[bytes],
     captured_video_paths: list[str] | None = None,
+    message_thread_id: int | None = None,
 ) -> None:
     """Send agent output back to the user (shared by all handlers)."""
     # Send captured images (vision captures + generated images)
@@ -1032,25 +1332,273 @@ async def _send_agent_response(
             log.warning("Failed to send video to Telegram: %s", exc)
 
     if interrupt_data:
-        import time as _time
-        with _pending_lock:
-            _pending_interrupts[chat_id] = {
-                "data": interrupt_data,
-                "config": config,
-                "_ts": _time.time(),
-            }
-        keyboard = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("✅ Approve", callback_data="interrupt_approve"),
-                InlineKeyboardButton("❌ Deny", callback_data="interrupt_deny"),
-            ]
-        ])
-        await _send_html_msg(chat, _format_interrupt(interrupt_data),
-                             reply_markup=keyboard)
+        await _send_interrupt_approval_card(
+            chat,
+            chat_id,
+            interrupt_data,
+            config,
+            message_thread_id=message_thread_id,
+        )
     else:
         html = _md_to_html(answer)
         for chunk in _split_message(html):
             await _send_html_msg(chat, chunk)
+
+
+def _cfg_float(channel_config: dict, key: str, default: float) -> float:
+    try:
+        return float(channel_config.get(key, default))
+    except Exception:
+        return default
+
+
+def _cfg_int(channel_config: dict, key: str, default: int) -> int:
+    try:
+        return int(channel_config.get(key, default))
+    except Exception:
+        return default
+
+
+def _telegram_stream_config() -> ChannelStreamConfig:
+    try:
+        from row_bot.channels import config as channel_config_store
+
+        channel_config = channel_config_store.get_all("telegram")
+    except Exception:
+        channel_config = {}
+    enabled = bool(channel_config.get("streaming.enabled", True))
+    return ChannelStreamConfig(
+        channel="telegram",
+        transport_mode=str(channel_config.get("streaming.transport", "auto") if enabled else "off"),
+        update_interval_s=_cfg_float(channel_config, "streaming.update_interval_s", 0.8),
+        max_stale_interval_s=_cfg_float(channel_config, "streaming.max_stale_interval_s", 3.0),
+        min_update_chars=_cfg_int(channel_config, "streaming.min_update_chars", 24),
+        typing_interval_s=_cfg_float(channel_config, "streaming.typing_interval_s", 4.0),
+        cursor=str(channel_config.get("streaming.cursor", "...")),
+        max_message_units=MAX_TG_MESSAGE_LEN,
+        fresh_final_after_s=_cfg_float(channel_config, "streaming.fresh_final_after_s", 60.0),
+        sparse_progress=bool(channel_config.get("streaming.sparse_progress", True)),
+    )
+
+
+def _telegram_message_thread_id(message) -> int | None:
+    value = getattr(message, "message_thread_id", None)
+    try:
+        return int(value) if value else None
+    except Exception:
+        return None
+
+
+async def _stream_agent_turn_to_telegram(
+    chat,
+    user_text: str,
+    config: dict,
+    *,
+    message_thread_id: int | None = None,
+    draft_id_seed: Any | None = None,
+) -> tuple[str, dict | None, list[bytes], list[str], ChannelDeliveryResult]:
+    loop = asyncio.get_event_loop()
+    event_queue: queue.Queue = queue.Queue()
+    stream_config = _telegram_stream_config()
+    transport = TelegramStreamTransport(
+        chat,
+        transport_mode=stream_config.transport_mode,
+        message_thread_id=message_thread_id,
+        draft_id=draft_id_seed,
+        cursor=stream_config.cursor,
+    )
+    consumer = ChannelStreamConsumer(transport, stream_config)
+    agent_future = loop.run_in_executor(None, _run_agent_sync, user_text, config, event_queue)
+    consumer_task = asyncio.ensure_future(
+        consumer.consume_queue(event_queue, final_text_source=agent_future)
+    )
+    try:
+        answer, interrupt_data, captured_images, captured_video_paths = await agent_future
+        delivery = await consumer_task
+        ch_runtime.persist_channel_assistant_message(
+            config,
+            answer or delivery.final_text,
+            channel_name="telegram",
+            delivery=delivery,
+        )
+        return answer, interrupt_data, captured_images, captured_video_paths, delivery
+    except Exception:
+        if not consumer_task.done():
+            consumer_task.cancel()
+        try:
+            while True:
+                event_queue.get_nowait()
+        except Exception:
+            pass
+        raise
+
+
+async def _stream_agent_resume_to_telegram(
+    chat,
+    config: dict,
+    approved: bool,
+    *,
+    interrupt_ids: list[str] | None = None,
+    message_thread_id: int | None = None,
+    draft_id_seed: Any | None = None,
+) -> tuple[str, dict | None, list[bytes], list[str], ChannelDeliveryResult]:
+    loop = asyncio.get_event_loop()
+    event_queue: queue.Queue = queue.Queue()
+    stream_config = _telegram_stream_config()
+    transport = TelegramStreamTransport(
+        chat,
+        transport_mode=stream_config.transport_mode,
+        message_thread_id=message_thread_id,
+        draft_id=draft_id_seed,
+        cursor=stream_config.cursor,
+    )
+    consumer = ChannelStreamConsumer(transport, stream_config)
+    agent_future = loop.run_in_executor(
+        None,
+        lambda: _resume_agent_sync(
+            config,
+            approved,
+            interrupt_ids=interrupt_ids,
+            event_queue=event_queue,
+        ),
+    )
+    consumer_task = asyncio.ensure_future(
+        consumer.consume_queue(event_queue, final_text_source=agent_future)
+    )
+    try:
+        answer, interrupt_data, captured_images, captured_video_paths = await agent_future
+        delivery = await consumer_task
+        ch_runtime.persist_channel_assistant_message(
+            config,
+            answer or delivery.final_text,
+            channel_name="telegram",
+            delivery=delivery,
+        )
+        return answer, interrupt_data, captured_images, captured_video_paths, delivery
+    except Exception:
+        if not consumer_task.done():
+            consumer_task.cancel()
+        try:
+            while True:
+                event_queue.get_nowait()
+        except Exception:
+            pass
+        raise
+
+
+async def _send_telegram_safe_text(
+    chat,
+    message: str,
+    *,
+    message_thread_id: int | None = None,
+) -> None:
+    kwargs = {"message_thread_id": message_thread_id} if message_thread_id else {}
+    await _send_html_msg(chat, _md_to_html(str(message or "")), **kwargs)
+
+
+async def _send_telegram_media(
+    chat,
+    captured_images: list[bytes],
+    captured_video_paths: list[str] | None = None,
+) -> None:
+    for img_bytes in captured_images:
+        try:
+            import io
+            await chat.send_photo(photo=io.BytesIO(img_bytes), caption="🖼️ Image")
+        except Exception as exc:
+            log.warning("Failed to send image to Telegram: %s", exc)
+    for vpath in (captured_video_paths or []):
+        try:
+            await chat.send_document(
+                document=open(vpath, "rb"),
+                caption="🎬 Video",
+                filename=os.path.basename(vpath),
+            )
+        except Exception as exc:
+            log.warning("Failed to send video to Telegram: %s", exc)
+
+
+def _interrupt_approval_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Approve", callback_data="interrupt_approve"),
+            InlineKeyboardButton("❌ Deny", callback_data="interrupt_deny"),
+        ]
+    ])
+
+
+async def _send_interrupt_approval_card(
+    chat,
+    chat_id: int,
+    interrupt_data: Any,
+    config: dict,
+    *,
+    message_thread_id: int | None = None,
+) -> None:
+    with _pending_lock:
+        _pending_interrupts[chat_id] = {
+            "data": interrupt_data,
+            "config": config,
+            "_ts": time.time(),
+        }
+    kwargs = {"message_thread_id": message_thread_id} if message_thread_id else {}
+    await _send_html_msg(
+        chat,
+        _format_interrupt(interrupt_data),
+        reply_markup=_interrupt_approval_keyboard(),
+        **kwargs,
+    )
+
+
+def _telegram_goal_callbacks(
+    chat,
+    *,
+    message_thread_id: int | None = None,
+    draft_id_seed: Any | None = None,
+):
+    state: dict[str, ChannelDeliveryResult | None] = {"delivery": None}
+    turn_state: dict[str, int] = {"index": 0}
+
+    async def _goal_run_turn(prompt: str, cfg: dict):
+        turn_state["index"] += 1
+        seed = (
+            f"{draft_id_seed}:{turn_state['index']}"
+            if draft_id_seed is not None
+            else (
+                f"{getattr(chat, 'id', '')}:{message_thread_id or ''}:goal:"
+                f"{turn_state['index']}"
+            )
+        )
+        (
+            answer,
+            interrupt_data,
+            captured_images,
+            captured_video_paths,
+            delivery,
+        ) = await _stream_agent_turn_to_telegram(
+            chat,
+            prompt,
+            cfg,
+            message_thread_id=message_thread_id,
+            draft_id_seed=seed,
+        )
+        state["delivery"] = delivery
+        await _send_telegram_media(chat, captured_images, captured_video_paths)
+        return answer, interrupt_data
+
+    async def _goal_send_text(message: str) -> None:
+        delivery = state.get("delivery")
+        if (
+            delivery
+            and delivery.delivered
+            and str(delivery.final_text or "").strip() == str(message or "").strip()
+        ):
+            state["delivery"] = None
+            return
+        state["delivery"] = None
+        await _send_telegram_safe_text(chat, message, message_thread_id=message_thread_id)
+
+    return _goal_run_turn, _goal_send_text
 
 
 async def _run_agent_for_message(
@@ -1087,41 +1635,20 @@ async def _run_agent_for_message(
     await _react(msg, "👀")
     await update.effective_chat.send_action("typing")
 
-    loop = asyncio.get_event_loop()
-
-    # Send placeholder and start streaming
     try:
-        sent_msg = await update.effective_chat.send_message("⏳")
-    except Exception:
-        sent_msg = None
-
-    eq = queue.Queue()
-
-    try:
-        executor_future = loop.run_in_executor(
-            None, _run_agent_sync, user_text, config, eq
+        answer, interrupt_data, captured_images, captured_video_paths, delivery = await _stream_agent_turn_to_telegram(
+            update.effective_chat,
+            user_text,
+            config,
+            message_thread_id=_telegram_message_thread_id(msg),
+            draft_id_seed=getattr(msg, "message_id", None),
         )
-        # Run streaming consumer in parallel
-        if sent_msg:
-            consumer_task = asyncio.ensure_future(
-                _tg_edit_consumer(update.effective_chat, sent_msg, eq, loop)
-            )
-        answer, interrupt_data, captured_images, captured_video_paths = await executor_future
-        if sent_msg:
-            streamed_display = await consumer_task
-        else:
-            streamed_display = None
     except Exception as exc:
-        # Drain the queue to prevent leaks
-        try:
-            while True:
-                eq.get_nowait()
-        except Exception:
-            pass
         log.error("Agent error for chat %s: %s", chat_id, exc)
         if _is_corrupt_thread_error(exc):
             try:
                 from row_bot.agent import repair_orphaned_tool_calls
+                loop = asyncio.get_event_loop()
                 await loop.run_in_executor(
                     None, repair_orphaned_tool_calls, None, config
                 )
@@ -1129,37 +1656,29 @@ async def _run_agent_for_message(
                 answer, interrupt_data, captured_images, captured_video_paths = await loop.run_in_executor(
                     None, _run_agent_sync, user_text, config
                 )
-                streamed_display = None
+                delivery = ChannelDeliveryResult(
+                    delivered=False,
+                    streamed=False,
+                    finalized=False,
+                    fallback_sent=False,
+                    transport="telegram:repair",
+                    final_text=answer,
+                    error="repair retry used non-streaming fallback",
+                )
             except Exception as retry_exc:
                 log.error("Retry after repair failed: %s", retry_exc)
                 config = _new_thread(chat_id)
                 context.chat_data["thread_config"] = config
                 await _react(msg, "💔")
-                if sent_msg:
-                    try:
-                        await sent_msg.edit_text(
-                            "⚠️ The previous conversation had a stuck tool call "
-                            "and couldn't be repaired.\n"
-                            "🆕 I've started a fresh thread — please resend your message."
-                        )
-                    except Exception:
-                        pass
-                else:
-                    await msg.reply_text(
-                        "⚠️ The previous conversation had a stuck tool call "
-                        "and couldn't be repaired.\n"
-                        "🆕 I've started a fresh thread — please resend your message."
-                    )
+                await msg.reply_text(
+                    "⚠️ The previous conversation had a stuck tool call "
+                    "and couldn't be repaired.\n"
+                    "🆕 I've started a fresh thread — please resend your message."
+                )
                 return
         else:
             await _react(msg, "💔")
-            if sent_msg:
-                try:
-                    await sent_msg.edit_text(f"⚠️ Error: {exc}")
-                except Exception:
-                    pass
-            else:
-                await msg.reply_text(f"⚠️ Error: {exc}")
+            await msg.reply_text(f"⚠️ Error: {exc}")
             return
 
     await _react(msg, "👍")
@@ -1168,8 +1687,8 @@ async def _run_agent_for_message(
     from row_bot.channels import extract_youtube_urls
     clean_answer, yt_urls = extract_youtube_urls(answer) if answer else ("", [])
 
-    # If streaming covered the full response, skip re-sending the text
-    if streamed_display and not interrupt_data:
+    # If streaming/final delivery covered the response, skip re-sending text.
+    if delivery.delivered and not interrupt_data:
         # Send YouTube URLs as separate messages for auto-preview
         for url in yt_urls:
             await update.effective_chat.send_message(url)
@@ -1192,16 +1711,12 @@ async def _run_agent_for_message(
             except Exception as exc_vid:
                 log.warning("Failed to send video to Telegram: %s", exc_vid)
     else:
-        # Streaming overflowed or wasn't available — delete placeholder, send normally
-        if sent_msg:
-            try:
-                await sent_msg.delete()
-            except Exception:
-                pass
+        # Streaming was unavailable or final delivery failed; send normally.
         await _send_agent_response(
             update.effective_chat, msg, chat_id, config,
             clean_answer, interrupt_data, captured_images,
             captured_video_paths,
+            message_thread_id=_telegram_message_thread_id(msg),
         )
         for url in yt_urls:
             await update.effective_chat.send_message(url)
@@ -1268,7 +1783,6 @@ async def _handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
 
     if cb_data.startswith("task_approve:") or cb_data.startswith("task_deny:"):
-        token_prefix = cb_data.split(":", 1)[1]
         approved = cb_data.startswith("task_approve:")
         # Find full resume token from pending map
         msg_id = query.message.message_id
@@ -1324,10 +1838,14 @@ async def _handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     # Send typing indicator
     await update.effective_chat.send_action("typing")
 
-    loop = asyncio.get_event_loop()
     try:
-        answer, new_interrupt, captured_images, captured_video_paths = await loop.run_in_executor(
-            None, lambda: _resume_agent_sync(config, approved, interrupt_ids=interrupt_ids),
+        answer, new_interrupt, captured_images, captured_video_paths, delivery = await _stream_agent_resume_to_telegram(
+            update.effective_chat,
+            config,
+            approved,
+            interrupt_ids=interrupt_ids,
+            message_thread_id=_telegram_message_thread_id(query.message),
+            draft_id_seed=getattr(query.message, "message_id", None),
         )
     except Exception as exc:
         log.error("Agent resume error: %s", exc)
@@ -1342,56 +1860,30 @@ async def _handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             await update.effective_chat.send_message(f"⚠️ Error: {exc}")
         return
 
-    # Send captured images (vision + generated)
-    for img_bytes in captured_images:
-        try:
-            import io
-            await update.effective_chat.send_photo(
-                photo=io.BytesIO(img_bytes), caption="🖼️ Image"
-            )
-        except Exception as exc:
-            log.warning("Failed to send image to Telegram: %s", exc)
-
-    # Send captured videos
-    for vpath in captured_video_paths:
-        try:
-            await update.effective_chat.send_document(
-                document=open(vpath, "rb"), caption="🎬 Video",
-                filename=os.path.basename(vpath),
-            )
-        except Exception as exc:
-            log.warning("Failed to send video to Telegram: %s", exc)
+    await _send_telegram_media(update.effective_chat, captured_images, captured_video_paths)
 
     if new_interrupt:
-        import time as _time
-        with _pending_lock:
-            _pending_interrupts[chat_id] = {
-                "data": new_interrupt,
-                "config": config,
-                "_ts": _time.time(),
-            }
-        keyboard = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("✅ Approve", callback_data="interrupt_approve"),
-                InlineKeyboardButton("❌ Deny", callback_data="interrupt_deny"),
-            ]
-        ])
-        await _send_html_msg(
+        await _send_interrupt_approval_card(
             update.effective_chat,
-            _format_interrupt(new_interrupt),
-            reply_markup=keyboard,
+            chat_id,
+            new_interrupt,
+            config,
+            message_thread_id=_telegram_message_thread_id(query.message),
         )
     else:
-        html = _md_to_html(answer)
-        for chunk in _split_message(html):
-            await _send_html_msg(update.effective_chat, chunk)
+        if not delivery.delivered:
+            await _send_telegram_safe_text(
+                update.effective_chat,
+                answer,
+                message_thread_id=_telegram_message_thread_id(query.message),
+            )
         thread_id = ch_runtime.thread_id_from_config(config)
         if thread_id and answer:
-            async def _goal_run_turn(prompt: str, cfg: dict):
-                return await loop.run_in_executor(None, _run_agent_sync, prompt, cfg)
-
-            async def _goal_send_text(message: str) -> None:
-                await update.effective_chat.send_message(message)
+            _goal_run_turn, _goal_send_text = _telegram_goal_callbacks(
+                update.effective_chat,
+                message_thread_id=_telegram_message_thread_id(query.message),
+                draft_id_seed=getattr(query.message, "message_id", None),
+            )
 
             goal_result = await ch_runtime.continue_channel_goal_after_turn_async(
                 channel_name="telegram",
@@ -1403,23 +1895,12 @@ async def _handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 send_text=_goal_send_text,
             )
             if goal_result.interrupt_data:
-                import time as _time
-                with _pending_lock:
-                    _pending_interrupts[chat_id] = {
-                        "data": goal_result.interrupt_data,
-                        "config": config,
-                        "_ts": _time.time(),
-                    }
-                keyboard = InlineKeyboardMarkup([
-                    [
-                        InlineKeyboardButton("âœ… Approve", callback_data="interrupt_approve"),
-                        InlineKeyboardButton("âŒ Deny", callback_data="interrupt_deny"),
-                    ]
-                ])
-                await _send_html_msg(
+                await _send_interrupt_approval_card(
                     update.effective_chat,
-                    _format_interrupt(goal_result.interrupt_data),
-                    reply_markup=keyboard,
+                    chat_id,
+                    goal_result.interrupt_data,
+                    config,
+                    message_thread_id=_telegram_message_thread_id(query.message),
                 )
 
 

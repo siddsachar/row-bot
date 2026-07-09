@@ -839,9 +839,11 @@ def finish_agent_run(
     )
     final_run = get_agent_run(run_id)
     try:
-        from row_bot.channels.thread_notifications import notify_agent_run_terminal
+        run_kind = str((final_run or {}).get("kind") or "").lower()
+        if run_kind != "goal":
+            from row_bot.channels.thread_notifications import notify_agent_run_terminal
 
-        notify_agent_run_terminal(final_run or run_id)
+            notify_agent_run_terminal(final_run or run_id)
     except Exception:
         pass
     return final_run

@@ -179,6 +179,10 @@ def test_goal_terminal_notification_is_compact_and_deduped(tmp_path, monkeypatch
 
     agent_runs.finish_agent_run("goal-goal-1", "completed", summary="The final answer was already sent.")
 
+    assert channel.messages == []
+    assert tasks.get_channel_thread_notification("goal_terminal:goal-1:completed") is None
+    assert thread_notifications.notify_agent_run_terminal("goal-goal-1") is True
+
     assert [(msg.target, msg.text) for msg in channel.messages] == [
         ("conversation-1", "Goal completed: ship channel parity")
     ]

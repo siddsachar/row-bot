@@ -456,6 +456,9 @@ async def _handle_inbound_sms(request) -> Any:
         task_approval = _pending_task_approvals.get(from_number)
     if task_approval:
         decision = approval_helpers.is_approval_text(body)
+        if decision is None:
+            _send_reply(from_number, "Approval pending. Reply YES or NO.")
+            return Response("<Response/>", media_type=_XML)
         if decision is not None:
             with _pending_lock:
                 _pending_task_approvals.pop(from_number, None)
@@ -485,10 +488,19 @@ async def _handle_inbound_sms(request) -> Any:
 
     # Check pending live-chat interrupts
     with _pending_lock:
-        interrupt = _pending_interrupts.pop(from_number, None)
+        interrupt = _pending_interrupts.get(from_number)
 
     if interrupt:
-        approved = body.lower() in approval_helpers._YES_WORDS
+        decision = approval_helpers.is_approval_text(body)
+        if decision is None:
+            _send_reply(from_number, "Approval pending. Reply YES or NO.")
+            return Response("<Response/>", media_type=_XML)
+        with _pending_lock:
+            interrupt = _pending_interrupts.pop(from_number, None)
+        if interrupt is None:
+            _send_reply(from_number, "This approval is no longer pending.")
+            return Response("<Response/>", media_type=_XML)
+        approved = bool(decision)
         config = interrupt.get("config", {})
         interrupt_ids = approval_helpers.extract_interrupt_ids(
             interrupt.get("data")
@@ -672,7 +684,7 @@ async def start_bot() -> bool:
 
         return True
 
-    except ImportError as exc:
+    except ImportError:
         log.error("twilio not installed. Run: pip install twilio")
         return False
     except Exception as exc:

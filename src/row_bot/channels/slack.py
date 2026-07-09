@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import queue
 import threading
 import time
@@ -40,7 +39,14 @@ from row_bot.channels.auth_store import get_channel_secret
 from row_bot.channels import commands as ch_commands
 from row_bot.channels import auth as ch_auth
 from row_bot.channels import runtime as ch_runtime
-from row_bot.threads import _save_thread_meta, _list_threads
+from row_bot.channels.streaming import (
+    ChannelDeliveryResult,
+    ChannelRateLimitError,
+    ChannelStreamConfig,
+    ChannelStreamConsumer,
+    default_split_text,
+)
+from row_bot.threads import _save_thread_meta
 
 log = logging.getLogger("row_bot.slack")
 
@@ -103,7 +109,9 @@ _handler = None                         # AsyncSocketModeHandler
 _running = False
 _bot_loop: asyncio.AbstractEventLoop | None = None
 _bot_user_id: str | None = None         # Bot's own user ID (to ignore own msgs)
-_pending_interrupts: dict[str, dict] = {}   # channel_id → interrupt_data
+_pending_interrupts: dict[str, dict] = {}   # context_key -> interrupt_data
+_interrupt_by_message: dict[str, str] = {}   # approval message ts -> context_key
+_interrupt_by_channel: dict[str, str] = {}   # channel_id -> latest context_key
 _pending_task_approvals: dict[str, dict] = {}  # message_ts → {resume_token, task_name, dm_channel_id, _ts}
 _approval_by_channel: dict[str, str] = {}        # dm_channel_id → message_ts (secondary index)
 _pending_lock = threading.Lock()
@@ -269,8 +277,13 @@ def _run_agent_sync(user_text: str, config: dict,
     return answer or "_(No response)_", interrupt_data, captured_images, captured_video_paths
 
 
-def _resume_agent_sync(config: dict, approved: bool,
-                       *, interrupt_ids: list[str] | None = None) -> tuple[str, dict | None, list[bytes], list[str]]:
+def _resume_agent_sync(
+    config: dict,
+    approved: bool,
+    *,
+    interrupt_ids: list[str] | None = None,
+    event_queue=None,
+) -> tuple[str, dict | None, list[bytes], list[str]]:
     """Resume a paused agent after interrupt approval/denial."""
     agent_mod = _agent_mod()
     config = build_channel_runtime_config(config, "approval")
@@ -309,10 +322,15 @@ def _resume_agent_sync(config: dict, approved: bool,
         elif event_type == "done":
             if payload and not full_answer:
                 full_answer.append(payload)
+        if event_queue is not None:
+            event_queue.put((event_type, payload))
 
     from row_bot.channels.agent_output import assemble_agent_answer
 
     answer = assemble_agent_answer("".join(full_answer), tool_reports)
+
+    if event_queue is not None:
+        event_queue.put(None)
 
     captured_images: list[bytes] = []
     captured_video_paths: list[str] = []
@@ -404,6 +422,172 @@ def _build_stream_display(tool_lines: list[str], accumulated: str) -> str:
     if accumulated:
         parts.append(accumulated)
     return ("\n\n".join(parts)) if parts else ""
+
+
+def _slack_retry_after(exc: Exception) -> float | None:
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    if isinstance(headers, dict):
+        value = headers.get("Retry-After") or headers.get("retry-after")
+        if value is not None:
+            try:
+                return float(value)
+            except Exception:
+                pass
+    value = getattr(exc, "retry_after", None)
+    if value is not None:
+        try:
+            return float(value)
+        except Exception:
+            pass
+    if "ratelimited" in str(exc).lower() or "rate_limited" in str(exc).lower():
+        return 1.0
+    return None
+
+
+class SlackStreamTransport:
+    """Slack native-stream/edit transport for the shared streaming engine."""
+
+    def __init__(
+        self,
+        client,
+        *,
+        channel_id: str,
+        transport_mode: str = "auto",
+        thread_ts: str | None = None,
+    ) -> None:
+        self.client = client
+        self.channel_id = str(channel_id)
+        self.thread_ts = str(thread_ts or "") or None
+        self.requested_mode = str(transport_mode or "auto").lower()
+        self._selected_mode = "edit"
+        self._native_text = ""
+        self.transport_name = f"slack:{self.requested_mode}"
+
+    async def send_typing(self) -> None:
+        return None
+
+    async def start(self, text: str):
+        mode = self._select_mode()
+        self._selected_mode = mode
+        self.transport_name = f"slack:{mode}"
+        if mode == "native":
+            try:
+                handle = await self._native_start(text)
+                self._native_text = str(text or "")
+                return handle
+            except Exception:
+                log.info("Slack native stream failed; falling back to edit", exc_info=True)
+                self._selected_mode = "edit"
+                self.transport_name = "slack:edit"
+        return await self._edit_start(text)
+
+    async def update(self, handle, text: str, *, final: bool = False):
+        if self._selected_mode == "native":
+            return await self._native_update(handle, text, final=final)
+        try:
+            return await self.client.chat_update(
+                channel=self.channel_id,
+                ts=self._handle_ts(handle),
+                text=_md_to_mrkdwn(str(text or "")),
+            )
+        except Exception as exc:
+            retry_after = _slack_retry_after(exc)
+            if retry_after is not None:
+                raise ChannelRateLimitError(str(exc), retry_after=retry_after) from exc
+            raise
+
+    async def send_final(self, text: str) -> list[Any]:
+        refs: list[Any] = []
+        for chunk in self.split_text(str(text or "")):
+            try:
+                resp = await self.client.chat_postMessage(
+                    channel=self.channel_id,
+                    text=_md_to_mrkdwn(chunk),
+                    **self._thread_kwargs(),
+                )
+            except Exception as exc:
+                retry_after = _slack_retry_after(exc)
+                if retry_after is not None:
+                    raise ChannelRateLimitError(str(exc), retry_after=retry_after) from exc
+                raise
+            refs.append(resp.get("ts") if isinstance(resp, dict) else resp)
+        return refs
+
+    async def cleanup_preview(self, handle) -> None:
+        if self._selected_mode == "native":
+            return
+        try:
+            await self.client.chat_delete(channel=self.channel_id, ts=self._handle_ts(handle))
+        except Exception:
+            pass
+
+    def split_text(self, text: str) -> list[str]:
+        return default_split_text(str(text or ""), SLACK_MAX_MSG_LEN)
+
+    def _select_mode(self) -> str:
+        if self.requested_mode == "off":
+            return "off"
+        native_capable = all(
+            callable(getattr(self.client, name, None))
+            for name in ("chat_startStream", "chat_appendStream", "chat_stopStream")
+        )
+        if self.requested_mode in {"auto", "native"} and native_capable and self.thread_ts:
+            return "native"
+        return "edit"
+
+    async def _edit_start(self, text: str):
+        return await self.client.chat_postMessage(
+            channel=self.channel_id,
+            text=_md_to_mrkdwn(str(text or "")),
+            **self._thread_kwargs(),
+        )
+
+    async def _native_start(self, text: str):
+        return await self.client.chat_startStream(
+            channel=self.channel_id,
+            thread_ts=self.thread_ts,
+            markdown_text=_md_to_mrkdwn(str(text or "")),
+        )
+
+    async def _native_update(self, handle, text: str, *, final: bool = False):
+        clean_text = str(text or "")
+        delta = clean_text[len(self._native_text):] if clean_text.startswith(self._native_text) else clean_text
+        if delta and not final:
+            await self.client.chat_appendStream(
+                channel=self.channel_id,
+                ts=self._handle_ts(handle),
+                markdown_text=_md_to_mrkdwn(delta),
+            )
+            self._native_text = clean_text
+            return handle
+        if final:
+            if delta:
+                await self.client.chat_appendStream(
+                    channel=self.channel_id,
+                    ts=self._handle_ts(handle),
+                    markdown_text=_md_to_mrkdwn(delta),
+                )
+            await self.client.chat_stopStream(
+                channel=self.channel_id,
+                ts=self._handle_ts(handle),
+                markdown_text=_md_to_mrkdwn(clean_text),
+            )
+            self._native_text = clean_text
+        return handle
+
+    def _thread_kwargs(self) -> dict[str, str]:
+        return {"thread_ts": self.thread_ts} if self.thread_ts else {}
+
+    def _handle_ts(self, handle) -> str:
+        if isinstance(handle, dict):
+            return str(
+                handle.get("ts")
+                or handle.get("stream_ts")
+                or (handle.get("message") or {}).get("ts")
+                or ""
+            )
+        return str(handle or "")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -509,6 +693,365 @@ def _update_message_blocks(channel_id: str, message_ts: str,
     fut.result(timeout=30)
 
 
+def _cfg_float(channel_config: dict, key: str, default: float) -> float:
+    try:
+        return float(channel_config.get(key, default))
+    except Exception:
+        return default
+
+
+def _cfg_int(channel_config: dict, key: str, default: int) -> int:
+    try:
+        return int(channel_config.get(key, default))
+    except Exception:
+        return default
+
+
+def _slack_stream_config() -> ChannelStreamConfig:
+    try:
+        from row_bot.channels import config as channel_config_store
+
+        channel_config = channel_config_store.get_all("slack")
+    except Exception:
+        channel_config = {}
+    enabled = bool(channel_config.get("streaming.enabled", True))
+    return ChannelStreamConfig(
+        channel="slack",
+        transport_mode=str(channel_config.get("streaming.transport", "auto") if enabled else "off"),
+        update_interval_s=_cfg_float(channel_config, "streaming.update_interval_s", 0.8),
+        max_stale_interval_s=_cfg_float(channel_config, "streaming.max_stale_interval_s", 3.0),
+        min_update_chars=_cfg_int(channel_config, "streaming.min_update_chars", 32),
+        typing_interval_s=None,
+        cursor=str(channel_config.get("streaming.cursor", "...")),
+        max_message_units=SLACK_MAX_MSG_LEN,
+        fresh_final_after_s=_cfg_float(channel_config, "streaming.fresh_final_after_s", 60.0),
+        sparse_progress=bool(channel_config.get("streaming.sparse_progress", True)),
+    )
+
+
+async def _stream_agent_turn_to_slack(
+    client,
+    channel_id: str,
+    user_text: str,
+    config: dict,
+    *,
+    thread_ts: str | None = None,
+) -> tuple[str, dict | None, list[bytes], list[str], ChannelDeliveryResult]:
+    loop = asyncio.get_event_loop()
+    event_queue: queue.Queue = queue.Queue()
+    stream_config = _slack_stream_config()
+    transport = SlackStreamTransport(
+        client,
+        channel_id=channel_id,
+        transport_mode=stream_config.transport_mode,
+        thread_ts=thread_ts,
+    )
+    consumer = ChannelStreamConsumer(transport, stream_config)
+    agent_future = loop.run_in_executor(None, _run_agent_sync, user_text, config, event_queue)
+    consumer_task = asyncio.ensure_future(
+        consumer.consume_queue(event_queue, final_text_source=agent_future)
+    )
+    try:
+        answer, interrupt_data, captured_images, captured_video_paths = await agent_future
+        delivery = await consumer_task
+        ch_runtime.persist_channel_assistant_message(
+            config,
+            answer or delivery.final_text,
+            channel_name="slack",
+            delivery=delivery,
+        )
+        return answer, interrupt_data, captured_images, captured_video_paths, delivery
+    except Exception:
+        if not consumer_task.done():
+            consumer_task.cancel()
+        try:
+            while True:
+                event_queue.get_nowait()
+        except Exception:
+            pass
+        raise
+
+
+async def _stream_agent_resume_to_slack(
+    client,
+    channel_id: str,
+    config: dict,
+    approved: bool,
+    *,
+    interrupt_ids: list[str] | None = None,
+    thread_ts: str | None = None,
+) -> tuple[str, dict | None, list[bytes], list[str], ChannelDeliveryResult]:
+    loop = asyncio.get_event_loop()
+    event_queue: queue.Queue = queue.Queue()
+    stream_config = _slack_stream_config()
+    transport = SlackStreamTransport(
+        client,
+        channel_id=channel_id,
+        transport_mode=stream_config.transport_mode,
+        thread_ts=thread_ts,
+    )
+    consumer = ChannelStreamConsumer(transport, stream_config)
+    agent_future = loop.run_in_executor(
+        None,
+        lambda: _resume_agent_sync(
+            config,
+            approved,
+            interrupt_ids=interrupt_ids,
+            event_queue=event_queue,
+        ),
+    )
+    consumer_task = asyncio.ensure_future(
+        consumer.consume_queue(event_queue, final_text_source=agent_future)
+    )
+    try:
+        answer, interrupt_data, captured_images, captured_video_paths = await agent_future
+        delivery = await consumer_task
+        ch_runtime.persist_channel_assistant_message(
+            config,
+            answer or delivery.final_text,
+            channel_name="slack",
+            delivery=delivery,
+        )
+        return answer, interrupt_data, captured_images, captured_video_paths, delivery
+    except Exception:
+        if not consumer_task.done():
+            consumer_task.cancel()
+        try:
+            while True:
+                event_queue.get_nowait()
+        except Exception:
+            pass
+        raise
+
+
+async def _send_slack_safe_text(
+    say,
+    channel_id: str,
+    message: str,
+    *,
+    thread_ts: str | None = None,
+) -> None:
+    for chunk in default_split_text(str(message or ""), SLACK_MAX_MSG_LEN):
+        kwargs: dict[str, Any] = {"channel": channel_id}
+        if thread_ts:
+            kwargs["thread_ts"] = thread_ts
+        await say(_md_to_mrkdwn(chunk), **kwargs)
+
+
+async def _post_slack_safe_text(
+    client,
+    channel_id: str,
+    message: str,
+    *,
+    thread_ts: str | None = None,
+) -> None:
+    for chunk in default_split_text(str(message or ""), SLACK_MAX_MSG_LEN):
+        kwargs: dict[str, Any] = {
+            "channel": channel_id,
+            "text": _md_to_mrkdwn(chunk),
+        }
+        if thread_ts:
+            kwargs["thread_ts"] = thread_ts
+        await client.chat_postMessage(**kwargs)
+
+
+def _slack_interrupt_context_key(channel_id: str, thread_ts: str | None = None) -> str:
+    suffix = str(thread_ts or "")
+    return f"{channel_id}:{suffix}" if suffix else str(channel_id)
+
+
+def _slack_interrupt_blocks(interrupt_data: Any, resume_token: str = "") -> list[dict[str, Any]]:
+    from row_bot.channels import approval as approval_helpers
+
+    detail = _md_to_mrkdwn(approval_helpers.format_interrupt_text(interrupt_data))
+    if len(detail) > 2800:
+        detail = detail[:2797].rstrip() + "..."
+    return [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": detail},
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Approve"},
+                    "style": "primary",
+                    "action_id": "interrupt_approve",
+                    "value": resume_token or "approve",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Deny"},
+                    "style": "danger",
+                    "action_id": "interrupt_deny",
+                    "value": resume_token or "deny",
+                },
+            ],
+        },
+    ]
+
+
+def _store_slack_interrupt(
+    *,
+    channel_id: str,
+    interrupt_data: Any,
+    config: dict,
+    thread_ts: str | None = None,
+    message_ts: str | None = None,
+) -> str:
+    import time as _time
+
+    context_key = _slack_interrupt_context_key(channel_id, thread_ts)
+    with _pending_lock:
+        _pending_interrupts[context_key] = {
+            "data": interrupt_data,
+            "config": config,
+            "channel_id": channel_id,
+            "thread_ts": thread_ts,
+            "_ts": _time.time(),
+        }
+        _interrupt_by_channel[str(channel_id)] = context_key
+        if message_ts:
+            _interrupt_by_message[str(message_ts)] = context_key
+    return context_key
+
+
+def _pop_slack_interrupt(
+    *,
+    channel_id: str,
+    thread_ts: str | None = None,
+    message_ts: str | None = None,
+) -> dict | None:
+    with _pending_lock:
+        context_key = None
+        if message_ts:
+            context_key = _interrupt_by_message.pop(str(message_ts), None)
+        if context_key is None:
+            exact_key = _slack_interrupt_context_key(channel_id, thread_ts)
+            if exact_key in _pending_interrupts:
+                context_key = exact_key
+        if context_key is None:
+            context_key = _interrupt_by_channel.get(str(channel_id))
+        if context_key is None:
+            return None
+        pending = _pending_interrupts.pop(context_key, None)
+        if pending:
+            _interrupt_by_channel.pop(str(pending.get("channel_id") or channel_id), None)
+            for msg_ts, mapped_key in list(_interrupt_by_message.items()):
+                if mapped_key == context_key:
+                    _interrupt_by_message.pop(msg_ts, None)
+        return pending
+
+
+def _peek_slack_interrupt(
+    *,
+    channel_id: str,
+    thread_ts: str | None = None,
+) -> dict | None:
+    with _pending_lock:
+        exact_key = _slack_interrupt_context_key(channel_id, thread_ts)
+        pending = _pending_interrupts.get(exact_key)
+        if pending is not None:
+            return pending
+        context_key = _interrupt_by_channel.get(str(channel_id))
+        return _pending_interrupts.get(context_key) if context_key else None
+
+
+async def _send_slack_interrupt_approval_card(
+    client,
+    say,
+    *,
+    channel_id: str,
+    interrupt_data: Any,
+    config: dict,
+    thread_ts: str | None = None,
+) -> str | None:
+    from row_bot.channels import approval as approval_helpers
+
+    detail = approval_helpers.format_interrupt_text(interrupt_data)
+    try:
+        resp = await client.chat_postMessage(
+            channel=channel_id,
+            text=_md_to_mrkdwn(detail),
+            blocks=_slack_interrupt_blocks(interrupt_data),
+            **({"thread_ts": thread_ts} if thread_ts else {}),
+        )
+        msg_ts = str(resp.get("ts") or "") if isinstance(resp, dict) else ""
+        _store_slack_interrupt(
+            channel_id=channel_id,
+            interrupt_data=interrupt_data,
+            config=config,
+            thread_ts=thread_ts,
+            message_ts=msg_ts or None,
+        )
+        return msg_ts or None
+    except Exception:
+        log.warning("Failed to send Slack interrupt approval card", exc_info=True)
+        _store_slack_interrupt(
+            channel_id=channel_id,
+            interrupt_data=interrupt_data,
+            config=config,
+            thread_ts=thread_ts,
+        )
+        kwargs: dict[str, Any] = {"channel": channel_id}
+        if thread_ts:
+            kwargs["thread_ts"] = thread_ts
+        await say(_md_to_mrkdwn(detail) + "\n\nReply *yes* or *no*.", **kwargs)
+        return None
+
+
+def _slack_goal_callbacks(client, say, *, channel_id: str, thread_ts: str | None = None):
+    state: dict[str, ChannelDeliveryResult | None] = {"delivery": None}
+
+    async def _goal_run_turn(prompt: str, cfg: dict):
+        answer, interrupt_data, captured_images, captured_video_paths, delivery = await _stream_agent_turn_to_slack(
+            client,
+            channel_id,
+            prompt,
+            cfg,
+            thread_ts=thread_ts,
+        )
+        state["delivery"] = delivery
+        for img_bytes in captured_images:
+            try:
+                import io
+                await client.files_upload_v2(
+                    channel=channel_id,
+                    file=io.BytesIO(img_bytes),
+                    filename="image.png",
+                    title="🖼️ Image",
+                )
+            except Exception as exc:
+                log.warning("Failed to send Slack image: %s", exc)
+        for vpath in captured_video_paths:
+            try:
+                await client.files_upload_v2(
+                    channel=channel_id,
+                    file=vpath,
+                    filename="video.mp4",
+                    title="🎬 Video",
+                )
+            except Exception as exc:
+                log.warning("Failed to send Slack video: %s", exc)
+        return answer, interrupt_data
+
+    async def _goal_send_text(message: str) -> None:
+        delivery = state.get("delivery")
+        if (
+            delivery
+            and delivery.delivered
+            and str(delivery.final_text or "").strip() == str(message or "").strip()
+        ):
+            state["delivery"] = None
+            return
+        state["delivery"] = None
+        await _send_slack_safe_text(say, channel_id, message, thread_ts=thread_ts)
+
+    return _goal_run_turn, _goal_send_text
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Inbound message handling
 # ──────────────────────────────────────────────────────────────────────
@@ -550,17 +1093,19 @@ async def _handle_dm(event: dict, say, client) -> None:
     goal_start = ch_runtime.prepare_channel_goal_start(text, _cmd_thread_id)
     if goal_start is not None and _cmd_thread_id:
         config = {"configurable": {"thread_id": _cmd_thread_id}}
-        loop = asyncio.get_event_loop()
+        thread_ts = event.get("thread_ts") or event.get("ts")
+        _goal_run_turn, _goal_send_text = _slack_goal_callbacks(
+            client,
+            say,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+        )
 
-        async def _goal_run_turn(prompt: str, cfg: dict):
-            return await loop.run_in_executor(None, _run_agent_sync, prompt, cfg)
-
-        async def _goal_send_text(message: str) -> None:
-            await say(_md_to_mrkdwn(message), channel=channel_id)
-
-        await say(
-            _md_to_mrkdwn(ch_runtime.format_goal_started_ack(goal_start)),
-            channel=channel_id,
+        await _send_slack_safe_text(
+            say,
+            channel_id,
+            ch_runtime.format_goal_started_ack(goal_start),
+            thread_ts=thread_ts,
         )
         result = await ch_runtime.run_channel_goal_async(
             channel_name="slack",
@@ -571,14 +1116,14 @@ async def _handle_dm(event: dict, say, client) -> None:
             send_text=_goal_send_text,
         )
         if result.interrupt_data:
-            with _pending_lock:
-                _pending_interrupts[channel_id] = {
-                    "data": result.interrupt_data, "config": config
-                }
-            from row_bot.channels import approval as approval_helpers
-            detail = approval_helpers.format_interrupt_text(result.interrupt_data)
-            await say(_md_to_mrkdwn(detail) + "\n\nReply *yes* or *no*.",
-                      channel=channel_id)
+            await _send_slack_interrupt_approval_card(
+                client,
+                say,
+                channel_id=channel_id,
+                interrupt_data=result.interrupt_data,
+                config=config,
+                thread_ts=thread_ts,
+            )
         return
     cmd_response = ch_commands.dispatch("slack", text, thread_id=_cmd_thread_id)
     if cmd_response is not None:
@@ -596,6 +1141,12 @@ async def _handle_dm(event: dict, say, client) -> None:
         task_approval = _pending_task_approvals.get(_ts_key) if _ts_key else None
     if task_approval:
         decision = approval_helpers.is_approval_text(text)
+        if decision is None:
+            await say(
+                "There's a pending approval - use the buttons, or reply yes/no.",
+                channel=channel_id,
+            )
+            return
         if decision is not None:
             with _pending_lock:
                 _pending_task_approvals.pop(_ts_key, None)
@@ -636,26 +1187,47 @@ async def _handle_dm(event: dict, say, client) -> None:
             return
 
     # Check pending live-chat interrupts
-    with _pending_lock:
-        interrupt = _pending_interrupts.pop(channel_id, None)
+    incoming_thread_ts = event.get("thread_ts") or event.get("ts")
+    interrupt = _peek_slack_interrupt(
+        channel_id=channel_id,
+        thread_ts=incoming_thread_ts,
+    )
 
     if interrupt:
-        approved = text.lower() in approval_helpers._YES_WORDS
+        decision = approval_helpers.is_approval_text(text)
+        if decision is None:
+            await say(
+                "There's a pending approval - please use the approval buttons "
+                "or reply yes/no first.",
+                channel=channel_id,
+                **({"thread_ts": interrupt.get("thread_ts")} if interrupt.get("thread_ts") else {}),
+            )
+            return
+        interrupt = _pop_slack_interrupt(
+            channel_id=channel_id,
+            thread_ts=interrupt.get("thread_ts") or incoming_thread_ts,
+        )
+        if interrupt is None:
+            await say("This approval is no longer pending.", channel=channel_id)
+            return
+        approved = bool(decision)
         config = interrupt.get("config", {})
         interrupt_ids = approval_helpers.extract_interrupt_ids(
             interrupt.get("data")
         )
         ch_runtime.resolve_goal_approval_for_config(config, approved)
 
-        loop = asyncio.get_event_loop()
-        answer, new_interrupt, captured, captured_vids = await loop.run_in_executor(
-            None,
-            lambda: _resume_agent_sync(
-                config, approved, interrupt_ids=interrupt_ids
-            ),
+        thread_ts = interrupt.get("thread_ts") or event.get("thread_ts") or event.get("ts")
+        answer, new_interrupt, captured, captured_vids, delivery = await _stream_agent_resume_to_slack(
+            client,
+            channel_id,
+            config,
+            approved,
+            interrupt_ids=interrupt_ids,
+            thread_ts=thread_ts,
         )
-        if answer:
-            await say(_md_to_mrkdwn(answer), channel=channel_id)
+        if answer and not delivery.delivered:
+            await _send_slack_safe_text(say, channel_id, answer, thread_ts=thread_ts)
         for img_bytes in captured:
             try:
                 import io
@@ -678,21 +1250,23 @@ async def _handle_dm(event: dict, say, client) -> None:
             except Exception as exc:
                 log.warning("Failed to send Slack video: %s", exc)
         if new_interrupt:
-            with _pending_lock:
-                _pending_interrupts[channel_id] = {
-                    "data": new_interrupt, "config": config
-                }
-            detail = approval_helpers.format_interrupt_text(new_interrupt)
-            await say(_md_to_mrkdwn(detail) + "\n\nReply *yes* or *no*.",
-                      channel=channel_id)
+            await _send_slack_interrupt_approval_card(
+                client,
+                say,
+                channel_id=channel_id,
+                interrupt_data=new_interrupt,
+                config=config,
+                thread_ts=thread_ts,
+            )
         elif answer:
             thread_id = ch_runtime.thread_id_from_config(config)
             if thread_id:
-                async def _goal_run_turn(prompt: str, cfg: dict):
-                    return await loop.run_in_executor(None, _run_agent_sync, prompt, cfg)
-
-                async def _goal_send_text(message: str) -> None:
-                    await say(_md_to_mrkdwn(message), channel=channel_id)
+                _goal_run_turn, _goal_send_text = _slack_goal_callbacks(
+                    client,
+                    say,
+                    channel_id=channel_id,
+                    thread_ts=thread_ts,
+                )
 
                 goal_result = await ch_runtime.continue_channel_goal_after_turn_async(
                     channel_name="slack",
@@ -704,13 +1278,14 @@ async def _handle_dm(event: dict, say, client) -> None:
                     send_text=_goal_send_text,
                 )
                 if goal_result.interrupt_data:
-                    with _pending_lock:
-                        _pending_interrupts[channel_id] = {
-                            "data": goal_result.interrupt_data, "config": config
-                        }
-                    detail = approval_helpers.format_interrupt_text(goal_result.interrupt_data)
-                    await say(_md_to_mrkdwn(detail) + "\n\nReply *yes* or *no*.",
-                              channel=channel_id)
+                    await _send_slack_interrupt_approval_card(
+                        client,
+                        say,
+                        channel_id=channel_id,
+                        interrupt_data=goal_result.interrupt_data,
+                        config=config,
+                        thread_ts=thread_ts,
+                    )
         return
 
     # Normal message — run agent
@@ -726,60 +1301,38 @@ async def _handle_dm(event: dict, say, client) -> None:
     except Exception:
         pass
 
-    # Send placeholder for streaming edits
-    loop = asyncio.get_event_loop()
-    placeholder_ts: str | None = None
     try:
-        resp = await client.chat_postMessage(channel=channel_id, text="⏳")
-        placeholder_ts = resp.get("ts") or resp.get("message", {}).get("ts")
-    except Exception:
-        pass
-
-    eq: queue.Queue = queue.Queue()
-    streamed_display: str | None = None
-    consumer_task = None
-
-    try:
-        # Run agent + streaming consumer in parallel
-        agent_fut = loop.run_in_executor(
-            None, _run_agent_sync, text, config, eq
+        answer, interrupt_data, captured_images, captured_video_paths, delivery = await _stream_agent_turn_to_slack(
+            client,
+            channel_id,
+            text,
+            config,
+            thread_ts=event.get("thread_ts") or ts,
         )
-        consumer_task = asyncio.ensure_future(
-            _slack_edit_consumer(client, channel_id, placeholder_ts, eq, loop)
-        ) if placeholder_ts else None
-
-        answer, interrupt_data, captured_images, captured_video_paths = await agent_fut
-        if consumer_task:
-            streamed_display = await consumer_task
 
     except Exception as exc:
         log.error("Agent error for channel %s: %s", channel_id, exc)
-        # Drain queue to unblock agent thread
-        try:
-            while True:
-                eq.get_nowait()
-        except Exception:
-            pass
-        if consumer_task and not consumer_task.done():
-            consumer_task.cancel()
-
-        # Delete placeholder
-        if placeholder_ts:
-            try:
-                await client.chat_delete(channel=channel_id, ts=placeholder_ts)
-            except Exception:
-                pass
 
         from row_bot.channels.thread_repair import is_corrupt_thread_error
         if is_corrupt_thread_error(exc):
             try:
                 from row_bot.agent import repair_orphaned_tool_calls
+                loop = asyncio.get_event_loop()
                 await loop.run_in_executor(
                     None, repair_orphaned_tool_calls, None, config
                 )
                 log.info("Repaired orphaned tool calls for %s, retrying", channel_id)
                 answer, interrupt_data, captured_images, captured_video_paths = await loop.run_in_executor(
                     None, _run_agent_sync, text, config
+                )
+                delivery = ChannelDeliveryResult(
+                    delivered=False,
+                    streamed=False,
+                    finalized=False,
+                    fallback_sent=False,
+                    transport="slack:repair",
+                    final_text=answer,
+                    error="repair retry used non-streaming fallback",
                 )
             except Exception as retry_exc:
                 log.error("Retry after repair failed: %s", retry_exc)
@@ -830,14 +1383,14 @@ async def _handle_dm(event: dict, say, client) -> None:
                 except Exception as vid_exc:
                     log.warning("Failed to send Slack video: %s", vid_exc)
             if interrupt_data:
-                with _pending_lock:
-                    _pending_interrupts[channel_id] = {
-                        "data": interrupt_data, "config": config
-                    }
-                from row_bot.channels import approval as approval_helpers
-                detail = approval_helpers.format_interrupt_text(interrupt_data)
-                await say(_md_to_mrkdwn(detail) + "\n\nReply *yes* or *no*.",
-                          channel=channel_id)
+                await _send_slack_interrupt_approval_card(
+                    client,
+                    say,
+                    channel_id=channel_id,
+                    interrupt_data=interrupt_data,
+                    config=config,
+                    thread_ts=event.get("thread_ts") or ts,
+                )
             return
         else:
             try:
@@ -865,8 +1418,8 @@ async def _handle_dm(event: dict, say, client) -> None:
     from row_bot.channels import extract_youtube_urls
     clean_answer, yt_urls = extract_youtube_urls(answer) if answer else ("", [])
 
-    # If streaming covered the full response and no interrupt, just send images/URLs
-    if streamed_display and not interrupt_data:
+    # If streaming/final delivery covered the response, just send images/URLs.
+    if delivery.delivered and not interrupt_data:
         for url in yt_urls:
             await say(url, channel=channel_id)
         for img_bytes in captured_images:
@@ -891,13 +1444,6 @@ async def _handle_dm(event: dict, say, client) -> None:
             except Exception as exc:
                 log.warning("Failed to send Slack video: %s", exc)
         return
-
-    # Streaming overflowed or was not used — delete placeholder, send normally
-    if placeholder_ts:
-        try:
-            await client.chat_delete(channel=channel_id, ts=placeholder_ts)
-        except Exception:
-            pass
 
     if clean_answer:
         await say(_md_to_mrkdwn(clean_answer), channel=channel_id)
@@ -928,20 +1474,18 @@ async def _handle_dm(event: dict, say, client) -> None:
             log.warning("Failed to send Slack video: %s", exc)
 
     if interrupt_data:
-        with _pending_lock:
-            _pending_interrupts[channel_id] = {
-                "data": interrupt_data, "config": config
-            }
-        from row_bot.channels import approval as approval_helpers
-        detail = approval_helpers.format_interrupt_text(interrupt_data)
-        await say(_md_to_mrkdwn(detail) + "\n\nReply *yes* or *no*.",
-                  channel=channel_id)
+        await _send_slack_interrupt_approval_card(
+            client,
+            say,
+            channel_id=channel_id,
+            interrupt_data=interrupt_data,
+            config=config,
+            thread_ts=event.get("thread_ts") or ts,
+        )
 
 
 async def _handle_approval_button(body: dict, client, *, approved: bool) -> None:
     """Handle a Block Kit approval button press (task_approve / task_deny)."""
-    action = body.get("actions", [{}])[0]
-    resume_token = action.get("value", "")
     message = body.get("message", {})
     msg_ts = message.get("ts", "")
     channel_id = body.get("channel", {}).get("id", "")
@@ -1005,6 +1549,146 @@ async def _handle_approval_button(body: dict, client, *, approved: bool) -> None
             pass
 
 
+async def _handle_interrupt_button(body: dict, client, *, approved: bool) -> None:
+    """Handle a Block Kit button press for a live/goal agent interrupt."""
+    message = body.get("message", {}) or {}
+    msg_ts = str(message.get("ts") or "")
+    channel_id = str(
+        (body.get("channel") or {}).get("id")
+        or message.get("channel")
+        or ""
+    )
+    thread_ts = str(message.get("thread_ts") or "") or None
+
+    pending = _pop_slack_interrupt(
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        message_ts=msg_ts,
+    )
+    if pending is None:
+        try:
+            await client.chat_update(
+                channel=channel_id,
+                ts=msg_ts,
+                text="This approval is no longer pending.",
+                blocks=[],
+            )
+        except Exception:
+            pass
+        return
+
+    action = "Approved" if approved else "Denied"
+    try:
+        await client.chat_update(
+            channel=channel_id,
+            ts=msg_ts,
+            text=f"{action} - processing...",
+            blocks=[],
+        )
+    except Exception:
+        log.debug("Failed to update Slack interrupt approval message", exc_info=True)
+
+    async def _say(text: str, **kwargs: Any) -> None:
+        await client.chat_postMessage(text=text, **kwargs)
+
+    config = pending.get("config", {})
+    interrupt_ids = None
+    try:
+        from row_bot.channels import approval as approval_helpers
+
+        interrupt_ids = approval_helpers.extract_interrupt_ids(pending.get("data"))
+        ch_runtime.resolve_goal_approval_for_config(config, approved)
+        resume_thread_ts = str(pending.get("thread_ts") or thread_ts or "") or None
+        (
+            answer,
+            new_interrupt,
+            captured_images,
+            captured_video_paths,
+            delivery,
+        ) = await _stream_agent_resume_to_slack(
+            client,
+            channel_id,
+            config,
+            approved,
+            interrupt_ids=interrupt_ids,
+            thread_ts=resume_thread_ts,
+        )
+    except Exception as exc:
+        log.error("Slack interrupt resume error: %s", exc)
+        await _post_slack_safe_text(
+            client,
+            channel_id,
+            f"Error processing approval: {exc}",
+            thread_ts=thread_ts,
+        )
+        return
+
+    if answer and not delivery.delivered:
+        await _post_slack_safe_text(client, channel_id, answer, thread_ts=thread_ts)
+
+    for img_bytes in captured_images:
+        try:
+            import io
+
+            await client.files_upload_v2(
+                channel=channel_id,
+                file=io.BytesIO(img_bytes),
+                filename="image.png",
+                title="Image",
+            )
+        except Exception as exc:
+            log.warning("Failed to send Slack image: %s", exc)
+    for vpath in captured_video_paths:
+        try:
+            await client.files_upload_v2(
+                channel=channel_id,
+                file=vpath,
+                filename="video.mp4",
+                title="Video",
+            )
+        except Exception as exc:
+            log.warning("Failed to send Slack video: %s", exc)
+
+    resume_thread_ts = str(pending.get("thread_ts") or thread_ts or "") or None
+    if new_interrupt:
+        await _send_slack_interrupt_approval_card(
+            client,
+            _say,
+            channel_id=channel_id,
+            interrupt_data=new_interrupt,
+            config=config,
+            thread_ts=resume_thread_ts,
+        )
+        return
+
+    thread_id = ch_runtime.thread_id_from_config(config)
+    if thread_id and answer:
+        _goal_run_turn, _goal_send_text = _slack_goal_callbacks(
+            client,
+            _say,
+            channel_id=channel_id,
+            thread_ts=resume_thread_ts,
+        )
+        goal_result = await ch_runtime.continue_channel_goal_after_turn_async(
+            channel_name="slack",
+            thread_id=thread_id,
+            config=config,
+            assistant_text=answer,
+            interrupt_data=None,
+            run_turn=_goal_run_turn,
+            send_text=_goal_send_text,
+        )
+        if goal_result.interrupt_data:
+            await _send_slack_interrupt_approval_card(
+                client,
+                _say,
+                channel_id=channel_id,
+                interrupt_data=goal_result.interrupt_data,
+                config=config,
+                thread_ts=resume_thread_ts,
+            )
+
+
 async def _handle_mention(event: dict, say, client) -> None:
     """Handle @mention of the bot in a channel."""
     # Strip the mention prefix and treat like a DM
@@ -1050,7 +1734,7 @@ async def _handle_file(event: dict, say, client) -> None:
 
         # Download the file
         try:
-            resp = await client.api_call(
+            await client.api_call(
                 "files.info",
                 params={"file": file_info["id"]}
             )
@@ -1176,6 +1860,16 @@ async def start_bot() -> bool:
         async def _on_task_deny(ack, body, client):
             await ack()
             await _handle_approval_button(body, client, approved=False)
+
+        @_app.action("interrupt_approve")
+        async def _on_interrupt_approve(ack, body, client):
+            await ack()
+            await _handle_interrupt_button(body, client, approved=True)
+
+        @_app.action("interrupt_deny")
+        async def _on_interrupt_deny(ack, body, client):
+            await ack()
+            await _handle_interrupt_button(body, client, approved=False)
 
         # Register event handlers
         @_app.event("message")

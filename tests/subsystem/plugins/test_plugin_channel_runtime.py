@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -258,6 +257,95 @@ def test_plugin_channel_stream_finish_failure_falls_back_to_text(
     assert texts == ["final answer"]
 
 
+def test_plugin_channel_streaming_send_text_only_falls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_common_runtime(monkeypatch)
+    import row_bot.agent as agent
+    from row_bot.plugins.channel_runtime import handle_plugin_channel_message
+
+    def fake_stream_agent(_user_input: str, _enabled: list[str], _config: dict):
+        yield ("token", "plain final")
+        yield ("done", "plain final")
+
+    monkeypatch.setattr(agent, "stream_agent", fake_stream_agent)
+    texts: list[str] = []
+
+    result = asyncio.run(
+        handle_plugin_channel_message(
+            plugin_id="teams-plugin",
+            message=_message("stream please"),
+            callbacks=ChannelOutboundCallbacks(send_text=texts.append),
+            channel=None,
+            enabled_tool_names=[],
+            stream=True,
+        )
+    )
+
+    assert result.answer == "plain final"
+    assert texts == ["plain final"]
+
+
+def test_plugin_channel_goal_uses_stream_callbacks_without_duplicate_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_common_runtime(monkeypatch)
+    import row_bot.agent as agent
+    from row_bot.channels import runtime as channel_runtime
+    from row_bot.plugins.channel_runtime import handle_plugin_channel_message
+
+    monkeypatch.setattr(
+        channel_runtime,
+        "prepare_channel_goal_start",
+        lambda _text, _thread_id: channel_runtime.ChannelGoalStart(
+            goal={"id": "goal-1"},
+            prompt="goal prompt",
+            objective="goal objective",
+        ),
+    )
+
+    async def fake_goal_loop(**kwargs: Any):
+        answer, interrupt = await kwargs["run_turn"](kwargs["first_prompt"], kwargs["config"])
+        await kwargs["send_text"](answer)
+        return channel_runtime.ChannelGoalRunResult(
+            turns=1,
+            status="completed",
+            reason="done",
+            interrupt_data=interrupt,
+        )
+
+    monkeypatch.setattr(channel_runtime, "run_channel_goal_async", fake_goal_loop)
+
+    def fake_stream_agent(_user_input: str, _enabled: list[str], _config: dict):
+        yield ("token", "goal streamed")
+        yield ("done", "goal streamed")
+
+    monkeypatch.setattr(agent, "stream_agent", fake_stream_agent)
+    recorder = CallbackRecorder()
+
+    result = asyncio.run(
+        handle_plugin_channel_message(
+            plugin_id="teams-plugin",
+            message=_message("/goal finish it"),
+            callbacks=recorder.callbacks(),
+            channel=None,
+            enabled_tool_names=[],
+            stream=True,
+        )
+    )
+
+    assert result.handled is True
+    assert result.command is True
+    assert [item[0] for item in recorder.streams] == ["start", "update", "finish"]
+    assert recorder.texts == [channel_runtime.format_goal_started_ack(
+        channel_runtime.ChannelGoalStart(
+            goal={"id": "goal-1"},
+            prompt="goal prompt",
+            objective="goal objective",
+        )
+    )]
+
+
 def test_plugin_channel_interrupt_uses_approval_callback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -330,6 +418,44 @@ def test_plugin_channel_approval_resume_calls_agent_resume(
     assert calls[0][2] is True
     assert calls[0][3] == ["i1"]
     assert calls[0][1]["configurable"]["runtime_surface"] == "approval"
+
+
+def test_plugin_channel_approval_resume_uses_stream_callbacks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_common_runtime(monkeypatch)
+    import row_bot.agent as agent
+    from row_bot.plugins.channel_runtime import handle_plugin_channel_approval
+
+    def fake_resume_agent(
+        _enabled: list[str],
+        _config: dict,
+        _approved: bool,
+        *,
+        interrupt_ids: list[str] | None = None,
+    ):
+        assert interrupt_ids == ["i1"]
+        yield ("token", "resumed")
+        yield ("done", "resumed")
+
+    monkeypatch.setattr(agent, "resume_stream_agent", fake_resume_agent)
+    recorder = CallbackRecorder()
+
+    result = asyncio.run(
+        handle_plugin_channel_approval(
+            plugin_id="teams-plugin",
+            channel_name="teams",
+            thread_id="teams_conversation-1",
+            approved=True,
+            callbacks=recorder.callbacks(),
+            interrupt_ids=["i1"],
+            source="teams",
+        )
+    )
+
+    assert result.answer == "resumed"
+    assert [item[0] for item in recorder.streams] == ["start", "update", "finish"]
+    assert recorder.texts == []
 
 
 def test_process_channel_attachment_rejects_url_only() -> None:

@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from row_bot.channels.base import Channel
+from row_bot.channels.streaming import ChannelStreamConfig, ChannelStreamConsumer
 from row_bot.plugins.api import (
     ChannelAttachment,
     ChannelAttachmentResult,
@@ -39,6 +40,7 @@ class _AgentTurn:
     answer: str = ""
     interrupt_data: Any | None = None
     generated_files: list[str] = field(default_factory=list)
+    delivered_final: bool = False
 
 
 async def _maybe_await(value: Any) -> Any:
@@ -50,6 +52,39 @@ async def _maybe_await(value: Any) -> Any:
 async def _send_text(callbacks: ChannelOutboundCallbacks, text: str) -> None:
     if str(text or "").strip():
         await _maybe_await(callbacks.send_text(str(text)))
+
+
+class _PluginCallbackStreamTransport:
+    def __init__(self, callbacks: ChannelOutboundCallbacks, *, stream_active: bool) -> None:
+        self.callbacks = callbacks
+        self.stream_active = stream_active
+        self.transport_name = "plugin:callbacks" if stream_active else "plugin:text"
+
+    async def send_typing(self) -> None:
+        if self.callbacks.send_typing:
+            await _maybe_await(self.callbacks.send_typing())
+
+    async def start(self, text: str) -> Any:
+        if not self.stream_active or not self.callbacks.start_stream:
+            raise RuntimeError("Plugin stream callbacks are unavailable")
+        return await _maybe_await(self.callbacks.start_stream(text))
+
+    async def update(self, handle: Any, text: str, *, final: bool = False) -> Any:
+        if final and self.callbacks.finish_stream:
+            return await _maybe_await(self.callbacks.finish_stream(handle, text))
+        if not self.callbacks.update_stream:
+            raise RuntimeError("Plugin update_stream callback is unavailable")
+        return await _maybe_await(self.callbacks.update_stream(handle, text))
+
+    async def send_final(self, text: str) -> list[Any]:
+        await _send_text(self.callbacks, text)
+        return ["send_text"]
+
+    async def cleanup_preview(self, handle: Any) -> None:
+        return None
+
+    def split_text(self, text: str) -> list[str]:
+        return [str(text)] if str(text or "") else []
 
 
 async def handle_plugin_channel_message(
@@ -216,7 +251,7 @@ async def handle_plugin_channel_approval(
             config,
             callbacks,
             enabled_tool_names=None,
-            use_stream=False,
+            use_stream=_stream_enabled(None, None, callbacks),
             deliver_final=True,
             resume_approved=approved,
             interrupt_ids=interrupt_ids,
@@ -506,14 +541,16 @@ async def _collect_agent_turn(
     enabled = _enabled_tools(enabled_tool_names)
 
     if resume_approved is None:
-        events_factory = lambda: agent_mod.stream_agent(prompt, enabled, config)
+        def events_factory():
+            return agent_mod.stream_agent(prompt, enabled, config)
     else:
-        events_factory = lambda: agent_mod.resume_stream_agent(
-            enabled,
-            config,
-            bool(resume_approved),
-            interrupt_ids=interrupt_ids,
-        )
+        def events_factory():
+            return agent_mod.resume_stream_agent(
+                enabled,
+                config,
+                bool(resume_approved),
+                interrupt_ids=interrupt_ids,
+            )
 
     return await _consume_stream_events(
         events_factory,
@@ -546,78 +583,71 @@ async def _consume_stream_events(
 ) -> _AgentTurn:
     from row_bot.channels.agent_output import assemble_agent_answer
 
-    if callbacks.send_typing:
-        try:
-            await _maybe_await(callbacks.send_typing())
-        except Exception:
-            log.debug("Plugin channel typing callback failed", exc_info=True)
-
-    stream_handle: Any | None = None
     stream_active = bool(use_stream and callbacks.start_stream and callbacks.update_stream)
-    if stream_active:
-        try:
-            stream_handle = await _maybe_await(callbacks.start_stream("..."))
-        except Exception:
-            log.debug("Plugin channel stream start failed", exc_info=True)
-            stream_active = False
-
-    answer_tokens: list[str] = []
-    tool_reports: list[str] = []
-    status_lines: list[str] = []
-    interrupt_data: Any | None = None
     used_vision = False
     used_image_gen = False
     used_video_gen = False
-    last_update_time = 0.0
-    last_update_length = 0
-    sent_update = False
 
-    async for event_type, payload in _iter_events_async(events_factory):
-        if event_type == "token":
-            answer_tokens.append(str(payload))
-        elif event_type == "tool_call":
-            label = str(payload)
-            status_lines.append(f"Using {label}...")
-            tool_reports.append(f"Using {label}...")
-        elif event_type == "tool_done":
+    def _track_generated_media(event_type: str, payload: Any) -> None:
+        nonlocal used_vision, used_image_gen, used_video_gen
+        if event_type == "tool_done":
             name, raw_name = _tool_names(payload)
-            status_lines.append(f"{name} done")
-            tool_reports.append(f"{name} done")
             if name in {"analyze_image", "Vision"}:
                 used_vision = True
             if raw_name in {"generate_image", "edit_image"}:
                 used_image_gen = True
             if raw_name in {"generate_video", "animate_image"}:
                 used_video_gen = True
-        elif event_type == "interrupt":
-            interrupt_data = payload
-        elif event_type == "error":
-            answer_tokens.append(f"\nWarning: Error: {payload}")
-        elif event_type == "done":
-            if payload and not answer_tokens:
+
+    if deliver_final:
+        transport = _PluginCallbackStreamTransport(callbacks, stream_active=stream_active)
+        consumer = ChannelStreamConsumer(
+            transport,
+            ChannelStreamConfig(
+                channel="plugin",
+                transport_mode="edit" if stream_active else "off",
+                update_interval_s=update_interval_seconds,
+                min_update_chars=min_update_chars,
+                typing_interval_s=None,
+                cursor="...",
+                max_message_units=100_000,
+                fresh_final_after_s=None,
+                sparse_progress=True,
+            ),
+        )
+
+        async def _tracked_events():
+            async for event_type, payload in _iter_events_async(events_factory):
+                _track_generated_media(event_type, payload)
+                yield event_type, payload
+
+        delivery = await consumer.consume_events(_tracked_events())
+        answer = delivery.final_text.strip()
+        interrupt_data = consumer.interrupt_data
+        delivered_final = delivery.delivered
+    else:
+        answer_tokens: list[str] = []
+        tool_reports: list[str] = []
+        interrupt_data = None
+        delivered_final = False
+        async for event_type, payload in _iter_events_async(events_factory):
+            _track_generated_media(event_type, payload)
+            if event_type == "token":
                 answer_tokens.append(str(payload))
+            elif event_type == "tool_call":
+                label = str(payload)
+                tool_reports.append(f"Using {label}...")
+            elif event_type == "tool_done":
+                name, _raw_name = _tool_names(payload)
+                tool_reports.append(f"{name} done")
+            elif event_type == "interrupt":
+                interrupt_data = payload
+            elif event_type == "error":
+                answer_tokens.append(f"\nWarning: Error: {payload}")
+            elif event_type == "done" and payload and not answer_tokens:
+                answer_tokens.append(str(payload))
+        answer = assemble_agent_answer("".join(answer_tokens), tool_reports).strip()
 
-        if stream_active and callbacks.update_stream:
-            display = _stream_display(status_lines, answer_tokens)
-            now = time.monotonic()
-            if (
-                display
-                and (
-                    not sent_update
-                    or len(display) - last_update_length >= min_update_chars
-                    or now - last_update_time >= update_interval_seconds
-                )
-            ):
-                try:
-                    await _maybe_await(callbacks.update_stream(stream_handle, display))
-                    sent_update = True
-                    last_update_time = now
-                    last_update_length = len(display)
-                except Exception:
-                    log.debug("Plugin channel stream update failed", exc_info=True)
-                    stream_active = False
-
-    answer = assemble_agent_answer("".join(answer_tokens), tool_reports).strip()
     if not answer and not interrupt_data:
         answer = "_(No response)_"
 
@@ -627,17 +657,12 @@ async def _consume_stream_events(
         used_video_gen=used_video_gen,
     )
 
-    if answer and deliver_final:
-        if stream_active and callbacks.finish_stream:
-            try:
-                await _maybe_await(callbacks.finish_stream(stream_handle, answer))
-            except Exception:
-                log.debug("Plugin channel stream finish failed", exc_info=True)
-                await _send_text(callbacks, answer)
-        else:
-            await _send_text(callbacks, answer)
-
-    return _AgentTurn(answer=answer, interrupt_data=interrupt_data, generated_files=generated_files)
+    return _AgentTurn(
+        answer=answer,
+        interrupt_data=interrupt_data,
+        generated_files=generated_files,
+        delivered_final=delivered_final,
+    )
 
 
 async def _iter_events_async(
@@ -773,18 +798,29 @@ async def _run_goal_loop(
 ):
     from row_bot.channels import runtime as channel_runtime
 
+    state: dict[str, Any] = {"answer": "", "delivered": False}
+
     async def _run_turn(prompt: str, cfg: dict):
         turn = await _collect_agent_turn(
             prompt,
             cfg,
             callbacks,
             enabled_tool_names=enabled_tool_names,
-            use_stream=False,
-            deliver_final=False,
+            use_stream=_stream_enabled(None, None, callbacks),
+            deliver_final=True,
         )
+        state["answer"] = turn.answer
+        state["delivered"] = turn.delivered_final
         generated_files.extend(turn.generated_files)
         await _deliver_generated_files(turn.generated_files, callbacks)
         return turn.answer, turn.interrupt_data
+
+    async def _send_text_once(message: str) -> None:
+        if state.get("delivered") and str(state.get("answer") or "").strip() == str(message or "").strip():
+            state["delivered"] = False
+            return
+        state["delivered"] = False
+        await _send_text(callbacks, message)
 
     return await channel_runtime.run_channel_goal_async(
         channel_name=channel_name,
@@ -792,7 +828,7 @@ async def _run_goal_loop(
         config=config,
         first_prompt=first_prompt,
         run_turn=_run_turn,
-        send_text=callbacks.send_text,
+        send_text=_send_text_once,
     )
 
 
@@ -808,18 +844,29 @@ async def _continue_goal_after_turn(
 ):
     from row_bot.channels import runtime as channel_runtime
 
+    state: dict[str, Any] = {"answer": "", "delivered": False}
+
     async def _run_turn(prompt: str, cfg: dict):
         turn = await _collect_agent_turn(
             prompt,
             cfg,
             callbacks,
             enabled_tool_names=enabled_tool_names,
-            use_stream=False,
-            deliver_final=False,
+            use_stream=_stream_enabled(None, None, callbacks),
+            deliver_final=True,
         )
+        state["answer"] = turn.answer
+        state["delivered"] = turn.delivered_final
         generated_files.extend(turn.generated_files)
         await _deliver_generated_files(turn.generated_files, callbacks)
         return turn.answer, turn.interrupt_data
+
+    async def _send_text_once(message: str) -> None:
+        if state.get("delivered") and str(state.get("answer") or "").strip() == str(message or "").strip():
+            state["delivered"] = False
+            return
+        state["delivered"] = False
+        await _send_text(callbacks, message)
 
     return await channel_runtime.continue_channel_goal_after_turn_async(
         channel_name=channel_name,
@@ -828,5 +875,5 @@ async def _continue_goal_after_turn(
         assistant_text=assistant_text,
         interrupt_data=None,
         run_turn=_run_turn,
-        send_text=callbacks.send_text,
+        send_text=_send_text_once,
     )
