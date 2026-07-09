@@ -92,8 +92,10 @@ def test_mobile_workflow_approval_click_runs_off_ui_loop() -> None:
     mobile_src = Path("src/row_bot/ui/mobile.py").read_text(encoding="utf-8")
 
     assert "from nicegui import run as nicegui_run, ui" in mobile_src
+    assert "def respond_to_mobile_approval(" in mobile_src
+    assert "def respond_to_mobile_workflow_approval(" in mobile_src
     assert "async def respond_to_mobile_workflow_approval_async(" in mobile_src
-    assert "await nicegui_run.io_bound(respond_to_mobile_workflow_approval" in mobile_src
+    assert "await nicegui_run.io_bound(respond_to_mobile_approval" in mobile_src
     assert "mobile_workflow_approval_busy" in mobile_src
     assert "mobile_workflow_approval_sending" in mobile_src
 

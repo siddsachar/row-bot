@@ -165,6 +165,17 @@ def _get_or_create_thread(chat_id: int) -> dict:
     for tid, name, _, _, *rest in existing:
         if tid == prefix or tid.startswith(prefix + "_"):
             _save_thread_meta(tid, name)  # bump updated_at
+            try:
+                from row_bot.tasks import record_thread_channel_ref
+
+                record_thread_channel_ref(
+                    tid,
+                    channel="telegram",
+                    target=chat_id,
+                    external_conversation_id=str(chat_id),
+                )
+            except Exception:
+                log.debug("Telegram thread channel ref skipped", exc_info=True)
             mo = rest[0] if rest else ""
             cfg = {"configurable": {"thread_id": tid}}
             if mo:
@@ -176,6 +187,17 @@ def _get_or_create_thread(chat_id: int) -> dict:
     thread_id = f"tg_{chat_id}_{suffix}"
     name = f"✈️ Telegram – {chat_id}"
     _save_thread_meta(thread_id, name, seed_default_skills=True)
+    try:
+        from row_bot.tasks import record_thread_channel_ref
+
+        record_thread_channel_ref(
+            thread_id,
+            channel="telegram",
+            target=chat_id,
+            external_conversation_id=str(chat_id),
+        )
+    except Exception:
+        log.debug("Telegram thread channel ref skipped", exc_info=True)
     return {"configurable": {"thread_id": thread_id}}
 
 
@@ -186,6 +208,17 @@ def _new_thread(chat_id: int) -> dict:
     thread_id = f"tg_{chat_id}_{suffix}"
     name = f"✈️ Telegram – {chat_id} ({suffix})"
     _save_thread_meta(thread_id, name, seed_default_skills=True)
+    try:
+        from row_bot.tasks import record_thread_channel_ref
+
+        record_thread_channel_ref(
+            thread_id,
+            channel="telegram",
+            target=chat_id,
+            external_conversation_id=str(chat_id),
+        )
+    except Exception:
+        log.debug("Telegram thread channel ref skipped", exc_info=True)
     return {"configurable": {"thread_id": thread_id}}
 
 

@@ -94,6 +94,17 @@ def _make_thread_id(channel_id: int | str) -> str:
 
 def _get_or_create_thread(channel_id: int | str) -> str:
     thread_id = _make_thread_id(channel_id)
+    try:
+        from row_bot.tasks import record_thread_channel_ref
+
+        record_thread_channel_ref(
+            thread_id,
+            channel="discord",
+            target=channel_id,
+            external_conversation_id=str(channel_id),
+        )
+    except Exception:
+        log.debug("Discord thread channel ref skipped", exc_info=True)
     _save_thread_meta(
         thread_id,
         "🎮 Discord conversation",
@@ -106,6 +117,17 @@ def _new_thread(channel_id: int | str) -> str:
     import time
     suffix = str(int(time.time()))
     thread_id = f"discord_{channel_id}_{suffix}"
+    try:
+        from row_bot.tasks import record_thread_channel_ref
+
+        record_thread_channel_ref(
+            thread_id,
+            channel="discord",
+            target=channel_id,
+            external_conversation_id=str(channel_id),
+        )
+    except Exception:
+        log.debug("Discord thread channel ref skipped", exc_info=True)
     _save_thread_meta(thread_id, "Discord conversation", seed_default_skills=True)
     return thread_id
 
@@ -1106,12 +1128,14 @@ class DiscordChannel(Channel):
         We resolve the DM channel ID so the pending lookup matches
         the ``channel_id`` in ``on_message``.
         """
+        approval_kind = str(config.get("approval_kind") or "task")
+        subject_label = "Agent" if approval_kind == "agent_run" else "Task"
         task_name = config.get("task_name", "Unknown task")
         message = config.get("message", "Approval required to continue.")
         resume_token = config.get("resume_token", "")
         text = (
             f"⚠️ **Approval Required**\n"
-            f"**Task:** {task_name}\n"
+            f"**{subject_label}:** {task_name}\n"
             f"{message}\n\n"
             "Reply **yes** or **no**."
         )

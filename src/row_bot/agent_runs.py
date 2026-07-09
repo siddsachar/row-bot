@@ -837,7 +837,14 @@ def finish_agent_run(
         },
         visibility="log",
     )
-    return get_agent_run(run_id)
+    final_run = get_agent_run(run_id)
+    try:
+        from row_bot.channels.thread_notifications import notify_agent_run_terminal
+
+        notify_agent_run_terminal(final_run or run_id)
+    except Exception:
+        pass
+    return final_run
 
 
 def record_agent_run_progress(

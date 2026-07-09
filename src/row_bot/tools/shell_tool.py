@@ -567,6 +567,7 @@ class ShellTool(BaseTool):
         self,
         command: str,
         runtime_config: RunnableConfig | None = None,
+        approval_reason: str = "",
     ) -> str:
         """Run a shell command.  Self-gates with ``interrupt()`` for
         non-safe commands."""
@@ -599,6 +600,7 @@ class ShellTool(BaseTool):
                     "tool": "run_command",
                     "label": "Run shell command",
                     "description": f"Run shell command: {command}",
+                    "approval_reason": approval_reason,
                     "args": {"command": command},
                 },
                 blocked_message=(
@@ -644,7 +646,11 @@ class ShellTool(BaseTool):
         """Return ``run_command`` and ``read_terminal`` tools."""
         tool_instance = self
 
-        def run_command(command: str, config: RunnableConfig = None) -> str:
+        def run_command(
+            command: str,
+            approval_reason: str = "",
+            config: RunnableConfig = None,
+        ) -> str:
             """Execute a shell command on the user's computer.
 
             Commands run in a persistent session — cd, environment changes,
@@ -656,9 +662,15 @@ class ShellTool(BaseTool):
                 command: The shell command to execute
                         (e.g. 'ls -la', 'pip install requests',
                          'git status').
+                approval_reason: One short user-facing sentence explaining
+                        why this command is needed if approval is required.
             """
             try:
-                return tool_instance.execute(command, runtime_config=config)
+                return tool_instance.execute(
+                    command,
+                    runtime_config=config,
+                    approval_reason=approval_reason,
+                )
             except Exception as exc:
                 from langgraph.errors import GraphInterrupt
                 if isinstance(exc, GraphInterrupt):
@@ -698,6 +710,8 @@ class ShellTool(BaseTool):
                     "Commands run in a persistent session — cd persists "
                     "across calls. Safe commands (ls, pwd, git status, etc.) "
                     "run automatically; other commands require user approval. "
+                    "When approval may be needed, include approval_reason as "
+                    "one short sentence explaining why the command is needed. "
                     "Returns the command output and exit code."
                 ),
             ),

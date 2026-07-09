@@ -340,6 +340,18 @@ async def _auto_start_channel_background(channel, _st) -> None:
         ok = bool(await channel.start())
         if ok:
             _safe_console_print(f"[startup] ✅ {display_name} auto-started")
+            try:
+                from row_bot.channels.thread_notifications import reconcile_pending_channel_notifications
+
+                delivered = await asyncio.to_thread(reconcile_pending_channel_notifications, 25)
+                if delivered:
+                    logger.info(
+                        "startup.channel.pending_notifications_delivered channel=%s count=%d",
+                        channel_name,
+                        delivered,
+                    )
+            except Exception:
+                logger.debug("Channel notification reconciliation failed", exc_info=True)
         else:
             _st.startup_warnings.append(
                 f"⚠️ {display_name} failed to auto-start — check Settings → Channels"
@@ -362,6 +374,14 @@ async def _auto_start_channels_background(channels: list, _st) -> None:
     logger.info("startup.channels.auto_start_begin count=%d", len(channels))
     for channel in channels:
         await _auto_start_channel_background(channel, _st)
+    try:
+        from row_bot.channels.thread_notifications import reconcile_pending_channel_notifications
+
+        delivered = await asyncio.to_thread(reconcile_pending_channel_notifications, 50)
+        if delivered:
+            logger.info("startup.channels.pending_notifications_delivered count=%d", delivered)
+    except Exception:
+        logger.debug("Channel notification reconciliation after auto-start failed", exc_info=True)
     logger.info("startup.channels.auto_start_complete count=%d", len(channels))
 
 

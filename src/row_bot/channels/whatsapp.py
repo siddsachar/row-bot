@@ -397,6 +397,17 @@ def _make_thread_id(chat_id: str) -> str:
 
 def _get_or_create_thread(chat_id: str) -> str:
     thread_id = _make_thread_id(chat_id)
+    try:
+        from row_bot.tasks import record_thread_channel_ref
+
+        record_thread_channel_ref(
+            thread_id,
+            channel="whatsapp",
+            target=chat_id,
+            external_conversation_id=str(chat_id),
+        )
+    except Exception:
+        log.debug("WhatsApp thread channel ref skipped", exc_info=True)
     _save_thread_meta(
         thread_id,
         "📲 WhatsApp conversation",
@@ -410,6 +421,17 @@ def _new_thread(chat_id: str) -> str:
     import time
     suffix = str(int(time.time()))
     thread_id = f"wa_{chat_id}_{suffix}"
+    try:
+        from row_bot.tasks import record_thread_channel_ref
+
+        record_thread_channel_ref(
+            thread_id,
+            channel="whatsapp",
+            target=chat_id,
+            external_conversation_id=str(chat_id),
+        )
+    except Exception:
+        log.debug("WhatsApp thread channel ref skipped", exc_info=True)
     _save_thread_meta(thread_id, "WhatsApp conversation", seed_default_skills=True)
     return thread_id
 

@@ -1466,35 +1466,12 @@ def _direct_agent_start_ack(run_row: dict | None, request: Any) -> str:
 
 
 def _direct_agent_terminal_summary(run_row: dict | None) -> str:
-    if not run_row:
+    try:
+        from row_bot.agent_run_messages import agent_run_terminal_summary
+
+        return agent_run_terminal_summary(run_row)
+    except Exception:
         return ""
-    status = str(run_row.get("status") or "").strip().lower()
-    if status not in _DIRECT_AGENT_TERMINAL_STATUSES:
-        return ""
-    name = str(run_row.get("display_name") or run_row.get("id") or "Agent").strip()
-    detail = str(
-        run_row.get("summary")
-        or run_row.get("status_message")
-        or run_row.get("error")
-        or ""
-    ).strip()
-    if status in {"completed", "completed_delivery_failed"}:
-        prefix = f"Done. {name} completed."
-    elif status == "stopped":
-        prefix = f"{name} was stopped."
-    elif status == "cancelled":
-        prefix = f"{name} was cancelled."
-    elif status == "timed_out":
-        prefix = f"{name} timed out."
-    elif status == "blocked":
-        prefix = f"{name} is blocked."
-    else:
-        prefix = f"{name} failed."
-    if detail:
-        if detail.lower().startswith(prefix.lower()):
-            return detail
-        return f"{prefix}\n\n{detail}"
-    return prefix
 
 
 def _checkpoint_ui_metadata(msg: dict) -> dict:
@@ -1506,10 +1483,36 @@ def _checkpoint_ui_metadata(msg: dict) -> dict:
         "agent_run_refresh_key",
         "agent_lifecycle",
         "agent_completion_for",
+        "agent_approval_for",
+        "approval_request_id",
+        "approval_resume_token",
+        "approval_status",
+        "channel_notification_key",
+        "goal_completion_for",
+        "goal_run_id",
+        "goal_status",
     ):
         if key in msg:
             metadata[key] = msg[key]
     return metadata
+
+
+def _append_agent_completion_to_checkpoint(thread_id: str, run_row: dict, summary: str) -> None:
+    if not thread_id or not run_row or not summary:
+        return
+    try:
+        from row_bot.agent_run_messages import terminal_notification_key, terminal_ui_metadata
+        from row_bot.channels.thread_notifications import append_parent_thread_message_once
+
+        key = terminal_notification_key(run_row)
+        append_parent_thread_message_once(
+            thread_id=thread_id,
+            key=key,
+            text=summary,
+            ui_metadata=terminal_ui_metadata(run_row, key=key),
+        )
+    except Exception:
+        logger.debug("Could not append Agent completion to checkpoint", exc_info=True)
 
 
 def _append_ui_messages_to_checkpoint(thread_id: str, messages: list[dict]) -> None:
@@ -1588,6 +1591,104 @@ def _lifecycle_agent_run_ids(messages: list[dict]) -> set[str]:
     return run_ids
 
 
+def _append_child_agent_approval_messages(
+    messages: list[dict],
+    run_ids: list[str],
+    *,
+    checkpoint_thread_id: str = "",
+) -> bool:
+    clean_ids = {str(run_id) for run_id in run_ids if str(run_id or "").strip()}
+    if not clean_ids:
+        return False
+    try:
+        from row_bot.approval_messages import compact_message, payload_from_row
+        from row_bot.tasks import get_pending_approval_for_agent_run
+    except Exception:
+        logger.debug("Could not import child Agent approval helpers", exc_info=True)
+        return False
+
+    existing_ids = {
+        str(msg.get("approval_request_id") or "").strip()
+        for msg in messages
+        if isinstance(msg, dict)
+    }
+    changed = False
+    handled_run_ids: set[str] = set()
+
+    def _append_for_run(run_id: str, lifecycle: dict | None = None) -> bool:
+        nonlocal changed
+        if run_id not in clean_ids:
+            return False
+        try:
+            approval = get_pending_approval_for_agent_run(run_id)
+        except Exception:
+            logger.debug("Could not load pending approval for Agent Run %s", run_id, exc_info=True)
+            return False
+        if not approval:
+            return False
+        approval_id = str(approval.get("id") or "").strip()
+        if not approval_id:
+            return False
+        if approval_id in existing_ids:
+            if lifecycle is not None:
+                if lifecycle.get("approval_id") != approval_id:
+                    lifecycle["approval_id"] = approval_id
+                    changed = True
+                if not lifecycle.get("approval_message_emitted"):
+                    lifecycle["approval_message_emitted"] = True
+                    changed = True
+            return True
+
+        payload = payload_from_row(approval)
+        content = compact_message(payload) or str(approval.get("message") or "Approval required.")
+        approval_msg = {
+            "role": "assistant",
+            "content": content,
+            "timestamp": datetime.now().strftime("%H:%M"),
+            "agent_approval_for": run_id,
+            "approval_request_id": approval_id,
+            "approval_resume_token": str(approval.get("resume_token") or ""),
+            "approval_status": "pending",
+            "agent_run_ids": [run_id],
+        }
+        _insert_assistant_before_future_queued_turns(
+            messages,
+            approval_msg,
+            current_generation_id=str((lifecycle or {}).get("source_generation_id") or ""),
+        )
+        if checkpoint_thread_id:
+            _append_ui_messages_to_checkpoint(checkpoint_thread_id, [approval_msg])
+        if lifecycle is not None:
+            lifecycle["approval_message_emitted"] = True
+            lifecycle["approval_id"] = approval_id
+        existing_ids.add(approval_id)
+        changed = True
+        return True
+
+    for msg in list(messages):
+        lifecycle = msg.get("agent_lifecycle")
+        if not isinstance(lifecycle, dict):
+            continue
+        lifecycle_kind = str(lifecycle.get("kind") or "")
+        if lifecycle_kind not in {"direct_agent_spawn", "delegated_agent_spawn"}:
+            continue
+        run_id = str(lifecycle.get("run_id") or "").strip()
+        if run_id and _append_for_run(run_id, lifecycle):
+            handled_run_ids.add(run_id)
+    for msg in list(messages):
+        if not isinstance(msg, dict) or str(msg.get("role") or "") != "assistant":
+            continue
+        if msg.get("approval_request_id"):
+            continue
+        for item in msg.get("agent_run_ids") or []:
+            run_id = str(item or "").strip()
+            if not run_id or run_id in handled_run_ids:
+                continue
+            if _append_for_run(run_id):
+                handled_run_ids.add(run_id)
+    return changed
+
+
 def _append_direct_agent_completion_messages(
     messages: list[dict],
     run_ids: list[str],
@@ -1651,7 +1752,7 @@ def _append_direct_agent_completion_messages(
             current_generation_id=str(lifecycle.get("source_generation_id") or ""),
         )
         if checkpoint_thread_id:
-            _append_ui_messages_to_checkpoint(checkpoint_thread_id, [completion_msg])
+            _append_agent_completion_to_checkpoint(checkpoint_thread_id, run_row or {}, summary)
         changed = True
     return changed
 
@@ -1749,16 +1850,7 @@ def _append_async_delegated_agent_completion_messages(
         }
         _insert_assistant_before_future_queued_turns(messages, completion_msg)
         if checkpoint_thread_id:
-            try:
-                from langchain_core.messages import AIMessage
-                from row_bot.threads import append_checkpoint_messages
-
-                append_checkpoint_messages(checkpoint_thread_id, [AIMessage(content=summary)])
-            except Exception:
-                logger.debug(
-                    "Could not persist async delegated Agent completion to checkpoint",
-                    exc_info=True,
-                )
+            _append_agent_completion_to_checkpoint(checkpoint_thread_id, run_row or {}, summary)
         existing_completion_ids.add(run_id)
         changed = True
     return changed
@@ -1782,12 +1874,17 @@ def _schedule_direct_agent_card_refresh(
         attempts["count"] += 1
         messages = _direct_agent_thread_messages(state, thread_id)
         changed, terminal = _update_direct_agent_refresh_keys(messages, clean_ids)
+        approval_changed = _append_child_agent_approval_messages(
+            messages,
+            clean_ids,
+            checkpoint_thread_id=thread_id,
+        )
         summary_changed = _append_direct_agent_completion_messages(
             messages,
             clean_ids,
             checkpoint_thread_id=thread_id,
         )
-        if changed or summary_changed:
+        if changed or approval_changed or summary_changed:
             try:
                 from row_bot.ui.helpers import persist_thread_media_state
 
@@ -1880,15 +1977,20 @@ def _schedule_agent_tool_result_card_refresh(
             last_key["value"] = key
         terminal = _agent_runs_terminal(clean_ids)
         summary_changed = False
+        messages = _direct_agent_thread_messages(state, thread_id)
+        approval_changed = _append_child_agent_approval_messages(
+            messages,
+            clean_ids,
+            checkpoint_thread_id=thread_id,
+        )
         if terminal:
-            messages = _direct_agent_thread_messages(state, thread_id)
             summary_changed = _append_async_delegated_agent_completion_messages(
                 messages,
                 clean_ids,
                 candidate_run_ids=clean_async_completion_ids,
                 checkpoint_thread_id=thread_id,
             )
-            if summary_changed:
+            if approval_changed or summary_changed:
                 try:
                     from row_bot.ui.helpers import persist_thread_media_state
 
@@ -1901,7 +2003,20 @@ def _schedule_agent_tool_result_card_refresh(
                 else:
                     state.message_cache[thread_id] = list(messages)
                     state.message_cache_dirty.discard(thread_id)
-        if (changed or terminal or summary_changed) and state.thread_id == thread_id:
+        elif approval_changed:
+            try:
+                from row_bot.ui.helpers import persist_thread_media_state
+
+                persist_thread_media_state(thread_id, messages)
+            except Exception:
+                logger.debug("Async delegated approval persistence failed", exc_info=True)
+            if state.thread_id == thread_id:
+                state.messages = messages
+                state.cache_active_messages()
+            else:
+                state.message_cache[thread_id] = list(messages)
+                state.message_cache_dirty.discard(thread_id)
+        if (changed or terminal or approval_changed or summary_changed) and state.thread_id == thread_id:
             if _thread_has_attached_live_generation(thread_id):
                 pending_transcript_refresh["value"] = True
             else:

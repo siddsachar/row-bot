@@ -143,6 +143,17 @@ def _get_or_create_thread(channel_id: str) -> str:
     thread_id = _make_thread_id(channel_id)
     name = f"💬 Slack – {channel_id}"
     _save_thread_meta(thread_id, name, seed_default_skills=True)  # creates or bumps updated_at
+    try:
+        from row_bot.tasks import record_thread_channel_ref
+
+        record_thread_channel_ref(
+            thread_id,
+            channel="slack",
+            target=channel_id,
+            external_conversation_id=str(channel_id),
+        )
+    except Exception:
+        log.debug("Slack thread channel ref skipped", exc_info=True)
     return thread_id
 
 
@@ -151,6 +162,17 @@ def _new_thread(channel_id: str) -> str:
     import time
     suffix = str(int(time.time()))
     thread_id = f"slack_{channel_id}_{suffix}"
+    try:
+        from row_bot.tasks import record_thread_channel_ref
+
+        record_thread_channel_ref(
+            thread_id,
+            channel="slack",
+            target=channel_id,
+            external_conversation_id=str(channel_id),
+        )
+    except Exception:
+        log.debug("Slack thread channel ref skipped", exc_info=True)
     _save_thread_meta(thread_id, f"💬 Slack – {channel_id}", seed_default_skills=True)
     return thread_id
 
@@ -1356,12 +1378,14 @@ class SlackChannel(Channel):
         button clicks) with a secondary index by channel (for text
         fallback "yes"/"no" replies).
         """
+        approval_kind = str(config.get("approval_kind") or "task")
+        subject_label = "Agent" if approval_kind == "agent_run" else "Task"
         task_name = config.get("task_name", "Unknown task")
         message = config.get("message", "Approval required to continue.")
         resume_token = config.get("resume_token", "")
         fallback_text = (
             f"⚠️ Approval Required\n"
-            f"Task: {task_name}\n"
+            f"{subject_label}: {task_name}\n"
             f"{message}"
         )
         blocks = [
@@ -1371,7 +1395,7 @@ class SlackChannel(Channel):
                     "type": "mrkdwn",
                     "text": (
                         f"⚠️ *Approval Required*\n\n"
-                        f"*Task:* {task_name}\n"
+                        f"*{subject_label}:* {task_name}\n"
                         f"{message}"
                     ),
                 },

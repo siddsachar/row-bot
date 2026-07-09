@@ -46,3 +46,58 @@ def test_channel_approval_helpers_round_trip_interrupt_text() -> None:
     assert is_approval_text("approve") is True
     assert is_approval_text("deny") is False
     assert is_approval_text(text) is None
+
+
+def test_child_agent_approval_routes_to_parent_channel(tmp_path, monkeypatch) -> None:
+    tasks = fresh_tasks_module(tmp_path, monkeypatch)
+    from row_bot.channels import registry
+    import row_bot.agent_runner as agent_runner
+
+    registry._reset()
+    source = FakeChannel(name="source")
+    source._running = True
+    registry.register(source)
+    resumed: list[tuple[str, bool]] = []
+    monkeypatch.setattr(
+        agent_runner,
+        "resume_agent_run",
+        lambda run_id, *, resume_token="", approved=True: resumed.append((run_id, approved)),
+    )
+
+    tasks.record_thread_channel_ref(
+        "parent-thread",
+        channel="source",
+        target="conversation-1",
+        external_conversation_id="conversation-1",
+    )
+    token, approval_id = tasks.create_approval_request(
+        run_id="child-run",
+        task_id="",
+        step_id="agent_interrupt",
+        message="Child needs approval.",
+        agent_run_id="child-run",
+        resume_kind="agent_run",
+        source_label="Child Agent",
+        source_thread_id="child-thread",
+        parent_thread_id="parent-thread",
+        approval_payload_json={
+            "title": "Child Agent needs approval to run a command.",
+            "reason": "Check the current branch.",
+            "tool": "run_command",
+            "raw_action": "git status",
+            "source_label": "Child Agent",
+        },
+    )
+
+    assert tasks.push_approval_to_parent_channel(approval_id) is True
+    assert source.approvals
+    sent = source.approvals[0]
+    assert sent["target"] == "conversation-1"
+    assert sent["config"]["approval_kind"] == "agent_run"
+    assert sent["config"]["resume_token"] == token
+    assert "Check the current branch." in sent["config"]["message"]
+
+    assert tasks.respond_to_approval(token, True, source="web") is True
+
+    assert resumed == [("child-run", True)]
+    assert source.approval_updates == [(sent["message_ref"], "approved", "web")]

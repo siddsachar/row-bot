@@ -5131,6 +5131,19 @@ def open_settings(
                     if ok:
                         _ch_config.set(ch.name, "auto_start", True)
                         clear_agent_cache()
+                        try:
+                            from row_bot.channels.thread_notifications import reconcile_pending_channel_notifications
+
+                            delivered = await run.io_bound(
+                                lambda: reconcile_pending_channel_notifications(25)
+                            )
+                            if delivered:
+                                ui.notify(
+                                    f"Delivered {delivered} pending channel update(s)",
+                                    type="positive",
+                                )
+                        except Exception:
+                            logger.debug("Channel notification reconciliation failed", exc_info=True)
                         ui.notify(f"✅ {ch.display_name} started!", type="positive")
                     else:
                         ui.notify(f"⚠️ Could not start {ch.display_name}", type="warning")

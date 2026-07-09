@@ -13,6 +13,8 @@ REQUIRED_TABLES = {
     "workflow_drafts",
     "approval_requests",
     "approval_channel_refs",
+    "channel_thread_refs",
+    "channel_thread_notifications",
 }
 
 

@@ -819,12 +819,12 @@ Home pages in these docs are short entry-point pages. The dedicated feature page
 The right side summarizes what needs attention:
 
 - **Current goals and agents** shows running or waiting goal-mode and child-agent activity.
-- **Approvals** shows pending approval prompts that need a decision.
+- **Approvals** shows pending approval prompts from chats, child agents, and background work.
 - **Workflows** shows active and upcoming workflow state, plus run and new controls.
 - **Launch** lets you choose a workflow and run it manually.
 - **Insights** expands supporting status and suggestions when available.
 
-Use the Activity Center when you want to know whether Row-Bot is idle, waiting for you, running background work, or ready to launch a workflow.
+Use the Activity Center when you want to know whether Row-Bot is idle, waiting for you, running background work, or ready to launch a workflow. Child-agent approvals also appear in the parent thread so you can decide without leaving the conversation.
 
 ## Terminal Panel
 
@@ -917,7 +917,7 @@ Chat is the main place to ask Row-Bot for help. A chat thread can stay simple, o
 - **Skills and slash commands** help start structured tasks when available.
 - **Voice buttons** use Dictate or Talk when voice is configured.
 - **Tool traces** show what tools Row-Bot used and what came back.
-- **Approval prompts** pause risky actions until you approve or reject them.
+- **Approval prompts** pause gated actions until you approve or reject them. When a child agent needs approval, the prompt appears in the parent thread too.
 
 ## Beginner Workflow
 
@@ -1016,6 +1016,8 @@ When Row-Bot uses a tool, the transcript can show a tool trace or result block. 
 
 Approval prompts appear when an action can change local files, run commands, contact external systems, use accounts, start servers, send messages, call MCP/plugin tools, or do something else that deserves review.
 
+If a child agent needs approval, Row-Bot posts a compact approval prompt in the parent thread, keeps the desktop Activity Center in sync, and routes channel-started work back to the originating channel when possible. The prompt may include a short model-written reason, but Row-Bot's approval policy still decides whether the action is blocked, allowed, or waiting for you.
+
 Before approving, check:
 
 - What action is being requested.
@@ -1024,7 +1026,7 @@ Before approving, check:
 - Whether the proposed command or file change matches your request.
 - Whether rejecting is safer until you inspect settings.
 
-Approving lets Row-Bot continue that action. Rejecting stops that action and returns control to the conversation.
+Approving lets Row-Bot continue that action. Rejecting stops that action and returns control to the conversation. On small screens and in channels, prompts stay brief; open the thread or Activity Center when you need more context.
 
 ## Terminal Output
 
@@ -1136,7 +1138,7 @@ Avoid workflows that send messages, write files, start servers, or call external
 
 - If a workflow does not run, check whether it is paused.
 - If delivery fails, check the selected channel and its Settings tab.
-- If a run waits for approval, open the Activity Center and decide there.
+- If a run waits for approval, decide from the thread prompt or open the Activity Center.
 - If results are too broad, split the workflow into smaller steps.
 """,
         screenshot=True,
@@ -1429,6 +1431,8 @@ Channels connect Row-Bot to external messaging platforms such as Telegram, Whats
 
 Messages sent through a channel leave the local app. Do not enable a channel until you understand who can message it, what Row-Bot can send back, and whether workflows may deliver results there.
 
+When work starts from a channel and a child agent asks for approval, Row-Bot sends the approval back to that parent channel conversation when the channel supports approval messages. The same approval remains visible in the desktop parent thread and Activity Center.
+
 ## Troubleshooting
 
 - If a channel cannot start, check required fields and tunnel state.
@@ -1644,6 +1648,8 @@ Enter credentials only in the relevant Settings tab or provider sign-in flow. Ro
 
 Use approvals to review file writes, command execution, browser actions, account actions, channel sends, MCP calls, plugin tools, Developer changes, and other sensitive actions. Reject anything that does not match your request.
 
+Approval mode is policy, not a model choice: blocked actions stay blocked, ask-mode actions wait for you, and auto-approved actions follow the configured policy. Some prompts include a short model-written reason for readability, but the underlying approval gate and action details are system-controlled.
+
 ## Sharing Logs Or Screenshots
 
 Before sharing logs, screenshots, documents, thread exports, or review packages, check for names, file paths, account names, message contents, tokens, private documents, or misleading real data.
@@ -1682,7 +1688,7 @@ Start with the visible status text in Row-Bot. Then check the relevant Settings 
 ## Chat And Tool Problems
 
 - Check the model picker, Agent Profile, approval mode, and enabled tools.
-- If an action is waiting, open Activity Center and review approvals.
+- If an action is waiting, review the thread approval prompt or open Activity Center.
 - Ask Row-Bot to explain the last tool result if the transcript is unclear.
 
 ## Workflow Problems

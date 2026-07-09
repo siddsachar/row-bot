@@ -421,6 +421,21 @@ def _ensure_thread_meta(thread_id: str, message: ChannelInboundMessage) -> None:
         sender = str(message.sender_display_name or message.sender_id or "").strip()
         title = f"{channel_name} - {sender}" if sender else f"{channel_name} conversation"
         _save_thread_meta(thread_id, title, seed_default_skills=True)
+        target = (
+            message.external_conversation_id
+            or message.platform_thread_id
+            or message.sender_id
+            or thread_id
+        )
+        if target:
+            from row_bot.tasks import record_thread_channel_ref
+
+            record_thread_channel_ref(
+                thread_id,
+                channel=str(message.channel_name or ""),
+                target=str(target),
+                external_conversation_id=str(target),
+            )
     except Exception:
         log.debug("Plugin channel thread metadata update skipped", exc_info=True)
 

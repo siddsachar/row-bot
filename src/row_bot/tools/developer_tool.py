@@ -239,9 +239,13 @@ def _run_detected(command: str) -> str:
 class _RunCommandInput(BaseModel):
     command: str = Field(description="Shell command to run in the active Developer workspace.")
     timeout: int = Field(default=120, description="Maximum seconds to allow the command to run.")
+    approval_reason: str = Field(
+        default="",
+        description="One short user-facing sentence explaining why this command is needed if approval is required.",
+    )
 
 
-def _run_command(command: str, timeout: int = 120) -> str:
+def _run_command(command: str, timeout: int = 120, approval_reason: str = "") -> str:
     workspace, _root = _active_workspace()
     thread_id = get_thread_id()
     result = run_workspace_shell_command(
@@ -258,6 +262,7 @@ def _run_command(command: str, timeout: int = 120) -> str:
             "tool": "developer_run_command",
             "label": "Run Developer shell command",
             "description": f"Run in {workspace.name}: {command}",
+            "approval_reason": approval_reason,
             "args": {"workspace": workspace.name, "command": command},
         })
         if not approval:

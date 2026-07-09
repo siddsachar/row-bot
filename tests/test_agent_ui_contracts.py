@@ -41,7 +41,8 @@ def test_activity_center_uses_current_agent_goal_runs_and_channel_monitor():
     assert "_task_select" not in activity_block
     assert "_approvals_container" in approvals_block
     assert "get_pending_approvals" in approvals_block
-    assert 'appr.get("source_label") or appr.get("task_name") or "Approval"' in approvals_block
+    assert "payload_from_row" in approvals_block
+    assert "compact_message" in approvals_block
     assert "_upcoming_container" not in approvals_block
     assert "_task_select" not in approvals_block
     assert "Active Workflows" in workflows_block
