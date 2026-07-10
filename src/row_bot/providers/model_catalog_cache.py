@@ -153,6 +153,10 @@ def refresh_model_catalog_cache(
     try:
         cloud_cache, cloud_status = _refresh_cloud_cache(provider_id=provider_id)
         provider_status.update(cloud_status)
+        if provider_id:
+            targeted = cloud_status.get(provider_id, {})
+            if targeted.get("status") in {"cached", "fallback", "empty"} and targeted.get("message"):
+                warnings.append(f"{provider_id}: {targeted['message']}")
     except Exception as exc:
         warnings.append(f"Cloud providers refresh failed: {exc}")
         logger.warning("Cloud model catalog refresh failed; preserving previous cloud cache", exc_info=True)
@@ -220,6 +224,8 @@ def start_model_catalog_refresh_background(
                     "ok": True,
                     "rows": snapshot.total_rows,
                     "warnings": list(snapshot.warnings),
+                    "provider_status": snapshot.provider_status,
+                    "provider_id": provider_id or "",
                     "generated_at": snapshot.generated_at,
                     "reason": reason,
                 }
@@ -298,21 +304,15 @@ def _refresh_cloud_cache(*, provider_id: str | None = None) -> tuple[dict[str, d
     provider_status: dict[str, dict[str, Any]] = {}
     if provider_id:
         models.fetch_context_catalog()
-        if provider_id not in {"minimax", "atlascloud", "requesty"}:
-            with models._cloud_cache_lock:
-                retained = {
-                    model_id: info
-                    for model_id, info in models._cloud_model_cache.items()
-                    if not (isinstance(info, dict) and info.get("provider") == provider_id)
-                }
-                models._cloud_model_cache.clear()
-                models._cloud_model_cache.update(retained)
-        count = models.fetch_cloud_models(provider_id)
+        result = models.refresh_cloud_provider_models(provider_id)
         models._save_cloud_cache()
-        provider_status[provider_id] = {"status": "ok", "count": count}
+        provider_status[provider_id] = result.status_payload()
     else:
-        count = models.refresh_cloud_models()
-        provider_status["cloud"] = {"status": "ok", "count": count}
+        results = models.refresh_cloud_models_detailed()
+        provider_status.update({
+            result_provider_id: result.status_payload()
+            for result_provider_id, result in results.items()
+        })
     with models._cloud_cache_lock:
         cloud_cache = {
             str(model_id): dict(info)

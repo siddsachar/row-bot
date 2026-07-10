@@ -32,6 +32,42 @@ def test_openai_fetch_keeps_new_image_generation_model(monkeypatch):
     assert "text-embedding-3-large" not in models._cloud_model_cache
 
 
+def test_openai_fetch_accepts_new_gpt5_family_models_without_an_allowlist(monkeypatch):
+    import row_bot.api_keys as api_keys
+    import row_bot.models as models
+
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "data": [
+                    {"id": "gpt-5.6-sol"},
+                    {"id": "gpt-5.6-terra"},
+                    {"id": "gpt-5.6-luna"},
+                ]
+            }
+
+    fake_httpx = SimpleNamespace(get=lambda *args, **kwargs: _Response())
+    monkeypatch.setitem(__import__("sys").modules, "httpx", fake_httpx)
+    monkeypatch.setattr(api_keys, "get_key", lambda key: "sk-test" if key == "OPENAI_API_KEY" else "")
+    models._cloud_model_cache.clear()
+
+    count = models.fetch_cloud_models("openai")
+
+    assert count == 3
+    assert {model_id for model_id in models._cloud_model_cache if model_id.startswith("gpt-5.6-")} == {
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+    }
+    assert all(
+        models._cloud_model_cache[model_id]["transport"] == "openai_responses"
+        for model_id in ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
+    )
+
+
 def test_dynamic_provider_image_model_appears_in_image_options(monkeypatch):
     import row_bot.api_keys as api_keys
     import row_bot.models as models

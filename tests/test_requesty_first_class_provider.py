@@ -242,7 +242,7 @@ def test_refresh_cloud_models_preserves_requesty_rows_when_fetch_fails(monkeypat
         return 0
 
     monkeypatch.setattr(models, "fetch_context_catalog", lambda: 0)
-    monkeypatch.setattr(models, "fetch_cloud_models", _fake_fetch)
+    monkeypatch.setattr(models, "_fetch_cloud_models", _fake_fetch)
     monkeypatch.setattr(models, "_save_cloud_cache", lambda: None)
     try:
         models._cloud_model_cache.clear()
@@ -270,7 +270,7 @@ def test_requesty_targeted_model_catalog_refresh_preserves_rows_on_fetch_failure
     old_cache = dict(models._cloud_model_cache)
     monkeypatch.setattr(catalog_cache, "CATALOG_CACHE_PATH", tmp_path / "model_catalog_cache.json")
     monkeypatch.setattr(models, "fetch_context_catalog", lambda: 0)
-    monkeypatch.setattr(models, "fetch_cloud_models", lambda provider_id: 0)
+    monkeypatch.setattr(models, "_fetch_cloud_models", lambda provider_id: 0)
     monkeypatch.setattr(models, "_save_cloud_cache", lambda: None)
     try:
         models._cloud_model_cache.clear()
@@ -287,7 +287,8 @@ def test_requesty_targeted_model_catalog_refresh_preserves_rows_on_fetch_failure
         )
 
         assert "model:requesty:openai/gpt-4o-mini" in snapshot.cloud_cache
-        assert snapshot.provider_status["requesty"]["count"] == 0
+        assert snapshot.provider_status["requesty"]["status"] == "cached"
+        assert snapshot.provider_status["requesty"]["count"] == 1
     finally:
         models._cloud_model_cache.clear()
         models._cloud_model_cache.update(old_cache)

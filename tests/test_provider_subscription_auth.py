@@ -645,10 +645,23 @@ def test_codex_fallback_model_infos_use_documented_subscription_catalog(tmp_path
     infos = fallback_codex_model_infos()
     by_id = {info.model_id: info for info in infos}
 
-    assert set(by_id) == {"gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2"}
+    assert set(by_id) == {
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-5.5",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.3-codex",
+        "gpt-5.3-codex-spark",
+        "gpt-5.2",
+    }
     assert "codex-auto-review" not in by_id
     assert all(info.provider_id == "codex" for info in infos)
     assert by_id["gpt-5.5"].selection_ref == "model:codex:gpt-5.5"
+    assert by_id["gpt-5.6-sol"].selection_ref == "model:codex:gpt-5.6-sol"
+    assert by_id["gpt-5.6-terra"].selection_ref == "model:codex:gpt-5.6-terra"
+    assert by_id["gpt-5.6-luna"].selection_ref == "model:codex:gpt-5.6-luna"
     assert by_id["gpt-5.2"].selection_ref == "model:codex:gpt-5.2"
     assert "image" in by_id["gpt-5.5"].input_modalities
     assert "vision" in by_id["gpt-5.5"].capabilities
@@ -698,7 +711,7 @@ def test_codex_quick_choice_seed_only_adds_recommended_model(tmp_path, monkeypat
         if isinstance(choice, dict) and choice.get("provider_id") == "codex"
     ]
 
-    assert codex_refs == ["model:codex:gpt-5.5"]
+    assert codex_refs == ["model:codex:gpt-5.6-sol"]
 
 
 def test_codex_quick_choice_seed_requires_configured_provider(tmp_path, monkeypatch):
