@@ -206,7 +206,10 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
     ),
     SourceTestRule(
         "mcp",
-        ("src/row_bot/mcp_client/**",),
+        (
+            "src/row_bot/mcp_client/**",
+            "src/row_bot/ui/mcp_settings.py",
+        ),
         (
             "tests/contracts/test_mcp_contract.py",
             "tests/subsystem/mcp",

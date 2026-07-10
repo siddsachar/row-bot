@@ -8,7 +8,6 @@ import contextlib
 import datetime as _dt
 import logging
 import os
-import sys
 import threading
 import time
 import traceback
@@ -411,12 +410,7 @@ class McpServerRuntime:
             last_error="",
         )
         log_event("mcp.tools.discovered", server=self.name, tools=len(normalized))
-        agent_mod = sys.modules.get("agent")
-        if agent_mod is not None and hasattr(agent_mod, "clear_agent_cache"):
-            try:
-                agent_mod.clear_agent_cache()
-            except Exception:
-                pass
+        mcp_config.clear_agent_cache_if_loaded()
 
     async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> str:
         async with self._session_lock:
@@ -616,7 +610,22 @@ def probe_server(name: str, server_cfg: dict[str, Any], timeout: float | None = 
     if not sdk_available():
         return {"ok": False, "error": "Python package 'mcp' is not installed", "tools": []}
     future = _schedule(probe_server_async(name, server_cfg))
-    return future.result(timeout=timeout or float(server_cfg.get("connect_timeout", 30)) + 5)
+    wait_seconds = timeout or float(server_cfg.get("connect_timeout", 30)) + 5
+    try:
+        return future.result(timeout=wait_seconds)
+    except concurrent.futures.CancelledError:
+        return {
+            "ok": False,
+            "error": "MCP connection ended before the server completed its handshake.",
+            "tools": [],
+        }
+    except concurrent.futures.TimeoutError:
+        future.cancel()
+        return {
+            "ok": False,
+            "error": f"MCP connection timed out after {wait_seconds:g} seconds.",
+            "tools": [],
+        }
 
 
 def _call_tool_sync(server_name: str, tool_name: str, kwargs: dict[str, Any]) -> str:

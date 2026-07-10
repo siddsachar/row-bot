@@ -295,7 +295,7 @@
   {
     "id": "xquik-mcp",
     "name": "Xquik MCP",
-    "description": "Search, extract, monitor, and automate public X data through a remote MCP endpoint.",
+    "description": "Search, extract, monitor, and automate X data and connected-account workflows through a remote MCP endpoint.",
     "source": "curated",
     "url": "https://github.com/Xquik-dev/x-twitter-scraper",
     "publisher": "Xquik",
@@ -312,12 +312,13 @@
     "last_reviewed": "2026-07-10",
     "notes": [
       "Row-Bot already includes native X tools. Use this provider-specific surface only when it fits the workflow.",
-      "Set the Authorization header before testing, and review write, reply, media, account, monitor, and webhook tools before enabling them."
+      "Configure the x-api-key header before testing. Xquik exposes a read-only explore tool plus one generic xquik executor for its wider API surface.",
+      "Keep the xquik executor approval-gated and confirm private reads, writes, persistent monitors or webhooks, and metered actions before use."
     ],
     "install": {
       "transport": "streamable_http",
       "url": "https://xquik.com/mcp",
-      "headers": {"Authorization": ""}
+      "headers": {"x-api-key": ""}
     }
   },
   {

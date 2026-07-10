@@ -7,6 +7,7 @@ stdio servers are unavailable.
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import os
 import subprocess
@@ -17,7 +18,7 @@ import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
@@ -72,6 +73,67 @@ class McpClientFoundationTests(unittest.TestCase):
         masked = cfg.masked_config()
         self.assertNotIn("abcdefghijklmnop", str(masked))
 
+    def test_config_save_clears_packaged_agent_cache(self) -> None:
+        cfg = self._reload_config()
+        clear_cache = Mock()
+        packaged_agent = SimpleNamespace(clear_agent_cache=clear_cache)
+
+        with patch.dict(sys.modules, {"row_bot.agent": packaged_agent}):
+            cfg.save_config(cfg.load_config())
+
+        clear_cache.assert_called_once_with()
+
+    def test_server_form_edit_preserves_marketplace_metadata(self) -> None:
+        from row_bot.ui.mcp_settings import _server_from_form
+
+        existing = {
+            "name": "xquik-mcp",
+            "enabled": True,
+            "transport": "streamable_http",
+            "url": "https://xquik.com/mcp",
+            "source": {"catalog_id": "xquik-mcp", "risk_level": "high"},
+            "trust_level": "unverified",
+            "requirements": [{"kind": "network"}],
+            "tools": {
+                "enabled": {"explore": True, "xquik": False},
+                "require_approval": ["xquik"],
+            },
+        }
+
+        updated = _server_from_form(
+            "xquik-mcp",
+            "streamable_http",
+            "",
+            "",
+            "https://xquik.com/mcp",
+            "{}",
+            '{"x-api-key": "configured"}',
+            30,
+            24000,
+            base_config=existing,
+        )
+
+        self.assertFalse(updated["enabled"])
+        self.assertEqual(updated["source"], existing["source"])
+        self.assertEqual(updated["trust_level"], "unverified")
+        self.assertEqual(updated["requirements"], existing["requirements"])
+        self.assertEqual(updated["tools"], existing["tools"])
+        self.assertIsNot(updated["source"], existing["source"])
+
+    def test_tool_discovery_clears_agent_cache(self) -> None:
+        import row_bot.mcp_client.runtime as runtime
+
+        async def list_tools():
+            return SimpleNamespace(tools=[])
+
+        server = runtime.McpServerRuntime("demo", {"connect_timeout": 1})
+        server.session = SimpleNamespace(list_tools=list_tools)
+
+        with patch.object(runtime.mcp_config, "clear_agent_cache_if_loaded") as clear_cache:
+            asyncio.run(server._discover_tools())
+
+        clear_cache.assert_called_once_with()
+
     def test_destructive_detection_uses_annotations_and_names(self) -> None:
         from row_bot.mcp_client.safety import is_destructive_tool, prefixed_tool_name
 
@@ -105,7 +167,7 @@ class McpClientFoundationTests(unittest.TestCase):
     def test_recommended_catalog_excludes_memory_and_marks_overlaps(self) -> None:
         import row_bot.mcp_client.marketplace as marketplace
         importlib.reload(marketplace)
-        from row_bot.mcp_client.conflicts import conflicts_for_entry, requires_manual_tool_selection
+        from row_bot.mcp_client.conflicts import conflicts_for_entry
 
         recommended = [entry for entry in marketplace.CURATED_STARTER_CATALOG if entry.recommended]
         self.assertGreaterEqual(len(recommended), 10)
@@ -115,6 +177,13 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertIn("browser", playwright.overlaps_native)
         conflicts = conflicts_for_entry(playwright)
         self.assertEqual([conflict.capability for conflict in conflicts], ["browser"])
+
+    def test_xquik_catalog_entry_is_disabled_high_risk_and_approval_gated(self) -> None:
+        import row_bot.mcp_client.marketplace as marketplace
+        importlib.reload(marketplace)
+        from row_bot.mcp_client.conflicts import conflicts_for_entry, requires_manual_tool_selection
+        from row_bot.mcp_client.safety import is_destructive_tool
+        from row_bot.ui.mcp_settings import _apply_probe_defaults
 
         xquik = next(entry for entry in marketplace.CURATED_STARTER_CATALOG if entry.id == "xquik-mcp")
         self.assertFalse(xquik.recommended)
@@ -127,8 +196,30 @@ class McpClientFoundationTests(unittest.TestCase):
 
         xquik_config = marketplace.entry_to_server_config(xquik)
         self.assertFalse(xquik_config["enabled"])
-        self.assertEqual(xquik_config["headers"], {"Authorization": ""})
+        self.assertEqual(xquik_config["headers"], {"x-api-key": ""})
         self.assertTrue(requires_manual_tool_selection("xquik", xquik_config))
+
+        executor_description = "Execute API calls against your Xquik account."
+        self.assertTrue(is_destructive_tool("xquik", executor_description))
+        probe = {
+            "tools": [
+                {
+                    "name": "explore",
+                    "description": "Search the API endpoint catalog without making network calls.",
+                    "destructive": False,
+                },
+                {
+                    "name": "xquik",
+                    "description": executor_description,
+                    "destructive": True,
+                },
+            ]
+        }
+        updated = _apply_probe_defaults(xquik_config, probe)
+        self.assertEqual(updated["tools"]["enabled"], {"explore": False, "xquik": False})
+        self.assertEqual(updated["tools"]["require_approval"], ["xquik"])
+        self.assertFalse(updated["tools"]["catalog"]["explore"]["requires_approval"])
+        self.assertTrue(updated["tools"]["catalog"]["xquik"]["requires_approval"])
 
     def test_marketplace_import_preserves_trust_risk_and_overlap_metadata(self) -> None:
         import row_bot.mcp_client.marketplace as marketplace
@@ -175,6 +266,50 @@ class McpClientFoundationTests(unittest.TestCase):
         web_search_overlap_cfg = {"name": "context7", "source": {"overlaps_native": ["web_search"], "risk_level": "low"}}
         self.assertTrue(requires_manual_tool_selection("context7", web_search_overlap_cfg))
         self.assertEqual(unique_server_name("Playwright MCP", {"playwright-mcp"}), "playwright-mcp-2")
+
+    def test_probe_server_normalizes_cancelled_and_timed_out_handshakes(self) -> None:
+        import concurrent.futures
+        import row_bot.mcp_client.runtime as runtime
+
+        def cancelled_schedule(coro):
+            coro.close()
+            future: concurrent.futures.Future = concurrent.futures.Future()
+            future.cancel()
+            return future
+
+        with patch.object(runtime, "sdk_available", return_value=True), patch.object(
+            runtime, "_schedule", side_effect=cancelled_schedule
+        ):
+            cancelled = runtime.probe_server("remote", {"connect_timeout": 1})
+
+        self.assertFalse(cancelled["ok"])
+        self.assertEqual(cancelled["tools"], [])
+        self.assertIn("ended before", cancelled["error"])
+
+        class TimedOutFuture:
+            cancelled = False
+
+            def result(self, *, timeout):
+                raise concurrent.futures.TimeoutError
+
+            def cancel(self):
+                self.cancelled = True
+
+        timed_out_future = TimedOutFuture()
+
+        def timed_out_schedule(coro):
+            coro.close()
+            return timed_out_future
+
+        with patch.object(runtime, "sdk_available", return_value=True), patch.object(
+            runtime, "_schedule", side_effect=timed_out_schedule
+        ):
+            timed_out = runtime.probe_server("remote", {"connect_timeout": 1}, timeout=2)
+
+        self.assertFalse(timed_out["ok"])
+        self.assertEqual(timed_out["tools"], [])
+        self.assertEqual(timed_out["error"], "MCP connection timed out after 2 seconds.")
+        self.assertTrue(timed_out_future.cancelled)
 
     def test_marketplace_search_filters_unrelated_live_results(self) -> None:
         import row_bot.mcp_client.marketplace as marketplace

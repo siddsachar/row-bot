@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 from typing import Any, Callable
@@ -38,10 +39,12 @@ def _split_args(raw: str) -> list[str]:
 
 
 def _server_from_form(name: str, transport: str, command: str, args: str, url: str,
-                      env: str, headers: str, timeout: Any, output_limit: Any) -> dict[str, Any]:
+                      env: str, headers: str, timeout: Any, output_limit: Any,
+                      *, base_config: dict[str, Any] | None = None) -> dict[str, Any]:
     if not (name or "").strip():
         raise ValueError("Server name is required")
-    cfg = {
+    cfg = copy.deepcopy(base_config) if isinstance(base_config, dict) else {}
+    cfg.update({
         "name": (name or "").strip(),
         "enabled": False,
         "transport": transport,
@@ -53,7 +56,7 @@ def _server_from_form(name: str, transport: str, command: str, args: str, url: s
         "connect_timeout": float(timeout or 30),
         "tool_timeout": float(timeout or 120),
         "output_limit": int(output_limit or 24000),
-    }
+    })
     if cfg["transport"] == "stdio" and not cfg["command"]:
         raise ValueError("stdio servers require a command")
     if cfg["transport"] != "stdio" and not cfg["url"]:
@@ -446,7 +449,18 @@ def _open_server_dialog(refresh: Callable[[], None], name: str | None = None, se
         async def _save(test_first: bool = False):
             try:
                 server_name = str(name_in.value or "").strip()
-                next_cfg = _server_from_form(server_name, transport.value, command.value, args.value, url.value, env.value, headers.value, timeout.value, output_limit.value)
+                next_cfg = _server_from_form(
+                    server_name,
+                    transport.value,
+                    command.value,
+                    args.value,
+                    url.value,
+                    env.value,
+                    headers.value,
+                    timeout.value,
+                    output_limit.value,
+                    base_config=cfg,
+                )
                 if test_first:
                     note = ui.notification("Testing MCP server...", type="ongoing", spinner=True, timeout=None)
                     result = await run.io_bound(probe_server, server_name, next_cfg)

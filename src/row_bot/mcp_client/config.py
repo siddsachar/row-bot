@@ -36,6 +36,23 @@ DEFAULT_CONFIG: dict[str, Any] = {
 _config_cache: dict[str, Any] | None = None
 
 
+def clear_agent_cache_if_loaded() -> None:
+    """Invalidate agent graphs without importing the heavyweight agent module."""
+    seen_modules: set[int] = set()
+    for module_name in ("row_bot.agent", "agent"):
+        agent_mod = sys.modules.get(module_name)
+        if agent_mod is None or id(agent_mod) in seen_modules:
+            continue
+        seen_modules.add(id(agent_mod))
+        clear_cache = getattr(agent_mod, "clear_agent_cache", None)
+        if not callable(clear_cache):
+            continue
+        try:
+            clear_cache()
+        except Exception:
+            pass
+
+
 def _safe_copy(data: dict[str, Any]) -> dict[str, Any]:
     return copy.deepcopy(data)
 
@@ -126,12 +143,7 @@ def save_config(config: dict[str, Any]) -> None:
     tmp_path.replace(CONFIG_PATH)
     _config_cache = normalized
     log_event("mcp.config.saved", servers=len(normalized.get("servers", {})))
-    agent_mod = sys.modules.get("agent")
-    if agent_mod is not None and hasattr(agent_mod, "clear_agent_cache"):
-        try:
-            agent_mod.clear_agent_cache()
-        except Exception:
-            pass
+    clear_agent_cache_if_loaded()
 
 
 def get_config() -> dict[str, Any]:
