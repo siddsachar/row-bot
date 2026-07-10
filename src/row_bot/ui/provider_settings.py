@@ -219,7 +219,20 @@ def _start_provider_catalog_refresh_ui(
         if result.get("ok"):
             warnings = result.get("warnings") if isinstance(result.get("warnings"), list) else []
             rows = int(result.get("rows") or 0)
-            if warnings:
+            provider_statuses = result.get("provider_status") if isinstance(result.get("provider_status"), dict) else {}
+            provider_result = provider_statuses.get(provider_id) if isinstance(provider_statuses.get(provider_id), dict) else {}
+            refresh_status = str(provider_result.get("status") or "")
+            model_count = int(provider_result.get("count") or 0)
+            message = str(provider_result.get("message") or "")
+            if refresh_status == "live":
+                ui.notify(f"Provider catalog refreshed: {model_count} models", type="positive")
+            elif refresh_status == "cached":
+                ui.notify(message or f"No live update; kept {model_count} cached models", type="warning")
+            elif refresh_status == "fallback":
+                ui.notify(message or f"Using {model_count} fallback models", type="warning")
+            elif refresh_status == "empty":
+                ui.notify(message or "No provider models were discovered", type="warning")
+            elif warnings:
                 ui.notify(f"Model catalog refreshed: {rows} models, {len(warnings)} warning(s)", type="warning")
             else:
                 ui.notify(f"Model catalog refreshed: {rows} models", type="positive")

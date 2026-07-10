@@ -206,7 +206,7 @@ def test_refresh_cloud_models_preserves_atlas_rows_when_fetch_fails(monkeypatch)
         return 0
 
     monkeypatch.setattr(models, "fetch_context_catalog", lambda: 0)
-    monkeypatch.setattr(models, "fetch_cloud_models", _fake_fetch)
+    monkeypatch.setattr(models, "_fetch_cloud_models", _fake_fetch)
     monkeypatch.setattr(models, "_save_cloud_cache", lambda: None)
     try:
         models._cloud_model_cache.clear()

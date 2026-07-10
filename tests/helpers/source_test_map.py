@@ -46,7 +46,12 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
     ),
     SourceTestRule(
         "providers",
-        ("src/row_bot/providers/**", "src/row_bot/tools/image_gen_tool.py", "src/row_bot/tools/video_gen_tool.py"),
+        (
+            "src/row_bot/models.py",
+            "src/row_bot/providers/**",
+            "src/row_bot/tools/image_gen_tool.py",
+            "src/row_bot/tools/video_gen_tool.py",
+        ),
         (
             "tests/contracts/test_provider_contract.py",
             "tests/subsystem/providers",

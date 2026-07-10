@@ -169,6 +169,102 @@ _OPENAI_SKIP_SUBSTRINGS = ("dall-e", "whisper", "tts", "embedding", "davinci",
 _cloud_model_cache: dict[str, dict] = {}   # model_id → {label, ctx, provider}
 _cloud_cache_lock = threading.Lock()
 
+REFRESHABLE_CLOUD_PROVIDER_IDS: tuple[str, ...] = (
+    "openai",
+    "codex",
+    "ollama_cloud",
+    "openrouter",
+    "requesty",
+    "anthropic",
+    "google",
+    "xai",
+    "xai_oauth",
+    "minimax",
+    "opencode_zen",
+    "opencode_go",
+    "atlascloud",
+    "claude_subscription",
+)
+
+_SUBSCRIPTION_CATALOG_PROVIDER_IDS = frozenset({"codex", "claude_subscription", "xai_oauth"})
+
+
+@dataclass(frozen=True)
+class ProviderCatalogRefreshResult:
+    provider_id: str
+    status: str
+    effective_count: int
+    update_count: int = 0
+    live_count: int = 0
+    preserved_count: int = 0
+    source: str = ""
+    message: str = ""
+
+    def status_payload(self) -> dict[str, object]:
+        return {
+            "status": self.status,
+            "count": self.effective_count,
+            "live_count": self.live_count,
+            "preserved_count": self.preserved_count,
+            "source": self.source,
+            "message": self.message,
+        }
+
+
+def _provider_cloud_cache_entries(provider_id: str) -> dict[str, dict]:
+    provider = str(provider_id or "").strip()
+    with _cloud_cache_lock:
+        return {
+            str(model_id): dict(info)
+            for model_id, info in _cloud_model_cache.items()
+            if isinstance(info, dict) and _cloud_cache_entry_belongs_to_provider(str(model_id), info, provider)
+        }
+
+
+def _cloud_cache_entry_belongs_to_provider(model_id: str, info: dict, provider_id: str) -> bool:
+    cached_provider = str(info.get("provider") or "")
+    if cached_provider:
+        return cached_provider == provider_id
+    if provider_id != "minimax":
+        return False
+    key = str(model_id or "")
+    if key.startswith("model:minimax:"):
+        return True
+    return _runtime_model_name(key).split("/")[-1].lower().startswith("minimax")
+
+
+def _replace_provider_cloud_cache_entries(provider_id: str, entries: dict[str, dict]) -> int:
+    provider = str(provider_id or "").strip()
+    staged = {
+        str(model_id): dict(info)
+        for model_id, info in entries.items()
+        if model_id and isinstance(info, dict) and str(info.get("provider") or "") == provider
+    }
+    if not staged:
+        return 0
+    with _cloud_cache_lock:
+        stale_keys = [
+            model_id
+            for model_id, info in _cloud_model_cache.items()
+            if isinstance(info, dict) and _cloud_cache_entry_belongs_to_provider(str(model_id), info, provider)
+        ]
+        for model_id in stale_keys:
+            _cloud_model_cache.pop(model_id, None)
+        _cloud_model_cache.update(staged)
+    return len(staged)
+
+
+def _provider_catalog_cache_stamp(provider_id: str) -> str:
+    if provider_id not in _SUBSCRIPTION_CATALOG_PROVIDER_IDS:
+        return ""
+    try:
+        from row_bot.providers.config import load_provider_config
+
+        cache = load_provider_config().get("providers", {}).get(provider_id, {}).get("catalog_cache")
+        return str(cache.get("fetched_at") or "") if isinstance(cache, dict) else ""
+    except Exception:
+        return ""
+
 # ── Context catalog (keyless OpenRouter public data) ────────────────────────
 _context_catalog: dict[str, int] = {}      # model_id → context_length
 _context_catalog_lock = threading.Lock()
@@ -1602,44 +1698,44 @@ def _fetch_ollama_cloud_models(api_key: str) -> int:
         logger.warning("Failed to fetch ollama_cloud models: %s", exc)
         return 0
 
-    count = 0
-    with _cloud_cache_lock:
-        for m in models:
-            if not isinstance(m, dict):
-                continue
-            mid = str(m.get("name") or m.get("model") or "").strip()
-            if not mid:
-                continue
-            metadata = dict(m)
-            details = m.get("details")
-            if isinstance(details, dict):
-                metadata.update({f"details_{key}": value for key, value in details.items()})
-            ctx = int(m.get("context_length") or m.get("context_window") or 0)
-            if ctx <= 0:
-                ctx = _catalog_or_heuristic(mid)
-            model_info = model_info_from_metadata(
-                "ollama_cloud",
-                mid,
-                metadata,
-                display_name=mid,
-                context_window=ctx,
-                source="ollama_cloud_catalog",
-            )
-            if not model_supports_surface(model_info, "chat"):
-                continue
-            _cloud_model_cache[mid] = model_info_to_cache_entry(model_info)
-            count += 1
+    entries: dict[str, dict] = {}
+    for m in models:
+        if not isinstance(m, dict):
+            continue
+        mid = str(m.get("name") or m.get("model") or "").strip()
+        if not mid:
+            continue
+        metadata = dict(m)
+        details = m.get("details")
+        if isinstance(details, dict):
+            metadata.update({f"details_{key}": value for key, value in details.items()})
+        ctx = int(m.get("context_length") or m.get("context_window") or 0)
+        if ctx <= 0:
+            ctx = _catalog_or_heuristic(mid)
+        model_info = model_info_from_metadata(
+            "ollama_cloud",
+            mid,
+            metadata,
+            display_name=mid,
+            context_window=ctx,
+            source="ollama_cloud_catalog",
+        )
+        if not model_supports_surface(model_info, "chat"):
+            continue
+        entries[mid] = model_info_to_cache_entry(model_info)
+    count = _replace_provider_cloud_cache_entries("ollama_cloud", entries)
     logger.info("Fetched %d ollama_cloud models", count)
     return count
 
 
-def fetch_cloud_models(provider: str) -> int:
+def _fetch_cloud_models(provider: str) -> int:
     """Fetch available models from *provider*.
 
-    Supported providers include OpenAI, Ollama Cloud, OpenRouter, Requesty,
-    Anthropic, Google, xAI, xAI OAuth, MiniMax, OpenCode, Atlas Cloud, and
-    Claude Subscription. Populates ``_cloud_model_cache`` and returns the
-    number of models found. Safe to call from background threads.
+    Supported providers include OpenAI, ChatGPT/Codex, Ollama Cloud,
+    OpenRouter, Requesty, Anthropic, Google, xAI, xAI OAuth, MiniMax,
+    OpenCode, Atlas Cloud, and Claude Subscription. Populates
+    ``_cloud_model_cache`` and returns the number of models found. Safe to
+    call from background threads.
     """
     import httpx
     from row_bot.api_keys import get_key
@@ -1702,6 +1798,8 @@ def fetch_cloud_models(provider: str) -> int:
         if not api_key:
             return 0
         return _fetch_atlascloud_models(api_key)
+    elif provider == "codex":
+        return _fetch_codex_models()
     elif provider == "claude_subscription":
         return _fetch_claude_subscription_models()
     else:
@@ -1715,40 +1813,48 @@ def fetch_cloud_models(provider: str) -> int:
         logger.warning("Failed to fetch %s models: %s", provider, exc)
         return 0
 
-    count = 0
-    with _cloud_cache_lock:
-        if provider == "openai":
-            for m in data:
-                mid = m.get("id", "")
-                model_info = model_info_from_metadata(
-                    "openai", mid, m,
-                    display_name=mid,
-                    context_window=_catalog_or_heuristic(mid),
-                )
-                if not any(model_supports_surface(model_info, surface) for surface in ("chat", "image", "video")):
-                    continue
-                entry = model_info_to_cache_entry(model_info)
-                _cloud_model_cache[mid] = entry
-                count += 1
-        else:  # openrouter
-            for m in data:
-                mid = m.get("id", "")
-                name = m.get("name", mid)
-                ctx = m.get("context_length", 128_000)
-                # Only include models with a '/' (provider/model format)
-                if "/" not in mid:
-                    continue
-                model_info = model_info_from_metadata(
-                    "openrouter", mid, m,
-                    display_name=name,
-                    context_window=ctx,
-                )
-                if not any(model_supports_surface(model_info, surface) for surface in ("chat", "image", "video")):
-                    continue
-                _cloud_model_cache[mid] = model_info_to_cache_entry(model_info)
-                count += 1
+    entries: dict[str, dict] = {}
+    if provider == "openai":
+        for m in data:
+            if not isinstance(m, dict):
+                continue
+            mid = str(m.get("id") or "").strip()
+            if not mid:
+                continue
+            model_info = model_info_from_metadata(
+                "openai", mid, m,
+                display_name=mid,
+                context_window=_catalog_or_heuristic(mid),
+            )
+            if not any(model_supports_surface(model_info, surface) for surface in ("chat", "image", "video")):
+                continue
+            entries[mid] = model_info_to_cache_entry(model_info)
+    else:  # openrouter
+        for m in data:
+            if not isinstance(m, dict):
+                continue
+            mid = str(m.get("id") or "").strip()
+            name = str(m.get("name") or mid)
+            ctx = int(m.get("context_length") or 128_000)
+            # Only include models with a '/' (provider/model format)
+            if "/" not in mid:
+                continue
+            model_info = model_info_from_metadata(
+                "openrouter", mid, m,
+                display_name=name,
+                context_window=ctx,
+            )
+            if not any(model_supports_surface(model_info, surface) for surface in ("chat", "image", "video")):
+                continue
+            entries[mid] = model_info_to_cache_entry(model_info)
+    count = _replace_provider_cloud_cache_entries(provider, entries)
     logger.info("Fetched %d %s models", count, provider)
     return count
+
+
+def fetch_cloud_models(provider: str) -> int:
+    """Refresh one provider and return its compatibility update count."""
+    return refresh_cloud_provider_models(provider).update_count
 
 
 def _fetch_anthropic_models(api_key: str) -> int:
@@ -1764,8 +1870,8 @@ def _fetch_anthropic_models(api_key: str) -> int:
         "x-api-key": api_key,
         "anthropic-version": "2023-06-01",
     }
-    count = 0
     after_id: str | None = None
+    fetched: list[dict] = []
 
     try:
         while True:
@@ -1779,40 +1885,43 @@ def _fetch_anthropic_models(api_key: str) -> int:
             resp.raise_for_status()
             body = resp.json()
             models = body.get("data", [])
-
-            with _cloud_cache_lock:
-                for m in models:
-                    mid = m.get("id", "")
-                    if not mid:
-                        continue
-                    if any(s in mid for s in _ANTHROPIC_SKIP_SUBSTRINGS):
-                        continue
-                    display = m.get("display_name", mid)
-                    # Use API context size if available; fall back to catalog/heuristic
-                    api_ctx = m.get("max_input_tokens", 0)
-                    ctx = api_ctx if api_ctx and api_ctx > 0 else _catalog_or_heuristic(mid)
-                    # Vision from capabilities
-                    caps = m.get("capabilities", {})
-                    has_vision = bool(
-                        caps.get("image_input", {}).get("supported")
-                    )
-                    metadata = dict(m)
-                    metadata["vision"] = has_vision
-                    _cloud_model_cache[mid] = model_info_to_cache_entry(model_info_from_metadata(
-                        "anthropic", mid, metadata,
-                        display_name=display,
-                        context_window=ctx,
-                    ))
-                    count += 1
+            if not isinstance(models, list):
+                logger.warning("Anthropic model fetch returned malformed data payload")
+                return 0
+            fetched.extend(item for item in models if isinstance(item, dict))
 
             if not body.get("has_more"):
                 break
-            after_id = body.get("last_id")
+            after_id = str(body.get("last_id") or "")
             if not after_id:
-                break
+                logger.warning("Anthropic model fetch indicated more pages without last_id")
+                return 0
     except Exception as exc:
         logger.warning("Failed to fetch anthropic models: %s", exc)
+        return 0
 
+    entries: dict[str, dict] = {}
+    for m in fetched:
+        mid = str(m.get("id") or "").strip()
+        if not mid or any(s in mid for s in _ANTHROPIC_SKIP_SUBSTRINGS):
+            continue
+        display = str(m.get("display_name") or mid)
+        api_ctx = m.get("max_input_tokens", 0)
+        ctx = api_ctx if api_ctx and api_ctx > 0 else _catalog_or_heuristic(mid)
+        caps = m.get("capabilities", {})
+        has_vision = bool(
+            isinstance(caps, dict)
+            and isinstance(caps.get("image_input"), dict)
+            and caps.get("image_input", {}).get("supported")
+        )
+        metadata = dict(m)
+        metadata["vision"] = has_vision
+        entries[mid] = model_info_to_cache_entry(model_info_from_metadata(
+            "anthropic", mid, metadata,
+            display_name=display,
+            context_window=ctx,
+        ))
+    count = _replace_provider_cloud_cache_entries("anthropic", entries)
     logger.info("Fetched %d anthropic models", count)
     return count
 
@@ -1829,8 +1938,8 @@ def _fetch_google_models(api_key: str) -> int:
     from row_bot.providers.capabilities import model_supports_surface
     from row_bot.providers.catalog import model_info_from_metadata, model_info_to_cache_entry
 
-    count = 0
     page_token: str | None = None
+    fetched: list[dict] = []
 
     try:
         while True:
@@ -1844,35 +1953,38 @@ def _fetch_google_models(api_key: str) -> int:
             resp.raise_for_status()
             body = resp.json()
             models = body.get("models", [])
-
-            with _cloud_cache_lock:
-                for m in models:
-                    name = m.get("name", "")        # e.g. "models/gemini-2.5-flash"
-                    mid = name.removeprefix("models/")  # → "gemini-2.5-flash"
-                    if not mid:
-                        continue
-                    methods = m.get("supportedGenerationMethods", [])
-                    if any(s in mid for s in _GOOGLE_SKIP_SUBSTRINGS):
-                        continue
-                    display = m.get("displayName", mid)
-                    ctx = m.get("inputTokenLimit", 0)
-                    if not ctx or ctx <= 0:
-                        ctx = _catalog_or_heuristic(mid)
-                    metadata = dict(m)
-                    metadata["supportedGenerationMethods"] = methods
-                    metadata["vision"] = "generateContent" in methods
-                    model_info = model_info_from_metadata("google", mid, metadata, display_name=display, context_window=ctx)
-                    if not any(model_supports_surface(model_info, surface) for surface in ("chat", "image", "video")):
-                        continue
-                    _cloud_model_cache[mid] = model_info_to_cache_entry(model_info)
-                    count += 1
+            if not isinstance(models, list):
+                logger.warning("Google model fetch returned malformed data payload")
+                return 0
+            fetched.extend(item for item in models if isinstance(item, dict))
 
             page_token = body.get("nextPageToken")
             if not page_token:
                 break
     except Exception as exc:
         logger.warning("Failed to fetch google models: %s", exc)
+        return 0
 
+    entries: dict[str, dict] = {}
+    for m in fetched:
+        name = str(m.get("name") or "")        # e.g. "models/gemini-2.5-flash"
+        mid = name.removeprefix("models/")  # → "gemini-2.5-flash"
+        if not mid or any(s in mid for s in _GOOGLE_SKIP_SUBSTRINGS):
+            continue
+        methods = m.get("supportedGenerationMethods", [])
+        methods = methods if isinstance(methods, list) else []
+        display = str(m.get("displayName") or mid)
+        ctx = m.get("inputTokenLimit", 0)
+        if not ctx or ctx <= 0:
+            ctx = _catalog_or_heuristic(mid)
+        metadata = dict(m)
+        metadata["supportedGenerationMethods"] = methods
+        metadata["vision"] = "generateContent" in methods
+        model_info = model_info_from_metadata("google", mid, metadata, display_name=display, context_window=ctx)
+        if not any(model_supports_surface(model_info, surface) for surface in ("chat", "image", "video")):
+            continue
+        entries[mid] = model_info_to_cache_entry(model_info)
+    count = _replace_provider_cloud_cache_entries("google", entries)
     logger.info("Fetched %d google models", count)
     return count
 
@@ -2133,19 +2245,13 @@ def _fetch_xai_models(api_key: str) -> int:
         logger.warning("xai model fetch returned no usable model rows; preserving previous cache")
         return 0
 
-    with _cloud_cache_lock:
-        stale_keys = [
-            model_id
-            for model_id, info in _cloud_model_cache.items()
-            if isinstance(info, dict) and str(info.get("provider") or "") == "xai"
-        ]
-        for model_id in stale_keys:
-            _cloud_model_cache.pop(model_id, None)
-        for model_info in model_infos:
-            _cloud_model_cache[model_info.model_id] = model_info_to_cache_entry(model_info)
-
-    logger.info("Fetched %d xai models", len(model_infos))
-    return len(model_infos)
+    entries = {
+        model_info.model_id: model_info_to_cache_entry(model_info)
+        for model_info in model_infos
+    }
+    count = _replace_provider_cloud_cache_entries("xai", entries)
+    logger.info("Fetched %d xai models", count)
+    return count
 
 
 def _fetch_requesty_models(api_key: str) -> int:
@@ -2160,12 +2266,7 @@ def _fetch_requesty_models(api_key: str) -> int:
     from row_bot.providers.catalog import model_info_to_cache_entry
     from row_bot.providers.requesty import requesty_model_info_from_metadata, requesty_models_url
 
-    with _cloud_cache_lock:
-        existing_requesty_rows = {
-            str(model_id): dict(info)
-            for model_id, info in _cloud_model_cache.items()
-            if isinstance(info, dict) and str(info.get("provider") or "") == "requesty"
-        }
+    existing_requesty_rows = _provider_cloud_cache_entries("requesty")
 
     try:
         resp = httpx.get(
@@ -2211,19 +2312,13 @@ def _fetch_requesty_models(api_key: str) -> int:
         logger.warning("Requesty model fetch returned no usable chat model rows; preserving previous cache")
         return 0
 
-    with _cloud_cache_lock:
-        stale_keys = [
-            model_id
-            for model_id, info in _cloud_model_cache.items()
-            if isinstance(info, dict) and str(info.get("provider") or "") == "requesty"
-        ]
-        for model_id in stale_keys:
-            _cloud_model_cache.pop(model_id, None)
-        for model_info in model_infos:
-            _cloud_model_cache[model_info.selection_ref] = model_info_to_cache_entry(model_info)
-
-    logger.info("Fetched %d requesty models", len(model_infos))
-    return len(model_infos)
+    entries = {
+        model_info.selection_ref: model_info_to_cache_entry(model_info)
+        for model_info in model_infos
+    }
+    count = _replace_provider_cloud_cache_entries("requesty", entries)
+    logger.info("Fetched %d requesty models", count)
+    return count
 
 
 def _fetch_atlascloud_models(api_key: str) -> int:
@@ -2242,12 +2337,7 @@ def _fetch_atlascloud_models(api_key: str) -> int:
     from row_bot.providers.capabilities import model_supports_surface
     from row_bot.providers.catalog import model_info_to_cache_entry
 
-    with _cloud_cache_lock:
-        existing_atlas_rows = {
-            str(model_id): dict(info)
-            for model_id, info in _cloud_model_cache.items()
-            if isinstance(info, dict) and str(info.get("provider") or "") == "atlascloud"
-        }
+    existing_atlas_rows = _provider_cloud_cache_entries("atlascloud")
 
     source = "live"
     data: list[dict] = []
@@ -2310,21 +2400,14 @@ def _fetch_atlascloud_models(api_key: str) -> int:
         logger.warning("Atlas Cloud fallback skipped because previous Atlas cache exists")
         return 0
 
-    with _cloud_cache_lock:
-        stale_keys = [
-            model_id
-            for model_id, info in _cloud_model_cache.items()
-            if isinstance(info, dict) and str(info.get("provider") or "") == "atlascloud"
-        ]
-        for model_id in stale_keys:
-            _cloud_model_cache.pop(model_id, None)
-        for model_info in model_infos:
-            entry = model_info_to_cache_entry(model_info)
-            entry["source"] = "atlascloud_live_catalog" if source == "live" else "atlascloud_static_fallback"
-            _cloud_model_cache[model_info.selection_ref] = entry
-
-    logger.info("Fetched %d atlascloud models", len(model_infos))
-    return len(model_infos)
+    entries: dict[str, dict] = {}
+    for model_info in model_infos:
+        entry = model_info_to_cache_entry(model_info)
+        entry["source"] = "atlascloud_live_catalog" if source == "live" else "atlascloud_static_fallback"
+        entries[model_info.selection_ref] = entry
+    count = _replace_provider_cloud_cache_entries("atlascloud", entries)
+    logger.info("Fetched %d atlascloud models", count)
+    return count
 
 
 def _fetch_minimax_models(api_key: str) -> int:
@@ -2390,18 +2473,13 @@ def _fetch_minimax_models(api_key: str) -> int:
         logger.warning("MiniMax model fetch contained no usable model ids; preserving previous cache")
         return 0
 
-    with _cloud_cache_lock:
-        stale_keys = [
-            model_id
-            for model_id, info in _cloud_model_cache.items()
-            if isinstance(info, dict) and _is_minimax_cache_entry(str(model_id), info)
-        ]
-        for model_id in stale_keys:
-            _cloud_model_cache.pop(model_id, None)
-        for model_info in model_infos:
-            _cloud_model_cache[model_info.model_id] = model_info_to_cache_entry(model_info)
-    logger.info("Fetched %d minimax models", len(model_infos))
-    return len(model_infos)
+    entries = {
+        model_info.model_id: model_info_to_cache_entry(model_info)
+        for model_info in model_infos
+    }
+    count = _replace_provider_cloud_cache_entries("minimax", entries)
+    logger.info("Fetched %d minimax models", count)
+    return count
 
 
 def _fetch_opencode_models(provider_id: str) -> int:
@@ -2434,6 +2512,7 @@ def _fetch_opencode_models(provider_id: str) -> int:
                 return values
         return None
 
+    existing_rows = _provider_cloud_cache_entries(provider_id)
     try:
         from row_bot.providers.auth_store import provider_api_key_env
         env_var = provider_api_key_env(provider_id)
@@ -2466,6 +2545,9 @@ def _fetch_opencode_models(provider_id: str) -> int:
         if saw_input_metadata:
             image_input_model_ids = discovered_image_inputs
     except Exception as exc:
+        if existing_rows:
+            logger.warning("Failed to fetch %s models: %s; preserving previous OpenCode cache", provider_id, exc)
+            return 0
         logger.warning("Failed to fetch %s models: %s; using static OpenCode fallback", provider_id, exc)
         source = "fallback"
 
@@ -2474,14 +2556,34 @@ def _fetch_opencode_models(provider_id: str) -> int:
         model_ids=model_ids,
         image_input_model_ids=image_input_model_ids,
     )
-    count = 0
-    with _cloud_cache_lock:
-        for model_info in infos:
-            entry = model_info_to_cache_entry(model_info)
-            entry["source"] = "opencode_live_catalog" if source == "live" else "opencode_static_fallback"
-            _cloud_model_cache[model_info.selection_ref] = entry
-            count += 1
+    entries: dict[str, dict] = {}
+    for model_info in infos:
+        entry = model_info_to_cache_entry(model_info)
+        entry["source"] = "opencode_live_catalog" if source == "live" else "opencode_static_fallback"
+        entries[model_info.selection_ref] = entry
+    count = _replace_provider_cloud_cache_entries(provider_id, entries)
     logger.info("Fetched %d %s models", count, provider_id)
+    return count
+
+
+def _fetch_codex_models() -> int:
+    """Populate ChatGPT/Codex models from Row-Bot-owned OAuth discovery."""
+    from row_bot.providers.catalog import model_info_to_cache_entry
+    from row_bot.providers.codex import list_codex_model_infos
+
+    try:
+        infos = list_codex_model_infos(force_refresh=True)
+    except Exception as exc:
+        logger.warning("Failed to fetch codex models: %s", exc)
+        return 0
+    if not infos:
+        return 0
+    entries = {
+        model_info.selection_ref: model_info_to_cache_entry(model_info)
+        for model_info in infos
+    }
+    count = _replace_provider_cloud_cache_entries("codex", entries)
+    logger.info("Fetched %d codex models", count)
     return count
 
 
@@ -2497,18 +2599,13 @@ def _fetch_claude_subscription_models() -> int:
         return 0
     if not infos:
         return 0
-    with _cloud_cache_lock:
-        stale_keys = [
-            model_id
-            for model_id, info in _cloud_model_cache.items()
-            if isinstance(info, dict) and str(info.get("provider") or "") == "claude_subscription"
-        ]
-        for model_id in stale_keys:
-            _cloud_model_cache.pop(model_id, None)
-        for model_info in infos:
-            _cloud_model_cache[model_info.selection_ref] = model_info_to_cache_entry(model_info)
-    logger.info("Fetched %d claude_subscription models", len(infos))
-    return len(infos)
+    entries = {
+        model_info.selection_ref: model_info_to_cache_entry(model_info)
+        for model_info in infos
+    }
+    count = _replace_provider_cloud_cache_entries("claude_subscription", entries)
+    logger.info("Fetched %d claude_subscription models", count)
+    return count
 
 
 def _fetch_xai_oauth_models() -> int:
@@ -2541,22 +2638,77 @@ def _fetch_xai_oauth_models() -> int:
             infos = list_xai_oauth_model_infos()
     except Exception as exc:
         logger.warning("Failed to probe xai_oauth vision during model refresh: %s", exc)
-    with _cloud_cache_lock:
-        stale_keys = [
-            model_id
-            for model_id, info in _cloud_model_cache.items()
-            if isinstance(info, dict) and str(info.get("provider") or "") == "xai_oauth"
-        ]
-        for model_id in stale_keys:
-            _cloud_model_cache.pop(model_id, None)
-        for model_info in infos:
-            _cloud_model_cache[model_info.selection_ref] = model_info_to_cache_entry(model_info)
-    logger.info("Fetched %d xai_oauth models", len(infos))
-    return len(infos)
+    entries = {
+        model_info.selection_ref: model_info_to_cache_entry(model_info)
+        for model_info in infos
+    }
+    count = _replace_provider_cloud_cache_entries("xai_oauth", entries)
+    logger.info("Fetched %d xai_oauth models", count)
+    return count
 
 
-def refresh_cloud_models() -> int:
-    """Clear cache and re-fetch from all configured providers.
+def refresh_cloud_provider_models(provider_id: str) -> ProviderCatalogRefreshResult:
+    """Refresh one provider while retaining its last-known-good catalog."""
+    provider = str(provider_id or "").strip()
+    before_stamp = _provider_catalog_cache_stamp(provider)
+    try:
+        update_count = _fetch_cloud_models(provider)
+    except Exception as exc:
+        logger.warning("Failed to refresh %s model catalog: %s", provider, exc)
+        update_count = 0
+    after_entries = _provider_cloud_cache_entries(provider)
+    after_stamp = _provider_catalog_cache_stamp(provider)
+
+    sources = {
+        str(info.get("source") or "")
+        for info in after_entries.values()
+        if isinstance(info, dict)
+    }
+    uses_fallback = bool(sources) and all("fallback" in source for source in sources)
+    subscription_cache_reused = (
+        provider in _SUBSCRIPTION_CATALOG_PROVIDER_IDS
+        and bool(before_stamp)
+        and before_stamp == after_stamp
+        and bool(after_entries)
+    )
+    if uses_fallback:
+        status = "fallback"
+        source = "static_fallback"
+    elif update_count > 0 and not subscription_cache_reused:
+        status = "live"
+        source = "provider_catalog"
+    elif after_entries:
+        status = "cached"
+        source = "last_known_good"
+    else:
+        status = "empty"
+        source = ""
+
+    effective_count = len(after_entries)
+    preserved_count = effective_count if status == "cached" else 0
+    live_count = update_count if status == "live" else 0
+    message = ""
+    if status == "cached":
+        message = f"No live catalog update; kept {effective_count} cached model(s)."
+    elif status == "fallback":
+        message = f"Using {effective_count} documented fallback model(s)."
+    elif status == "empty":
+        message = "No usable models were discovered."
+
+    return ProviderCatalogRefreshResult(
+        provider_id=provider,
+        status=status,
+        effective_count=effective_count,
+        update_count=update_count,
+        live_count=live_count,
+        preserved_count=preserved_count,
+        source=source,
+        message=message,
+    )
+
+
+def refresh_cloud_models_detailed() -> dict[str, ProviderCatalogRefreshResult]:
+    """Refresh every registered remote catalog and return provider outcomes.
 
     Also refreshes the context catalog (keyless) for accurate context sizes.
     If the current default model is temporarily absent from the refreshed
@@ -2564,39 +2716,16 @@ def refresh_cloud_models() -> int:
     fallback.
     """
     global _current_model, _llm_instance
-    # Remember current model before clearing
+    # Remember the current model so a refresh gap cannot rewrite its default.
     _prev_model = _current_model
     _was_cloud = is_cloud_model(_prev_model)
 
     # Fetch context catalog first so OpenAI models get accurate sizes
     fetch_context_catalog()
-    with _cloud_cache_lock:
-        preserved_rows = {
-            model_id: info
-            for model_id, info in _cloud_model_cache.items()
-            if isinstance(info, dict)
-            and (
-                _is_minimax_cache_entry(str(model_id), info)
-                or str(info.get("provider") or "") == "atlascloud"
-                or str(info.get("provider") or "") == "requesty"
-            )
-        }
-        _cloud_model_cache.clear()
-        _cloud_model_cache.update(preserved_rows)
-    total = 0
-    total += fetch_cloud_models("openai")
-    total += fetch_cloud_models("ollama_cloud")
-    total += fetch_cloud_models("openrouter")
-    total += fetch_cloud_models("requesty")
-    total += fetch_cloud_models("anthropic")
-    total += fetch_cloud_models("google")
-    total += fetch_cloud_models("xai")
-    total += fetch_cloud_models("xai_oauth")
-    total += fetch_cloud_models("minimax")
-    total += fetch_cloud_models("opencode_zen")
-    total += fetch_cloud_models("opencode_go")
-    total += fetch_cloud_models("atlascloud")
-    total += fetch_cloud_models("claude_subscription")
+    results = {
+        provider_id: refresh_cloud_provider_models(provider_id)
+        for provider_id in REFRESHABLE_CLOUD_PROVIDER_IDS
+    }
     _save_cloud_cache()
 
     # Do not rewrite the user's default just because a provider refresh missed
@@ -2610,7 +2739,12 @@ def refresh_cloud_models() -> int:
         )
         _llm_instance = None  # lazy-recreate on next get_llm()
 
-    return total
+    return results
+
+
+def refresh_cloud_models() -> int:
+    """Refresh all remote provider catalogs and return the update count."""
+    return sum(result.update_count for result in refresh_cloud_models_detailed().values())
 
 
 def _cloud_model_available_after_refresh(model_name: str) -> bool:
@@ -2618,9 +2752,9 @@ def _cloud_model_available_after_refresh(model_name: str) -> bool:
 
     Direct API providers store bare runtime IDs in ``_cloud_model_cache`` while
     newer selectors may save provider-qualified refs such as
-    ``model:codex:gpt-5.5``.  Codex subscription models are maintained by the
-    provider catalog rather than ``refresh_cloud_models()``, so check that
-    catalog before warning about a missing default.
+    ``model:codex:gpt-5.6-sol``. Subscription providers also keep their own
+    provider catalog cache, so check that cache before warning about a missing
+    default when the shared refresh cache is unavailable.
     """
     runtime_model = _runtime_model_name(model_name)
     if model_name in _cloud_model_cache or runtime_model in _cloud_model_cache:

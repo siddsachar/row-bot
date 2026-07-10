@@ -99,10 +99,28 @@ class CodexTokenHealth:
 
 FALLBACK_CODEX_MODELS = [
     {
+        "id": "gpt-5.6-sol",
+        "display_name": "GPT-5.6 Sol (ChatGPT)",
+        "source_confidence": "documented_chatgpt_codex_model",
+        "recommended": True,
+    },
+    {
+        "id": "gpt-5.6-terra",
+        "display_name": "GPT-5.6 Terra (ChatGPT)",
+        "source_confidence": "documented_chatgpt_codex_model",
+        "recommended": False,
+    },
+    {
+        "id": "gpt-5.6-luna",
+        "display_name": "GPT-5.6 Luna (ChatGPT)",
+        "source_confidence": "documented_chatgpt_codex_model",
+        "recommended": False,
+    },
+    {
         "id": "gpt-5.5",
         "display_name": "GPT-5.5 (ChatGPT)",
         "source_confidence": "documented_chatgpt_codex_model",
-        "recommended": True,
+        "recommended": False,
     },
     {
         "id": "gpt-5.4",

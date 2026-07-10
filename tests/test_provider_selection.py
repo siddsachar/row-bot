@@ -364,6 +364,7 @@ def test_stale_missing_custom_model_is_pruned_when_endpoint_models_are_known(tmp
 
 def test_model_choice_options_disambiguate_same_model_id_by_provider(tmp_path, monkeypatch):
     import row_bot.providers.runtime as provider_runtime
+    import row_bot.providers.selection as selection
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
     monkeypatch.setattr(api_keys, "get_cloud_config", lambda: {"starred_models": []})
@@ -372,6 +373,7 @@ def test_model_choice_options_disambiguate_same_model_id_by_provider(tmp_path, m
         "provider_status",
         lambda provider_id: {"runtime_enabled": True} if provider_id == "codex" else {},
     )
+    selection._provider_status_picker_cache.clear()
 
     snapshot = {"tasks": ["chat"], "input_modalities": ["text"], "output_modalities": ["text"]}
     add_quick_choice_for_model("gpt-5.5", provider_id="openai", display_name="GPT-5.5", capabilities_snapshot=snapshot)
@@ -437,6 +439,7 @@ def test_unknown_bare_selection_resolves_to_ollama_not_openrouter(tmp_path, monk
 
 def test_codex_vision_quick_choice_survives_capability_refresh(tmp_path, monkeypatch):
     import row_bot.providers.runtime as provider_runtime
+    import row_bot.providers.selection as selection
     from row_bot.providers.codex import fallback_codex_model_infos
 
     monkeypatch.setattr(provider_config, "CONFIG_PATH", tmp_path / "providers.json")
@@ -446,6 +449,7 @@ def test_codex_vision_quick_choice_survives_capability_refresh(tmp_path, monkeyp
         "provider_status",
         lambda provider_id: {"runtime_enabled": True} if provider_id == "codex" else {},
     )
+    selection._provider_status_picker_cache.clear()
 
     model_info = next(info for info in fallback_codex_model_infos() if info.model_id == "gpt-5.5")
     add_quick_choice_for_model(

@@ -85,3 +85,14 @@ def test_provider_error_contract_normalizes_common_failures() -> None:
     assert normalize_provider_error(ValueError("401 unauthorized API key")).kind == ProviderErrorKind.AUTHENTICATION
     assert normalize_provider_error(RuntimeError("quota exceeded")).kind == ProviderErrorKind.QUOTA_EXHAUSTED
     assert normalize_provider_error(RuntimeError("tools are not supported")).kind == ProviderErrorKind.UNSUPPORTED_CAPABILITY
+
+
+def test_every_builtin_provider_has_refresh_ownership_or_an_explicit_exemption() -> None:
+    from row_bot.models import REFRESHABLE_CLOUD_PROVIDER_IDS
+    from row_bot.providers.catalog import list_provider_definitions
+
+    provider_ids = {definition.id for definition in list_provider_definitions()}
+    explicit_exemptions = {"ollama"}
+
+    assert set(REFRESHABLE_CLOUD_PROVIDER_IDS).isdisjoint(explicit_exemptions)
+    assert set(REFRESHABLE_CLOUD_PROVIDER_IDS) | explicit_exemptions == provider_ids
