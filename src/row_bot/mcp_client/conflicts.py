@@ -18,6 +18,7 @@ CORE_NATIVE_CAPABILITIES: dict[str, dict[str, str]] = {
     "url_reader": {"label": "Row-Bot URL Reader", "message": "Row-Bot can already read URLs. Use this MCP only for provider-specific fetch behavior."},
     "channels": {"label": "Row-Bot Channels", "message": "Row-Bot has native channel concepts. Review messaging/send tools before enabling external channel MCPs."},
     "designer": {"label": "Row-Bot Designer", "message": "Row-Bot has native design-generation flows. Use this MCP for source design-system context."},
+    "x": {"label": "Row-Bot X", "message": "Row-Bot already includes native X read, post, and engagement tools. Use this MCP only for its provider-specific surface."},
 }
 
 _HEURISTICS: tuple[tuple[str, tuple[str, ...]], ...] = (

@@ -105,7 +105,7 @@ class McpClientFoundationTests(unittest.TestCase):
     def test_recommended_catalog_excludes_memory_and_marks_overlaps(self) -> None:
         import row_bot.mcp_client.marketplace as marketplace
         importlib.reload(marketplace)
-        from row_bot.mcp_client.conflicts import conflicts_for_entry
+        from row_bot.mcp_client.conflicts import conflicts_for_entry, requires_manual_tool_selection
 
         recommended = [entry for entry in marketplace.CURATED_STARTER_CATALOG if entry.recommended]
         self.assertGreaterEqual(len(recommended), 10)
@@ -115,6 +115,20 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertIn("browser", playwright.overlaps_native)
         conflicts = conflicts_for_entry(playwright)
         self.assertEqual([conflict.capability for conflict in conflicts], ["browser"])
+
+        xquik = next(entry for entry in marketplace.CURATED_STARTER_CATALOG if entry.id == "xquik-mcp")
+        self.assertFalse(xquik.recommended)
+        self.assertTrue(xquik.requires_auth)
+        self.assertEqual(xquik.risk_level, "high")
+        self.assertEqual(xquik.action_scope, "destructive_possible")
+        self.assertEqual(xquik.transport, "streamable_http")
+        self.assertEqual(xquik.install["url"], "https://xquik.com/mcp")
+        self.assertEqual([conflict.capability for conflict in conflicts_for_entry(xquik)], ["x"])
+
+        xquik_config = marketplace.entry_to_server_config(xquik)
+        self.assertFalse(xquik_config["enabled"])
+        self.assertEqual(xquik_config["headers"], {"Authorization": ""})
+        self.assertTrue(requires_manual_tool_selection("xquik", xquik_config))
 
     def test_marketplace_import_preserves_trust_risk_and_overlap_metadata(self) -> None:
         import row_bot.mcp_client.marketplace as marketplace
