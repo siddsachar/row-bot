@@ -75,6 +75,12 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
         "Memory tool changes need graph-backed tool contracts and deterministic memory regressions.",
     ),
     SourceTestRule(
+        "tools_calendar",
+        ("src/row_bot/tools/calendar_tool.py",),
+        ("tests/subsystem/tools/test_calendar_tool_contracts.py",),
+        "Calendar changes need fake-service concurrency, idempotency, retry, and mutation contracts.",
+    ),
+    SourceTestRule(
         "startup_runtime",
         (
             "src/row_bot/app.py",

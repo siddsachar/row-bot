@@ -71,6 +71,26 @@ def test_launcher_hints_for_numpy_x86_v2_failure():
     assert any("x86-64-v2" in hint for hint in hints)
 
 
+def test_launcher_ignores_benign_faiss_avx2_fallback():
+    hints = launcher._startup_failure_hints(
+        "Loading faiss with AVX2 support.\n"
+        "Could not load library with AVX2 support due to ModuleNotFoundError.\n"
+        "Loading faiss.\n"
+        "Successfully loaded faiss."
+    )
+
+    assert not any("FAISS native import failure" in hint for hint in hints)
+
+
+def test_launcher_hints_for_real_faiss_import_failure():
+    hints = launcher._startup_failure_hints(
+        "Traceback while importing faiss\n"
+        "ImportError: DLL load failed while importing swigfaiss"
+    )
+
+    assert any("FAISS native import failure" in hint for hint in hints)
+
+
 def test_launcher_logs_app_tail_on_startup_failure(tmp_path, caplog):
     log_path = tmp_path / "row_bot_app.log"
     log_path.write_text("line one\nTraceback\nImportError: libGL.so.1 missing\n", encoding="utf-8")
