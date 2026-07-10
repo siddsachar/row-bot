@@ -890,7 +890,11 @@ def _startup_failure_hints(log_text: str, python_executable: str | None = None) 
             f"Then restart {APP_DISPLAY_NAME} and check ~/{DEFAULT_DATA_DIR_NAME}/"
             f"{LAUNCHER_APP_LOG_FILENAME} if startup still fails.",
         ])
-    if "faiss" in text and ("importerror" in text or "oserror" in text or "could not" in text):
+    if (
+        "faiss" in text
+        and ("importerror" in text or "oserror" in text)
+        and "successfully loaded faiss" not in text
+    ):
         hints.extend([
             "Detected a FAISS native import failure during startup.",
             f"Recovery: reinstall {APP_DISPLAY_NAME}'s packaged runtime or install the Linux libraries named in the traceback.",
