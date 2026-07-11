@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.tools.base import BaseTool
@@ -110,16 +110,26 @@ def _resolve_file_path(file_path: str) -> str:
 
 # ── Custom send / draft with attachment support ──────────────────────────
 
-class _SendMessageInput(BaseModel):
-    message: str = Field(description="The email body text.")
-    to: Union[str, List[str]] = Field(description="Recipient email address(es).")
-    subject: str = Field(description="The email subject line.")
-    cc: Optional[Union[str, List[str]]] = Field(
+class _EmailRecipientsInput(BaseModel):
+    to: list[str] = Field(description="Recipient email address(es).")
+    cc: list[str] | None = Field(
         default=None, description="CC recipients.",
     )
-    bcc: Optional[Union[str, List[str]]] = Field(
+    bcc: list[str] | None = Field(
         default=None, description="BCC recipients.",
     )
+
+    @field_validator("to", "cc", "bcc", mode="before")
+    @classmethod
+    def _normalize_recipient_lists(cls, value):
+        if isinstance(value, str):
+            return [value]
+        return value
+
+
+class _SendMessageInput(_EmailRecipientsInput):
+    message: str = Field(description="The email body text.")
+    subject: str = Field(description="The email subject line.")
     attachments: Optional[List[str]] = Field(
         default=None,
         description=(
@@ -129,16 +139,9 @@ class _SendMessageInput(BaseModel):
     )
 
 
-class _CreateDraftInput(BaseModel):
+class _CreateDraftInput(_EmailRecipientsInput):
     message: str = Field(description="The draft email body text.")
-    to: Union[str, List[str]] = Field(description="Recipient email address(es).")
     subject: str = Field(description="The email subject line.")
-    cc: Optional[Union[str, List[str]]] = Field(
-        default=None, description="CC recipients.",
-    )
-    bcc: Optional[Union[str, List[str]]] = Field(
-        default=None, description="BCC recipients.",
-    )
     attachments: Optional[List[str]] = Field(
         default=None,
         description=(

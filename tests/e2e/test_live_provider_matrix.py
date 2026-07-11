@@ -16,9 +16,11 @@ pytestmark = pytest.mark.live_provider
 
 
 OUT_OF_CREDITS_RE = re.compile(
-    r"out of credits|credit(?:s)? exhausted|quota exceeded|usage exhausted|"
-    r"billing limit|insufficient (?:balance|credits|quota)|payment required|"
-    r"account balance|spend limit",
+    r"out of (?:prepaid )?credits|credit(?:s)? (?:are )?(?:exhausted|depleted)|"
+    r"usage credits? (?:are )?(?:exhausted|depleted)|insufficient (?:balance|credits)|"
+    r"payment required|account balance.{0,80}(?:exhausted|depleted|insufficient|too low)|"
+    r"(?:billing|spend) limit (?:reached|exceeded)|"
+    r"(?:quota|usage).{0,120}(?:billing|plan)|(?:billing|plan).{0,120}(?:quota|usage)",
     re.IGNORECASE,
 )
 
@@ -124,7 +126,16 @@ def _event_summary(events: list[tuple[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _run_agent_case(agent_module, *, model_ref: str, provider_id: str, prompt: str, tools: list[str], label: str) -> dict[str, Any]:
+def _run_agent_case(
+    agent_module,
+    *,
+    model_ref: str,
+    provider_id: str,
+    prompt: str,
+    tools: list[str],
+    label: str,
+    requires_tool_round_trip: bool = False,
+) -> dict[str, Any]:
     thread_id = f"live_{provider_id}_{label}_{int(time.time() * 1000)}"
     config = {"configurable": {"thread_id": thread_id, "model_override": model_ref, "runtime_mode": "agent"}}
     started = time.time()
@@ -135,6 +146,7 @@ def _run_agent_case(agent_module, *, model_ref: str, provider_id: str, prompt: s
             "label": label,
             "thread_id": thread_id,
             "duration_s": round(time.time() - started, 3),
+            "requires_tool_round_trip": requires_tool_round_trip,
         })
         return result
     except Exception as exc:  # readiness/transport setup can fail before events
@@ -149,6 +161,7 @@ def _run_agent_case(agent_module, *, model_ref: str, provider_id: str, prompt: s
             "tool_results": 0,
             "thinking_chars": 0,
             "event_types": [],
+            "requires_tool_round_trip": requires_tool_round_trip,
         }
 
 
@@ -293,19 +306,32 @@ def _discover_live_candidates() -> list[dict[str, str]]:
                 model_id = str(item.get("id") or item.get("model_id") or "")
                 if model_id:
                     break
-        if model_id:
-            candidates[provider_id] = {
-                "provider_id": provider_id,
-                "model_ref": model_ref(provider_id, model_id),
-                "model_id": model_id,
-                "display_name": str(endpoint.get("display_name") or endpoint.get("name") or model_id),
-            }
+        candidates[provider_id] = {
+            "provider_id": provider_id,
+            "model_ref": model_ref(provider_id, model_id) if model_id else "",
+            "model_id": model_id,
+            "display_name": str(endpoint.get("display_name") or endpoint.get("name") or model_id or provider_id),
+            **({"configuration_error": "configured custom endpoint has no model"} if not model_id else {}),
+        }
+
+    for provider_id in sorted(configured - set(candidates)):
+        candidates[provider_id] = {
+            "provider_id": provider_id,
+            "model_ref": "",
+            "model_id": "",
+            "display_name": provider_id,
+            "configuration_error": "configured provider has no discoverable Agent model",
+        }
 
     return sorted(candidates.values(), key=lambda item: item["provider_id"])
 
 
 def _classify_result(case: dict[str, Any]) -> str:
     if case.get("status") == "done" and case.get("answer_chars", 0) > 0:
+        if case.get("requires_tool_round_trip") and (
+            case.get("tool_calls", 0) < 1 or case.get("tool_results", 0) < 1
+        ):
+            return "unexpected_error"
         return "pass"
     text = " ".join(str(error) for error in case.get("errors") or [])
     if OUT_OF_CREDITS_RE.search(text):
@@ -314,12 +340,30 @@ def _classify_result(case: dict[str, Any]) -> str:
 
 
 @pytest.mark.skipif(not _enabled(), reason="set ROW_BOT_LIVE_PROVIDER_E2E=1 to run real provider calls")
-def test_live_configured_provider_matrix():
+def test_live_configured_provider_matrix(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "row-bot-data"))
     os.environ.pop("ROW_BOT_TEST_MODE", None)
     profile = _hydrate_live_provider_profile()
     import row_bot.agent as agent
+    from row_bot.tools import registry as tool_registry
 
     candidates = _discover_live_candidates()
+    default_tool_names = [tool.name for tool in tool_registry.get_enabled_tools()]
+    gmail_tool = tool_registry.get_tool("gmail")
+    if gmail_tool is not None:
+        # Bind the authenticated-only Gmail declarations without loading or
+        # calling a real mailbox. The prompt below calls row_bot_status only.
+        monkeypatch.setattr(gmail_tool, "has_credentials_file", lambda: True)
+        monkeypatch.setattr(gmail_tool, "is_authenticated", lambda: True)
+        monkeypatch.setattr(gmail_tool, "_build_api_resource", lambda: object())
+        monkeypatch.setattr(
+            gmail_tool,
+            "_get_selected_operations",
+            lambda: ["create_gmail_draft", "send_gmail_message"],
+        )
     report: dict[str, Any] = {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "profile": profile,
@@ -333,6 +377,23 @@ def test_live_configured_provider_matrix():
         model_ref_value = candidate["model_ref"]
         provider_report = dict(candidate)
         provider_report["cases"] = []
+        configuration_error = str(candidate.get("configuration_error") or "")
+        if configuration_error:
+            case = {
+                "label": "provider_discovery",
+                "status": "configuration_error",
+                "answer_chars": 0,
+                "errors": [configuration_error],
+                "tool_calls": 0,
+                "tool_results": 0,
+                "thinking_chars": 0,
+                "event_types": [],
+            }
+            case["classification"] = _classify_result(case)
+            provider_report["cases"].append(case)
+            unexpected.append(f"{provider_id}/{case['label']}: {case.get('errors')}")
+            report["providers"].append(provider_report)
+            continue
         for case in [
             _run_agent_case(
                 agent,
@@ -348,7 +409,44 @@ def test_live_configured_provider_matrix():
                 provider_id=provider_id,
                 prompt="Use row_bot_status with category tools, then answer with only the enabled and disabled tool counts.",
                 tools=["row_bot_status"],
-                label="tool_call",
+                label="status_tool_round_trip",
+                requires_tool_round_trip=True,
+            ),
+            _run_agent_case(
+                agent,
+                model_ref=model_ref_value,
+                provider_id=provider_id,
+                prompt=(
+                    "Use row_bot_status with category tools, then answer with only the enabled "
+                    "and disabled tool counts. Do not call goal_update."
+                ),
+                tools=["goal", "row_bot_status"],
+                label="goal_status_mixed_bundle",
+                requires_tool_round_trip=True,
+            ),
+            _run_agent_case(
+                agent,
+                model_ref=model_ref_value,
+                provider_id=provider_id,
+                prompt=(
+                    "Use row_bot_status with category tools, then answer with only the enabled "
+                    "and disabled tool counts. Do not create a draft or send email."
+                ),
+                tools=["gmail", "row_bot_status"],
+                label="gmail_status_schema_bundle",
+                requires_tool_round_trip=True,
+            ),
+            _run_agent_case(
+                agent,
+                model_ref=model_ref_value,
+                provider_id=provider_id,
+                prompt=(
+                    "Use row_bot_status with category tools, then answer with only the enabled "
+                    "and disabled tool counts. Do not use any mutating tool."
+                ),
+                tools=default_tool_names,
+                label="default_application_tool_bundle",
+                requires_tool_round_trip=True,
             ),
             _run_poisoned_case(agent, model_ref=model_ref_value, provider_id=provider_id),
         ]:

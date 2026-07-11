@@ -2835,6 +2835,36 @@ def _install_custom_tool_validation_repair(lc_tools: list, provider_id: str | No
             )
 
 
+def _apply_provider_tool_schema_compatibility(
+    lc_tools: list,
+    readiness,
+    *,
+    has_explicit_allowlist: bool,
+) -> list:
+    from row_bot.providers.models import TransportMode
+    from row_bot.providers.tool_schema import apply_tool_schema_compatibility
+
+    transport = getattr(readiness, "transport", TransportMode.OPENAI_CHAT)
+    explicit_names = {str(getattr(tool, "name", "") or "") for tool in lc_tools} if has_explicit_allowlist else set()
+    result = apply_tool_schema_compatibility(
+        lc_tools,
+        transport,
+        explicitly_requested_names=explicit_names,
+    )
+    if result.enforced and result.rejected_tool_names:
+        issues_by_name = {issue.tool_name: issue for issue in result.issues}
+        for tool_name in result.rejected_tool_names:
+            issue = issues_by_name[tool_name]
+            logger.warning(
+                "Excluded tool %s from %s binding: %s at %s",
+                tool_name,
+                getattr(transport, "value", str(transport)),
+                issue.detail,
+                issue.path,
+            )
+    return list(result.tools)
+
+
 def _normalize_tool_allowlist(
     tool_allowlist: list[str] | tuple[str, ...] | set[str] | None,
 ) -> tuple[str, ...] | None:
@@ -3008,6 +3038,11 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                         if t.name in destructive_names:
                             _wrap_with_interrupt_gate(t)
 
+            lc_tools = _apply_provider_tool_schema_compatibility(
+                lc_tools,
+                readiness,
+                has_explicit_allowlist=normalized_allowlist is not None,
+            )
             _install_custom_tool_validation_repair(lc_tools, readiness.provider_id)
 
             # Wrap every tool so exceptions are returned to the LLM as error
