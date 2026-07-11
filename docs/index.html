@@ -84,7 +84,10 @@
                 <a href="#new">What’s new</a>
                 <a href="features.html">Features</a>
                 <a href="architecture.html">Architecture</a>
+                <a href="#comparison">Compare</a>
                 <a href="#privacy">Privacy</a>
+                <a href="https://sydsachar.com/category/row-bot/" target="_blank" rel="noopener noreferrer">Blog</a>
+                <a href="contact.html">Contact</a>
                 <a href="https://github.com/siddsachar/row-bot" target="_blank" rel="noopener noreferrer">GitHub</a>
                 <a class="nav-download" href="https://github.com/siddsachar/row-bot/releases/download/v4.4.0/Row-Bot-4.4.0-Windows-x64.exe" data-os-primary data-os-label="short" data-download="windows">Download</a>
             </div>
@@ -100,7 +103,7 @@
                 <p class="hero-copy">Row-Bot brings agents, models, tools, memory, workflows, design, code, messaging, and voice into one desktop workspace. Run locally, connect hosted providers when you choose, and keep conversations, goals, projects, and durable memory on your machine.</p>
                 <div class="hero-actions">
                     <a class="button button--primary" href="https://github.com/siddsachar/row-bot/releases/download/v4.4.0/Row-Bot-4.4.0-Windows-x64.exe" data-os-primary data-download="windows">Download for Windows <small>· .exe</small></a>
-                    <a class="button button--secondary" href="#proof">See how it works</a>
+                    <a class="button button--secondary" href="#demos">See how it works</a>
                 </div>
                 <div class="platform-links" aria-label="Platform downloads">
                     <span data-platform-note>Recommended for this device. Other downloads:</span>
@@ -346,7 +349,34 @@
             </div>
         </section>
 
-        <section class="section" id="faq">
+        <section class="section" id="comparison">
+            <div class="shell">
+                <div class="section-head reveal">
+                    <div><p class="kicker">Compare operating models</p><h2>Local workbench or rented chat?</h2></div>
+                    <p>Row-Bot can use hosted models, but the application, durable records, orchestration, and control plane remain yours. Expand the comparison for the practical differences.</p>
+                </div>
+                <details class="comparison-disclosure reveal">
+                    <summary><span>Row-Bot compared with typical cloud-only AI chat</span><small>Open comparison</small></summary>
+                    <div class="comparison-table-wrap">
+                        <table class="comparison-table">
+                            <thead><tr><th>Capability</th><th>Typical cloud-only chat</th><th>Row-Bot</th></tr></thead>
+                            <tbody>
+                                <tr><td>Durable system of record</td><td>Provider-hosted account and conversation state</td><td>Local conversations, goals, profiles, memory, workflows, and project records</td></tr>
+                                <tr><td>Model choice</td><td>Models selected by the service</td><td>Local runtimes, hosted APIs, subscriptions, routers, and private compatible endpoints</td></tr>
+                                <tr><td>Tools and actions</td><td>Service-defined integrations and sandboxes</td><td>Built-in tools, MCP, Custom Tools, channels, and explicit approval boundaries</td></tr>
+                                <tr><td>Memory and knowledge</td><td>Opaque or service-managed memory</td><td>Auditable local graph memory, documents, semantic recall, and wiki export</td></tr>
+                                <tr><td>Background work</td><td>Usually tied to the provider session</td><td>Durable workflows, schedules, delegated agents, run history, and delivery policy</td></tr>
+                                <tr><td>Offline operation</td><td>Requires the hosted service</td><td>Local models and local tools can continue without a hosted provider</td></tr>
+                                <tr><td>Control and portability</td><td>Subject to service limits, retention, and product changes</td><td>Apache 2.0 application with local data and explicit external routes</td></tr>
+                            </tbody>
+                        </table>
+                        <p class="comparison-note">Hosted providers still receive the context required for requests you send to them. Capabilities vary by service; this comparison describes the operating model rather than every provider feature.</p>
+                    </div>
+                </details>
+            </div>
+        </section>
+
+        <section class="section section--quiet" id="faq">
             <div class="shell shell--narrow">
                 <div class="section-head reveal">
                     <div><p class="kicker">Before you install</p><h2>Practical answers.</h2></div>

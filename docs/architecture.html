@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Row-Bot - Architecture</title>
+    <script>document.documentElement.classList.add('js');</script>
+    <title>Row-Bot — Architecture</title>
     <meta name="description" content="Explore Row-Bot's local-first architecture diagrams for the core agent, context assembly, knowledge graph, workflows, channels, Designer Studio, Developer Studio, skills, safety, and self-evolution systems.">
     <link rel="canonical" href="https://row-bot.ai/architecture.html">
     <meta property="og:type" content="website">
@@ -320,36 +321,54 @@
             .nav-links .nav-dl { padding: 0.35rem 0.55rem; margin-left: 0.1rem; }
         }
     </style>
+    <link rel="stylesheet" href="site.css">
 </head>
-<body>
-    <nav>
-        <a href="index.html" class="nav-wordmark"><img src="row_bot_glyph_256.png" alt="" class="nav-glyph"> Row-Bot</a>
-        <div class="nav-links">
-            <a href="index.html#features">Features</a>
-            <a href="index.html#tools">Tools</a>
-            <a href="index.html#privacy">Privacy</a>
-            <a href="index.html#comparison">Compare</a>
-            <a href="https://github.com/siddsachar/row-bot" target="_blank">GitHub</a>
-            <a href="index.html#install" class="nav-dl">Install</a>
+<body class="architecture-page">
+    <div class="site-progress" aria-hidden="true"></div>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <nav class="site-nav" aria-label="Primary navigation">
+        <div class="site-nav__inner shell">
+            <a class="wordmark" href="index.html" aria-label="Row-Bot home">
+                <img src="row_bot_glyph_256.png" alt="">
+                <strong>Row-Bot</strong>
+                <small>formerly Thoth</small>
+            </a>
+            <button class="nav-hamburger" type="button" aria-controls="nav-menu" aria-expanded="false" aria-label="Open navigation"><span></span></button>
+            <div class="nav-menu" id="nav-menu">
+                <a href="index.html#new">What’s new</a>
+                <a href="features.html">Features</a>
+                <a href="architecture.html" aria-current="page">Architecture</a>
+                <a href="index.html#comparison">Compare</a>
+                <a href="index.html#privacy">Privacy</a>
+                <a href="https://sydsachar.com/category/row-bot/" target="_blank" rel="noopener noreferrer">Blog</a>
+                <a href="contact.html">Contact</a>
+                <a href="https://github.com/siddsachar/row-bot" target="_blank" rel="noopener noreferrer">GitHub</a>
+                <a class="nav-download" href="https://github.com/siddsachar/row-bot/releases/download/v4.4.0/Row-Bot-4.4.0-Windows-x64.exe" data-os-primary data-os-label="short" data-download="windows">Download</a>
+            </div>
         </div>
     </nav>
 
-    <main>
-        <section class="hero">
-            <img class="hero-glyph" src="row_bot_glyph_256.png" alt="">
-            <p class="eyebrow">Architecture</p>
-            <h1>How Row-Bot stays <em>local-first.</em></h1>
-            <p class="hero-copy">
-                These diagrams map the main systems behind Row-Bot: the agent orchestrator, context assembly,
-                memory graph, workflows, channels, Designer Studio, safety boundaries, and self-management loops.
-                The same principle runs through each layer: keep durable user data local, make external services opt-in,
-                and give the user clear control over actions.
-            </p>
-            <div class="hero-actions">
-                <a href="#diagrams" class="btn btn--primary">Explore diagrams</a>
-                <a href="ARCHITECTURE.md" class="btn btn--ghost">Read technical reference</a>
+    <main id="main">
+        <header class="page-hero page-hero--visual architecture-page-hero">
+            <div class="shell page-hero__grid">
+                <div class="page-hero__content">
+                    <a class="release-pill" href="index.html#architecture">Local-first system map · Row-Bot 4.4.0</a>
+                    <p class="eyebrow">Architecture</p>
+                    <h1>How Row-Bot stays <em>local-first.</em></h1>
+                    <p class="page-hero__copy">These diagrams map the main systems behind Row-Bot: the agent orchestrator, context assembly, memory graph, workflows, channels, Developer and Designer Studios, safety boundaries, and self-management loops. Durable state stays local; external services remain explicit and opt-in.</p>
+                    <div class="hero-actions">
+                        <a href="#diagrams" class="button button--primary">Explore diagrams</a>
+                        <a href="ARCHITECTURE.md" class="button button--secondary">Read technical reference</a>
+                    </div>
+                </div>
+                <div class="page-hero-art page-hero-art--glyph" aria-label="Row-Bot local-first core">
+                    <i class="page-hero-art__ring"></i>
+                    <i class="page-hero-art__ring page-hero-art__ring--inner"></i>
+                    <img src="row_bot_glyph_256.png" width="256" height="256" alt="">
+                </div>
             </div>
-        </section>
+        </header>
 
         <div class="section-divider"></div>
 
@@ -431,20 +450,30 @@
 
         <div class="section-divider"></div>
 
-        <section class="cta">
-            <div class="container--narrow">
+        <section class="architecture-cta">
+            <div class="shell shell--narrow reveal">
+                <p class="kicker">Go deeper</p>
                 <h2>Want the implementation detail?</h2>
                 <p>The written architecture reference covers modules, storage layout, provider routing, update flow, packaging, and system boundaries.</p>
-                <div class="hero-actions" style="justify-content:center">
-                    <a href="ARCHITECTURE.md" class="btn btn--primary">Open architecture reference</a>
-                    <a href="index.html" class="btn btn--ghost">Back to landing page</a>
+                <div class="final-actions">
+                    <a href="ARCHITECTURE.md" class="button button--primary">Open architecture reference</a>
+                    <a href="index.html#comparison" class="button button--secondary">Compare operating models</a>
                 </div>
             </div>
         </section>
     </main>
 
-    <footer>
-        <p>Row-Bot &middot; Architecture &middot; <a href="index.html">Home</a> &middot; <a href="https://github.com/siddsachar/row-bot" target="_blank">GitHub</a></p>
+    <footer class="site-footer">
+        <div class="shell footer-grid">
+            <span>Row-Bot · v4.4.0 · Apache 2.0</span>
+            <div class="footer-links">
+                <a href="features.html">Features</a>
+                <a href="architecture.html">Architecture</a>
+                <a href="contact.html">Contact</a>
+                <a href="https://sydsachar.com/category/row-bot/" target="_blank" rel="noopener noreferrer">Blog</a>
+                <a href="https://github.com/siddsachar/row-bot" target="_blank" rel="noopener noreferrer">GitHub</a>
+            </div>
+        </div>
     </footer>
 
     <a class="lightbox" id="core-agent" href="#diagrams"><figure class="lightbox-figure"><img src="Core_Agent_Arch.png" alt="Row-Bot core agent architecture diagram"><figcaption><span>Core Agent Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
@@ -457,5 +486,6 @@
     <a class="lightbox" id="skills" href="#diagrams"><figure class="lightbox-figure"><img src="Skills_System_Arch.png" alt="Row-Bot skills system architecture diagram"><figcaption><span>Skills System Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
     <a class="lightbox" id="safety" href="#diagrams"><figure class="lightbox-figure"><img src="Safety_Privacy_Arch.png" alt="Row-Bot safety privacy and control architecture diagram"><figcaption><span>Safety, Privacy &amp; Control Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
     <a class="lightbox" id="self-evolution" href="#diagrams"><figure class="lightbox-figure"><img src="Self_Evolution_Arch.png" alt="Row-Bot self-evolution architecture diagram"><figcaption><span>Self-Evolution Architecture</span><span class="lightbox-close">Close</span></figcaption></figure></a>
+    <script src="site.js" defer></script>
 </body>
 </html>

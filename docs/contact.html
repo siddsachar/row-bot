@@ -3,13 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Contact Row-Bot</title>
+    <script>document.documentElement.classList.add('js');</script>
+    <title>Contact — Row-Bot</title>
     <meta name="description" content="Contact the Row-Bot project for feedback, questions, partnerships, and security reports.">
     <link rel="canonical" href="https://row-bot.ai/contact.html">
     <link rel="icon" href="favicon.ico">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="site.js" defer></script>
     <script>
         window.ROW_BOT_GA_MEASUREMENT_ID = 'G-0YYKPX5M5E';
         window.ROW_BOT_GOOGLE_ADS_ID = 'AW-847204616';
@@ -227,26 +229,53 @@
             .contact-grid { grid-template-columns: 1fr; }
         }
     </style>
+    <link rel="stylesheet" href="site.css">
 </head>
-<body>
-    <nav>
-        <a href="./" class="nav-wordmark"><img src="row_bot_glyph_256.png" alt="" class="nav-glyph"> Row-Bot</a>
-        <div class="nav-links">
-            <a href="./#features">Features</a>
-            <a href="./#tools">Tools</a>
-            <a href="https://github.com/siddsachar/row-bot" target="_blank">GitHub</a>
+<body class="contact-page">
+    <div class="site-progress" aria-hidden="true"></div>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <nav class="site-nav" aria-label="Primary navigation">
+        <div class="site-nav__inner shell">
+            <a class="wordmark" href="index.html" aria-label="Row-Bot home">
+                <img src="row_bot_glyph_256.png" alt="">
+                <strong>Row-Bot</strong>
+                <small>formerly Thoth</small>
+            </a>
+            <button class="nav-hamburger" type="button" aria-controls="nav-menu" aria-expanded="false" aria-label="Open navigation"><span></span></button>
+            <div class="nav-menu" id="nav-menu">
+                <a href="index.html#new">What’s new</a>
+                <a href="features.html">Features</a>
+                <a href="architecture.html">Architecture</a>
+                <a href="index.html#comparison">Compare</a>
+                <a href="index.html#privacy">Privacy</a>
+                <a href="https://sydsachar.com/category/row-bot/" target="_blank" rel="noopener noreferrer">Blog</a>
+                <a href="contact.html" aria-current="page">Contact</a>
+                <a href="https://github.com/siddsachar/row-bot" target="_blank" rel="noopener noreferrer">GitHub</a>
+                <a class="nav-download" href="https://github.com/siddsachar/row-bot/releases/download/v4.4.0/Row-Bot-4.4.0-Windows-x64.exe" data-os-primary data-os-label="short" data-download="windows">Download</a>
+            </div>
         </div>
     </nav>
 
-    <main>
-        <p class="eyebrow">Contact</p>
-        <h1>Tell us what you are building with Row-Bot.</h1>
-        <p class="intro">
-            Questions, feedback, partnership notes, release issues, and thoughtful bug reports are welcome.
-            Security reports should go directly by email.
-        </p>
+    <main id="main">
+        <header class="page-hero page-hero--visual contact-page-hero">
+            <div class="shell page-hero__grid">
+                <div class="page-hero__content">
+                    <a class="release-pill" href="https://github.com/siddsachar/row-bot" target="_blank" rel="noopener noreferrer">Open source · community built</a>
+                    <p class="eyebrow">Contact</p>
+                    <h1>Tell us what you are <em>building.</em></h1>
+                    <p class="page-hero__copy">Questions, feedback, partnership notes, release issues, and thoughtful bug reports are welcome. Security reports should go directly by email.</p>
+                </div>
+                <div class="page-hero-art page-hero-art--glyph" aria-label="Row-Bot project mark">
+                    <i class="page-hero-art__ring"></i>
+                    <i class="page-hero-art__ring page-hero-art__ring--inner"></i>
+                    <img src="row_bot_glyph_256.png" width="256" height="256" alt="">
+                </div>
+            </div>
+        </header>
 
-        <div class="contact-grid">
+        <section class="contact-section">
+        <div class="shell contact-grid">
             <form action="https://formspree.io/f/mwvagdzv" method="POST" data-contact-form>
                 <div class="form-status" role="status" aria-live="polite" data-contact-status></div>
                 <input type="hidden" name="_subject" value="New Row-Bot website contact">
@@ -270,23 +299,33 @@
                 <label for="message">Message</label>
                 <textarea id="message" name="message" required></textarea>
 
-                <button class="btn" type="submit" data-contact-submit>Send Message</button>
+                <button class="button button--primary" type="submit" data-contact-submit>Send Message</button>
             </form>
 
             <aside class="side-panel">
                 <h2>Project channels</h2>
                 <p>Use GitHub for public questions, feature ideas, and reproducible bugs.</p>
                 <div class="link-stack">
-                    <a class="btn btn--ghost" href="https://github.com/siddsachar/row-bot/discussions" target="_blank" data-track="contact_discussions">GitHub Discussions</a>
-                    <a class="btn btn--ghost" href="https://github.com/siddsachar/row-bot/issues/new/choose" target="_blank" data-track="contact_issue">Open an Issue</a>
-                    <a class="btn btn--ghost" href="mailto:siddsachar@gmail.com?subject=Row-Bot%20security%20report" data-track="contact_security">Security Email</a>
+                    <a class="button button--secondary" href="https://github.com/siddsachar/row-bot/discussions" target="_blank" rel="noopener noreferrer" data-track="contact_discussions">GitHub Discussions</a>
+                    <a class="button button--secondary" href="https://github.com/siddsachar/row-bot/issues/new/choose" target="_blank" rel="noopener noreferrer" data-track="contact_issue">Open an Issue</a>
+                    <a class="button button--secondary" href="mailto:siddsachar@gmail.com?subject=Row-Bot%20security%20report" data-track="contact_security">Security Email</a>
                 </div>
             </aside>
         </div>
+        </section>
     </main>
 
-    <footer>
-        Row-Bot &middot; <a href="./">Home</a> &middot; <a href="https://github.com/siddsachar/row-bot" target="_blank">GitHub</a>
+    <footer class="site-footer">
+        <div class="shell footer-grid">
+            <span>Row-Bot · v4.4.0 · Apache 2.0</span>
+            <div class="footer-links">
+                <a href="features.html">Features</a>
+                <a href="architecture.html">Architecture</a>
+                <a href="contact.html">Contact</a>
+                <a href="https://sydsachar.com/category/row-bot/" target="_blank" rel="noopener noreferrer">Blog</a>
+                <a href="https://github.com/siddsachar/row-bot" target="_blank" rel="noopener noreferrer">GitHub</a>
+            </div>
+        </div>
     </footer>
 
     <script>
