@@ -67,6 +67,12 @@ for root files, runtime scripts, payload directories, and asset directories.
 Packaging tests in `tests/test_linux_support.py` and `tests/test_suite.py`
 assert those contracts.
 
+Because `src/row_bot` is recursive, the 4.4.0 mobile companion, cancellation
+helpers, provider schema/cancellable transports, shared channel streaming, and
+durable channel notification modules require no per-file installer entries.
+`tests/test_linux_support.py` keeps `mobile` in the required runtime package
+inventory so a future payload refactor cannot omit it silently.
+
 ## Local Cleanup Candidates
 
 These paths are generated local state and should stay untracked:

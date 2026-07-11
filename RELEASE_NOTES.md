@@ -2,6 +2,230 @@
 
 ---
 
+## v4.4.0 - Mobile Companion, Channel Streaming & Runtime Reliability
+
+This release builds on v4.3.0 with a mobile-access, messaging, provider, and
+runtime-reliability pass. It adds a secure browser-first mobile companion,
+brings live agent streaming and interactive approvals to external channels,
+surfaces child-agent approvals and completion notices in parent conversations,
+makes Stop cancel stalled provider streams and subprocess-backed tools, restores
+automatic model discovery with last-known-good catalog protection, hardens
+Gemini tool-schema compatibility and Google Calendar concurrency, and expands
+the recommended MCP catalog with Xquik.
+
+### Mobile Web Companion
+
+- **Phone-native shell** - adds a full-screen mobile interface with Chat,
+  Activity, Workflows, Knowledge, and Settings navigation instead of shrinking
+  the desktop drawers and studio chrome onto a phone display.
+- **Mobile chat workflow** - adds conversation list/detail views, new-thread
+  creation, attachments, skills, profile and model controls, generation status,
+  and a persistent Stop control using the same durable threads as desktop.
+- **Activity and approvals** - shows active chat generations, running workflows,
+  recent workflow runs, tool approvals, and workflow approvals in one phone-safe
+  surface with approve, deny, and stop actions.
+- **Mobile workflow editor** - supports simple prompt workflows, schedules,
+  profiles, model overrides, approval policy, persistent threads, channel
+  delivery, enablement, and metadata while preserving advanced graph steps for
+  desktop editing.
+- **Mobile-safe settings** - adds stacked provider status and credential
+  summaries, local skill enable/pin controls, and installed plugin enablement.
+  Skills Hub and Plugin Marketplace installation/configuration remain desktop
+  actions in Mobile V1.
+- **Installable web app** - adds a PWA manifest, service worker, install
+  metadata, and offline page while deliberately excluding authenticated and
+  private Row-Bot surfaces from service-worker caching.
+- **Mobile Access settings** - adds route discovery and phone pairing under
+  Settings -> System for local-network access, optional Tailscale direct or
+  Serve routes, an existing ngrok tunnel, and advanced custom origins.
+- **QR pairing and device control** - creates short-lived single-use QR links,
+  stores session tokens in HttpOnly cookies, lists paired phones and access
+  events, and lets an authorized user revoke a phone immediately.
+- **Remote access gate** - protects remote HTTP and WebSocket traffic while
+  keeping direct loopback desktop access open, rejecting forwarded-header
+  localhost bypasses, and redirecting unpaired remote clients to pairing.
+- **Local-first auth storage** - stores hashed pairing and device secrets,
+  device scopes, revocation state, failed-attempt lockouts, and display-safe
+  audit events in a dedicated local SQLite database.
+
+### Channel Streaming, Approvals & Delivery
+
+- **Shared streaming engine** - adds deterministic token and tool-event
+  delivery with coalesced edits, typing keepalives, bounded previews,
+  rate-limit-aware retries, platform-safe splitting, preview cleanup, and final
+  send fallback when an edit cannot be completed.
+- **Discord streaming** - streams through edited messages, keeps typing active,
+  splits long final answers, retries with a fresh final message when necessary,
+  and presents interactive approval buttons.
+- **Slack native streaming** - uses Slack's native stream APIs when available
+  and appropriate, falls back to edited messages when they are not, and adds
+  Block Kit approval actions plus bounded retry-after handling.
+- **Telegram draft streaming** - uses native message drafts for supported
+  private chats, falls back to edit streaming elsewhere, respects UTF-16 message
+  limits, and adds inline approve/deny controls.
+- **WhatsApp and SMS behavior** - adds WhatsApp edit streaming, typing, split
+  finals, and approval resume. SMS intentionally remains final-text-only with
+  safe chunking and explicit YES/NO approval handling.
+- **Goal Mode and plugin channels** - routes normal turns, Goal Mode turns,
+  interrupted/resumed turns, and plugin-owned channel turns through the shared
+  delivery path without duplicate final responses.
+- **Checkpoint repair** - persists delivered assistant answers when a channel
+  checkpoint contains only the human turn, without duplicating an assistant
+  message already written by the agent graph.
+- **Durable terminal notices** - delivers compact, once-only child-agent and
+  Goal Mode completion/failure notices, retains failed notices for retry, and
+  reconciles them when configured channels start again.
+
+### Child Agents, Approvals & Generation Control
+
+- **Parent-thread approval surfacing** - appends durable, deduplicated child
+  agent approval requests to the parent conversation so background work cannot
+  wait invisibly.
+- **Clear approval reasons** - prefers the model-supplied reason in approval
+  cards, redacts and bounds display text, and retains the raw action payload for
+  the actual safety decision.
+- **Shell and Developer rationale** - adds an explicit approval-reason field to
+  shell and Developer commands so requested command execution can explain why
+  it is needed.
+- **Child-agent lifecycle messages** - preserves direct and delegated run
+  metadata, completion summaries, queued-turn ordering, checkpoint reloads, and
+  once-only rendering across parent and child conversations.
+- **Shared cancellation scope** - links an active generation to provider
+  requests, subprocesses, tool waits, and its spawned child runs so Stop has one
+  consistent cancellation path.
+- **Stalled provider cancellation** - closes in-flight direct OpenAI,
+  Anthropic, xAI, MiniMax, OpenRouter, OpenCode, subscription, and compatible
+  transport responses so a blocked network stream no longer leaves a thread
+  stuck in Thinking.
+- **Tool and process cancellation** - extends Stop to shell commands, Developer
+  processes, MCP probes and calls, browser operations, voice turns, and other
+  subprocess-backed work, with a clear stopped result where appropriate.
+- **Scoped child cancellation** - stops only child runs linked to the cancelled
+  generation and wakes/detaches queued generation state without terminating
+  unrelated agent work.
+
+### Providers, Models & Tool Schemas
+
+- **Automatic catalog discovery restored** - returns Codex and other registered
+  providers to targeted and scheduled model refreshes, including discovery of
+  newly available subscription models.
+- **Last-known-good catalogs** - preserves provider-specific cached rows when a
+  refresh is empty, fails, or loses a later pagination page, and replaces only
+  rows for a provider whose refresh completed successfully.
+- **Visible catalog provenance** - reports live, cached, and fallback outcomes
+  in provider settings so a retained catalog is distinguishable from a fresh
+  provider response.
+- **Provider-scoped schema policy** - adds a compatibility inspector for tool
+  input schemas without rewriting the tools used by unaffected transports.
+- **Gemini array compatibility** - checks the effective Google adapter output
+  for typed array `items`, filters optional incompatible tools while preserving
+  order, and fails clearly when an explicitly requested tool is incompatible.
+- **Built-in schema repairs** - gives Gmail recipient arrays and Goal
+  evidence/blocker arrays concrete item types while continuing to normalize
+  legacy scalar or structured inputs safely.
+- **Provider matrix coverage** - expands deterministic and opt-in live-provider
+  policy checks for catalog ownership, pagination, routing, current-model
+  discovery, media capability, and tool-schema conversion.
+
+### Google Calendar & MCP
+
+- **Request-scoped Calendar clients** - creates an independent Google Calendar
+  service for each operation so concurrent tool calls do not share an unsafe
+  client instance.
+- **Safe concurrent OAuth refresh** - makes Calendar token refresh single-flight
+  and atomic when several operations discover an expired token together.
+- **Serialized mutations and bulk create** - orders same-turn writes and adds a
+  native multi-event create operation that preserves result order and reports
+  partial failures clearly.
+- **Retry and reconciliation** - retries transient SSL and backend failures with
+  fresh services, returns structured permanent errors, and reconciles ambiguous
+  timeouts so a backend-committed event is not created twice.
+- **Typed Calendar operations** - preserves search, create, update, move, and
+  delete while exposing typed attendee, conference, timezone, notification,
+  calendar, and bulk-event inputs.
+- **Xquik MCP catalog entry** - adds Xquik for X/Twitter data access through
+  streamable HTTP with API-key header setup, capability metadata, and explicit
+  high-risk approval guidance for its generic executor.
+- **MCP configuration integrity** - preserves marketplace metadata when an
+  installed server is edited, refreshes cached agent tools after MCP changes,
+  normalizes interrupted probes, and avoids repeatedly restarting failed
+  servers until an explicit refresh.
+- **Generated reference refresh** - updates public generated references for the
+  expanded channel, mobile, MCP, provider, approval, settings, storage, and tool
+  inventories.
+
+### UI Fixes, Tests & Release Validation
+
+- **Active-thread spinner restored** - returns the sidebar generation spinner
+  to the active thread and limits it to genuinely streaming state while
+  preserving pinned-thread and recency ordering.
+- **Mobile test coverage** - adds deterministic subsystem and integration tests
+  for pairing, cookies, access gating, remote routes, PWA privacy, Tailscale,
+  chat, workflows, settings, and mobile-shell routing.
+- **Channel test coverage** - adds transport and shared-engine tests for edit
+  cadence, native fallback, typing, rate limits, overflow, message splitting,
+  approvals, checkpoint persistence, Goal Mode, terminal notifications, and
+  plugin-channel delivery.
+- **Cancellation test coverage** - adds focused tests for provider HTTP
+  cancellation, subprocess termination, generation Stop, shell, browser, MCP,
+  Developer, voice, and generation-linked child agents.
+- **Provider and tool coverage** - adds model-catalog failure/pagination tests,
+  Gemini schema contracts, Gmail and Goal schemas, Xquik configuration, and
+  Google Calendar concurrency, retry, reconciliation, and bulk-create tests.
+- **Run and approval regressions** - expands coverage for queued control
+  messages, child-agent lifecycle cards, approval display safety, thread titles,
+  tool filtering, and active-run rendering.
+
+### Breaking Changes And Caveats
+
+- Mobile is a companion to a running Row-Bot host, not a separate cloud-hosted
+  service. The desktop host must remain running and reachable through the
+  selected local network, Tailscale, ngrok, or custom route.
+- Remote routes are pairing-gated, but exposing Row-Bot through a public tunnel
+  still makes the pairing endpoint internet-reachable. Keep tunnel URLs and
+  short-lived pairing links private, review access events, and revoke devices
+  that are no longer trusted.
+- Mobile V1 does not expose Developer Studio, Designer Studio, Skills Hub
+  install/create flows, Plugin Marketplace install/configure/update flows, or
+  every advanced workflow graph control. Those remain desktop-only.
+- Channel streaming depends on platform capabilities and configuration. Slack
+  and Telegram fall back to edit streaming when native streaming is unavailable;
+  SMS remains final-text-only by design, and long messages may arrive in parts.
+- Gemini now filters optional tools whose effective schemas contain untyped
+  arrays. If an incompatible tool was explicitly selected, agent creation fails
+  with a schema error instead of sending a request Gemini will reject.
+- Xquik's generic executor remains classified high risk. Review its requested
+  action and metered/private-data implications before approving it.
+- Windows signing, macOS notarization, clean-machine artifact smoke tests,
+  previous-version updater checks, and real provider/channel/MCP validation
+  remain manual release gates after CI artifacts are built.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `src/row_bot/mobile/*`, `src/row_bot/ui/mobile*.py`, `src/row_bot/ui/head_html.py` | Adds mobile authentication/storage/routes, access gating, PWA metadata, phone-native chat/activity/workflow/settings surfaces, and mobile layout behavior. |
+| `src/row_bot/app.py`, `src/row_bot/ui/settings.py`, `src/row_bot/ui/chat*.py`, `src/row_bot/ui/state.py` | Routes paired phones into the mobile shell, adds Mobile Access settings, and integrates shared mobile chat and generation controls. |
+| `src/row_bot/channels/streaming.py`, `src/row_bot/channels/thread_notifications.py` | Adds the shared streaming engine and durable child-agent/Goal Mode channel notification delivery. |
+| `src/row_bot/channels/discord_channel.py`, `slack.py`, `telegram.py`, `whatsapp.py`, `sms.py` | Adds platform-aware live delivery, approvals, splitting, fallback, checkpoint persistence, and final-text-only SMS behavior. |
+| `src/row_bot/plugins/channel_runtime.py`, `src/row_bot/channels/runtime.py` | Integrates plugin-owned channels and Goal Mode with shared streaming, resume, and terminal-notification behavior. |
+| `src/row_bot/agent_run_messages.py`, `approval_messages.py`, `agent_runner.py`, `agent_runs.py`, `tasks.py` | Adds durable parent/child lifecycle and approval messages, display-safe approval reasons, source auditing, and terminal notice state. |
+| `src/row_bot/cancellation.py`, `process_cancellation.py`, `src/row_bot/providers/transports/*cancellable*.py` | Adds generation-scoped HTTP and subprocess cancellation and transport adapters for stalled direct-provider streams. |
+| `src/row_bot/providers/runtime.py`, `src/row_bot/tools/shell_tool.py`, `browser_tool.py`, `src/row_bot/developer/runtime.py`, `src/row_bot/mcp_client/runtime.py` | Propagates Stop through providers, shell, browser, Developer, and MCP operations. |
+| `src/row_bot/providers/model_catalog_cache.py`, `src/row_bot/models.py`, `src/row_bot/providers/codex.py`, `src/row_bot/ui/provider_settings.py` | Restores automatic model discovery, protects last-known-good provider rows, and surfaces live/cached/fallback catalog state. |
+| `src/row_bot/providers/tool_schema.py`, `src/row_bot/agent.py`, `src/row_bot/tools/gmail_tool.py`, `goal_tool.py` | Adds provider-scoped schema inspection, Gemini compatibility filtering, and typed built-in array schemas. |
+| `src/row_bot/tools/calendar_tool.py` | Adds request-scoped Calendar clients, safe OAuth refresh, serialized writes, bulk create, retries, reconciliation, and typed operation contracts. |
+| `src/row_bot/mcp_client/recommended_servers.json`, `config.py`, `conflicts.py`, `runtime.py`, `src/row_bot/ui/mcp_settings.py` | Adds and hardens Xquik marketplace integration, metadata preservation, runtime cache invalidation, and interrupted-probe handling. |
+| `src/row_bot/ui/sidebar.py`, `src/row_bot/threads.py`, `src/row_bot/ui/render.py`, `streaming.py` | Restores active-thread activity feedback and hardens titles, run rendering, approvals, and generated response persistence. |
+| `README.md`, `docs/ARCHITECTURE.md`, `docs/RELEASING.md`, `docs/SOURCE_LAYOUT.md`, `installer/README.md` | Updates user-facing capabilities, mobile setup/security, architecture ownership, release workflow, packaging coverage, and 4.4.0 installer examples. |
+| `docs-site/docs/*`, `scripts/docs/*` | Refreshes user-guide and generated reference content for approvals, channels, MCP, providers, settings, storage, and tools. |
+| `src/row_bot/version.py`, `installer/row_bot_setup.iss`, `installer/install_deps.bat`, `installer/Row-Bot.app/Contents/Info.plist`, `.github/workflows/*` | Bumps 4.4.0 version sources, installer copy, workflow defaults, macOS bundle metadata, and the docs CI Python baseline. |
+| `scripts/cut_release.py`, `.github/ISSUE_TEMPLATE/bug_report.yml`, `tests/test_brand_constants.py`, `tests/test_linux_support.py` | Extends release automation and contracts for installer copy, user-agent versions, recursive mobile payload coverage, and the 4.4.0 bug-report placeholder. |
+| `tests/subsystem/mobile/*`, `tests/integration/mobile/*` | Adds deterministic mobile pairing, security, PWA, route, shell, chat, workflow, and settings coverage. |
+| `tests/subsystem/channels/*`, `tests/subsystem/providers/*`, `tests/subsystem/tools/*`, `tests/test_*.py` | Adds focused channel streaming, approval, cancellation, provider catalog/schema, MCP, Calendar, thread, and run-state regression coverage. |
+
+---
+
 ## v4.3.0 - Plugin System v2, Requesty, Prompt Cache & Release Hardening
 
 This release builds on v4.2.0 with a broad extension, provider, workflow, and

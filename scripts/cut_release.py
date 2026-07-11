@@ -53,6 +53,11 @@ def main() -> None:
         r'; Row-Bot v[^\r\n]+Inno Setup Script',
         f'; Row-Bot v{version} - Inno Setup Script',
     )
+    replace_at_least_once(
+        ROOT / "installer" / "install_deps.bat",
+        r"Row-Bot v\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?",
+        f"Row-Bot v{version}",
+    )
     replace_once(
         ROOT / ".github" / "workflows" / "release.yml",
         r'default: "\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?"',
@@ -72,6 +77,21 @@ def main() -> None:
         ROOT / ".github" / "ISSUE_TEMPLATE" / "bug_report.yml",
         r'placeholder: v\d+\.\d+\.\d+',
         f'placeholder: v{version}',
+    )
+    replace_once(
+        ROOT / "tests" / "test_brand_constants.py",
+        r'assert __version__ == "[^"]+"',
+        f'assert __version__ == "{version}"',
+    )
+    replace_once(
+        ROOT / "tests" / "test_brand_constants.py",
+        r'assert brand\.APP_USER_AGENT == "Row-Bot/[^"]+"',
+        f'assert brand.APP_USER_AGENT == "Row-Bot/{version}"',
+    )
+    replace_once(
+        ROOT / "tests" / "test_brand_constants.py",
+        r'assert brand\.UPDATER_USER_AGENT == "Row-Bot-Updater/[^"]+"',
+        f'assert brand.UPDATER_USER_AGENT == "Row-Bot-Updater/{version}"',
     )
 
     print(f"Prepared release version {version}")

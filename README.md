@@ -21,8 +21,8 @@ files, repos, workflows, and channels you choose.
 It combines chat, durable memory, tool use, Agent Profiles, Goal Mode,
 child-agent delegation, profile-first workflows, Developer Studio, Designer
 Studio, Smart Skills, Skills Hub, Custom Tools, Plugin System v2, messaging
-channels, realtime voice, and provider-aware model routing. Durable app data
-stays local by default.
+channels, a secure mobile web companion, realtime voice, and provider-aware
+model routing. Durable app data stays local by default.
 
 For larger tasks, Row-Bot can keep a visible goal, run the thread through a
 focused Agent Profile, and delegate scoped child agents for research, review,
@@ -63,16 +63,16 @@ Download the latest installer from [GitHub Releases](https://github.com/siddsach
 
 | Area | Details |
 |------|---------|
-| Agent orchestration | LangGraph ReAct agent, Goal Mode, Agent Profiles, Profile Library, child-agent delegation, durable child-agent runs, profile/tool allowlists, agent status and wait tools, promoted Agent-run workflows, streaming activity, thinking bubbles, smart context trimming, and per-thread, per-workflow, per-profile, and per-Developer model overrides. |
-| Models and providers | Provider-qualified model selection, readiness routing, chat-only fallback for non-tool models, chat/agent/vision/image/video capability labels, custom endpoint profiles and probes, live Atlas Cloud, MiniMax, and Requesty discovery, xAI Grok OAuth, ChatGPT / Codex and Claude Subscription providers, OpenCode providers, local and hosted model catalogs, prompt-cache diagnostics, and background model cache. |
+| Agent orchestration | LangGraph ReAct agent, Goal Mode, Agent Profiles, Profile Library, child-agent delegation, durable child-agent runs and parent-thread approvals, profile/tool allowlists, agent status and wait tools, promoted Agent-run workflows, generation-scoped cancellation, streaming activity, thinking bubbles, smart context trimming, and per-thread, per-workflow, per-profile, and per-Developer model overrides. |
+| Models and providers | Provider-qualified model selection, readiness routing, chat-only fallback for non-tool models, chat/agent/vision/image/video capability labels, custom endpoint profiles and probes, automatic live catalog discovery with last-known-good preservation, xAI Grok OAuth, ChatGPT / Codex and Claude Subscription providers, OpenCode providers, provider-scoped tool-schema compatibility, prompt-cache diagnostics, and background model cache. |
 | Memory and knowledge | Personal knowledge graph, 10 entity types, 67 typed relations, bounded semantic/lexical/graph recall, audit and review states, recall traces, graph visualization, Obsidian-compatible wiki export, document extraction with source provenance, Dream Cycle refinement, duplicate merging, stale-confidence decay, relationship inference, self-knowledge, insights, and conversation search. |
 | Tools | 30+ core tool modules for web search, DuckDuckGo, Wikipedia, arXiv, YouTube transcripts, URL reading, documents, wiki vault, Gmail, Google Calendar, filesystem, shell, browser automation, workflows, Goal Mode, child-agent delegation, tracker, channels, X, image generation/editing, video generation, MCP, Developer Studio, Designer Studio, Custom Tool Builder, status, calculator, Wolfram Alpha, weather, vision, memory, system info, and charts. File tools read PDF, CSV, Excel, JSON, JSONL, TSV, and image files, with schema, stats, previews, and PDF export where supported. |
 | Developer Studio | Local Git workspace linking and cloning, code threads, per-thread and child-agent worktrees, repo inspector, file tree, diffs, todos, tests, branch, commit, push and PR prep, approval modes, and optional Docker Sandbox with a shadow workspace and explicit import back into the real repo. |
 | Designer Studio | Decks, documents, landing pages, app mockups, and storyboards with a sandboxed interactive runtime, templates, brand controls, critique and repair, AI image and video generation, chart insertion, Mermaid and Plotly rendering, shareable HTML, and export to PDF, HTML, PNG, and PPTX. |
 | Workflows | Scheduled runs, webhook triggers, task-completion triggers, step pipelines, conditions, approvals, subtasks, notification-only runs, concurrency groups, delivery defaults, profile-first workflow agents, promoted Agent-run workflows, per-workflow model/tool/skill/profile overrides, safety modes, run status, run history, upcoming runs, and a Workflow Console. |
 | Controlled self-evolution | Structured self-reflection, bounded change proposals, reviewable execution boundaries, persistence, Dream Cycle and memory integration, and Command Center/status visibility for improvement work that stays explicit and auditable. |
-| Channels and voice | Telegram, WhatsApp, Discord, Slack, SMS, and plugin-owned channels with streaming, reactions, media intake, voice transcription, document extraction, approval routing, Goal Mode context, health checks, auto-generated send/photo/document tools, and optional tunnel support. Realtime voice adds provider-backed voice sessions, action handling, speech/cue policy, and local faster-whisper STT plus Kokoro TTS options. |
-| Platform and app | Native desktop app, setup wizard, tray integration on Windows and macOS, native macOS tray host, desktop notifications, local browser-first Linux launch, optional Linux native window/tray mode, faster transcript and Settings surfaces, Agent drawer, Goal UI, Profile Library, Home status bar for models, OAuth, MCP, plugins, documents, workflows, Buddy, logging, disk, task DB recovery, docs capture hooks, and verified auto-updates. |
+| Channels and voice | Telegram, WhatsApp, Discord, Slack, SMS, and plugin-owned channels with platform-aware live streaming, typing and edit fallbacks, interactive approvals, durable child-agent and Goal Mode notices, media intake, voice transcription, document extraction, health checks, auto-generated send/photo/document tools, and optional tunnel support. SMS remains final-text-only. Realtime voice adds provider-backed voice sessions, action handling, speech/cue policy, and local faster-whisper STT plus Kokoro TTS options. |
+| Platform and app | Native desktop app plus a secure browser-first mobile companion for chat, Activity, workflows, Knowledge, and phone-safe settings; QR pairing over local network, Tailscale, ngrok, or a custom route; installable PWA support; tray integration on Windows and macOS; native macOS tray host; local browser-first Linux launch; optional Linux native window/tray mode; Home status surfaces; recovery tools; and verified auto-updates. |
 | Extensibility | Smart Skills, pinned skills, slash commands, Skills Hub browsing/import/search, Plugin System v2 for native tools, MCP-backed tools, bundled skills, and channels, sandboxed Plugin Center and marketplace, bundled skills and tool guides, Agent Profiles, child-agent tools, Goal Mode tools, external MCP clients over stdio, Streamable HTTP, and SSE, Custom Tools from repos or folders, hardened Custom Tool Builder setup, Claude Code Delegation through an approval-gated CLI worker, migration from selected Hermes/OpenClaw data, setup center, identity settings, and stability diagnostics. |
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full subsystem reference.
@@ -108,7 +108,7 @@ curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/i
 To install a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash -s -- 4.3.0
+curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash -s -- 4.4.0
 ```
 
 The installer downloads the release tarball, verifies its SHA256 from the GitHub release manifest, installs under `~/.local/share/row-bot`, creates `~/.local/bin/row-bot`, and stores user data in `~/.row-bot`. The default Linux build opens in your system browser. Native window and tray support are available when the required GTK, Qt, and AppIndicator libraries are installed.
@@ -153,6 +153,15 @@ progress and blockers stay visible, choose an Agent Profile for the role you
 want, and delegate child agents when a subtask can run separately under tighter
 tool and approval boundaries.
 
+To use the same running Row-Bot from a phone, open
+`Settings -> System -> Mobile Access` on desktop and create a short-lived
+pairing QR for a reachable local-network, Tailscale, ngrok, or custom route.
+The phone companion shares your local threads and workflows, provides Chat,
+Activity, Knowledge, and phone-safe Settings surfaces, and stores its session
+in a revocable HttpOnly cookie. The desktop host must remain running. Skills
+Hub, Plugin Marketplace setup, Developer Studio, Designer Studio, and advanced
+workflow graphs remain desktop-only in Mobile V1.
+
 Common first prompts:
 
 - `Remember that my mom's birthday is March 15`
@@ -183,7 +192,10 @@ belongs on an image or video surface, should run chat-only, or needs a larger
 context window or different endpoint profile. Live catalogs such as Atlas Cloud,
 MiniMax, and Requesty refresh through the same provider path, xAI API-key
 catalogs merge the available xAI model endpoints, and media-generation rows are
-filtered out of chat, agent, and vision model surfaces.
+filtered out of chat, agent, and vision model surfaces. Automatic targeted and
+scheduled refreshes preserve each provider's last-known-good rows when a fetch
+is empty, fails, or stops part-way through pagination; Settings labels live,
+cached, and fallback catalog outcomes.
 
 | Service | Key or setup | Used for |
 |---------|--------------|----------|
@@ -207,8 +219,10 @@ filtered out of chat, agent, and vision model surfaces.
 | Slack | `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` | Slack DM messaging through Socket Mode. |
 | Twilio | `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` | SMS. |
 | X | `X_CLIENT_ID` / `X_CLIENT_SECRET` | X API v2 OAuth 2.0 PKCE for search, timeline, mentions, posting, replies, quotes, likes, reposts, bookmarks, and deletes. |
+| Xquik MCP | Xquik `x-api-key` header in MCP settings | Recommended remote MCP option for X/Twitter search, extraction, monitoring, and connected-account operations. Its generic executor is high risk and remains approval-gated. |
+| Tailscale | Optional local Tailscale install | Private direct or Serve access for the mobile companion without making Tailscale a Row-Bot dependency. |
 | ngrok | `NGROK_AUTHTOKEN` | Tunnels for inbound webhooks. |
-| Gmail and Google Calendar | Google Cloud OAuth `credentials.json` | Email search/read/draft/send and calendar view/create/update/move/delete. |
+| Gmail and Google Calendar | Google Cloud OAuth `credentials.json` | Email search/read/draft/send and request-scoped calendar search/create/bulk-create/update/move/delete with safe concurrent token refresh. |
 
 Configure providers in Settings, Channels, and Accounts. Keys and in-app ChatGPT / Codex, Claude Subscription, and xAI Grok OAuth tokens are stored in Windows Credential Manager, macOS Keychain, or Linux Secret Service/KWallet when available. If secure storage is unavailable, newly entered secrets are usable for the current Row-Bot process only and must be re-entered after restart unless a secure keyring backend is configured. `~/.row-bot/api_keys.json` and `~/.row-bot/providers.json` keep metadata only, such as saved state, provider status, Quick Choices, compatibility profiles, runtime and vision probe results, OAuth client-id diagnostics, model-count status, and masked fingerprints.
 
@@ -250,6 +264,12 @@ Row-Bot's tools can be enabled or disabled from Settings. Many tools expose mult
 Safety controls are built into the tool layer:
 
 - Destructive operations require confirmation, including file delete/move, moderate-risk shell commands, Gmail send, calendar move/delete, memory delete, tracker delete, and task delete.
+- Child-agent approval requests are surfaced in the parent thread and durable
+  channel/mobile approval surfaces instead of waiting invisibly in a background
+  run.
+- Stop propagates through the active generation to stalled provider responses,
+  shell and Developer subprocesses, MCP and browser waits, voice turns, and
+  generation-linked child agents without cancelling unrelated runs.
 - Filesystem access is sandboxed to the configured workspace folder, which defaults to `~/Documents/Row-Bot`.
 - Shell commands are classified as safe, moderate, or blocked. High-risk commands such as `shutdown`, `reboot`, and `mkfs` are blocked.
 - Background workflows can have per-task command prefix and email-recipient allowlists.
@@ -268,14 +288,19 @@ Safety controls are built into the tool layer:
 - Custom Tools are reviewed, smoke-tested, enabled, promoted, disabled, and removed without deleting their source repos.
 - Gmail and Calendar permissions are tiered for read, compose/write, and destructive actions.
 - MCP servers stay disabled until tested. External tools are namespaced, destructive MCP tools require approval, and broken servers degrade to diagnostics instead of blocking startup.
+- Remote mobile HTTP and WebSocket access is pairing-gated. Pairing codes are
+  short-lived and single-use, device secrets are hashed at rest in `mobile.db`,
+  sessions use HttpOnly cookies, forwarded localhost headers do not bypass the
+  gate, and paired devices can be revoked from Mobile Access settings.
 - Prompt-injection defense scans tool outputs and user inputs for instruction override attempts, role impersonation, data exfiltration, encoding evasion, and social engineering patterns.
 
 ## Architecture
 
 Row-Bot is organized around reasoning, orchestration, and work: Agent Profiles,
 Goal Mode, explicit prompt context/cache sections, memory, profile-first
-workflows, channels, Designer Studio, Developer Studio worktrees, provider
-runtime, Plugin System v2/MCP boundaries, and safety controls.
+workflows, the mobile access gate and companion shell, shared channel streaming,
+Designer Studio, Developer Studio worktrees, provider runtime and cancellation,
+Plugin System v2/MCP boundaries, and safety controls.
 
 Explore the visual architecture gallery: [docs/architecture.html](docs/architecture.html)
 
@@ -311,8 +336,8 @@ Review the Docusaurus docs source and local preview instructions:
 
 | Setup | Minimum | Recommended |
 |-------|---------|-------------|
-| Local model runtime | Windows 10/11 64-bit, macOS 12+, or glibc Linux x86_64; Python 3.11+; 8 GB RAM for 8B models; about 5 GB disk for the app and one small model; internet for install and model download. | 16 to 32 GB RAM for 14B to 30B models; NVIDIA GPU with 8+ GB VRAM or Apple Silicon for much faster inference; 20+ GB disk for multiple or larger models. |
-| Provider/custom models only | Windows 10/11 64-bit, macOS 12+, or glibc Linux x86_64; Python 3.11+; 4 GB RAM; about 1 GB disk; internet for provider inference. | No GPU required. Use this path if you do not want local model downloads. |
+| Local model runtime | Windows 10/11 64-bit, macOS 12+, or glibc Linux x86_64; Python 3.12+ for source installs; 8 GB RAM for 8B models; about 5 GB disk for the app and one small model; internet for install and model download. | 16 to 32 GB RAM for 14B to 30B models; NVIDIA GPU with 8+ GB VRAM or Apple Silicon for much faster inference; 20+ GB disk for multiple or larger models. |
+| Provider/custom models only | Windows 10/11 64-bit, macOS 12+, or glibc Linux x86_64; Python 3.12+ for source installs; 4 GB RAM; about 1 GB disk; internet for provider inference. | No GPU required. Use this path if you do not want local model downloads. |
 | Developer Sandbox | Docker Desktop or a compatible Docker/Podman runtime. | Optional. Developer Studio also works with local execution in the selected repo. |
 | Public docs site | Node.js 20+ and npm. | Optional. Used only for local Docusaurus docs preview and generated-docs validation. |
 
@@ -407,6 +432,13 @@ history, workflows, plugin state, logs, and user settings are stored locally
 under `~/.row-bot` or the platform-specific Row-Bot app data paths used by the
 installer. Current Row-Bot startup reads Row-Bot data only and no longer scans,
 copies, repairs, or rewrites old `.thoth` data.
+
+Mobile pairing records, hashed device credentials, revocation state, and
+display-safe access events are stored locally in `mobile.db`. The mobile
+companion has no Row-Bot cloud relay: your phone connects directly to the
+running desktop host through the route you choose. A public tunnel exposes the
+pairing gate to that URL, so keep tunnel links and pairing QR codes private and
+revoke devices you no longer trust.
 
 Provider and custom models are opt-in. When selected, the current conversation, model-visible tool context, and tool results are sent to that endpoint. Memories, documents, files, graph data, and other conversations stay local unless you explicitly include them in the current conversation or expose them through a tool result. Memory recall happens locally before any selected memory is inserted into the active turn.
 

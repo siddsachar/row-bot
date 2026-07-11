@@ -40,9 +40,10 @@ Row-Bot uses semantic versioning:
    ```
 
    This updates `src/row_bot/version.py`, `installer/row_bot_setup.iss`,
-   `.github/workflows/release.yml`, the macOS app `Info.plist`, and the bug
-   report version placeholder. The Linux package script derives its version
-   from `src/row_bot/version.py` or the workflow `ROW_BOT_VERSION` argument.
+   `installer/install_deps.bat`, `.github/workflows/release.yml`, the macOS app
+   `Info.plist`, the bug report version placeholder, and the brand/user-agent
+   contract expectations. The Linux package script derives its version from
+   `src/row_bot/version.py` or the workflow `ROW_BOT_VERSION` argument.
 
 5. Update `RELEASE_NOTES.md` with human-readable notes.
 6. Confirm new shipped runtime files are covered by platform packaging:

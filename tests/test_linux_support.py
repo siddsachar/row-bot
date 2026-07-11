@@ -18,6 +18,7 @@ REQUIRED_RUNTIME_PACKAGES = (
     "voice",
     "buddy",
     "migration",
+    "mobile",
     "providers",
     "mcp_client",
     "plugins",
@@ -542,6 +543,8 @@ def test_release_scripts_use_source_layout_version_file():
     assert 'VERSION="$ROW_BOT_VERSION"' in release
     assert "from version import __version__" not in release
     assert '"src" / "row_bot" / "version.py"' in cut_release
+    assert '"installer" / "install_deps.bat"' in cut_release
+    assert '"tests" / "test_brand_constants.py"' in cut_release
     assert 'Join-Path $ProjectRoot "src\\row_bot\\version.py"' in windows_builder
     for script in (linux_builder, mac_builder, mac_zip_builder):
         assert '$PROJECT_DIR/src/row_bot/version.py' in script
