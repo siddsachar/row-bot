@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
 
+import pytest
 from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, Field
+
+from row_bot.providers.models import TransportMode
+from row_bot.providers.tool_schema import ToolSchemaCompatibilityError
 
 
 def _lc_tool(name: str) -> StructuredTool:
@@ -13,6 +19,21 @@ def _lc_tool(name: str) -> StructuredTool:
         func=_run,
         name=name,
         description=f"{name} test tool",
+    )
+
+
+def _malformed_array_tool(name: str) -> StructuredTool:
+    class _Args(BaseModel):
+        values: list[Any] = Field(default_factory=list)
+
+    def _run(values: list[Any] | None = None) -> str:
+        return f"{name}:{values or []}"
+
+    return StructuredTool.from_function(
+        func=_run,
+        name=name,
+        description=f"{name} malformed schema test tool",
+        args_schema=_Args,
     )
 
 
@@ -221,3 +242,78 @@ def test_get_agent_graph_cache_key_includes_allowlist(monkeypatch):
 
     assert first is repeated
     assert first is not second
+
+
+def test_gemini_final_boundary_isolates_malformed_mcp_plugin_and_channel_tools(monkeypatch):
+    agent = _prepare_graph(monkeypatch)
+    core_tool = _lc_tool("filesystem")
+    malformed_mcp = _malformed_array_tool("mcp_bad_array")
+    malformed_plugin = _malformed_array_tool("plugin_bad_array")
+    malformed_channel = _malformed_array_tool("channel_bad_array")
+
+    monkeypatch.setattr(
+        agent,
+        "_ensure_agent_mode_ready",
+        lambda model_name: SimpleNamespace(
+            provider_id="google",
+            runtime_model="gemini-test",
+            capability_source="test",
+            confidence="high",
+            transport=TransportMode.GOOGLE_GENAI,
+        ),
+    )
+
+    def fake_core_tool(name):
+        if name == "filesystem":
+            return SimpleNamespace(as_langchain_tools=lambda: [core_tool], destructive_tool_names=set())
+        if name == "mcp":
+            return SimpleNamespace(as_langchain_tools=lambda: [malformed_mcp], destructive_tool_names=set())
+        return None
+
+    monkeypatch.setattr(agent.tool_registry, "get_tool", fake_core_tool)
+
+    from row_bot.plugins import registry as plugin_registry
+    from row_bot.channels import registry as channel_registry
+    from row_bot.channels import tool_factory
+
+    monkeypatch.setattr(plugin_registry, "get_langchain_tools", lambda allow_names=None: [malformed_plugin])
+    monkeypatch.setattr(plugin_registry, "get_destructive_names", lambda allow_names=None: set())
+    monkeypatch.setattr(channel_registry, "running_channels", lambda: [SimpleNamespace(name="sms")])
+    monkeypatch.setattr(tool_factory, "create_channel_tools", lambda channel: [malformed_channel])
+    monkeypatch.setattr(tool_factory, "destructive_channel_tool_names", lambda channel: set())
+
+    graph = agent.get_agent_graph(["filesystem", "mcp"])
+
+    assert [tool.name for tool in graph.tools] == ["filesystem"]
+
+
+def test_gemini_explicit_allowlist_fails_for_malformed_tool(monkeypatch):
+    agent = _prepare_graph(monkeypatch)
+    malformed = _malformed_array_tool("malformed")
+    monkeypatch.setattr(
+        agent,
+        "_ensure_agent_mode_ready",
+        lambda model_name: SimpleNamespace(
+            provider_id="google",
+            runtime_model="gemini-test",
+            capability_source="test",
+            confidence="high",
+            transport=TransportMode.GOOGLE_GENAI,
+        ),
+    )
+    monkeypatch.setattr(
+        agent.tool_registry,
+        "get_tool",
+        lambda name: SimpleNamespace(
+            as_langchain_tools=lambda: [malformed],
+            destructive_tool_names=set(),
+        ),
+    )
+
+    from row_bot.plugins import registry as plugin_registry
+
+    monkeypatch.setattr(plugin_registry, "get_langchain_tools", lambda allow_names=None: [])
+    monkeypatch.setattr(plugin_registry, "get_destructive_names", lambda allow_names=None: set())
+
+    with pytest.raises(ToolSchemaCompatibilityError, match=r"malformed.*values\.items"):
+        agent.get_agent_graph(["malformed"], tool_allowlist=["malformed"])

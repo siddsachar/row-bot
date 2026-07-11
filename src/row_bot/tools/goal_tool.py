@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from row_bot import goals
 from row_bot.tools import registry
@@ -51,11 +51,40 @@ class _GoalUpdateInput(BaseModel):
         description="Goal status: active, paused, waiting_approval, blocked, completed, or cleared.",
     )
     progress: str = Field(default="", description="Concise progress update.")
-    evidence: list[Any] = Field(default=[], description="Evidence that progress or completion is real.")
-    blockers: list[Any] = Field(default=[], description="Current blockers or user decisions needed.")
+    evidence: list[str] = Field(
+        default_factory=list,
+        description="Evidence that progress or completion is real.",
+    )
+    blockers: list[str] = Field(
+        default_factory=list,
+        description="Current blockers or user decisions needed.",
+    )
     next_step: str = Field(default="", description="Next action planned for the goal.")
     goal_id: str = Field(default="", description="Optional goal id. Omit to update the current thread goal.")
     thread_id: str = Field(default="", description="Optional thread id. Omit to use the current thread.")
+
+    @field_validator("evidence", "blockers", mode="before")
+    @classmethod
+    def _normalize_text_items(cls, value: Any) -> list[str]:
+        """Keep legacy rich entries while advertising typed array items.
+
+        Gemini requires every array parameter to declare an item schema.  Older
+        callers could still have supplied JSON-compatible objects because these
+        fields previously used ``list[Any]``; encode those entries
+        deterministically instead of rejecting or losing them.
+        """
+        if value is None:
+            return []
+        if not isinstance(value, (list, tuple, set, frozenset)):
+            value = [value]
+        if isinstance(value, (set, frozenset)):
+            value = sorted(value, key=lambda item: repr(item))
+        return [
+            item
+            if isinstance(item, str)
+            else json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+            for item in value
+        ]
 
 
 class _GoalStatusInput(BaseModel):

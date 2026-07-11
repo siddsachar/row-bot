@@ -410,8 +410,11 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertTrue(text.startswith("MCP tool error:"))
         self.assertIn("Truncated MCP output", text)
 
-    def test_mcp_array_schema_preserves_items_for_gemini_tools(self) -> None:
+    def test_mcp_array_schema_is_classified_for_provider_compatibility(self) -> None:
         import row_bot.mcp_client.runtime as runtime
+        from langchain_core.tools import StructuredTool
+        from row_bot.providers.models import TransportMode
+        from row_bot.providers.tool_schema import apply_tool_schema_compatibility
 
         tool_info = runtime.McpToolInfo(
             server_name="playwright",
@@ -445,7 +448,28 @@ class McpClientFoundationTests(unittest.TestCase):
         self.assertEqual(properties["fields"]["type"], "array")
         self.assertIn("items", properties["fields"])
         self.assertIn("items", properties["modifiers"])
-        self.assertIn("items", properties["values"])
+        self.assertEqual(properties["values"]["items"], {})
+
+        dynamic_tool = StructuredTool.from_function(
+            func=lambda **kwargs: str(kwargs),
+            name=tool_info.prefixed_name,
+            description=tool_info.description,
+            args_schema=runtime._schema_to_model(tool_info),
+        )
+        valid_tool = StructuredTool.from_function(
+            func=lambda query="": query,
+            name="valid_builtin",
+            description="Valid control tool.",
+        )
+        google_result = apply_tool_schema_compatibility(
+            [valid_tool, dynamic_tool],
+            TransportMode.GOOGLE_GENAI,
+        )
+        openai_result = apply_tool_schema_compatibility([dynamic_tool], TransportMode.OPENAI_CHAT)
+
+        self.assertEqual(google_result.rejected_tool_names, (tool_info.prefixed_name,))
+        self.assertEqual(google_result.tools, (valid_tool,))
+        self.assertEqual(openai_result.tools, (dynamic_tool,))
 
     def test_stdio_command_resolution_handles_missing_launchers(self) -> None:
         self._reload_config()
