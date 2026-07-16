@@ -56,7 +56,7 @@ def test_github_pages_sync_preserves_marketing_files(tmp_path: Path) -> None:
     pagefind = build_dir / "pagefind"
     (pagefind / "fragment").mkdir()
     (pagefind / "index").mkdir()
-    (pagefind / "pagefind.js").write_text("runtime", encoding="utf-8")
+    (pagefind / "pagefind.js").write_text("runtime\n", encoding="utf-8")
     (pagefind / "wasm.unknown.pagefind").write_bytes(b"wasm")
     (pagefind / "fragment" / "source.pf_fragment").write_bytes(b"fragment")
     (pagefind / "index" / "source.pf_index").write_bytes(b"index")
@@ -83,6 +83,7 @@ def test_github_pages_sync_preserves_marketing_files(tmp_path: Path) -> None:
         json.dumps({"version": "1", "languages": {"en": {"hash": "linux", "page_count": 1}}}),
         encoding="utf-8",
     )
+    (publish_dir / "pagefind" / "pagefind.js").write_bytes(b"runtime\r\n")
     assert check_sync(build_dir, publish_dir) == []
     (publish_dir / "docs" / "artifact.txt").write_text("stale", encoding="utf-8")
     assert check_sync(build_dir, publish_dir) == [

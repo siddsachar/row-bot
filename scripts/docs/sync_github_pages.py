@@ -26,7 +26,7 @@ OWNED_FILES = (
 )
 OBSOLETE_FILES = ("docs.html", "search.html")
 PAGEFIND_MARKER = ".row-bot-docs-digest"
-PAGEFIND_STABLE_SUFFIXES = (".css", ".js", ".pagefind")
+PAGEFIND_STABLE_SUFFIXES = (".css", ".js")
 
 
 def _direct_child(root: Path, name: str) -> Path:
@@ -60,7 +60,9 @@ def _publication_digest(build_dir: Path) -> str:
     for name in OWNED_DIRECTORIES:
         if name == "pagefind":
             continue
-        for relative, value in _directory_manifest(build_dir / name).items():
+        manifest = _directory_manifest(build_dir / name)
+        for relative in sorted(manifest):
+            value = manifest[relative]
             digest.update(f"{name}/{relative}\0{value}\n".encode())
     for name in OWNED_FILES:
         digest.update(f"{name}\0{_digest(build_dir / name)}\n".encode())
@@ -79,12 +81,15 @@ def _pagefind_shape(path: Path) -> dict[str, object]:
         "fragments": len(list((path / "fragment").glob("*.pf_fragment"))),
         "indexes": len(list((path / "index").glob("*.pf_index"))),
         "metadata": len(list(path.glob("*.pf_meta"))),
+        "wasm": sorted(item.name for item in path.glob("*.pagefind")),
     }
 
 
 def _pagefind_stable_manifest(path: Path) -> dict[str, str]:
     return {
-        item.relative_to(path).as_posix(): _digest(item)
+        item.relative_to(path).as_posix(): hashlib.sha256(
+            item.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n").encode()
+        ).hexdigest()
         for item in sorted(path.rglob("*"))
         if item.is_file() and item.suffix in PAGEFIND_STABLE_SUFFIXES
     }
