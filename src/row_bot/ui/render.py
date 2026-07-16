@@ -1531,6 +1531,20 @@ def render_message_content(
     lifecycle_text_rendered = False
     approval_text_rendered = False
 
+    if role == "assistant":
+        for notice in msg.get("warnings") or []:
+            if not isinstance(notice, dict):
+                continue
+            with ui.card().classes(
+                "w-full bg-amber-1 text-amber-10 border border-amber-4 q-pa-sm"
+            ):
+                ui.label(str(notice.get("title") or "Memory recall fallback")).classes(
+                    "text-sm font-semibold"
+                )
+                ui.label(str(notice.get("message") or "")).classes("text-xs")
+                ui.label(f"Reason: {notice.get('detail') or ''}").classes("text-xs")
+                ui.label(f"Next: {notice.get('action') or ''}").classes("text-xs font-medium")
+
     queued = msg.get("queued_control") if role == "user" else None
     if isinstance(queued, dict):
         status = str(queued.get("status") or "queued")

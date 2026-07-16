@@ -37,6 +37,7 @@ from row_bot.embedding_config import (
 from row_bot.embedding_providers import (
     ensure_embedding_runtime_available,
     get_embedding_provider,
+    get_embedding_provider_for_recall,
     release_embedding_resources,
 )
 from row_bot.data_paths import get_row_bot_data_dir
@@ -176,6 +177,11 @@ def get_embedding_model():
         return get_embedding_provider()
 
 
+def get_embedding_model_for_recall():
+    """Return the embedding provider using the bounded auto-recall load path."""
+    return get_embedding_provider_for_recall()
+
+
 def get_vector_store():
     """Return the FAISS vector store (loaded/created on first call)."""
     global _vector_store
@@ -283,7 +289,7 @@ def document_vector_status() -> dict[str, Any]:
 def release_document_embedding_resources(reason: str = "document work complete") -> None:
     """Release cached vector and embedding resources after heavyweight work."""
     global _vector_store
-    if reason != "embedding settings changed" and not get_embedding_config().get("auto_unload", True):
+    if reason != "embedding settings changed" and not get_embedding_config().get("auto_unload", False):
         return
     _vector_store = None
     release_embedding_resources(reason)

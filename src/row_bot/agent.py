@@ -3715,6 +3715,20 @@ def stream_chat_only(
     yield ("done", answer)
 
 
+def _memory_recall_warning_events(config: dict):
+    """Yield warning events published by auto-recall for this generation."""
+    generation_id = str((config.get("configurable") or {}).get("generation_id") or "")
+    if not generation_id:
+        return
+    try:
+        from row_bot.memory_policy import consume_recall_fallback_notices
+
+        for notice in consume_recall_fallback_notices(generation_id):
+            yield ("warning", notice)
+    except Exception:
+        logger.debug("Could not read memory recall fallback notices", exc_info=True)
+
+
 def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
                   *, stop_event: threading.Event | None = None):
     """Stream the agent response as structured events.
@@ -3888,7 +3902,9 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
     for event in _stream_graph(agent, initial_input, config,
                                stop_event=stop_event,
                                phase_timings=phase_timings):
+        yield from _memory_recall_warning_events(config)
         yield event
+    yield from _memory_recall_warning_events(config)
 
 
 def _tool_support_error(message: str) -> bool:
@@ -4004,8 +4020,15 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
         resume_val = {iid: approved for iid in interrupt_ids}
     else:
         resume_val = approved
-    yield from _stream_graph(agent, Command(resume=resume_val), config,
-                             stop_event=stop_event)
+    for event in _stream_graph(
+        agent,
+        Command(resume=resume_val),
+        config,
+        stop_event=stop_event,
+    ):
+        yield from _memory_recall_warning_events(config)
+        yield event
+    yield from _memory_recall_warning_events(config)
 
 
 def resume_invoke_agent(enabled_tool_names: list[str], config: dict, approved: bool,

@@ -2906,10 +2906,38 @@ async def consume_generation(
                     _handle_ui_runtime_error(gen, state, exc, "first-content transition")
                     logger.error("Error rendering thinking collapse", exc_info=True)
 
-        if event_type in {"error", "tool_call", "tool_done", "summarizing", "interrupt", "done"}:
+        if event_type in {"warning", "error", "tool_call", "tool_done", "summarizing", "interrupt", "done"}:
             _flush_live_renders(f"{event_type} boundary", force=True)
 
-        if event_type == "error":
+        if event_type == "warning":
+            notice = dict(payload) if isinstance(payload, dict) else {
+                "title": "Memory recall fallback",
+                "message": str(payload or "Semantic memory recall is unavailable."),
+                "action": "Open Settings -> Documents -> Embedding Engine.",
+            }
+            if not any(
+                existing.get("code") == notice.get("code")
+                for existing in gen.warnings
+                if isinstance(existing, dict)
+            ):
+                gen.warnings.append(notice)
+                if not gen.detached and gen.wrapper:
+                    try:
+                        with gen.wrapper:
+                            with ui.card().classes(
+                                "w-full bg-amber-1 text-amber-10 border border-amber-4 q-pa-sm"
+                            ):
+                                ui.label(str(notice.get("title") or "Memory recall fallback")).classes(
+                                    "text-sm font-semibold"
+                                )
+                                ui.label(str(notice.get("message") or "")).classes("text-xs")
+                                ui.label(f"Reason: {notice.get('detail') or ''}").classes("text-xs")
+                                ui.label(f"Next: {notice.get('action') or ''}").classes("text-xs font-medium")
+                    except Exception as exc:
+                        _handle_ui_runtime_error(gen, state, exc, "memory fallback warning")
+                        logger.debug("Memory fallback warning render failed", exc_info=True)
+
+        elif event_type == "error":
             _buddy(BuddyEventType.GENERATION_ERROR, "Error", error=str(payload)[:500])
             _voice_diag("generation_event:error", payload_preview=str(payload)[:500])
             voice_output.speak_cue(error_cue(), generation_elapsed=_generation_elapsed())
@@ -3306,6 +3334,8 @@ async def consume_generation(
         visible_content = gen.accumulated if str(gen.accumulated or "").strip() else ""
         a_msg: dict = {"role": "assistant", "content": visible_content}
         attach_thinking_to_message(a_msg, gen.thinking_text)
+        if gen.warnings:
+            a_msg["warnings"] = list(gen.warnings)
         if promoted_agent_run_ids:
             a_msg["agent_run_ids"] = promoted_agent_run_ids
             a_msg["agent_run_refresh_key"] = _refresh_key_for_agent_run_ids(promoted_agent_run_ids)

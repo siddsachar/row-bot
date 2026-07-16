@@ -767,7 +767,7 @@ def run_extraction(on_status=None, exclude_thread_ids: set[str] | None = None) -
                 from row_bot.embedding_config import get_embedding_config
                 from row_bot.embedding_providers import release_embedding_resources
 
-                if get_embedding_config().get("auto_unload", True):
+                if get_embedding_config().get("auto_unload", False):
                     release_embedding_resources("memory extraction complete")
             except Exception:
                 logger.debug("Memory embedding resource release failed", exc_info=True)

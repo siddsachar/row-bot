@@ -936,6 +936,11 @@ def open_settings(
 
         emb_cfg = get_embedding_config()
         doc_status = document_vector_status()
+        from row_bot.embedding_providers import get_local_embedding_status
+        import row_bot.knowledge_graph as kg
+
+        local_embedding_status = get_local_embedding_status()
+        memory_status = kg.memory_vector_status()
         processed = load_processed_files()
         with ui.row().classes("items-center gap-2 q-mb-sm"):
             _metric_chip("indexed", len(processed), icon="library_books")
@@ -956,7 +961,8 @@ def open_settings(
                 ui.badge("Index rebuild required after changes", color="blue-grey").props("outline dense")
             ui.label(
                 f"Current: {describe_active_embedding(emb_cfg)}. "
-                "Local models are private but use RAM; cloud models reduce local memory and send chunks to the provider."
+                "Local models load from the existing on-device cache during normal use. "
+                "Cloud models reduce local memory and send chunks to the provider."
             ).classes("text-grey-6 text-xs")
             if doc_status["stale"]:
                 ui.label(
@@ -991,16 +997,33 @@ def open_settings(
                 max=256,
                 step=1,
             ).classes("w-full").props("dense outlined")
-            unload_switch = ui.switch("Auto-unload local embedding resources after heavy work", value=bool(emb_cfg.get("auto_unload", True)))
+            unload_switch = ui.switch(
+                "Auto-unload local embedding resources after heavy work",
+                value=bool(emb_cfg.get("auto_unload", False)),
+            ).tooltip("Disabled by default so a loaded local model stays ready for later recall.")
             privacy_label = ui.label(
                 "Cloud embeddings send document chunks and memory text to the selected provider."
             ).classes("text-warning text-xs")
+
+            local_status_panel = ui.column().classes("w-full gap-1 q-pa-sm bg-grey-2 rounded-borders")
+            with local_status_panel:
+                ui.label(
+                    f"Local model: {local_embedding_status['state']} — "
+                    f"{local_embedding_status.get('detail') or local_embedding_status['label']}"
+                ).classes("text-xs")
+                ui.label(
+                    f"Memory index: {memory_status['state']} — {memory_status['detail']}"
+                ).classes("text-xs")
+                ui.label(
+                    "Normal recall never downloads a model. Downloads and repairs happen only from the actions below."
+                ).classes("text-grey-6 text-xs")
 
             def _sync_embedding_controls():
                 is_cloud = provider_sel.value == "cloud"
                 local_sel.visible = not is_cloud
                 cloud_sel.visible = is_cloud
                 privacy_label.visible = is_cloud
+                local_status_panel.visible = not is_cloud
 
             provider_sel.on("update:model-value", lambda _: _sync_embedding_controls())
             _sync_embedding_controls()
@@ -1043,10 +1066,85 @@ def open_settings(
                     logger.error("Memory vector rebuild failed", exc_info=True)
                     ui.notify(f"Memory vector rebuild failed: {exc}", type="negative", close_button=True)
 
+            async def _retry_local_load():
+                from row_bot.embedding_providers import (
+                    get_embedding_provider_for_recall,
+                    retry_local_embedding_load,
+                )
+
+                n = ui.notification(
+                    "Loading local embedding model from cache...",
+                    type="ongoing",
+                    spinner=True,
+                    timeout=None,
+                )
+                try:
+                    await run.io_bound(retry_local_embedding_load)
+                    await run.io_bound(get_embedding_provider_for_recall)
+                    n.dismiss()
+                    ui.notify("Local embedding model is ready", type="positive")
+                    _reopen("Documents")
+                except Exception as exc:
+                    n.dismiss()
+                    logger.error("Local embedding model retry failed", exc_info=True)
+                    ui.notify(
+                        f"Local embedding model retry failed: {exc}",
+                        type="negative",
+                        close_button=True,
+                    )
+
+            async def _download_or_repair_local_model(*, repair: bool) -> None:
+                from row_bot.embedding_providers import download_local_embedding_model
+
+                action = "Repairing" if repair else "Downloading"
+                n = ui.notification(
+                    f"{action} local embedding model...",
+                    type="ongoing",
+                    spinner=True,
+                    timeout=None,
+                )
+                try:
+                    await run.io_bound(
+                        download_local_embedding_model,
+                        str(local_sel.value),
+                        repair=repair,
+                    )
+                    n.dismiss()
+                    ui.notify(
+                        "Local embedding model repaired" if repair else "Local embedding model downloaded",
+                        type="positive",
+                    )
+                    _reopen("Documents")
+                except Exception as exc:
+                    n.dismiss()
+                    logger.error("Local embedding model download failed", exc_info=True)
+                    ui.notify(
+                        f"Local embedding model {'repair' if repair else 'download'} failed: {exc}",
+                        type="negative",
+                        close_button=True,
+                    )
+
             with ui.row().classes("items-center gap-2"):
                 ui.button("Save embedding settings", icon="save", on_click=_save_embedding_settings).props("flat dense no-caps color=primary")
                 ui.button("Rebuild document vectors", icon="refresh", on_click=_rebuild_document_vectors).props("flat dense no-caps")
-                ui.button("Rebuild memory vectors", icon="hub", on_click=_rebuild_memory_vectors).props("flat dense no-caps")
+                ui.button("Rebuild memory index", icon="hub", on_click=_rebuild_memory_vectors).props("flat dense no-caps")
+            with ui.row().classes("items-center gap-2") as local_action_row:
+                ui.button("Retry local load", icon="replay", on_click=_retry_local_load).props("flat dense no-caps")
+                ui.button(
+                    "Download model",
+                    icon="download",
+                    on_click=lambda: _download_or_repair_local_model(repair=False),
+                ).props("flat dense no-caps")
+                ui.button(
+                    "Repair local model",
+                    icon="build",
+                    on_click=lambda: _download_or_repair_local_model(repair=True),
+                ).props("flat dense no-caps color=warning")
+            local_action_row.visible = provider_sel.value == "local"
+            provider_sel.on(
+                "update:model-value",
+                lambda _: setattr(local_action_row, "visible", provider_sel.value == "local"),
+            )
 
         async def _handle_doc_upload(e: events.UploadEventArguments):
             name = e.file.name

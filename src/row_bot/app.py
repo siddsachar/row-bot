@@ -414,6 +414,43 @@ def _schedule_agent_graph_prewarm():
     )
 
 
+async def _prewarm_local_embeddings_background() -> None:
+    """Warm cached local embeddings only when semantic memory can use them."""
+    with _startup_phase("local_embedding_prewarm", background=True):
+        from row_bot.embedding_config import get_embedding_config
+
+        config = get_embedding_config()
+        if config.get("provider") != "local":
+            logger.info("startup.local_embedding_prewarm skipped=cloud_provider")
+            return
+        from row_bot import knowledge_graph
+
+        vector_status = await asyncio.to_thread(knowledge_graph.memory_vector_status)
+        entity_count = await asyncio.to_thread(knowledge_graph.count_entities)
+        if not vector_status.get("ready") or entity_count <= 0:
+            logger.info(
+                "startup.local_embedding_prewarm skipped=memory_index_%s entities=%d",
+                vector_status.get("state"),
+                entity_count,
+            )
+            return
+        from row_bot.embedding_providers import start_local_embedding_load
+
+        load_status = start_local_embedding_load()
+        logger.info(
+            "startup.local_embedding_prewarm state=%s model=%s",
+            load_status.get("state"),
+            load_status.get("model_key"),
+        )
+
+
+def _schedule_local_embedding_prewarm():
+    return _schedule_background_task(
+        _prewarm_local_embeddings_background(),
+        name="row-bot-local-embedding-prewarm",
+    )
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # SINGLETON STATE
 # ═════════════════════════════════════════════════════════════════════════════
@@ -849,6 +886,7 @@ async def _run_startup_sequence():
     _set("✅ Ready")
     _st.startup_ready = True
     _schedule_agent_graph_prewarm()
+    _schedule_local_embedding_prewarm()
     _schedule_auto_start_channels(auto_start_channels, _st)
     _app_boot_event("startup_sequence_complete")
     logger.info("%s startup complete", APP_DISPLAY_NAME)

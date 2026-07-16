@@ -91,7 +91,7 @@ def test_streaming_consumer_uses_batched_metrics_and_boundary_flushes():
     assert "thinking_stream_updates=_thinking_stream_updates" in source
     assert "ui_flushes=answer_batcher.flush_count" in source
     assert "thinking_ui_flushes=thinking_batcher.flush_count" in source
-    assert 'event_type in {"error", "tool_call", "tool_done", "summarizing", "interrupt", "done"}' in source
+    assert 'event_type in {"warning", "error", "tool_call", "tool_done", "summarizing", "interrupt", "done"}' in source
     assert "generation.lifecycle" in source
     assert "producer_wait_ms" in source
     assert "queue_empty_wait_ms" in source

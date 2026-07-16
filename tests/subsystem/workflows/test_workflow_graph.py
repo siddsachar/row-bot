@@ -118,3 +118,31 @@ def test_subtask_cycle_detection_uses_current_unsaved_steps(tmp_path, monkeypatc
     assert cycle[0] == parent_id
     assert parent_id in cycle
     assert child_id in cycle
+
+
+def test_workflow_run_keeps_memory_fallback_warning_at_finish(tmp_path, monkeypatch) -> None:
+    tasks = fresh_tasks_module(tmp_path, monkeypatch)
+    run_id = tasks._record_run_start(
+        "task-1",
+        "thread-1",
+        1,
+        task_name="Fallback workflow",
+    )
+    notice = {
+        "code": "local_model_timeout",
+        "message": "Semantic recall was unavailable, so lexical recall continued.",
+        "action": "Open Settings -> Documents -> Embedding Engine, then choose Retry local load.",
+    }
+    monkeypatch.setattr(
+        "row_bot.memory_policy.consume_recall_fallback_notices",
+        lambda generation_id: [notice] if generation_id == "gen-1" else [],
+    )
+
+    tasks._record_run_recall_notices(run_id, "gen-1")
+    tasks._finish_run(run_id, "completed", status_message="Delivered")
+    run = next(item for item in tasks.get_recent_runs() if item["id"] == run_id)
+
+    assert run["status"] == "completed"
+    assert run["status_message"].startswith("Delivered")
+    assert "Memory recall fallback (local_model_timeout)" in run["status_message"]
+    assert "Retry local load" in run["status_message"]

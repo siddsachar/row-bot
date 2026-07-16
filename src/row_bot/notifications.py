@@ -70,7 +70,7 @@ def notify(
 
     # 3. Queue toast for next Streamlit rerun
     _toast_queue.put({"icon": icon, "message": f"{message} ({timestamp})",
-                      "toast_type": toast_type})
+                      "type": toast_type})
 
 
 def drain_toasts() -> list[dict]:
@@ -122,6 +122,8 @@ def _desktop_notify(title: str, message: str) -> None:
 
 def _play_sound(sound: str) -> None:
     """Play a notification sound asynchronously."""
+    if sound in {"", "none"}:
+        return
     try:
         wav_path = _SOUND_MAP.get(sound)
 

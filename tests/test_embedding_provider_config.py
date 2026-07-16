@@ -1,8 +1,12 @@
 import importlib
 import json
+import threading
+import time
 import tomllib
 import uuid
 from pathlib import Path
+
+import pytest
 
 
 def _case_dir():
@@ -42,6 +46,7 @@ def test_embedding_config_defaults_and_index_metadata(monkeypatch):
     cfg = embedding_config.get_embedding_config()
     assert cfg["provider"] == "local"
     assert cfg["local_model"] == "mxbai-large-v1"
+    assert cfg["auto_unload"] is False
 
     active = embedding_config.active_embedding_metadata(cfg)
     assert active["provider"] == "local"
@@ -226,6 +231,232 @@ def test_dimension_adapter_trims_query_and_document_vectors():
     assert isinstance(adapter, Embeddings)
     assert adapter.embed_query("hello") == [1.0, 2.0]
     assert adapter.embed_documents(["a", "b"]) == [[1.0, 2.0], [1.0, 2.0]]
+
+
+def test_local_embedding_provider_is_strictly_cache_only(monkeypatch, tmp_path):
+    import langchain_huggingface
+    import row_bot.embedding_providers as embedding_providers
+
+    captured = {}
+
+    class FakeHuggingFaceEmbeddings:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(
+        langchain_huggingface,
+        "HuggingFaceEmbeddings",
+        FakeHuggingFaceEmbeddings,
+    )
+    monkeypatch.setattr(
+        embedding_providers,
+        "ensure_embedding_runtime_available",
+        lambda _cfg=None: None,
+    )
+    monkeypatch.setattr(
+        embedding_providers,
+        "_require_cached_snapshot",
+        lambda _model_key: tmp_path,
+    )
+
+    embedding_providers._build_local_provider(
+        {
+            "provider": "local",
+            "local_model": "mxbai-large-v1",
+            "cloud_model": "openai:text-embedding-3-small",
+            "dimension": None,
+            "batch_size": 16,
+        }
+    )
+
+    assert captured["model_kwargs"]["local_files_only"] is True
+    assert captured["model_kwargs"]["device"] == "cpu"
+    assert captured["encode_kwargs"]["batch_size"] == 16
+    assert captured["model_name"] == str(tmp_path)
+
+
+def test_concurrent_recall_callers_share_one_normal_load(monkeypatch):
+    import row_bot.embedding_providers as embedding_providers
+
+    embedding_providers.release_embedding_resources("test reset", collect=False)
+    cfg = {
+        "provider": "local",
+        "local_model": "mxbai-large-v1",
+        "cloud_model": "openai:text-embedding-3-small",
+        "dimension": None,
+        "batch_size": 16,
+    }
+    provider = object()
+    build_started = threading.Event()
+    allow_build = threading.Event()
+    build_count = 0
+    build_count_lock = threading.Lock()
+
+    monkeypatch.setattr(embedding_providers, "get_embedding_config", lambda: dict(cfg))
+    monkeypatch.setattr(
+        embedding_providers,
+        "ensure_embedding_runtime_available",
+        lambda _cfg=None: None,
+    )
+    monkeypatch.setattr(embedding_providers, "RECALL_EMBEDDING_WAIT_SECONDS", 1.0)
+
+    def _slow_build(_cfg, key, *, generation=None):
+        nonlocal build_count
+        with build_count_lock:
+            build_count += 1
+        build_started.set()
+        assert allow_build.wait(1.0)
+        embedding_providers._provider = provider
+        embedding_providers._provider_key = key
+        return provider
+
+    monkeypatch.setattr(embedding_providers, "_get_or_build_provider", _slow_build)
+    results = []
+    errors = []
+
+    def _recall():
+        try:
+            results.append(embedding_providers.get_embedding_provider_for_recall())
+        except Exception as exc:  # pragma: no cover - assertion below reports it
+            errors.append(exc)
+
+    first = threading.Thread(target=_recall)
+    second = threading.Thread(target=_recall)
+    first.start()
+    assert build_started.wait(1.0)
+    second.start()
+    allow_build.set()
+    first.join(1.0)
+    second.join(1.0)
+
+    assert errors == []
+    assert results == [provider, provider]
+    assert build_count == 1
+    embedding_providers.release_embedding_resources("test cleanup", collect=False)
+
+
+def test_missing_cached_model_fails_fast_after_first_attempt(monkeypatch):
+    import row_bot.embedding_providers as embedding_providers
+
+    embedding_providers.release_embedding_resources("test reset", collect=False)
+    cfg = {
+        "provider": "local",
+        "local_model": "mxbai-large-v1",
+        "cloud_model": "openai:text-embedding-3-small",
+        "dimension": None,
+    }
+    attempts = 0
+    monkeypatch.setattr(embedding_providers, "get_embedding_config", lambda: dict(cfg))
+    monkeypatch.setattr(
+        embedding_providers,
+        "ensure_embedding_runtime_available",
+        lambda _cfg=None: None,
+    )
+
+    def _missing(*_args, **_kwargs):
+        nonlocal attempts
+        attempts += 1
+        raise OSError("Model not found in the local cache")
+
+    monkeypatch.setattr(embedding_providers, "_get_or_build_provider", _missing)
+
+    with pytest.raises(embedding_providers.LocalEmbeddingUnavailable) as first:
+        embedding_providers.get_embedding_provider_for_recall()
+    started = time.perf_counter()
+    with pytest.raises(embedding_providers.LocalEmbeddingUnavailable) as second:
+        embedding_providers.get_embedding_provider_for_recall()
+
+    assert first.value.code == "local_model_missing"
+    assert second.value.code == "local_model_missing"
+    assert attempts == 1
+    assert time.perf_counter() - started < 0.2
+    embedding_providers.release_embedding_resources("test cleanup", collect=False)
+
+
+def test_recall_waits_one_shared_grace_then_recovers_when_load_finishes(monkeypatch):
+    import row_bot.embedding_providers as embedding_providers
+
+    embedding_providers.release_embedding_resources("test reset", collect=False)
+    cfg = {
+        "provider": "local",
+        "local_model": "mxbai-large-v1",
+        "cloud_model": "openai:text-embedding-3-small",
+        "dimension": None,
+    }
+    provider = object()
+    build_started = threading.Event()
+    allow_build = threading.Event()
+    attempts = 0
+    monkeypatch.setattr(embedding_providers, "get_embedding_config", lambda: dict(cfg))
+    monkeypatch.setattr(
+        embedding_providers,
+        "ensure_embedding_runtime_available",
+        lambda _cfg=None: None,
+    )
+    monkeypatch.setattr(embedding_providers, "RECALL_EMBEDDING_WAIT_SECONDS", 0.03)
+
+    def _slow_build(_cfg, key, *, generation=None):
+        nonlocal attempts
+        attempts += 1
+        build_started.set()
+        assert allow_build.wait(1.0)
+        embedding_providers._provider = provider
+        embedding_providers._provider_key = key
+        return provider
+
+    monkeypatch.setattr(embedding_providers, "_get_or_build_provider", _slow_build)
+    started = time.perf_counter()
+    with pytest.raises(embedding_providers.LocalEmbeddingUnavailable) as first:
+        embedding_providers.get_embedding_provider_for_recall()
+    first_elapsed = time.perf_counter() - started
+    second_started = time.perf_counter()
+    with pytest.raises(embedding_providers.LocalEmbeddingUnavailable) as second:
+        embedding_providers.get_embedding_provider_for_recall()
+    second_elapsed = time.perf_counter() - second_started
+
+    assert build_started.is_set()
+    assert first.value.code == "local_model_timeout"
+    assert second.value.code == "local_model_timeout"
+    assert first_elapsed > 0.005
+    assert second_elapsed < first_elapsed
+    assert attempts == 1
+
+    allow_build.set()
+    load_thread = embedding_providers._load_thread
+    assert load_thread is not None
+    load_thread.join(1.0)
+    assert embedding_providers.get_embedding_provider_for_recall() is provider
+    embedding_providers.release_embedding_resources("test cleanup", collect=False)
+
+
+def test_download_is_explicit_and_status_probe_is_cache_only(monkeypatch, tmp_path):
+    import huggingface_hub
+    import row_bot.embedding_providers as embedding_providers
+
+    calls = []
+
+    def _snapshot_download(**kwargs):
+        calls.append(kwargs)
+        return str(tmp_path)
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", _snapshot_download)
+    monkeypatch.setattr(
+        embedding_providers,
+        "get_embedding_config",
+        lambda: {
+            "provider": "cloud",
+            "local_model": "mxbai-large-v1",
+            "cloud_model": "openai:text-embedding-3-small",
+            "dimension": None,
+        },
+    )
+
+    assert embedding_providers._cached_snapshot("mxbai-large-v1") == tmp_path
+    embedding_providers.download_local_embedding_model("mxbai-large-v1", repair=True)
+
+    assert calls[0]["local_files_only"] is True
+    assert calls[1]["local_files_only"] is False
+    assert calls[1]["force_download"] is True
 
 
 def test_markdown_loader_uses_builtin_encoding_fallback():

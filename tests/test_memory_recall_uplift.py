@@ -217,6 +217,44 @@ def test_memory_policy_skips_greetings_and_runtime_status(tmp_path, monkeypatch)
     assert runtime.reason == "runtime_status_request"
 
 
+def test_memory_policy_publishes_clear_fallback_warning_with_next_action(tmp_path, monkeypatch):
+    kg, _mem, policy, _extraction = _fresh_memory_modules(tmp_path, monkeypatch)
+    kg.save_entity("fact", "Atlas", "The user is building Atlas.", source="test")
+    notifications = []
+
+    def _fallback_candidates(*_args, diagnostics=None, **_kwargs):
+        diagnostics.update({
+            "semantic_status": "fallback",
+            "semantic_fallback_code": "local_model_missing",
+            "semantic_fallback_detail": "The selected model is not cached.",
+            "semantic_wait_ms": 2,
+        })
+        return []
+
+    monkeypatch.setattr(kg, "retrieve_memory_candidates", _fallback_candidates)
+    monkeypatch.setattr(
+        "row_bot.notifications.notify",
+        lambda *args, **kwargs: notifications.append((args, kwargs)),
+    )
+
+    decision = policy.build_auto_recall(
+        "What do you remember about Atlas?",
+        [],
+        thread_id="thread-1",
+        generation_id="gen-fallback",
+        runtime_surface="workflow",
+    )
+    notices = policy.consume_recall_fallback_notices("gen-fallback")
+
+    assert decision.trace["semantic_status"] == "fallback"
+    assert decision.trace["semantic_fallback_code"] == "local_model_missing"
+    assert notices[0]["title"] == "Memory recall fallback"
+    assert "continued" in notices[0]["message"]
+    assert notices[0]["action"].endswith("choose Download model.")
+    assert notifications[0][1]["toast_type"] == "warning"
+    assert notifications[0][1]["sound"] == "none"
+
+
 def test_agent_pre_model_trim_injects_policy_block_and_touches_only_selected(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
     import row_bot.agent as agent
