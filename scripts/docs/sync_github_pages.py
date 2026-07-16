@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import shutil
 from pathlib import Path
 
@@ -24,6 +25,8 @@ OWNED_FILES = (
     "sitemap.xml",
 )
 OBSOLETE_FILES = ("docs.html", "search.html")
+PAGEFIND_MARKER = ".row-bot-docs-digest"
+PAGEFIND_STABLE_SUFFIXES = (".css", ".js", ".pagefind")
 
 
 def _direct_child(root: Path, name: str) -> Path:
@@ -52,6 +55,63 @@ def _directory_manifest(path: Path) -> dict[str, str]:
     }
 
 
+def _publication_digest(build_dir: Path) -> str:
+    digest = hashlib.sha256()
+    for name in OWNED_DIRECTORIES:
+        if name == "pagefind":
+            continue
+        for relative, value in _directory_manifest(build_dir / name).items():
+            digest.update(f"{name}/{relative}\0{value}\n".encode())
+    for name in OWNED_FILES:
+        digest.update(f"{name}\0{_digest(build_dir / name)}\n".encode())
+    return digest.hexdigest()
+
+
+def _pagefind_shape(path: Path) -> dict[str, object]:
+    entry = json.loads((path / "pagefind-entry.json").read_text(encoding="utf-8"))
+    languages = entry.get("languages", {})
+    return {
+        "version": entry.get("version"),
+        "languages": {
+            language: details.get("page_count")
+            for language, details in sorted(languages.items())
+        },
+        "fragments": len(list((path / "fragment").glob("*.pf_fragment"))),
+        "indexes": len(list((path / "index").glob("*.pf_index"))),
+        "metadata": len(list(path.glob("*.pf_meta"))),
+    }
+
+
+def _pagefind_stable_manifest(path: Path) -> dict[str, str]:
+    return {
+        item.relative_to(path).as_posix(): _digest(item)
+        for item in sorted(path.rglob("*"))
+        if item.is_file() and item.suffix in PAGEFIND_STABLE_SUFFIXES
+    }
+
+
+def _check_pagefind(build_dir: Path, publish_dir: Path) -> list[str]:
+    source = build_dir / "pagefind"
+    target = _direct_child(publish_dir, "pagefind")
+    if not target.is_dir():
+        return [f"Missing published directory: {target}"]
+    try:
+        source_shape = _pagefind_shape(source)
+        target_shape = _pagefind_shape(target)
+    except (FileNotFoundError, json.JSONDecodeError, AttributeError) as exc:
+        return [f"Invalid Pagefind artifact: {exc}"]
+
+    errors: list[str] = []
+    if source_shape != target_shape:
+        errors.append(f"Published Pagefind index shape is stale: {target}")
+    if _pagefind_stable_manifest(source) != _pagefind_stable_manifest(target):
+        errors.append(f"Published Pagefind runtime bundle is stale: {target}")
+    marker = target / PAGEFIND_MARKER
+    if not marker.is_file() or marker.read_text(encoding="utf-8") != _publication_digest(build_dir):
+        errors.append(f"Published Pagefind build marker is stale: {marker}")
+    return errors
+
+
 def validate_sources(build_dir: Path) -> list[str]:
     errors: list[str] = []
     for name in OWNED_DIRECTORIES:
@@ -69,6 +129,9 @@ def check_sync(build_dir: Path, publish_dir: Path) -> list[str]:
         return errors
 
     for name in OWNED_DIRECTORIES:
+        if name == "pagefind":
+            errors.extend(_check_pagefind(build_dir, publish_dir))
+            continue
         source = _directory_manifest(build_dir / name)
         target_path = _direct_child(publish_dir, name)
         target = _directory_manifest(target_path)
@@ -107,6 +170,9 @@ def sync(build_dir: Path, publish_dir: Path) -> None:
 
     for name in OWNED_FILES:
         shutil.copy2(build_dir / name, _direct_child(publish_dir, name))
+    (_direct_child(publish_dir, "pagefind") / PAGEFIND_MARKER).write_text(
+        _publication_digest(build_dir), encoding="utf-8"
+    )
     for name in OBSOLETE_FILES:
         target = _direct_child(publish_dir, name)
         if target.exists():

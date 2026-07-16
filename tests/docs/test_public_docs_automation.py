@@ -53,6 +53,18 @@ def test_github_pages_sync_preserves_marketing_files(tmp_path: Path) -> None:
         source = build_dir / name
         source.mkdir(parents=True)
         (source / "artifact.txt").write_text(name, encoding="utf-8")
+    pagefind = build_dir / "pagefind"
+    (pagefind / "fragment").mkdir()
+    (pagefind / "index").mkdir()
+    (pagefind / "pagefind.js").write_text("runtime", encoding="utf-8")
+    (pagefind / "wasm.unknown.pagefind").write_bytes(b"wasm")
+    (pagefind / "fragment" / "source.pf_fragment").write_bytes(b"fragment")
+    (pagefind / "index" / "source.pf_index").write_bytes(b"index")
+    (pagefind / "pagefind.en_source.pf_meta").write_bytes(b"metadata")
+    (pagefind / "pagefind-entry.json").write_text(
+        json.dumps({"version": "1", "languages": {"en": {"hash": "source", "page_count": 1}}}),
+        encoding="utf-8",
+    )
     for name in ("llms-full.txt", "llms.txt", "sitemap.xml"):
         (build_dir / name).write_text(name, encoding="utf-8")
     publish_dir.mkdir()
@@ -66,6 +78,12 @@ def test_github_pages_sync_preserves_marketing_files(tmp_path: Path) -> None:
     assert check_sync(build_dir, publish_dir) == []
     assert marketing.read_text(encoding="utf-8") == "marketing"
     assert not obsolete.exists()
+    published_entry = publish_dir / "pagefind" / "pagefind-entry.json"
+    published_entry.write_text(
+        json.dumps({"version": "1", "languages": {"en": {"hash": "linux", "page_count": 1}}}),
+        encoding="utf-8",
+    )
+    assert check_sync(build_dir, publish_dir) == []
     (publish_dir / "docs" / "artifact.txt").write_text("stale", encoding="utf-8")
     assert check_sync(build_dir, publish_dir) == [
         f"Published directory is stale: {(publish_dir / 'docs').resolve()}"
