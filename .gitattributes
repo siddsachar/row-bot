@@ -1,1 +1,8 @@
 *.sh text eol=lf
+docs/assets/** linguist-generated=true
+docs/docs/** linguist-generated=true
+docs/img/** linguist-generated=true
+docs/pagefind/** linguist-generated=true -whitespace
+docs/search/** linguist-generated=true
+docs/llms*.txt linguist-generated=true
+docs/sitemap.xml linguist-generated=true

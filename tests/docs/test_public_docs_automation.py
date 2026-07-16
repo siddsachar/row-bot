@@ -6,6 +6,7 @@ import yaml
 from scripts.docs.collect_inventory import ROOT, build_inventory
 from scripts.docs.generate_llms_txt import generate
 from scripts.docs.generate_mdx import check_pages, render_pages
+from scripts.docs.sync_github_pages import check_sync, sync
 from scripts.docs.validate_public_docs import validate
 
 
@@ -36,6 +37,39 @@ def test_public_docs_inventory_has_core_sections() -> None:
 def test_generated_mdx_pages_are_current() -> None:
     errors = check_pages(render_pages(build_inventory()))
     assert errors == []
+
+
+def test_generated_mdx_is_stable_after_inventory_json_round_trip() -> None:
+    inventory = build_inventory()
+    serialized = json.loads(json.dumps(inventory, sort_keys=True))
+
+    assert render_pages(inventory) == render_pages(serialized)
+
+
+def test_github_pages_sync_preserves_marketing_files(tmp_path: Path) -> None:
+    build_dir = tmp_path / "build"
+    publish_dir = tmp_path / "publish"
+    for name in ("assets", "docs", "img", "pagefind", "search"):
+        source = build_dir / name
+        source.mkdir(parents=True)
+        (source / "artifact.txt").write_text(name, encoding="utf-8")
+    for name in ("llms-full.txt", "llms.txt", "sitemap.xml"):
+        (build_dir / name).write_text(name, encoding="utf-8")
+    publish_dir.mkdir()
+    marketing = publish_dir / "index.html"
+    marketing.write_text("marketing", encoding="utf-8")
+    obsolete = publish_dir / "docs.html"
+    obsolete.write_text("old route format", encoding="utf-8")
+
+    sync(build_dir, publish_dir)
+
+    assert check_sync(build_dir, publish_dir) == []
+    assert marketing.read_text(encoding="utf-8") == "marketing"
+    assert not obsolete.exists()
+    (publish_dir / "docs" / "artifact.txt").write_text("stale", encoding="utf-8")
+    assert check_sync(build_dir, publish_dir) == [
+        f"Published directory is stale: {(publish_dir / 'docs').resolve()}"
+    ]
 
 
 def test_llms_txt_generation_covers_docs_routes(tmp_path: Path) -> None:

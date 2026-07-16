@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.docs.collect_inventory import build_inventory
-from scripts.docs.schemas import clean_public_text, slugify
+from scripts.docs.collect_inventory import build_inventory  # noqa: E402
+from scripts.docs.schemas import clean_public_text  # noqa: E402
 
 
 GENERATED_DIR = ROOT / "docs-site" / "docs" / "reference" / "generated"
@@ -67,6 +67,8 @@ def _format_cell(record: dict[str, Any], key: str) -> str:
     value = record.get(key, "")
     if isinstance(value, list):
         return ", ".join(str(item) for item in value if str(item))
+    if isinstance(value, dict):
+        return str({item_key: value[item_key] for item_key in sorted(value)})
     if key.endswith("route"):
         return _link(str(value))
     if key in {"source", "guide"} and value:

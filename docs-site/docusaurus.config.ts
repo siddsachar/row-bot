@@ -13,7 +13,7 @@ const config: Config = {
   projectName: 'row-bot',
 
   onBrokenLinks: 'throw',
-  trailingSlash: false,
+  trailingSlash: true,
   markdown: {
     hooks: {
       onBrokenMarkdownLinks: 'warn',

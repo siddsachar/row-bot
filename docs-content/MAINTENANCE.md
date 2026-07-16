@@ -19,7 +19,17 @@ uv run python scripts/docs/validate_public_docs.py
 uv run python scripts/docs/build_review_report.py
 cd docs-site
 npm run build:ci
+cd ..
+uv run python scripts/docs/sync_github_pages.py
+uv run python scripts/docs/sync_github_pages.py --check
 ```
+
+GitHub Pages serves `main:/docs`. The synchronization command refreshes only
+the built documentation directories (`assets`, `docs`, `img`, `pagefind`, and
+`search`) and the selected machine-readable documentation files. It preserves the
+marketing homepage, feature pages, analytics, contact form, and their assets.
+Commit the synchronized artifact with its documentation source; merging the
+reviewed pull request is the publication step.
 
 For a smaller screenshot update, pass `--scenario first-run`, `--scenario
 configured`, `--scenario mobile`, or `--ids` followed by stable screenshot IDs.

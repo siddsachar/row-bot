@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/docs.yml"
       - "docs-site/**"
+      - "docs/**"
       - "docs-content/**"
       - "scripts/docs/**"
       - "tests/docs/**"
@@ -34,6 +35,7 @@ on:
     paths:
       - ".github/workflows/docs.yml"
       - "docs-site/**"
+      - "docs/**"
       - "docs-content/**"
       - "scripts/docs/**"
       - "tests/docs/**"
@@ -118,3 +120,6 @@ jobs:
       - name: Build docs site
         working-directory: docs-site
         run: npm run build:ci
+
+      - name: Check published GitHub Pages docs artifact
+        run: python scripts/docs/sync_github_pages.py --check
