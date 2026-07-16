@@ -330,6 +330,8 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
             "src/row_bot/dream_cycle.py",
             "src/row_bot/wiki_vault.py",
             "src/row_bot/documents.py",
+            "src/row_bot/embedding_config.py",
+            "src/row_bot/embedding_providers.py",
         ),
         (
             "tests/subsystem/knowledge_graph",
@@ -337,6 +339,7 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
             "tests/test_memory_recall_uplift.py",
             "tests/test_memory_evolution.py",
             "tests/test_knowledge_audit.py",
+            "tests/test_embedding_provider_config.py",
         ),
         "Memory, knowledge graph, document, and Dream Cycle changes need deterministic recall and graph coverage.",
     ),

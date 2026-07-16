@@ -22,7 +22,7 @@ LOCAL_MODELS: dict[str, dict[str, Any]] = {
     "qwen3-0.6b": {
         "label": "Qwen3 0.6B",
         "model": "Qwen/Qwen3-Embedding-0.6B",
-        "description": "Quality multilingual local embeddings. Runtime download.",
+        "description": "Quality multilingual local embeddings. Loads from the local cache.",
         "dimension": 1024,
         "context": 32768,
         "trust_remote_code": False,
@@ -30,7 +30,7 @@ LOCAL_MODELS: dict[str, dict[str, Any]] = {
     "nomic-v1.5": {
         "label": "Nomic Embed Text v1.5",
         "model": "nomic-ai/nomic-embed-text-v1.5",
-        "description": "Fast local embeddings with lower memory pressure. Runtime download.",
+        "description": "Fast local embeddings with lower memory pressure. Loads from the local cache.",
         "dimension": 768,
         "context": 8192,
         "trust_remote_code": True,
@@ -39,7 +39,7 @@ LOCAL_MODELS: dict[str, dict[str, Any]] = {
     "mxbai-large-v1": {
         "label": "Mixedbread Embed Large v1",
         "model": "mixedbread-ai/mxbai-embed-large-v1",
-        "description": "Strong English retrieval local embeddings. Runtime download.",
+        "description": "Strong English retrieval local embeddings. Loads from the local cache.",
         "dimension": 1024,
         "context": 512,
         "trust_remote_code": False,
@@ -79,7 +79,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "cloud_model": "openai:text-embedding-3-small",
     "dimension": None,
     "batch_size": 32,
-    "auto_unload": True,
+    "auto_unload": False,
 }
 
 

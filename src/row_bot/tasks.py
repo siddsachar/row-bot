@@ -2212,10 +2212,64 @@ def _update_run_progress(run_id: str, steps_done: int) -> None:
     _mirror_workflow_agent_run_progress(run_id, steps_done)
 
 
+_MEMORY_FALLBACK_STATUS_PREFIX = "Memory recall fallback"
+
+
+def _merge_memory_fallback_status(existing: str, status_message: str) -> str:
+    warnings = [
+        line
+        for line in str(existing or "").splitlines()
+        if line.startswith(_MEMORY_FALLBACK_STATUS_PREFIX)
+    ]
+    parts = [str(status_message or "").strip(), *warnings]
+    return "\n".join(part for part in parts if part)
+
+
+@_schema_retry
+def _record_run_recall_notices(run_id: str, generation_id: str) -> None:
+    """Persist any degraded memory-recall notice on the workflow run."""
+    try:
+        from row_bot.memory_policy import consume_recall_fallback_notices
+
+        notices = consume_recall_fallback_notices(generation_id)
+    except Exception:
+        logger.debug("Could not consume workflow memory fallback notices", exc_info=True)
+        return
+    if not notices:
+        return
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT status_message FROM task_runs WHERE id = ?",
+        (run_id,),
+    ).fetchone()
+    existing = str(row[0] or "") if row else ""
+    lines = list(existing.splitlines()) if existing else []
+    for notice in notices:
+        line = (
+            f"{_MEMORY_FALLBACK_STATUS_PREFIX} ({notice.get('code') or 'unavailable'}): "
+            f"{notice.get('message') or ''} Reason: {notice.get('detail') or ''} "
+            f"Next: {notice.get('action') or ''}"
+        ).strip()
+        if line not in lines:
+            lines.append(line)
+    conn.execute(
+        "UPDATE task_runs SET status_message = ? WHERE id = ?",
+        ("\n".join(lines), run_id),
+    )
+    conn.commit()
+    conn.close()
+
+
 @_schema_retry
 def _finish_run(run_id: str, status: str = "completed",
                 status_message: str = "", terminal_reason: str = "") -> None:
     conn = _get_conn()
+    row = conn.execute(
+        "SELECT status_message FROM task_runs WHERE id = ?",
+        (run_id,),
+    ).fetchone()
+    existing_status = str(row[0] or "") if row else ""
+    status_message = _merge_memory_fallback_status(existing_status, status_message)
     conn.execute(
         "UPDATE task_runs SET status = ?, status_message = ?, finished_at = ? "
         "WHERE id = ?",
@@ -3386,8 +3440,25 @@ def run_task_background(
                                 stopped = True
                                 break
                         try:
-                            result = invoke_agent(prompt, effective_tool_names, config,
-                                                 stop_event=_stop_event)
+                            generation_id = (
+                                f"workflow:{run_id}:{step_id}:{step_attempt}"
+                            )
+                            config["configurable"]["generation_id"] = generation_id
+                            try:
+                                result = invoke_agent(
+                                    prompt,
+                                    effective_tool_names,
+                                    config,
+                                    stop_event=_stop_event,
+                                )
+                            finally:
+                                try:
+                                    _record_run_recall_notices(run_id, generation_id)
+                                except Exception:
+                                    logger.debug(
+                                        "Could not persist workflow memory fallback notice",
+                                        exc_info=True,
+                                    )
                             if isinstance(result, dict) and result.get("type") == "terminal":
                                 terminal_reason = str(result.get("terminal_reason") or "")
                                 message = str(result.get("message") or "Workflow step stopped incomplete.")

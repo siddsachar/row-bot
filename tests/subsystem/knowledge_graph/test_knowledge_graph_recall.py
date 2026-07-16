@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+
 import pytest
 
 from tests.fixtures.knowledge_graph import fresh_knowledge_graph
@@ -41,3 +43,51 @@ def test_keyword_recall_falls_back_when_semantic_search_is_empty(tmp_path, monke
     assert results
     assert results[0]["subject"] == "Tea"
     assert results[0]["via"] in {"fts", "keyword", "hybrid"}
+
+
+def test_auto_recall_never_rebuilds_a_missing_vector_index(tmp_path, monkeypatch) -> None:
+    kg = fresh_knowledge_graph(tmp_path, monkeypatch)
+    kg = importlib.reload(kg)
+
+    def _unexpected_rebuild():
+        raise AssertionError("auto-recall must not synchronously rebuild the memory index")
+
+    monkeypatch.setattr(kg, "rebuild_index", _unexpected_rebuild)
+
+    with pytest.raises(kg.MemorySemanticUnavailable) as exc_info:
+        kg.semantic_search("cached recall", for_auto_recall=True)
+
+    assert exc_info.value.code == "memory_index_missing"
+
+
+def test_semantic_failure_reports_diagnostics_and_keeps_lexical_recall(tmp_path, monkeypatch) -> None:
+    kg = fresh_knowledge_graph(tmp_path, monkeypatch)
+    kg.save_entity(
+        "preference",
+        "Tea",
+        "The user prefers oolong tea during late work.",
+        tags="drink",
+        source="test",
+    )
+
+    def _semantic_unavailable(*_args, **_kwargs):
+        raise kg.MemorySemanticUnavailable(
+            "local_model_timeout",
+            "The cached local model did not become ready in time.",
+        )
+
+    monkeypatch.setattr(kg, "semantic_search", _semantic_unavailable)
+    diagnostics = {}
+
+    results = kg.retrieve_memory_candidates(
+        "oolong tea",
+        include_keyword=True,
+        max_results=3,
+        diagnostics=diagnostics,
+    )
+
+    assert results
+    assert results[0]["subject"] == "Tea"
+    assert diagnostics["semantic_status"] == "fallback"
+    assert diagnostics["semantic_fallback_code"] == "local_model_timeout"
+    assert diagnostics["semantic_wait_ms"] >= 0

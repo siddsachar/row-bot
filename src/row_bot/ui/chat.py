@@ -591,6 +591,18 @@ def build_chat(
                                         _reattach_gen.thinking_text.strip()[:8_000]
                                     ).classes("w-full text-xs")
                             _reattach_gen.thinking_collapsed = True
+                        for _notice in _reattach_gen.warnings:
+                            if not isinstance(_notice, dict):
+                                continue
+                            with ui.card().classes(
+                                "w-full bg-amber-1 text-amber-10 border border-amber-4 q-pa-sm"
+                            ):
+                                ui.label(str(_notice.get("title") or "Memory recall fallback")).classes(
+                                    "text-sm font-semibold"
+                                )
+                                ui.label(str(_notice.get("message") or "")).classes("text-xs")
+                                ui.label(f"Reason: {_notice.get('detail') or ''}").classes("text-xs")
+                                ui.label(f"Next: {_notice.get('action') or ''}").classes("text-xs font-medium")
                         _reattach_gen.assistant_md = ui.markdown(
                             _reattach_gen.accumulated,
                             extras=['code-friendly', 'fenced-code-blocks', 'tables'],
@@ -651,6 +663,8 @@ def build_chat(
             ):
                 a_msg: dict = {"role": "assistant", "content": _reattach_gen.accumulated}
                 attach_thinking_to_message(a_msg, _reattach_gen.thinking_text)
+                if _reattach_gen.warnings:
+                    a_msg["warnings"] = list(_reattach_gen.warnings)
                 if promoted_agent_run_ids:
                     a_msg["agent_run_ids"] = promoted_agent_run_ids
                     try:

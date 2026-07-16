@@ -14,6 +14,7 @@ import logging
 import os
 from pathlib import Path
 import re
+import threading
 from time import perf_counter
 from typing import Any
 
@@ -23,6 +24,9 @@ logger = logging.getLogger(__name__)
 
 _RECALL_TRACE_FILE = get_row_bot_data_dir() / "memory_recall_trace.json"
 _RECALL_TRACE_MAX = 100
+_FALLBACK_NOTICE_MAX = 100
+_fallback_notices: dict[str, list[dict[str, str]]] = {}
+_fallback_notice_lock = threading.Lock()
 
 
 AUTO_RECALL_MAX_MEMORIES = 5
@@ -73,6 +77,75 @@ class MemoryRecallDecision:
     selected: list[dict]
     candidates_seen: int
     trace: dict[str, Any] = field(default_factory=dict)
+
+
+def _fallback_next_action(code: str) -> str:
+    if code == "local_model_missing":
+        action = "Download model"
+    elif code == "local_model_timeout":
+        action = "Retry local load"
+    elif code == "memory_index_missing":
+        action = "Rebuild memory index"
+    elif code == "memory_index_stale":
+        action = "Rebuild memory index"
+    else:
+        action = "Repair local model"
+    return f"Open Settings -> Documents -> Embedding Engine, then choose {action}."
+
+
+def _publish_fallback_notice(
+    *,
+    code: str,
+    detail: str,
+    thread_id: str,
+    generation_id: str,
+) -> dict[str, str]:
+    notice = {
+        "code": str(code or "semantic_unavailable"),
+        "title": "Memory recall fallback",
+        "message": (
+            "Semantic memory recall was unavailable, so Row-Bot continued with "
+            "local lexical and graph recall."
+        ),
+        "detail": str(detail or "Semantic memory recall is unavailable."),
+        "action": _fallback_next_action(str(code or "semantic_unavailable")),
+        "thread_id": str(thread_id or ""),
+        "generation_id": str(generation_id or ""),
+    }
+    should_notify = True
+    if generation_id:
+        with _fallback_notice_lock:
+            notices = _fallback_notices.setdefault(str(generation_id), [])
+            if any(existing.get("code") == notice["code"] for existing in notices):
+                should_notify = False
+            else:
+                notices.append(notice)
+            while len(_fallback_notices) > _FALLBACK_NOTICE_MAX:
+                _fallback_notices.pop(next(iter(_fallback_notices)))
+    if not should_notify:
+        return notice
+    try:
+        from row_bot.notifications import notify
+
+        notify(
+            notice["title"],
+            f"{notice['message']} Reason: {notice['detail']} Next: {notice['action']}",
+            sound="none",
+            icon="⚠️",
+            toast_type="warning",
+        )
+    except Exception:
+        logger.debug("Could not publish memory fallback notification", exc_info=True)
+    return notice
+
+
+def consume_recall_fallback_notices(generation_id: str) -> list[dict[str, str]]:
+    """Return and clear fallback notices emitted for one generation."""
+    generation_id = str(generation_id or "")
+    if not generation_id:
+        return []
+    with _fallback_notice_lock:
+        return list(_fallback_notices.pop(generation_id, []))
 
 
 def _terms(text: str) -> list[str]:
@@ -321,6 +394,7 @@ def build_auto_recall(
         if kg.count_entities() <= 0:
             retrieve_ms = (perf_counter() - retrieve_started) * 1000.0
             return _finish(False, "no_memories", [], 0, gating_ms=gating_ms, retrieve_ms=retrieve_ms)
+        retrieval_diagnostics: dict[str, object] = {}
         candidates = kg.retrieve_memory_candidates(
             query,
             top_k=10,
@@ -328,8 +402,20 @@ def build_auto_recall(
             hops=1,
             max_results=24,
             include_keyword=True,
+            diagnostics=retrieval_diagnostics,
         )
         retrieve_ms = (perf_counter() - retrieve_started) * 1000.0
+        trace.update(retrieval_diagnostics)
+        if retrieval_diagnostics.get("semantic_status") == "fallback":
+            _publish_fallback_notice(
+                code=str(retrieval_diagnostics.get("semantic_fallback_code") or "semantic_unavailable"),
+                detail=str(
+                    retrieval_diagnostics.get("semantic_fallback_detail")
+                    or "Semantic memory recall is unavailable."
+                ),
+                thread_id=thread_id,
+                generation_id=generation_id,
+            )
     except Exception as exc:
         trace["error"] = str(exc)
         logger.debug("Memory auto-recall candidate retrieval failed", exc_info=True)
@@ -515,6 +601,9 @@ def record_recall_trace(decision: MemoryRecallDecision, *, block_chars: int = 0)
             "total_pipeline_ms": decision.trace.get("memory_recall.total_pipeline_ms"),
             "format_ms": decision.trace.get("memory_recall.format_ms"),
             "touch_ms": decision.trace.get("memory_recall.touch_ms"),
+            "semantic_status": decision.trace.get("semantic_status"),
+            "semantic_fallback_code": decision.trace.get("semantic_fallback_code"),
+            "semantic_wait_ms": decision.trace.get("semantic_wait_ms"),
             "top_scores": decision.trace.get("top_scores", [])[:5],
             "rejected": decision.trace.get("rejected", [])[:5],
         }

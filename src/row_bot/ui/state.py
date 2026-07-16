@@ -138,6 +138,7 @@ class GenerationState:
     live_async_agent_run_ids: set[str] = field(default_factory=set)
     baseline_child_agent_run_ids: set[str] = field(default_factory=set)
     chart_data: list = field(default_factory=list)
+    warnings: list = field(default_factory=list)
     captured_images: list = field(default_factory=list)
     captured_images_persist: list = field(default_factory=list)
     captured_videos: list = field(default_factory=list)

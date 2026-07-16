@@ -757,9 +757,23 @@ def _ensure_graph() -> nx.MultiDiGraph:
 # FAISS vector index (shared with documents.py embedding model)
 # ═════════════════════════════════════════════════════════════════════════════
 
-def _get_embedding_model():
-    """Return the shared HuggingFaceEmbeddings instance from documents.py."""
+class MemorySemanticUnavailable(RuntimeError):
+    """A display-safe reason why semantic memory recall is unavailable."""
+
+    def __init__(self, code: str, detail: str):
+        self.code = str(code or "semantic_unavailable")
+        self.detail = str(detail or "Semantic memory recall is unavailable.")
+        super().__init__(self.detail)
+
+
+def _get_embedding_model(*, for_auto_recall: bool = False):
+    """Return the shared embedding model using the appropriate load path."""
+    if for_auto_recall:
+        from row_bot.documents import get_embedding_model_for_recall
+
+        return get_embedding_model_for_recall()
     from row_bot.documents import get_embedding_model
+
     return get_embedding_model()
 
 
@@ -1403,10 +1417,37 @@ def _ensure_user_entity() -> str:
 
 
 
+def memory_vector_status() -> dict[str, object]:
+    """Return whether auto-recall can use the existing memory vector index."""
+    from row_bot.embedding_config import index_metadata_matches
+
+    index_path = _VECTOR_DIR / "index.faiss"
+    map_path = _VECTOR_DIR / "id_map.json"
+    if not index_path.exists() or not map_path.exists():
+        return {
+            "state": "missing",
+            "ready": False,
+            "detail": "The memory vector index has not been built.",
+        }
+    if not index_metadata_matches(_VECTOR_DIR):
+        return {
+            "state": "stale",
+            "ready": False,
+            "detail": "The memory vector index does not match the selected embedding model.",
+        }
+    return {
+        "state": "ready",
+        "ready": True,
+        "detail": "The memory vector index is ready.",
+    }
+
+
 def semantic_search(
     query: str,
     top_k: int = 5,
     threshold: float = 0.5,
+    *,
+    for_auto_recall: bool = False,
 ) -> list[dict]:
     """Return the top-k entities most semantically similar to *query*.
 
@@ -1417,20 +1458,32 @@ def semantic_search(
 
     index_path = _VECTOR_DIR / "index.faiss"
     map_path = _VECTOR_DIR / "id_map.json"
-    from row_bot.embedding_config import index_metadata_matches
-
-    if not index_path.exists() or not map_path.exists() or not index_metadata_matches(_VECTOR_DIR):
+    vector_status = memory_vector_status()
+    if not vector_status["ready"]:
+        if for_auto_recall:
+            raise MemorySemanticUnavailable(
+                f"memory_index_{vector_status['state']}",
+                str(vector_status["detail"]),
+            )
         rebuild_index()
     if not index_path.exists():
         return []
 
-    with _faiss_lock:
-        index = _faiss.read_index(str(index_path))
-        if index.ntotal == 0:
-            return []
-        id_map: list[str] = json.loads(map_path.read_text())
+    try:
+        with _faiss_lock:
+            index = _faiss.read_index(str(index_path))
+            if index.ntotal == 0:
+                return []
+            id_map: list[str] = json.loads(map_path.read_text())
+    except Exception as exc:
+        if for_auto_recall:
+            raise MemorySemanticUnavailable(
+                "memory_index_failed",
+                "The memory vector index could not be read.",
+            ) from exc
+        raise
 
-    emb = _get_embedding_model()
+    emb = _get_embedding_model(for_auto_recall=for_auto_recall)
     qvec = np.array(emb.embed_query(query), dtype=np.float32).reshape(1, -1)
     qvec = qvec / (np.linalg.norm(qvec) or 1)
 
@@ -2403,6 +2456,7 @@ def retrieve_memory_candidates(
     hops: int = 1,
     max_results: int = 20,
     include_keyword: bool = True,
+    diagnostics: dict[str, object] | None = None,
 ) -> list[dict]:
     """Retrieve recall candidates without mutating ``recalled_at``.
 
@@ -2413,12 +2467,42 @@ def retrieve_memory_candidates(
     if not query:
         return []
 
+    if diagnostics is not None:
+        diagnostics.update(
+            {
+                "semantic_status": "not_attempted",
+                "semantic_fallback_code": "",
+                "semantic_fallback_detail": "",
+                "semantic_wait_ms": 0,
+            }
+        )
     result_by_id: dict[str, dict] = {}
     seeds: list[dict] = []
+    semantic_started = time.perf_counter()
     try:
-        seeds = semantic_search(query, top_k=top_k, threshold=threshold)
-    except Exception:
+        seeds = semantic_search(
+            query,
+            top_k=top_k,
+            threshold=threshold,
+            for_auto_recall=True,
+        )
+        if diagnostics is not None:
+            diagnostics["semantic_status"] = "used" if seeds else "no_matches"
+    except Exception as exc:
         seeds = []
+        if diagnostics is not None:
+            diagnostics["semantic_status"] = "fallback"
+            diagnostics["semantic_fallback_code"] = str(
+                getattr(exc, "code", "semantic_unavailable")
+            )
+            diagnostics["semantic_fallback_detail"] = str(
+                getattr(exc, "detail", "Semantic memory recall is unavailable.")
+            )
+    finally:
+        if diagnostics is not None:
+            diagnostics["semantic_wait_ms"] = round(
+                (time.perf_counter() - semantic_started) * 1000
+            )
 
     decay_floor = threshold * 0.7
     for seed in seeds:
