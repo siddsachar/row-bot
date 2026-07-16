@@ -204,6 +204,13 @@ def build_parent_agent_drawer(
                 ui.badge(status, color=_agent_status_color(status)).props("outline dense")
                 ui.label(name).classes("text-xs font-medium ellipsis").style("flex: 1; min-width: 0;")
                 ui.label(profile).classes("text-xs text-grey-6 ellipsis").style("max-width: 120px;")
+                used = int(agent_run.get("model_iterations_used") or 0)
+                maximum = int(agent_run.get("model_iterations_max") or 0)
+                depth = int(agent_run.get("depth") or 0)
+                if maximum:
+                    ui.label(f"{used}/{maximum} · d{depth}").classes(
+                        "text-xs text-grey-7 no-wrap"
+                    ).tooltip("Model work rounds used · delegation depth")
                 if workspace_mode == "worktree":
                     ui.badge("Worktree", color="blue-grey").props("outline dense").tooltip(
                         workspace_detail or "Runs in its own local git Worktree."

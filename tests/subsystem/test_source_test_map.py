@@ -109,6 +109,19 @@ def test_chat_composer_change_selects_slash_skills_and_mobile_regressions() -> N
     assert not selection.unmatched_files
 
 
+def test_live_control_change_selects_computer_browser_and_chat_regressions() -> None:
+    selection = select_tests_for_changes(["src/row_bot/ui/live_control.py"])
+
+    assert "live_control" in selection.matched_rules
+    assert "computer_use" in selection.matched_rules
+    assert "browser_automation" in selection.matched_rules
+    assert "tests/subsystem/computer_use" in selection.test_paths
+    assert "tests/integration/computer_use" in selection.test_paths
+    assert "tests/subsystem/browser" in selection.test_paths
+    assert "tests/test_chat_tool_trace_ui.py" in selection.test_paths
+    assert not selection.unmatched_files
+
+
 def test_prompt_context_change_selects_prompt_and_provider_regressions() -> None:
     selection = select_tests_for_changes([
         "src/row_bot/agent.py",

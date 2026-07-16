@@ -104,6 +104,30 @@ POPULAR_VISION_MODELS = [
     "llava-phi3:3.8b",
 ]
 
+
+def _encoded_image_mime(image_bytes: bytes) -> str:
+    """Return the data-URL MIME for supported encoded image bytes.
+
+    Camera frames are normally JPEG while Computer Use captures are PNG.
+    Provider requests must describe the bytes truthfully or the model can
+    silently receive an undecodable image and hallucinate visual geometry.
+    Unknown legacy inputs retain the historical JPEG default.
+    """
+
+    if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if image_bytes.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if image_bytes.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if (
+        len(image_bytes) >= 12
+        and image_bytes.startswith(b"RIFF")
+        and image_bytes[8:12] == b"WEBP"
+    ):
+        return "image/webp"
+    return "image/jpeg"
+
 # ── Persistent settings ─────────────────────────────────────────────────────
 _DATA_DIR = get_row_bot_data_dir()
 _SETTINGS_PATH = _DATA_DIR / "vision_settings.json"
@@ -223,6 +247,20 @@ def vision_model_compatibility(model: str | None) -> dict[str, Any]:
     except Exception:
         logger.debug("Vision compatibility check failed", exc_info=True)
     return result
+
+
+def vision_provider_disclosure(model: str | None = None) -> dict[str, Any]:
+    """Return local-only provider disclosure for screenshot-bearing features."""
+
+    selected = str(model or _load_settings().get("model") or DEFAULT_VISION_MODEL)
+    provider_id = _vision_provider_id(selected)
+    is_cloud = provider_id not in {"", "local", "ollama"}
+    return {
+        "model": selected,
+        "provider_id": provider_id or "ollama",
+        "provider_label": _vision_provider_label(selected),
+        "is_cloud": is_cloud,
+    }
 
 
 # ── Camera utilities ─────────────────────────────────────────────────────────
@@ -480,12 +518,22 @@ class VisionService:
                 provider_id = _vision_provider_id(self._model)
                 if provider_id in {"", "local", "ollama"}:
                     return self._analyze_ollama_local(b64, question)
-                return self._analyze_provider(b64, question)
+                return self._analyze_provider(
+                    b64,
+                    question,
+                    mime_type=_encoded_image_mime(image_bytes),
+                )
             except Exception as exc:
                 logger.error("Vision model error: %s", exc)
                 return f"Vision analysis failed: {exc}"
 
-    def _analyze_provider(self, b64: str, question: str) -> str:
+    def _analyze_provider(
+        self,
+        b64: str,
+        question: str,
+        *,
+        mime_type: str = "image/jpeg",
+    ) -> str:
         """Send image to the selected provider-backed vision model."""
         from row_bot.models import get_llm_for
         from langchain_core.messages import HumanMessage
@@ -494,7 +542,7 @@ class VisionService:
         try:
             msg = HumanMessage(content=[
                 {"type": "text", "text": question},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64}"}},
             ])
             llm = get_llm_for(self._model)
             response = llm.invoke([msg])

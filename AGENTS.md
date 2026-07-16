@@ -20,7 +20,14 @@ Priorities, in order:
 
 ## Ground Rules
 
-- Do not add telemetry, analytics, or hidden phone-home behavior.
+- Do not add Row-Bot first-party telemetry, analytics, or hidden phone-home
+  behavior. A third-party dependency with telemetry may be used only when its
+  behavior is reviewed, documented, disclosed before installation or first
+  execution, and accepted by the user. Never describe third-party telemetry
+  as Row-Bot telemetry, and never allow dependency telemetry to include
+  Row-Bot prompts, files, memories, secrets, screenshots, tool arguments, or
+  channel content. The reviewed, opt-in Cua Driver integration is the only
+  currently approved exception; future dependencies require a separate review.
 - Do not commit secrets, API keys, provider tokens, private local paths, or real
   user data in code, tests, docs, fixtures, snapshots, or logs.
 - Do not make default tests depend on live providers, live MCP servers, real

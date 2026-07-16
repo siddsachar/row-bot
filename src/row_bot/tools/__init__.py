@@ -77,6 +77,7 @@ _OPTIONAL_TOOL_MODULES = (
     "row_bot.tools.developer_tool",
     "row_bot.designer.tool",
     "row_bot.tools.browser_tool",
+    "row_bot.tools.computer_use_tool",
 )
 
 for _module_name in _CORE_TOOL_MODULES:

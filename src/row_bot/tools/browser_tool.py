@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import ipaddress
 import logging
 import os
 import pathlib
@@ -42,11 +43,13 @@ import queue
 import re
 import signal
 import subprocess
-from urllib.parse import urlparse
+import tempfile
+from urllib.parse import parse_qsl, urlparse, urlunparse
 import threading
 import time
 from datetime import datetime
 from typing import Any, Optional
+from dataclasses import dataclass, field
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -63,6 +66,7 @@ DATA_DIR = get_row_bot_data_dir()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 _PROFILE_DIR = DATA_DIR / "browser_profile"
 _HISTORY_PATH = DATA_DIR / "browser_history.json"
+_history_lock = threading.RLock()
 
 _IS_WINDOWS = platform.system() == "Windows"
 
@@ -213,7 +217,7 @@ def _build_snapshot_js(max_elements: int) -> str:
         if (refNum > MAX_ELEMENTS) { skipped++; continue; }
 
         const href = el.getAttribute('href') || '';
-        const value = el.value !== undefined ? String(el.value).substring(0, 40) : '';
+        const valueLength = el.value !== undefined ? String(el.value).length : 0;
 
         // Store ref number as a data attribute for later retrieval
         el.setAttribute('data-row-bot-ref', String(refNum));
@@ -224,16 +228,16 @@ def _build_snapshot_js(max_elements: int) -> str:
         else if (tag === 'input') {
             desc += ` input[${type || 'text'}]`;
             if (label) desc += ` "${label}"`;
-            if (value) desc += ` value="${value}"`;
+            if (valueLength) desc += ` value_length=${valueLength}`;
         }
         else if (tag === 'textarea') {
             desc += ` textarea`;
             if (label) desc += ` "${label}"`;
-            if (value) desc += ` value="${value.substring(0, 40)}"`;
+            if (valueLength) desc += ` value_length=${valueLength}`;
         }
         else if (tag === 'select') {
             desc += ` select "${label}"`;
-            if (value) desc += ` value="${value}"`;
+            if (valueLength) desc += ` value_present=true`;
         }
         else desc += ` ${tag}${role ? '[role=' + role + ']' : ''} "${label}"`;
 
@@ -368,6 +372,90 @@ def _check_exfiltration_url(url: str) -> str:
     return ""
 
 
+def _history_url(url: str) -> str:
+    """Persist origin/path only; query and fragment may contain secrets."""
+
+    try:
+        parsed = urlparse(url)
+        return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
+    except Exception:
+        return "[invalid URL]"
+
+
+def _navigation_policy(url: str, current_url: str = "") -> tuple[str, str]:
+    """Return (block|ask|allow, reason) for a proposed navigation."""
+
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return "block", "Malformed URL."
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return "block", "Only explicit HTTP(S) origins are allowed."
+    if parsed.username or parsed.password:
+        return "block", "Credentials in URLs are not allowed."
+    warning = _check_exfiltration_url(url)
+    if warning:
+        return "block", warning.strip("()")
+    sensitive_names = re.compile(r"(?:token|secret|password|passwd|api[_-]?key|auth|session|otp|code)", re.IGNORECASE)
+    for key, value in parse_qsl(parsed.query, keep_blank_values=True):
+        if sensitive_names.search(key) and value:
+            return "ask", f"URL query parameter '{key}' may contain sensitive data."
+    host = parsed.hostname.strip("[]")
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        address = None
+    if host.casefold() == "localhost" or (address and (address.is_private or address.is_loopback or address.is_link_local)):
+        return "ask", "Navigation targets a local or private-network origin."
+    if current_url:
+        current = urlparse(current_url)
+        current_origin = (current.scheme.lower(), (current.hostname or "").lower(), current.port)
+        proposed_origin = (parsed.scheme.lower(), (parsed.hostname or "").lower(), parsed.port)
+        if current.hostname and current_origin != proposed_origin and parsed.query:
+            return "ask", f"Cross-origin navigation with query data: {current_origin[1]} → {proposed_origin[1]}."
+    return "allow", ""
+
+
+def _consequential_browser_target(metadata: dict[str, Any], *, submit: bool = False) -> str:
+    from row_bot.computer_use.policy import is_consequential_label
+
+    label = " ".join(str(metadata.get(key) or "") for key in ("label", "text", "type", "role", "href", "form_action"))
+    if submit:
+        return "Submitting a form may create an external side effect."
+    if str(metadata.get("type") or "").lower() == "file":
+        return "File upload controls require approval."
+    if metadata.get("download"):
+        return "Downloads require approval."
+    if is_consequential_label(label):
+        return f"The target '{str(metadata.get('label') or metadata.get('text') or 'control')[:120]}' may create an external side effect."
+    return ""
+
+
+@dataclass
+class _BrowserWorkItem:
+    fn: Any
+    future: concurrent.futures.Future
+    scope: Any = None
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+    _cancelled: bool = False
+    _dispatched: bool = False
+
+    def cancel(self) -> None:
+        with self._lock:
+            if not self._dispatched:
+                self._cancelled = True
+                self.future.cancel()
+
+    def begin_dispatch(self) -> bool:
+        with self._lock:
+            if self._cancelled or self.future.cancelled() or (self.scope is not None and self.scope.is_cancelled()):
+                self._cancelled = True
+                self.future.cancel()
+                return False
+            self._dispatched = True
+            return True
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # BROWSER SESSION — one per thread
 # ═════════════════════════════════════════════════════════════════════════════
@@ -397,6 +485,7 @@ class BrowserSession:
         self._context = None     # BrowserContext  (owned by _pw_thread)
         self._launched = False
         self._closed = False
+        self._page_owners: dict[Any, str] = {}
         self._thread_pages: dict[str, Any] = {}  # thread_id → Page
         self._thread_pages_last_used: dict[str, float] = {}  # thread_id → monotonic ts
         self._browser_pid: int | None = None  # PID of the browser process
@@ -406,6 +495,158 @@ class BrowserSession:
         self._work_q: queue.Queue = queue.Queue()
         self._pw_thread: threading.Thread | None = None
         self._ready = threading.Event()   # set once PW is running
+        self._activity_lock = threading.RLock()
+        self._activity_by_thread: dict[str, dict[str, Any]] = {}
+        self._activity_revision = 0
+        self._activity_listeners: list[Any] = []
+        self._preview_by_thread: dict[str, bytes] = {}
+        self._preview_shielded: set[str] = set()
+
+    # ── Local live-control state (never captures or drives the page) ──
+
+    def add_activity_listener(self, callback: Any) -> Any:
+        with self._activity_lock:
+            self._activity_listeners.append(callback)
+        return lambda: self._remove_activity_listener(callback)
+
+    def _remove_activity_listener(self, callback: Any) -> None:
+        with self._activity_lock:
+            if callback in self._activity_listeners:
+                self._activity_listeners.remove(callback)
+
+    @staticmethod
+    def _site_label(url: str) -> str:
+        parsed = urlparse(str(url or ""))
+        return str(parsed.hostname or "New tab")[:120]
+
+    def _publish_activity(
+        self,
+        thread_id: str,
+        *,
+        state: str,
+        action: str = "",
+        page: Any = None,
+        active: bool = True,
+    ) -> None:
+        """Publish metadata already available on the Playwright thread."""
+
+        thread_id = str(thread_id or "default")
+        with self._activity_lock:
+            previous = dict(self._activity_by_thread.get(thread_id) or {})
+            url = str(previous.get("url") or "")
+            title = str(previous.get("title") or "")
+            if page is not None:
+                try:
+                    url = str(page.url or "")
+                except Exception:
+                    pass
+                try:
+                    title = str(page.title() or "")[:160]
+                except Exception:
+                    pass
+            if url and url != str(previous.get("url") or ""):
+                self._preview_by_thread.pop(thread_id, None)
+                self._preview_shielded.discard(thread_id)
+            self._activity_revision += 1
+            snapshot = {
+                "engine": "browser",
+                "active": bool(active),
+                "paused": state == "waiting_user",
+                "thread_id": thread_id,
+                "state": str(state),
+                "target": title or self._site_label(url),
+                "site": self._site_label(url),
+                "url": url,
+                "last_action": str(action or previous.get("last_action") or "")[:160],
+                "has_thumbnail": thread_id in self._preview_by_thread,
+                "preview_shielded": thread_id in self._preview_shielded,
+                "revision": self._activity_revision,
+            }
+            if active:
+                self._activity_by_thread[thread_id] = snapshot
+            else:
+                self._activity_by_thread.pop(thread_id, None)
+            listeners = list(self._activity_listeners)
+        for callback in listeners:
+            try:
+                callback(dict(snapshot))
+            except Exception:
+                logger.debug("Browser live-control listener failed", exc_info=True)
+
+    def status_snapshot(self, thread_id: str) -> dict[str, Any]:
+        with self._activity_lock:
+            snapshot = self._activity_by_thread.get(str(thread_id or "default"))
+            if snapshot:
+                return dict(snapshot)
+            return {
+                "engine": "browser",
+                "active": False,
+                "paused": False,
+                "thread_id": str(thread_id or "default"),
+                "state": "idle",
+                "target": "",
+                "site": "",
+                "url": "",
+                "last_action": "",
+                "has_thumbnail": False,
+                "preview_shielded": False,
+                "revision": self._activity_revision,
+            }
+
+    def end_activity(self, thread_id: str, *, preserve_takeover: bool = False) -> None:
+        snapshot = self.status_snapshot(thread_id)
+        if preserve_takeover and snapshot.get("state") == "waiting_user":
+            return
+        with self._activity_lock:
+            self._preview_by_thread.pop(str(thread_id or "default"), None)
+            self._preview_shielded.discard(str(thread_id or "default"))
+        self._publish_activity(thread_id, state="idle", active=False)
+
+    def ephemeral_screenshot(self, thread_id: str) -> bytes | None:
+        """Return the latest in-memory task-tab frame without capturing."""
+
+        with self._activity_lock:
+            return self._preview_by_thread.get(str(thread_id or "default"))
+
+    def _set_preview_frame(
+        self,
+        thread_id: str,
+        image: bytes | None,
+        *,
+        shielded: bool,
+    ) -> None:
+        thread_id = str(thread_id or "default")
+        with self._activity_lock:
+            if image:
+                self._preview_by_thread[thread_id] = bytes(image)
+            else:
+                self._preview_by_thread.pop(thread_id, None)
+            if shielded:
+                self._preview_shielded.add(thread_id)
+            else:
+                self._preview_shielded.discard(thread_id)
+            snapshot = dict(self._activity_by_thread.get(thread_id) or {})
+        if snapshot.get("active"):
+            self._publish_activity(
+                thread_id,
+                state=str(snapshot.get("state") or "observing"),
+                action=str(snapshot.get("last_action") or ""),
+            )
+
+    def mark_waiting_approval(self, thread_id: str, action: str) -> None:
+        self._publish_activity(
+            thread_id,
+            state="waiting_approval",
+            action=action,
+        )
+
+    def _run_activity(self, thread_id: str, action: str, fn: Any) -> Any:
+        self._publish_activity(thread_id, state="acting", action=action)
+        try:
+            return self._run_on_pw_thread(fn)
+        except BaseException:
+            self._publish_activity(thread_id, state="needs_attention", action=action)
+            raise
 
     # ── Internal: run callables on the Playwright thread ─────────────
 
@@ -425,7 +666,6 @@ class BrowserSession:
                 "user_data_dir": str(_PROFILE_DIR),
                 "headless": False,
                 "viewport": _VIEWPORT,
-                "bypass_csp": True,
                 "args": [
                     "--disable-blink-features=AutomationControlled",
                     "--no-first-run",
@@ -434,6 +674,15 @@ class BrowserSession:
             }
             if channel:
                 launch_kwargs["channel"] = channel
+            else:
+                from row_bot.mcp_client.requirements import playwright_browser_executable_path
+
+                executable_path = playwright_browser_executable_path()
+                if not executable_path:
+                    raise RuntimeError(
+                        "Playwright Chromium is not installed. Use Settings > System > Browser Automation > Install browser runtime."
+                    )
+                launch_kwargs["executable_path"] = executable_path
 
             self._context = self._pw.chromium.launch_persistent_context(**launch_kwargs)
             self._launched = True
@@ -448,7 +697,11 @@ class BrowserSession:
             def _on_close():
                 logger.warning("Browser closed externally — marking session dead")
                 self._launched = False
+                activity_threads = list(self._activity_by_thread)
                 self._thread_pages.clear()
+                self._page_owners.clear()
+                for activity_thread in activity_threads:
+                    self.end_activity(activity_thread)
                 # Push a sentinel so the work-queue loop exits cleanly
                 try:
                     self._work_q.put(None)
@@ -465,8 +718,8 @@ class BrowserSession:
             self._ready.set()
         except Exception as exc:
             msg = str(exc).lower()
-            if "executable doesn't exist" in msg:
-                logger.warning("Chromium runtime missing; attempting first-run install")
+            if "executable doesn't exist" in msg or "not installed" in msg:
+                logger.warning("Chromium runtime missing; explicit installation is required")
             else:
                 logger.error("Browser launch failed: %s", exc)
             self._launch_error = exc
@@ -486,14 +739,16 @@ class BrowserSession:
             item = self._work_q.get()
             if item is None:
                 break  # shutdown sentinel
-            fn, future = item
+            work = item
+            if not work.begin_dispatch():
+                continue
             try:
-                result = fn()
-                if not future.cancelled():
-                    future.set_result(result)
+                result = work.fn()
+                if not work.future.cancelled():
+                    work.future.set_result(result)
             except Exception as exc:
-                if not future.cancelled():
-                    future.set_exception(exc)
+                if not work.future.cancelled():
+                    work.future.set_exception(exc)
 
         # Teardown (still on the PW thread)
         try:
@@ -519,9 +774,8 @@ class BrowserSession:
                 break
             if item is None:
                 continue
-            _, future = item
-            if not future.done():
-                future.set_exception(RuntimeError("Browser session ended"))
+            if not item.future.done():
+                item.future.set_exception(RuntimeError("Browser session ended"))
 
     def _kill_orphaned_browser(self) -> None:
         """Kill only the browser process Playwright launched (PID-scoped).
@@ -566,6 +820,7 @@ class BrowserSession:
             was_previous_crash = (self._pw_thread is not None
                                   and not self._launched)
             self._thread_pages.clear()  # stale after crash/restart
+            self._page_owners.clear()
             for attempt in range(_MAX_RETRIES + 1):
                 if attempt > 0 or was_previous_crash:
                     logger.warning(
@@ -591,22 +846,6 @@ class BrowserSession:
                 # Launch failed — check if we have retries left
                 err = self._launch_error
 
-                # Auto-install Chromium if the binary is missing
-                if err and "executable doesn't exist" in str(err).lower():
-                    logger.warning("Chromium binary not found — running "
-                                   "'playwright install chromium'...")
-                    try:
-                        import sys as _sys
-                        subprocess.run(
-                            [_sys.executable, "-m", "playwright", "install",
-                             "chromium"],
-                            check=True, capture_output=True, timeout=300,
-                        )
-                        logger.info("Chromium installed successfully")
-                    except Exception as install_exc:
-                        logger.error("Chromium auto-install failed: %s",
-                                     install_exc)
-
                 if attempt < _MAX_RETRIES:
                     logger.warning("Browser launch failed (attempt %d): %s",
                                    attempt + 1, err)
@@ -618,15 +857,16 @@ class BrowserSession:
                 )
 
         future: concurrent.futures.Future = concurrent.futures.Future()
-        self._work_q.put((fn, future))
+        work = _BrowserWorkItem(fn=fn, future=future, scope=scope)
+        self._work_q.put(work)
         unregister = None
         if scope is not None:
-            unregister = scope.register(future.cancel, "browser_future.cancel")
+            unregister = scope.register(work.cancel, "browser_work.cancel")
         try:
             deadline = time.monotonic() + 120.0
             while True:
                 if scope is not None and scope.is_cancelled():
-                    future.cancel()
+                    work.cancel()
                     return "Browser action stopped by user."
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
@@ -687,12 +927,13 @@ class BrowserSession:
             self._thread_pages_last_used.pop(thread_id, None)
 
         # Claim an unowned *blank* page if available
-        owned_pages = set(self._thread_pages.values())
+        owned_pages = set(self._page_owners)
         for p in self._context.pages:
             try:
                 if (p not in owned_pages and not p.is_closed()
                         and p.url in self._BLANK_URLS):
                     self._thread_pages[thread_id] = p
+                    self._page_owners[p] = thread_id
                     self._thread_pages_last_used[thread_id] = time.monotonic()
                     return p
             except Exception:
@@ -701,6 +942,7 @@ class BrowserSession:
         # No blank unowned pages — open a new tab
         new_page = self._context.new_page()
         self._thread_pages[thread_id] = new_page
+        self._page_owners[new_page] = thread_id
         self._thread_pages_last_used[thread_id] = time.monotonic()
         return new_page
 
@@ -725,6 +967,7 @@ class BrowserSession:
             page = self._thread_pages.get(thread_id)
             if page and not page.is_closed():
                 return page
+            return None
         # Fall back to any owned page (most recently added)
         for pg in reversed(list(self._thread_pages.values())):
             try:
@@ -749,27 +992,30 @@ class BrowserSession:
         (Playwright requires at least one page in the context).
         """
         if not self._launched or self._closed:
+            self.end_activity(thread_id)
             return
         try:
             def _do():
-                page = self._thread_pages.pop(thread_id, None)
+                pages = [page for page, owner in list(self._page_owners.items()) if owner == thread_id]
+                self._thread_pages.pop(thread_id, None)
                 self._thread_pages_last_used.pop(thread_id, None)
-                if page is None:
-                    return
-                try:
-                    if page.is_closed():
-                        return
-                    # Don't close the last tab
-                    if len(self._context.pages) <= 1:
-                        return
-                    page.close()
-                except Exception:
-                    pass
+                for page in pages:
+                    self._page_owners.pop(page, None)
+                    try:
+                        if not page.is_closed() and len(self._context.pages) > 1:
+                            page.close()
+                    except Exception:
+                        pass
             self._run_on_pw_thread(_do)
         except Exception:
             # Browser may be crashed / closed — just drop the mapping
             self._thread_pages.pop(thread_id, None)
             self._thread_pages_last_used.pop(thread_id, None)
+            for page, owner in list(self._page_owners.items()):
+                if owner == thread_id:
+                    self._page_owners.pop(page, None)
+        finally:
+            self.end_activity(thread_id)
 
     def evict_idle(self, ttl_seconds: float = 600.0) -> int:
         """Close tabs untouched for longer than *ttl_seconds*.
@@ -800,8 +1046,12 @@ class BrowserSession:
     def close(self) -> None:
         """Shut down the browser and Playwright thread."""
         self._closed = True
+        activity_threads = list(self._activity_by_thread)
         self._thread_pages.clear()
+        self._page_owners.clear()
         self._thread_pages_last_used.clear()
+        for activity_thread in activity_threads:
+            self.end_activity(activity_thread)
         try:
             self._work_q.put(None)  # sentinel to exit _pw_loop
         except Exception:
@@ -810,6 +1060,64 @@ class BrowserSession:
             self._pw_thread.join(timeout=10)
 
     # ── Actions (called from any thread) ─────────────────────────────
+
+    def current_url(self, thread_id: str = "default") -> str:
+        """Return the calling thread's active URL without creating a tab."""
+
+        if not self._launched or self._closed:
+            return ""
+        def _do():
+            page = self._thread_pages.get(thread_id)
+            return page.url if page is not None and not page.is_closed() else ""
+        return self._run_on_pw_thread(_do)
+
+    def bring_to_front(self, thread_id: str = "default") -> bool:
+        """Bring only the task-owned tab forward without creating a tab."""
+
+        if not self._launched or self._closed:
+            return False
+
+        def _do() -> bool:
+            page = self._thread_pages.get(thread_id)
+            if page is None or page.is_closed():
+                return False
+            page.bring_to_front()
+            self._publish_activity(
+                thread_id,
+                state="waiting_user",
+                action="You took over this tab",
+                page=page,
+            )
+            return True
+
+        return bool(self._run_on_pw_thread(_do))
+
+    def take_over(self, thread_id: str = "default") -> bool:
+        """Foreground the task-owned tab and mark automation as user-owned."""
+
+        return self.bring_to_front(thread_id)
+
+    def describe_ref(self, ref: int, thread_id: str = "default") -> dict[str, Any]:
+        """Return minimal untrusted metadata used only to increase gating."""
+
+        def _do():
+            page = self._get_page_for_thread(thread_id)
+            element = page.query_selector(f'[data-row-bot-ref="{ref}"]')
+            if element is None:
+                return {}
+            return element.evaluate("""
+                el => ({
+                    tag: (el.tagName || '').toLowerCase(),
+                    type: el.getAttribute('type') || '',
+                    role: el.getAttribute('role') || '',
+                    label: el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('placeholder') || '',
+                    text: (el.innerText || '').trim().slice(0, 160),
+                    href: el.getAttribute('href') || '',
+                    download: el.hasAttribute('download'),
+                    form_action: el.form ? (el.form.getAttribute('action') || '') : '',
+                })
+            """)
+        return dict(self._run_on_pw_thread(_do) or {})
 
     def navigate(self, url: str, thread_id: str = "default") -> str:
         """Navigate to *url* and return snapshot."""
@@ -823,10 +1131,22 @@ class BrowserSession:
                 except Exception:
                     pass
             except Exception as exc:
+                self._publish_activity(
+                    thread_id,
+                    state="needs_attention",
+                    action="Open website",
+                    page=page,
+                )
                 return f"Navigation failed: {exc}"
             snap = _take_snapshot(page)
+            self._publish_activity(
+                thread_id,
+                state="observing",
+                action="Opened website",
+                page=page,
+            )
             return _format_snapshot(snap)
-        return self._run_on_pw_thread(_do)
+        return self._run_activity(thread_id, "Open website", _do)
 
     def click(self, ref: int, thread_id: str = "default") -> str:
         """Click element by ref and return snapshot."""
@@ -834,8 +1154,14 @@ class BrowserSession:
             page = self._get_page_for_thread(thread_id)
             result = _click_ref(page, ref)
             snap = _take_snapshot(page)
+            self._publish_activity(
+                thread_id,
+                state="observing",
+                action="Clicked a page control",
+                page=page,
+            )
             return f"{result}\n\n{_format_snapshot(snap)}"
-        return self._run_on_pw_thread(_do)
+        return self._run_activity(thread_id, "Click page control", _do)
 
     def type_text(self, ref: int, text: str, submit: bool = False,
                   thread_id: str = "default") -> str:
@@ -844,8 +1170,14 @@ class BrowserSession:
             page = self._get_page_for_thread(thread_id)
             result = _type_ref(page, ref, text, submit)
             snap = _take_snapshot(page)
+            self._publish_activity(
+                thread_id,
+                state="observing",
+                action="Entered text (value hidden)",
+                page=page,
+            )
             return f"{result}\n\n{_format_snapshot(snap)}"
-        return self._run_on_pw_thread(_do)
+        return self._run_activity(thread_id, "Enter text (value hidden)", _do)
 
     def scroll(self, direction: str = "down", amount: int = 3,
                thread_id: str = "default") -> str:
@@ -859,18 +1191,36 @@ class BrowserSession:
                 page.mouse.wheel(0, delta)
                 page.wait_for_timeout(500)
             except Exception as exc:
+                self._publish_activity(
+                    thread_id,
+                    state="needs_attention",
+                    action="Scroll page",
+                    page=page,
+                )
                 return f"Scroll failed: {exc}"
             snap = _take_snapshot(page)
+            self._publish_activity(
+                thread_id,
+                state="observing",
+                action="Scrolled page",
+                page=page,
+            )
             return _format_snapshot(snap)
-        return self._run_on_pw_thread(_do)
+        return self._run_activity(thread_id, "Scroll page", _do)
 
     def snapshot(self, thread_id: str = "default") -> str:
         """Take a fresh snapshot of the current page."""
         def _do():
             page = self._get_page_for_thread(thread_id)
             snap = _take_snapshot(page)
+            self._publish_activity(
+                thread_id,
+                state="observing",
+                action="Checked current page",
+                page=page,
+            )
             return _format_snapshot(snap)
-        return self._run_on_pw_thread(_do)
+        return self._run_activity(thread_id, "Check current page", _do)
 
     def go_back(self, thread_id: str = "default") -> str:
         """Go back one page and return snapshot."""
@@ -883,23 +1233,41 @@ class BrowserSession:
                 except Exception:
                     pass
             except Exception as exc:
+                self._publish_activity(
+                    thread_id,
+                    state="needs_attention",
+                    action="Go back",
+                    page=page,
+                )
                 return f"Back navigation failed: {exc}"
             snap = _take_snapshot(page)
+            self._publish_activity(
+                thread_id,
+                state="observing",
+                action="Went back",
+                page=page,
+            )
             return _format_snapshot(snap)
-        return self._run_on_pw_thread(_do)
+        return self._run_activity(thread_id, "Go back", _do)
 
     def tab_action(self, action: str = "list", tab_id: int | None = None,
                    url: str | None = None, thread_id: str = "default") -> str:
         """Manage tabs: list, switch, new, close."""
         def _do():
-            pages = self._context.pages
             my_page = self._get_page_for_thread(thread_id)
+            pages = [page for page, owner in self._page_owners.items() if owner == thread_id and not page.is_closed()]
 
             if action == "list":
                 lines = [f"Open tabs ({len(pages)}):"]
                 for i, pg in enumerate(pages):
                     marker = " ← active" if pg == my_page else ""
                     lines.append(f"  [{i}] {pg.url} — {pg.title()}{marker}")
+                self._publish_activity(
+                    thread_id,
+                    state="observing",
+                    action="Listed task tabs",
+                    page=my_page,
+                )
                 return "\n".join(lines)
 
             elif action == "switch":
@@ -908,11 +1276,18 @@ class BrowserSession:
                 self._thread_pages[thread_id] = pages[tab_id]
                 pages[tab_id].bring_to_front()
                 snap = _take_snapshot(pages[tab_id])
+                self._publish_activity(
+                    thread_id,
+                    state="observing",
+                    action="Switched task tab",
+                    page=pages[tab_id],
+                )
                 return f"Switched to tab [{tab_id}].\n\n{_format_snapshot(snap)}"
 
             elif action == "new":
                 new_page = self._context.new_page()
                 self._thread_pages[thread_id] = new_page
+                self._page_owners[new_page] = thread_id
                 new_page.bring_to_front()
                 if url:
                     try:
@@ -922,9 +1297,21 @@ class BrowserSession:
                         except Exception:
                             pass
                     except Exception as exc:
+                        self._publish_activity(
+                            thread_id,
+                            state="needs_attention",
+                            action="Open task tab",
+                            page=new_page,
+                        )
                         return f"New tab opened but navigation failed: {exc}"
                 snap = _take_snapshot(new_page)
-                return f"Opened new tab [{len(self._context.pages) - 1}].\n\n{_format_snapshot(snap)}"
+                self._publish_activity(
+                    thread_id,
+                    state="observing",
+                    action="Opened task tab",
+                    page=new_page,
+                )
+                return f"Opened new tab [{len(pages)}].\n\n{_format_snapshot(snap)}"
 
             elif action == "close":
                 if tab_id is None or tab_id < 0 or tab_id >= len(pages):
@@ -932,20 +1319,25 @@ class BrowserSession:
                 if len(pages) <= 1:
                     return "Cannot close the last tab."
                 closed_page = pages[tab_id]
-                # Remove from any thread's mapping
-                for tid, pg in list(self._thread_pages.items()):
-                    if pg == closed_page:
-                        del self._thread_pages[tid]
+                self._page_owners.pop(closed_page, None)
+                if self._thread_pages.get(thread_id) == closed_page:
+                    self._thread_pages.pop(thread_id, None)
                 closed_page.close()
-                remaining = self._context.pages
+                remaining = [page for page, owner in self._page_owners.items() if owner == thread_id and not page.is_closed()]
                 # Re-resolve calling thread's page
                 active = self._get_page_for_thread(thread_id)
                 snap = _take_snapshot(active)
+                self._publish_activity(
+                    thread_id,
+                    state="observing",
+                    action="Closed task tab",
+                    page=active,
+                )
                 return f"Closed tab [{tab_id}]. {len(remaining)} tab(s) remaining.\n\n{_format_snapshot(snap)}"
 
             else:
                 return f"Unknown tab action: {action}. Use list/switch/new/close."
-        return self._run_on_pw_thread(_do)
+        return self._run_activity(thread_id, f"Tab action: {action}", _do)
 
     def take_screenshot(self, thread_id: str | None = None) -> bytes | None:
         """Take a screenshot (PNG bytes) of the thread's page.
@@ -960,10 +1352,25 @@ class BrowserSession:
             def _do():
                 page = self.get_page_for_screenshot(thread_id)
                 if page is None:
-                    return None
-                return page.screenshot(type="png")
-            return self._run_on_pw_thread(_do)
+                    return None, True
+                try:
+                    protected = page.query_selector(
+                        'input[type="password"], input[autocomplete="one-time-code"], '
+                        'input[autocomplete="cc-number"], input[autocomplete="cc-csc"]'
+                    )
+                    if protected is not None:
+                        return None, True
+                except Exception:
+                    # A page we cannot inspect safely is not previewable.
+                    return None, True
+                return page.screenshot(type="png"), False
+            image, shielded = self._run_on_pw_thread(_do)
+            if thread_id is not None:
+                self._set_preview_frame(thread_id, image, shielded=bool(shielded))
+            return image
         except Exception:
+            if thread_id is not None:
+                self._set_preview_frame(thread_id, None, shielded=True)
             return None
 
 
@@ -983,6 +1390,7 @@ class BrowserSessionManager:
     def __init__(self):
         self._shared_session: BrowserSession | None = None
         self._lock = threading.Lock()
+        self._activity_listeners: list[Any] = []
 
     # Kept for backward compat with UI code that checks membership
     @property
@@ -1001,13 +1409,76 @@ class BrowserSessionManager:
         with self._lock:
             if self._shared_session is None:
                 self._shared_session = BrowserSession()
+                for callback in self._activity_listeners:
+                    self._shared_session.add_activity_listener(callback)
             return self._shared_session
+
+    def add_activity_listener(self, callback: Any) -> Any:
+        """Listen for local metadata changes without creating a browser."""
+
+        with self._lock:
+            self._activity_listeners.append(callback)
+            session = self._shared_session
+            if session is not None:
+                session.add_activity_listener(callback)
+
+        def _remove() -> None:
+            with self._lock:
+                if callback in self._activity_listeners:
+                    self._activity_listeners.remove(callback)
+                current = self._shared_session
+            if current is not None:
+                current._remove_activity_listener(callback)
+
+        return _remove
+
+    def status_snapshot(self, thread_id: str) -> dict[str, Any]:
+        with self._lock:
+            session = self._shared_session
+        if session is None:
+            return {
+                "engine": "browser",
+                "active": False,
+                "paused": False,
+                "thread_id": str(thread_id or "default"),
+                "state": "idle",
+                "target": "",
+                "site": "",
+                "url": "",
+                "last_action": "",
+                "has_thumbnail": False,
+                "preview_shielded": False,
+                "revision": 0,
+            }
+        return session.status_snapshot(thread_id)
+
+    def end_activity(self, thread_id: str, *, preserve_takeover: bool = False) -> None:
+        with self._lock:
+            session = self._shared_session
+        if session is not None:
+            session.end_activity(thread_id, preserve_takeover=preserve_takeover)
+
+    def take_over(self, thread_id: str) -> bool:
+        with self._lock:
+            session = self._shared_session
+        return bool(session and session.take_over(thread_id))
+
+    def take_screenshot(self, thread_id: str) -> bytes | None:
+        with self._lock:
+            session = self._shared_session
+        return session.take_screenshot(thread_id) if session is not None else None
+
+    def ephemeral_screenshot(self, thread_id: str) -> bytes | None:
+        with self._lock:
+            session = self._shared_session
+        return session.ephemeral_screenshot(thread_id) if session is not None else None
 
     def kill_session(self, thread_id: str) -> None:
         """Release the tab owned by *thread_id* (if any)."""
         with self._lock:
-            if self._shared_session is not None:
-                self._shared_session.release_thread(thread_id)
+            session = self._shared_session
+        if session is not None:
+            session.release_thread(thread_id)
 
     def kill_all(self) -> None:
         """Shut down the shared browser (called on app exit)."""
@@ -1031,21 +1502,30 @@ def get_session_manager() -> BrowserSessionManager:
 # ═════════════════════════════════════════════════════════════════════════════
 
 def _load_history() -> dict[str, list[dict]]:
-    if _HISTORY_PATH.exists():
-        try:
-            return json.loads(_HISTORY_PATH.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return {}
+    with _history_lock:
+        if _HISTORY_PATH.exists():
+            try:
+                return json.loads(_HISTORY_PATH.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                return {}
     return {}
 
 
 def _save_history(history: dict[str, list[dict]]) -> None:
-    try:
-        _HISTORY_PATH.write_text(
-            json.dumps(history, default=str), encoding="utf-8"
-        )
-    except OSError:
-        logger.warning("Failed to save browser history", exc_info=True)
+    with _history_lock:
+        tmp_path: pathlib.Path | None = None
+        try:
+            _HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+            fd, name = tempfile.mkstemp(prefix=f"{_HISTORY_PATH.name}.", suffix=".tmp", dir=_HISTORY_PATH.parent)
+            tmp_path = pathlib.Path(name)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(history, handle, default=str)
+            tmp_path.replace(_HISTORY_PATH)
+        except OSError:
+            logger.warning("Failed to save browser history", exc_info=True)
+        finally:
+            if tmp_path is not None:
+                tmp_path.unlink(missing_ok=True)
 
 
 def get_browser_history(thread_id: str) -> list[dict]:
@@ -1055,17 +1535,19 @@ def get_browser_history(thread_id: str) -> list[dict]:
 
 def append_browser_history(thread_id: str, entry: dict) -> None:
     """Append a browser action entry to history for a thread."""
-    history = _load_history()
-    history.setdefault(thread_id, []).append(entry)
-    _save_history(history)
+    with _history_lock:
+        history = _load_history()
+        history.setdefault(thread_id, []).append(entry)
+        _save_history(history)
 
 
 def clear_browser_history(thread_id: str) -> None:
     """Clear browser history for a thread."""
-    history = _load_history()
-    if thread_id in history:
-        del history[thread_id]
-        _save_history(history)
+    with _history_lock:
+        history = _load_history()
+        if thread_id in history:
+            del history[thread_id]
+            _save_history(history)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1163,21 +1645,33 @@ class BrowserTool(BaseTool):
             if not url.strip().lower().startswith(("http://", "https://")):
                 url = "https://" + url
 
-            # Security: detect potential data-exfiltration URLs
-            _exfil_warning = _check_exfiltration_url(url)
-
             thread_id = _get_thread_id()
             session = _session_manager.get_session(thread_id)
+            policy, reason = _navigation_policy(url, session.current_url(thread_id))
+            if policy == "block":
+                return f"BLOCKED: {reason}"
+            if policy == "ask":
+                from row_bot.tools.approval_gate import gate_action
+
+                session.mark_waiting_approval(thread_id, "Approve website navigation")
+                blocked = gate_action({
+                    "tool": "browser_navigate",
+                    "label": "Browser navigation",
+                    "action": "navigate",
+                    "origin_and_path": _history_url(url),
+                    "reason": reason,
+                })
+                if blocked:
+                    session.end_activity(thread_id)
+                    return blocked
             result = session.navigate(url, thread_id)
 
             # Persist to history
             append_browser_history(thread_id, {
                 "action": "navigate",
-                "url": url,
+                "url": _history_url(url),
                 "timestamp": datetime.now().isoformat(),
             })
-            if _exfil_warning:
-                result += f"\n{_exfil_warning}"
             return result
 
         # ── Click ────────────────────────────────────────────────────────
@@ -1195,6 +1689,27 @@ class BrowserTool(BaseTool):
             """
             thread_id = _get_thread_id()
             session = _session_manager.get_session(thread_id)
+            metadata = session.describe_ref(ref, thread_id)
+            if not metadata:
+                return f"Error: element ref [{ref}] is stale. Take a new snapshot."
+            consequence = _consequential_browser_target(metadata)
+            if consequence:
+                from row_bot.tools.approval_gate import gate_action
+
+                session.mark_waiting_approval(thread_id, "Approve page action")
+                blocked = gate_action({
+                    "tool": "browser_click",
+                    "label": "Browser consequential action",
+                    "action": "click",
+                    "target": str(metadata.get("label") or metadata.get("text") or "control")[:160],
+                    "reason": consequence,
+                })
+                if blocked:
+                    session.end_activity(thread_id)
+                    return blocked
+                if session.describe_ref(ref, thread_id) != metadata:
+                    session.end_activity(thread_id)
+                    return "Error: browser target changed while awaiting approval; take a new snapshot and approve again."
             result = session.click(ref, thread_id)
 
             append_browser_history(thread_id, {
@@ -1219,12 +1734,34 @@ class BrowserTool(BaseTool):
             """
             thread_id = _get_thread_id()
             session = _session_manager.get_session(thread_id)
+            metadata = session.describe_ref(ref, thread_id)
+            if not metadata:
+                return f"Error: element ref [{ref}] is stale. Take a new snapshot."
+            consequence = _consequential_browser_target(metadata, submit=submit)
+            if consequence:
+                from row_bot.tools.approval_gate import gate_action
+
+                session.mark_waiting_approval(thread_id, "Approve form action")
+                blocked = gate_action({
+                    "tool": "browser_type",
+                    "label": "Browser form action",
+                    "action": "type_and_submit" if submit else "type",
+                    "target": str(metadata.get("label") or metadata.get("text") or "field")[:160],
+                    "reason": consequence,
+                    "data_summary": f"Text entry ({len(text)} characters; value hidden)",
+                })
+                if blocked:
+                    session.end_activity(thread_id)
+                    return blocked
+                if session.describe_ref(ref, thread_id) != metadata:
+                    session.end_activity(thread_id)
+                    return "Error: browser target changed while awaiting approval; take a new snapshot and approve again."
             result = session.type_text(ref, text, submit, thread_id)
 
             append_browser_history(thread_id, {
                 "action": "type",
                 "ref": ref,
-                "text": text,
+                "text_length": len(text),
                 "submit": submit,
                 "timestamp": datetime.now().isoformat(),
             })
@@ -1310,12 +1847,30 @@ class BrowserTool(BaseTool):
 
             thread_id = _get_thread_id()
             session = _session_manager.get_session(thread_id)
+            if action == "new" and url:
+                policy, reason = _navigation_policy(url, session.current_url(thread_id))
+                if policy == "block":
+                    return f"BLOCKED: {reason}"
+                if policy == "ask":
+                    from row_bot.tools.approval_gate import gate_action
+
+                    session.mark_waiting_approval(thread_id, "Approve new task tab")
+                    blocked = gate_action({
+                        "tool": "browser_tab",
+                        "label": "Browser new-tab navigation",
+                        "action": "new_tab",
+                        "origin_and_path": _history_url(url),
+                        "reason": reason,
+                    })
+                    if blocked:
+                        session.end_activity(thread_id)
+                        return blocked
             result = session.tab_action(action, tab_id, url, thread_id)
 
             append_browser_history(thread_id, {
                 "action": f"tab_{action}",
                 "tab_id": tab_id,
-                "url": url,
+                "url": _history_url(url) if url else None,
                 "timestamp": datetime.now().isoformat(),
             })
             return result

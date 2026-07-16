@@ -45,6 +45,9 @@ class AppState:
         self.is_generating: bool = False
         self.stop_event: threading.Event = threading.Event()
         self.pending_interrupt: dict | None = None
+        self.pending_interrupt_generation_id: str = ""
+        self.pending_interrupt_tool_groups: dict = {}
+        self.pending_interrupt_runtime_surface: str = ""
         self.show_onboarding: bool = False  # set by helpers._is_first_run()
         self.open_setup_center_on_next_load: bool = False
         self.voice_enabled: bool = False
@@ -115,6 +118,7 @@ class GenerationState:
     stop_requested_at: float = 0.0
     stop_reason: str = ""
     stopped_marker_rendered: bool = False
+    buddy_terminal_emitted: bool = False
     cleanup_complete: bool = False
     created_at: float = field(default_factory=time.perf_counter)
     producer_thread_started_at: float = 0.0
@@ -139,6 +143,7 @@ class GenerationState:
     captured_videos: list = field(default_factory=list)
     captured_videos_persist: list = field(default_factory=list)
     browser_step_count: int = 0
+    browser_preview_attempted: bool = False
     refresh_model_controls_on_done: bool = False
     interrupt_data: Any = None
     interrupt_rendered: bool = False
@@ -231,6 +236,10 @@ class P:
     goal_strip_container: Any = None
     refresh_goal_strip: Any = None
     goal_strip_refresh_timer: Any = None
+    live_control_container: Any = None
+    live_control_refresh: Any = None
+    live_control_cleanup: Any = None
+    streaming_callbacks: Any = None
     settings_dlg: ui.dialog = None      # type: ignore[assignment]
     export_dlg: ui.dialog = None        # type: ignore[assignment]
     interrupt_dlg: ui.dialog = None     # type: ignore[assignment]
@@ -254,5 +263,9 @@ class P:
     def __init__(self) -> None:
         self.pending_files = []
         self.active_voice_binding = None
+        self.live_control_container = None
+        self.live_control_refresh = None
+        self.live_control_cleanup = None
+        self.streaming_callbacks = None
         self.chat_shell_generation = 0
         self.chat_upload_js_installed = False

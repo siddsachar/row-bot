@@ -6,7 +6,13 @@ pull request merged.
 
 Row-Bot is a personal-AI-sovereignty project. The priorities, in order, are:
 
-1. **Privacy** â€” local-first defaults, no telemetry, no surprise network calls
+1. **Privacy** â€” local-first defaults, no Row-Bot first-party telemetry, no
+   surprise network calls. A telemetry-bearing third-party dependency is
+   permitted only after a specific review, documentation, pre-install or
+   pre-execution disclosure, and user acceptance; it must never receive
+   Row-Bot prompts, files, memories, secrets, screenshots, tool arguments, or
+   channel content. The reviewed opt-in Cua Driver integration is the sole
+   current exception, not a general telemetry allowance.
 2. **Reliability** â€” destructive actions confirm, errors degrade gracefully
 3. **Test coverage** â€” new behavior ships with deterministic coverage in `tests/contracts/`, `tests/subsystem/`, or focused files under `tests/`
 4. **Cross-platform** â€” Windows and macOS are first-class; Linux is best-effort
@@ -159,7 +165,9 @@ Keep commits focused. If a PR ends up with cleanup noise, squash on merge.
 ### What gets a PR rejected fast
 
 - New behavior with no test coverage
-- Adds telemetry, analytics, or "phone home" logic
+- Adds Row-Bot first-party telemetry, analytics, or hidden "phone home" logic,
+  or adds third-party telemetry without the narrow review and disclosure bar
+  above
 - Adds a third-party network dependency without an opt-out
 - Touches `docs/index.html` (the marketing site is hand-curated)
 - Breaks the test suite on any platform

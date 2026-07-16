@@ -60,7 +60,11 @@ def test_vision_provider_ref_routes_provider_path(monkeypatch):
     svc = vision.VisionService()
     svc._model = "model:codex:gpt-5.5"
 
-    monkeypatch.setattr(svc, "_analyze_provider", lambda b64, question: calls.append((b64, question)) or "provider ok")
+    monkeypatch.setattr(
+        svc,
+        "_analyze_provider",
+        lambda b64, question, **_kwargs: calls.append((b64, question)) or "provider ok",
+    )
     monkeypatch.setattr(svc, "_analyze_ollama_local", lambda b64, question: "local bad")
 
     assert svc.analyze(b"image-bytes", "describe") == "provider ok"
@@ -93,6 +97,26 @@ def test_custom_openai_vision_ref_routes_provider_runtime(tmp_path, monkeypatch)
     content = captured["messages"][0].content
     assert content[0] == {"type": "text", "text": "describe"}
     assert content[1]["type"] == "image_url"
+
+
+def test_provider_vision_preserves_png_mime_type(monkeypatch):
+    import row_bot.vision as vision
+
+    captured = {}
+    svc = vision.VisionService()
+    svc._model = "model:codex:gpt-5.6-sol"
+
+    class _FakeLLM:
+        def invoke(self, messages):
+            captured["messages"] = messages
+            return SimpleNamespace(content="png vision ok")
+
+    monkeypatch.setattr("row_bot.models.get_llm_for", lambda _model_ref: _FakeLLM())
+
+    png_bytes = b"\x89PNG\r\n\x1a\n" + b"deterministic-test-image"
+    assert svc.analyze(png_bytes, "locate the canvas") == "png vision ok"
+    content = captured["messages"][0].content
+    assert content[1]["image_url"]["url"].startswith("data:image/png;base64,")
 
 
 def test_vision_compatibility_uses_cached_ollama_vision_metadata(tmp_path, monkeypatch):

@@ -16,6 +16,107 @@ logger = logging.getLogger(__name__)
 
 _ACTIVE_LOCK = threading.RLock()
 _ACTIVE_AGENT_RUNS: dict[str, dict[str, Any]] = {}
+_DISPATCH_CONDITION = threading.Condition(threading.RLock())
+_DISPATCH_QUEUE: list[tuple[str, str]] = []
+_DISPATCH_ACTIVE: dict[str, str] = {}
+
+
+def notify_agent_runtime_settings_changed() -> None:
+    """Wake queued children so a safe local capacity increase applies live."""
+
+    with _DISPATCH_CONDITION:
+        _DISPATCH_CONDITION.notify_all()
+
+
+def _dispatch_counts(parent_key: str) -> tuple[int, int]:
+    global_active = len(_DISPATCH_ACTIVE)
+    parent_active = sum(1 for value in _DISPATCH_ACTIVE.values() if value == parent_key)
+    return parent_active, global_active
+
+
+def _acquire_child_capacity(
+    run_id: str,
+    parent_key: str,
+    stop_event: threading.Event,
+) -> bool:
+    from row_bot.agent_settings import load_agent_runtime_settings
+    from row_bot.agent_runs import update_agent_status
+
+    ticket = (str(run_id), str(parent_key or "top-level"))
+    with _DISPATCH_CONDITION:
+        if ticket not in _DISPATCH_QUEUE:
+            _DISPATCH_QUEUE.append(ticket)
+        update_agent_status(run_id, "queued", "Queued for Agent capacity")
+        while not stop_event.is_set():
+            settings = load_agent_runtime_settings()
+            parent_active, global_active = _dispatch_counts(ticket[1])
+            is_head = bool(_DISPATCH_QUEUE and _DISPATCH_QUEUE[0] == ticket)
+            if (
+                is_head
+                and parent_active < settings.max_concurrent_children
+                and global_active < settings.max_active_children_global
+            ):
+                _DISPATCH_QUEUE.pop(0)
+                _DISPATCH_ACTIVE[ticket[0]] = ticket[1]
+                return True
+            _DISPATCH_CONDITION.wait(timeout=0.1)
+        if ticket in _DISPATCH_QUEUE:
+            _DISPATCH_QUEUE.remove(ticket)
+        _DISPATCH_CONDITION.notify_all()
+        return False
+
+
+def _release_child_capacity(run_id: str) -> None:
+    with _DISPATCH_CONDITION:
+        _DISPATCH_ACTIVE.pop(str(run_id), None)
+        _DISPATCH_QUEUE[:] = [ticket for ticket in _DISPATCH_QUEUE if ticket[0] != str(run_id)]
+        _DISPATCH_CONDITION.notify_all()
+
+
+def child_dispatch_state() -> dict[str, Any]:
+    """Return safe read-only capacity state for tests and the Agents drawer."""
+
+    from row_bot.agent_settings import load_agent_runtime_settings
+
+    settings = load_agent_runtime_settings()
+    with _DISPATCH_CONDITION:
+        return {
+            "queued": len(_DISPATCH_QUEUE),
+            "active": len(_DISPATCH_ACTIVE),
+            "max_active": settings.max_active_children_global,
+            "max_per_parent": settings.max_concurrent_children,
+        }
+
+
+def _arm_child_timeout(run_id: str, stop_event: threading.Event) -> threading.Timer | None:
+    from row_bot.agent_runs import get_agent_run
+
+    run = get_agent_run(run_id) or {}
+    snapshot = dict(run.get("settings_snapshot_json") or {})
+    timeout_seconds = max(0.0, float(snapshot.get("child_timeout_seconds") or 0))
+    if timeout_seconds <= 0:
+        return None
+    remaining = max(0.0, timeout_seconds - float(run.get("active_seconds") or 0))
+
+    def expire() -> None:
+        with _ACTIVE_LOCK:
+            entry = _ACTIVE_AGENT_RUNS.get(run_id)
+            if entry is not None:
+                entry["timed_out"] = True
+        stop_event.set()
+
+    if remaining <= 0:
+        expire()
+        return None
+    timer = threading.Timer(remaining, expire)
+    timer.daemon = True
+    timer.start()
+    return timer
+
+
+def _child_timed_out(run_id: str) -> bool:
+    with _ACTIVE_LOCK:
+        return bool((_ACTIVE_AGENT_RUNS.get(run_id) or {}).get("timed_out"))
 
 _RUNTIME_ERROR_TEXT_PREFIXES = (
     "API error:",
@@ -250,6 +351,7 @@ def _is_task_stopped(exc: BaseException) -> bool:
 
 def _build_child_config(
     *,
+    run_id: str,
     child_thread_id: str,
     approval_mode: str,
     model_override: str = "",
@@ -259,10 +361,6 @@ def _build_child_config(
     profile_snapshot: Mapping[str, Any],
     tool_allowlist: Sequence[str] | None = None,
 ) -> dict[str, Any]:
-    try:
-        from row_bot.agent import RECURSION_LIMIT_TASK
-    except Exception:
-        RECURSION_LIMIT_TASK = 50
     configurable = {
         "thread_id": child_thread_id,
         "runtime_surface": "agent_child",
@@ -272,6 +370,7 @@ def _build_child_config(
         "agent_profile_snapshot": dict(profile_snapshot),
         "parent_thread_id": parent_thread_id,
         "parent_run_id": parent_run_id,
+        "agent_run_id": run_id,
     }
     if tool_allowlist:
         configurable["tool_allowlist"] = [
@@ -283,10 +382,7 @@ def _build_child_config(
         configurable["model_override"] = model_override
     if developer_workspace_id:
         configurable["developer_workspace_id"] = developer_workspace_id
-    return {
-        "configurable": configurable,
-        "recursion_limit": RECURSION_LIMIT_TASK,
-    }
+    return {"configurable": configurable}
 
 
 def spawn_agent_run(
@@ -344,10 +440,30 @@ def spawn_agent_run(
         effective_workspace_mode = "worktree"
 
     from row_bot.agent_context import build_child_agent_prompt
-    from row_bot.agent_runs import append_agent_event, create_agent_run, create_agent_run_edge
+    from row_bot.agent_runs import (
+        append_agent_event,
+        create_agent_run,
+        create_agent_run_edge,
+        get_agent_run,
+    )
+    from row_bot.agent_settings import load_agent_runtime_settings
     from row_bot.threads import create_thread, set_thread_skills_override
 
     run_id = uuid.uuid4().hex[:12]
+    parent_run = get_agent_run(parent_run_id) if parent_run_id else None
+    if parent_run_id and not parent_run:
+        raise AgentRunnerError("The parent Agent Run does not exist.")
+    depth = int((parent_run or {}).get("depth") or 0) + 1
+    root_run_id = (
+        str((parent_run or {}).get("root_run_id") or (parent_run or {}).get("id") or "")
+        or run_id
+    )
+    runtime_settings = load_agent_runtime_settings()
+    if depth > runtime_settings.max_spawn_depth:
+        raise AgentRunnerError(
+            f"Nested Agent depth {depth} exceeds the configured maximum of "
+            f"{runtime_settings.max_spawn_depth}."
+        )
     effective_developer_workspace_id = parent_developer_workspace_id
     workspace_path = ""
     worktree_allocation: dict[str, Any] | None = None
@@ -422,6 +538,7 @@ def spawn_agent_run(
         else ""
     )
     config = _build_child_config(
+        run_id=run_id,
         child_thread_id=child_thread_id,
         approval_mode=effective_approval,
         model_override=model,
@@ -452,10 +569,11 @@ def spawn_agent_run(
         kind="subagent",
         status="queued",
         parent_run_id=parent_run_id,
+        root_run_id=root_run_id,
         parent_thread_id=parent_thread_id,
         parent_message_id=parent_message_id,
         thread_id=child_thread_id,
-        depth=1 if parent_thread_id else 0,
+        depth=depth,
         profile_id=str(profile_snapshot.get("id") or ""),
         profile_snapshot_json=profile_snapshot,
         display_name=child_display,
@@ -622,7 +740,19 @@ def _run_agent_thread(
     )
 
     lock_acquired = False
+    capacity_acquired = False
+    timeout_timer: threading.Timer | None = None
     try:
+        configurable = config.get("configurable") or {}
+        parent_key = str(
+            configurable.get("parent_run_id")
+            or configurable.get("parent_thread_id")
+            or "top-level"
+        )
+        capacity_acquired = _acquire_child_capacity(run_id, parent_key, stop_event)
+        if not capacity_acquired:
+            finish_agent_run(run_id, "stopped", status_message="Stop requested while queued")
+            return
         if requires_write_lock:
             update_agent_status(run_id, "queued", "Queued for writer lock")
             while not stop_event.is_set():
@@ -640,6 +770,7 @@ def _run_agent_thread(
                 finish_agent_run(run_id, "stopped", status_message="Stop requested")
                 return
         start_agent_run(run_id)
+        timeout_timer = _arm_child_timeout(run_id, stop_event)
         append_agent_event(
             run_id,
             "turn.started",
@@ -661,6 +792,14 @@ def _run_agent_thread(
             config,
             stop_event=stop_event,
         )
+        if _child_timed_out(run_id):
+            finish_agent_run(
+                run_id,
+                "timed_out",
+                status_message="Child Agent active-time limit reached",
+                terminal_reason="timeout",
+            )
+            return
         if stop_event.is_set() or (get_agent_run(run_id) or {}).get("stop_requested"):
             finish_agent_run(run_id, "stopped", status_message="Stop requested")
             return
@@ -670,6 +809,19 @@ def _run_agent_thread(
         if isinstance(result, dict) and result.get("type") == "error":
             message = str(result.get("error") or result.get("message") or "Agent resume failed.")
             finish_agent_run(run_id, "failed", error=message, status_message=message)
+            return
+        if isinstance(result, dict) and result.get("type") == "terminal":
+            message = str(result.get("message") or "Agent stopped incomplete.")
+            terminal_reason = str(result.get("terminal_reason") or "")
+            finish_agent_run(
+                run_id,
+                "blocked",
+                summary=message,
+                result_json={"response": message, "complete": False},
+                error=message,
+                status_message=message,
+                terminal_reason=terminal_reason,
+            )
             return
         text = str(result or "")
         if _is_runtime_error_text(text):
@@ -690,7 +842,15 @@ def _run_agent_thread(
             result_json={"response": text},
         )
     except BaseException as exc:
-        if _is_task_stopped(exc) or stop_event.is_set():
+        if _child_timed_out(run_id):
+            finish_agent_run(
+                run_id,
+                "timed_out",
+                error=str(exc),
+                status_message="Child Agent active-time limit reached",
+                terminal_reason="timeout",
+            )
+        elif _is_task_stopped(exc) or stop_event.is_set():
             finish_agent_run(run_id, "stopped", status_message="Stop requested")
         else:
             finish_agent_run(
@@ -700,8 +860,12 @@ def _run_agent_thread(
                 status_message=str(exc),
             )
     finally:
+        if timeout_timer is not None:
+            timeout_timer.cancel()
         if lock_acquired:
             release_agent_write_lock(run_id=run_id)
+        if capacity_acquired:
+            _release_child_capacity(run_id)
         _notify_child_agent_waiters(run_id)
         with _ACTIVE_LOCK:
             _ACTIVE_AGENT_RUNS.pop(run_id, None)
@@ -795,8 +959,15 @@ def _resume_agent_thread(
     )
 
     lock_acquired = False
+    capacity_acquired = False
+    timeout_timer: threading.Timer | None = None
     try:
         run = get_agent_run(run_id) or {}
+        parent_key = str(run.get("parent_run_id") or run.get("parent_thread_id") or "top-level")
+        capacity_acquired = _acquire_child_capacity(run_id, parent_key, stop_event)
+        if not capacity_acquired:
+            finish_agent_run(run_id, "stopped", status_message="Stop requested while queued")
+            return
         write_lock_key = str(run.get("write_lock_key") or "")
         if write_lock_key:
             update_agent_status(run_id, "queued", "Queued for writer lock")
@@ -815,6 +986,7 @@ def _resume_agent_thread(
                 finish_agent_run(run_id, "stopped", status_message="Stop requested")
                 return
         start_agent_run(run_id)
+        timeout_timer = _arm_child_timeout(run_id, stop_event)
         result = _resume_invoke_agent(
             enabled_tool_names,
             config,
@@ -822,6 +994,14 @@ def _resume_agent_thread(
             interrupt_ids=interrupt_ids or None,
             stop_event=stop_event,
         )
+        if _child_timed_out(run_id):
+            finish_agent_run(
+                run_id,
+                "timed_out",
+                status_message="Child Agent active-time limit reached",
+                terminal_reason="timeout",
+            )
+            return
         if stop_event.is_set() or (get_agent_run(run_id) or {}).get("stop_requested"):
             finish_agent_run(run_id, "stopped", status_message="Stop requested")
             return
@@ -831,6 +1011,19 @@ def _resume_agent_thread(
         if isinstance(result, dict) and result.get("type") == "error":
             message = str(result.get("error") or result.get("message") or "Agent resume failed.")
             finish_agent_run(run_id, "failed", error=message, status_message=message)
+            return
+        if isinstance(result, dict) and result.get("type") == "terminal":
+            message = str(result.get("message") or "Agent stopped incomplete.")
+            terminal_reason = str(result.get("terminal_reason") or "")
+            finish_agent_run(
+                run_id,
+                "blocked",
+                summary=message,
+                result_json={"response": message, "resumed": True, "complete": False},
+                error=message,
+                status_message=message,
+                terminal_reason=terminal_reason,
+            )
             return
         text = str(result or "")
         if _is_runtime_error_text(text):
@@ -851,7 +1044,15 @@ def _resume_agent_thread(
             result_json={"response": text, "resumed": True},
         )
     except BaseException as exc:
-        if _is_task_stopped(exc) or stop_event.is_set():
+        if _child_timed_out(run_id):
+            finish_agent_run(
+                run_id,
+                "timed_out",
+                error=str(exc),
+                status_message="Child Agent active-time limit reached",
+                terminal_reason="timeout",
+            )
+        elif _is_task_stopped(exc) or stop_event.is_set():
             finish_agent_run(run_id, "stopped", status_message="Stop requested")
         else:
             finish_agent_run(
@@ -861,8 +1062,12 @@ def _resume_agent_thread(
                 status_message=str(exc),
             )
     finally:
+        if timeout_timer is not None:
+            timeout_timer.cancel()
         if lock_acquired:
             release_agent_write_lock(run_id=run_id)
+        if capacity_acquired:
+            _release_child_capacity(run_id)
         _notify_child_agent_waiters(run_id)
         with _ACTIVE_LOCK:
             _ACTIVE_AGENT_RUNS.pop(run_id, None)

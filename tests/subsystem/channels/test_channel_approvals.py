@@ -43,6 +43,7 @@ def test_channel_approval_helpers_round_trip_interrupt_text() -> None:
 
     assert "Apply patch" in text
     assert extract_interrupt_ids(interrupt_data) == ["abc", "def"]
+    assert extract_interrupt_ids([interrupt_data[0]]) == ["abc"]
     assert is_approval_text("approve") is True
     assert is_approval_text("deny") is False
     assert is_approval_text(text) is None

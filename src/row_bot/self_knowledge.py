@@ -113,7 +113,13 @@ FEATURE_MANIFEST: list[dict[str, str]] = [
         "feature": "Browser Automation",
         "keywords": "browser, web, click, navigate, fill form, scrape, playwright, chromium",
         "description": "Visible Chromium browser automation — navigate, click, fill forms, extract data. Logins persist across sessions.",
-        "configure": "Settings → Search to enable the browser tool.",
+        "configure": "Settings → System → Browser & Computer Use to enable Browser and explicitly install its runtime if needed.",
+    },
+    {
+        "feature": "Computer Use (Beta)",
+        "keywords": "computer use, desktop, native app, calculator, notepad, textedit, os dialog, take over",
+        "description": "Opt-in native desktop automation using a separate task-scoped Cua Driver session with local Stop, Take over, approvals, and ephemeral target-window screenshots.",
+        "configure": "Settings → System → Browser & Computer Use. Accept the Cua telemetry warning, then explicitly install the pinned driver.",
     },
     {
         "feature": "Gmail & Calendar",

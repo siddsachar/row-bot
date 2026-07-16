@@ -124,6 +124,24 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
         "Shared composer extras affect slash commands, Smart Skills, and mobile chat controls.",
     ),
     SourceTestRule(
+        "live_control",
+        (
+            "src/row_bot/ui/live_control.py",
+            "src/row_bot/ui/chat.py",
+            "src/row_bot/ui/chat_components.py",
+            "src/row_bot/ui/mobile_chat.py",
+        ),
+        (
+            "tests/subsystem/computer_use",
+            "tests/integration/computer_use",
+            "tests/subsystem/browser",
+            "tests/test_browser_cancellation.py",
+            "tests/test_chat_tool_trace_ui.py",
+            "tests/subsystem/mobile",
+        ),
+        "Persistent Browser/Computer controls affect desktop, shared, and mobile chat shells plus engine-specific cancellation and privacy.",
+    ),
+    SourceTestRule(
         "channels",
         ("src/row_bot/channels/**",),
         (
@@ -133,6 +151,18 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
             "tests/test_channel_streaming.py",
         ),
         "Channel adapter changes need fake-channel contracts and channel runtime regressions.",
+    ),
+    SourceTestRule(
+        "buddy_lifecycle",
+        (
+            "src/row_bot/buddy/brain.py",
+            "src/row_bot/buddy/events.py",
+        ),
+        (
+            "tests/test_buddy_core.py",
+            "tests/test_generation_stop.py",
+        ),
+        "Buddy lifecycle events must clear active generation and tool lanes exactly once when a generation stops.",
     ),
     SourceTestRule(
         "approvals",
@@ -184,6 +214,8 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
         (
             "src/row_bot/agent_commands.py",
             "src/row_bot/agent_context.py",
+            "src/row_bot/agent_budget.py",
+            "src/row_bot/agent_settings.py",
             "src/row_bot/agent_run_messages.py",
             "src/row_bot/agent_runner.py",
             "src/row_bot/agent_profiles.py",
@@ -193,6 +225,8 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
             "src/row_bot/tools/task_tool.py",
             "src/row_bot/tools/row_bot_status_tool.py",
             "src/row_bot/ui/streaming.py",
+            "src/row_bot/ui/agent_drawer.py",
+            "src/row_bot/ui/settings.py",
             "src/row_bot/ui/task_dialog.py",
         ),
         (
@@ -203,6 +237,7 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
             "tests/test_agent_tool.py",
             "tests/test_agent_runs.py",
             "tests/test_agent_runtime_profiles.py",
+            "tests/subsystem/agents",
             "tests/test_active_run_queue.py",
             "tests/test_chat_tool_trace_ui.py",
             "tests/test_row_bot_status_agents.py",
@@ -225,6 +260,32 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
             "tests/test_mcp_client.py",
         ),
         "MCP changes need fake transport, safety, and client coverage.",
+    ),
+    SourceTestRule(
+        "computer_use",
+        (
+            "src/row_bot/computer_use/**",
+            "src/row_bot/tools/computer_use_tool.py",
+            "src/row_bot/ui/computer_use.py",
+            "src/row_bot/ui/live_control.py",
+            "docs/COMPUTER_USE_SECURITY.md",
+        ),
+        (
+            "tests/contracts/test_computer_use_contract.py",
+            "tests/subsystem/computer_use",
+            "tests/integration/computer_use",
+        ),
+        "Computer Use changes need offline driver contracts plus lease, policy, privacy, cancellation, approval, Vision, lifecycle, and UI integration coverage.",
+    ),
+    SourceTestRule(
+        "browser_automation",
+        ("src/row_bot/tools/browser_tool.py", "src/row_bot/ui/live_control.py"),
+        (
+            "tests/subsystem/browser",
+            "tests/test_browser_cancellation.py",
+            "tests/test_chat_tool_trace_ui.py",
+        ),
+        "Browser automation changes need privacy, consequence, navigation, tab-isolation, runtime-readiness, cancellation, and trace regressions.",
     ),
     SourceTestRule(
         "plugins",

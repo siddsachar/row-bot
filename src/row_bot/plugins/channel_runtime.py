@@ -501,12 +501,6 @@ def _runtime_config(
     if approval_context:
         config["configurable"]["approval_context"] = dict(approval_context)
     config["configurable"]["approval_mode"] = approval_mode_for_config(config)
-    try:
-        from row_bot.agent import RECURSION_LIMIT_CHAT
-
-        config["recursion_limit"] = RECURSION_LIMIT_CHAT
-    except Exception:
-        pass
     return config
 
 

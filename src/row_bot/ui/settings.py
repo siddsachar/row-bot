@@ -99,6 +99,35 @@ _MOBILE_SETTINGS_CSS = """
 .row-bot-settings-mobile-shell .q-btn {
     min-width: 0;
 }
+.row-bot-agent-runtime-expansion {
+    border: 1px solid rgba(144, 202, 249, 0.24);
+    border-radius: 12px;
+    background: rgba(33, 150, 243, 0.055);
+    overflow: hidden;
+}
+.row-bot-agent-runtime-expansion > .q-expansion-item__container > .q-item {
+    min-height: 82px;
+    padding: 14px 16px;
+}
+.row-bot-agent-runtime-expansion .row-bot-agent-runtime-title {
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+}
+.row-bot-agent-runtime-expansion .row-bot-agent-runtime-subtitle {
+    color: rgba(255, 255, 255, 0.62);
+    font-size: 0.78rem;
+    line-height: 1.1rem;
+}
+.row-bot-agent-runtime-expansion .row-bot-agent-runtime-content {
+    border-top: 1px solid rgba(144, 202, 249, 0.16);
+    padding: 16px;
+}
+@media (max-width: 700px) {
+    .row-bot-agent-runtime-expansion > .q-expansion-item__container > .q-item {
+        padding: 12px;
+    }
+}
 </style>
 """
 
@@ -1127,6 +1156,166 @@ def open_settings(
 
     # ── Models Tab ───────────────────────────────────────────────────
 
+    def _render_agent_runtime_settings() -> None:
+        from row_bot.agent_settings import (
+            AgentRuntimeSettings,
+            load_agent_runtime_settings,
+            reset_agent_runtime_settings,
+            save_agent_runtime_settings,
+        )
+
+        settings = load_agent_runtime_settings()
+
+        def _summary(value: AgentRuntimeSettings) -> tuple[str, ...]:
+            timeout_text = (
+                f"{value.child_timeout_seconds}s child limit"
+                if value.child_timeout_seconds
+                else "No child timeout"
+            )
+            return (
+                f"{value.max_iterations} work rounds",
+                f"{value.max_spawn_depth} nested level{'s' if value.max_spawn_depth != 1 else ''}",
+                f"{value.max_concurrent_children} per parent",
+                f"{value.max_active_children_global} active total",
+                timeout_text,
+            )
+
+        expansion = ui.expansion(value=False).classes(
+            "row-bot-agent-runtime-expansion w-full q-mb-md"
+        ).props("expand-separator")
+        summary_badges: list[Any] = []
+        with expansion.add_slot("header"):
+            with ui.row().classes("w-full items-center gap-3 no-wrap"):
+                ui.icon("account_tree", size="sm").classes("text-primary")
+                with ui.column().classes("min-w-0 gap-1"):
+                    ui.label("Agent runtime & delegation").classes(
+                        "row-bot-agent-runtime-title"
+                    )
+                    ui.label(
+                        "Optional limits for long-running work and delegated child agents"
+                    ).classes("row-bot-agent-runtime-subtitle")
+                    with ui.row().classes("items-center gap-1 q-mt-xs"):
+                        for summary in _summary(settings):
+                            summary_badges.append(
+                                ui.badge(summary, color="blue-grey").props("outline")
+                            )
+        with expansion:
+            with ui.column().classes("row-bot-agent-runtime-content w-full gap-3"):
+                ui.label(
+                    "These application-wide limits apply to new runs. Active work keeps "
+                    "the limits it started with; the recommended defaults suit normal use."
+                ).classes("text-grey-6 text-sm")
+
+                def _with_help(control: Any, explanation: str) -> Any:
+                    with control.add_slot("append"):
+                        ui.icon("help_outline", size="xs").classes(
+                            "cursor-help text-grey-6"
+                        ).tooltip(explanation)
+                    return control
+
+                with ui.grid().classes("w-full gap-3 grid-cols-1 md:grid-cols-2"):
+                    max_iterations = _with_help(
+                        ui.number(
+                            "Maximum work rounds",
+                            value=settings.max_iterations,
+                            min=1,
+                            step=1,
+                        ).props("dense outlined"),
+                        "Maximum model-and-tool work rounds in one agent run before it "
+                        "stops gracefully. This is not a per-tool-call timeout.",
+                    )
+                    max_depth = _with_help(
+                        ui.number(
+                            "Maximum nested agent levels",
+                            value=settings.max_spawn_depth,
+                            min=1,
+                            step=1,
+                        ).props("dense outlined"),
+                        "How many child-agent levels may exist below the main agent. "
+                        "A value of 1 allows children but not grandchildren.",
+                    )
+                    per_parent = _with_help(
+                        ui.number(
+                            "Active children per parent",
+                            value=settings.max_concurrent_children,
+                            min=1,
+                            step=1,
+                        ).props("dense outlined"),
+                        "Maximum children one parent may run at the same time. Extra "
+                        "children wait in the queue instead of being rejected.",
+                    )
+                    global_active = _with_help(
+                        ui.number(
+                            "Active children across the app",
+                            value=settings.max_active_children_global,
+                            min=1,
+                            step=1,
+                        ).props("dense outlined"),
+                        "Application-wide child-agent concurrency cap. Extra children "
+                        "queue until capacity is available.",
+                    )
+                    timeout = _with_help(
+                        ui.number(
+                            "Child active-time limit (seconds; 0 disables)",
+                            value=settings.child_timeout_seconds,
+                            min=0,
+                            step=1,
+                        ).props("dense outlined"),
+                        "Optional active execution limit for each child. Queue time is "
+                        "not counted; 0 leaves the child without a time limit.",
+                    )
+
+                def _apply(saved: AgentRuntimeSettings) -> None:
+                    values = (
+                        (max_iterations, saved.max_iterations),
+                        (max_depth, saved.max_spawn_depth),
+                        (per_parent, saved.max_concurrent_children),
+                        (global_active, saved.max_active_children_global),
+                        (timeout, saved.child_timeout_seconds),
+                    )
+                    for control, value in values:
+                        control.value = value
+                        control.update()
+                    for badge, summary in zip(
+                        summary_badges, _summary(saved), strict=True
+                    ):
+                        badge.text = summary
+                        badge.update()
+
+                def _save() -> None:
+                    try:
+                        saved = save_agent_runtime_settings(
+                            AgentRuntimeSettings(
+                                max_iterations=int(max_iterations.value),
+                                max_spawn_depth=int(max_depth.value),
+                                max_concurrent_children=int(per_parent.value),
+                                max_active_children_global=int(global_active.value),
+                                child_timeout_seconds=int(timeout.value),
+                            )
+                        )
+                    except (TypeError, ValueError) as exc:
+                        ui.notify(str(exc), type="negative")
+                        return
+                    _apply(saved)
+                    ui.notify(
+                        "Agent runtime settings saved for new runs.", type="positive"
+                    )
+
+                def _restore() -> None:
+                    saved = reset_agent_runtime_settings()
+                    _apply(saved)
+                    ui.notify(
+                        "Recommended agent runtime defaults restored.", type="positive"
+                    )
+
+                with ui.row().classes("items-center gap-2 q-mt-sm"):
+                    ui.button("Save", icon="save", on_click=_save).props(
+                        "color=primary no-caps"
+                    )
+                    ui.button("Restore recommended defaults", on_click=_restore).props(
+                        "flat no-caps"
+                    )
+
     def _render_models_tab_content(preloaded: dict | None = None) -> None:
         from row_bot.providers.selection import (
             list_model_choice_options,
@@ -1755,6 +1944,7 @@ def open_settings(
 
         from row_bot.ui.model_catalog import build_lazy_model_catalog_section
 
+        _render_agent_runtime_settings()
         catalog_container = ui.column().classes("w-full gap-2 q-mt-md")
 
         def _collect_top_picker_options() -> dict:
@@ -2177,6 +2367,7 @@ def open_settings(
             with ui.row().classes("items-center gap-3 text-grey-6"):
                 ui.spinner(size="sm")
                 ui.label("Loading cached model settings...").classes("text-sm")
+            _render_agent_runtime_settings()
 
         async def _load_models() -> None:
             try:
@@ -2203,6 +2394,7 @@ def open_settings(
                         "smart_toy",
                     )
                     ui.label(f"Could not load model settings: {exc}").classes("text-warning text-sm")
+                    _render_agent_runtime_settings()
                     with ui.row().classes("items-center gap-2"):
                         ui.button(icon="hub", on_click=lambda: _reopen("Providers")).props("flat dense round size=sm").tooltip("Provider connections")
                         ui.button(
@@ -2873,8 +3065,8 @@ def open_settings(
 
         # Browser Automation
         with _settings_section(
-            "Browser Automation",
-            "Open a real browser window that you and the agent share.",
+            "Browser & Computer Use",
+            "Separate web and native-app automation engines with explicit runtime setup.",
             icon="public",
         ):
             browser_tool = tool_registry.get_tool("browser")
@@ -2884,8 +3076,29 @@ def open_settings(
                     value=tool_registry.is_enabled("browser"),
                     on_change=lambda e: tool_registry.set_enabled("browser", e.value),
                 ).tooltip(browser_tool.description)
+                from row_bot.mcp_client.requirements import _requirement_from_id, check_requirement
+
+                browser_requirement = _requirement_from_id("playwright-chrome", source="settings")
+                browser_check = check_requirement(browser_requirement) if browser_requirement else None
+                ui.label(
+                    "Browser runtime ready." if browser_check and browser_check.available
+                    else "Installed Chrome/Edge is preferred; otherwise install Row-Bot's managed Playwright Chromium explicitly."
+                ).classes("text-xs text-grey-6")
+
+                async def _install_browser_runtime() -> None:
+                    from row_bot.mcp_client.requirements import install_managed_runtime
+
+                    result = await run.io_bound(install_managed_runtime, "playwright-chrome")
+                    ui.notify(result.message, type="positive" if result.ok else "negative")
+
+                ui.button("Install browser runtime", icon="download", on_click=_install_browser_runtime).props("flat dense no-caps")
             else:
                 ui.label("Browser tool not found.").classes("text-grey-6 text-sm")
+
+            ui.separator()
+            from row_bot.ui.computer_use import build_computer_use_settings_card
+
+            build_computer_use_settings_card(tool_registry)
 
         # File Operations
         with _settings_section(

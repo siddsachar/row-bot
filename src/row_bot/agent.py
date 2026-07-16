@@ -20,6 +20,23 @@ from row_bot.threads import pick_or_create_thread, checkpointer
 import logging
 
 from row_bot.approval_policy import DEFAULT_APPROVAL_MODE, decision_for_action, normalize_approval_mode
+from row_bot.agent_budget import (
+    AgentNoProgress,
+    claim_budget_finalization,
+    complete_budget_finalization,
+    ExecutionBudgetExhausted,
+    InvalidExecutionBudget,
+    RowBotAgentState,
+    exact_repeat_block_payload,
+    framework_recursion_limit,
+    new_execution_budget,
+    post_model_budget_hook,
+    pre_model_budget_hook,
+    register_exact_tool_request,
+    remaining_iterations,
+    validate_execution_budget,
+)
+from row_bot.agent_settings import load_agent_runtime_settings
 
 logger = logging.getLogger(__name__)
 
@@ -448,11 +465,15 @@ def create_react_agent(*args, **kwargs):
 
 # ── Content normalisation helpers ────────────────────────────────────────────
 
-# Recursion limits: how many LangGraph node executions (LLM call + tool call
-# = 2 steps).  50 ≈ 25 tool invocations for interactive; 100 ≈ 50 for tasks.
-RECURSION_LIMIT_CHAT = 50
-RECURSION_LIMIT_TASK = 100
-RECURSION_LIMIT_DEVELOPER = 120
+# Compatibility recursion ceilings are derived from the one model-iteration
+# budget. The graph topology reserves four nodes per remaining model round
+# plus a small fixed finalization margin.
+_DEFAULT_FRAMEWORK_LIMIT = framework_recursion_limit(
+    load_agent_runtime_settings().max_iterations
+)
+RECURSION_LIMIT_CHAT = _DEFAULT_FRAMEWORK_LIMIT
+RECURSION_LIMIT_TASK = _DEFAULT_FRAMEWORK_LIMIT
+RECURSION_LIMIT_DEVELOPER = _DEFAULT_FRAMEWORK_LIMIT
 
 
 def recursion_limit_for_mode(
@@ -460,18 +481,15 @@ def recursion_limit_for_mode(
     is_background: bool = False,
     is_developer: bool = False,
 ) -> int:
-    """Return the LangGraph step budget for the active execution mode."""
-    if bool(is_background):
-        return RECURSION_LIMIT_TASK
-    if is_developer:
-        return RECURSION_LIMIT_DEVELOPER
-    return RECURSION_LIMIT_CHAT
+    """Compatibility helper returning the uniform derived framework ceiling."""
+    del is_background, is_developer
+    return framework_recursion_limit(load_agent_runtime_settings().max_iterations)
 
 
 def recursion_wind_down_threshold(limit: int, *, is_developer: bool = False) -> int:
-    """Return when to ask the model to checkpoint before the hard limit."""
-    ratio = 0.85 if is_developer else 0.75
-    return max(1, int(limit * ratio))
+    """Deprecated compatibility helper; percentage wind-down is no longer used."""
+    del is_developer
+    return max(1, int(limit))
 
 
 def _coerce_positive_int(value, default: int) -> int:
@@ -483,15 +501,52 @@ def _coerce_positive_int(value, default: int) -> int:
 
 
 def _normalize_agent_config(config: dict | None) -> dict:
-    """Return a shallow-normalized LangGraph config for Agent Mode calls."""
-    if not isinstance(config, dict):
-        return {"configurable": {}, "recursion_limit": RECURSION_LIMIT_CHAT}
-    normalized = dict(config)
+    """Normalize identity and ignore caller-supplied raw recursion ceilings."""
+    normalized = dict(config) if isinstance(config, dict) else {}
     configurable = normalized.get("configurable")
     normalized["configurable"] = dict(configurable) if isinstance(configurable, dict) else {}
-    normalized["recursion_limit"] = _coerce_positive_int(
-        normalized.get("recursion_limit"),
-        RECURSION_LIMIT_CHAT,
+    normalized["recursion_limit"] = framework_recursion_limit(
+        load_agent_runtime_settings().max_iterations
+    )
+    return normalized
+
+
+def _new_agent_graph_input(user_input: str, config: dict) -> tuple[dict, dict]:
+    """Create one logical-turn budget and its derived graph ceiling."""
+
+    normalized = _normalize_agent_config(config)
+    configurable = normalized.get("configurable") or {}
+    budget = new_execution_budget(str(configurable.get("generation_id") or ""))
+    normalized["recursion_limit"] = framework_recursion_limit(
+        remaining_iterations(budget)
+    )
+    return normalized, {
+        "messages": [("human", user_input)],
+        "execution_budget": budget,
+    }
+
+
+def _resume_agent_graph_config(agent, config: dict) -> dict:
+    """Derive a resume ceiling from checkpointed usage without resetting it."""
+
+    normalized = _normalize_agent_config(config)
+    state = agent.get_state(normalized)
+    values = dict(getattr(state, "values", None) or {})
+    raw_budget = values.get("execution_budget")
+    if raw_budget is None:
+        configurable = normalized.get("configurable") or {}
+        budget = new_execution_budget(
+            str(configurable.get("generation_id") or "legacy-resume")
+        )
+        agent.update_state(normalized, {"execution_budget": budget})
+        logger.warning(
+            "Migrated a legacy interrupted checkpoint without an execution budget: thread=%s",
+            str(configurable.get("thread_id") or "")[:8],
+        )
+    else:
+        budget = validate_execution_budget(raw_budget)
+    normalized["recursion_limit"] = framework_recursion_limit(
+        remaining_iterations(budget)
     )
     return normalized
 
@@ -1060,6 +1115,7 @@ _UNTRUSTED_TOOLS: frozenset[str] = frozenset({
     "search_gmail", "get_gmail_message", "get_gmail_thread",
     "browser_navigate", "browser_click", "browser_type",
     "browser_scroll", "browser_snapshot", "browser_back", "browser_tab",
+    "computer_use",
     "workspace_read_file", "run_command",
     "arxiv_search", "wikipedia_search",
 })
@@ -1198,6 +1254,7 @@ def _pre_model_trim(state: dict) -> dict:
 
     Uses ``llm_input_messages`` so the full history stays intact in the
     checkpointer — only the LLM sees the trimmed version."""
+    budget = pre_model_budget_hook(state)
     messages = list(state["messages"])
     context_size = get_context_size()
     max_tokens = _agent_history_budget_tokens(context_size)
@@ -1880,92 +1937,6 @@ def _pre_model_trim(state: dict) -> dict:
     except Exception as exc:
         logger.debug("Auto-recall failed (non-fatal): %s", exc)
 
-    # ── Wind-down warning near recursion limit ───────────────────────
-    # Count steps (ai + tool messages) since the last human message in
-    # the ORIGINAL state — this approximates how many LangGraph node
-    # executions have occurred in the current invoke/stream call.
-    # At 75% of the limit, inject a system message asking the model to
-    # wrap up.  This gives the model a chance to produce a final answer
-    # instead of hitting the hard wall and crashing.
-    try:
-        _orig_msgs = state["messages"]
-        _last_human = -1
-        for _i in range(len(_orig_msgs) - 1, -1, -1):
-            if _orig_msgs[_i].type == "human":
-                _last_human = _i
-                break
-        if _last_human >= 0:
-            _steps = sum(1 for _m in _orig_msgs[_last_human + 1:]
-                         if _m.type in ("ai", "tool"))
-            # Use the task limit when running in a background workflow,
-            # chat limit otherwise.  is_background_workflow() is the
-            # public API for checking the background flag.
-            try:
-                _is_bg = is_background_workflow()
-            except Exception:
-                _is_bg = False
-            try:
-                _is_developer = bool(_developer_context_var.get(""))
-            except Exception:
-                _is_developer = False
-            _limit = recursion_limit_for_mode(
-                is_background=_is_bg,
-                is_developer=_is_developer,
-            )
-            _developer_wind_down = _is_developer and not _is_bg
-            _threshold = recursion_wind_down_threshold(
-                _limit,
-                is_developer=_developer_wind_down,
-            )
-            _browser_tool_steps = sum(
-                1 for _m in _orig_msgs[_last_human + 1:]
-                if _m.type == "tool" and _is_browser_tool_name(getattr(_m, "name", "") or "")
-            )
-            _browser_threshold = 8
-            if _browser_tool_steps >= _browser_threshold:
-                from langchain_core.messages import SystemMessage as _WDMsg
-                _wind_down = _WDMsg(
-                    content=(
-                        "[IMPORTANT: You have already used "
-                        f"{_browser_tool_steps} browser actions for this request. "
-                        "Stop browsing now and provide the best final answer from the evidence already gathered. "
-                        "If the site blocked automation, showed irrelevant results, or did not expose prices clearly, say that plainly. "
-                        "Do NOT call more browser tools or shell tools for this request.]"
-                    )
-                )
-                trimmed.append(_wind_down)
-            elif _steps >= _threshold:
-                from langchain_core.messages import SystemMessage as _WDMsg
-                if _developer_wind_down:
-                    _wind_down = _WDMsg(
-                        content=(
-                            "[IMPORTANT: You are approaching the Developer Studio step budget "
-                            f"({_steps} of {_limit} LangGraph steps used). "
-                            "Checkpoint the coding task now: update todos if useful, summarize "
-                            "files inspected or changed, tests run and results, remaining risks, "
-                            "and the exact next step. Do not start another broad exploration loop; "
-                            "only make a final tiny tool call if it is essential to leave the "
-                            "workspace in a coherent state.]"
-                        )
-                    )
-                    logger.info(
-                        "Developer Studio wind-down injected: steps=%d limit=%d",
-                        _steps, _limit,
-                    )
-                else:
-                    _wind_down = _WDMsg(
-                        content=(
-                            "[IMPORTANT: You are approaching the tool call limit "
-                            f"({_steps} of {_limit} steps used). "
-                            "Wrap up your current task NOW and provide a final "
-                            "answer with what you have so far. Do NOT start new "
-                            "tool calls unless absolutely critical.]"
-                        )
-                    )
-                trimmed.append(_wind_down)
-    except Exception:
-        pass  # Non-fatal — don't break the agent if this fails
-
     # ── Anthropic-compatible: consolidate system messages ─────────────
     # Anthropic Messages transports require all system messages to be
     # consecutive at the start of the message list.  The recall and
@@ -2013,7 +1984,8 @@ def _pre_model_trim(state: dict) -> dict:
                         trimmed,
                         provider_id=_provider_id,
                         anthropic_messages=True,
-                    )
+                    ),
+                    "execution_budget": budget,
                 }
             trimmed, _cache_marker_result = apply_anthropic_system_cache_marker(
                 trimmed,
@@ -2032,7 +2004,7 @@ def _pre_model_trim(state: dict) -> dict:
         pass  # Non-fatal
 
     trimmed = _normalize_provider_facing_messages(trimmed, provider_id=_active_provider_id())
-    return {"llm_input_messages": trimmed}
+    return {"llm_input_messages": trimmed, "execution_budget": budget}
 
 # Cache compiled agent graphs keyed by frozenset of enabled tool names
 _agent_cache: dict[frozenset[str], object] = {}
@@ -2104,6 +2076,9 @@ _current_tool_allowlist_active_var: _contextvars.ContextVar[bool] = _contextvars
 _current_channel_streaming_var: _contextvars.ContextVar[bool] = _contextvars.ContextVar(
     "current_channel_streaming", default=False
 )
+_current_agent_run_id_var: _contextvars.ContextVar[str] = _contextvars.ContextVar(
+    "current_agent_run_id", default=""
+)
 
 
 def get_current_thread_id() -> str:
@@ -2129,6 +2104,8 @@ def get_active_runtime_context() -> dict:
         "tool_allowlist_active": bool(_current_tool_allowlist_active_var.get(False)),
         "agent_profile_id": _current_agent_profile_id_var.get(""),
         "channel_streaming": bool(_current_channel_streaming_var.get(False)),
+        "background_workflow": bool(_background_workflow_var.get(False)),
+        "agent_run_id": _current_agent_run_id_var.get(""),
     }
 
 
@@ -2147,6 +2124,7 @@ def _set_active_runtime_context(
     agent_profile_id: str = "",
     agent_profile_snapshot: dict | None = None,
     channel_streaming: bool = False,
+    agent_run_id: str = "",
 ) -> None:
     _current_thread_id_var.set(thread_id or "")
     _current_runtime_surface_var.set(runtime_surface or "")
@@ -2162,6 +2140,7 @@ def _set_active_runtime_context(
     _current_agent_profile_id_var.set(agent_profile_id or "")
     _current_agent_profile_snapshot_var.set(dict(agent_profile_snapshot or {}))
     _current_channel_streaming_var.set(bool(channel_streaming))
+    _current_agent_run_id_var.set(agent_run_id or "")
 
 
 def _agent_profile_system_context(thread_id: str = "") -> str:
@@ -3053,14 +3032,27 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
             # to implement the interrupt/resume flow.
             from langgraph.errors import GraphInterrupt
 
+            def _guarded_tool_call(tool_name: str, args: tuple, kwargs: dict) -> str | None:
+                arguments = dict(kwargs)
+                if args:
+                    arguments["_positional"] = list(args)
+                decision = register_exact_tool_request(tool_name, arguments)
+                if decision == "allow":
+                    return None
+                return exact_repeat_block_payload(terminal=decision == "terminal")
+
             for t in lc_tools:
                 if hasattr(t, "func") and t.func is not None:
                     # StructuredTool / Tool created via from_function
                     _orig_func = t.func
-                    def _safe_func(*args, _fn=_orig_func, **kwargs):
+                    _tool_name = str(t.name or getattr(_orig_func, "__name__", "tool"))
+                    def _safe_func(*args, _fn=_orig_func, _name=_tool_name, **kwargs):
                         try:
+                            blocked = _guarded_tool_call(_name, args, kwargs)
+                            if blocked is not None:
+                                return blocked
                             return _fn(*args, **kwargs)
-                        except GraphInterrupt:
+                        except (GraphInterrupt, ExecutionBudgetExhausted, AgentNoProgress, InvalidExecutionBudget):
                             raise  # Must propagate for interrupt/resume flow
                         except Exception as exc:
                             logger.error("Tool %s raised an error: %s", _fn.__name__ if hasattr(_fn, '__name__') else '?', exc, exc_info=True)
@@ -3069,10 +3061,14 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                 else:
                     # Toolkit tools that override _run directly
                     _orig_run = t._run
-                    def _safe_run(*args, _fn=_orig_run, **kwargs):
+                    _tool_name = str(t.name or type(t).__name__)
+                    def _safe_run(*args, _fn=_orig_run, _name=_tool_name, **kwargs):
                         try:
+                            blocked = _guarded_tool_call(_name, args, kwargs)
+                            if blocked is not None:
+                                return blocked
                             return _fn(*args, **kwargs)
-                        except GraphInterrupt:
+                        except (GraphInterrupt, ExecutionBudgetExhausted, AgentNoProgress, InvalidExecutionBudget):
                             raise
                         except Exception as exc:
                             logger.error("Tool _run raised an error: %s", exc, exc_info=True)
@@ -3088,8 +3084,11 @@ def get_agent_graph(enabled_tool_names: list[str] | None = None,
                 tools=lc_tools,
                 prompt=get_agent_system_prompt(),
                 pre_model_hook=_pre_model_trim,
+                post_model_hook=post_model_budget_hook,
                 checkpointer=checkpointer,
                 name="row_bot_agent",
+                state_schema=RowBotAgentState,
+                version="v2",
             )
             _agent_cache[cache_key] = agent
 
@@ -3153,6 +3152,7 @@ def invoke_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         agent_profile_id=str(configurable.get("agent_profile_id") or ""),
         agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
         channel_streaming=bool(configurable.get("channel_streaming")),
+        agent_run_id=str(configurable.get("agent_run_id") or ""),
     )
     _developer_context_var.set(
         configurable.get("developer_context", "") or ""
@@ -3183,42 +3183,22 @@ def invoke_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         _do_summarize(agent, config, model_override=_model_ov)
     if stop_event and stop_event.is_set():
         raise TaskStoppedError("Task stopped after summarization")
+    config, initial_input = _new_agent_graph_input(user_input, config)
 
     # Use node-level streaming so we can check stop_event between nodes
     if stop_event is not None:
-        import hashlib as _ia_hashlib
-        _ia_recent_sigs: list[str] = []
-        _ia_loop = False
         try:
             for _event in agent.stream(
-                {"messages": [("human", user_input)]},
+                initial_input,
                 config=config,
                 stream_mode="updates",
             ):
                 if stop_event.is_set():
                     raise TaskStoppedError("Task stopped during execution")
-                # Loop detection — inspect tool calls in update events
-                if isinstance(_event, dict):
-                    for _node, _ndata in _event.items():
-                        if not isinstance(_ndata, dict):
-                            continue
-                        for _m in _ndata.get("messages", []):
-                            for _tc in getattr(_m, "tool_calls", []):
-                                _a = _tc.get("args", {})
-                                _sig = _tc["name"] + ":" + _ia_hashlib.md5(
-                                    _json.dumps(_a, sort_keys=True, default=str).encode()
-                                ).hexdigest()
-                                if _ia_recent_sigs and _ia_recent_sigs[-1] == _sig:
-                                    _ia_recent_sigs.append(_sig)
-                                else:
-                                    _ia_recent_sigs.clear()
-                                    _ia_recent_sigs.append(_sig)
-                                if len(_ia_recent_sigs) >= 4:
-                                    _ia_loop = True
-                if _ia_loop:
-                    break
         except TaskStoppedError:
             raise
+        except (ExecutionBudgetExhausted, AgentNoProgress) as exc:
+            return _handle_agent_terminal(agent, config, exc)
         except Exception as exc:
             exc_str = str(exc)
             if "tool_call" in exc_str and ("do not have a corresponding" in exc_str
@@ -3227,7 +3207,7 @@ def invoke_agent(user_input: str, enabled_tool_names: list[str], config: dict,
                 logger.warning("invoke_agent: orphaned tool calls — repairing")
                 repair_orphaned_tool_calls(config=config, agent_graph=agent)
                 for _event in agent.stream(
-                    {"messages": [("human", user_input)]},
+                    initial_input,
                     config=config,
                     stream_mode="updates",
                 ):
@@ -3246,18 +3226,6 @@ def invoke_agent(user_input: str, enabled_tool_names: list[str], config: dict,
                     )
                 _notify_api_error(_err_msg)
                 return _err_msg
-
-        # Handle loop detection in task mode
-        if _ia_loop:
-            logger.warning("invoke_agent: loop detected — same tool+args called 4 times consecutively")
-            try:
-                repair_orphaned_tool_calls(config=config, agent_graph=agent)
-            except Exception:
-                pass
-            _loop_msg = ("⚠️ I noticed I was repeating the same action without making progress, "
-                         "so I stopped to avoid wasting resources.")
-            _notify_api_error(_loop_msg)
-            return _loop_msg
 
         # Read final state from checkpoint
         state = agent.get_state(config)
@@ -3294,10 +3262,13 @@ def invoke_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         return "I wasn't able to generate a response."
 
     # Original path (no stop_event) — simple invoke
-    result = agent.invoke(
-        {"messages": [("human", user_input)]},
-        config=config,
-    )
+    try:
+        result = agent.invoke(
+            initial_input,
+            config=config,
+        )
+    except (ExecutionBudgetExhausted, AgentNoProgress) as exc:
+        return _handle_agent_terminal(agent, config, exc)
     # The agent returns messages; the last AI message is the answer
     messages = result.get("messages", [])
     for msg in reversed(messages):
@@ -3559,6 +3530,7 @@ def stream_chat_only(
         agent_profile_id=str(configurable.get("agent_profile_id") or ""),
         agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
         channel_streaming=bool(configurable.get("channel_streaming")),
+        agent_run_id=str(configurable.get("agent_run_id") or ""),
     )
     set_active_model_override(model_label)
     _readiness_started = time.perf_counter()
@@ -3791,6 +3763,7 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         agent_profile_id=str(configurable.get("agent_profile_id") or ""),
         agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
         channel_streaming=bool(configurable.get("channel_streaming")),
+        agent_run_id=str(configurable.get("agent_run_id") or ""),
     )
     auto_allowed = runtime_mode == "auto" and runtime_surface in {"normal_chat", "channel"}
     if runtime_mode == "chat_only" or auto_allowed:
@@ -3886,6 +3859,7 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         agent_profile_id=str(configurable.get("agent_profile_id") or ""),
         agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
         channel_streaming=bool(configurable.get("channel_streaming")),
+        agent_run_id=str(configurable.get("agent_run_id") or ""),
     )
     _developer_context_var.set(
         (config.get("configurable") or {}).get("developer_context", "") or ""
@@ -3910,7 +3884,8 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
             time.perf_counter() - _summarize_started
         ) * 1000.0
 
-    for event in _stream_graph(agent, {"messages": [("human", user_input)]}, config,
+    config, initial_input = _new_agent_graph_input(user_input, config)
+    for event in _stream_graph(agent, initial_input, config,
                                stop_event=stop_event,
                                phase_timings=phase_timings):
         yield event
@@ -4009,6 +3984,7 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
         agent_profile_id=str(configurable.get("agent_profile_id") or ""),
         agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
         channel_streaming=bool(configurable.get("channel_streaming")),
+        agent_run_id=str(configurable.get("agent_run_id") or ""),
     )
     _developer_context_var.set(
         configurable.get("developer_context", "") or ""
@@ -4019,7 +3995,12 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
         model_override=_model_ov,
         tool_allowlist=_tool_allowlist,
     )
-    if interrupt_ids and len(interrupt_ids) > 1:
+    try:
+        config = _resume_agent_graph_config(agent, config)
+    except InvalidExecutionBudget as exc:
+        yield ("error", f"This paused agent run cannot be resumed safely: {exc}")
+        return
+    if interrupt_ids:
         resume_val = {iid: approved for iid in interrupt_ids}
     else:
         resume_val = approved
@@ -4058,6 +4039,7 @@ def resume_invoke_agent(enabled_tool_names: list[str], config: dict, approved: b
         agent_profile_id=str(configurable.get("agent_profile_id") or ""),
         agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
         channel_streaming=bool(configurable.get("channel_streaming")),
+        agent_run_id=str(configurable.get("agent_run_id") or ""),
     )
     _developer_context_var.set(
         configurable.get("developer_context", "") or ""
@@ -4068,8 +4050,14 @@ def resume_invoke_agent(enabled_tool_names: list[str], config: dict, approved: b
         model_override=_model_ov,
         tool_allowlist=_tool_allowlist,
     )
+    try:
+        config = _resume_agent_graph_config(agent, config)
+    except InvalidExecutionBudget as exc:
+        raise AgentResumeError(
+            f"This paused agent run cannot be resumed safely: {exc}"
+        ) from exc
 
-    if interrupt_ids and len(interrupt_ids) > 1:
+    if interrupt_ids:
         resume_val = {iid: approved for iid in interrupt_ids}
     else:
         resume_val = approved
@@ -4084,6 +4072,8 @@ def resume_invoke_agent(enabled_tool_names: list[str], config: dict, approved: b
                 raise TaskStoppedError("Task stopped during resume")
     except TaskStoppedError:
         raise
+    except (ExecutionBudgetExhausted, AgentNoProgress) as exc:
+        return _handle_agent_terminal(agent, config, exc)
     except Exception as exc:
         exc_str = str(exc)
         _err_msg = _friendly_api_error(exc_str)
@@ -4218,6 +4208,40 @@ def _tool_result_finalization_messages(user_text: str, tool_messages: list[ToolM
     ]
 
 
+def _terminal_finalization_messages(
+    *,
+    user_text: str,
+    tool_messages: list[ToolMessage],
+    visible_partial: str,
+    surface_instruction: str,
+) -> list[BaseMessage]:
+    sections = []
+    for index, message in enumerate(tool_messages[-6:], start=1):
+        name = str(getattr(message, "name", "") or "tool")
+        content = _content_to_str(getattr(message, "content", ""))
+        if len(content) > 6000:
+            content = content[:6000] + "\n[Tool result truncated for finalization.]"
+        sections.append(f"[{index}] {name}\n{content}")
+    tool_text = "\n\n".join(sections) or "(none)"
+    prompt = (
+        "User request:\n"
+        f"{user_text.strip() or '(not available)'}\n\n"
+        "Completed tool results (possibly empty):\n"
+        f"{tool_text}\n\n"
+        "Visible partial answer (possibly empty):\n"
+        f"{visible_partial.strip() or '(none)'}\n\n"
+        "The action-capable model-iteration budget is exhausted. "
+        f"{surface_instruction} Be truthful about incomplete work and do not claim success. "
+        "Do not call or propose hidden tool calls."
+    )
+    return [
+        SystemMessage(
+            content="Write one concise, truthful final checkpoint for an incomplete agent turn. Tools are unavailable."
+        ),
+        HumanMessage(content=prompt),
+    ]
+
+
 def _run_tool_result_finalization(
     *,
     model_label: str,
@@ -4243,6 +4267,117 @@ def _run_tool_result_finalization(
     answer = "".join(str(part.get("text") or "") for part in parts if part.get("type") == "text")
     reasoning = "".join(str(part.get("text") or "") for part in parts if part.get("type") == "reasoning")
     return answer, reasoning, parts
+
+
+def _terminal_surface(config: dict) -> str:
+    configurable = dict(config.get("configurable") or {})
+    if configurable.get("developer_context"):
+        return "developer"
+    surface = str(configurable.get("runtime_surface") or "interactive").lower()
+    if "workflow" in surface:
+        return "workflow"
+    if configurable.get("agent_run_id") or "child" in surface:
+        return "child"
+    return "interactive"
+
+
+def _terminal_fallback(surface: str, reason: str) -> str:
+    if reason == "no_progress":
+        return (
+            "I stopped because the same action kept repeating without progress. "
+            "No further repeated action was executed. Try a different approach or narrow the request."
+        )
+    if surface == "developer":
+        return (
+            "I reached this run's work limit. Any workspace changes remain intact, but the task is incomplete. "
+            "Send Continue to resume from the saved checkpoint."
+        )
+    if surface == "workflow":
+        return "This workflow step reached its work limit and needs attention before it can continue."
+    if surface == "child":
+        return "This child run reached its work limit and stopped incomplete; its partial work is preserved."
+    return (
+        "I reached this turn's work limit. The partial work is preserved, but the request is incomplete. "
+        "Send Continue to resume from the current context."
+    )
+
+
+def _handle_agent_terminal(
+    agent,
+    config: dict,
+    exc: ExecutionBudgetExhausted | AgentNoProgress,
+    *,
+    visible_partial: str = "",
+) -> dict[str, str]:
+    """Finalize one terminal budget outcome and persist it exactly once."""
+
+    reason = "no_progress" if isinstance(exc, AgentNoProgress) else "budget_exhausted"
+    surface = _terminal_surface(config)
+    state = agent.get_state(config)
+    values = dict(getattr(state, "values", None) or {})
+    raw_budget = exc.budget or values.get("execution_budget")
+    budget = validate_execution_budget(raw_budget)
+    budget["terminal_reason"] = reason
+    claimed, budget = claim_budget_finalization(budget)
+
+    if budget["finalization_completed"]:
+        for message in reversed(values.get("messages", [])):
+            if isinstance(message, AIMessage) and _has_visible_message_content(message):
+                return {"type": "terminal", "terminal_reason": reason, "message": _content_to_str(message.content)}
+        return {"type": "terminal", "terminal_reason": reason, "message": _terminal_fallback(surface, reason)}
+
+    # Persist the claim before the optional provider call. If this process dies,
+    # resume observes the claim and uses the fixed fallback without retrying.
+    agent.update_state(config, {"execution_budget": budget})
+    answer = ""
+    reasoning = ""
+    if claimed and reason == "budget_exhausted":
+        instruction = {
+            "developer": "Checkpoint files changed, tests and results, remaining work, and the exact next step.",
+            "workflow": "Summarize partial results and state that the workflow step needs attention.",
+            "child": "Provide a parent-safe partial summary and state that the child run is incomplete.",
+            "interactive": "Summarize useful partial results and tell the user they may send Continue.",
+        }[surface]
+        try:
+            model_label, _ = _selected_model_label_from_config(config)
+            llm = _chat_only_llm(model_label)
+            messages = _terminal_finalization_messages(
+                user_text=_latest_human_text_current_turn(agent, config),
+                tool_messages=_successful_tool_messages_current_turn(agent, config),
+                visible_partial=visible_partial,
+                surface_instruction=instruction,
+            )
+            decoder = _ReasoningTextStreamDecoder()
+            parts: list[dict[str, Any]] = []
+            try:
+                stream_iter = llm.stream(messages)
+            except Exception:
+                stream_iter = None
+            if stream_iter is not None:
+                for chunk in stream_iter:
+                    parts.extend(decode_ai_stream_parts(chunk, decoder))
+            else:
+                parts.extend(decode_ai_stream_parts(llm.invoke(messages), decoder))
+            answer = "".join(str(part.get("text") or "") for part in parts if part.get("type") == "text").strip()
+            reasoning = "".join(
+                str(part.get("text") or "") for part in parts if part.get("type") == "reasoning"
+            )
+        except Exception:
+            logger.warning("Agent budget finalization call failed", exc_info=True)
+    if not answer:
+        answer = _terminal_fallback(surface, reason)
+    completed = complete_budget_finalization(budget, reason)
+    additional_kwargs = {"terminal_reason": reason}
+    if reasoning:
+        additional_kwargs["reasoning_content"] = reasoning
+    agent.update_state(
+        config,
+        {
+            "messages": [AIMessage(content=answer, additional_kwargs=additional_kwargs)],
+            "execution_budget": completed,
+        },
+    )
+    return {"type": "terminal", "terminal_reason": reason, "message": answer}
 
 
 def _finalize_tool_result_answer_text(agent, config: dict) -> str:
@@ -4406,12 +4541,8 @@ def _stream_graph(agent, input_data, config: dict,
         _provider_calls.append(_public_provider_call(_current_provider_call))
         _current_provider_call = None
 
-    # Loop detection: track consecutive identical tool call signatures.
-    # If the same (name, args_hash) appears 4 times in a row, the model
-    # is stuck — break early instead of burning through the recursion limit.
-    import hashlib as _hashlib
-    _LOOP_THRESHOLD = 4
-    _recent_tool_sigs: list[str] = []   # last N signatures
+    # Domain-specific Browser protection remains separate from the global
+    # exact-repeat guard enforced at the tool invocation boundary.
     _loop_detected = False
     _BROWSER_TOOL_LIMIT = 14
     _browser_tool_count = 0
@@ -4437,6 +4568,16 @@ def _stream_graph(agent, input_data, config: dict,
         phase_timings["generation.graph_stream_create_ms"] = (
             time.perf_counter() - _stream_iter_started
         ) * 1000.0
+    except (ExecutionBudgetExhausted, AgentNoProgress) as exc:
+        terminal = _handle_agent_terminal(
+            agent,
+            config,
+            exc,
+            visible_partial=_joined_visible_answer(full_answer),
+        )
+        yield ("terminal", terminal)
+        yield ("done", terminal["message"])
+        return
     except Exception as exc:
         exc_str = str(exc)
         # Auto-repair orphaned tool calls and retry once
@@ -4517,19 +4658,6 @@ def _stream_graph(agent, input_data, config: dict,
                                 _seen_tool_calls.add(tc_id)
                                 yield ("tool_call", _tool_call_payload(tc))
 
-                            # Loop detection: hash (name, args) as signature
-                            _args = tc.get("args", {})
-                            _sig = tc["name"] + ":" + _hashlib.md5(
-                                _json.dumps(_args, sort_keys=True, default=str).encode()
-                            ).hexdigest()
-                            if _recent_tool_sigs and _recent_tool_sigs[-1] == _sig:
-                                _recent_tool_sigs.append(_sig)
-                            else:
-                                _recent_tool_sigs.clear()
-                                _recent_tool_sigs.append(_sig)
-                            if len(_recent_tool_sigs) >= _LOOP_THRESHOLD:
-                                _loop_detected = True
-
                             if _is_browser_tool_name(tc["name"]):
                                 _browser_tool_count += 1
                                 _recent_browser_actions.append(_browser_action_name(tc["name"]))
@@ -4552,7 +4680,7 @@ def _stream_graph(agent, input_data, config: dict,
                             "content": getattr(m, "content", ""),
                         })
 
-            if _loop_detected or _browser_budget_exceeded:
+            if _browser_budget_exceeded:
                 break
 
         # ── messages: token-level streaming ──────────────────────────────────
@@ -4625,6 +4753,16 @@ def _stream_graph(agent, input_data, config: dict,
                     yield ("token", decoded_text)
             continue
 
+    except (ExecutionBudgetExhausted, AgentNoProgress) as exc:
+        terminal = _handle_agent_terminal(
+            agent,
+            config,
+            exc,
+            visible_partial=_joined_visible_answer(full_answer),
+        )
+        yield ("terminal", terminal)
+        yield ("done", terminal["message"])
+        return
     except Exception as exc:
         exc_str = str(exc)
         # Auto-repair orphaned tool calls and retry once
@@ -4725,37 +4863,6 @@ def _stream_graph(agent, input_data, config: dict,
     if _provider_calls:
         phase_timings["generation.provider_call_count"] = len(_provider_calls)
         phase_timings["generation.provider_calls"] = list(_provider_calls)
-
-    # Handle loop detection — repair orphans and yield friendly error
-    if _loop_detected:
-        _log_stream_completion(
-            config=config,
-            answer_chars=_answer_chars,
-            answer_chunks=_answer_chunks,
-            reasoning_chars=_reasoning_chars,
-            reasoning_chunks=_reasoning_chunks,
-            tool_call_count=len(_seen_tool_calls),
-            tool_result_count=_tool_result_count,
-            finish_reason=_finish_reason,
-            stopped_by_user=_stopped_by_user,
-            loop_detected=_loop_detected,
-            browser_budget_exceeded=_browser_budget_exceeded,
-            latest_ai_message=_latest_ai_message_from_state(agent, config),
-            phase_timings=phase_timings,
-        )
-        logger.warning("Loop detected: same tool+args called %d times consecutively", _LOOP_THRESHOLD)
-        try:
-            repair_orphaned_tool_calls(config=config, agent_graph=agent)
-        except Exception:
-            pass
-        _loop_msg = ("⚠️ I noticed I was repeating the same action without making progress, "
-                     "so I stopped. Here's what I have so far:")
-        _notify_api_error(_loop_msg)
-        if full_answer:
-            yield ("done", "".join(full_answer) + "\n\n" + _loop_msg)
-        else:
-            yield ("error", _loop_msg)
-        return
 
     if _browser_budget_exceeded:
         _log_stream_completion(

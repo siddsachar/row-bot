@@ -423,7 +423,7 @@ def test_stream_agent_forced_workflow_uses_agent_path(tmp_path, monkeypatch):
     assert events == [("done", "agent")]
 
 
-def test_stream_agent_coerces_string_recursion_limit(monkeypatch):
+def test_stream_agent_ignores_caller_recursion_limit_and_derives_internal_ceiling(monkeypatch):
     import row_bot.agent as agent
 
     captured = {}
@@ -454,7 +454,7 @@ def test_stream_agent_coerces_string_recursion_limit(monkeypatch):
     ))
 
     assert events == [("done", "")]
-    assert captured["recursion_limit"] == 50
+    assert captured["recursion_limit"] == agent.framework_recursion_limit(90)
     assert isinstance(captured["recursion_limit"], int)
 
 

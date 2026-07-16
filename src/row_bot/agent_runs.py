@@ -51,8 +51,11 @@ TERMINAL_STATUSES = {
 }
 
 DEFAULT_AGENT_SETTINGS: dict[str, Any] = {
-    "max_concurrent_agents": 3,
-    "max_depth": 1,
+    "max_iterations": 90,
+    "max_spawn_depth": 1,
+    "max_concurrent_children": 3,
+    "max_active_children_global": 8,
+    "child_timeout_seconds": 0,
     "default_context_mode": "focused",
     "default_workspace_mode": "single_writer",
     "goal_max_turns": 20,
@@ -66,6 +69,7 @@ _CREATE_TABLE_SQL: dict[str, str] = {
             status TEXT NOT NULL DEFAULT 'queued',
             status_message TEXT DEFAULT '',
             parent_run_id TEXT DEFAULT '',
+            root_run_id TEXT DEFAULT '',
             parent_thread_id TEXT DEFAULT '',
             parent_message_id TEXT DEFAULT '',
             thread_id TEXT DEFAULT '',
@@ -95,6 +99,11 @@ _CREATE_TABLE_SQL: dict[str, str] = {
             timeout_at TEXT DEFAULT '',
             max_turns INTEGER DEFAULT 0,
             turns_used INTEGER DEFAULT 0,
+            model_iterations_max INTEGER DEFAULT 0,
+            model_iterations_used INTEGER DEFAULT 0,
+            terminal_reason TEXT DEFAULT '',
+            heartbeat_at TEXT DEFAULT '',
+            active_seconds REAL DEFAULT 0,
             token_budget INTEGER DEFAULT 0,
             tokens_used INTEGER DEFAULT 0,
             cost_estimate REAL DEFAULT 0,
@@ -174,6 +183,7 @@ _COLUMN_DEFINITIONS: dict[str, dict[str, str]] = {
         "status": "TEXT NOT NULL DEFAULT 'queued'",
         "status_message": "TEXT DEFAULT ''",
         "parent_run_id": "TEXT DEFAULT ''",
+        "root_run_id": "TEXT DEFAULT ''",
         "parent_thread_id": "TEXT DEFAULT ''",
         "parent_message_id": "TEXT DEFAULT ''",
         "thread_id": "TEXT DEFAULT ''",
@@ -203,6 +213,11 @@ _COLUMN_DEFINITIONS: dict[str, dict[str, str]] = {
         "timeout_at": "TEXT DEFAULT ''",
         "max_turns": "INTEGER DEFAULT 0",
         "turns_used": "INTEGER DEFAULT 0",
+        "model_iterations_max": "INTEGER DEFAULT 0",
+        "model_iterations_used": "INTEGER DEFAULT 0",
+        "terminal_reason": "TEXT DEFAULT ''",
+        "heartbeat_at": "TEXT DEFAULT ''",
+        "active_seconds": "REAL DEFAULT 0",
         "token_budget": "INTEGER DEFAULT 0",
         "tokens_used": "INTEGER DEFAULT 0",
         "cost_estimate": "REAL DEFAULT 0",
@@ -382,6 +397,10 @@ def _apply_schema(conn: sqlite3.Connection) -> None:
         "ON agent_runs(parent_thread_id, status, updated_at)"
     )
     conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_agent_runs_root_status "
+        "ON agent_runs(root_run_id, status, updated_at)"
+    )
+    conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_agent_runs_task "
         "ON agent_runs(task_id, kind, updated_at)"
     )
@@ -451,11 +470,14 @@ def _run_from_row(row: sqlite3.Row | Mapping[str, Any] | None) -> dict[str, Any]
         "depth",
         "max_turns",
         "turns_used",
+        "model_iterations_max",
+        "model_iterations_used",
         "token_budget",
         "tokens_used",
     ):
         data[field] = _int_value(data.get(field))
     data["cost_estimate"] = _float_value(data.get("cost_estimate"))
+    data["active_seconds"] = _float_value(data.get("active_seconds"))
     data["stop_requested"] = bool(data.get("stop_requested", 0))
     return data
 
@@ -467,9 +489,13 @@ def _event_from_row(row: sqlite3.Row | Mapping[str, Any]) -> dict[str, Any]:
 
 
 def get_agent_settings_snapshot(overrides: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    from row_bot.agent_settings import load_agent_runtime_settings
+
+    runtime = load_agent_runtime_settings()
     snapshot = dict(DEFAULT_AGENT_SETTINGS)
+    snapshot.update(runtime.to_dict())
     for key, value in dict(overrides or {}).items():
-        if key in snapshot:
+        if key in {"default_context_mode", "default_workspace_mode", "goal_max_turns"}:
             snapshot[key] = value
     return snapshot
 
@@ -481,6 +507,7 @@ def create_agent_run(
     status: str = "queued",
     status_message: str = "",
     parent_run_id: str = "",
+    root_run_id: str = "",
     parent_thread_id: str = "",
     parent_message_id: str = "",
     thread_id: str = "",
@@ -504,6 +531,11 @@ def create_agent_run(
     timeout_at: str = "",
     max_turns: int = 0,
     turns_used: int = 0,
+    model_iterations_max: int = 0,
+    model_iterations_used: int = 0,
+    terminal_reason: str = "",
+    heartbeat_at: str = "",
+    active_seconds: float = 0.0,
     token_budget: int = 0,
     tokens_used: int = 0,
     cost_estimate: float = 0.0,
@@ -541,6 +573,9 @@ def create_agent_run(
         if isinstance(context_policy, dict):
             context_mode = str(context_policy.get("default_context_mode") or "")
     settings_snapshot = get_agent_settings_snapshot(settings_snapshot_json)
+    root_run_id = str(root_run_id or "").strip() or run_id
+    if not model_iterations_max:
+        model_iterations_max = _int_value(settings_snapshot.get("max_iterations"))
 
     values = {
         "id": run_id,
@@ -548,6 +583,7 @@ def create_agent_run(
         "status": status,
         "status_message": str(status_message or ""),
         "parent_run_id": str(parent_run_id or ""),
+        "root_run_id": root_run_id,
         "parent_thread_id": str(parent_thread_id or ""),
         "parent_message_id": str(parent_message_id or ""),
         "thread_id": str(thread_id or ""),
@@ -576,6 +612,11 @@ def create_agent_run(
         "timeout_at": str(timeout_at or ""),
         "max_turns": _int_value(max_turns),
         "turns_used": _int_value(turns_used),
+        "model_iterations_max": _int_value(model_iterations_max),
+        "model_iterations_used": _int_value(model_iterations_used),
+        "terminal_reason": str(terminal_reason or ""),
+        "heartbeat_at": str(heartbeat_at or (now if status == "running" else "")),
+        "active_seconds": _float_value(active_seconds),
         "token_budget": _int_value(token_budget),
         "tokens_used": _int_value(tokens_used),
         "cost_estimate": _float_value(cost_estimate),
@@ -634,8 +675,8 @@ def start_agent_run(run_id: str) -> dict[str, Any] | None:
     try:
         conn.execute(
             "UPDATE agent_runs SET status = 'running', started_at = COALESCE(NULLIF(started_at, ''), ?), "
-            "updated_at = ? WHERE id = ?",
-            (now, now, run_id),
+            "heartbeat_at = ?, updated_at = ? WHERE id = ?",
+            (now, now, now, run_id),
         )
         changed = conn.total_changes
         conn.commit()
@@ -645,6 +686,65 @@ def start_agent_run(run_id: str) -> dict[str, Any] | None:
         return None
     append_agent_event(run_id, "run.started", {}, visibility="internal")
     return get_agent_run(run_id)
+
+
+def _elapsed_active_seconds(previous: str, now: str) -> float:
+    try:
+        before = datetime.fromisoformat(str(previous or ""))
+        after = datetime.fromisoformat(str(now or ""))
+        return max(0.0, (after - before).total_seconds())
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def update_agent_budget_progress(
+    run_id: str,
+    *,
+    used_iterations: int,
+    max_iterations: int,
+) -> dict[str, Any] | None:
+    """Persist safe budget usage and heartbeat without storing model inputs."""
+
+    ensure_agent_run_schema()
+    now = _now()
+    conn = _get_conn()
+    try:
+        current = conn.execute(
+            "SELECT status, heartbeat_at, active_seconds FROM agent_runs WHERE id = ?",
+            (str(run_id),),
+        ).fetchone()
+        if current is None:
+            return None
+        active = _float_value(current["active_seconds"])
+        if str(current["status"] or "") == "running":
+            active += _elapsed_active_seconds(str(current["heartbeat_at"] or ""), now)
+        conn.execute(
+            "UPDATE agent_runs SET model_iterations_used = ?, model_iterations_max = ?, "
+            "heartbeat_at = ?, active_seconds = ?, updated_at = ? WHERE id = ?",
+            (
+                max(0, _int_value(used_iterations)),
+                max(0, _int_value(max_iterations)),
+                now,
+                active,
+                now,
+                str(run_id),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return get_agent_run(run_id)
+
+
+def heartbeat_agent_run(run_id: str) -> dict[str, Any] | None:
+    run = get_agent_run(run_id)
+    if not run:
+        return None
+    return update_agent_budget_progress(
+        run_id,
+        used_iterations=_int_value(run.get("model_iterations_used")),
+        max_iterations=_int_value(run.get("model_iterations_max")),
+    )
 
 
 def append_agent_event(
@@ -771,6 +871,7 @@ def finish_agent_run(
     result_json: Mapping[str, Any] | None = None,
     error: str = "",
     status_message: str = "",
+    terminal_reason: str = "",
 ) -> dict[str, Any] | None:
     """Mark an Agent Run as terminal and persist its final payload."""
     ensure_agent_run_schema()
@@ -782,7 +883,7 @@ def finish_agent_run(
     preserve_stopped = False
     try:
         current = conn.execute(
-            "SELECT status, stop_requested FROM agent_runs WHERE id = ?",
+            "SELECT status, stop_requested, heartbeat_at, active_seconds FROM agent_runs WHERE id = ?",
             (str(run_id),),
         ).fetchone()
         if (
@@ -794,9 +895,13 @@ def finish_agent_run(
             preserve_stopped = True
             changed = 0
         else:
+            active_seconds = _float_value(current["active_seconds"] if current else 0)
+            if current and str(current["status"] or "") == "running":
+                active_seconds += _elapsed_active_seconds(str(current["heartbeat_at"] or ""), now)
             conn.execute(
                 "UPDATE agent_runs SET status = ?, status_message = ?, "
-                "summary = ?, result_json = ?, error = ?, finished_at = ?, updated_at = ? "
+                "summary = ?, result_json = ?, error = ?, terminal_reason = ?, "
+                "heartbeat_at = ?, active_seconds = ?, finished_at = ?, updated_at = ? "
                 "WHERE id = ?",
                 (
                     status,
@@ -804,6 +909,9 @@ def finish_agent_run(
                     str(summary or ""),
                     _json_text(result_json),
                     str(error or ""),
+                    str(terminal_reason or ""),
+                    now,
+                    active_seconds,
                     now,
                     now,
                     str(run_id),
@@ -834,6 +942,7 @@ def finish_agent_run(
             "status_message": status_message,
             "summary": summary,
             "error": error,
+            "terminal_reason": terminal_reason,
         },
         visibility="log",
     )
@@ -1263,7 +1372,6 @@ def recover_stale_agent_runs() -> dict[str, int]:
     ensure_agent_run_schema()
     now = _now()
     stopped: list[tuple[str, str]] = []
-    kept_queued: list[str] = []
     kept_approvals: list[str] = []
     released_locks: list[tuple[str, str]] = []
     conn = _get_conn()
@@ -1291,15 +1399,7 @@ def recover_stale_agent_runs() -> dict[str, int]:
                 stopped.append((run_id, "App restarted before completion"))
                 continue
             if status == "queued":
-                parent_thread_id = str(run.get("parent_thread_id") or run.get("thread_id") or "")
-                if _thread_row_exists(parent_thread_id) and not _timeout_expired(str(run.get("timeout_at") or "")):
-                    kept_queued.append(run_id)
-                    conn.execute(
-                        "UPDATE agent_runs SET status_message = ?, updated_at = ? WHERE id = ?",
-                        ("Queued after app restart", now, run_id),
-                    )
-                    continue
-                stopped.append((run_id, "App restarted before queued run could start"))
+                stopped.append((run_id, "App restarted before queued child capacity could be restored"))
                 continue
             if status == "paused":
                 continue
@@ -1332,7 +1432,7 @@ def recover_stale_agent_runs() -> dict[str, int]:
         )
     return {
         "stopped": len(stopped),
-        "queued": len(kept_queued),
+        "queued": 0,
         "waiting_approval": len(kept_approvals),
         "locks_released": len(released_locks),
     }
@@ -1469,6 +1569,7 @@ def mirror_workflow_finish(
     run_id: str,
     status: str,
     status_message: str = "",
+    terminal_reason: str = "",
 ) -> dict[str, Any] | None:
     if not get_agent_run(run_id):
         return None
@@ -1480,5 +1581,6 @@ def mirror_workflow_finish(
             summary=status_message if status.startswith("completed") else "",
             error=status_message if status in {"failed", "blocked", "timed_out"} else "",
             status_message=status_message,
+            terminal_reason=terminal_reason,
         )
     return update_agent_status(run_id, status, status_message)

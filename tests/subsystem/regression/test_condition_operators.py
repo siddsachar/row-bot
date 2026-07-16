@@ -64,14 +64,21 @@ def test_json_and_compound_conditions(tmp_path, monkeypatch) -> None:
 
 def test_llm_condition_prompt_and_response_handling(tmp_path, monkeypatch) -> None:
     tasks = fresh_tasks_module(tmp_path, monkeypatch)
-    captured: list[tuple[str, list, dict]] = []
+    captured: list[list] = []
     fake_agent = types.ModuleType("row_bot.agent")
 
-    def fake_invoke(prompt, tools, config, **_kwargs):
-        captured.append((prompt, tools, config))
-        return "Yes, definitely"
+    class FakeChatModel:
+        response: object = "Yes, definitely"
+        error: Exception | None = None
 
-    fake_agent.invoke_agent = fake_invoke
+        def invoke(self, messages):
+            captured.append(list(messages))
+            if self.error is not None:
+                raise self.error
+            return types.SimpleNamespace(content=self.response)
+
+    fake_chat = FakeChatModel()
+    fake_agent._chat_only_llm = lambda _model: fake_chat
     monkeypatch.setitem(sys.modules, "row_bot.agent", fake_agent)
 
     result = tasks.evaluate_condition(
@@ -84,25 +91,27 @@ def test_llm_condition_prompt_and_response_handling(tmp_path, monkeypatch) -> No
     )
 
     assert result is True
-    assert captured[0][1] == []
-    assert "main output here" in captured[0][0]
-    assert "[step_1]" in captured[0][0]
-    assert "second" in captured[0][0]
-    assert captured[0][2]["configurable"]["runtime_surface"] == "workflow"
+    prompt = captured[0][-1].content
+    assert "main output here" in prompt
+    assert "[step_1]" in prompt
+    assert "second" in prompt
+    assert "Answer ONLY 'yes' or 'no'" in prompt
 
-    fake_agent.invoke_agent = lambda *_args, **_kwargs: "no"
+    fake_chat.response = "no"
     assert tasks.evaluate_condition("llm:test", {"prev_output": ""}) is False
-    fake_agent.invoke_agent = lambda *_args, **_kwargs: ""
+    fake_chat.response = ""
     assert tasks.evaluate_condition("llm:test", {"prev_output": ""}) is False
-    fake_agent.invoke_agent = lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("offline"))
+    fake_chat.error = RuntimeError("offline")
     assert tasks.evaluate_condition("llm:test", {"prev_output": ""}) is False
 
     long_context = {"prev_output": "x" * 40_000, "step_outputs": {}, "task_id": ""}
-    fake_agent.invoke_agent = fake_invoke
+    fake_chat.error = None
+    fake_chat.response = "no"
     captured.clear()
     tasks.evaluate_condition("llm:test", long_context)
-    assert "[... truncated ...]" in captured[0][0]
-    assert len(captured[0][0]) < 40_000
+    long_prompt = captured[0][-1].content
+    assert "[... truncated ...]" in long_prompt
+    assert len(long_prompt) < 40_000
 
 
 def test_condition_parse_step_id_and_mermaid_helpers(tmp_path, monkeypatch) -> None:

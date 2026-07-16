@@ -103,6 +103,111 @@ class McpStdioCommandNotFound(RuntimeError):
     pass
 
 
+class PrivateMcpSession:
+    """Dedicated stdio MCP connection that never enters the MCP catalog.
+
+    This is for reviewed internal adapters such as Computer Use.  It reuses
+    Row-Bot's MCP loop and SDK transport while deliberately skipping config,
+    discovery, status, dynamic tool wrapping, and generic model exposure.
+    """
+
+    def __init__(
+        self,
+        *,
+        command: str,
+        args: list[str] | tuple[str, ...] = (),
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
+        timeout: float = 120.0,
+    ) -> None:
+        self.command = str(command)
+        self.args = tuple(str(arg) for arg in args)
+        self.env = dict(env or {})
+        self.cwd = cwd
+        self.timeout = float(timeout)
+        self._session: Any = None
+        self._exit_stack: AsyncExitStack | None = None
+        self._session_lock: asyncio.Lock | None = None
+
+    async def _open_async(self) -> None:
+        if not sdk_available() or StdioServerParameters is None or stdio_client is None:
+            raise RuntimeError("Python package 'mcp' with stdio support is not installed")
+        if self._session is not None:
+            return
+        stack = AsyncExitStack()
+        try:
+            params = StdioServerParameters(
+                command=self.command,
+                args=list(self.args),
+                env=dict(self.env),
+                cwd=self.cwd,
+            )
+            read_stream, write_stream = await stack.enter_async_context(stdio_client(params))
+            session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
+            await asyncio.wait_for(session.initialize(), timeout=min(self.timeout, 30.0))
+        except BaseException:
+            with contextlib.suppress(Exception):
+                await stack.aclose()
+            raise
+        self._exit_stack = stack
+        self._session = session
+        self._session_lock = asyncio.Lock()
+
+    def open(self) -> None:
+        _schedule(self._open_async()).result(timeout=min(self.timeout, 35.0))
+
+    async def _call_raw_async(self, tool_name: str, arguments: dict[str, Any]) -> Any:
+        if self._session is None or self._session_lock is None:
+            raise RuntimeError("Private MCP session is not connected")
+        async with self._session_lock:
+            return await asyncio.wait_for(
+                self._session.call_tool(str(tool_name), dict(arguments or {})),
+                timeout=self.timeout,
+            )
+
+    def call_raw(self, tool_name: str, arguments: dict[str, Any] | None = None) -> Any:
+        """Return the SDK CallToolResult without generic text normalization."""
+
+        scope = current_cancellation_scope()
+        if scope is not None and scope.is_cancelled():
+            raise concurrent.futures.CancelledError()
+        future = _schedule(self._call_raw_async(tool_name, dict(arguments or {})))
+        unregister = scope.register(self.close, "private_mcp.close") if scope is not None else None
+        try:
+            deadline = time.monotonic() + self.timeout + 5.0
+            while True:
+                if scope is not None and scope.is_cancelled():
+                    future.cancel()
+                    raise concurrent.futures.CancelledError()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    future.cancel()
+                    raise concurrent.futures.TimeoutError()
+                try:
+                    return future.result(timeout=min(0.1, remaining))
+                except concurrent.futures.TimeoutError:
+                    continue
+        finally:
+            if unregister is not None:
+                unregister()
+
+    async def _close_async(self) -> None:
+        self._session = None
+        self._session_lock = None
+        stack = self._exit_stack
+        self._exit_stack = None
+        if stack is not None:
+            with contextlib.suppress(Exception):
+                await stack.aclose()
+
+    def close(self) -> None:
+        if self._session is None and self._exit_stack is None:
+            return
+        future = _schedule(self._close_async())
+        with contextlib.suppress(Exception):
+            future.result(timeout=5.0)
+
+
 class _GenericArgs(BaseModel):
     """Fallback for complex schemas: accept a JSON object as kwargs."""
 

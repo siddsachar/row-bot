@@ -25,6 +25,7 @@ class BuddyEventType(StrEnum):
     GENERATION_DONE = "generation.done"
     GENERATION_ERROR = "generation.error"
     GENERATION_INTERRUPTED = "generation.interrupted"
+    GENERATION_STOPPED = "generation.stopped"
     WORKFLOW_STARTED = "workflow.started"
     WORKFLOW_STEP = "workflow.step"
     WORKFLOW_DONE = "workflow.done"

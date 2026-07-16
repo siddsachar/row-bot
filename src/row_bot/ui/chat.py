@@ -521,6 +521,7 @@ def build_chat(
                             display_tool_content,
                             group_tool_results,
                             is_agent_tool_result,
+                            tool_group_status,
                             tool_result_failed,
                         )
                         _agent_tool_results = [
@@ -539,16 +540,23 @@ def build_chat(
                                     on_use_agent_result=_ask_parent_to_use_agent_result,
                                 )
                         for _group in group_tool_results(_generic_tool_results):
-                            _group_failed = any(tool_result_failed(_tr) for _tr in _group.results)
+                            _group_status, _group_icon = tool_group_status(_group.results)
                             with _reattach_gen.tool_col:
                                 with ui.expansion(
-                                    f"{'Failed' if _group_failed else 'Done'} {_group.label}",
-                                    icon="error" if _group_failed else "check_circle",
+                                    f"{_group_status} {_group.label}",
+                                    icon=_group_icon,
                                 ).classes("w-full"):
                                     for _idx, _tr in enumerate(_group.results, start=1):
+                                        _item_failed = tool_result_failed(_tr)
                                         with ui.expansion(
-                                            f"#{_idx}" if _group.count > 1 else _group.name,
-                                            icon="subdirectory_arrow_right",
+                                            (
+                                                f"#{_idx} failed"
+                                                if _item_failed and _group.count > 1
+                                                else f"#{_idx}"
+                                                if _group.count > 1
+                                                else _group.name
+                                            ),
+                                            icon="error" if _item_failed else "subdirectory_arrow_right",
                                         ).classes("w-full"):
                                             _disp = display_tool_content(_tr.get("content", ""))
                                             if _disp:
@@ -967,6 +975,19 @@ def build_chat(
     p.goal_strip_container = ui.column().classes("w-full shrink-0 gap-0 row-bot-goal-strip-slot")
     p.goal_strip_refresh_timer = ui.timer(2.0, _refresh_goal_strip)
     _refresh_goal_strip()
+
+    from row_bot.ui.live_control import build_live_control_dock
+
+    build_live_control_dock(
+        state,
+        p,
+        stop_generation=lambda thread_id: request_generation_stop(
+            thread_id,
+            state=state,
+            p=p,
+            reason="live_control",
+        ),
+    )
 
     with ui.column().classes("w-full shrink-0 gap-0").style(
         "border: 1px solid rgba(255,255,255,0.15); border-radius: 18px; "

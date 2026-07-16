@@ -5,6 +5,8 @@ import sys
 import threading
 import time
 
+import pytest
+
 
 def _fresh_agent_runner_modules(tmp_path, monkeypatch):
     data_dir = tmp_path / "data"
@@ -14,6 +16,7 @@ def _fresh_agent_runner_modules(tmp_path, monkeypatch):
         "row_bot.tasks",
         "row_bot.threads",
         "row_bot.agent_profiles",
+        "row_bot.agent_settings",
         "row_bot.agent_runs",
         "row_bot.agent_context",
         "row_bot.agent_runner",
@@ -80,12 +83,148 @@ def test_spawn_agent_run_creates_child_thread_and_completes(tmp_path, monkeypatc
     assert captured["config"]["configurable"]["runtime_surface"] == "agent_child"
     assert captured["config"]["configurable"]["approval_mode"] == "block"
     assert captured["config"]["configurable"]["model_override"] == "model:test"
+    assert captured["config"]["configurable"]["agent_run_id"] == run["id"]
+    assert "recursion_limit" not in captured["config"]
+    assert run["root_run_id"] == run["id"]
+    assert run["depth"] == 1
 
     child_profile = threads._get_thread_agent_profile(run["thread_id"])
     assert child_profile == {"id": "builtin:review", "slug": "review"}
     assert threads._get_thread_type(run["thread_id"]) == "agent_child"
     event_types = {event["type"] for event in agent_runs.get_agent_events(run["id"])}
     assert {"run.created", "run.started", "turn.started", "turn.completed", "run.completed"} <= event_types
+
+
+def test_child_dispatcher_queues_fifo_at_global_and_parent_capacity(tmp_path, monkeypatch):
+    agent_runner, agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
+        tmp_path, monkeypatch
+    )
+    from row_bot.agent_settings import AgentRuntimeSettings, save_agent_runtime_settings
+
+    save_agent_runtime_settings(
+        AgentRuntimeSettings(max_concurrent_children=1, max_active_children_global=1)
+    )
+    parent_thread_id = threads.create_thread("Capacity parent")
+    first_started = threading.Event()
+    second_started = threading.Event()
+    release_first = threading.Event()
+    order: list[str] = []
+
+    def fake_invoke(prompt, enabled_tool_names, config, *, stop_event):
+        del prompt, enabled_tool_names, stop_event
+        run_id = config["configurable"]["agent_run_id"]
+        order.append(run_id)
+        if len(order) == 1:
+            first_started.set()
+            assert release_first.wait(2)
+        else:
+            second_started.set()
+        return "done"
+
+    monkeypatch.setattr(agent_runner, "_invoke_agent", fake_invoke)
+    first = agent_runner.spawn_agent_run("First", parent_thread_id=parent_thread_id)
+    assert first_started.wait(2)
+    second = agent_runner.spawn_agent_run("Second", parent_thread_id=parent_thread_id)
+
+    assert not second_started.wait(0.15)
+    assert agent_runs.get_agent_run(second["id"])["status"] == "queued"
+    assert agent_runner.child_dispatch_state() == {
+        "queued": 1,
+        "active": 1,
+        "max_active": 1,
+        "max_per_parent": 1,
+    }
+    release_first.set()
+    assert agent_runner.wait_for_agent_run(first["id"], timeout=2)["status"] == "completed"
+    assert agent_runner.wait_for_agent_run(second["id"], timeout=2)["status"] == "completed"
+    assert order == [first["id"], second["id"]]
+
+
+def test_nested_depth_is_trusted_and_configurable_without_run_override(tmp_path, monkeypatch):
+    agent_runner, agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
+        tmp_path, monkeypatch
+    )
+    from row_bot.agent_settings import AgentRuntimeSettings, save_agent_runtime_settings
+
+    parent_thread_id = threads.create_thread("Nested parent")
+    parent = agent_runs.create_agent_run(
+        run_id="trusted-parent",
+        status="running",
+        thread_id=parent_thread_id,
+        parent_thread_id=parent_thread_id,
+        depth=1,
+        root_run_id="trusted-parent",
+    )
+    monkeypatch.setattr(agent_runner, "_invoke_agent", lambda *args, **kwargs: "done")
+
+    with pytest.raises(agent_runner.AgentRunnerError, match="configured maximum"):
+        agent_runner.spawn_agent_run(
+            "Nested child",
+            parent_thread_id=parent_thread_id,
+            parent_run_id=parent["id"],
+        )
+
+    save_agent_runtime_settings(AgentRuntimeSettings(max_spawn_depth=2))
+    child = agent_runner.spawn_agent_run(
+        "Nested child",
+        parent_thread_id=parent_thread_id,
+        parent_run_id=parent["id"],
+        wait=True,
+    )
+    assert child["depth"] == 2
+    assert child["root_run_id"] == parent["id"]
+    assert child["settings_snapshot_json"]["max_spawn_depth"] == 2
+
+
+def test_budget_terminal_child_is_blocked_not_completed(tmp_path, monkeypatch):
+    agent_runner, _agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
+        tmp_path, monkeypatch
+    )
+    parent_thread_id = threads.create_thread("Budget parent")
+    monkeypatch.setattr(
+        agent_runner,
+        "_invoke_agent",
+        lambda *args, **kwargs: {
+            "type": "terminal",
+            "terminal_reason": "budget_exhausted",
+            "message": "Partial work; continue later.",
+        },
+    )
+
+    run = agent_runner.spawn_agent_run(
+        "Long child task",
+        parent_thread_id=parent_thread_id,
+        wait=True,
+    )
+    assert run["status"] == "blocked"
+    assert run["terminal_reason"] == "budget_exhausted"
+    assert run["result_json"]["complete"] is False
+
+
+def test_child_active_time_timeout_is_opt_in_and_terminal(tmp_path, monkeypatch):
+    agent_runner, _agent_runs, _profiles, _context, threads = _fresh_agent_runner_modules(
+        tmp_path, monkeypatch
+    )
+    from row_bot.agent_settings import AgentRuntimeSettings, save_agent_runtime_settings
+
+    save_agent_runtime_settings(AgentRuntimeSettings(child_timeout_seconds=1))
+    parent_thread_id = threads.create_thread("Timeout parent")
+
+    def wait_until_stopped(prompt, enabled_tool_names, config, *, stop_event):
+        del prompt, enabled_tool_names, config
+        assert stop_event.wait(2)
+        return "late result"
+
+    monkeypatch.setattr(agent_runner, "_invoke_agent", wait_until_stopped)
+    run = agent_runner.spawn_agent_run(
+        "Wait for timeout",
+        parent_thread_id=parent_thread_id,
+        wait=True,
+        timeout=3,
+    )
+    assert run["status"] == "timed_out"
+    assert run["terminal_reason"] == "timeout"
+    assert run["active_seconds"] >= 0.9
 
 
 def test_spawn_agent_run_marks_provider_error_text_failed(tmp_path, monkeypatch):

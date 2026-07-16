@@ -1022,13 +1022,17 @@ def _active_thread_profile_scope() -> dict:
 def _query_agents() -> str:
     try:
         from row_bot.agent_runs import (
-            DEFAULT_AGENT_SETTINGS,
             TERMINAL_STATUSES,
             list_agent_runs,
             list_agent_write_locks,
         )
 
         sampled_runs = list_agent_runs(limit=200)
+        from row_bot.agent_runner import child_dispatch_state
+        from row_bot.agent_settings import load_agent_runtime_settings
+
+        runtime_settings = load_agent_runtime_settings()
+        dispatch = child_dispatch_state()
         current_runs = [
             run for run in sampled_runs
             if str(run.get("status") or "") not in TERMINAL_STATUSES
@@ -1041,12 +1045,13 @@ def _query_agents() -> str:
             f"- By status: {_counts_by(sampled_runs, 'status')}",
             (
                 "- Defaults: "
-                f"max concurrent {DEFAULT_AGENT_SETTINGS.get('max_concurrent_agents')}; "
-                f"max depth {DEFAULT_AGENT_SETTINGS.get('max_depth')}; "
-                f"context {DEFAULT_AGENT_SETTINGS.get('default_context_mode')}; "
-                f"workspace {DEFAULT_AGENT_SETTINGS.get('default_workspace_mode')}; "
-                f"goal max turns {DEFAULT_AGENT_SETTINGS.get('goal_max_turns')}"
+                f"{runtime_settings.max_iterations} model rounds; "
+                f"depth {runtime_settings.max_spawn_depth}; "
+                f"{runtime_settings.max_concurrent_children} active per parent; "
+                f"{runtime_settings.max_active_children_global} active globally; "
+                f"child timeout {runtime_settings.child_timeout_seconds or 'off'}"
             ),
+            f"- Dispatcher: {dispatch['active']} active, {dispatch['queued']} queued",
             f"- Writer locks: {len(writer_locks)} active",
         ]
         if not sampled_runs:
@@ -1067,8 +1072,11 @@ def _query_agents() -> str:
             profile = str(run.get("profile_display_name") or run.get("profile_slug") or "").strip()
             profile_label = f", profile {profile}" if profile else ""
             progress = ""
-            if int(run.get("max_turns") or 0):
-                progress = f", turns {run.get('turns_used', 0)}/{run.get('max_turns', 0)}"
+            if int(run.get("model_iterations_max") or 0):
+                progress = (
+                    f", rounds {run.get('model_iterations_used', 0)}/"
+                    f"{run.get('model_iterations_max', 0)}, depth {run.get('depth', 0)}"
+                )
             detail = _short_status_text(
                 run.get("status_message") or run.get("summary") or run.get("error"),
                 90,

@@ -11,7 +11,11 @@ from row_bot.ui.tool_trace import (
     is_agent_tool_result,
     is_browser_tool_name,
     parse_agent_tool_payload,
+    tool_result_failed,
+    tool_group_completion_summary,
 )
+from row_bot.computer_use.service import ComputerUseError
+from row_bot.tools.computer_use_tool import _computer_error_payload
 
 
 def test_tool_results_group_by_name_without_losing_entries():
@@ -56,6 +60,80 @@ def test_tool_content_truncates_only_for_display():
 
     assert display_tool_content(raw, limit=10) == "x" * 10 + "\n\n… (truncated)"
     assert raw == "x" * 20
+
+
+def test_tool_content_uses_safe_summary_instead_of_private_json_payload():
+    private_title = "secret@example.test - Private inbox"
+    raw = json.dumps(
+        {
+            "windows": [{"app": "Edge", "window": private_title}],
+            "display_summary": "Found one matching Notepad window.",
+        }
+    )
+
+    displayed = display_tool_content(raw)
+
+    assert displayed == "Found one matching Notepad window."
+    assert private_title not in displayed
+
+
+def test_structured_computer_errors_are_failed_without_exposing_private_payload() -> None:
+    private_value = "do not display this value"
+    content = json.dumps(
+        {
+            "ok": False,
+            "error": True,
+            "error_code": "invalid_input",
+            "display_summary": "Computer action needs valid input.",
+            "private": private_value,
+        }
+    )
+
+    assert tool_result_failed(content) is True
+    assert display_tool_content(content) == "Computer action needs valid input."
+    assert private_value not in display_tool_content(content)
+
+
+def test_protected_computer_surface_is_terminal_and_never_a_driver_failure() -> None:
+    content = _computer_error_payload(
+        "list_windows",
+        ComputerUseError(
+            "Row-Bot and its Computer control surfaces cannot be targeted.",
+            code="hard_blocked",
+        ),
+    )
+    payload = json.loads(content)
+
+    assert payload["error_code"] == "hard_blocked"
+    assert payload["retryable"] is False
+    assert payload["terminal"] is True
+    assert "protected" in payload["display_summary"].casefold()
+    assert "driver" not in payload["display_summary"].casefold()
+    assert tool_result_failed(content) is True
+
+
+def test_computer_group_with_recovered_error_is_not_a_clean_success() -> None:
+    group = group_tool_results(
+        [
+            {"name": "computer_use", "content": "Captured the selected target."},
+            {
+                "name": "computer_use",
+                "content": json.dumps(
+                    {
+                        "ok": False,
+                        "error": True,
+                        "error_code": "driver_failed",
+                        "display_summary": "Computer action failed safely.",
+                    }
+                ),
+            },
+            {"name": "computer_use", "content": "Captured fresh verification."},
+        ]
+    )[0]
+
+    assert any(tool_result_failed(item) for item in group.results)
+    assert "error" not in group.label.lower()
+    assert tool_group_completion_summary(group.results) == "2 succeeded · 1 failed"
 
 
 def test_agent_tool_payload_is_detected_from_agent_tool_json():

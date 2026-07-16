@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable, Literal
 
-from row_bot.approval_policy import decision_for_action
+from row_bot.approval_policy import decision_for_action, normalize_approval_mode
+
+
+GateOutcome = Literal["allow", "block", "deny", "take_over"]
 
 
 def current_approval_mode() -> str:
@@ -18,6 +21,40 @@ def current_approval_mode() -> str:
         return DEFAULT_APPROVAL_MODE
 
 
+def resolve_approval(
+    payload: dict[str, Any],
+    *,
+    approval_mode: object,
+    read_only: bool = False,
+    approval_callback: Callable[[dict[str, Any]], bool | str] | None = None,
+) -> GateOutcome:
+    """Resolve one action through the shared Block/Ask/Auto policy.
+
+    The optional callback keeps deterministic subsystem tests independent from
+    LangGraph. Shipped callers omit it and use the normal graph interrupt.
+    """
+
+    decision = decision_for_action(
+        normalize_approval_mode(approval_mode),
+        read_only=read_only,
+    )
+    if decision == "allow":
+        return "allow"
+    if decision == "block":
+        return "block"
+    if approval_callback is None:
+        from langgraph.types import interrupt
+
+        response: bool | str = interrupt(payload)
+    else:
+        response = approval_callback(payload)
+    if response is True:
+        return "allow"
+    if str(response or "").strip().casefold() == "take over":
+        return "take_over"
+    return "deny"
+
+
 def gate_action(
     payload: dict[str, Any],
     *,
@@ -28,7 +65,11 @@ def gate_action(
     """Return None when the action may run, otherwise a user-facing refusal."""
 
     mode = current_approval_mode()
-    decision = decision_for_action(mode, read_only=read_only)
+    decision = resolve_approval(
+        payload,
+        approval_mode=mode,
+        read_only=read_only,
+    )
     if decision == "allow":
         return None
     label = str(payload.get("label") or payload.get("tool") or "Action")
@@ -36,9 +77,4 @@ def gate_action(
         return blocked_message or (
             f"BLOCKED: {label} is unavailable while this thread is in Block approval mode."
         )
-    from langgraph.types import interrupt
-
-    approval = interrupt(payload)
-    if not approval:
-        return cancelled_message
-    return None
+    return cancelled_message

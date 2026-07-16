@@ -5,6 +5,15 @@ import os
 import sys
 from pathlib import Path
 
+from row_bot.agent_budget import new_execution_budget
+
+
+def _trim_state(messages: list, logical_turn_id: str) -> dict:
+    return {
+        "execution_budget": new_execution_budget(logical_turn_id),
+        "messages": messages,
+    }
+
 
 def _reload_skill_command_modules(tmp_path: Path):
     os.environ["ROW_BOT_DATA_DIR"] = str(tmp_path)
@@ -198,13 +207,17 @@ def test_prompt_injection_and_tool_guide_separation_for_runtime_commands(tmp_pat
 
     thread_id = "slash-prompt-thread"
     agent._set_active_runtime_context(thread_id=thread_id, enabled_tool_names=[])
-    lean = agent._pre_model_trim({"messages": [HumanMessage(content="alpha planning")]})
+    lean = agent._pre_model_trim(
+        _trim_state([HumanMessage(content="alpha planning")], "slash-prompt-lean")
+    )
     lean_prompt = "\n".join(str(m.content) for m in lean["llm_input_messages"])
     assert "## Skills" not in lean_prompt
     assert "Instructions for alpha_skill." not in lean_prompt
 
     slash_commands.dispatch_text_command(thread_id, "/alpha-skill")
-    active = agent._pre_model_trim({"messages": [HumanMessage(content="alpha planning")]})
+    active = agent._pre_model_trim(
+        _trim_state([HumanMessage(content="alpha planning")], "slash-prompt-active")
+    )
     active_prompt = "\n".join(str(m.content) for m in active["llm_input_messages"])
     assert "Instructions for alpha_skill." in active_prompt
     assert "Instructions for alpha_tool_guide." not in active_prompt

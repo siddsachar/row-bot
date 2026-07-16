@@ -43,6 +43,7 @@ def _prompt_for(agent, *, surface: str, selected_mode: str = "agent", channel_st
         channel_streaming=channel_streaming,
     )
     result = agent._pre_model_trim({
+        "execution_budget": agent.new_execution_budget(f"progress-{surface}-{selected_mode}"),
         "messages": [
             SystemMessage(content="Base system"),
             HumanMessage(content="Please do a multi-step check."),

@@ -200,10 +200,7 @@ def _run_agent_sync(user_text: str, config: dict) -> tuple[str, dict | None, lis
     from row_bot.tools import registry as tool_registry
 
     agent_mod = _agent_mod()
-    config = {
-        **build_channel_runtime_config(config, "message"),
-        "recursion_limit": agent_mod.RECURSION_LIMIT_CHAT,
-    }
+    config = build_channel_runtime_config(config, "message")
     enabled = [t.name for t in tool_registry.get_enabled_tools()]
     full_answer: list[str] = []
     tool_reports: list[str] = []

@@ -216,10 +216,7 @@ def _run_agent_sync(user_text: str, config: dict,
     from row_bot.channels.media_capture import grab_vision_capture, grab_generated_image, grab_generated_video
 
     agent_mod = _agent_mod()
-    config = {
-        **build_channel_runtime_config(config, "message"),
-        "recursion_limit": agent_mod.RECURSION_LIMIT_CHAT,
-    }
+    config = build_channel_runtime_config(config, "message")
     enabled = [t.name for t in tool_registry.get_enabled_tools()]
     full_answer: list[str] = []
     tool_reports: list[str] = []

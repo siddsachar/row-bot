@@ -998,6 +998,12 @@ app.add_middleware(MobileAccessGate)
 
 @app.on_shutdown
 async def on_shutdown():
+    try:
+        from row_bot.computer_use.service import shutdown_computer_use
+
+        shutdown_computer_use()
+    except Exception:
+        logger.debug("Computer Use shutdown failed", exc_info=True)
     await _cleanup_runtime()
 
 
@@ -1231,6 +1237,7 @@ async def index():
 
     # ── Build Callbacks bundle ───────────────────────────────────────────
     cb = Callbacks()
+    p.streaming_callbacks = cb
     # Slots wired after layout is built (forward declarations)
 
     # ── Wrappers that close over (state, p, cb) ─────────────────────────

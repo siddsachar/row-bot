@@ -7,6 +7,8 @@ from types import SimpleNamespace
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
+from row_bot.agent_budget import new_execution_budget
+
 
 def _fresh_memory_modules(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
@@ -253,7 +255,10 @@ def test_agent_pre_model_trim_injects_policy_block_and_touches_only_selected(tmp
         SystemMessage(content="Root system"),
         HumanMessage(content="What is my code?"),
     ]
-    result = agent._pre_model_trim({"messages": messages})["llm_input_messages"]
+    result = agent._pre_model_trim({
+        "execution_budget": new_execution_budget("memory-recall-trim"),
+        "messages": messages,
+    })["llm_input_messages"]
 
     contents = [str(m.content) for m in result]
     recall_idx = next(i for i, content in enumerate(contents) if "Relevant long-term memory" in content)

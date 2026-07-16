@@ -3,7 +3,51 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any
+
+
+@dataclass(frozen=True)
+class RawCallContent:
+    """Lossless, internal-only MCP result content."""
+
+    kind: str
+    text: str = ""
+    data: str = ""
+    mime_type: str = ""
+
+
+@dataclass(frozen=True)
+class RawCallResult:
+    content: tuple[RawCallContent, ...]
+    structured_content: Any = None
+    is_error: bool = False
+
+
+def raw_call_result(result: Any) -> RawCallResult:
+    """Extract text/image blocks for a reviewed internal client.
+
+    Generic model-facing MCP results continue through ``normalize_call_result``
+    and still omit images.
+    """
+
+    blocks: list[RawCallContent] = []
+    for block in getattr(result, "content", None) or []:
+        kind = str(getattr(block, "type", "") or "text")
+        blocks.append(RawCallContent(
+            kind=kind,
+            text=str(getattr(block, "text", "") or ""),
+            data=str(getattr(block, "data", "") or ""),
+            mime_type=str(
+                getattr(block, "mimeType", "")
+                or getattr(block, "mime_type", "")
+                or ""
+            ),
+        ))
+    structured = getattr(result, "structuredContent", None)
+    if structured is None:
+        structured = getattr(result, "structured_content", None)
+    return RawCallResult(tuple(blocks), structured, bool(getattr(result, "isError", False)))
 
 
 def _content_block_to_text(block: Any) -> str:

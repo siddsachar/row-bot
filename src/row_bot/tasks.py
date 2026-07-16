@@ -2166,11 +2166,12 @@ def _mirror_workflow_agent_run_finish(
     run_id: str,
     status: str,
     status_message: str = "",
+    terminal_reason: str = "",
 ) -> None:
     try:
         from row_bot.agent_runs import mirror_workflow_finish
 
-        mirror_workflow_finish(run_id, status, status_message)
+        mirror_workflow_finish(run_id, status, status_message, terminal_reason)
     except Exception:
         logger.debug("Workflow agent-run mirror finish failed for %s", run_id, exc_info=True)
 
@@ -2213,7 +2214,7 @@ def _update_run_progress(run_id: str, steps_done: int) -> None:
 
 @_schema_retry
 def _finish_run(run_id: str, status: str = "completed",
-                status_message: str = "") -> None:
+                status_message: str = "", terminal_reason: str = "") -> None:
     conn = _get_conn()
     conn.execute(
         "UPDATE task_runs SET status = ?, status_message = ?, finished_at = ? "
@@ -2221,11 +2222,11 @@ def _finish_run(run_id: str, status: str = "completed",
         (status, status_message, datetime.now().isoformat(), run_id),
     )
     # Clean up pipeline_state for terminal statuses (no longer needed)
-    if status in ("completed", "completed_delivery_failed", "failed", "stopped"):
+    if status in ("completed", "completed_delivery_failed", "failed", "stopped", "blocked"):
         conn.execute("DELETE FROM pipeline_state WHERE run_id = ?", (run_id,))
     conn.commit()
     conn.close()
-    _mirror_workflow_agent_run_finish(run_id, status, status_message)
+    _mirror_workflow_agent_run_finish(run_id, status, status_message, terminal_reason)
 
 
 def _emit_buddy_workflow_event(
@@ -3248,7 +3249,6 @@ def run_task_background(
             _approval_mode_var.set(approval_mode)
             _persistent_thread_var.set(bool(task.get("persistent_thread_id")))
 
-            from row_bot.agent import RECURSION_LIMIT_TASK
             config = {
                 "configurable": {
                     "thread_id": thread_id,
@@ -3258,7 +3258,6 @@ def run_task_background(
                     "agent_profile_id": str(runtime_policy["agent_profile_id"]),
                     "agent_profile_snapshot": profile_snapshot,
                 },
-                "recursion_limit": RECURSION_LIMIT_TASK,
             }
             if tool_allowlist:
                 config["configurable"]["tool_allowlist"] = tool_allowlist
@@ -3389,6 +3388,25 @@ def run_task_background(
                         try:
                             result = invoke_agent(prompt, effective_tool_names, config,
                                                  stop_event=_stop_event)
+                            if isinstance(result, dict) and result.get("type") == "terminal":
+                                terminal_reason = str(result.get("terminal_reason") or "")
+                                message = str(result.get("message") or "Workflow step stopped incomplete.")
+                                step_outputs[step_id] = message
+                                _update_pipeline_status(run_id, "blocked")
+                                _finish_run(
+                                    run_id,
+                                    "blocked",
+                                    status_message=message,
+                                    terminal_reason=terminal_reason,
+                                )
+                                _emit_buddy_workflow_event(
+                                    "error",
+                                    task_id=task_id,
+                                    thread_id=thread_id,
+                                    label="Workflow needs attention",
+                                    error=message,
+                                )
+                                return
                             # ── Interrupt detection (approve mode) ───
                             if isinstance(result, dict) and result.get("type") == "interrupt":
                                 # Check stop event first — avoid creating
@@ -5340,6 +5358,25 @@ def _resume_graph_interrupted(
             return
 
         # ── Chained interrupt: agent hit another dangerous tool ─────
+        if isinstance(result, dict) and result.get("type") == "terminal":
+            terminal_reason = str(result.get("terminal_reason") or "")
+            message = str(result.get("message") or "Workflow step stopped incomplete.")
+            step_outputs[step_id] = message
+            _update_pipeline_status(run_id, "blocked")
+            _finish_run(
+                run_id,
+                "blocked",
+                status_message=message,
+                terminal_reason=terminal_reason,
+            )
+            _emit_buddy_workflow_event(
+                "error",
+                task_id=task_id,
+                thread_id=thread_id,
+                label="Workflow needs attention",
+                error=message,
+            )
+            return
         if isinstance(result, dict) and result.get("type") == "interrupt":
             interrupts = result.get("interrupts", [])
 
@@ -5422,6 +5459,26 @@ def _resume_graph_interrupted(
                     icon="⏸️",
                 )
                 return
+
+        if isinstance(result, dict) and result.get("type") == "terminal":
+            terminal_reason = str(result.get("terminal_reason") or "")
+            message = str(result.get("message") or "Workflow step stopped incomplete.")
+            step_outputs[step_id] = message
+            _update_pipeline_status(run_id, "blocked")
+            _finish_run(
+                run_id,
+                "blocked",
+                status_message=message,
+                terminal_reason=terminal_reason,
+            )
+            _emit_buddy_workflow_event(
+                "error",
+                task_id=task_id,
+                thread_id=thread_id,
+                label="Workflow needs attention",
+                error=message,
+            )
+            return
 
         # ── Success: graph finished the step ────────────────────────
         # Clear the graph_interrupted flag now that the resume succeeded
@@ -5682,7 +5739,6 @@ def _run_subtask_sync(
                 "runtime_mode": "agent",
                 "approval_mode": child_approval,
             },
-            "recursion_limit": parent_config.get("recursion_limit", 50),
         }
         if child_task.get("model_override"):
             config["configurable"]["model_override"] = child_task["model_override"]
@@ -5712,6 +5768,14 @@ def _run_subtask_sync(
                 try:
                     result = invoke_agent(prompt, effective_tools, config,
                                          stop_event=stop_event)
+                    if isinstance(result, dict) and result.get("type") == "terminal":
+                        logger.warning(
+                            "Subtask '%s' step %d stopped incomplete: %s",
+                            child_task["name"],
+                            i + 1,
+                            result.get("terminal_reason") or "terminal",
+                        )
+                        return None
                     # Subtasks do not support approval flow — if the
                     # agent triggered an interrupt(), handle it inline.
                     if isinstance(result, dict) and result.get("type") == "interrupt":
@@ -6054,7 +6118,9 @@ def _eval_json_condition(expr: str, prev_output: str, context: dict | None = Non
 def _eval_llm_condition(prompt: str, context: dict) -> bool:
     """Use the LLM to evaluate a condition. Expects yes/no response."""
     try:
-        from row_bot.agent import invoke_agent
+        from langchain_core.messages import HumanMessage, SystemMessage
+        from row_bot.agent import _chat_only_llm
+        from row_bot.models import get_current_model
 
         prev = context.get("prev_output", "")
         step_outputs = context.get("step_outputs", {})
@@ -6080,18 +6146,16 @@ def _eval_llm_condition(prompt: str, context: dict) -> bool:
             f"Context:\n{context_text}\n\n"
             f"Question: {prompt}"
         )
-        config = {
-            "configurable": {
-                "thread_id": f"condition-eval-{uuid.uuid4().hex[:8]}",
-                "runtime_surface": "workflow",
-                "runtime_mode": "agent",
-            },
-            "recursion_limit": 5,
-        }
-        # No tools needed — this is a pure yes/no reasoning call.
-        result = invoke_agent(full_prompt, [], config)
-        if result:
-            answer = result.strip().lower()
+        # This is a bounded classification call, not a full agent loop.
+        result = _chat_only_llm(get_current_model()).invoke(
+            [
+                SystemMessage(content="Answer only yes or no. Do not call tools."),
+                HumanMessage(content=full_prompt),
+            ]
+        )
+        content = getattr(result, "content", result)
+        if content:
+            answer = str(content).strip().lower()
             return answer.startswith("yes")
     except Exception as exc:
         logger.error("LLM condition evaluation failed: %s", exc)

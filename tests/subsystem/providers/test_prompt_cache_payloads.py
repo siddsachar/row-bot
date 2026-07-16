@@ -6,6 +6,8 @@ from types import SimpleNamespace
 import pytest
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from row_bot.agent_budget import new_execution_budget
+
 
 def _fresh_agent(tmp_path, monkeypatch):
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
@@ -77,6 +79,7 @@ def test_prompt_cache_markers_are_provider_gated(
     agent.set_active_model_override(model_ref)
     try:
         result = agent._pre_model_trim({
+            "execution_budget": new_execution_budget(f"cache-{provider_id}"),
             "messages": [
                 SystemMessage(content="ROOT_SENTINEL"),
                 HumanMessage(content="hello"),

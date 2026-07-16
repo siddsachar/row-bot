@@ -32,7 +32,6 @@ from row_bot.ui.constants import (
 
     SENTENCE_SPLIT,
     MAX_STREAM_SENTENCES,
-    YT_URL_PATTERN,
     IMAGE_EXTENSIONS,
 )
 from row_bot.ui.render import (
@@ -49,6 +48,7 @@ from row_bot.ui.tool_trace import (
     parse_agent_tool_payload,
     is_agent_tool_result,
     is_browser_tool_name,
+    is_computer_tool_name,
     tool_result_failed,
 )
 from row_bot.voice.cues import (
@@ -356,10 +356,63 @@ def _img_data_uri(b64: str) -> str:
     return f"data:image/jpeg;base64,{b64}"
 
 
+def _is_computer_takeover_interrupt(data: Any) -> bool:
+    items = data if isinstance(data, list) else [data]
+    return any(
+        isinstance(item, dict)
+        and str(item.get("kind") or "") == "computer_takeover"
+        for item in items
+    )
+
+
+def _cleanup_live_control_sessions(
+    thread_id: str,
+    *,
+    preserve_computer_pause: bool = False,
+    preserve_browser_takeover: bool = False,
+    context: str = "generation",
+) -> None:
+    """Release task-scoped control state without touching another task."""
+
+    try:
+        from row_bot.computer_use.service import get_computer_use_service
+
+        computer_service = get_computer_use_service()
+        if preserve_computer_pause:
+            computer_snapshot = computer_service.status_snapshot()
+            matching_active = (
+                bool(computer_snapshot.get("active"))
+                and str(computer_snapshot.get("thread_id") or "") == str(thread_id or "")
+            )
+            computer_state = str(computer_snapshot.get("state") or "")
+            preserve_pause = (
+                matching_active
+                and computer_state in {"waiting_user", "waiting_approval"}
+            )
+        else:
+            preserve_pause = False
+        if not preserve_pause:
+            computer_service.close_for_thread(thread_id)
+    except Exception:
+        logger.debug("Computer live-control cleanup during %s failed", context, exc_info=True)
+    try:
+        from row_bot.tools.browser_tool import get_session_manager
+
+        manager = get_session_manager()
+        if preserve_browser_takeover:
+            manager.end_activity(thread_id, preserve_takeover=True)
+        else:
+            manager.end_activity(thread_id)
+    except Exception:
+        logger.debug("Browser live-control cleanup during %s failed", context, exc_info=True)
+
+
 def _detach_generation(gen: GenerationState, state: AppState, reason: str) -> None:
     """Convert a live run into a detached run after the client disappears."""
     if gen.detached:
         return
+
+    _cleanup_live_control_sessions(gen.thread_id, context="detach")
 
     gen.detached = True
     gen.assistant_md = None
@@ -576,6 +629,32 @@ def _stop_generation_child_agent_runs(gen: GenerationState) -> None:
             logger.debug("Failed to stop child Agent run %s", run_id, exc_info=True)
 
 
+def _emit_buddy_terminal_stop(gen: GenerationState | None, reason: str) -> None:
+    """Clear Buddy activity lanes exactly once for a terminal user stop."""
+
+    if gen is not None:
+        if gen.buddy_terminal_emitted:
+            return
+        gen.buddy_terminal_emitted = True
+        thread_id = gen.thread_id
+    else:
+        thread_id = ""
+    try:
+        from row_bot.buddy.events import BuddyEventType, emit_buddy_event
+
+        emit_buddy_event(
+            BuddyEventType.GENERATION_STOPPED,
+            source="ui.streaming",
+            payload={
+                "thread_id": thread_id,
+                "label": "Stopped",
+                "reason": str(reason or "user")[:80],
+            },
+        )
+    except Exception:
+        logger.debug("Buddy terminal stop event failed", exc_info=True)
+
+
 def request_generation_stop(
     thread_id: str | None,
     *,
@@ -586,8 +665,28 @@ def request_generation_stop(
     """Request cancellation for the active generation and release the UI promptly."""
 
     normalized_thread_id = str(thread_id or "")
+    had_pending_interrupt = False
+    if state is not None and str(getattr(state, "thread_id", "") or "") == normalized_thread_id:
+        had_pending_interrupt = getattr(state, "pending_interrupt", None) is not None
+        state.pending_interrupt = None
+        state.pending_interrupt_generation_id = ""
+        state.pending_interrupt_tool_groups = {}
+        state.pending_interrupt_runtime_surface = ""
+    if had_pending_interrupt and p is not None:
+        try:
+            interrupt_dialog = getattr(p, "interrupt_dlg", None)
+            if interrupt_dialog is not None:
+                interrupt_dialog.close()
+        except Exception:
+            logger.debug("Pending approval dialog close during stop failed", exc_info=True)
     gen = _active_generations.get(normalized_thread_id)
     if gen is None:
+        if had_pending_interrupt:
+            _emit_buddy_terminal_stop(None, reason)
+        _cleanup_live_control_sessions(
+            normalized_thread_id,
+            context="generation stop without active producer",
+        )
         fallback_event = getattr(state, "stop_event", None)
         if fallback_event is not None:
             try:
@@ -607,6 +706,7 @@ def request_generation_stop(
     if not gen.stop_requested_at:
         gen.stop_requested_at = time.perf_counter()
     gen.status = "stopped"
+    _emit_buddy_terminal_stop(gen, gen.stop_reason)
 
     scope = getattr(gen, "cancel_scope", None)
     if scope is not None:
@@ -617,6 +717,8 @@ def request_generation_stop(
             gen.stop_event.set()
     else:
         gen.stop_event.set()
+
+    _cleanup_live_control_sessions(normalized_thread_id, context="generation stop")
 
     _stop_generation_child_agent_runs(gen)
     _stop_generation_voice_outputs(gen, state, p)
@@ -665,7 +767,7 @@ def _live_tool_group(gen: GenerationState, tool_name: str) -> dict[str, Any] | N
     if gen.detached or not gen.tool_col:
         return None
     canonical_name = canonical_tool_name(tool_name)
-    display_name = "Browser activity" if is_browser_tool_name(canonical_name) else canonical_name
+    display_name = "Browser activity" if is_browser_tool_name(canonical_name) else "Computer activity" if is_computer_tool_name(canonical_name) else canonical_name
     group = gen.pending_tools.get(display_name)
     if isinstance(group, dict):
         return group
@@ -679,6 +781,8 @@ def _live_tool_group(gen: GenerationState, tool_name: str) -> dict[str, Any] | N
         "expansion": exp,
         "count": 0,
         "done": 0,
+        "succeeded": 0,
+        "failed_count": 0,
         "pending": [],
     }
     gen.pending_tools[display_name] = group
@@ -693,6 +797,8 @@ def _tool_activity_line(display_name: str) -> str:
         return "Running a workspace command."
     if name == "browser activity":
         return "Browser automation is stepping through the page."
+    if name == "computer activity":
+        return "Computer Use is controlling the named native app; Stop or Take over remains available here."
     if name in {"file", "document"}:
         return "Reading local context."
     return ""
@@ -774,14 +880,14 @@ def _add_live_tool_pending(gen: GenerationState, tool_name: str) -> None:
         with row:
             label = ui.label(f"#{call_no} running...").classes("text-xs text-grey-6")
     group["pending"].append({"row": row, "label": label, "call_no": call_no})
-    unit = "step" if group["name"] == "Browser activity" else "call"
+    unit = "step" if group["name"] in {"Browser activity", "Computer activity"} else "call"
     suffix = unit if group["count"] == 1 else f"{unit}s"
     _set_expansion_title(exp, f"Running {group['name']} - {group['count']} {suffix}", "hourglass_empty")
 
 
 def _finish_live_tool_result(gen: GenerationState, tool_name: str, content: str) -> bool:
     canonical_name = canonical_tool_name(tool_name)
-    display_name = "Browser activity" if is_browser_tool_name(canonical_name) else canonical_name
+    display_name = "Browser activity" if is_browser_tool_name(canonical_name) else "Computer activity" if is_computer_tool_name(canonical_name) else canonical_name
     group = gen.pending_tools.get(display_name)
     if not isinstance(group, dict):
         return False
@@ -792,6 +898,10 @@ def _finish_live_tool_result(gen: GenerationState, tool_name: str, content: str)
     label = item.get("label") if item else None
     call_no = item.get("call_no") if item else group["done"]
     failed = tool_result_failed(content)
+    if failed:
+        group["failed_count"] = int(group.get("failed_count") or 0) + 1
+    else:
+        group["succeeded"] = int(group.get("succeeded") or 0) + 1
     if row is None:
         with group["expansion"]:
             row = ui.column().classes("w-full gap-1 q-ml-sm")
@@ -809,11 +919,18 @@ def _finish_live_tool_result(gen: GenerationState, tool_name: str, content: str)
             if display:
                 ui.code(display).classes("w-full text-xs")
     group["failed"] = bool(group.get("failed")) or failed
-    icon = "error" if group.get("failed") else ("check_circle" if group["done"] >= group["count"] else "hourglass_empty")
-    prefix = "Failed" if group.get("failed") else ("Done" if icon == "check_circle" else "Running")
+    icon = "warning" if group.get("failed") else ("check_circle" if group["done"] >= group["count"] else "hourglass_empty")
+    prefix = "Needs attention" if group.get("failed") else ("Done" if icon == "check_circle" else "Running")
+    if group.get("failed"):
+        progress = (
+            f"{int(group.get('succeeded') or 0)} succeeded · "
+            f"{int(group.get('failed_count') or 0)} failed"
+        )
+    else:
+        progress = f"{group['done']}/{group['count']} complete"
     _set_expansion_title(
         group["expansion"],
-        f"{prefix} {group['name']} - {group['done']}/{group['count']} complete",
+        f"{prefix} {group['name']} - {progress}",
         icon,
     )
     return True
@@ -2339,7 +2456,6 @@ async def consume_generation(
     from langchain_core.messages import AIMessage
     from row_bot.ui.helpers import (
         attach_thinking_to_message,
-        load_thread_messages,
         persist_detached_thread_media,
         persist_thread_media_state,
     )
@@ -2682,6 +2798,7 @@ async def consume_generation(
             return
         _stopped_shown = True
         gen.status = "stopped"
+        _emit_buddy_terminal_stop(gen, reason)
         gen.stopped_marker_rendered = True
         _set_realtime_generation_state("stopped", detail=reason)
         if "*[Stopped]*" not in str(gen.accumulated or ""):
@@ -2977,15 +3094,48 @@ async def consume_generation(
                         gen.tts_buffer = sentences[-1]
 
         elif event_type == "interrupt":
-            _buddy(BuddyEventType.APPROVAL_NEEDED, "Approval pending")
+            takeover_pause = _is_computer_takeover_interrupt(payload)
+            _buddy(
+                BuddyEventType.GENERATION_INTERRUPTED if takeover_pause else BuddyEventType.APPROVAL_NEEDED,
+                "Waiting for you" if takeover_pause else "Approval pending",
+            )
             _voice_diag("generation_event:interrupt")
-            voice_output.speak_cue(approval_needed_cue(), generation_elapsed=_generation_elapsed())
-            _set_realtime_generation_state("waiting_for_approval", detail="interrupt")
+            if not takeover_pause:
+                voice_output.speak_cue(approval_needed_cue(), generation_elapsed=_generation_elapsed())
+            _set_realtime_generation_state(
+                "waiting_for_user" if takeover_pause else "waiting_for_approval",
+                detail="computer_takeover" if takeover_pause else "interrupt",
+            )
             gen.interrupt_data = payload
             state.pending_interrupt = payload
+            state.pending_interrupt_generation_id = gen.generation_id
+            state.pending_interrupt_tool_groups = gen.pending_tools
+            state.pending_interrupt_runtime_surface = str(
+                ((gen.config.get("configurable") or {}).get("runtime_surface") or "")
+            )
             gen.status = "interrupted"
-            rendered_inline = _render_inline_interrupt_notice(gen, state, p, cb)
-            if not gen.detached and not _ui_handle_client_deleted(p.interrupt_dlg):
+            if not gen.detached and gen.thinking_label:
+                try:
+                    gen.thinking_label.delete()
+                    gen.thinking_label = None
+                except Exception as exc:
+                    _handle_ui_runtime_error(
+                        gen,
+                        state,
+                        exc,
+                        "approval thinking indicator cleanup",
+                    )
+                    logger.debug(
+                        "Approval thinking indicator cleanup failed",
+                        exc_info=True,
+                    )
+            rendered_inline = False if takeover_pause else _render_inline_interrupt_notice(gen, state, p, cb)
+            if takeover_pause:
+                gen.interrupt_rendered = True
+                refresh_live_control = getattr(p, "live_control_refresh", None)
+                if callable(refresh_live_control):
+                    refresh_live_control()
+            elif not gen.detached and not _ui_handle_client_deleted(p.interrupt_dlg):
                 try:
                     cb.show_interrupt(payload)
                     gen.interrupt_rendered = True
@@ -3271,6 +3421,12 @@ async def consume_generation(
     queued_voice_controls = [] if gen.stop_event.is_set() else list(getattr(gen, "voice_control_queue", []) or [])
     if _active_generations.get(gen.thread_id) is gen:
         _active_generations.pop(gen.thread_id, None)
+    _cleanup_live_control_sessions(
+        gen.thread_id,
+        preserve_computer_pause=True,
+        preserve_browser_takeover=True,
+        context="finalization",
+    )
 
     # Update UI if this is still the active thread
     if state.thread_id == gen.thread_id:
@@ -3305,9 +3461,21 @@ async def consume_generation(
         if state.voice_enabled and not (state.tts_service and state.tts_service.enabled):
             state.voice_coordinator.unmute()
         if gen.interrupt_data:
-            _set_realtime_generation_state("waiting_for_approval", detail="approval_pending")
+            takeover_pause = _is_computer_takeover_interrupt(gen.interrupt_data)
+            _set_realtime_generation_state(
+                "waiting_for_user" if takeover_pause else "waiting_for_approval",
+                detail="computer_takeover" if takeover_pause else "approval_pending",
+            )
             state.pending_interrupt = gen.interrupt_data
-            if not gen.interrupt_rendered:
+            state.pending_interrupt_generation_id = gen.generation_id
+            state.pending_interrupt_tool_groups = gen.pending_tools
+            state.pending_interrupt_runtime_surface = str(
+                ((gen.config.get("configurable") or {}).get("runtime_surface") or "")
+            )
+            if takeover_pause:
+                rendered_inline = True
+                gen.interrupt_rendered = True
+            elif not gen.interrupt_rendered:
                 rendered_inline = _render_inline_interrupt_notice(gen, state, p, cb)
             else:
                 rendered_inline = True
@@ -3316,7 +3484,7 @@ async def consume_generation(
                     "Approval pending for thread %s; dialog render skipped because UI client is detached or approval was already rendered",
                     gen.thread_id,
                 )
-            else:
+            elif not takeover_pause:
                 try:
                     cb.show_interrupt(gen.interrupt_data)
                     gen.interrupt_rendered = True
@@ -3699,6 +3867,7 @@ async def _handle_tool_done(
     # socket.io pings stall and the client is considered disconnected.
     if raw_tool_name.startswith("browser_"):
         gen.browser_step_count += 1
+        await _capture_balanced_browser_screenshot(gen, state)
 
     # Filesystem image display (workspace_read_file on image files)
     if raw_tool_name in ("workspace_read_file",):
@@ -3750,34 +3919,21 @@ async def _handle_tool_done(
 
 
 async def _capture_balanced_browser_screenshot(gen: GenerationState, state: AppState) -> None:
-    """Capture one final browser screenshot for Balanced browser traces."""
+    """Move the existing one-per-run Browser frame into the live panel."""
 
-    if gen.browser_step_count <= 0:
+    if gen.browser_step_count <= 0 or gen.browser_preview_attempted:
         return
+    gen.browser_preview_attempted = True
     try:
         from row_bot.tools.browser_tool import get_session_manager as _get_bsm
 
         _bsm = _get_bsm()
         if not _bsm.has_active_session():
             return
-        _bs = _bsm.get_session()
-        _screenshot_bytes = await run.io_bound(_bs.take_screenshot, gen.thread_id)
-        if not _screenshot_bytes:
-            return
-        _b64_ss = _b64.b64encode(_screenshot_bytes).decode("ascii")
-        gen.captured_images.append(_b64_ss)
-        gen.captured_images_persist.append(False)
-        _spill_excess_captured_images(gen)
-        if not gen.detached and gen.tool_col:
-            with gen.tool_col:
-                ui.label("Final browser screenshot").classes("text-xs text-grey-6")
-                render_image_with_save(
-                    _b64_ss,
-                    extra_style="border: 1px solid #333; margin-top: 4px;",
-                )
+        await run.io_bound(_bsm.take_screenshot, gen.thread_id)
     except Exception as exc:
         _handle_ui_runtime_error(gen, state, exc, "balanced browser screenshot capture")
-        logger.debug("Balanced browser screenshot capture failed", exc_info=True)
+        logger.debug("Browser live-panel screenshot capture failed", exc_info=True)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -3795,7 +3951,7 @@ async def send_message(
     internal_goal_continuation: bool = False,
 ) -> None:
     """Send a message and stream the agent response."""
-    from row_bot.agent import stream_agent, repair_orphaned_tool_calls, recursion_limit_for_mode
+    from row_bot.agent import stream_agent, repair_orphaned_tool_calls
     from row_bot.threads import (
         build_auto_thread_title,
         create_thread,
@@ -4265,7 +4421,6 @@ async def send_message(
 
         if not await _agent_ready_forced_surface(_thread_mo or get_current_model(), runtime_surface):
             return
-    recursion_limit = recursion_limit_for_mode(is_developer=is_developer)
     profile_runtime_config = await run.io_bound(_profile_runtime_config_for_thread, gen_thread_id)
     config = {
         "configurable": {
@@ -4280,13 +4435,11 @@ async def send_message(
             **({"developer_context": developer_context} if developer_context else {}),
             **profile_runtime_config,
         },
-        "recursion_limit": recursion_limit,
     }
     logger.info(
-        "send_message: thread=%s developer=%s recursion_limit=%d",
+        "send_message: thread=%s developer=%s",
         gen_thread_id[:8] if gen_thread_id else "?",
         is_developer,
-        recursion_limit,
     )
     enabled_tools = [t.name for t in tool_registry.get_enabled_tools()]
     if getattr(state, "active_developer_workspace_id", None):
@@ -4439,27 +4592,117 @@ async def send_message(
 # RESUME AFTER INTERRUPT
 # ══════════════════════════════════════════════════════════════════════
 
+def _approval_resume_runtime_surface(
+    source_surface: str,
+    *,
+    is_developer: bool,
+    is_designer: bool,
+) -> str:
+    """Preserve the allowlisted origin surface across an approval lifecycle phase."""
+
+    expected = "developer" if is_developer else "designer" if is_designer else "normal_chat"
+    source = str(source_surface or "").strip()
+    if source and source != expected:
+        raise ValueError(
+            f"Approval resume surface mismatch: expected {expected}, received {source}."
+        )
+    return expected
+
+
+def _approval_resume_events(
+    events: Any,
+    *,
+    approved: bool,
+    pending: Any,
+    stop_requested: bool = False,
+):
+    """Settle a denial once without allowing a fresh model/tool retry."""
+
+    iterator = iter(events)
+    try:
+        if approved:
+            yield from iterator
+            return
+
+        items = pending if isinstance(pending, list) else [pending]
+        items = [item for item in items if item is not None]
+        expected_results = max(1, len(items))
+        computer_pending = any(
+            isinstance(item, dict) and item.get("tool") == "computer_use"
+            for item in items
+        )
+        if stop_requested:
+            denial_message = (
+                "Computer Use was stopped. No action was taken."
+                if computer_pending
+                else "The task was stopped. No action was taken."
+            )
+        else:
+            denial_message = (
+                "Computer Use access was denied. No action was taken."
+                if computer_pending
+                else "The requested action was denied. No action was taken."
+            )
+        settled_results = 0
+        for event in iterator:
+            event_type = event[0] if isinstance(event, tuple) and event else ""
+            if event_type == "tool_done":
+                yield event
+                settled_results += 1
+                if settled_results >= expected_results:
+                    yield ("done", denial_message)
+                    return
+                continue
+            if event_type == "error":
+                yield event
+                return
+            if event_type in {"tool_call", "thinking", "thinking_token", "token", "summarizing"}:
+                # A denial is terminal for this turn. Ignore replayed pending
+                # calls and never expose a new provider/tool attempt.
+                continue
+            if event_type in {"interrupt", "done"}:
+                yield ("done", denial_message)
+                return
+        yield ("done", denial_message)
+    finally:
+        close = getattr(iterator, "close", None)
+        if callable(close):
+            close()
+
+
 async def resume_after_interrupt(
     approved: bool,
     *,
     state: AppState,
     p: P,
     cb: _Callbacks,
+    stop_requested: bool = False,
 ) -> None:
-    from row_bot.agent import resume_stream_agent, repair_orphaned_tool_calls, recursion_limit_for_mode
-    from row_bot.buddy.events import BuddyEventType, emit_buddy_event
-    from row_bot.tools import registry as tool_registry
-
     pending = state.pending_interrupt
+    takeover_resume = _is_computer_takeover_interrupt(pending)
+    source_generation_id = str(getattr(state, "pending_interrupt_generation_id", "") or "")
+    pending_tool_groups = (
+        getattr(state, "pending_interrupt_tool_groups", {})
+        if source_generation_id
+        else {}
+    )
+    source_runtime_surface = str(
+        getattr(state, "pending_interrupt_runtime_surface", "") or ""
+    )
     refresh_model_controls_on_done = bool(approved and _interrupt_changes_model_setting(pending))
     interrupt_ids = None
-    if isinstance(pending, list) and len(pending) > 1:
+    if isinstance(pending, list):
         interrupt_ids = [
             item.get("__interrupt_id")
             for item in pending
             if isinstance(item, dict) and item.get("__interrupt_id")
-    ]
+        ]
+        if not interrupt_ids:
+            interrupt_ids = None
     state.pending_interrupt = None
+    state.pending_interrupt_generation_id = ""
+    state.pending_interrupt_tool_groups = {}
+    state.pending_interrupt_runtime_surface = ""
     try:
         approval_container = getattr(p, "developer_approval_container", None)
         if approval_container is not None:
@@ -4468,7 +4711,18 @@ async def resume_after_interrupt(
         logger.debug("Developer approval container clear after resume failed", exc_info=True)
 
     gen_thread_id = state.thread_id
-    if gen_thread_id:
+    if pending is None:
+        _cleanup_live_control_sessions(
+            gen_thread_id,
+            context="stale approval response after cancellation",
+        )
+        return
+
+    from row_bot.agent import resume_stream_agent, repair_orphaned_tool_calls
+    from row_bot.buddy.events import BuddyEventType, emit_buddy_event
+    from row_bot.tools import registry as tool_registry
+
+    if gen_thread_id and not takeover_resume:
         try:
             from row_bot import goals
 
@@ -4494,12 +4748,31 @@ async def resume_after_interrupt(
             logger.debug("Goal approval state transition failed", exc_info=True)
     try:
         emit_buddy_event(
-            BuddyEventType.APPROVAL_APPROVED if approved else BuddyEventType.APPROVAL_DENIED,
+            (
+                BuddyEventType.GENERATION_STARTED
+                if takeover_resume and approved
+                else BuddyEventType.GENERATION_STOPPED
+                if takeover_resume
+                else BuddyEventType.APPROVAL_APPROVED
+                if approved
+                else BuddyEventType.APPROVAL_DENIED
+            ),
             source="ui.streaming",
-            payload={"thread_id": gen_thread_id, "label": "Approved" if approved else "Denied"},
+            payload={
+                "thread_id": gen_thread_id,
+                "label": (
+                    "Resuming"
+                    if takeover_resume and approved
+                    else "Stopped"
+                    if takeover_resume
+                    else "Approved"
+                    if approved
+                    else "Denied"
+                ),
+            },
         )
     except Exception:
-        logger.debug("Buddy approval resolution event failed", exc_info=True)
+        logger.debug("Buddy interrupt resolution event failed", exc_info=True)
 
     from row_bot.approval_policy import DEFAULT_APPROVAL_MODE, normalize_approval_mode
     from row_bot.threads import _get_thread_approval_mode
@@ -4524,13 +4797,31 @@ async def resume_after_interrupt(
             logger.debug("Failed to build Developer Studio context for resume", exc_info=True)
     is_developer = bool(getattr(state, "active_developer_workspace_id", None))
     is_designer = bool(getattr(state, "active_designer_project", None))
-    runtime_surface = "developer" if is_developer else "designer" if is_designer else "approval"
+    try:
+        runtime_surface = _approval_resume_runtime_surface(
+            source_runtime_surface,
+            is_developer=is_developer,
+            is_designer=is_designer,
+        )
+    except ValueError as exc:
+        logger.error("Approval resume refused: %s", exc)
+        try:
+            from row_bot.computer_use.service import get_computer_use_service
+
+            get_computer_use_service().stop()
+        except Exception:
+            logger.debug("Computer cleanup after refused approval resume failed", exc_info=True)
+        ui.notify(
+            "This approval could not resume safely. Start the task again.",
+            type="negative",
+        )
+        return
     from row_bot.models import get_current_model
 
     if not await _agent_ready_forced_surface(_thread_mo or get_current_model(), runtime_surface):
         return
-    recursion_limit = recursion_limit_for_mode(is_developer=is_developer)
-    generation_id = f"{gen_thread_id}:{uuid.uuid4().hex[:12]}"
+    generation_id = source_generation_id or f"{gen_thread_id}:{uuid.uuid4().hex[:12]}"
+    profile_runtime_config = await run.io_bound(_profile_runtime_config_for_thread, gen_thread_id)
     config = {
         "configurable": {
             "thread_id": gen_thread_id,
@@ -4541,14 +4832,13 @@ async def resume_after_interrupt(
             **({"model_override": _thread_mo} if _thread_mo else {}),
             **({"developer_workspace_id": state.active_developer_workspace_id} if getattr(state, "active_developer_workspace_id", None) else {}),
             **({"developer_context": developer_context} if developer_context else {}),
+            **profile_runtime_config,
         },
-        "recursion_limit": recursion_limit,
     }
     logger.info(
-        "resume_after_interrupt: thread=%s developer=%s recursion_limit=%d",
+        "resume_after_interrupt: thread=%s developer=%s",
         gen_thread_id[:8] if gen_thread_id else "?",
         is_developer,
-        recursion_limit,
     )
     enabled_tools = [t.name for t in tool_registry.get_enabled_tools()]
     if getattr(state, "active_developer_workspace_id", None):
@@ -4574,6 +4864,10 @@ async def resume_after_interrupt(
         p.stop_btn.enable()
 
     _build_assistant_placeholder(gen, p)
+    # Keep one visible activity group across the approval boundary so the
+    # resumed result settles the exact row that requested approval.
+    if isinstance(pending_tool_groups, dict):
+        gen.pending_tools = pending_tool_groups
 
     if p.chat_scroll:
         p.chat_scroll.scroll_to(percent=1.0)
@@ -4584,10 +4878,18 @@ async def resume_after_interrupt(
         scope_cm.__enter__()
         gen.producer_thread_started_at = time.perf_counter()
         try:
-            for ev in resume_stream_agent(
-                enabled_tools, config, approved,
+            resumed_events = resume_stream_agent(
+                enabled_tools,
+                config,
+                approved,
                 interrupt_ids=interrupt_ids,
                 stop_event=stop_ev,
+            )
+            for ev in _approval_resume_events(
+                resumed_events,
+                approved=approved,
+                pending=pending,
+                stop_requested=stop_requested,
             ):
                 if stop_ev.is_set():
                     break
@@ -4630,6 +4932,26 @@ async def resume_after_interrupt(
 # INTERRUPT DIALOG
 # ══════════════════════════════════════════════════════════════════════
 
+async def _stop_pending_approval(state: AppState, p: P, cb: _Callbacks) -> None:
+    """Cancel an approval-paused turn from the modal's direct Stop control."""
+
+    try:
+        if p.interrupt_dlg is not None:
+            p.interrupt_dlg.close()
+    finally:
+        # Resume the suspended call with a terminal rejection before its
+        # task-scoped service cleanup runs.  Pre-emptive cleanup destroys the
+        # very lease/client state that the suspended invocation must settle,
+        # leaving its activity trace stuck in a running state.
+        await resume_after_interrupt(
+            False,
+            state=state,
+            p=p,
+            cb=cb,
+            stop_requested=True,
+        )
+
+
 def build_interrupt_dialog(
     state: AppState,
     p: P,
@@ -4646,6 +4968,7 @@ def build_interrupt_dialog(
         p.interrupt_dlg.clear()
         items = data if isinstance(data, list) else [data]
         plural = len(items) > 1
+        computer_pending = any(isinstance(item, dict) and item.get("tool") == "computer_use" for item in items)
         with p.interrupt_dlg, ui.card().classes("q-pa-none").style(
             "width: 520px; max-width: 90vw; border-radius: 16px; overflow: hidden;"
             "background: #1a1a2e; border: 1px solid #2a2a4a;"
@@ -4675,21 +4998,85 @@ def build_interrupt_dialog(
                     "word-wrap: break-word; white-space: pre-wrap;"
                 ):
                     for i, item in enumerate(items):
-                        desc = item.get("description", "Unknown action") if isinstance(item, dict) else str(item)
+                        if isinstance(item, dict):
+                            desc = item.get("description") or item.get("reason") or item.get("expected_effect") or item.get("label") or "Approval required"
+                            details = [
+                                f"App/window: {item.get('app', '')} · {item.get('window', '')}" if item.get("app") or item.get("window") else "",
+                                f"Target: {item.get('target', '')}" if item.get("target") else "",
+                                f"Data: {item.get('data_summary', '')}" if item.get("data_summary") else "",
+                                f"Reversible: {'yes' if item.get('reversible') else 'no or unknown'}" if "reversible" in item else "",
+                            ]
+                            detail_text = "\n".join(part for part in details if part)
+                            if detail_text:
+                                desc = f"{desc}\n\n{detail_text}"
+                        else:
+                            desc = str(item)
                         if plural:
                             ui.markdown(f"**{i + 1}.** {desc}", extras=['code-friendly', 'fenced-code-blocks', 'tables'])
                         else:
                             ui.markdown(desc, extras=['code-friendly', 'fenced-code-blocks', 'tables'])
+                if computer_pending:
+                    try:
+                        from row_bot.computer_use.service import get_computer_use_service
+
+                        preview = get_computer_use_service().ephemeral_screenshot()
+                        if preview:
+                            ui.label("Current in-memory target preview").classes("text-xs text-grey-6")
+                            ui.image(_img_data_uri(_b64.b64encode(preview).decode("ascii"))).classes("w-full").style("max-height: 220px; object-fit: contain;")
+                    except Exception:
+                        logger.debug("Computer approval preview unavailable", exc_info=True)
             btn_label = f"Approve All ({len(items)})" if plural else "Approve"
             with ui.row().classes("w-full justify-end q-pa-md gap-3").style(
                 "border-top: 1px solid #2a2a4a;"
             ):
+                if computer_pending:
+                    ui.button(
+                        "Stop task",
+                        icon="stop",
+                        on_click=lambda: asyncio.create_task(
+                            _stop_pending_approval(state, p, cb)
+                        ),
+                    ).props("flat no-caps color=negative")
                 ui.button("Deny", on_click=lambda: _close_interrupt(False)).props(
                     "flat no-caps"
                 ).style(
                     "color: #ff6b6b; font-weight: 600; font-size: 0.9rem;"
                     "padding: 8px 24px; border-radius: 8px;"
                 )
+                if computer_pending:
+                    def _take_over_pending() -> None:
+                        try:
+                            from row_bot.computer_use.service import get_computer_use_service
+
+                            service = get_computer_use_service()
+                            service.take_over(
+                                thread_id=str(getattr(state, "thread_id", "") or ""),
+                                generation_id=str(
+                                    getattr(state, "pending_interrupt_generation_id", "") or ""
+                                ),
+                            )
+                            pending_items = (
+                                state.pending_interrupt
+                                if isinstance(state.pending_interrupt, list)
+                                else [state.pending_interrupt]
+                            )
+                            for pending_item in pending_items:
+                                if isinstance(pending_item, dict) and pending_item.get("tool") == "computer_use":
+                                    pending_item["kind"] = "computer_takeover"
+                                    pending_item["label"] = "Computer paused for you"
+                                    pending_item["description"] = (
+                                        "Computer control is paused. Use Resume or Stop in the live panel."
+                                    )
+                            p.interrupt_dlg.close()
+                            refresh_live_control = getattr(p, "live_control_refresh", None)
+                            if callable(refresh_live_control):
+                                refresh_live_control()
+                        except Exception as exc:
+                            ui.notify(str(exc), type="negative")
+
+                    ui.button("Take over", icon="pan_tool", on_click=_take_over_pending).props(
+                        "outline no-caps"
+                    )
                 ui.button(btn_label, on_click=lambda: _close_interrupt(True)).props(
                     "unelevated no-caps"
                 ).style(

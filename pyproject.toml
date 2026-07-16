@@ -178,6 +178,9 @@ package-dir = { "" = "src" }
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"row_bot.computer_use" = ["*.json"]
+
 [tool.setuptools.dynamic]
 version = { attr = "row_bot.version.__version__" }
 

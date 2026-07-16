@@ -126,7 +126,9 @@ def test_row_bot_status_reports_agents_profiles_and_goals(tmp_path, monkeypatch)
     assert "Status child" in agents
     assert "subagent/running" in agents
     assert "thread:status" in agents
-    assert "max concurrent 3" in agents
+    assert "90 model rounds" in agents
+    assert "3 active per parent" in agents
+    assert "Dispatcher: 0 active, 0 queued" in agents
 
     agent_profiles = status_tool._row_bot_status("agent_profiles")
     assert "**Agent Profiles**" in agent_profiles
@@ -241,7 +243,8 @@ def test_row_bot_status_agents_goals_empty_state_and_overview(tmp_path, monkeypa
 
     agents = status_tool._row_bot_status("agents")
     assert "No durable Agent Runs recorded." in agents
-    assert "max concurrent 3" in agents
+    assert "90 model rounds" in agents
+    assert "3 active per parent" in agents
 
     goals = status_tool._row_bot_status("goals")
     assert "No Goal Mode records yet." in goals

@@ -7,6 +7,7 @@ import pytest
 
 import row_bot.providers.runtime as runtime
 from row_bot.cancellation import CancellationScope, use_cancellation_scope
+from row_bot.agent_budget import new_execution_budget
 from row_bot.providers.errors import ProviderErrorKind, normalize_provider_error
 from row_bot.providers.transports.anthropic_cancellable import CancellableChatAnthropic
 from row_bot.providers.transports.openrouter_cancellable import CancellableChatOpenRouter
@@ -1106,6 +1107,7 @@ def test_minimax_pre_model_trim_uses_anthropic_message_consolidation(tmp_path, m
     agent.set_active_model_override("MiniMax-M2.7")
     try:
         result = agent._pre_model_trim({
+            "execution_budget": new_execution_budget("minimax-trim"),
             "messages": [
                 SystemMessage(content="Root system"),
                 HumanMessage(content="Hello"),
@@ -1158,6 +1160,7 @@ def test_custom_openai_pre_model_trim_compacts_32k_agent_payload(tmp_path, monke
     agent.set_active_model_override("model:custom_openai_lab:local")
     try:
         result = agent._pre_model_trim({
+            "execution_budget": new_execution_budget("custom-openai-32k-trim"),
             "messages": [
                 SystemMessage(content="Root system"),
                 HumanMessage(content="hi"),
@@ -1191,6 +1194,7 @@ def test_custom_openai_pre_model_trim_consolidates_64k_system_envelope(tmp_path,
     agent.set_active_model_override("model:custom_openai_lab:local")
     try:
         result = agent._pre_model_trim({
+            "execution_budget": new_execution_budget("custom-openai-64k-trim"),
             "messages": [
                 SystemMessage(content="Root system"),
                 HumanMessage(content="hi"),
@@ -1221,6 +1225,7 @@ def test_pre_model_trim_drops_reasoning_only_assistant_turn(tmp_path, monkeypatc
     monkeypatch.setattr(agent, "is_background_workflow", lambda: False)
 
     result = agent._pre_model_trim({
+        "execution_budget": new_execution_budget("reasoning-only-trim"),
         "messages": [
             SystemMessage(content="Root system"),
             HumanMessage(content="Use the status tool"),
@@ -1259,6 +1264,7 @@ def test_pre_model_trim_preserves_empty_assistant_tool_call_turn(tmp_path, monke
         "type": "tool_call",
     }
     result = agent._pre_model_trim({
+        "execution_budget": new_execution_budget("tool-call-trim"),
         "messages": [
             SystemMessage(content="Root system"),
             HumanMessage(content="Use the status tool"),
@@ -1683,6 +1689,7 @@ def test_openai_pre_model_trim_keeps_standard_skill_injections(tmp_path, monkeyp
     agent.set_active_model_override("gpt-4o")
     try:
         result = agent._pre_model_trim({
+            "execution_budget": new_execution_budget("openai-skill-trim"),
             "messages": [
                 SystemMessage(content="Root system"),
                 HumanMessage(content="hi"),

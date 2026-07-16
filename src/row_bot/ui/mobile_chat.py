@@ -365,6 +365,18 @@ def _build_mobile_thread_composer(
     with ui.column().classes("row-bot-mobile-composer w-full gap-1").props(
         "data-docs-id=mobile-chat-composer"
     ):
+        from row_bot.ui.live_control import build_live_control_dock
+
+        build_live_control_dock(
+            state,
+            p,
+            stop_generation=lambda thread_id: request_generation_stop(
+                thread_id,
+                state=state,
+                p=p,
+                reason="mobile_live_control",
+            ),
+        )
         _build_file_chips(p)
         text_input = ui.textarea(placeholder="Ask anything...").classes("w-full").props(
             'borderless autogrow input-style="min-height: 44px; max-height: 108px; overflow-y: auto;"'

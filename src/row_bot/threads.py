@@ -810,6 +810,12 @@ def _delete_thread(thread_id: str):
     """Remove a thread's metadata, checkpoints, and writes from the database."""
     _ensure_thread_db()
     try:
+        from row_bot.computer_use.service import get_computer_use_service
+
+        get_computer_use_service().close_for_thread(thread_id)
+    except Exception:
+        logger.warning("Failed to clean up Computer Use state for thread %s", thread_id, exc_info=True)
+    try:
         from row_bot.agent_runs import cleanup_thread_agent_runs
 
         cleanup_thread_agent_runs(thread_id)

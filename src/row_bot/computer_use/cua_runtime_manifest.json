@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "version": "0.7.1",
+  "tag": "cua-driver-rs-v0.7.1",
+  "commit": "7caf72b",
+  "license": "MIT",
+  "telemetry_contract": "cua-rs-telemetry-v1",
+  "telemetry_notice_version": 1,
+  "release_url": "https://github.com/trycua/cua/releases/tag/cua-driver-rs-v0.7.1",
+  "assets": {
+    "windows-x86_64": {
+      "name": "cua-driver-rs-0.7.1-windows-x86_64.zip",
+      "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.7.1/cua-driver-rs-0.7.1-windows-x86_64.zip",
+      "sha256": "00dfa76c5008db20c55ed0cc951388b0f25d1221f6995e5f131dcd6bc4fc5aab",
+      "executable_candidates": ["cua-driver.exe", "bin/cua-driver.exe"]
+    },
+    "windows-arm64": {
+      "name": "cua-driver-rs-0.7.1-windows-arm64.zip",
+      "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.7.1/cua-driver-rs-0.7.1-windows-arm64.zip",
+      "sha256": "43601a32a1ce9eec5fbbe98803718ad2ca3a3450c499b354b05fedc3a1cc5526",
+      "executable_candidates": ["cua-driver.exe", "bin/cua-driver.exe"]
+    },
+    "macos-universal": {
+      "name": "cua-driver-rs-0.7.1-darwin-universal.tar.gz",
+      "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.7.1/cua-driver-rs-0.7.1-darwin-universal.tar.gz",
+      "sha256": "3bd574f162bf293089ca9d28653c8ac2b869f1577a15b92ff95203c6279a08a1",
+      "executable_candidates": ["CuaDriver.app/Contents/MacOS/cua-driver", "CuaDriver.app/Contents/MacOS/CuaDriver"]
+    }
+  }
+}

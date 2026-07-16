@@ -13,6 +13,7 @@ import tarfile
 import tempfile
 import urllib.request
 import zipfile
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -239,8 +240,13 @@ def _read_manifest(runtime_id: str) -> dict[str, Any]:
 def _write_manifest(runtime_id: str, data: dict[str, Any]) -> None:
     path = _manifest_path(runtime_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump(data, handle, indent=2)
+    fd, tmp_name = tempfile.mkstemp(prefix=f"{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=2)
+        Path(tmp_name).replace(path)
+    finally:
+        Path(tmp_name).unlink(missing_ok=True)
 
 
 def _managed_bin_dir(runtime_id: str) -> Path | None:
@@ -484,14 +490,141 @@ def _extract_archive(archive: Path, destination: Path) -> Path:
         with zipfile.ZipFile(archive) as handle:
             for member in handle.infolist():
                 _safe_target(member.filename)
+                mode = member.external_attr >> 16
+                if stat.S_ISLNK(mode):
+                    raise RuntimeError(f"Archive contains unsupported symlink: {member.filename}")
             handle.extractall(destination)
     else:
         with tarfile.open(archive) as handle:
             for member in handle.getmembers():
                 _safe_target(member.name)
+                if member.issym() or member.islnk() or member.isdev() or member.isfifo():
+                    raise RuntimeError(f"Archive contains unsupported special entry: {member.name}")
             handle.extractall(destination)
     children = [item for item in destination.iterdir() if item.is_dir()]
     return children[0] if len(children) == 1 else destination
+
+
+def install_pinned_archive_runtime(
+    runtime_id: str,
+    *,
+    version: str,
+    url: str,
+    sha256: str,
+    asset_name: str,
+    executable_candidates: tuple[str, ...],
+    progress: Callable[[str], None] | None = None,
+    cancelled: Callable[[], bool] | None = None,
+) -> RuntimeInstallResult:
+    """Install one reviewed archive without resolving latest or running it."""
+
+    if cancelled and cancelled():
+        return RuntimeInstallResult(False, runtime_id, "Installation cancelled before download.")
+    runtime_root = RUNTIMES_DIR / runtime_id
+    runtime_root.mkdir(parents=True, exist_ok=True)
+    previous_manifest = _read_manifest(runtime_id)
+    with tempfile.TemporaryDirectory(prefix=f"row_bot_{runtime_id}_", dir=runtime_root) as tmp:
+        tmp_root = Path(tmp)
+        archive = tmp_root / asset_name
+        _download(url, archive, progress)
+        if cancelled and cancelled():
+            return RuntimeInstallResult(False, runtime_id, "Installation cancelled after download.")
+        _verify_sha256(archive, sha256)
+        extracted_root = tmp_root / "extracted"
+        extracted = _extract_archive(archive, extracted_root)
+        executable: Path | None = None
+        roots = (extracted, extracted_root)
+        for root in roots:
+            for relative in executable_candidates:
+                candidate = root / relative
+                if candidate.is_file():
+                    executable = candidate
+                    break
+            if executable is not None:
+                break
+        if executable is None:
+            names = ", ".join(executable_candidates)
+            raise RuntimeError(f"Reviewed executable layout not found; expected one of: {names}")
+        if cancelled and cancelled():
+            return RuntimeInstallResult(False, runtime_id, "Installation cancelled before activation.")
+        version_root = runtime_root / version
+        if version_root.exists():
+            existing = _read_manifest(runtime_id)
+            existing_path = Path(str(existing.get("executable_path") or ""))
+            if existing.get("version") == version and existing.get("archive_sha256") == sha256 and existing_path.is_file():
+                return RuntimeInstallResult(True, runtime_id, f"{runtime_id} {version} is already installed.", str(existing_path.parent), version)
+            raise RuntimeError(f"Existing {runtime_id} {version} directory failed integrity metadata checks")
+        activated_source = extracted if extracted != extracted_root else extracted_root
+        shutil.move(str(activated_source), str(version_root))
+        relative_executable = executable.relative_to(activated_source)
+        active_executable = version_root / relative_executable
+        if platform.system().lower() != "windows":
+            active_executable.chmod(active_executable.stat().st_mode | stat.S_IXUSR)
+        activated_manifest: dict[str, Any] = {
+            "installed": True,
+            "version": version,
+            "archive_name": asset_name,
+            "archive_url": url,
+            "archive_sha256": sha256,
+            "root": str(version_root),
+            "bin_dir": str(active_executable.parent),
+            "executable_path": str(active_executable),
+            "source": "reviewed-pinned-archive",
+        }
+        previous_executable = Path(str(previous_manifest.get("executable_path") or ""))
+        if previous_manifest.get("doctor_ok") and previous_executable.is_file():
+            retained = dict(previous_manifest)
+            retained.pop("previous_manifest", None)
+            activated_manifest["previous_manifest"] = retained
+        _write_manifest(runtime_id, activated_manifest)
+    return RuntimeInstallResult(True, runtime_id, f"Installed {runtime_id} {version} for Row-Bot.", str(active_executable.parent), version)
+
+
+def _validated_runtime_root(runtime_id: str, value: Any) -> Path | None:
+    runtime_root = (RUNTIMES_DIR / runtime_id).resolve()
+    try:
+        candidate = Path(str(value or "")).resolve()
+    except Exception:
+        return None
+    return candidate if candidate.parent == runtime_root else None
+
+
+def rollback_pinned_archive_runtime(runtime_id: str) -> bool:
+    """Restore a retained known-good manifest and remove only the failed version."""
+
+    active = _read_manifest(runtime_id)
+    previous = active.get("previous_manifest")
+    if not isinstance(previous, dict):
+        return False
+    previous_executable = Path(str(previous.get("executable_path") or "")).resolve()
+    previous_root = _validated_runtime_root(runtime_id, previous.get("root"))
+    active_root = _validated_runtime_root(runtime_id, active.get("root"))
+    if previous_root is None or not previous_executable.is_relative_to(previous_root) or not previous_executable.is_file():
+        return False
+    restored = dict(previous)
+    restored.pop("previous_manifest", None)
+    _write_manifest(runtime_id, restored)
+    if active_root is not None and active_root != previous_root and active_root.exists():
+        shutil.rmtree(active_root)
+    return True
+
+
+def finalize_pinned_archive_runtime(runtime_id: str) -> bool:
+    """Retire the previous version only after the newly activated runtime passes doctor."""
+
+    active = _read_manifest(runtime_id)
+    if not active.get("doctor_ok"):
+        return False
+    previous = active.get("previous_manifest")
+    if not isinstance(previous, dict):
+        return False
+    previous_root = _validated_runtime_root(runtime_id, previous.get("root"))
+    active_root = _validated_runtime_root(runtime_id, active.get("root"))
+    active.pop("previous_manifest", None)
+    _write_manifest(runtime_id, active)
+    if previous_root is not None and previous_root != active_root and previous_root.exists():
+        shutil.rmtree(previous_root)
+    return True
 
 
 def _install_node(progress: Callable[[str], None] | None = None) -> RuntimeInstallResult:

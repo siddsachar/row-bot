@@ -5,6 +5,8 @@ import sys
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from row_bot.agent_budget import new_execution_budget
+
 
 def _fresh_runtime_modules(tmp_path, monkeypatch):
     data_dir = tmp_path / "data"
@@ -50,6 +52,7 @@ def test_thread_agent_profile_is_injected_into_agent_mode_prompt(tmp_path, monke
 
     agent._set_active_runtime_context(thread_id=thread_id, enabled_tool_names=[])
     trimmed = agent._pre_model_trim({
+        "execution_budget": new_execution_budget(f"profile-{thread_id}"),
         "messages": [
             SystemMessage(content="Base system"),
             HumanMessage(content="Review this change."),
@@ -92,6 +95,7 @@ def test_disabled_thread_profile_warns_instead_of_silent_fallback(tmp_path, monk
 
     agent._set_active_runtime_context(thread_id=thread_id, enabled_tool_names=[])
     trimmed = agent._pre_model_trim({
+        "execution_budget": new_execution_budget(f"disabled-profile-{thread_id}"),
         "messages": [
             SystemMessage(content="Base system"),
             HumanMessage(content="Review this change."),

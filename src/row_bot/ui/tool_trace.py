@@ -29,15 +29,16 @@ class ToolResultGroup:
 
     @property
     def label(self) -> str:
-        prefix = "error" if any(tool_result_failed(item) for item in self.results) else ""
         if is_browser_tool_name(self.name):
             base = "Browser activity"
             suffix = "step" if self.count == 1 else "steps"
-            label = f"{base} · {self.count} {suffix}"
-            return f"{label} · {prefix}" if prefix else label
+            return f"{base} · {self.count} {suffix}"
+        if is_computer_tool_name(self.name):
+            base = "Computer activity"
+            suffix = "step" if self.count == 1 else "steps"
+            return f"{base} · {self.count} {suffix}"
         suffix = "call" if self.count == 1 else "calls"
-        label = f"{self.name} · {self.count} {suffix}"
-        return f"{label} · {prefix}" if prefix else label
+        return f"{self.name} · {self.count} {suffix}"
 
 
 def canonical_tool_name(name: Any) -> str:
@@ -46,6 +47,8 @@ def canonical_tool_name(name: Any) -> str:
     clean = str(name or "tool").strip() or "tool"
     if clean.startswith("browser_"):
         return clean.replace("browser_", "Browser ").replace("_", " ").title()
+    if clean == "computer_use":
+        return "Computer activity"
     return clean
 
 
@@ -54,13 +57,18 @@ def is_browser_tool_name(name: Any) -> bool:
     return clean.startswith("browser_") or clean.startswith("browser ")
 
 
+def is_computer_tool_name(name: Any) -> bool:
+    clean = str(name or "").strip().lower()
+    return clean in {"computer_use", "computer activity"} or clean.startswith("computer ·")
+
+
 def group_tool_results(tool_results: list[dict[str, Any]] | None) -> list[ToolResultGroup]:
     """Group tool results by tool name while preserving first-seen order."""
 
     grouped: "OrderedDict[str, ToolResultGroup]" = OrderedDict()
     for result in tool_results or []:
         name = canonical_tool_name(result.get("name", "tool") if isinstance(result, dict) else "tool")
-        key = "Browser activity" if is_browser_tool_name(name) else name
+        key = "Browser activity" if is_browser_tool_name(name) else "Computer activity" if is_computer_tool_name(name) else name
         if key not in grouped:
             grouped[key] = ToolResultGroup(name=key)
         grouped[key].results.append(result if isinstance(result, dict) else {"name": name, "content": str(result)})
@@ -123,8 +131,18 @@ def is_agent_tool_result(result: dict[str, Any] | None) -> bool:
 def display_tool_content(content: Any, *, limit: int = 5_000) -> str:
     """Return UI-safe display text with render-time truncation."""
 
-    if isinstance(content, str):
+    if isinstance(content, dict) and content.get("display_summary"):
+        text = str(content.get("display_summary") or "")
+    elif isinstance(content, str):
         text = content
+        stripped = text.strip()
+        if stripped.startswith("{") and stripped.endswith("}"):
+            try:
+                payload = json.loads(stripped)
+            except Exception:
+                payload = None
+            if isinstance(payload, dict) and payload.get("display_summary"):
+                text = str(payload.get("display_summary") or "")
     elif isinstance(content, list):
         text = " ".join(
             part.get("text", "") if isinstance(part, dict) else str(part)
@@ -146,5 +164,44 @@ def tool_result_failed(result_or_content: Any) -> bool:
         content = result_or_content.get("content", "")
     else:
         content = result_or_content
+    payload: Any = content if isinstance(content, dict) else None
+    if isinstance(content, str):
+        stripped = content.strip()
+        if stripped.startswith("{") and stripped.endswith("}"):
+            try:
+                payload = json.loads(stripped)
+            except Exception:
+                payload = None
+    if isinstance(payload, dict):
+        if payload.get("error") is True or payload.get("ok") is False:
+            return True
+        if payload.get("action_completed") is False:
+            return True
+        if str(payload.get("status") or "").strip().casefold() in {
+            "error",
+            "failed",
+            "blocked",
+            "cancelled",
+        }:
+            return True
     text = display_tool_content(content, limit=800).strip().lower()
     return text.startswith("tool error:") or text.startswith("error:") or "traceback (most recent call last)" in text
+
+
+def tool_group_status(results: list[dict[str, Any]] | None) -> tuple[str, str]:
+    """Return the truthful aggregate label/icon for a completed tool group."""
+
+    if any(tool_result_failed(item) for item in results or []):
+        return "Needs attention", "warning"
+    return "Done", "check_circle"
+
+
+def tool_group_completion_summary(results: list[dict[str, Any]] | None) -> str:
+    """Return truthful settled counts without calling failed work complete."""
+
+    settled = list(results or [])
+    failed = sum(1 for item in settled if tool_result_failed(item))
+    succeeded = len(settled) - failed
+    if failed:
+        return f"{succeeded} succeeded · {failed} failed"
+    return f"{succeeded}/{len(settled)} complete"

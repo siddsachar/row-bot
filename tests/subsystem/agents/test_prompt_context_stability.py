@@ -77,6 +77,7 @@ def test_plugin_skill_prompt_receives_active_profile_tool_allowlist(tmp_path, mo
         tool_allowlist=["filesystem"],
     )
     selected_without_plugin = agent._pre_model_trim({
+        "execution_budget": agent.new_execution_budget("plugin-without"),
         "messages": [
             SystemMessage(content="ROOT_STABLE_SENTINEL"),
             HumanMessage(content="Use tools."),
@@ -89,6 +90,7 @@ def test_plugin_skill_prompt_receives_active_profile_tool_allowlist(tmp_path, mo
         tool_allowlist=["rss_reader"],
     )
     selected_with_plugin = agent._pre_model_trim({
+        "execution_budget": agent.new_execution_budget("plugin-with"),
         "messages": [
             SystemMessage(content="ROOT_STABLE_SENTINEL"),
             HumanMessage(content="Use tools."),
@@ -100,6 +102,7 @@ def test_plugin_skill_prompt_receives_active_profile_tool_allowlist(tmp_path, mo
         enabled_tool_names=("filesystem", "rss_reader"),
     )
     inherited = agent._pre_model_trim({
+        "execution_budget": agent.new_execution_budget("plugin-inherited"),
         "messages": [
             SystemMessage(content="ROOT_STABLE_SENTINEL"),
             HumanMessage(content="Use tools."),
@@ -149,6 +152,7 @@ def test_anthropic_cache_markers_stay_on_stable_system_context_only(tmp_path, mo
     agent.set_active_model_override("model:anthropic:claude-sonnet-4-5")
     try:
         result = agent._pre_model_trim({
+            "execution_budget": agent.new_execution_budget("cache-stability"),
             "messages": [
                 SystemMessage(content="ROOT_STABLE_SENTINEL"),
                 HumanMessage(content="first turn"),

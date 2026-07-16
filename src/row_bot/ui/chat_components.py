@@ -576,6 +576,19 @@ def build_chat_input_bar(
     """
     ensure_composer_control_css()
 
+    from row_bot.ui.live_control import build_live_control_dock
+
+    build_live_control_dock(
+        state,
+        p,
+        stop_generation=lambda thread_id: request_generation_stop(
+            thread_id,
+            state=state,
+            p=p,
+            reason="live_control",
+        ),
+    )
+
     # Attach handler
     async def _on_attach():
         if (sys.platform == "darwin" and os.environ.get(APP_NATIVE_ENV) == "1"

@@ -22,6 +22,8 @@ from unittest.mock import Mock, patch
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
+from row_bot.agent_budget import new_execution_budget
+
 
 class McpClientFoundationTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -813,7 +815,7 @@ class McpClientFoundationTests(unittest.TestCase):
 
         self.assertEqual(label, "MCP: microsoft_docs_search (microsoft-learn-mcp)")
 
-    def test_mcp_browser_outputs_use_browser_loop_controls(self) -> None:
+    def test_mcp_browser_outputs_use_snapshot_compaction_without_synthetic_wind_down(self) -> None:
         import row_bot.agent as agent
 
         messages = [HumanMessage(content="use playwright mcp to browse a shopping site")]
@@ -831,12 +833,15 @@ class McpClientFoundationTests(unittest.TestCase):
 
         with patch.object(agent, "get_context_size", return_value=120000), \
              patch.object(agent, "is_background_workflow", return_value=False):
-            result = agent._pre_model_trim({"messages": messages})["llm_input_messages"]
+            result = agent._pre_model_trim({
+                "execution_budget": new_execution_budget("mcp-browser-trim"),
+                "messages": messages,
+            })["llm_input_messages"]
 
         tool_texts = [msg.content for msg in result if getattr(msg, "type", "") == "tool"]
         self.assertTrue(any("[Prior browser snapshot" in text for text in tool_texts))
         system_text = "\n".join(str(msg.content) for msg in result if getattr(msg, "type", "") == "system")
-        self.assertIn("Stop browsing now", system_text)
+        self.assertNotIn("Stop browsing now", system_text)
 
         self.assertTrue(agent._is_browser_tool_name("mcp_playwright_mcp_browser_take_screenshot"))
         self.assertEqual(agent._browser_action_name("mcp_playwright_mcp_browser_take_screenshot"), "take_screenshot")

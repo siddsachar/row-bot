@@ -20,10 +20,9 @@ from collections.abc import Callable
 from datetime import datetime
 
 from nicegui import ui
+from row_bot.ui.state import P
 
 logger = logging.getLogger(__name__)
-
-from row_bot.ui.state import AppState, P
 
 
 _AGENT_RESULT_USE_STATUSES = {"completed", "completed_delivery_failed"}
@@ -1175,6 +1174,8 @@ def _render_agent_run_card(
     latest_parent_note = _short_text(run.get("latest_parent_message") or "", 110)
     turns_used = int(run.get("turns_used") or 0)
     max_turns = int(run.get("max_turns") or 0)
+    model_iterations_used = int(run.get("model_iterations_used") or 0)
+    model_iterations_max = int(run.get("model_iterations_max") or 0)
     terminal = status.lower() in {
         "completed",
         "failed",
@@ -1203,6 +1204,10 @@ def _render_agent_run_card(
                 )
             if turns_used or max_turns:
                 ui.label(f"{turns_used}/{max_turns} turns").classes("text-xs text-grey-6 no-wrap")
+            if model_iterations_max:
+                ui.label(
+                    f"{model_iterations_used}/{model_iterations_max} rounds · depth {int(run.get('depth') or 0)}"
+                ).classes("text-xs text-grey-6 no-wrap")
 
         detail_bits = []
         if activity:
@@ -1519,6 +1524,7 @@ def render_message_content(
         group_tool_results,
         is_agent_tool_result,
         tool_result_failed,
+        tool_group_status,
     )
 
     role = msg.get("role", "assistant")
@@ -1608,14 +1614,24 @@ def render_message_content(
                 on_open_agent_thread=on_open_agent_thread,
             )
         for group in group_tool_results(generic_tool_results):
-            group_failed = any(tool_result_failed(item) for item in group.results)
+            group_status, group_icon = tool_group_status(group.results)
             with ui.expansion(
-                f"{'❌' if group_failed else '✅'} {group.label}",
-                icon="error" if group_failed else "check_circle",
+                f"{'⚠️' if group_icon == 'warning' else '✅'} {group_status} {group.label}",
+                icon=group_icon,
             ).classes("w-full"):
                 for idx, tr in enumerate(group.results, start=1):
-                    title = f"#{idx}" if group.count > 1 else group.name
-                    with ui.expansion(title, icon="subdirectory_arrow_right").classes("w-full"):
+                    item_failed = tool_result_failed(tr)
+                    title = (
+                        f"#{idx} failed"
+                        if item_failed and group.count > 1
+                        else f"#{idx}"
+                        if group.count > 1
+                        else group.name
+                    )
+                    with ui.expansion(
+                        title,
+                        icon="error" if item_failed else "subdirectory_arrow_right",
+                    ).classes("w-full"):
                         content = tr.get("content", "")
                         if isinstance(content, str) and content.startswith("__CHART__:"):
                             _me = content.find("\n\n", 10)

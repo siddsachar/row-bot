@@ -6,6 +6,15 @@ import os
 import sys
 from pathlib import Path
 
+from row_bot.agent_budget import new_execution_budget
+
+
+def _trim_state(messages: list, logical_turn_id: str) -> dict:
+    return {
+        "execution_budget": new_execution_budget(logical_turn_id),
+        "messages": messages,
+    }
+
 
 def _reload_skill_modules(tmp_path: Path):
     os.environ["ROW_BOT_DATA_DIR"] = str(tmp_path)
@@ -370,14 +379,18 @@ def test_activation_metadata_drives_suggestions_without_prompt_bloat(tmp_path):
 
     thread_id = "metadata-prompt-thread"
     agent._set_active_runtime_context(thread_id=thread_id, enabled_tool_names=[])
-    lean = agent._pre_model_trim({"messages": [HumanMessage(content="meeting notes")]})
+    lean = agent._pre_model_trim(
+        _trim_state([HumanMessage(content="meeting notes")], "skill-metadata-lean")
+    )
     lean_prompt = "\n".join(str(m.content) for m in lean["llm_input_messages"])
     assert "## Skills" not in lean_prompt
     assert "Instructions for meeting_notes." not in lean_prompt
     assert "action items" not in lean_prompt
 
     activation.pin_skill(thread_id, "meeting_notes")
-    active = agent._pre_model_trim({"messages": [HumanMessage(content="meeting notes")]})
+    active = agent._pre_model_trim(
+        _trim_state([HumanMessage(content="meeting notes")], "skill-metadata-active")
+    )
     active_prompt = "\n".join(str(m.content) for m in active["llm_input_messages"])
     assert "Instructions for meeting_notes." in active_prompt
     assert "Summarize these meeting notes and extract action items" not in active_prompt
@@ -668,7 +681,9 @@ def test_agent_prompt_is_lean_until_chat_skills_are_active(tmp_path):
     thread_id = "prompt-thread"
     agent._set_active_runtime_context(thread_id=thread_id, enabled_tool_names=[])
 
-    lean = agent._pre_model_trim({"messages": [HumanMessage(content="hello")]})
+    lean = agent._pre_model_trim(
+        _trim_state([HumanMessage(content="hello")], "skills-prompt-lean")
+    )
     lean_prompt = "\n".join(str(m.content) for m in lean["llm_input_messages"])
     assert "## Skills" not in lean_prompt
     assert "Instructions for alpha_skill." not in lean_prompt
@@ -676,20 +691,26 @@ def test_agent_prompt_is_lean_until_chat_skills_are_active(tmp_path):
     assert "BROWSER AUTOMATION" not in lean_prompt
 
     activation.pin_skill(thread_id, "alpha_skill")
-    one_skill = agent._pre_model_trim({"messages": [HumanMessage(content="use alpha")]})
+    one_skill = agent._pre_model_trim(
+        _trim_state([HumanMessage(content="use alpha")], "skills-prompt-alpha")
+    )
     one_skill_prompt = "\n".join(str(m.content) for m in one_skill["llm_input_messages"])
     assert "## Skills" in one_skill_prompt
     assert "Instructions for alpha_skill." in one_skill_prompt
     assert "Instructions for beta_skill." not in one_skill_prompt
 
     activation.pin_skill(thread_id, "beta_skill")
-    two_skills = agent._pre_model_trim({"messages": [HumanMessage(content="use both")]})
+    two_skills = agent._pre_model_trim(
+        _trim_state([HumanMessage(content="use both")], "skills-prompt-both")
+    )
     two_skill_prompt = "\n".join(str(m.content) for m in two_skills["llm_input_messages"])
     assert "Instructions for alpha_skill." in two_skill_prompt
     assert "Instructions for beta_skill." in two_skill_prompt
 
     activation.disable_skill(thread_id, "alpha_skill")
-    beta_only = agent._pre_model_trim({"messages": [HumanMessage(content="beta only")]})
+    beta_only = agent._pre_model_trim(
+        _trim_state([HumanMessage(content="beta only")], "skills-prompt-beta")
+    )
     beta_only_prompt = "\n".join(str(m.content) for m in beta_only["llm_input_messages"])
     assert "Instructions for alpha_skill." not in beta_only_prompt
     assert "Instructions for beta_skill." in beta_only_prompt

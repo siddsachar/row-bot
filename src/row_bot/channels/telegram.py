@@ -332,10 +332,7 @@ def _run_agent_sync(user_text: str, config: dict,
     """
     # Ensure recursion limit matches the web UI (default is too low)
     agent_mod = _agent_mod()
-    config = {
-        **build_channel_runtime_config(config, "message"),
-        "recursion_limit": agent_mod.RECURSION_LIMIT_CHAT,
-    }
+    config = build_channel_runtime_config(config, "message")
 
     tool_registry = _tool_registry()
     enabled = [t.name for t in tool_registry.get_enabled_tools()]
@@ -922,11 +919,11 @@ def _format_interrupt(data) -> str:
 
 
 def _extract_interrupt_ids(data) -> list[str] | None:
-    """Extract __interrupt_id values from interrupt data for multi-interrupt resume."""
+    """Extract explicit interrupt IDs for identity-bound resume."""
     items = data if isinstance(data, list) else [data]
     ids = [item.get("__interrupt_id") for item in items
            if isinstance(item, dict) and item.get("__interrupt_id")]
-    return ids if len(ids) > 1 else None
+    return ids or None
 
 
 # ──────────────────────────────────────────────────────────────────────

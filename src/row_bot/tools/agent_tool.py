@@ -89,6 +89,10 @@ def _public_run(run: dict[str, Any] | None) -> dict[str, Any]:
         "last_event_at": run.get("last_event_at", ""),
         "turns_used": run.get("turns_used", 0),
         "max_turns": run.get("max_turns", 0),
+        "model_iterations_used": run.get("model_iterations_used", 0),
+        "model_iterations_max": run.get("model_iterations_max", 0),
+        "terminal_reason": run.get("terminal_reason", ""),
+        "depth": run.get("depth", 0),
         "summary": run.get("summary", ""),
         "error": run.get("error", ""),
         "model_override": run.get("model_override", ""),
@@ -284,6 +288,9 @@ def _delegate_work(
 ) -> str:
     runtime = _runtime_context()
     parent_thread_id = parent_thread_id or str(runtime.get("thread_id") or "")
+    # A nested Agent cannot forge or omit its durable parent identity. Direct
+    # top-level chat calls have no active run id and retain the explicit value.
+    parent_run_id = str(runtime.get("agent_run_id") or parent_run_id or "")
     enabled_tool_names = list(runtime.get("enabled_tool_names") or ())
     model_override = ""
     if str(model or "").strip():

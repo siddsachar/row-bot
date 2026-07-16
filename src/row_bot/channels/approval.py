@@ -102,8 +102,8 @@ def format_interrupt_text(data: Any) -> str:
 def extract_interrupt_ids(data: Any) -> list[str] | None:
     """Extract ``__interrupt_id`` values from interrupt data.
 
-    Returns a list when there are ≥ 2 IDs (multi-interrupt),
-    or ``None`` for single interrupts (the default resume path).
+    Returns every explicit ID so even a single nested interrupt resumes by
+    identity instead of relying on scalar interrupt ordering.
     """
     if data is None:
         return None
@@ -113,7 +113,7 @@ def extract_interrupt_ids(data: Any) -> list[str] | None:
         for item in items
         if isinstance(item, dict) and item.get("__interrupt_id")
     ]
-    return ids if len(ids) > 1 else None
+    return ids or None
 
 
 # ── Text classification ─────────────────────────────────────────────

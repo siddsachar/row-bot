@@ -23,6 +23,7 @@ def _fresh_agent_run_modules(tmp_path, monkeypatch):
     for name in (
         "row_bot.tasks",
         "row_bot.agent_profiles",
+        "row_bot.agent_settings",
         "row_bot.agent_runs",
     ):
         sys.modules.pop(name, None)
@@ -76,6 +77,12 @@ def test_agent_run_schema_creation_and_migration(tmp_path, monkeypatch):
         "profile_snapshot_json",
         "settings_snapshot_json",
         "resume_state_json",
+        "root_run_id",
+        "model_iterations_max",
+        "model_iterations_used",
+        "terminal_reason",
+        "heartbeat_at",
+        "active_seconds",
     } <= _columns(db_path, "agent_runs")
     assert {"active_run_id", "continuation_key"} <= _columns(db_path, "thread_goals")
 
@@ -130,6 +137,8 @@ def test_agent_run_event_edge_crud(tmp_path, monkeypatch):
     assert finished["profile_snapshot_json"]["slug"] == "review"
     assert finished["tools_override"] == ["shell"]
     assert finished["result_json"] == {"ok": True}
+    assert finished["root_run_id"] == "child-run"
+    assert finished["model_iterations_max"] == 90
 
     children = agent_runs.list_child_runs(parent_run_id=parent["id"])
     assert [run["id"] for run in children] == ["child-run"]
@@ -139,6 +148,30 @@ def test_agent_run_event_edge_crud(tmp_path, monkeypatch):
     assert {run["id"] for run in runs} == {"parent-run", "child-run"}
     event_types = {item["type"] for item in agent_runs.get_agent_events(child["id"])}
     assert {"run.created", "run.started", "tool.completed", "run.completed"} <= event_types
+
+
+def test_agent_run_budget_progress_and_terminal_reason_are_additive(tmp_path, monkeypatch):
+    agent_runs, _profiles, _tasks, _data_dir = _fresh_agent_run_modules(tmp_path, monkeypatch)
+    run = agent_runs.create_agent_run(run_id="budget-run", status="running")
+
+    updated = agent_runs.update_agent_budget_progress(
+        run["id"],
+        used_iterations=7,
+        max_iterations=90,
+    )
+    finished = agent_runs.finish_agent_run(
+        run["id"],
+        "blocked",
+        summary="Incomplete",
+        terminal_reason="budget_exhausted",
+    )
+
+    assert updated["model_iterations_used"] == 7
+    assert updated["model_iterations_max"] == 90
+    assert updated["heartbeat_at"]
+    assert updated["active_seconds"] >= 0
+    assert finished["status"] == "blocked"
+    assert finished["terminal_reason"] == "budget_exhausted"
 
 
 def test_stop_agent_run_marks_durable_stop_state(tmp_path, monkeypatch):
@@ -236,8 +269,8 @@ def test_startup_recovery_stops_stale_runs_and_releases_locks(tmp_path, monkeypa
 
     assert result["locks_released"] == 1
     assert agent_runs.list_agent_write_locks() == []
-    assert agent_runs.get_agent_run(queued_keep["id"])["status"] == "queued"
-    assert agent_runs.get_agent_run(queued_keep["id"])["status_message"] == "Queued after app restart"
+    assert agent_runs.get_agent_run(queued_keep["id"])["status"] == "stopped"
+    assert "queued child capacity" in agent_runs.get_agent_run(queued_keep["id"])["status_message"]
     assert agent_runs.get_agent_run(queued_orphan["id"])["status"] == "stopped"
     assert agent_runs.get_agent_run(running["id"])["status"] == "stopped"
     assert agent_runs.get_agent_run(approval["id"])["status"] == "waiting_approval"

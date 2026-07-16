@@ -20,7 +20,9 @@ def test_workflow_audit_source_contracts_are_wired() -> None:
     command_center_source = (REPO_ROOT / "src" / "row_bot" / "ui" / "command_center.py").read_text(encoding="utf-8")
 
     run_task_background = tasks_source[tasks_source.index("def run_task_background"):][:20_000]
-    resume_graph = tasks_source[tasks_source.index("def _resume_graph_interrupted"):][:8_000]
+    resume_start = tasks_source.index("def _resume_graph_interrupted")
+    resume_end = tasks_source.index("\ndef ", resume_start + 4)
+    resume_graph = tasks_source[resume_start:resume_end]
     subtask_sync = tasks_source[tasks_source.index("def _run_subtask_sync"):][:5_000]
     deliver_channels = tasks_source[tasks_source.index("def _deliver_to_channels"):][:2_000]
 
