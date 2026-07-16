@@ -114,11 +114,12 @@ code {
 }
 
 table {
-  display: table;
+  display: block;
   width: 100%;
+  max-width: 100%;
   border: 1px solid var(--border);
   border-radius: 8px;
-  overflow: hidden;
+  overflow-x: auto;
 }
 
 thead {
@@ -189,6 +190,18 @@ tr:nth-child(2n) {
 .rowBotScreenshot img {
   display: block;
   width: 100%;
+  height: auto;
+}
+
+.rowBotScreenshotMobile {
+  width: min(100%, 390px);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.rowBotScreenshotMobile img {
+  width: 390px;
+  max-width: 100%;
 }
 
 .rowBotScreenshot figcaption {

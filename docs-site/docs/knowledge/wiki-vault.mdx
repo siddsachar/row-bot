@@ -1,0 +1,33 @@
+---
+title: "Wiki Vault"
+description: "Generate and maintain a local Markdown vault from reviewed Row-Bot knowledge."
+---
+
+# Wiki Vault
+
+Wiki Vault turns selected Knowledge entities and relationships into linked Markdown pages in a folder you control. It is an output of the local knowledge graph, not a replacement for the underlying memory and provenance records.
+
+## Configure The Vault
+
+1. Open **Settings -> Knowledge**.
+2. Choose a vault folder that is separate from application code and important personal notes while you test.
+3. Enable Wiki output only after reviewing the current Knowledge graph.
+4. Run the rebuild or sync action shown in the tab.
+5. Open the generated Markdown pages in your preferred editor and check links, titles, and source notes.
+
+The vault contains generated summaries and links. Correct important facts in Knowledge first, then rebuild, so the graph remains the source of truth. Avoid hand-editing generated sections unless the page clearly identifies an area intended for manual notes.
+
+## Updates And Deletions
+
+New or changed entities can update their corresponding pages. Removed or merged records may cause generated pages or links to change on the next rebuild. Back up a vault before a large repair, migration, or rebuild if it also contains your own notes.
+
+## Privacy
+
+The vault is local, but it is deliberately easy to open in other software or sync with a third-party folder. Treat the destination as an export boundary. Review it before placing it in cloud storage, a shared repository, or a publishing system.
+
+## Troubleshooting
+
+- If pages are empty, verify that Knowledge contains reviewed entities and relations.
+- If links duplicate, run Knowledge repair before rebuilding the vault.
+- If a path is unavailable, choose a writable local folder and try again.
+- If private material appears, correct or remove its source record, rebuild, and review the destination before sharing.

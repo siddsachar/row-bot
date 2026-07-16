@@ -39,6 +39,7 @@ SCENARIOS = {
     "voice",
     "mcp",
     "plugins",
+    "mobile",
     "full",
 }
 
@@ -80,6 +81,123 @@ def docs_capture_disable_autostart() -> bool:
 
 def docs_capture_fake_provider_status() -> bool:
     return is_docs_capture() and _truthy(os.environ.get(DOCS_FAKE_PROVIDERS_ENV, "1"))
+
+
+def docs_capture_provider_cards() -> list[dict[str, Any]]:
+    """Return display-only provider states for isolated documentation capture."""
+    if not docs_capture_fake_provider_status():
+        return []
+    return [
+        {
+            "provider_id": "ollama",
+            "display_name": "Ollama Local",
+            "icon": "OL",
+            "group": "Local",
+            "configured": True,
+            "runtime_enabled": True,
+            "source": "local_daemon",
+            "model_count": 3,
+            "chat_count": 3,
+            "media_count": 0,
+            "risk_label": "local_private",
+        },
+        {
+            "provider_id": "codex",
+            "display_name": "ChatGPT / Codex",
+            "icon": "C",
+            "group": "Subscription Accounts",
+            "configured": False,
+            "runtime_enabled": False,
+            "source": "",
+            "model_count": 3,
+            "chat_count": 3,
+            "media_count": 0,
+            "risk_label": "subscription",
+        },
+        {
+            "provider_id": "claude_subscription",
+            "display_name": "Claude Subscription",
+            "icon": "CS",
+            "group": "Subscription Accounts",
+            "configured": False,
+            "runtime_enabled": False,
+            "source": "",
+            "model_count": 4,
+            "chat_count": 4,
+            "media_count": 0,
+            "risk_label": "subscription",
+        },
+        {
+            "provider_id": "xai_oauth",
+            "display_name": "xAI Grok",
+            "icon": "X",
+            "group": "Subscription Accounts",
+            "configured": False,
+            "runtime_enabled": False,
+            "source": "",
+            "oauth_client_id_configured": True,
+            "oauth_client_id_source": "default",
+            "model_count": 4,
+            "chat_count": 3,
+            "media_count": 1,
+            "risk_label": "subscription",
+        },
+        {
+            "provider_id": "openai",
+            "display_name": "OpenAI API",
+            "icon": "AI",
+            "group": "API Providers",
+            "configured": False,
+            "runtime_enabled": False,
+            "source": "",
+            "model_count": 8,
+            "chat_count": 6,
+            "media_count": 2,
+            "risk_label": "api_key",
+        },
+        {
+            "provider_id": "anthropic",
+            "display_name": "Anthropic API",
+            "icon": "AC",
+            "group": "API Providers",
+            "configured": False,
+            "runtime_enabled": False,
+            "source": "",
+            "model_count": 5,
+            "chat_count": 5,
+            "media_count": 0,
+            "risk_label": "api_key",
+        },
+        {
+            "provider_id": "google",
+            "display_name": "Google AI API",
+            "icon": "G",
+            "group": "API Providers",
+            "configured": False,
+            "runtime_enabled": False,
+            "source": "",
+            "model_count": 7,
+            "chat_count": 5,
+            "media_count": 2,
+            "risk_label": "api_key",
+        },
+    ]
+
+
+def docs_capture_model_choices() -> list[dict[str, str]]:
+    """Return inert, display-only Quick Choices for screenshot capture."""
+    if not docs_capture_fake_provider_status():
+        return []
+    return [
+        {
+            "value": "model:ollama:llama3.1:8b",
+            "label": "Ollama Local · llama3.1:8b",
+        },
+        {
+            "value": "model:custom:demo-chat",
+            "label": "Custom local endpoint · demo-chat",
+        },
+    ]
 
 
 def docs_capture_reduce_motion_css() -> str:
@@ -177,33 +295,133 @@ def default_docs_capture_demo_state() -> dict[str, Any]:
             {"id": "docs-demo-research", "name": "Research digest", "kind": "chat"},
             {"id": "docs-demo-workflow", "name": "Morning brief run", "kind": "workflow"},
         ],
+        "profiles": [
+            {
+                "id": "docs-profile-research",
+                "slug": "demo_research_guide",
+                "display_name": "Research Guide",
+                "description": "Reviews local sources and returns a concise, cited summary.",
+                "capability": "read_only",
+            },
+            {
+                "id": "docs-profile-project",
+                "slug": "demo_project_coordinator",
+                "display_name": "Project Coordinator",
+                "description": "Breaks a safe internal project into reviewable steps.",
+                "capability": "orchestrator",
+            },
+        ],
+        "goal": {
+            "id": "docs-goal-launch",
+            "thread_id": DEMO_THREAD_ID,
+            "objective": "Prepare and verify the fictional launch checklist",
+            "status": "active",
+            "turns_used": 3,
+            "max_turns": 8,
+            "progress": ["Indexed the launch brief", "Drafted the five-step checklist"],
+            "blockers": ["Approval required before writing the summary file"],
+        },
+        "agents": [
+            {
+                "id": "docs-agent-parent",
+                "thread_id": DEMO_THREAD_ID,
+                "display_name": "Launch coordinator",
+                "kind": "subagent",
+                "status": "running",
+                "summary": "Coordinating two safe review tasks.",
+            },
+            {
+                "id": "docs-agent-child-complete",
+                "parent_run_id": "docs-agent-parent",
+                "thread_id": "docs-agent-source-review",
+                "display_name": "Source reviewer",
+                "kind": "subagent",
+                "status": "completed",
+                "summary": "Checked the two local demo documents.",
+            },
+            {
+                "id": "docs-agent-child-running",
+                "parent_run_id": "docs-agent-parent",
+                "thread_id": "docs-agent-checklist",
+                "display_name": "Checklist editor",
+                "kind": "subagent",
+                "status": "running",
+                "summary": "Preparing a reviewable checklist draft.",
+            },
+        ],
         "workflows": [
-            {"name": "Morning Brief", "status": "Paused", "next": "Weekdays 08:30"},
-            {"name": "Inbox Follow-up", "status": "Needs approval", "next": "Manual"},
-            {"name": "Research Digest", "status": "Ready", "next": "Fridays 16:00"},
+            {"id": "docs-workflow-brief", "name": "Morning Brief", "status": "Paused", "next": "Weekdays 08:30"},
+            {"id": "docs-workflow-approval", "name": "Launch Summary", "status": "Needs approval", "next": "Manual"},
+            {"id": "docs-workflow-research", "name": "Research Digest", "status": "Ready", "next": "Fridays 16:00"},
+        ],
+        "workflow_runs": [
+            {"id": "docs-run-complete", "workflow": "Morning Brief", "status": "completed", "steps": "3/3"},
+            {"id": "docs-run-failed", "workflow": "Research Digest", "status": "failed", "steps": "1/2", "message": "Demo source unavailable; safe to retry."},
         ],
         "documents": [
             {"title": "Launch brief.pdf", "status": "Indexed"},
             {"title": "Support FAQ.md", "status": "Indexed"},
         ],
+        "knowledge": {
+            "entities": [
+                {"id": "docs-entity-launch", "subject": "Demo Launch", "type": "project", "description": "A fictional product launch used only for documentation."},
+                {"id": "docs-entity-checklist", "subject": "Launch Checklist", "type": "fact", "description": "Five review steps derived from the demo brief."},
+                {"id": "docs-entity-review", "subject": "Safety Review", "type": "concept", "description": "Approval is required before consequential writes."},
+                {"id": "docs-entity-support", "subject": "Support FAQ", "type": "fact", "description": "Answers for a fictional support team."},
+            ],
+            "relations": [
+                ["docs-entity-launch", "docs-entity-checklist", "uses"],
+                ["docs-entity-checklist", "docs-entity-review", "builds_on"],
+                ["docs-entity-support", "docs-entity-launch", "part_of"],
+            ],
+            "wiki_pages": ["Demo Launch", "Launch Checklist", "Safety Review"],
+        },
+        "developer": {
+            "workspace_id": "",
+            "name": "demo-release-notes",
+            "branch": "docs/demo-checklist",
+            "todo": "Add a recovery note to the fictional launch checklist.",
+            "test_output": "3 passed in 0.04s",
+        },
+        "designer": {
+            "project_id": "docs-designer-project",
+            "name": "Community Workshop Deck",
+            "template": "Clean presentation",
+            "export": "PDF and PowerPoint ready",
+        },
         "providers": [
             {"name": "Ollama Local", "status": "Ready", "model": "llama3.1:8b"},
+            {"name": "Custom local endpoint", "status": "Ready", "model": "demo-chat"},
             {"name": "OpenAI API", "status": "Not connected", "model": "gpt-4.1-mini"},
-            {"name": "Custom endpoint", "status": "Preview", "model": "demo-model"},
+            {"name": "ChatGPT / Codex", "status": "Available to connect", "model": "subscription"},
+            {"name": "xAI Grok", "status": "Available to connect", "model": "OAuth or API"},
         ],
         "channels": [
-            {"name": "Telegram", "status": "Disconnected demo"},
-            {"name": "Slack", "status": "Disconnected demo"},
-            {"name": "Discord", "status": "Disconnected demo"},
+            {"name": "Telegram", "status": "Configured, stopped"},
+            {"name": "WhatsApp", "status": "Configured, stopped"},
+            {"name": "Slack", "status": "Configured, stopped"},
+            {"name": "Discord", "status": "Configured, stopped"},
+            {"name": "SMS", "status": "Not configured"},
         ],
         "mcp": [
-            {"name": "GitHub MCP Server", "status": "Disabled preview"},
-            {"name": "Playwright MCP", "status": "Disabled preview"},
+            {"name": "GitHub MCP Server", "status": "Configured, disabled"},
+            {"name": "Playwright MCP", "status": "Configured, disabled"},
         ],
         "plugins": [
-            {"name": "Demo CRM Lookup", "status": "Not installed"},
-            {"name": "Invoice Helper", "status": "Review required"},
+            {"name": "Demo CRM Lookup", "status": "Installed, disabled"},
+            {"name": "Invoice Helper", "status": "Install review required"},
         ],
+        "integrations": [
+            {"name": "GitHub", "status": "Not connected"},
+            {"name": "Google Gmail and Calendar", "status": "Not connected"},
+            {"name": "X", "status": "Not connected"},
+        ],
+        "mobile": {
+            "device_name": "Demo Android Phone",
+            "status": "Paired",
+            "access_mode": "Trusted LAN",
+            "events": ["Paired", "Access granted", "Session refreshed"],
+        },
     }
 
 
@@ -229,17 +447,48 @@ def configure_docs_capture_state(
         "home_tab": query.get("home_tab", ""),
         "settings_tab": query.get("settings_tab", ""),
         "dialog": query.get("dialog", ""),
+        "mobile_view": query.get("mobile_view", ""),
     }
     demo = load_docs_capture_demo_state()
     state.active_designer_project = None
     state.active_developer_workspace_id = None
+    if intent["mobile_view"]:
+        state.mobile_view = intent["mobile_view"].strip().title()
+    if intent["surface"] == "designer-editor":
+        from row_bot.designer.storage import load_project
+
+        project_id = str((demo.get("designer") or {}).get("project_id") or "")
+        state.active_designer_project = load_project(project_id)
+        state.thread_id = "docs-designer-thread"
+        state.thread_name = "Community Workshop Deck"
+        state.messages = []
+        return intent
+    if intent["surface"] == "developer-workspace":
+        state.active_developer_workspace_id = str((demo.get("developer") or {}).get("workspace_id") or "")
+        state.thread_id = "docs-developer-thread"
+        state.thread_name = "Demo release notes"
+        state.messages = []
+        return intent
     if intent["home_tab"]:
         state.thread_id = None
         state.thread_name = None
         state.messages = []
         state.preferred_home_tab = intent["home_tab"]
         return intent
-    if intent["settings_tab"] or intent["dialog"] in {"setup-center", "skills-hub", "plugin-marketplace", "mcp-add-server"}:
+    if intent["settings_tab"] or intent["dialog"] in {
+        "setup-center",
+        "skills-hub",
+        "plugin-marketplace",
+        "mcp-add-server",
+        "mcp-marketplace",
+    }:
+        if intent["settings_tab"] == "Plugins":
+            # Normal startup loads plugins in a later background phase. The
+            # capture startup is intentionally abbreviated, so load only the
+            # inert plugin already seeded into the isolated demo directory.
+            from row_bot.plugins.loader import load_plugins
+
+            load_plugins()
         state.thread_id = None
         state.thread_name = None
         state.messages = []

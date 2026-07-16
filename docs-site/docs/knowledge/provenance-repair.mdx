@@ -1,0 +1,36 @@
+---
+title: "Knowledge Provenance And Repair"
+description: "Trace where knowledge came from, correct records, repair relations, and rebuild derived outputs safely."
+---
+
+# Knowledge Provenance And Repair
+
+Knowledge is useful only when you can tell where it came from. Review provenance before relying on a memory, document fact, entity, or relation for consequential work.
+
+## Review A Record
+
+1. Open **Home -> Knowledge** and filter to the topic.
+2. Open the record detail.
+3. Check its source, timestamps, type, confidence or status, and related entities.
+4. Compare important claims with the original conversation or document.
+5. Correct, merge, or remove the record if it is misleading.
+
+## Repair Order
+
+Use the smallest repair that fixes the problem:
+
+1. Correct a title, type, description, or relation.
+2. Merge a duplicate entity when both records refer to the same thing.
+3. Remove a bad relation without deleting sound entities.
+4. Rebuild derived indexes if search still returns stale results.
+5. Rebuild Wiki Vault output only after the graph is correct.
+
+Monitor's extraction and Dream Cycle journals help explain background changes. A repair should preserve useful source evidence and avoid touching unrelated memories.
+
+## Recovery
+
+Before a large repair or migration, close Row-Bot and back up the active data directory. Restore the whole related data set together rather than mixing database files from different moments. If the app offers a built-in repair action, read its scope and completion message before manually replacing files.
+
+## Safety Boundary
+
+Deleting a thread does not necessarily mean every derived record disappears immediately, and deleting one graph entity can affect linked output. Review the exact record and its relationships first. Never run repair tests against a personal data directory.

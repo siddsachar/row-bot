@@ -429,7 +429,7 @@ def _delete_server(name: str, refresh: Callable[[], None]) -> None:
 
 def _open_server_dialog(refresh: Callable[[], None], name: str | None = None, server_cfg: dict[str, Any] | None = None) -> None:
     cfg = server_cfg or {}
-    with ui.dialog() as dialog, ui.card().classes("w-[720px] max-w-full"):
+    with ui.dialog().props("data-docs-id=mcp-add-server") as dialog, ui.card().classes("w-[720px] max-w-full"):
         ui.label("Edit MCP Server" if name else "Add MCP Server").classes("text-h6")
         name_in = ui.input("Name", value=name or cfg.get("name", "")).classes("w-full")
         transport = ui.select(
@@ -507,7 +507,7 @@ def _open_import_dialog(refresh: Callable[[], None]) -> None:
 
 
 def _open_marketplace_dialog(refresh: Callable[[], None]) -> None:
-    with ui.dialog() as dialog, ui.card().classes("w-[900px] max-w-full"):
+    with ui.dialog().props("data-docs-id=mcp-marketplace") as dialog, ui.card().classes("w-[900px] max-w-full"):
         ui.label("Connect MCP Tools").classes("text-h6")
         ui.label(f"Recommended starters and directory results are imported disabled until tested. {APP_DISPLAY_NAME} labels overlap/risk, but does not audit third-party servers.").classes("text-caption text-grey-6")
 

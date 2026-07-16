@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from .models import CatalogSearchResult, SkillHubEntry
+from .models import CatalogSearchResult, SkillHubEntry, SourceResult
 from .provenance import load_records
 from .search_index import entry_search_text, search_entries
 from .source_registry import SkillSourceRegistry, default_registry
@@ -30,6 +30,56 @@ def search_skills(
     force_refresh: bool = False,
     registry: SkillSourceRegistry | None = None,
 ) -> CatalogSearchResult:
+    from row_bot.docs_capture import is_docs_capture
+
+    if is_docs_capture():
+        all_entries = [
+            SkillHubEntry(
+                id="docs:research-brief",
+                name="Research Brief",
+                description="Turn local sources into a concise, cited briefing.",
+                source="bundled-demo",
+                source_id="bundled-demo",
+                install_ref="docs/research-brief",
+                author="Row-Bot Docs",
+                tags=["research", "documents"],
+                trust_level="verified",
+            ),
+            SkillHubEntry(
+                id="docs:workflow-review",
+                name="Workflow Review",
+                description="Review an automation plan for approvals, delivery, and recovery.",
+                source="bundled-demo",
+                source_id="bundled-demo",
+                install_ref="docs/workflow-review",
+                author="Row-Bot Docs",
+                tags=["workflows", "safety"],
+                trust_level="verified",
+            ),
+        ]
+        needle = (query or "").strip().casefold()
+        entries = [
+            entry
+            for entry in all_entries
+            if not needle
+            or needle in entry.name.casefold()
+            or needle in entry.description.casefold()
+        ][:limit]
+        return CatalogSearchResult(
+            entries=entries,
+            mode="cache",
+            query=(query or "").strip(),
+            source_counts={"bundled-demo": len(entries)},
+            source_statuses=[
+                SourceResult(
+                    entries=entries,
+                    source_id="bundled-demo",
+                    status="cached",
+                    message="Offline documentation fixture",
+                    from_cache=True,
+                )
+            ],
+        )
     active_registry = registry or default_registry()
     entries, statuses, detected = active_registry.browse(
         query=query,

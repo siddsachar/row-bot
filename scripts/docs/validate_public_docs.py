@@ -142,12 +142,10 @@ def _validate_required_files(errors: list[str]) -> None:
         DOCS_SITE / "static" / "CNAME",
         DOCS_ROOT / "index.mdx",
         METADATA_ROOT / "ui_surfaces.yml",
-        METADATA_ROOT / "real_ui_surfaces.yml",
         METADATA_ROOT / "settings.yml",
         METADATA_ROOT / "settings_tabs.yml",
         METADATA_ROOT / "home_tabs.yml",
         METADATA_ROOT / "dialogs.yml",
-        METADATA_ROOT / "docs_routes.yml",
         METADATA_ROOT / "screenshots.yml",
         METADATA_ROOT / "how_to_guides.yml",
     ]
@@ -175,6 +173,32 @@ def _validate_metadata(errors: list[str]) -> tuple[dict[str, Any], dict[str, Any
     if not isinstance(surfaces, dict):
         errors.append("ui_surfaces.yml surfaces must be a mapping")
         surfaces = {}
+    required_surface_fields = {
+        "title",
+        "app_route",
+        "state",
+        "scenario",
+        "docs_page",
+        "capture_type",
+        "status",
+        "source_files",
+    }
+    for surface_id, surface in surfaces.items():
+        if not isinstance(surface, dict):
+            errors.append(f"UI surface {surface_id} must be a mapping")
+            continue
+        for field in sorted(required_surface_fields - set(surface)):
+            errors.append(f"UI surface {surface_id} is missing {field}")
+        if surface.get("capture_type") not in {"automated", "manual"}:
+            errors.append(f"UI surface {surface_id} capture_type must be automated or manual")
+        if surface.get("status") not in {"ready", "missing"}:
+            errors.append(f"UI surface {surface_id} status must be ready or missing")
+        has_image = bool(surface.get("screenshot_id"))
+        has_reason = bool(surface.get("no_image_reason"))
+        if has_image == has_reason:
+            errors.append(
+                f"UI surface {surface_id} must have exactly one screenshot_id or no_image_reason"
+            )
     if not isinstance(screenshots, dict):
         errors.append("screenshots.yml screenshots must be a mapping")
         screenshots = {}
@@ -234,7 +258,8 @@ def _source_and_dom_text() -> str:
 def _validate_screenshots(errors: list[str], surfaces: dict[str, Any], screenshots: dict[str, Any]) -> None:
     referenced = set()
     for surface_id, surface in surfaces.items():
-        for screenshot_id in (surface or {}).get("screenshot_ids", []) or []:
+        screenshot_id = str((surface or {}).get("screenshot_id") or "")
+        if screenshot_id:
             referenced.add(screenshot_id)
             if screenshot_id not in screenshots:
                 errors.append(f"Surface {surface_id} references unknown screenshot {screenshot_id}")
@@ -264,11 +289,11 @@ def _validate_screenshots(errors: list[str], surfaces: dict[str, Any], screensho
         if review_status not in {"needs-review", "approved", "replace", "crop", "redact"}:
             errors.append(f"Screenshot {screenshot_id} review_status is invalid or missing")
         source = str(screenshot.get("source") or "")
-        if source not in {"real-data-dir", "isolated-first-launch", "review-fixture"}:
+        if source not in {"isolated-demo-data", "isolated-first-launch"}:
             errors.append(f"Screenshot {screenshot_id} source is invalid or missing")
         if not isinstance(screenshot.get("public_asset"), bool):
             errors.append(f"Screenshot {screenshot_id} public_asset must be true or false")
-        for required_key in ("id", "page", "purpose", "selector"):
+        for required_key in ("title", "route", "capture_selector", "output", "docs_pages"):
             if not screenshot.get(required_key):
                 errors.append(f"Screenshot {screenshot_id} is missing {required_key}")
         selector = str(screenshot.get("capture_selector") or screenshot.get("wait_for") or "")
@@ -305,6 +330,7 @@ def _validate_reference_links(errors: list[str]) -> None:
         "tools",
         "providers",
         "settings",
+        "settings-controls",
         "home-tabs",
         "channels",
         "skills",
@@ -313,6 +339,7 @@ def _validate_reference_links(errors: list[str]) -> None:
         "data-storage",
         "safety-approvals",
         "environment-and-config",
+        "cli",
         "screenshots",
     ]
     for slug in expected:
@@ -353,37 +380,41 @@ def _validate_llms(errors: list[str]) -> None:
 
 
 def _validate_public_guardrails(errors: list[str]) -> None:
-    guarded_public_site_paths = [
-        "docs/.nojekyll",
-        "docs/404.html",
-        "docs/architecture.html",
-        "docs/contact.html",
-        "docs/CNAME",
-        "docs/favicon.ico",
+    marketing_files = [
         "docs/index.html",
-        "docs/row_bot_glyph.png",
-        "docs/row_bot_glyph_256.png",
-        "docs/row_bot_hero.webp",
-        "docs/row_bot_preview.png",
+        "docs/features.html",
+        "docs/contact.html",
+        "docs/architecture.html",
     ]
-    try:
-        completed = subprocess.run(
-            ["git", "diff", "--name-only", "main", "--", *guarded_public_site_paths],
-            cwd=str(ROOT),
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        changed = [line for line in completed.stdout.splitlines() if line.strip()]
-        if changed:
-            errors.append("Current public website changed: " + ", ".join(changed))
-    except Exception as exc:
-        errors.append(f"Could not check public-site git diff: {exc}")
+    sensitive = re.compile(
+        r"fetch\(|formspree|<form\b|action=|data-track|google-analytics|gtag\(|plausible|analytics",
+        re.IGNORECASE,
+    )
+    for rel in marketing_files:
+        path = ROOT / rel
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if not re.search(r'href=["\'](?:/)?docs/?["\'][^>]*>\s*Docs\s*<', text, re.IGNORECASE):
+            errors.append(f"{rel} is missing the public Docs navigation link")
+        try:
+            baseline = subprocess.run(
+                ["git", "show", f"main:{rel}"],
+                cwd=str(ROOT),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            if baseline.returncode == 0:
+                before = [line.strip() for line in baseline.stdout.splitlines() if sensitive.search(line)]
+                after = [line.strip() for line in text.splitlines() if sensitive.search(line)]
+                if before != after:
+                    errors.append(f"{rel} changes analytics or form handling outside Phase A scope")
+        except Exception as exc:
+            errors.append(f"Could not verify {rel} analytics/form guardrail: {exc}")
     readme = ROOT / "README.md"
     if readme.exists():
         readme_text = readme.read_text(encoding="utf-8", errors="replace").lower()
-        if "row-bot.ai/docs" in readme_text:
-            errors.append("README.md links to row-bot.ai/docs before the public docs site is live")
+        if "row-bot.ai/docs" not in readme_text:
+            errors.append("README.md is missing the public documentation link")
 
 
 def _validate_workflow(errors: list[str]) -> None:

@@ -306,6 +306,8 @@ Explore the visual architecture gallery: [docs/architecture.html](docs/architect
 
 Read the full architecture reference: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#core-modules)
 
+Read the complete public user guide: [row-bot.ai/docs](https://row-bot.ai/docs/)
+
 Review the Docusaurus docs source and local preview instructions:
 [docs-site/README.md](docs-site/README.md)
 

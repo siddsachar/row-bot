@@ -1,0 +1,37 @@
+---
+title: "How Background Workflows Run"
+description: "Understand saved workflow definitions, schedules, isolated runs, approvals, retries, and delivery semantics."
+---
+
+# How Background Workflows Run
+
+A workflow is a saved task definition. A run is one attempt to execute it. Keeping those separate lets Row-Bot preserve history when you edit the next schedule or retry a failed attempt.
+
+1. **A trigger starts a run.** This can be a manual click, a recurring schedule, a one-time time, or another supported trigger.
+2. **The run resolves its policy.** Row-Bot chooses the workflow's Agent Profile, model override, tools, Skills, steps, and approval mode.
+3. **The run gets its own state.** Status, progress, step output, logs, and any persistent thread link are recorded so the scheduler can recover cleanly.
+4. **Approval can pause the run.** A background action that needs a decision becomes a pending approval instead of silently continuing. Approving resumes that action; rejecting or expiring it leaves a visible run outcome.
+5. **Completion and delivery are recorded separately.** A useful result can complete even if an external channel delivery fails, so the app can show the result and the delivery problem honestly.
+
+## Delivery Defaults
+
+The web app always receives run status. External channels are an additional destination.
+
+- **Inherit defaults** means the workflow uses the current workflow-level external channel selection.
+- **An explicit empty selection** means web app only, even when a global external default exists.
+- **An explicit channel selection** targets those configured running channels.
+
+This distinction prevents a workflow that was deliberately set to app-only from beginning to send externally after someone changes the global default.
+
+## Failure And Retry
+
+A failed run remains evidence; retrying creates another attempt rather than rewriting history. Fix the underlying provider, model, tool, approval, input, or delivery problem first. For multi-step work, keep steps narrow enough that the status identifies where the run stopped.
+
+Scheduled work can outlive the screen where it was created, but it cannot outlive the local Row-Bot process indefinitely. Pausing a workflow prevents future schedule starts; stopping one active run does not necessarily change the saved schedule.
+
+## Configure And Operate It
+
+- Create schedules, profiles, approvals, steps, and delivery in [Workflows](/docs/guides/workflows).
+- Configure external destinations in [Channels](/docs/integrations/channels) and [Channel Settings](/docs/settings/channels).
+- Review live status in [Monitor](/docs/monitor/) and mobile Activity in [Mobile And Native Surfaces](/docs/mobile-native/).
+- Back up workflow definitions and history with [Operations, Data, And Recovery](/docs/operations/).

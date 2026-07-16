@@ -24,6 +24,13 @@ def test_public_docs_inventory_has_core_sections() -> None:
     assert any(path["id"] == "threads_db" for path in inventory["data_paths"])
     assert any(rule["id"] == "approve" for rule in inventory["safety"])
     assert any(page["path"] == "index.mdx" for page in inventory["docs_pages"])
+    assert {item["tab"] for item in inventory["settings_controls"]} == {
+        "Accounts", "Buddy", "Channels", "Documents", "Knowledge", "MCP",
+        "Models", "Plugins", "Preferences", "Providers", "Search", "Skills",
+        "System", "Tracker", "Utilities", "Voice",
+    }
+    assert inventory["cli_options"]
+    assert inventory["environment"]
 
 
 def test_generated_mdx_pages_are_current() -> None:
@@ -90,6 +97,85 @@ def test_screenshot_manifest_is_real_ui_and_safe() -> None:
     assert all(shot.get("route", "/").startswith("/") for shot in required)
     assert all(shot.get("capture_selector") for shot in required)
     assert all(shot.get("expected_text") for shot in required)
+    assert all(shot.get("source") in {"isolated-demo-data", "isolated-first-launch"} for shot in required)
+    expected_dimensions = {"desktop": (3840, 2160), "wide": (3840, 2160), "mobile": (390, 844)}
+    assert all(shot.get("viewport") in expected_dimensions for shot in required)
+    assert screenshots["skills-hub"]["route"] == "/?dialog=skills-hub"
+    assert screenshots["mcp-marketplace"]["route"] == "/?dialog=mcp-marketplace"
+
+
+def test_mobile_screenshots_render_at_native_width() -> None:
+    component = (ROOT / "docs-site" / "src" / "components" / "Screenshot.tsx").read_text(encoding="utf-8")
+    styles = (ROOT / "docs-site" / "src" / "css" / "custom.css").read_text(encoding="utf-8")
+
+    assert "id.startsWith('mobile-')" in component
+    assert "rowBotScreenshotMobile" in component
+    assert "width={isMobile ? 390 : undefined}" in component
+    assert ".rowBotScreenshotMobile" in styles
+    assert "width: min(100%, 390px);" in styles
+
+
+def test_conceptual_guides_link_to_configuration_pages() -> None:
+    concepts = ROOT / "docs-site" / "docs" / "concepts"
+    expected = {
+        "request-lifecycle.mdx": "/docs/configuration/models-and-providers",
+        "memory-knowledge-and-dream-cycle.mdx": "/docs/settings/knowledge",
+        "profiles-goals-and-agents.mdx": "/docs/profiles-goals-agents/",
+        "background-workflows.mdx": "/docs/guides/workflows",
+        "extensions-and-trust.mdx": "/docs/extending/",
+    }
+
+    for filename, configuration_route in expected.items():
+        content = (concepts / filename).read_text(encoding="utf-8")
+        assert configuration_route in content
+
+
+def test_authoritative_surface_map_has_one_outcome_per_surface() -> None:
+    data = yaml.safe_load(
+        (ROOT / "docs-content" / "metadata" / "ui_surfaces.yml").read_text(encoding="utf-8")
+    )
+    surfaces = data["surfaces"]
+    screenshots = yaml.safe_load(
+        (ROOT / "docs-content" / "metadata" / "screenshots.yml").read_text(encoding="utf-8")
+    )["screenshots"]
+
+    assert data["authority"] == "public-docs-surface-coverage"
+    assert len(surfaces) >= 40
+    for surface in surfaces.values():
+        assert surface["status"] in {"ready", "missing"}
+        assert surface["capture_type"] in {"automated", "manual"}
+        assert bool(surface.get("screenshot_id")) != bool(surface.get("no_image_reason"))
+        if surface.get("screenshot_id"):
+            assert surface["screenshot_id"] in screenshots
+
+
+def test_capture_rejects_the_real_user_data_directory(tmp_path: Path, monkeypatch) -> None:
+    import scripts.docs.capture_real_ui_screenshots as capture
+
+    real_dir = tmp_path / "real-profile"
+    real_dir.mkdir()
+    monkeypatch.setattr(capture, "_real_user_data_dir", lambda: real_dir.resolve())
+
+    try:
+        capture._safe_capture_data_dir(real_dir)
+    except RuntimeError as exc:
+        assert "normal Row-Bot data directory" in str(exc)
+    else:  # pragma: no cover - explicit safety failure
+        raise AssertionError("capture accepted the real Row-Bot data directory")
+
+
+def test_docs_capture_never_reads_the_keyring(monkeypatch) -> None:
+    import row_bot.secret_store as secret_store
+
+    class FailingBackend:
+        def get_password(self, *_args):
+            raise AssertionError("keyring backend was read")
+
+    monkeypatch.setenv("ROW_BOT_DOCS_CAPTURE", "1")
+    monkeypatch.setattr(secret_store, "_backend_override", FailingBackend())
+
+    assert secret_store.is_available() is False
+    assert secret_store.get_secret("OPENAI_API_KEY") is None
 
 
 def test_real_home_and_settings_tabs_have_routes() -> None:

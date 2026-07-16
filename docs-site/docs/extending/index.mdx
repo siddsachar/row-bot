@@ -1,0 +1,42 @@
+---
+title: "Extend Row-Bot"
+description: "Choose between built-in tools, Skills, Custom Tools, plugins, MCP servers, channels, and accounts."
+---
+
+import Screenshot from '@site/src/components/Screenshot';
+
+# Extend Row-Bot
+
+Start with the narrowest extension type that can solve the task. Every extension adds capabilities; some also add code, dependencies, network access, credentials, or external side effects.
+
+For the conceptual differences between tools, Skills, plugins, MCP, channels, and accounts, read [Extensions And Trust Boundaries](/docs/concepts/extensions-and-trust).
+
+| Extension | Use It For | Review Boundary |
+| --- | --- | --- |
+| Built-in tool | A capability already shipped and maintained with Row-Bot. | Enable only the tools a profile needs; consequential operations still use approval policy. |
+| Skill | Reusable instructions and workflow knowledge. | Read the full skill and bundled files before enabling or pinning it. |
+| Custom Tool | A reviewed local command or repo-specific helper created in Developer Studio. | Inspect its source, command classification, dependencies, and workspace scope. |
+| Plugin | A packaged bundle that can provide tools, skills, channels, MCP configuration, or UI. | Review manifest, source, permissions, dependencies, and update path before enabling. |
+| MCP server | Tools exposed by an external local or remote process. | Add disabled, inspect overlap and risk labels, test, then enable only trusted tools. |
+| Channel | A messaging adapter for receiving or delivering work. | Verify account, recipients, pairing, tunnel, and delivery defaults before starting. |
+| Account | Authorisation for GitHub, Google, X, or another service used by tools. | Review requested scopes and disconnect unused accounts. |
+
+<Screenshot id="skills-hub" alt="Offline Row-Bot Public Skills Hub with two fictional skills." caption="Skills import into the local library off by default so you can inspect them before enabling." />
+
+<Screenshot id="plugin-marketplace" alt="Offline Row-Bot Plugin Marketplace with fictional entries." caption="Marketplace cards expose publisher, verification, capabilities, permissions, and install review before any plugin is added." />
+
+<Screenshot id="mcp-add-server" alt="Row-Bot Add MCP Server dialog." caption="New MCP servers start as explicit configurations; keep them disabled until transport, command or URL, environment, and tool risk are understood." />
+
+<Screenshot id="mcp-marketplace" alt="Row-Bot Browse MCP Servers marketplace with bundled starter servers." caption="The MCP browser makes source, overlap, authentication, transport, and risk visible before you import a disabled server definition." />
+
+## Safe Evaluation Sequence
+
+1. Read the extension description and source.
+2. Check requested permissions, credentials, network destinations, commands, and install steps.
+3. Install into the local data directory only from a source you trust.
+4. Keep it disabled while you inspect configuration and provided capabilities.
+5. Test with fictional data and a non-consequential task.
+6. Enable the minimum capabilities and keep approval mode at **Ask** until behaviour is familiar.
+7. Disable or remove extensions that are no longer maintained or needed.
+
+Third-party dependency telemetry is not Row-Bot telemetry. Review and accept any dependency behaviour before installation, and never allow it to receive Row-Bot prompts, files, memories, secrets, screenshots, tool arguments, or channel content unless that transfer is the explicit feature you chose.

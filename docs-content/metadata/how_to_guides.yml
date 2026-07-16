@@ -84,3 +84,48 @@ guides:
     sources:
     - src/row_bot/ui/home.py
     - src/row_bot/startup_diagnostics.py
+  use-profiles-goals-agents:
+    title: Use Profiles Goals And Agents
+    route: /docs/profiles-goals-agents/
+    sources:
+    - src/row_bot/agent_profiles.py
+    - src/row_bot/goals.py
+    - src/row_bot/agent_runs.py
+  maintain-wiki-vault:
+    title: Maintain A Wiki Vault
+    route: /docs/knowledge/wiki-vault
+    sources:
+    - src/row_bot/wiki_vault.py
+    - src/row_bot/knowledge_graph.py
+  repair-knowledge:
+    title: Repair Knowledge And Provenance
+    route: /docs/knowledge/provenance-repair
+    sources:
+    - src/row_bot/knowledge_graph.py
+    - src/row_bot/memory.py
+  pair-android:
+    title: Pair And Use Android
+    route: /docs/mobile-native/
+    sources:
+    - src/row_bot/mobile/auth.py
+    - src/row_bot/ui/mobile.py
+    - src/row_bot/ui/mobile_access_settings.py
+  extend-row-bot:
+    title: Choose An Extension Type
+    route: /docs/extending/
+    sources:
+    - src/row_bot/skills_hub/
+    - src/row_bot/plugins/
+    - src/row_bot/mcp_client/
+  connect-accounts:
+    title: Connect External Accounts
+    route: /docs/integrations/accounts
+    sources:
+    - src/row_bot/ui/settings.py
+    - src/row_bot/github_account.py
+  backup-and-recover:
+    title: Back Up And Recover Row-Bot
+    route: /docs/operations/
+    sources:
+    - src/row_bot/data_paths.py
+    - src/row_bot/updater.py

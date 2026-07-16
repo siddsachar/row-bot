@@ -185,6 +185,24 @@ def _placeholder_results() -> list[CheckResult]:
     return [CheckResult("System", "inactive", "Checking status...")]
 
 
+def _docs_capture_results() -> list[CheckResult] | None:
+    """Return inert display-only status for public documentation capture."""
+    from row_bot.docs_capture import is_docs_capture
+
+    if not is_docs_capture():
+        return None
+    return [
+        CheckResult("Model", "ok", "Demo provider ready", settings_tab="Providers"),
+        CheckResult("Workflows", "ok", "2 configured", settings_tab=""),
+        CheckResult("Knowledge", "ok", "Demo workspace indexed", settings_tab="Knowledge"),
+        CheckResult("Documents", "ok", "3 demo documents", settings_tab="Documents"),
+        CheckResult("Skills", "ok", "2 demo skills", settings_tab="Skills"),
+        CheckResult("Plugins", "ok", "1 demo plugin", settings_tab="Plugins"),
+        CheckResult("MCP", "inactive", "Demo server disabled", settings_tab="MCP"),
+        CheckResult("Network", "inactive", "Disabled for documentation capture"),
+    ]
+
+
 def _get_render_cached_results() -> list[CheckResult]:
     """Return current status pills without running synchronous health checks."""
     started = time.perf_counter()
@@ -546,7 +564,10 @@ def build_status_bar(
     ui.html(_AVATAR_CSS, sanitize=False)
 
     # Paint cached status immediately; full checks refresh asynchronously.
-    results = _get_render_cached_results()
+    # Documentation capture uses a deterministic, display-only fixture so the
+    # screenshot harness never probes providers, accounts, or the network.
+    capture_results = _docs_capture_results()
+    results = capture_results or _get_render_cached_results()
     result_map = {r.name: r for r in results}
 
     with ui.element("div").classes("row-bot-status-panel w-full"):
@@ -648,7 +669,8 @@ def build_status_bar(
 
             asyncio.create_task(_refresh_heavy_pills())
 
-        asyncio.create_task(_refresh_pills_if_needed())
+        if capture_results is None:
+            asyncio.create_task(_refresh_pills_if_needed())
 
         # ── RIGHT: Diagnosis button ───────────────────────────────
         _diagnosis_running = False

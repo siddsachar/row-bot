@@ -1,160 +1,556 @@
+schema_version: 2
+authority: public-docs-surface-coverage
+description: >-
+  The single outcome ledger for public documentation coverage. Runtime registries and
+  screenshot capture instructions are inputs to this map, not competing coverage ledgers.
 surfaces:
+  first_launch_wizard:
+    title: First-launch setup wizard
+    app_route: /?docs_surface=first-launch-setup-wizard
+    state: clean first run
+    scenario: first-run
+    docs_page: /docs/getting-started/first-launch
+    screenshot_id: first-launch-setup-wizard
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/setup_wizard.py]
+  setup_center:
+    title: Resumable Setup Center
+    app_route: /?dialog=setup-center
+    state: configured demo
+    scenario: configured
+    docs_page: /docs/getting-started/first-launch
+    screenshot_id: setup-center
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/onboarding_center.py]
   app_shell:
-    title: Row-Bot Interface
-    description: Main Row-Bot interface with sidebar, thread list, Home tabs, Activity
-      Center, Buddy, Settings, and terminal panel.
-    source_files:
-    - src/row_bot/app.py
-    - src/row_bot/ui/sidebar.py
-    - src/row_bot/ui/command_center.py
-    - src/row_bot/ui/terminal_widget.py
-    screenshot_ids:
-    - app-shell-overview
-  onboarding:
-    title: Onboarding
-    description: First launch wizard and resumable Setup Center for model setup and
-      optional next steps.
-    source_files:
-    - src/row_bot/ui/setup_wizard.py
-    - src/row_bot/ui/onboarding_center.py
-    screenshot_ids:
-    - first-launch-setup-wizard
-    - setup-center
-  chat:
-    title: Chat
-    description: Main conversation surface with model controls, composer, attachments,
-      tool traces, approvals, exports, and terminal context.
-    source_files:
-    - src/row_bot/ui/chat.py
-    - src/row_bot/ui/chat_composer_extras.py
-    - src/row_bot/ui/chat_components.py
-    - src/row_bot/ui/streaming.py
-    - src/row_bot/ui/tool_trace.py
-    screenshot_ids:
-    - chat-main
-    - chat-model-picker
-    - chat-tool-trace
-    - chat-approval
+    title: Expanded desktop application shell
+    app_route: /?home_tab=Workflows
+    state: configured demo, all drawers visible
+    scenario: configured
+    docs_page: /docs/app-shell/navigation
+    screenshot_id: app-shell-overview
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/app.py, src/row_bot/ui/sidebar.py, src/row_bot/ui/command_center.py]
+  chat_main:
+    title: Chat conversation and composer
+    app_route: /?docs_surface=chat-main
+    state: configured demo thread
+    scenario: configured
+    docs_page: /docs/chat/
+    screenshot_id: chat-main
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/chat.py, src/row_bot/ui/chat_components.py]
+  chat_model_picker:
+    title: Provider-qualified model picker
+    app_route: /?docs_surface=chat-main
+    state: configured demo, picker open
+    scenario: configured
+    docs_page: /docs/chat/model-picker
+    screenshot_id: chat-model-picker
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/chat_components.py, src/row_bot/providers/selection.py]
+  chat_tool_trace:
+    title: Tool trace and results
+    app_route: /?docs_surface=chat-tool-trace
+    state: configured demo with inert local tool results
+    scenario: configured
+    docs_page: /docs/chat/tools-approvals-and-terminal
+    screenshot_id: chat-tool-trace
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/tool_trace.py, src/row_bot/ui/render.py]
+  chat_approval:
+    title: Consequential action approval
+    app_route: /?docs_surface=chat-main&dialog=approval
+    state: fictional reversible file write awaiting approval
+    scenario: configured
+    docs_page: /docs/privacy-safety/
+    screenshot_id: chat-approval
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/streaming.py, src/row_bot/approval_policy.py]
+  chat_export:
+    title: Conversation export dialog
+    app_route: /?docs_surface=chat-main&dialog=export
+    state: configured demo thread
+    scenario: configured
+    docs_page: /docs/chat/
+    screenshot_id: chat-export
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/export.py]
+  agent_profiles:
+    title: Agent profile library
+    app_route: /?docs_surface=chat-main
+    state: configured demo profiles, library open
+    scenario: configured
+    docs_page: /docs/app-shell/agent-profiles
+    screenshot_id: agent-profile-library
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/profile_library.py, src/row_bot/agent_profiles.py]
+  goals_and_agents:
+    title: Goal and delegated agent progress
+    app_route: /?docs_surface=chat-main
+    state: active demo goal with parent and child agents
+    scenario: configured
+    docs_page: /docs/app-shell/agent-profiles
+    screenshot_id: goal-and-agents
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/goal_ui.py, src/row_bot/ui/parent_agent_card.py]
   home_workflows:
-    title: Home Workflows
-    description: Home tab for scheduled and background workflows.
-    source_files:
-    - src/row_bot/ui/home.py
-    - src/row_bot/tasks.py
-    screenshot_ids:
-    - home-workflows
+    title: Workflows Home tab
+    app_route: /?home_tab=Workflows
+    state: complete, failed, and approval-pending demo runs
+    scenario: configured
+    docs_page: /docs/home/workflows
+    screenshot_id: home-workflows
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/home.py, src/row_bot/tasks.py]
+  workflow_editor:
+    title: Workflow editor
+    app_route: /?dialog=workflow-editor
+    state: new workflow, advanced controls visible
+    scenario: configured
+    docs_page: /docs/guides/workflows
+    screenshot_id: workflow-editor
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/task_dialog.py]
   home_designer:
-    title: Home Designer
-    description: Home tab entry point for Designer Studio project creation and editing.
-    source_files:
-    - src/row_bot/ui/home.py
-    - src/row_bot/designer/home_tab.py
-    screenshot_ids:
-    - home-designer
-    - designer-editor
-  designer:
-    title: Designer Studio
-    description: Full Designer Studio project editor, dialogs, page navigator, brand/import/export/share/history
-      surfaces.
-    source_files:
-    - src/row_bot/designer/home_tab.py
-    - src/row_bot/designer/editor.py
-    - src/row_bot/designer/page_navigator.py
-    - src/row_bot/designer/brand_dialog.py
-    - src/row_bot/designer/import_dialog.py
-    - src/row_bot/designer/export_dialog.py
-    - src/row_bot/designer/share_dialog.py
-    - src/row_bot/designer/review_dialog.py
-    screenshot_ids:
-    - designer-editor
+    title: Designer Home tab
+    app_route: /?home_tab=Designer
+    state: configured demo project
+    scenario: configured
+    docs_page: /docs/home/designer
+    screenshot_id: home-designer
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/designer/home_tab.py]
+  designer_editor:
+    title: Designer Studio editor
+    app_route: /?docs_surface=designer-editor
+    state: two-page fictional presentation
+    scenario: configured
+    docs_page: /docs/designer/
+    screenshot_id: designer-editor
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/designer/editor.py, src/row_bot/designer/preview.py]
+  designer_import_export_dialogs:
+    title: Designer import, export, share, review, and history dialogs
+    app_route: native and browser dialogs opened from Designer
+    state: requires interactive file/save destinations or platform sharing
+    scenario: native-manual
+    docs_page: /docs/designer/
+    no_image_reason: Main editor is sufficient for the public task flow; platform-specific dialogs require manual native review.
+    capture_type: manual
+    status: ready
+    source_files: [src/row_bot/designer/import_dialog.py, src/row_bot/designer/export_dialog.py, src/row_bot/designer/share_dialog.py, src/row_bot/designer/review_dialog.py]
   home_developer:
-    title: Home Developer
-    description: Home tab entry point for Developer Studio workspaces and Custom Tools.
-    source_files:
-    - src/row_bot/ui/home.py
-    - src/row_bot/developer/ui.py
-    screenshot_ids:
-    - home-developer
-    - developer-workspace
-  developer:
-    title: Developer Studio
-    description: Full Developer Studio workspace inspector, changed files, terminal/server
-      controls, approvals, git actions, and custom tool wizard.
-    source_files:
-    - src/row_bot/developer/ui.py
-    - src/row_bot/developer/storage.py
-    - src/row_bot/developer/git.py
-    - src/row_bot/developer/runtime.py
-    screenshot_ids:
-    - developer-workspace
+    title: Developer Home tab
+    app_route: /?home_tab=Developer
+    state: configured local demo repository
+    scenario: configured
+    docs_page: /docs/home/developer
+    screenshot_id: home-developer
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/developer/ui.py]
+  developer_workspace:
+    title: Developer Studio workspace
+    app_route: /?docs_surface=developer-workspace
+    state: isolated repository with one safe uncommitted edit
+    scenario: configured
+    docs_page: /docs/developer/
+    screenshot_id: developer-workspace
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/developer/ui.py, src/row_bot/developer/git.py]
+  developer_approvals_and_servers:
+    title: Developer command approvals and local server controls
+    app_route: native Developer workspace
+    state: requires an interactive subprocess and approval cycle
+    scenario: native-manual
+    docs_page: /docs/developer/
+    no_image_reason: Automated public capture must not execute commands; controls are documented from source and need manual native review.
+    capture_type: manual
+    status: ready
+    source_files: [src/row_bot/developer/runtime.py, src/row_bot/developer/ui.py]
   home_knowledge:
-    title: Home Knowledge
-    description: Home tab for memory and knowledge graph review.
-    source_files:
-    - src/row_bot/ui/home.py
-    - src/row_bot/ui/graph_panel.py
-    - src/row_bot/knowledge_graph.py
-    screenshot_ids:
-    - home-knowledge
+    title: Knowledge graph Home tab
+    app_route: /?home_tab=Knowledge
+    state: deterministic entities, relations, and sources
+    scenario: configured
+    docs_page: /docs/knowledge/
+    screenshot_id: home-knowledge
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/graph_panel.py, src/row_bot/knowledge_graph.py]
   home_monitor:
-    title: Home Monitor
-    description: Home tab for knowledge extraction, dream cycle, channels, and logs.
-    source_files:
-    - src/row_bot/ui/home.py
-    - src/row_bot/memory_extraction.py
-    - src/row_bot/dream_cycle.py
-    screenshot_ids:
-    - home-monitor
-  settings:
-    title: Settings
-    description: Central configuration dialog for models, providers, documents, search,
-      skills, system, accounts, utilities, tracker, knowledge, Buddy, voice, channels,
-      MCP, plugins, and preferences.
-    source_files:
-    - src/row_bot/ui/settings.py
-    - src/row_bot/ui/mcp_settings.py
-    - src/row_bot/ui/buddy.py
-    - src/row_bot/plugins/ui_settings.py
-    screenshot_ids:
-    - settings-providers
-    - settings-models
-    - settings-documents
-    - settings-search
-    - settings-skills
-    - settings-system
-    - settings-accounts
-    - settings-utilities
-    - settings-tracker
-    - settings-knowledge
-    - settings-buddy
-    - settings-voice
-    - settings-channels
-    - settings-mcp
-    - settings-plugins
-    - settings-preferences
+    title: Monitor Home tab
+    app_route: /?home_tab=Monitor
+    state: deterministic Dream Cycle, channel, and extraction status
+    scenario: configured
+    docs_page: /docs/monitor/
+    screenshot_id: home-monitor
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/home.py, src/row_bot/dream_cycle.py]
+  wiki_vault:
+    title: Wiki vault output and provenance repair
+    app_route: Knowledge settings and isolated generated vault
+    state: deterministic pages generated under capture data directory
+    scenario: configured
+    docs_page: /docs/knowledge/wiki-vault
+    no_image_reason: The graph and Knowledge settings screenshots already show the relevant controls; generated files are better explained as a task flow.
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/wiki_vault.py, src/row_bot/knowledge_graph.py]
+  settings_providers:
+    title: Providers settings
+    app_route: /?settings_tab=Providers
+    state: local, subscription, and API routes shown equally with no credentials
+    scenario: configured
+    docs_page: /docs/settings/providers
+    screenshot_id: settings-providers
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/provider_settings.py]
+  settings_models:
+    title: Models settings
+    app_route: /?settings_tab=Models
+    state: deterministic Quick Choices
+    scenario: configured
+    docs_page: /docs/settings/models
+    screenshot_id: settings-models
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/settings.py]
+  settings_knowledge:
+    title: Knowledge settings
+    app_route: /?settings_tab=Knowledge
+    state: isolated index and Wiki vault
+    scenario: configured
+    docs_page: /docs/settings/knowledge
+    screenshot_id: settings-knowledge
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/settings.py]
+  settings_buddy:
+    title: Buddy settings
+    app_route: /?settings_tab=Buddy
+    state: configured demo appearance
+    scenario: configured
+    docs_page: /docs/settings/buddy
+    screenshot_id: settings-buddy
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/buddy.py]
+  settings_voice:
+    title: Voice settings
+    app_route: /?settings_tab=Voice
+    state: no microphone capture
+    scenario: configured
+    docs_page: /docs/settings/voice
+    screenshot_id: settings-voice
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/settings.py]
+  settings_system:
+    title: System settings
+    app_route: /?settings_tab=System
+    state: isolated data and workspace paths
+    scenario: configured
+    docs_page: /docs/settings/system
+    screenshot_id: settings-system
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/settings.py, src/row_bot/ui/mobile_access_settings.py]
+  settings_tracker:
+    title: Tracker settings
+    app_route: /?settings_tab=Tracker
+    state: fictional local tracker data
+    scenario: configured
+    docs_page: /docs/settings/tracker
+    screenshot_id: settings-tracker
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/settings.py]
+  settings_documents:
+    title: Documents settings
+    app_route: /?settings_tab=Documents
+    state: two fictional indexed documents
+    scenario: configured
+    docs_page: /docs/settings/documents
+    screenshot_id: settings-documents
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/settings.py, src/row_bot/documents.py]
+  settings_search:
+    title: Search settings
+    app_route: /?settings_tab=Search
+    state: network disabled, options visible
+    scenario: configured
+    docs_page: /docs/settings/search
+    screenshot_id: settings-search
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/settings.py]
+  settings_skills:
+    title: Skills settings
+    app_route: /?settings_tab=Skills
+    state: built-in and local skills only
+    scenario: configured
+    docs_page: /docs/settings/skills
+    screenshot_id: settings-skills
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/settings.py, src/row_bot/skills.py]
+  settings_accounts:
+    title: Accounts settings
+    app_route: /?settings_tab=Accounts
+    state: all external accounts disconnected
+    scenario: configured
+    docs_page: /docs/settings/accounts
+    screenshot_id: settings-accounts
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/settings.py]
+  settings_channels:
+    title: Channels settings
+    app_route: /?settings_tab=Channels
+    state: fictional adapters configured but stopped
+    scenario: configured
+    docs_page: /docs/settings/channels
+    screenshot_id: settings-channels
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/settings.py, src/row_bot/channels/registry.py]
+  settings_utilities:
+    title: Utilities settings
+    app_route: /?settings_tab=Utilities
+    state: deterministic local options
+    scenario: configured
+    docs_page: /docs/settings/utilities
+    screenshot_id: settings-utilities
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/settings.py]
+  settings_mcp:
+    title: MCP settings
+    app_route: /?settings_tab=MCP
+    state: sample servers configured and disabled
+    scenario: configured
+    docs_page: /docs/settings/mcp
+    screenshot_id: settings-mcp
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/mcp_settings.py]
+  settings_plugins:
+    title: Plugins settings
+    app_route: /?settings_tab=Plugins
+    state: inert local demonstration plugin
+    scenario: configured
+    docs_page: /docs/settings/plugins
+    screenshot_id: settings-plugins
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/plugins/ui_settings.py]
+  settings_preferences:
+    title: Preferences settings
+    app_route: /?settings_tab=Preferences
+    state: deterministic assistant identity and launch settings
+    scenario: configured
+    docs_page: /docs/settings/preferences
+    screenshot_id: settings-preferences
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/settings.py]
+  skills_hub:
+    title: Browse Skills marketplace
+    app_route: /?dialog=skills-hub
+    state: bundled catalogue only, network disabled
+    scenario: configured
+    docs_page: /docs/skills/
+    screenshot_id: skills-hub
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/skills_hub/ui.py]
   plugin_marketplace:
     title: Plugin Marketplace
-    description: Public plugin discovery and plugin install preview surface.
-    source_files:
-    - src/row_bot/plugins/ui_marketplace.py
-    - src/row_bot/plugins/marketplace.py
-    screenshot_ids:
-    - plugin-marketplace
-  mcp:
-    title: MCP
-    description: External Model Context Protocol server configuration and recommendation
-      surfaces.
-    source_files:
-    - src/row_bot/ui/mcp_settings.py
-    - src/row_bot/mcp_client/recommended_servers.json
-    screenshot_ids:
-    - mcp-add-server
-  privacy_safety:
-    title: Privacy And Safety
-    description: Approval examples, redaction behavior, and privacy-sensitive action
-      review.
-    source_files:
-    - src/row_bot/approval_policy.py
-    - src/row_bot/tools/approval_gate.py
-    screenshot_ids:
-    - chat-approval
+    app_route: /?dialog=plugin-marketplace
+    state: bundled catalogue only, no install
+    scenario: configured
+    docs_page: /docs/integrations/plugins
+    screenshot_id: plugin-marketplace
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/plugins/ui_marketplace.py]
+  mcp_add_server:
+    title: Add MCP server dialog
+    app_route: /?dialog=mcp-add-server
+    state: blank disabled configuration, no connection attempt
+    scenario: configured
+    docs_page: /docs/integrations/mcp
+    screenshot_id: mcp-add-server
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/mcp_settings.py]
+  mcp_marketplace:
+    title: Browse MCP server marketplace
+    app_route: /?dialog=mcp-marketplace
+    state: bundled curated starter catalogue only, no directory request or import
+    scenario: configured
+    docs_page: /docs/integrations/mcp
+    screenshot_id: mcp-marketplace
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/mcp_settings.py, src/row_bot/mcp_client/marketplace.py]
+  mobile_chat_list:
+    title: Android chat list
+    app_route: /?mobile=1&mobile_view=chat
+    state: paired fictional device and demo threads
+    scenario: mobile
+    docs_page: /docs/mobile-native/
+    screenshot_id: mobile-chat-list
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/mobile.py, src/row_bot/ui/mobile_chat.py]
+  mobile_chat_detail:
+    title: Android chat detail
+    app_route: /?mobile=1&mobile_view=chat&thread_id=docs-demo-launch
+    state: configured demo thread
+    scenario: mobile
+    docs_page: /docs/mobile-native/
+    screenshot_id: mobile-chat-detail
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/mobile_chat.py]
+  mobile_activity:
+    title: Android Activity
+    app_route: /?mobile=1&mobile_view=activity
+    state: active goal, agents, and pending approval
+    scenario: mobile
+    docs_page: /docs/mobile-native/
+    screenshot_id: mobile-activity
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/mobile.py]
+  mobile_workflows:
+    title: Android Workflows
+    app_route: /?mobile=1&mobile_view=workflows
+    state: seeded workflow runs
+    scenario: mobile
+    docs_page: /docs/mobile-native/
+    screenshot_id: mobile-workflows
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/mobile_workflows.py]
+  mobile_knowledge:
+    title: Android Knowledge
+    app_route: /?mobile=1&mobile_view=knowledge
+    state: deterministic knowledge entities
+    scenario: mobile
+    docs_page: /docs/mobile-native/
+    screenshot_id: mobile-knowledge
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/mobile.py]
+  mobile_settings:
+    title: Android settings
+    app_route: /?mobile=1&mobile_view=settings
+    state: paired device and inert provider configuration
+    scenario: mobile
+    docs_page: /docs/mobile-native/
+    screenshot_id: mobile-settings
+    capture_type: automated
+    status: ready
+    source_files: [src/row_bot/ui/mobile_settings.py]
+  native_mobile_pairing:
+    title: Native pairing, trusted LAN, and QR flow
+    app_route: native desktop plus physical Android device
+    state: requires OS network permission and a physical device
+    scenario: native-manual
+    docs_page: /docs/mobile-native/
+    no_image_reason: Physical-device pairing and permission prompts cannot be represented faithfully in isolated browser automation.
+    capture_type: manual
+    status: ready
+    source_files: [src/row_bot/ui/mobile_access_settings.py, src/row_bot/mobile/auth.py]
+  native_voice_permissions:
+    title: Microphone, realtime voice, and read-aloud permissions
+    app_route: native desktop
+    state: requires OS audio devices and permission prompts
+    scenario: native-manual
+    docs_page: /docs/voice-and-buddy/
+    no_image_reason: OS permission prompts and audio device labels vary by platform and must not be fabricated.
+    capture_type: manual
+    status: ready
+    source_files: [src/row_bot/ui/settings.py, src/row_bot/voice]
+  native_tray_window_and_buddy:
+    title: Native tray, window modes, and Buddy desktop overlay
+    app_route: Windows and macOS native applications
+    state: requires native window management and a visible desktop overlay
+    scenario: native-manual
+    docs_page: /docs/voice-and-buddy/
+    no_image_reason: Browser automation cannot represent native tray menus, window ownership, or the transparent Buddy overlay faithfully.
+    capture_type: manual
+    status: ready
+    source_files: [src/row_bot/launcher.py, src/row_bot/buddy, src/row_bot/ui/buddy.py]
+  native_computer_use:
+    title: Camera and Computer Use disclosure, live control, takeover, and stop
+    app_route: native desktop
+    state: requires reviewed Cua Driver integration and visible target application
+    scenario: native-manual
+    docs_page: /docs/privacy-safety/
+    no_image_reason: Phase A may not drive real applications or external accounts; capture requires explicit manual review.
+    capture_type: manual
+    status: ready
+    source_files: [src/row_bot/ui/computer_use.py, src/row_bot/computer_use/service.py]
+  live_provider_connections:
+    title: Live provider, Codex, and xAI connection states
+    app_route: Providers and Accounts settings with real provider credentials or OAuth
+    state: requires live accounts and could incur provider calls or cost
+    scenario: live-manual
+    docs_page: /docs/configuration/models-and-providers
+    no_image_reason: Phase A uses display-only provider status and may not sign in, probe live accounts, or call a provider.
+    capture_type: manual
+    status: ready
+    source_files: [src/row_bot/providers, src/row_bot/ui/provider_settings.py]
+  native_channels_and_accounts:
+    title: Live account sign-in, channel QR, webhook, and message delivery
+    app_route: native/browser external services
+    state: requires real third-party accounts and could send messages
+    scenario: live-manual
+    docs_page: /docs/integrations/channels
+    no_image_reason: Phase A forbids live sign-in, provider calls, and channel messages.
+    capture_type: manual
+    status: ready
+    source_files: [src/row_bot/channels, src/row_bot/ui/settings.py]
+  live_plugins_and_mcp:
+    title: Live configured plugin and MCP health, tools, permissions, and recovery
+    app_route: Plugins and MCP settings with the review machine's configured extensions
+    state: requires approved local extensions or external MCP processes
+    scenario: live-manual
+    docs_page: /docs/extending/
+    no_image_reason: Phase A uses inert local fixtures and must not start configured plugins, MCP servers, or their external transports.
+    capture_type: manual
+    status: ready
+    source_files: [src/row_bot/plugins, src/row_bot/mcp_client]
+  native_installer_updater_uninstall:
+    title: Installer, update, repair, and uninstall UX
+    app_route: Windows and macOS native packages
+    state: requires clean machines or virtual machines and signed release candidates
+    scenario: release-manual
+    docs_page: /docs/operations/
+    no_image_reason: Packaging, signing, repair, and notarisation are outside isolated browser capture.
+    capture_type: manual
+    status: ready
+    source_files: [installer, src/row_bot/updater.py]

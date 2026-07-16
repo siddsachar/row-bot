@@ -26,7 +26,13 @@ PAGE_DEFS: list[tuple[str, str, str, str, Callable[[dict[str, Any]], str]]] = []
 
 def _escape(value: Any) -> str:
     text = clean_public_text(value)
-    return text.replace("|", "\\|").replace("\n", " ").strip()
+    return (
+        text.replace("|", "\\|")
+        .replace("{", "&#123;")
+        .replace("}", "&#125;")
+        .replace("\n", " ")
+        .strip()
+    )
 
 
 def _link(value: str) -> str:
@@ -81,6 +87,7 @@ def _tools(inv: dict[str, Any]) -> str:
                 ("id", "ID"),
                 ("title", "Tool"),
                 ("description", "Description"),
+                ("approval", "Approval classification"),
                 ("guide", "Guide"),
                 ("source", "Source"),
             ],
@@ -97,6 +104,7 @@ def _providers(inv: dict[str, Any]) -> str:
                 ("id", "ID"),
                 ("title", "Provider"),
                 ("description", "Description"),
+                ("route", "Route"),
                 ("auth_methods", "Auth"),
                 ("transport", "Transport"),
                 ("risk_label", "Risk label"),
@@ -118,6 +126,33 @@ def _settings(inv: dict[str, Any]) -> str:
             ],
         ),
     )
+
+
+def _settings_controls(inv: dict[str, Any]) -> str:
+    rows = inv.get("settings_controls", [])
+    sections = []
+    for tab in [row.get("title") for row in inv.get("settings", [])]:
+        tab_rows = [row for row in rows if row.get("tab") == tab]
+        sections.append(
+            _section(
+                f"{tab} Controls",
+                _record_table(
+                    tab_rows,
+                    [
+                        ("label", "Control"),
+                        ("control", "Type"),
+                        ("default", "Default"),
+                        ("allowed_values", "Allowed values"),
+                        ("effect", "Effect"),
+                        ("dependencies", "Dependencies"),
+                        ("restart", "Restart"),
+                        ("security", "Security"),
+                        ("source", "Source"),
+                    ],
+                ),
+            )
+        )
+    return "\n\n".join(sections)
 
 
 def _home_tabs(inv: dict[str, Any]) -> str:
@@ -239,14 +274,29 @@ def _safety(inv: dict[str, Any]) -> str:
 
 
 def _environment(inv: dict[str, Any]) -> str:
-    rows = [
-        ["ROW_BOT_DATA_DIR", "Overrides the active Row-Bot data directory for the app process."],
-        ["ROW_BOT_PORT", "Selects the local HTTP port for the app process."],
-        ["ROW_BOT_HOST", "Selects the host interface for the local app server."],
-        ["ROW_BOT_WORKSPACE", "Overrides the default workspace folder for file-oriented tools."],
-        ["ROW_BOT_NATIVE", "Controls native-window behavior for advanced launch scenarios."],
-    ]
-    return _section("Environment And Config", _table(["Variable", "Purpose"], rows))
+    return _section(
+        "Environment And Config",
+        _record_table(
+            inv.get("environment", []),
+            [("variable", "Variable"), ("description", "Purpose"), ("source", "Source")],
+        ),
+    )
+
+
+def _cli(inv: dict[str, Any]) -> str:
+    return _section(
+        "Command-line Options",
+        _record_table(
+            inv.get("cli_options", []),
+            [
+                ("command", "Command"),
+                ("option", "Option"),
+                ("description", "Purpose"),
+                ("default", "Default"),
+                ("source", "Source"),
+            ],
+        ),
+    )
 
 
 def _screenshots(inv: dict[str, Any]) -> str:
@@ -289,6 +339,7 @@ PAGE_DEFS = [
     ("tools", "Tools", "Generated reference for Row-Bot tools and tool guides.", "scripts/docs/collect_inventory.py", _tools),
     ("providers", "Providers", "Generated reference for model providers and provider risk labels.", "scripts/docs/collect_inventory.py", _providers),
     ("settings", "Settings", "Generated reference for settings tabs.", "docs-content/metadata/settings.yml", _settings),
+    ("settings-controls", "Settings Controls", "Generated control-level settings reference with defaults, effects, dependencies, restart notes, and security notes.", "scripts/docs/collect_inventory.py", _settings_controls),
     ("home-tabs", "Home Tabs", "Generated reference for Home tab coverage.", "docs-content/metadata/home_tabs.yml", _home_tabs),
     ("channels", "Channels", "Generated reference for messaging channels.", "scripts/docs/collect_inventory.py", _channels),
     ("skills", "Skills", "Generated reference for bundled skills and tool guides.", "scripts/docs/collect_inventory.py", _skills),
@@ -297,6 +348,7 @@ PAGE_DEFS = [
     ("data-storage", "Data Storage", "Generated reference for local data paths and storage.", "src/row_bot/data_paths.py", _data_storage),
     ("safety-approvals", "Safety And Approvals", "Generated reference for approval policy and safety modes.", "src/row_bot/approval_policy.py", _safety),
     ("environment-and-config", "Environment And Config", "Generated reference for important environment variables.", "src/row_bot/brand.py", _environment),
+    ("cli", "CLI", "Generated reference for launcher and plugin command-line options.", "src/row_bot/launcher.py", _cli),
     ("screenshots", "Screenshots", "Generated reference for automated screenshot coverage.", "docs-content/metadata/screenshots.yml", _screenshots),
 ]
 

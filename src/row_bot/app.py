@@ -1219,8 +1219,8 @@ async def index():
 
     # Pre-create dialogs (modules call .clear() + .open() on these)
     p.settings_dlg = ui.dialog().props("maximized transition-show=fade transition-hide=fade data-docs-id=settings-dialog")
-    p.export_dlg = ui.dialog()
-    p.task_dlg = ui.dialog().props("persistent")
+    p.export_dlg = ui.dialog().props("data-docs-id=export-dialog")
+    p.task_dlg = ui.dialog().props("persistent data-docs-id=workflow-editor")
 
     # ── Health check ─────────────────────────────────────────────────────
     def _run_health_check() -> tuple[bool, str]:
@@ -2231,6 +2231,36 @@ async def index():
             defer_ui(_open_docs_setup_center, delay=0.2)
         elif _dialog == "export":
             defer_ui(_open_export, delay=0.25)
+        elif _dialog == "workflow-editor":
+            defer_ui(lambda: _show_task_dialog(None, lambda: _rebuild_main()), delay=0.25)
+        elif _dialog == "skills-hub":
+            from row_bot.skills_hub.ui import open_skills_hub_dialog
+
+            defer_ui(open_skills_hub_dialog, delay=0.25)
+        elif _dialog == "plugin-marketplace":
+            from row_bot.plugins.ui_marketplace import open_marketplace_dialog
+
+            defer_ui(open_marketplace_dialog, delay=0.25)
+        elif _dialog == "mcp-add-server":
+            from row_bot.ui.mcp_settings import _open_server_dialog
+
+            defer_ui(lambda: _open_server_dialog(lambda: None), delay=0.25)
+        elif _dialog == "mcp-marketplace":
+            from row_bot.ui.mcp_settings import _open_marketplace_dialog
+
+            defer_ui(lambda: _open_marketplace_dialog(lambda: None), delay=0.25)
+        elif _dialog == "approval":
+            defer_ui(
+                lambda: show_interrupt(
+                    {
+                        "description": "Write the reviewed launch summary to the isolated demo workspace.",
+                        "target": "%ROW_BOT_DATA_DIR%/docs-demo-workspace/launch-summary.md",
+                        "data_summary": "Five fictional checklist items; no account or customer data.",
+                        "reversible": True,
+                    }
+                ),
+                delay=0.25,
+            )
     try:
         from row_bot.ui.onboarding_state import consume_setup_center_on_next_load
 

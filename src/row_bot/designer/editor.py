@@ -504,7 +504,7 @@ def build_designer_editor(
                 _notes_generate_btn_ref[0].enable()
 
     # ── Header bar ────────────────────────────────────────────────────
-    with ui.row().classes("w-full items-center shrink-0").style(
+    with ui.row().classes("w-full items-center shrink-0").props("data-docs-id=designer-editor").style(
         "padding: 8px 16px; background: rgba(0,0,0,0.5); "
         "border-bottom: 1px solid rgba(255,255,255,0.08);"
     ):

@@ -46,7 +46,7 @@ def open_skills_hub_dialog(
     """Open the public skills browser dialog."""
     filter_state = {"value": "all"}
 
-    with ui.dialog().props("maximized").classes("overflow-hidden") as dialog:
+    with ui.dialog().props("maximized data-docs-id=skills-hub").classes("overflow-hidden") as dialog:
         with ui.card().classes("w-full h-full no-shadow flex flex-col").style(
             "max-width: 76rem; margin: 0 auto; height: 100vh; max-height: 100vh; overflow:hidden;"
         ):

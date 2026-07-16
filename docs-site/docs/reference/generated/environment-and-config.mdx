@@ -8,16 +8,27 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 # Environment And Config
 
 <!-- generated-from: src/row_bot/brand.py -->
-<!-- inventory-hash: 6d9b79a40c55384b -->
+<!-- inventory-hash: 15754747dfdb9dc3 -->
 
 <GeneratedNotice source="src/row_bot/brand.py" />
 
 ## Environment And Config
 
-| Variable | Purpose |
-| --- | --- |
-| ROW_BOT_DATA_DIR | Overrides the active Row-Bot data directory for the app process. |
-| ROW_BOT_PORT | Selects the local HTTP port for the app process. |
-| ROW_BOT_HOST | Selects the host interface for the local app server. |
-| ROW_BOT_WORKSPACE | Overrides the default workspace folder for file-oriented tools. |
-| ROW_BOT_NATIVE | Controls native-window behavior for advanced launch scenarios. |
+| Variable | Purpose | Source |
+| --- | --- | --- |
+| ROW_BOT_DATA_DIR | Override the local Row-Bot data directory for this process. | `src/row_bot/app.py, src/row_bot/brand.py, src/row_bot/docs_capture.py, src/row_bot/launcher.py, src/row_bot/tools/registry.py` |
+| ROW_BOT_WORKSPACE | Override the default workspace used by file-oriented tools. | `src/row_bot/brand.py, src/row_bot/designer/export.py` |
+| ROW_BOT_HOST | Choose the interface bound by the local application server. | `src/row_bot/app_port.py, src/row_bot/brand.py, src/row_bot/launcher.py, src/row_bot/ui/mobile_access_settings.py` |
+| ROW_BOT_PORT | Choose the preferred local application port. | `src/row_bot/app.py, src/row_bot/app_port.py, src/row_bot/brand.py, src/row_bot/launcher.py, src/row_bot/updater.py` |
+| ROW_BOT_NATIVE | Select native-window behaviour for advanced launch scenarios. | `src/row_bot/brand.py, src/row_bot/launcher.py` |
+| ROW_BOT_AUTO_START_OLLAMA | Allow or suppress launcher attempts to start Ollama automatically. | `src/row_bot/brand.py` |
+| ROW_BOT_STARTUP_TIMEOUT | Set the launcher startup timeout in seconds. | `src/row_bot/brand.py` |
+| ROW_BOT_WEBVIEW_STORAGE_PATH | Override native webview storage for advanced troubleshooting. | `src/row_bot/brand.py, src/row_bot/launcher.py` |
+| ROW_BOT_INSTALL_ROOT | Identify the installed application root for updater and repair flows. | `src/row_bot/startup_diagnostics.py, src/row_bot/updater.py` |
+| ROW_BOT_PLUGIN_INDEX_URL | Override the public plugin marketplace index URL. | `src/row_bot/plugins/marketplace.py` |
+| ROW_BOT_PLUGIN_REPO_URL | Override the plugin repository used by marketplace installs. | `src/row_bot/plugins/installer.py` |
+| ROW_BOT_XAI_OAUTH_CLIENT_ID | Override the xAI OAuth client identifier. | `src/row_bot/providers/xai_oauth.py` |
+| ROW_BOT_XAI_OAUTH_REDIRECT_PORT | Override the local xAI OAuth callback port. | `src/row_bot/providers/xai_oauth.py` |
+| ROW_BOT_XAI_OAUTH_SCOPES | Override the requested xAI OAuth scopes. | `src/row_bot/providers/xai_oauth.py` |
+| ROW_BOT_REALTIME_INSTRUCTIONS | Override additional realtime voice session instructions. | `src/row_bot/app.py, src/row_bot/voice/openai_realtime.py` |
+| ROW_BOT_BUDDY_DESKTOP_ENABLED | Enable or disable the native Buddy desktop overlay. | `src/row_bot/ui/buddy.py` |

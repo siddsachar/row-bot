@@ -97,6 +97,38 @@ def fetch_index(force_refresh: bool = False) -> MarketplaceIndex:
 
     global _cached_index, _cache_timestamp
 
+    from row_bot.docs_capture import is_docs_capture
+
+    if is_docs_capture():
+        return MarketplaceIndex(
+            generated="2026-06-18T09:00:00Z",
+            source="docs-capture-fixture",
+            plugins=[
+                MarketplaceEntry(
+                    id="demo-crm-lookup",
+                    name="Demo CRM Lookup",
+                    version="1.2.0",
+                    description="Example read-only lookup plugin for the fictional demo workspace.",
+                    author_name="Row-Bot Docs",
+                    tags=["productivity", "demo"],
+                    provides={"native_tools": 1, "skills": 1},
+                    permissions=["network_optional"],
+                    verified=True,
+                ),
+                MarketplaceEntry(
+                    id="invoice-helper-demo",
+                    name="Invoice Helper",
+                    version="0.8.0",
+                    description="Example plugin that demonstrates install review and approval boundaries.",
+                    author_name="Example Publisher",
+                    tags=["finance", "demo"],
+                    provides={"native_tools": 2},
+                    permissions=["filesystem_read", "filesystem_write"],
+                    verified=False,
+                ),
+            ],
+        )
+
     now = time.time()
     if not force_refresh and _cached_index is not None:
         if (now - _cache_timestamp) < CACHE_TTL_SECONDS:

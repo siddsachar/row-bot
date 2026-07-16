@@ -1261,6 +1261,12 @@ def build_provider_summary_cards() -> None:
                         _render_row(card)
 
     async def _load() -> None:
+        from row_bot.docs_capture import docs_capture_provider_cards
+
+        capture_cards = docs_capture_provider_cards()
+        if capture_cards:
+            _render(capture_cards)
+            return
         container.clear()
         with container:
             with ui.row().classes("items-center gap-2 text-grey-6 text-sm"):

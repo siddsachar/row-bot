@@ -1837,7 +1837,9 @@ def build_developer_workspace(
             logger.debug("Could not compare original folder with Worktree", exc_info=True)
         missing = list((missing_summary or {}).get("missing") or [])
 
-    with ui.row().classes("w-full h-full no-wrap gap-2 row-bot-developer-workspace-shell row-bot-dev-shell").style(
+    with ui.row().classes("w-full h-full no-wrap gap-2 row-bot-developer-workspace-shell row-bot-dev-shell").props(
+        "data-docs-id=developer-workspace"
+    ).style(
         "overflow: hidden;"
     ):
         with ui.column().classes("h-full gap-2 row-bot-dev-main").style("min-width: 0; flex: 1; overflow: hidden;"):

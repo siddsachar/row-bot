@@ -163,9 +163,28 @@ def collect_tools() -> list[dict[str, Any]]:
                 "source": repo_path(ROOT, path),
                 "guide": repo_path(ROOT, guide) if guide else "",
                 "classes": _class_names(path),
+                "approval": _tool_approval_summary(path),
             }
         )
     return tools
+
+
+def _tool_approval_summary(path: Path) -> str:
+    tree = _parse_ast(path)
+    if tree is None:
+        return "Operation-dependent"
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or node.name != "destructive_tool_names":
+            continue
+        for child in ast.walk(node):
+            if isinstance(child, ast.Constant) and isinstance(child.value, str):
+                names.add(child.value)
+    if names:
+        return "Approval-gated: " + ", ".join(sorted(names))
+    if "approval" in _read_text(path).casefold():
+        return "Operation-dependent approval"
+    return "No tool-wide destructive classification"
 
 
 def collect_providers() -> list[dict[str, Any]]:
@@ -186,10 +205,21 @@ def collect_providers() -> list[dict[str, Any]]:
                 "transport": str(data.get("default_transport") or ""),
                 "base_url": str(data.get("base_url") or ""),
                 "risk_label": str(data.get("risk_label") or "api_key"),
+                "route": _provider_route(provider_id, data),
                 "experimental": bool(data.get("experimental")),
             }
         )
     return providers
+
+
+def _provider_route(provider_id: str, data: dict[str, Any]) -> str:
+    if provider_id == "ollama":
+        return "Local"
+    if str(data.get("risk_label") or "") == "subscription":
+        return "Subscription"
+    if provider_id == "custom":
+        return "Custom endpoint"
+    return "API"
 
 
 def _provider_description(provider_id: str, data: dict[str, Any]) -> str:
@@ -222,6 +252,293 @@ def collect_settings() -> list[dict[str, Any]]:
                 }
             )
     return rows
+
+
+_SETTING_CONTROL_TYPES = {
+    "button",
+    "checkbox",
+    "input",
+    "number",
+    "radio",
+    "select",
+    "slider",
+    "switch",
+    "textarea",
+    "toggle",
+}
+
+
+def _call_name(node: ast.Call) -> tuple[str, str]:
+    func = node.func
+    if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+        return func.value.id, func.attr
+    return "", ""
+
+
+def _call_keyword(node: ast.Call, name: str) -> ast.AST | None:
+    for keyword in node.keywords:
+        if keyword.arg == name:
+            return keyword.value
+    return None
+
+
+def _control_label(node: ast.Call, control_type: str) -> str:
+    label_node = _call_keyword(node, "label")
+    if label_node is None and node.args and control_type != "slider":
+        label_node = node.args[0]
+    value = (
+        _literal_value(label_node)
+        if isinstance(label_node, (ast.Constant, ast.JoinedStr))
+        else None
+    )
+    if isinstance(value, str) and value.strip():
+        return " ".join(value.split())
+    placeholder = _literal_value(_call_keyword(node, "placeholder"))
+    if isinstance(placeholder, str) and placeholder.strip():
+        return " ".join(placeholder.split())
+    return ""
+
+
+def _control_value(node: ast.Call, keyword: str) -> Any:
+    value_node = _call_keyword(node, keyword)
+    if value_node is None:
+        return ""
+    value = _literal_value(value_node)
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value if value is not None else ""
+    if isinstance(value, (list, dict)):
+        return value
+    return "Configured value"
+
+
+def collect_settings_controls() -> list[dict[str, Any]]:
+    tabs = _load_yaml(ROOT / "docs-content" / "metadata" / "settings_tabs.yml").get("tabs", {})
+    builder_to_tab = {
+        str(meta.get("builder")): str(tab)
+        for tab, meta in (tabs.items() if isinstance(tabs, dict) else [])
+        if isinstance(meta, dict) and meta.get("builder")
+    }
+    docs_routes = {
+        row["title"]: row["docs_route"] for row in collect_settings()
+    }
+    files = [
+        (ROOT / "src" / "row_bot" / "ui" / "settings.py", ""),
+        (ROOT / "src" / "row_bot" / "ui" / "provider_settings.py", "Providers"),
+        (ROOT / "src" / "row_bot" / "ui" / "buddy.py", "Buddy"),
+        (ROOT / "src" / "row_bot" / "ui" / "mcp_settings.py", "MCP"),
+        (ROOT / "src" / "row_bot" / "plugins" / "ui_settings.py", "Plugins"),
+        (ROOT / "src" / "row_bot" / "ui" / "mobile_access_settings.py", "System"),
+        (ROOT / "src" / "row_bot" / "ui" / "computer_use.py", "System"),
+        (ROOT / "src" / "row_bot" / "ui" / "update_dialog.py", "Preferences"),
+    ]
+    raw_rows: list[dict[str, Any]] = []
+
+    class Visitor(ast.NodeVisitor):
+        def __init__(self, path: Path, fixed_tab: str) -> None:
+            self.path = path
+            self.fixed_tab = fixed_tab
+            self.functions: list[str] = []
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            self.functions.append(node.name)
+            self.generic_visit(node)
+            self.functions.pop()
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_Call(self, node: ast.Call) -> None:
+            owner, control_type = _call_name(node)
+            if owner == "ui" and control_type in _SETTING_CONTROL_TYPES:
+                tab = self.fixed_tab or next(
+                    (builder_to_tab[name] for name in reversed(self.functions) if name in builder_to_tab),
+                    "",
+                )
+                if not tab and any(
+                    name in {
+                        "_build_github_account_panel",
+                        "_build_google_account_panel",
+                        "_build_x_account_panel",
+                    }
+                    for name in self.functions
+                ):
+                    tab = "Accounts"
+                label = _control_label(node, control_type)
+                if tab and label:
+                    raw_rows.append(
+                        {
+                            "tab": tab,
+                            "label": label,
+                            "control": control_type,
+                            "default": _control_value(node, "value"),
+                            "allowed_values": _control_value(node, "options"),
+                            "source": f"{repo_path(ROOT, self.path)}:{node.lineno}",
+                            "line": node.lineno,
+                        }
+                    )
+            self.generic_visit(node)
+
+    for path, fixed_tab in files:
+        tree = _parse_ast(path)
+        if tree is not None:
+            Visitor(path, fixed_tab).visit(tree)
+
+    dynamic_controls = {
+        "Models": ["Default chat model", "Quick Choices", "Refresh model catalog"],
+        "Search": [
+            "Web search",
+            "DuckDuckGo",
+            "Wolfram Alpha",
+            "arXiv",
+            "Wikipedia",
+            "YouTube",
+        ],
+        "Accounts": [
+            "Reconnect GitHub CLI",
+            "Refresh GitHub CLI authorisation",
+            "Use anonymous GitHub access for public sources",
+            "Clear saved GitHub token",
+            "Connect Google account",
+            "Enable X tool",
+        ],
+        "Utilities": [
+            "Tasks",
+            "Timer",
+            "URL reader",
+            "Calculator",
+            "Weather",
+            "Charts",
+            "System information",
+            "Conversation search",
+            "Custom Tool builder",
+        ],
+    }
+    for channel in collect_channels():
+        for field in channel.get("configured_by", []):
+            dynamic_controls.setdefault("Channels", []).append(f"{channel['title']}: {field}")
+        dynamic_controls.setdefault("Channels", []).extend(
+            [f"{channel['title']}: Start or stop", f"{channel['title']}: Test connection"]
+        )
+    for tab, labels in dynamic_controls.items():
+        for index, label in enumerate(labels, start=1):
+            raw_rows.append(
+                {
+                    "tab": tab,
+                    "label": label,
+                    "control": "dynamic",
+                    "default": "Configured locally",
+                    "allowed_values": "Shown inline",
+                    "source": "runtime registry",
+                    "line": index,
+                }
+            )
+
+    security_by_tab = {
+        "Providers": "Credentials are stored through the configured secret store; values are not shown in this reference.",
+        "Accounts": "Connecting an account opens an external authorisation flow.",
+        "Channels": "Starting an adapter can receive or deliver real messages; review targets first.",
+        "MCP": "External servers can expose consequential tools; keep new servers disabled until tested.",
+        "Plugins": "Review source, permissions, and provided capabilities before enabling.",
+        "System": "Filesystem, shell, browser, network, and mobile-access controls can widen local access.",
+    }
+    dependency_by_tab = {
+        "Voice": "Voice extras, provider credentials, and OS audio permissions may be required.",
+        "Buddy": "Desktop overlay behaviour depends on native-window support.",
+        "Channels": "The matching channel extra and third-party account configuration are required.",
+        "MCP": "The MCP extra and a compatible external server are required.",
+        "Plugins": "Plugin-provided dependencies remain disabled until reviewed and installed.",
+    }
+    counts: dict[str, int] = {}
+    rows: list[dict[str, Any]] = []
+    for row in sorted(raw_rows, key=lambda item: (item["tab"], item["source"], item["line"])):
+        base = f"{slugify(row['tab'])}-{slugify(row['label'])}-{row['control']}"
+        counts[base] = counts.get(base, 0) + 1
+        row["id"] = base if counts[base] == 1 else f"{base}-{counts[base]}"
+        row["effect"] = f"Changes {row['label']} in {row['tab']} settings."
+        row["dependencies"] = dependency_by_tab.get(row["tab"], "No optional dependency is indicated by the control itself.")
+        row["restart"] = "Follow any inline restart or reconnect prompt shown after changing the value."
+        row["security"] = security_by_tab.get(row["tab"], "Stored locally unless the surrounding feature explicitly uses an external service.")
+        row["docs_route"] = docs_routes.get(row["tab"], "")
+        rows.append(row)
+    return rows
+
+
+def collect_cli_options() -> list[dict[str, Any]]:
+    path = ROOT / "src" / "row_bot" / "launcher.py"
+    tree = _parse_ast(path)
+    if tree is None:
+        return []
+    parser_commands: dict[str, str] = {"parser": "row-bot"}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
+            continue
+        func = node.value.func
+        if not (isinstance(func, ast.Attribute) and func.attr == "add_parser" and node.value.args):
+            continue
+        command = _literal_value(node.value.args[0])
+        if isinstance(command, str):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    parser_commands[target.id] = f"row-bot plugin {command}"
+    rows: list[dict[str, Any]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute) or node.func.attr != "add_argument":
+            continue
+        receiver = node.func.value.id if isinstance(node.func.value, ast.Name) else "parser"
+        options = [value for value in (_literal_value(arg) for arg in node.args) if isinstance(value, str)]
+        if not options:
+            continue
+        description = str(_control_value(node, "help") or "").replace(
+            "NiceGUI server", "Row-Bot local server"
+        )
+        rows.append(
+            {
+                "id": slugify("-".join(options)),
+                "command": parser_commands.get(receiver, "row-bot"),
+                "option": ", ".join(options),
+                "description": description,
+                "default": _control_value(node, "default"),
+                "source": f"{repo_path(ROOT, path)}:{node.lineno}",
+            }
+        )
+    return sorted(rows, key=lambda row: (row["command"], row["option"]))
+
+
+def collect_environment() -> list[dict[str, Any]]:
+    variables = {
+        "ROW_BOT_DATA_DIR": "Override the local Row-Bot data directory for this process.",
+        "ROW_BOT_WORKSPACE": "Override the default workspace used by file-oriented tools.",
+        "ROW_BOT_HOST": "Choose the interface bound by the local application server.",
+        "ROW_BOT_PORT": "Choose the preferred local application port.",
+        "ROW_BOT_NATIVE": "Select native-window behaviour for advanced launch scenarios.",
+        "ROW_BOT_AUTO_START_OLLAMA": "Allow or suppress launcher attempts to start Ollama automatically.",
+        "ROW_BOT_STARTUP_TIMEOUT": "Set the launcher startup timeout in seconds.",
+        "ROW_BOT_WEBVIEW_STORAGE_PATH": "Override native webview storage for advanced troubleshooting.",
+        "ROW_BOT_INSTALL_ROOT": "Identify the installed application root for updater and repair flows.",
+        "ROW_BOT_PLUGIN_INDEX_URL": "Override the public plugin marketplace index URL.",
+        "ROW_BOT_PLUGIN_REPO_URL": "Override the plugin repository used by marketplace installs.",
+        "ROW_BOT_XAI_OAUTH_CLIENT_ID": "Override the xAI OAuth client identifier.",
+        "ROW_BOT_XAI_OAUTH_REDIRECT_PORT": "Override the local xAI OAuth callback port.",
+        "ROW_BOT_XAI_OAUTH_SCOPES": "Override the requested xAI OAuth scopes.",
+        "ROW_BOT_REALTIME_INSTRUCTIONS": "Override additional realtime voice session instructions.",
+        "ROW_BOT_BUDDY_DESKTOP_ENABLED": "Enable or disable the native Buddy desktop overlay.",
+    }
+    source_roots = [ROOT / "src" / "row_bot"]
+    source_by_variable: dict[str, list[str]] = {name: [] for name in variables}
+    for source_root in source_roots:
+        for path in sorted(source_root.rglob("*.py")):
+            text = _read_text(path)
+            for name in variables:
+                if name in text:
+                    source_by_variable[name].append(repo_path(ROOT, path))
+    return [
+        {
+            "id": slugify(name),
+            "variable": name,
+            "description": description,
+            "source": ", ".join(source_by_variable[name]),
+        }
+        for name, description in variables.items()
+    ]
 
 
 def collect_home_tabs() -> list[dict[str, Any]]:
@@ -471,12 +788,10 @@ def collect_version() -> dict[str, str]:
 def collect_metadata() -> dict[str, Any]:
     return {
         "ui_surfaces": _load_yaml(ROOT / "docs-content" / "metadata" / "ui_surfaces.yml"),
-        "real_ui_surfaces": _load_yaml(ROOT / "docs-content" / "metadata" / "real_ui_surfaces.yml"),
         "settings": _load_yaml(ROOT / "docs-content" / "metadata" / "settings.yml"),
         "settings_tabs": _load_yaml(ROOT / "docs-content" / "metadata" / "settings_tabs.yml"),
         "home_tabs": _load_yaml(ROOT / "docs-content" / "metadata" / "home_tabs.yml"),
         "dialogs": _load_yaml(ROOT / "docs-content" / "metadata" / "dialogs.yml"),
-        "docs_routes": _load_yaml(ROOT / "docs-content" / "metadata" / "docs_routes.yml"),
         "screenshots": _load_yaml(ROOT / "docs-content" / "metadata" / "screenshots.yml"),
         "how_to_guides": _load_yaml(ROOT / "docs-content" / "metadata" / "how_to_guides.yml"),
     }
@@ -490,6 +805,9 @@ def build_inventory() -> dict[str, Any]:
         "tools": collect_tools(),
         "providers": collect_providers(),
         "settings": collect_settings(),
+        "settings_controls": collect_settings_controls(),
+        "cli_options": collect_cli_options(),
+        "environment": collect_environment(),
         "home_tabs": collect_home_tabs(),
         "channels": collect_channels(),
         "skills": bundled_skills + tool_guides,

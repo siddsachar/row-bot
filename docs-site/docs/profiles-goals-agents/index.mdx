@@ -1,0 +1,45 @@
+---
+title: "Profiles, Goals, And Agents"
+description: "Choose reusable Agent Profiles, run bounded goals, and review delegated parent and child agents."
+---
+
+import Screenshot from '@site/src/components/Screenshot';
+
+# Profiles, Goals, And Agents
+
+These three features work together but solve different problems. An **Agent Profile** is a reusable role and policy. A **goal** is a bounded objective for the current task. An **agent run** is one execution of delegated work, with its own status and evidence.
+
+For the mental model behind delegation and hand-offs, read [How Profiles, Goals, And Agents Work](/docs/concepts/profiles-goals-and-agents).
+
+<Screenshot id="agent-profile-library" alt="Row-Bot Agent Profile library with fictional Research Guide and Project Coordinator profiles." caption="Agent Profiles package reusable instructions, skills, tools, model policy, and approval policy without changing the underlying thread history." />
+
+## Choose Or Create A Profile
+
+1. Open a chat and expand **Agent profiles** in the left sidebar.
+2. Choose a built-in profile or create one for a repeated role.
+3. Keep the role narrow: describe the outcome, sources it may use, and what it must not do.
+4. Review its model, skill, tool, delegation, and approval policy.
+5. Save it, then select it before asking for work.
+
+Profiles do not grant capabilities by themselves. A selected tool must still be enabled, available, and allowed by the active approval policy. A profile that can delegate may start child agents, but each run remains visible in the Activity Center and the chat agent strip.
+
+<Screenshot id="goal-and-agents" alt="Row-Bot active goal and delegated agents for a fictional launch checklist." caption="The goal strip records bounded progress while parent and child agent rows show who is running, complete, waiting, or stopped." />
+
+## Run A Goal
+
+A goal is useful when work needs more than one turn. State the objective and an observable finish condition. Row-Bot records progress, blockers, evidence, turns, and status so it can continue without pretending that partial work is complete.
+
+- **Active** means work can continue.
+- **Complete** means the objective and required checks are genuinely finished.
+- **Blocked** is for a repeated impasse that requires your input or an external change.
+- **Stop** ends the active run; it does not delete the thread or its evidence.
+
+## Review Delegated Work
+
+Parent agents coordinate. Child agents handle bounded subtasks. Open an agent row to review its prompt, profile, model, status, result, evidence, and thread. A completed child result is evidence for the parent, not automatic permission to write files, send messages, commit code, or publish.
+
+If a run appears stuck, inspect its last update before stopping it. If several agents edit the same resource, narrow their ownership or run them sequentially. Keep consequential final actions with the parent and a human approval point.
+
+## What Is Saved
+
+Profiles, goals, agent runs, edges, progress, results, and evidence are stored in the active local data directory. Provider prompts still follow the privacy terms of the model route selected for each run.

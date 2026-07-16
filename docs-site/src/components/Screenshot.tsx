@@ -9,6 +9,7 @@ type ScreenshotProps = {
 
 export default function Screenshot({id, alt, caption}: ScreenshotProps): JSX.Element {
   const src = `/img/screenshots/real-ui/${id}.png`;
+  const isMobile = id.startsWith('mobile-');
   const [missing, setMissing] = useState(false);
   if (missing) {
     if (process.env.NODE_ENV !== 'production') {
@@ -21,8 +22,15 @@ export default function Screenshot({id, alt, caption}: ScreenshotProps): JSX.Ele
     return <></>;
   }
   return (
-    <figure className="rowBotScreenshot">
-      <img src={src} alt={alt} loading="lazy" onError={() => setMissing(true)} />
+    <figure className={`rowBotScreenshot${isMobile ? ' rowBotScreenshotMobile' : ''}`}>
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        width={isMobile ? 390 : undefined}
+        height={isMobile ? 844 : undefined}
+        onError={() => setMissing(true)}
+      />
       {caption ? <figcaption>{caption}</figcaption> : null}
     </figure>
   );

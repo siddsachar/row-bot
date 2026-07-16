@@ -8,45 +8,45 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 # Tools
 
 <!-- generated-from: scripts/docs/collect_inventory.py -->
-<!-- inventory-hash: 6d9b79a40c55384b -->
+<!-- inventory-hash: 15754747dfdb9dc3 -->
 
 <GeneratedNotice source="scripts/docs/collect_inventory.py" />
 
 ## Tools
 
-| ID | Tool | Description | Guide | Source |
-| --- | --- | --- | --- | --- |
-| agent | Agent | Agents tool for delegating and inspecting child Agent runs. |  | `src/row_bot/tools/agent_tool.py` |
-| arxiv | Arxiv | Arxiv retrieval tool - uses the ``arxiv`` package directly (no LangChain ArxivRetriever) for reliable rate-limiting and newest-first sorting. |  | `src/row_bot/tools/arxiv_tool.py` |
-| browser | browser_guide | Guidance for browser automation workflows. | `tool_guides/browser_guide/SKILL.md` | `src/row_bot/tools/browser_tool.py` |
-| calculator | Calculator | Calculator tool - safe math expression evaluation via simpleeval. |  | `src/row_bot/tools/calculator_tool.py` |
-| calendar | calendar_guide | Guidance for Google Calendar event creation and management. | `tool_guides/calendar_guide/SKILL.md` | `src/row_bot/tools/calendar_tool.py` |
-| chart | chart_guide | Guidance for data visualisation and chart creation. | `tool_guides/chart_guide/SKILL.md` | `src/row_bot/tools/chart_tool.py` |
-| computer_use | Computer Use | Provider-neutral, self-gating Computer Use tool. |  | `src/row_bot/tools/computer_use_tool.py` |
-| conversation_search | Conversation Search | Conversation Search tool - search past conversations by keyword |  | `src/row_bot/tools/conversation_search_tool.py` |
-| custom_tool_builder | custom_tool_builder_guide | Guidance for creating reusable Custom Tools from repos or folders. | `tool_guides/custom_tool_builder_guide/SKILL.md` | `src/row_bot/tools/custom_tool_builder_tool.py` |
-| developer | developer_guide | Guidance for using Developer Studio tools to inspect, edit, test, and review code workspaces safely. | `tool_guides/developer_guide/SKILL.md` | `src/row_bot/tools/developer_tool.py` |
-| documents | Documents | Document retrieval tool - searches the local FAISS vector store. |  | `src/row_bot/tools/documents_tool.py` |
-| duckduckgo | Duckduckgo | DuckDuckGo web search tool - no API key required. |  | `src/row_bot/tools/duckduckgo_tool.py` |
-| filesystem | filesystem_guide | Guidance for workspace file tools vs shell commands. | `tool_guides/filesystem_guide/SKILL.md` | `src/row_bot/tools/filesystem_tool.py` |
-| gmail | Gmail | Gmail tool - search, read, draft, and send emails via the Gmail API |  | `src/row_bot/tools/gmail_tool.py` |
-| goal | goal_guide | Guidance for durable /goal progress tracking. | `tool_guides/goal_guide/SKILL.md` | `src/row_bot/tools/goal_tool.py` |
-| image_gen | Image Gen | Image generation tool - generate and edit images via OpenAI / Google |  | `src/row_bot/tools/image_gen_tool.py` |
-| mcp | mcp_guide | Guidance for using external MCP tools safely. | `tool_guides/mcp_guide/SKILL.md` | `src/row_bot/tools/mcp_tool.py` |
-| memory | Memory | Memory tool - save, search, list, update, delete, link, and explore memories |  | `src/row_bot/tools/memory_tool.py` |
-| row_bot_status | row_bot_status_guide | Guidance for querying and managing Row-Bot's own configuration and logs. | `tool_guides/row_bot_status_guide/SKILL.md` | `src/row_bot/tools/row_bot_status_tool.py` |
-| shell | shell_guide | Guidance for shell commands and system info queries. | `tool_guides/shell_guide/SKILL.md` | `src/row_bot/tools/shell_tool.py` |
-| system_info | System Info | System Info tool - one-shot system overview via psutil |  | `src/row_bot/tools/system_info_tool.py` |
-| task | Task | Task tool - create, list, and run tasks from the agent |  | `src/row_bot/tools/task_tool.py` |
-| tracker | tracker_guide | Guidance for habit and activity tracking tools. | `tool_guides/tracker_guide/SKILL.md` | `src/row_bot/tools/tracker_tool.py` |
-| updater | updater_guide | Guidance for checking for and installing Row-Bot updates. | `tool_guides/updater_guide/SKILL.md` | `src/row_bot/tools/updater_tool.py` |
-| url_reader | Url Reader | URL / Webpage Reader tool - fetch and extract text from any URL. |  | `src/row_bot/tools/url_reader_tool.py` |
-| video_gen | Video Gen | Video generation tool - generate videos via Google Veo / xAI |  | `src/row_bot/tools/video_gen_tool.py` |
-| vision | vision_guide | Guidance for using webcam, screen capture, and image analysis. | `tool_guides/vision_guide/SKILL.md` | `src/row_bot/tools/vision_tool.py` |
-| weather | weather_guide | Guidance for using weather tools effectively. | `tool_guides/weather_guide/SKILL.md` | `src/row_bot/tools/weather_tool.py` |
-| web_search | Web Search | Web search retrieval tool (Tavily). |  | `src/row_bot/tools/web_search_tool.py` |
-| wiki | wiki_guide | Guidance for the Obsidian-compatible wiki vault. | `tool_guides/wiki_guide/SKILL.md` | `src/row_bot/tools/wiki_tool.py` |
-| wikipedia | Wikipedia | Wikipedia retrieval tool. |  | `src/row_bot/tools/wikipedia_tool.py` |
-| wolfram | Wolfram | Wolfram Alpha tool - advanced computation, unit conversion, and knowledge queries |  | `src/row_bot/tools/wolfram_tool.py` |
-| x | x_guide | Essential guidance for using X (Twitter) tools correctly - search syntax, time filtering, and engagement patterns. | `tool_guides/x_guide/SKILL.md` | `src/row_bot/tools/x_tool.py` |
-| youtube | Youtube | YouTube tools - search videos and fetch transcripts. |  | `src/row_bot/tools/youtube_tool.py` |
+| ID | Tool | Description | Approval classification | Guide | Source |
+| --- | --- | --- | --- | --- | --- |
+| agent | Agent | Agents tool for delegating and inspecting child Agent runs. | Approval-gated: agent_profile_save, agent_promote |  | `src/row_bot/tools/agent_tool.py` |
+| arxiv | Arxiv | Arxiv retrieval tool - uses the ``arxiv`` package directly (no LangChain ArxivRetriever) for reliable rate-limiting and newest-first sorting. | No tool-wide destructive classification |  | `src/row_bot/tools/arxiv_tool.py` |
+| browser | browser_guide | Guidance for browser automation workflows. | Operation-dependent approval | `tool_guides/browser_guide/SKILL.md` | `src/row_bot/tools/browser_tool.py` |
+| calculator | Calculator | Calculator tool - safe math expression evaluation via simpleeval. | No tool-wide destructive classification |  | `src/row_bot/tools/calculator_tool.py` |
+| calendar | calendar_guide | Guidance for Google Calendar event creation and management. | Approval-gated: delete_calendar_event, move_calendar_event | `tool_guides/calendar_guide/SKILL.md` | `src/row_bot/tools/calendar_tool.py` |
+| chart | chart_guide | Guidance for data visualisation and chart creation. | No tool-wide destructive classification | `tool_guides/chart_guide/SKILL.md` | `src/row_bot/tools/chart_tool.py` |
+| computer_use | Computer Use | Provider-neutral, self-gating Computer Use tool. | Operation-dependent approval |  | `src/row_bot/tools/computer_use_tool.py` |
+| conversation_search | Conversation Search | Conversation Search tool - search past conversations by keyword | No tool-wide destructive classification |  | `src/row_bot/tools/conversation_search_tool.py` |
+| custom_tool_builder | custom_tool_builder_guide | Guidance for creating reusable Custom Tools from repos or folders. | No tool-wide destructive classification | `tool_guides/custom_tool_builder_guide/SKILL.md` | `src/row_bot/tools/custom_tool_builder_tool.py` |
+| developer | developer_guide | Guidance for using Developer Studio tools to inspect, edit, test, and review code workspaces safely. | Operation-dependent approval | `tool_guides/developer_guide/SKILL.md` | `src/row_bot/tools/developer_tool.py` |
+| documents | Documents | Document retrieval tool - searches the local FAISS vector store. | No tool-wide destructive classification |  | `src/row_bot/tools/documents_tool.py` |
+| duckduckgo | Duckduckgo | DuckDuckGo web search tool - no API key required. | No tool-wide destructive classification |  | `src/row_bot/tools/duckduckgo_tool.py` |
+| filesystem | filesystem_guide | Guidance for workspace file tools vs shell commands. | Approval-gated: workspace_file_delete, workspace_move_file | `tool_guides/filesystem_guide/SKILL.md` | `src/row_bot/tools/filesystem_tool.py` |
+| gmail | Gmail | Gmail tool - search, read, draft, and send emails via the Gmail API | Approval-gated: send_gmail_message |  | `src/row_bot/tools/gmail_tool.py` |
+| goal | goal_guide | Guidance for durable /goal progress tracking. | Operation-dependent approval | `tool_guides/goal_guide/SKILL.md` | `src/row_bot/tools/goal_tool.py` |
+| image_gen | Image Gen | Image generation tool - generate and edit images via OpenAI / Google | No tool-wide destructive classification |  | `src/row_bot/tools/image_gen_tool.py` |
+| mcp | mcp_guide | Guidance for using external MCP tools safely. | Approval-gated: MCP destructive tool lookup failed: %s | `tool_guides/mcp_guide/SKILL.md` | `src/row_bot/tools/mcp_tool.py` |
+| memory | Memory | Memory tool - save, search, list, update, delete, link, and explore memories | Approval-gated: delete_memory |  | `src/row_bot/tools/memory_tool.py` |
+| row_bot_status | row_bot_status_guide | Guidance for querying and managing Row-Bot's own configuration and logs. | Operation-dependent approval | `tool_guides/row_bot_status_guide/SKILL.md` | `src/row_bot/tools/row_bot_status_tool.py` |
+| shell | shell_guide | Guidance for shell commands and system info queries. | Operation-dependent approval | `tool_guides/shell_guide/SKILL.md` | `src/row_bot/tools/shell_tool.py` |
+| system_info | System Info | System Info tool - one-shot system overview via psutil | No tool-wide destructive classification |  | `src/row_bot/tools/system_info_tool.py` |
+| task | Task | Task tool - create, list, and run tasks from the agent | Approval-gated: task_delete |  | `src/row_bot/tools/task_tool.py` |
+| tracker | tracker_guide | Guidance for habit and activity tracking tools. | Approval-gated: tracker_delete | `tool_guides/tracker_guide/SKILL.md` | `src/row_bot/tools/tracker_tool.py` |
+| updater | updater_guide | Guidance for checking for and installing Row-Bot updates. | Operation-dependent approval | `tool_guides/updater_guide/SKILL.md` | `src/row_bot/tools/updater_tool.py` |
+| url_reader | Url Reader | URL / Webpage Reader tool - fetch and extract text from any URL. | No tool-wide destructive classification |  | `src/row_bot/tools/url_reader_tool.py` |
+| video_gen | Video Gen | Video generation tool - generate videos via Google Veo / xAI | No tool-wide destructive classification |  | `src/row_bot/tools/video_gen_tool.py` |
+| vision | vision_guide | Guidance for using webcam, screen capture, and image analysis. | No tool-wide destructive classification | `tool_guides/vision_guide/SKILL.md` | `src/row_bot/tools/vision_tool.py` |
+| weather | weather_guide | Guidance for using weather tools effectively. | No tool-wide destructive classification | `tool_guides/weather_guide/SKILL.md` | `src/row_bot/tools/weather_tool.py` |
+| web_search | Web Search | Web search retrieval tool (Tavily). | No tool-wide destructive classification |  | `src/row_bot/tools/web_search_tool.py` |
+| wiki | wiki_guide | Guidance for the Obsidian-compatible wiki vault. | No tool-wide destructive classification | `tool_guides/wiki_guide/SKILL.md` | `src/row_bot/tools/wiki_tool.py` |
+| wikipedia | Wikipedia | Wikipedia retrieval tool. | No tool-wide destructive classification |  | `src/row_bot/tools/wikipedia_tool.py` |
+| wolfram | Wolfram | Wolfram Alpha tool - advanced computation, unit conversion, and knowledge queries | No tool-wide destructive classification |  | `src/row_bot/tools/wolfram_tool.py` |
+| x | x_guide | Essential guidance for using X (Twitter) tools correctly - search syntax, time filtering, and engagement patterns. | Approval-gated: x_post | `tool_guides/x_guide/SKILL.md` | `src/row_bot/tools/x_tool.py` |
+| youtube | Youtube | YouTube tools - search videos and fetch transcripts. | No tool-wide destructive classification |  | `src/row_bot/tools/youtube_tool.py` |

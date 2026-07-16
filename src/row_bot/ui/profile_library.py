@@ -973,7 +973,9 @@ def build_profile_library(
                 toggle_btn_ref["button"] = ui.button(
                     icon="chevron_left" if panel_state["open"] else "chevron_right",
                     on_click=_toggle_profile_panel,
-                ).props("round flat dense size=xs").tooltip("Toggle Agent profiles panel")
+                ).props("round flat dense size=xs data-docs-id=profile-library-toggle").tooltip(
+                    "Toggle Agent profiles panel"
+                )
             summary_label_ref["label"] = ui.label(_summary(profiles)).classes(
                 "text-xs text-grey-7 q-ml-sm"
             ).style("opacity: 0.72;")

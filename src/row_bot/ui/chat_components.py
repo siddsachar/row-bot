@@ -1047,7 +1047,10 @@ def _build_inline_model_picker(
         if open_settings:
             _picker_opts[_MORE_MODELS_SENTINEL] = "More models..."
 
-    cached_options = _get_cached_model_picker_options()
+    from row_bot.docs_capture import docs_capture_model_choices
+
+    docs_options = docs_capture_model_choices()
+    cached_options = (docs_options, False, {"source": "docs_capture"}) if docs_options else _get_cached_model_picker_options()
     _cached_picker_stale = True
     if cached_options is not None:
         _cached_options, _cached_picker_stale, _cached_metadata = cached_options
@@ -1127,7 +1130,7 @@ def _build_inline_model_picker(
         options=_picker_opts,
         value=_picker_val,
         on_change=_on_model_pick,
-    ).props("dense borderless options-dense hide-bottom-space").classes("text-xs row-bot-composer-select").style(
+    ).props("dense borderless options-dense hide-bottom-space data-docs-id=chat-model-picker").classes("text-xs row-bot-composer-select").style(
         _compact_select_style(min_width=170, max_width=260)
     ).tooltip("Select model for this thread")
 
@@ -1184,7 +1187,7 @@ def _build_inline_model_picker(
             _select.options = dict(_picker_opts)
             _select.update()
 
-    if cached_options is None or _cached_picker_stale:
+    if not docs_options and (cached_options is None or _cached_picker_stale):
         defer_ui(_load_picker_options, delay=0.05)
 
 

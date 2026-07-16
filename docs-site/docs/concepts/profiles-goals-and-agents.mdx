@@ -1,0 +1,33 @@
+---
+title: "How Profiles, Goals, And Agents Work"
+description: "Understand reusable Agent Profiles, durable goals, parent coordination, and bounded child-agent delegation."
+---
+
+# How Profiles, Goals, And Agents Work
+
+Profiles, goals, and agent runs describe different parts of long-running work.
+
+- An **Agent Profile** is a reusable operating role: instructions, model policy, Skills, tools, delegation limits, and approval policy.
+- A **goal** is the durable objective and finish condition for a piece of work that may span several turns.
+- An **agent run** is one execution attempt with a prompt, model, status, result, and evidence.
+- A **parent agent** coordinates the objective and combines results.
+- A **child agent** receives a bounded subtask and returns a hand-off to its parent.
+
+## Why Delegate
+
+Delegation is useful when independent research, inspection, or implementation can happen in parallel or needs a specialist profile. It is less useful when agents would edit the same small resource or when only one decision is needed. The parent remains responsible for deciding whether the combined evidence actually completes the goal.
+
+Child agents do not become invisible background permissions. Their runs remain linked to the parent, and a returned result is evidence rather than automatic authorisation to write, send, publish, or declare the goal complete. Tool availability and approvals still apply to the run doing the action.
+
+## Status And Hand-Offs
+
+An active goal can accumulate progress across turns. Completion should mean the finish condition and required checks are satisfied. A block should identify a real impasse, not merely unfinished work. Stopping an agent ends that run without deleting the parent thread, goal history, or already-recorded evidence.
+
+A useful child-agent hand-off says what was checked, what changed, what evidence was found, what remains uncertain, and whether any consequential action still needs the parent or user.
+
+## Configure And Use It
+
+- Create and select roles with [Profiles, Goals, And Agents](/docs/profiles-goals-agents/).
+- Choose a profile in a workflow with [Workflows](/docs/guides/workflows).
+- Control the models behind runs in [Models And Providers](/docs/configuration/models-and-providers).
+- Review waiting work and failures in [Mobile And Native Surfaces](/docs/mobile-native/) or [Monitor](/docs/monitor/).

@@ -21,7 +21,7 @@ def open_marketplace_dialog(
     from row_bot.plugins import installer
     from row_bot.plugins import marketplace as mkt
 
-    with ui.dialog().props("persistent maximized=false") as dlg, ui.card().classes(
+    with ui.dialog().props("persistent maximized=false data-docs-id=plugin-marketplace") as dlg, ui.card().classes(
         "w-full"
     ).style("min-width: 640px; max-width: 860px; max-height: 82vh;"):
         with ui.row().classes("w-full items-center no-wrap"):

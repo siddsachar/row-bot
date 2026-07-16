@@ -4992,7 +4992,9 @@ def build_interrupt_dialog(
     Attaches ``p.interrupt_dlg`` and returns the ``show_interrupt`` function
     for use as a callback.
     """
-    p.interrupt_dlg = ui.dialog().props("persistent transition-show=fade transition-hide=fade")
+    p.interrupt_dlg = ui.dialog().props(
+        "persistent transition-show=fade transition-hide=fade data-docs-id=approval-dialog"
+    )
 
     def show_interrupt(data) -> None:
         p.interrupt_dlg.clear()

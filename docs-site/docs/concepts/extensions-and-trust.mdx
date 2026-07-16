@@ -1,0 +1,36 @@
+---
+title: "Extensions And Trust Boundaries"
+description: "Compare Row-Bot tools, Skills, Custom Tools, plugins, MCP servers, channels, and accounts by what they add and where they run."
+---
+
+# Extensions And Trust Boundaries
+
+Row-Bot can learn a procedure, gain a tool, load code, connect a server, or authorise an account. Those are different changes and deserve different review.
+
+| Capability | What it adds | Main trust question |
+| --- | --- | --- |
+| Built-in tool | A maintained capability shipped with Row-Bot. | Is it enabled for this profile, and does this action need approval? |
+| Skill | Instructions, examples, and supporting files that shape behaviour. | Do the instructions match your intent and avoid unexpected data or tool use? |
+| Custom Tool | Reviewed local code or a command exposed as a reusable tool. | What code runs, in which workspace, with which dependencies and command class? |
+| Plugin | A packaged extension that can add code, tools, Skills, channels, configuration, or UI. | Do you trust its publisher, source, permissions, dependencies, and update path? |
+| MCP server | Tools supplied by a separate local process or remote service. | What can the server access, where does it run, and which of its tools are enabled? |
+| Channel | A bridge for incoming messages or outgoing results. | Who can contact it, which conversation receives replies, and may workflows deliver there? |
+| Account | Authorisation for a service such as GitHub, Google, or X. | Which service scopes and account data become available to enabled tools? |
+
+## Instructions Are Not Permissions
+
+A Skill or profile can tell the model when to use a capability, but it does not create credentials or bypass Row-Bot's tool and approval policy. Conversely, installing a plugin or MCP server can add real executable capability even when no Skill mentions it. Review both the guidance layer and the execution layer.
+
+## Local Does Not Always Mean Harmless
+
+A local plugin, command, or MCP process can still read files, start programs, or use locally stored credentials. A remote server or account can send data outside the app even if its configuration is stored locally. Use narrow workspaces, least-privilege accounts, disabled-by-default imports, and fictional test data.
+
+Third-party dependency telemetry is not Row-Bot telemetry. Review dependency behaviour before installation and do not expose prompts, files, memories, secrets, screenshots, tool arguments, or channel content unless that transfer is the feature you intentionally selected.
+
+## Browse And Configure Extensions
+
+- Compare extension types and browse screenshots in [Extend Row-Bot](/docs/extending/).
+- Browse and review Skills in [Skills Hub](/docs/skills/) and [Skills Settings](/docs/settings/skills).
+- Install and control packaged code in [Plugins](/docs/integrations/plugins) and [Plugin Settings](/docs/settings/plugins).
+- Browse, add, test, and enable servers in [MCP](/docs/integrations/mcp) and [MCP Settings](/docs/settings/mcp).
+- Configure external messaging in [Channels](/docs/integrations/channels) and service authorisation in [Accounts And Authorisation](/docs/integrations/accounts).

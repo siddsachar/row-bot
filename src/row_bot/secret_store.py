@@ -31,6 +31,10 @@ SERVICE_NAME = service_name_for(DATA_DIR)
 _backend_override: Any | None = None
 
 
+def _docs_capture_active() -> bool:
+    return str(os.environ.get("ROW_BOT_DOCS_CAPTURE") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 class SecretStoreError(RuntimeError):
     """Raised when the platform secret store cannot complete an operation."""
 
@@ -74,6 +78,8 @@ def _account(name: str, *, namespace: str = "api_keys") -> str:
 
 def is_available() -> bool:
     """Return True when the configured backend can round-trip a probe secret."""
+    if _docs_capture_active():
+        return False
     probe = "__row_bot_keyring_probe__"
     try:
         set_secret(probe, "ok", namespace="health")
@@ -86,6 +92,8 @@ def is_available() -> bool:
 
 def get_secret(name: str, *, namespace: str = "api_keys", service: str | None = None) -> str | None:
     """Return a stored secret, or None if it is unset/unavailable."""
+    if _docs_capture_active():
+        return None
     try:
         value = _backend().get_password(service or SERVICE_NAME, _account(name, namespace=namespace))
     except Exception as exc:

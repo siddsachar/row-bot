@@ -8,26 +8,26 @@ import GeneratedNotice from '@site/src/components/GeneratedNotice';
 # Providers
 
 <!-- generated-from: scripts/docs/collect_inventory.py -->
-<!-- inventory-hash: 6d9b79a40c55384b -->
+<!-- inventory-hash: 15754747dfdb9dc3 -->
 
 <GeneratedNotice source="scripts/docs/collect_inventory.py" />
 
 ## Providers
 
-| ID | Provider | Description | Auth | Transport | Risk label |
-| --- | --- | --- | --- | --- | --- |
-| anthropic | Anthropic API | Hosted model provider configured with an API key. | API_KEY | ANTHROPIC_MESSAGES | api_key |
-| atlascloud | Atlas Cloud | Hosted model provider configured with an API key. | API_KEY | OPENAI_CHAT | cloud_provider |
-| claude_subscription | Claude Subscription | Subscription-backed provider path using local sign-in or an external CLI. | EXTERNAL_CLI, OAUTH_PKCE | ANTHROPIC_MESSAGES | subscription |
-| codex | ChatGPT / Codex | Subscription-backed provider path using local sign-in or an external CLI. | EXTERNAL_CLI, OAUTH_DEVICE | OPENAI_RESPONSES | subscription |
-| google | Google AI API | Hosted model provider configured with an API key. | API_KEY | GOOGLE_GENAI | api_key |
-| minimax | MiniMax API | Hosted model provider configured with an API key. | API_KEY | ANTHROPIC_MESSAGES | api_key |
-| ollama | Ollama Local | Local Ollama models running on this machine. | NONE | OLLAMA_CHAT | local_private |
-| ollama_cloud | Ollama Cloud | Hosted model provider configured with an API key. | API_KEY | OLLAMA_CLOUD_CHAT | cloud_provider |
-| openai | OpenAI API | Hosted model provider configured with an API key. | API_KEY | OPENAI_CHAT | api_key |
-| opencode_go | OpenCode Go | Hosted model provider configured with an API key. | API_KEY | OPENAI_CHAT | cloud_provider |
-| opencode_zen | OpenCode Zen | Hosted model provider configured with an API key. | API_KEY | OPENAI_CHAT | cloud_provider |
-| openrouter | OpenRouter | Third-party model router provider configured with an API key. | API_KEY | OPENAI_CHAT | third_party_router |
-| requesty | Requesty | Third-party model router provider configured with an API key. | API_KEY | OPENAI_CHAT | third_party_router |
-| xai | xAI API | Hosted model provider configured with an API key. | API_KEY | OPENAI_CHAT | api_key |
-| xai_oauth | xAI Grok | Subscription-backed provider path using local sign-in or an external CLI. | OAUTH_PKCE | OPENAI_RESPONSES | subscription |
+| ID | Provider | Description | Route | Auth | Transport | Risk label |
+| --- | --- | --- | --- | --- | --- | --- |
+| anthropic | Anthropic API | Hosted model provider configured with an API key. | `API` | API_KEY | ANTHROPIC_MESSAGES | api_key |
+| atlascloud | Atlas Cloud | Hosted model provider configured with an API key. | `API` | API_KEY | OPENAI_CHAT | cloud_provider |
+| claude_subscription | Claude Subscription | Subscription-backed provider path using local sign-in or an external CLI. | `Subscription` | EXTERNAL_CLI, OAUTH_PKCE | ANTHROPIC_MESSAGES | subscription |
+| codex | ChatGPT / Codex | Subscription-backed provider path using local sign-in or an external CLI. | `Subscription` | EXTERNAL_CLI, OAUTH_DEVICE | OPENAI_RESPONSES | subscription |
+| google | Google AI API | Hosted model provider configured with an API key. | `API` | API_KEY | GOOGLE_GENAI | api_key |
+| minimax | MiniMax API | Hosted model provider configured with an API key. | `API` | API_KEY | ANTHROPIC_MESSAGES | api_key |
+| ollama | Ollama Local | Local Ollama models running on this machine. | `Local` | NONE | OLLAMA_CHAT | local_private |
+| ollama_cloud | Ollama Cloud | Hosted model provider configured with an API key. | `API` | API_KEY | OLLAMA_CLOUD_CHAT | cloud_provider |
+| openai | OpenAI API | Hosted model provider configured with an API key. | `API` | API_KEY | OPENAI_CHAT | api_key |
+| opencode_go | OpenCode Go | Hosted model provider configured with an API key. | `API` | API_KEY | OPENAI_CHAT | cloud_provider |
+| opencode_zen | OpenCode Zen | Hosted model provider configured with an API key. | `API` | API_KEY | OPENAI_CHAT | cloud_provider |
+| openrouter | OpenRouter | Third-party model router provider configured with an API key. | `API` | API_KEY | OPENAI_CHAT | third_party_router |
+| requesty | Requesty | Third-party model router provider configured with an API key. | `API` | API_KEY | OPENAI_CHAT | third_party_router |
+| xai | xAI API | Hosted model provider configured with an API key. | `API` | API_KEY | OPENAI_CHAT | api_key |
+| xai_oauth | xAI Grok | Subscription-backed provider path using local sign-in or an external CLI. | `Subscription` | OAUTH_PKCE | OPENAI_RESPONSES | subscription |

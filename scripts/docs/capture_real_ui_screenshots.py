@@ -37,8 +37,8 @@ DOM_ROOT = ROOT / "docs-build" / "reports" / "real-ui-dom"
 LOG_ROOT = ROOT / "docs-build" / "logs"
 
 VIEWPORTS = {
-    "desktop": {"width": 1440, "height": 960},
-    "wide": {"width": 1680, "height": 1050},
+    "desktop": {"width": 3840, "height": 2160},
+    "wide": {"width": 3840, "height": 2160},
     "mobile": {"width": 390, "height": 844},
 }
 
@@ -111,10 +111,10 @@ def _managed_chromium() -> str:
     return ""
 
 
-def _default_real_data_dir() -> Path:
+def _real_user_data_dir() -> Path:
     from row_bot.brand import default_data_dir
 
-    return default_data_dir().expanduser()
+    return default_data_dir().expanduser().resolve()
 
 
 def _browser_type(pw):
@@ -184,8 +184,14 @@ def _validate_image(path: Path, shot: dict[str, Any]) -> list[str]:
     try:
         with Image.open(path) as image:
             width, height = image.size
-            if width < 500 or height < 300:
-                errors.append(f"image dimensions too small: {width}x{height}")
+            viewport_name = str(shot.get("viewport") or "desktop")
+            expected = VIEWPORTS.get(viewport_name, VIEWPORTS["desktop"])
+            expected_size = (int(expected["width"]), int(expected["height"]))
+            if (width, height) != expected_size:
+                errors.append(
+                    f"image dimensions {width}x{height} do not match {viewport_name} "
+                    f"standard {expected_size[0]}x{expected_size[1]}"
+                )
             variance = sum(ImageStat.Stat(image.convert("RGB")).var) / 3
             if variance < 12:
                 errors.append(f"image appears blank or flat (variance {variance:.2f})")
@@ -208,12 +214,47 @@ def _write_dom_snapshot(page, shot_id: str, shot: dict[str, Any], selector: str)
         html = locator.evaluate("(el) => el.outerHTML.slice(0, 20000)", timeout=2_000)
     except Exception as exc:
         text = f"DOM snapshot failed: {exc}"
+    try:
+        viewport_state = page.evaluate(
+            """() => ({
+                scrollX: window.scrollX,
+                scrollY: window.scrollY,
+                scrolling: Array.from(document.querySelectorAll('*'))
+                    .filter(el => el.scrollTop || el.scrollLeft)
+                    .slice(0, 20)
+                    .map(el => ({
+                        tag: el.tagName,
+                        id: el.id || '',
+                        className: typeof el.className === 'string' ? el.className.slice(0, 240) : '',
+                        scrollTop: el.scrollTop,
+                        scrollLeft: el.scrollLeft,
+                        clientHeight: el.clientHeight,
+                        scrollHeight: el.scrollHeight,
+                    })),
+                probes: ['[data-docs-id="settings-dialog"] .text-h5',
+                         '[data-docs-id="settings-dialog"] .nicegui-row',
+                         '[data-docs-id="settings-dialog"] .q-tab--active']
+                    .map(selector => {
+                        const el = document.querySelector(selector);
+                        if (!el) return {selector, missing: true};
+                        const rect = el.getBoundingClientRect();
+                        const style = getComputedStyle(el);
+                        return {selector, text: (el.innerText || '').slice(0, 120),
+                                rect: {x: rect.x, y: rect.y, width: rect.width, height: rect.height},
+                                display: style.display, visibility: style.visibility,
+                                opacity: style.opacity, color: style.color, zIndex: style.zIndex};
+                    }),
+            })"""
+        )
+    except Exception:
+        viewport_state = {}
     payload = {
         "id": shot_id,
         "route": shot.get("route", "/"),
         "selector": selector,
         "text": text,
         "html_excerpt": html,
+        "viewport_state": viewport_state,
     }
     (DOM_ROOT / f"{shot_id}.json").write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n",
@@ -222,11 +263,14 @@ def _write_dom_snapshot(page, shot_id: str, shot: dict[str, Any], selector: str)
 
 
 def _wait_for_text(page, text: str, timeout: int = 15_000) -> None:
-    page.wait_for_function(
-        "(needle) => document.body && document.body.innerText && document.body.innerText.includes(needle)",
-        arg=text,
-        timeout=timeout,
-    )
+    try:
+        page.wait_for_function(
+            "(needle) => document.body && document.body.innerText && document.body.innerText.includes(needle)",
+            arg=text,
+            timeout=timeout,
+        )
+    except Exception as exc:
+        raise RuntimeError(f"Timed out waiting for visible text: {text}") from exc
 
 
 def _run_action(page, action: dict[str, Any], base_url: str) -> None:
@@ -282,6 +326,16 @@ def _capture_one(browser, port: int, shot_id: str, shot: dict[str, Any]) -> dict
         for text in shot.get("expected_text") or []:
             _wait_for_text(page, str(text))
         selector = str(shot.get("capture_selector") or wait_for)
+        # Selecting a lower settings tab can let the browser scroll the outer
+        # document while bringing the active tab into view. Public captures
+        # should always include the application and dialog headers.
+        reset_outer_scroll = (
+            "() => { const active = document.activeElement; if (active && active.blur) active.blur(); "
+            "window.scrollTo(0, 0); document.documentElement.scrollTop = 0; document.body.scrollTop = 0; }"
+        )
+        page.evaluate(reset_outer_scroll)
+        page.wait_for_timeout(250)
+        page.evaluate(reset_outer_scroll)
         _write_dom_snapshot(page, shot_id, shot, selector)
         masks = []
         for mask_selector in shot.get("masks") or []:
@@ -289,12 +343,26 @@ def _capture_one(browser, port: int, shot_id: str, shot: dict[str, Any]) -> dict
                 masks.extend(page.locator(str(mask_selector)).all())
             except Exception:
                 pass
-        locator = page.locator(selector).first
         raw_output.parent.mkdir(parents=True, exist_ok=True)
-        locator.screenshot(path=str(raw_output), animations="disabled", mask=masks)
+        page.screenshot(
+            path=str(raw_output),
+            animations="disabled",
+            full_page=False,
+            mask=masks,
+        )
         shutil.copyfile(raw_output, output)
         errors.extend(_validate_image(output, {"id": shot_id, **shot}))
     except Exception as exc:
+        # Preserve enough evidence to diagnose a failed public capture without
+        # having to rerun it interactively. These files stay under docs-build.
+        try:
+            selector = str(shot.get("capture_selector") or "body")
+            _write_dom_snapshot(page, f"{shot_id}-failed", shot, selector)
+            diagnostic = REPORT.parent / "failed-screenshots" / f"{shot_id}.png"
+            diagnostic.parent.mkdir(parents=True, exist_ok=True)
+            page.screenshot(path=str(diagnostic), animations="disabled", full_page=False)
+        except Exception:
+            pass
         errors.append(str(exc))
     finally:
         page.close()
@@ -442,29 +510,63 @@ def _filter_manifest(manifest: dict[str, Any], source_filter: str) -> dict[str, 
     }
 
 
+def _filter_scenario(manifest: dict[str, Any], scenario: str) -> dict[str, Any]:
+    normalized = str(scenario or "full").strip().lower()
+    if normalized in {"all", "full"}:
+        return manifest
+    aliases = {"android": "mobile"}
+    normalized = aliases.get(normalized, normalized)
+    return {
+        shot_id: shot
+        for shot_id, shot in manifest.items()
+        if isinstance(shot, dict) and str(shot.get("scenario") or "configured") == normalized
+    }
+
+
+def _filter_ids(manifest: dict[str, Any], screenshot_ids: set[str] | None) -> dict[str, Any]:
+    if not screenshot_ids:
+        return manifest
+    return {shot_id: shot for shot_id, shot in manifest.items() if shot_id in screenshot_ids}
+
+
+def _safe_capture_data_dir(data_dir: Path | None) -> tuple[Path, tempfile.TemporaryDirectory[str] | None]:
+    if data_dir is None:
+        temp_root = ROOT / "docs-build" / "capture-data"
+        temp_root.mkdir(parents=True, exist_ok=True)
+        temp_dir = tempfile.TemporaryDirectory(
+            prefix="row_bot_docs_capture_",
+            dir=temp_root,
+            ignore_cleanup_errors=True,
+        )
+        return Path(temp_dir.name).resolve(), temp_dir
+    resolved = data_dir.expanduser().resolve()
+    if resolved == _real_user_data_dir():
+        raise RuntimeError(
+            "Refusing to use the normal Row-Bot data directory for documentation capture. "
+            "Omit --data-dir for an isolated temporary directory or choose a dedicated demo directory."
+        )
+    return resolved, None
+
+
 def capture(
     manifest: dict[str, Any],
     *,
     scenario: str,
     timeout: float = 90.0,
     data_dir: Path | None = None,
-    seed_demo_data: bool = False,
-    use_temp_data: bool = False,
-    source_filter: str = "real-data-dir",
+    seed_demo_data: bool = True,
+    use_temp_data: bool = True,
+    source_filter: str = "all",
+    screenshot_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
     RAW_OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
     DOM_ROOT.mkdir(parents=True, exist_ok=True)
     manifest = _filter_manifest(manifest, source_filter)
-    temp_dir = None
-    if use_temp_data:
-        temp_dir = tempfile.TemporaryDirectory(prefix="row_bot_docs_real_ui_", ignore_cleanup_errors=True)
-        data_dir = Path(temp_dir.name)
-        seed_demo_data = True if not seed_demo_data else seed_demo_data
-    elif data_dir is None:
-        data_dir = _default_real_data_dir()
-    if data_dir is not None:
-        data_dir.mkdir(parents=True, exist_ok=True)
+    manifest = _filter_scenario(manifest, scenario)
+    manifest = _filter_ids(manifest, screenshot_ids)
+    data_dir, temp_dir = _safe_capture_data_dir(None if use_temp_data else data_dir)
+    data_dir.mkdir(parents=True, exist_ok=True)
     port = _free_port()
     if _port_open(port):
         raise RuntimeError(f"selected port {port} is already in use")
@@ -516,11 +618,25 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Capture or validate real Row-Bot UI screenshots")
     parser.add_argument("--scenario", default="full")
     parser.add_argument("--data-dir", default=None)
-    parser.add_argument("--use-temp-data", action="store_true", help="Use an isolated temporary data directory")
-    parser.add_argument("--seed-demo-data", action="store_true", help="Seed deterministic review data before launch")
+    parser.add_argument(
+        "--keep-demo-data",
+        action="store_true",
+        help="Use --data-dir as a dedicated retained demo directory instead of an automatic temporary directory",
+    )
+    parser.add_argument(
+        "--ids",
+        nargs="*",
+        default=None,
+        help="Capture only the listed screenshot IDs (advanced debugging and review iteration)",
+    )
+    parser.add_argument(
+        "--no-seed-demo-data",
+        action="store_true",
+        help="Skip deterministic seeding (advanced debugging only)",
+    )
     parser.add_argument(
         "--source-filter",
-        default="real-data-dir",
+        default="all",
         help="Capture only screenshots with this metadata source, or 'all'",
     )
     parser.add_argument("--validate-only", action="store_true")
@@ -535,9 +651,10 @@ def main() -> int:
             scenario=str(args.scenario or "full"),
             timeout=args.timeout,
             data_dir=Path(args.data_dir).resolve() if args.data_dir else None,
-            seed_demo_data=bool(args.seed_demo_data),
-            use_temp_data=bool(args.use_temp_data),
-            source_filter=str(args.source_filter or "real-data-dir"),
+            seed_demo_data=not bool(args.no_seed_demo_data),
+            use_temp_data=not bool(args.keep_demo_data),
+            source_filter=str(args.source_filter or "all"),
+            screenshot_ids=set(args.ids or []) or None,
         )
     return 1 if summary.get("failed") else 0
 

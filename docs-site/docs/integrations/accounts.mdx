@@ -1,0 +1,32 @@
+---
+title: "Accounts And Authorisation"
+description: "Connect and disconnect external accounts while keeping scopes, tokens, and data flow understandable."
+---
+
+import Screenshot from '@site/src/components/Screenshot';
+
+# Accounts And Authorisation
+
+Accounts let selected tools act through services such as GitHub, Google, or X. A model provider account supplies models; an integration account supplies service access. They are configured separately.
+
+## Connect Safely
+
+1. Open **Settings -> Accounts**.
+2. Choose the service and read the status and requested purpose.
+3. Prefer the supported OAuth or local CLI flow rather than pasting broad tokens.
+4. Verify the service, account, and scopes in the external authorisation page.
+5. Return to Row-Bot and refresh status.
+6. Test a read-only action before approving writes, posts, email, calendar, or repository changes.
+
+<Screenshot id="settings-accounts" alt="Row-Bot Accounts settings with external services disconnected." caption="Account rows keep connection status and actions visible without displaying stored credentials." />
+
+## Tokens And Scopes
+
+Secrets use the configured operating-system secret store when available. Settings show status, not the secret value. A service may still retain its own authorisation grant until you revoke it there. Use the narrowest scopes that support the feature and disconnect access you no longer use.
+
+## Troubleshooting
+
+- Confirm the system browser returned to the same Row-Bot instance that started the flow.
+- For GitHub CLI, refresh CLI authorisation after signing in or changing accounts.
+- If a callback fails, repeat the supported flow instead of copying browser storage.
+- If an action is denied after connection, review both the service scopes and the Row-Bot approval policy.

@@ -5337,6 +5337,28 @@ def open_settings(
             "forum",
         )
 
+        from row_bot.docs_capture import is_docs_capture, load_docs_capture_demo_state
+
+        if is_docs_capture():
+            demo_channels = load_docs_capture_demo_state().get("channels") or []
+            configured = sum(
+                1 for item in demo_channels if "configured" in str(item.get("status") or "").lower()
+            )
+            with ui.row().classes("items-center gap-2 q-mb-sm"):
+                _metric_chip("configured", configured, icon="settings")
+                _metric_chip("running", 0, icon="play_circle")
+            ui.label(
+                "Display-only demonstration state; no channel credentials are stored and no adapters are started."
+            ).classes("text-grey-6 text-xs q-mb-sm")
+            for item in demo_channels:
+                name = str(item.get("name") or "Channel")
+                status = str(item.get("status") or "Not configured")
+                with ui.expansion(f"{name} — {status}", icon="chat").classes("w-full"):
+                    ui.label(
+                        "Add credentials and an approved recipient before starting this channel."
+                    ).classes("text-grey-6 text-sm")
+            return
+
         channels = _ch_registry.all_channels()
         if not channels:
             ui.label("No channels registered.").classes("text-grey-6 text-sm")

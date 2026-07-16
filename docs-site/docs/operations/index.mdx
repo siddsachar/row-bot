@@ -1,0 +1,33 @@
+---
+title: "Operations, Data, And Recovery"
+description: "Back up, restore, update, repair, and uninstall Row-Bot without losing track of local data and credentials."
+---
+
+# Operations, Data, And Recovery
+
+Row-Bot is local-first, so operational safety starts with knowing which data directory and workspace are active. Conversations, settings, memory, Knowledge, workflows, documents, Designer projects, Developer workspace records, skills, plugins, logs, channel state, and MCP configuration can live under that directory. Operating-system key stores may hold credentials separately.
+
+## Back Up
+
+1. Open Settings and note the active data and workspace paths.
+2. Stop running workflows, channels, servers, and active generations.
+3. Close Row-Bot so databases are not changing during the copy.
+4. Copy the whole active data directory to protected storage.
+5. Back up external workspaces, exported Designer files, and Wiki vaults separately when they live elsewhere.
+6. Record the Row-Bot version used with the backup.
+
+## Restore
+
+Restore related databases and files as one set while Row-Bot is closed. Point a test launch at the restored directory first, then check conversations, providers, workflows, Knowledge, documents, Designer, Developer, plugins, MCP, and channels. Reconnect secrets that were stored in an OS keychain and were not included in the file backup.
+
+## Update, Repair, And Uninstall
+
+Use the supported package or updater flow for your platform. Back up before a major update. Repair may replace application files but should not be treated as a data backup. Uninstalling the application and deleting the local data directory are separate decisions; review both the application location and the data location before removal.
+
+## Logs And Support
+
+Use Monitor and the local log folder to diagnose startup, provider, workflow, channel, and background failures. Before sharing diagnostics, remove names, paths, account identifiers, document content, prompts, message content, tokens, and screenshots that expose private data.
+
+## Release-Specific Manual Checks
+
+Installer UX, upgrade, repair, uninstall, Windows signing, macOS notarisation, native file dialogs, OS permissions, and clean-machine behaviour require manual testing on release candidates. A successful docs build does not prove those native flows are release-ready.

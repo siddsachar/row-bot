@@ -1632,7 +1632,7 @@ def render_message_content(
             with ui.expansion(
                 f"{'⚠️' if group_icon == 'warning' else '✅'} {group_status} {group.label}",
                 icon=group_icon,
-            ).classes("w-full"):
+            ).classes("w-full").props("data-docs-id=tool-trace"):
                 for idx, tr in enumerate(group.results, start=1):
                     item_failed = tool_result_failed(tr)
                     title = (

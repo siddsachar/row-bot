@@ -581,6 +581,10 @@ Open **Settings**, then choose **{meta['title'].split(': ', 1)[1]}** from the le
 
 Review credential, account, channel, provider, or tool settings before enabling features that can contact outside services. Local-only features stay on your machine until you ask Row-Bot to use a provider, account, channel, MCP server, plugin, or tool that sends data elsewhere.
 
+## Control-Level Reference
+
+The [generated Settings Controls reference](/docs/reference/generated/settings-controls#{slug}-controls) lists the visible controls found in the current application source, including defaults, allowed values when they are declared inline, dependencies, restart notes, security notes, and source locations.
+
 ## Troubleshooting
 
 {trouble}
@@ -624,6 +628,8 @@ def main() -> int:
 
 Row-Bot is a local-first desktop AI assistant for people who want models, memory, tools, workflows, design, code help, integrations, and voice in one controllable app. This guide explains how to install Row-Bot, choose a model path, use the main interface, configure settings, and understand what happens when Row-Bot uses external services.
 
+These pages describe Row-Bot 4.4.0, the current stable release represented by this source tree.
+
 <Screenshot id="app-shell-overview" alt="Row-Bot main interface with sidebar, Home tabs, activity center, and terminal." caption="Row-Bot's main interface brings conversations, Home tabs, settings, Buddy, activity, approvals, workflows, and terminal output into one local workspace." />
 
 ## Start Here
@@ -632,6 +638,7 @@ Row-Bot is a local-first desktop AI assistant for people who want models, memory
 - [Row-Bot Interface](/docs/app-shell/navigation) tours the sidebar, thread list, Home tabs, Activity Center, Buddy, Settings, and terminal.
 - [Chat](/docs/chat/) explains conversations, composer controls, attachments, model selection, approvals, and tool results.
 - [Settings](/docs/settings/) explains every configuration tab and what each choice changes.
+- [Profiles, Goals, And Agents](/docs/profiles-goals-agents/) explains reusable roles, bounded goals, and delegated work.
 
 ## Feature Guides
 
@@ -639,9 +646,12 @@ Row-Bot is a local-first desktop AI assistant for people who want models, memory
 - [Designer Studio](/docs/designer/) for creating pages, slides, mockups, branded assets, and exportable designs.
 - [Developer Studio](/docs/developer/) for folders, repositories, code chat, inspectors, commands, and sandbox modes.
 - [Knowledge](/docs/knowledge/) for local memory, documents, graph review, and background organization.
+- [Android And Native Desktop](/docs/mobile-native/) for pairing, mobile Chat and Activity, and native-only behaviour.
 - [Monitor](/docs/monitor/) for logs, journals, channel state, and background activity.
 - [Skills Hub](/docs/skills/) for browsing, enabling, creating, and reviewing skills.
 - [Channels](/docs/integrations/channels), [MCP](/docs/integrations/mcp), and [Plugins](/docs/integrations/plugins) for integrations.
+- [Extend Row-Bot](/docs/extending/) to choose safely between Skills, Custom Tools, plugins, MCP, channels, and accounts.
+- [Operations, Data, And Recovery](/docs/operations/) for backups, restore, updates, repair, uninstall, and diagnostic sharing.
 - [Voice and Buddy](/docs/voice-and-buddy/) for speech input, Talk, Dictate, read-aloud, and the visual companion.
 
 ## How To Read These Docs
@@ -1095,7 +1105,11 @@ Home is the launch area for Row-Bot's major work surfaces. It is not meant to re
 
 Workflows are repeatable Row-Bot tasks. Use them for things you want to run again: a morning brief, inbox follow-up, document digest, research check, report draft, or channel delivery.
 
+For the execution model behind schedules, persistent runs, approvals, and delivery, read [How Background Workflows Run](/docs/concepts/background-workflows).
+
 <Screenshot id="home-workflows" alt="Row-Bot Workflows tab." caption="The Workflows tab shows workflow cards, delivery defaults, run controls, and the New Workflow entry point." />
+
+<Screenshot id="workflow-editor" alt="Row-Bot New Workflow editor." caption="The editor brings prompts, schedules, delivery, Agent Profiles, multi-step behaviour, and approval policy into one reviewable workflow definition." />
 
 ## Where To Find Workflows
 
@@ -1155,6 +1169,8 @@ Designer Studio helps you create visual work with Row-Bot: pages, slides, mockup
 
 <Screenshot id="home-designer" alt="Row-Bot Designer entry point." caption="The Designer Home tab starts projects and opens the full Designer Studio workflow." />
 
+<Screenshot id="designer-editor" alt="Row-Bot Designer Studio editor with a fictional workshop presentation." caption="The full Designer editor combines project chat, page navigation, the live preview, brand and asset controls, and export entry points." />
+
 ## Where To Find It
 
 Open Home -> Designer to start or reopen a project. The Home tab is the launcher. Designer Studio is the full workspace for editing, previewing, reviewing, and exporting.
@@ -1203,6 +1219,8 @@ Designer can use saved brand presets, extract brand hints from a URL, accept ref
 Developer Studio is Row-Bot's code workspace. Use it when you want Row-Bot to understand a local folder or Git repository, discuss code, inspect files, run approved commands, propose edits, and help review changes.
 
 <Screenshot id="home-developer" alt="Row-Bot Developer entry point." caption="The Developer Home tab opens folders, connects repositories, clones projects, and starts Developer Studio workspaces." />
+
+<Screenshot id="developer-workspace" alt="Row-Bot Developer Studio with an isolated demonstration repository." caption="The Developer workspace keeps repository identity, changed files, inspector state, conversation, commands, and review controls together." />
 
 ## Where To Find It
 
@@ -1254,7 +1272,11 @@ For most users, start with local mode on a disposable branch. Use Docker when yo
 
 Knowledge is Row-Bot's local memory and retrieval area. It includes saved memories, extracted document information, graph records, entity relationships, and background organization that can help future chats.
 
+For the relationship between thread history, memory, documents, the graph, Wiki Vault, and Dream Cycle, read [How Memory Becomes Knowledge](/docs/concepts/memory-knowledge-and-dream-cycle).
+
 <Screenshot id="home-knowledge" alt="Row-Bot Knowledge tab." caption="The Knowledge tab reviews local memory and graph records with filters and detail surfaces." />
+
+<Screenshot id="settings-knowledge" alt="Row-Bot Knowledge settings." caption="Knowledge settings control memory, embeddings, graph maintenance, document knowledge, and Wiki vault output." />
 
 ## Where To Find It
 
@@ -1286,6 +1308,8 @@ Knowledge records are local data. They can be used as context in future chats wh
 - If Knowledge is empty, enable memory or index documents first.
 - If records are wrong, edit or remove them.
 - If retrieval feels noisy, reduce memory/search settings and review graph entries.
+
+Continue with [Wiki Vault](/docs/knowledge/wiki-vault) and [Provenance And Repair](/docs/knowledge/provenance-repair) for the file-output and recovery workflows.
 """,
         screenshot=True,
     )
@@ -1453,6 +1477,10 @@ MCP lets Row-Bot use tools exposed by external Model Context Protocol servers. A
 
 <Screenshot id="settings-mcp" alt="Row-Bot MCP settings." caption="MCP settings manage global enablement, server rows, add/import/browse actions, tests, diagnostics, and per-server controls." />
 
+<Screenshot id="mcp-marketplace" alt="Row-Bot Browse MCP Servers marketplace with bundled starter servers." caption="Browse starts with the bundled starter catalogue and exposes publisher, transport, overlap, authentication, and risk labels before import." />
+
+<Screenshot id="mcp-add-server" alt="Row-Bot Add MCP Server dialog." caption="Manual server configuration starts disabled so you can review transport, command or URL, environment, and tool risk before testing." />
+
 ## Setup Workflow
 
 1. Open Settings -> MCP.
@@ -1539,6 +1567,8 @@ Plugins can add tools that read files, call services, or create outputs. Keep ap
 Skills are instruction packs that teach Row-Bot how to approach a category of work. Skills Hub is where you browse installed skills, inspect details, enable or disable them, pin useful ones, and create or edit local skills.
 
 <Screenshot id="settings-skills" alt="Row-Bot Skills settings and Skills Hub entry points." caption="Skills settings expose installed skills, browse/search entry points, enablement, and pinning controls." />
+
+<Screenshot id="skills-hub" alt="Row-Bot Browse Public Skills marketplace with two fictional skills." caption="Browse Public Skills shows source and review status before a skill is brought into the local library." />
 
 ## UI Walkthrough
 
@@ -1665,6 +1695,500 @@ Before sharing logs, screenshots, documents, thread exports, or review packages,
     )
 
     write(
+        "profiles-goals-agents/index.mdx",
+        "Profiles, Goals, And Agents",
+        "Choose reusable Agent Profiles, run bounded goals, and review delegated parent and child agents.",
+        """
+# Profiles, Goals, And Agents
+
+These three features work together but solve different problems. An **Agent Profile** is a reusable role and policy. A **goal** is a bounded objective for the current task. An **agent run** is one execution of delegated work, with its own status and evidence.
+
+For the mental model behind delegation and hand-offs, read [How Profiles, Goals, And Agents Work](/docs/concepts/profiles-goals-and-agents).
+
+<Screenshot id="agent-profile-library" alt="Row-Bot Agent Profile library with fictional Research Guide and Project Coordinator profiles." caption="Agent Profiles package reusable instructions, skills, tools, model policy, and approval policy without changing the underlying thread history." />
+
+## Choose Or Create A Profile
+
+1. Open a chat and expand **Agent profiles** in the left sidebar.
+2. Choose a built-in profile or create one for a repeated role.
+3. Keep the role narrow: describe the outcome, sources it may use, and what it must not do.
+4. Review its model, skill, tool, delegation, and approval policy.
+5. Save it, then select it before asking for work.
+
+Profiles do not grant capabilities by themselves. A selected tool must still be enabled, available, and allowed by the active approval policy. A profile that can delegate may start child agents, but each run remains visible in the Activity Center and the chat agent strip.
+
+<Screenshot id="goal-and-agents" alt="Row-Bot active goal and delegated agents for a fictional launch checklist." caption="The goal strip records bounded progress while parent and child agent rows show who is running, complete, waiting, or stopped." />
+
+## Run A Goal
+
+A goal is useful when work needs more than one turn. State the objective and an observable finish condition. Row-Bot records progress, blockers, evidence, turns, and status so it can continue without pretending that partial work is complete.
+
+- **Active** means work can continue.
+- **Complete** means the objective and required checks are genuinely finished.
+- **Blocked** is for a repeated impasse that requires your input or an external change.
+- **Stop** ends the active run; it does not delete the thread or its evidence.
+
+## Review Delegated Work
+
+Parent agents coordinate. Child agents handle bounded subtasks. Open an agent row to review its prompt, profile, model, status, result, evidence, and thread. A completed child result is evidence for the parent, not automatic permission to write files, send messages, commit code, or publish.
+
+If a run appears stuck, inspect its last update before stopping it. If several agents edit the same resource, narrow their ownership or run them sequentially. Keep consequential final actions with the parent and a human approval point.
+
+## What Is Saved
+
+Profiles, goals, agent runs, edges, progress, results, and evidence are stored in the active local data directory. Provider prompts still follow the privacy terms of the model route selected for each run.
+""",
+        screenshot=True,
+    )
+
+    write(
+        "knowledge/wiki-vault.mdx",
+        "Wiki Vault",
+        "Generate and maintain a local Markdown vault from reviewed Row-Bot knowledge.",
+        """
+# Wiki Vault
+
+Wiki Vault turns selected Knowledge entities and relationships into linked Markdown pages in a folder you control. It is an output of the local knowledge graph, not a replacement for the underlying memory and provenance records.
+
+## Configure The Vault
+
+1. Open **Settings -> Knowledge**.
+2. Choose a vault folder that is separate from application code and important personal notes while you test.
+3. Enable Wiki output only after reviewing the current Knowledge graph.
+4. Run the rebuild or sync action shown in the tab.
+5. Open the generated Markdown pages in your preferred editor and check links, titles, and source notes.
+
+The vault contains generated summaries and links. Correct important facts in Knowledge first, then rebuild, so the graph remains the source of truth. Avoid hand-editing generated sections unless the page clearly identifies an area intended for manual notes.
+
+## Updates And Deletions
+
+New or changed entities can update their corresponding pages. Removed or merged records may cause generated pages or links to change on the next rebuild. Back up a vault before a large repair, migration, or rebuild if it also contains your own notes.
+
+## Privacy
+
+The vault is local, but it is deliberately easy to open in other software or sync with a third-party folder. Treat the destination as an export boundary. Review it before placing it in cloud storage, a shared repository, or a publishing system.
+
+## Troubleshooting
+
+- If pages are empty, verify that Knowledge contains reviewed entities and relations.
+- If links duplicate, run Knowledge repair before rebuilding the vault.
+- If a path is unavailable, choose a writable local folder and try again.
+- If private material appears, correct or remove its source record, rebuild, and review the destination before sharing.
+""",
+    )
+
+    write(
+        "knowledge/provenance-repair.mdx",
+        "Knowledge Provenance And Repair",
+        "Trace where knowledge came from, correct records, repair relations, and rebuild derived outputs safely.",
+        """
+# Knowledge Provenance And Repair
+
+Knowledge is useful only when you can tell where it came from. Review provenance before relying on a memory, document fact, entity, or relation for consequential work.
+
+## Review A Record
+
+1. Open **Home -> Knowledge** and filter to the topic.
+2. Open the record detail.
+3. Check its source, timestamps, type, confidence or status, and related entities.
+4. Compare important claims with the original conversation or document.
+5. Correct, merge, or remove the record if it is misleading.
+
+## Repair Order
+
+Use the smallest repair that fixes the problem:
+
+1. Correct a title, type, description, or relation.
+2. Merge a duplicate entity when both records refer to the same thing.
+3. Remove a bad relation without deleting sound entities.
+4. Rebuild derived indexes if search still returns stale results.
+5. Rebuild Wiki Vault output only after the graph is correct.
+
+Monitor's extraction and Dream Cycle journals help explain background changes. A repair should preserve useful source evidence and avoid touching unrelated memories.
+
+## Recovery
+
+Before a large repair or migration, close Row-Bot and back up the active data directory. Restore the whole related data set together rather than mixing database files from different moments. If the app offers a built-in repair action, read its scope and completion message before manually replacing files.
+
+## Safety Boundary
+
+Deleting a thread does not necessarily mean every derived record disappears immediately, and deleting one graph entity can affect linked output. Review the exact record and its relationships first. Never run repair tests against a personal data directory.
+""",
+    )
+
+    write(
+        "mobile-native/index.mdx",
+        "Android And Native Desktop",
+        "Pair an Android companion, use mobile Chat and Activity, and understand native-only desktop behaviour.",
+        """
+# Android And Native Desktop
+
+Row-Bot's mobile companion gives a paired Android device a compact view of the local app. The native desktop build adds operating-system integration such as window, tray, microphone, file-picker, and updater behaviour. Neither surface changes the approval rules of the underlying task.
+
+<Screenshot id="mobile-chat-list" alt="Android-sized Row-Bot chat list with fictional conversations." caption="Chat starts with recent local threads and a New thread action." />
+
+<Screenshot id="mobile-chat-detail" alt="Android-sized Row-Bot chat detail for a fictional launch checklist." caption="The compact thread view keeps transcript, model context, attachments, approvals, and composer controls within the phone layout." />
+
+## Pair An Android Device
+
+1. On desktop, open **Settings -> System** and find Mobile Access.
+2. Read the network disclosure and choose the narrowest access mode that fits your network.
+3. Create a pairing invitation from the desktop app.
+4. Open the shown address or QR code on the Android device while both devices can reach the same Row-Bot host.
+5. Confirm the device name and access request on desktop.
+6. Revoke the device from desktop settings when it is lost, replaced, or no longer trusted.
+
+Pairing credentials grant access to your local Row-Bot instance. Do not share a pairing invitation, expose the local server broadly, or use an untrusted network without understanding the tunnel or proxy in front of it.
+
+<Screenshot id="mobile-activity" alt="Android-sized Row-Bot Activity view." caption="Activity keeps goals, delegated agents, approvals, and attention states available away from the desktop layout." />
+
+<Screenshot id="mobile-workflows" alt="Android-sized Row-Bot Workflows view." caption="The mobile workflow view can inspect and run saved automations while preserving delivery and approval policy." />
+
+<Screenshot id="mobile-knowledge" alt="Android-sized Row-Bot Knowledge view." caption="Knowledge provides a compact entry point to local memory and graph review." />
+
+<Screenshot id="mobile-settings" alt="Android-sized Row-Bot Providers settings." caption="Mobile settings use the same provider categories and credential boundaries as desktop." />
+
+## Native-Only Checks
+
+Some states cannot be reproduced faithfully in browser automation: OS microphone prompts, native file pickers, tray menus, updater/restart dialogs, Computer Use takeover, and physical-device network permission. The public guide documents their intent; release review must test them on the target operating system and a physical Android device.
+
+## Troubleshooting
+
+- If the phone cannot connect, confirm the host, port, access mode, firewall, and network reachability shown on desktop.
+- If a token expires, pair again rather than copying cookies or local credential files.
+- If an approval is missing, open Activity and confirm the relevant thread is still active.
+- If the mobile layout opens on desktop, remove the mobile query parameter or reopen the normal local address.
+""",
+        screenshot=True,
+    )
+
+    write(
+        "extending/index.mdx",
+        "Extend Row-Bot",
+        "Choose between built-in tools, Skills, Custom Tools, plugins, MCP servers, channels, and accounts.",
+        """
+# Extend Row-Bot
+
+Start with the narrowest extension type that can solve the task. Every extension adds capabilities; some also add code, dependencies, network access, credentials, or external side effects.
+
+For the conceptual differences between tools, Skills, plugins, MCP, channels, and accounts, read [Extensions And Trust Boundaries](/docs/concepts/extensions-and-trust).
+
+| Extension | Use It For | Review Boundary |
+| --- | --- | --- |
+| Built-in tool | A capability already shipped and maintained with Row-Bot. | Enable only the tools a profile needs; consequential operations still use approval policy. |
+| Skill | Reusable instructions and workflow knowledge. | Read the full skill and bundled files before enabling or pinning it. |
+| Custom Tool | A reviewed local command or repo-specific helper created in Developer Studio. | Inspect its source, command classification, dependencies, and workspace scope. |
+| Plugin | A packaged bundle that can provide tools, skills, channels, MCP configuration, or UI. | Review manifest, source, permissions, dependencies, and update path before enabling. |
+| MCP server | Tools exposed by an external local or remote process. | Add disabled, inspect overlap and risk labels, test, then enable only trusted tools. |
+| Channel | A messaging adapter for receiving or delivering work. | Verify account, recipients, pairing, tunnel, and delivery defaults before starting. |
+| Account | Authorisation for GitHub, Google, X, or another service used by tools. | Review requested scopes and disconnect unused accounts. |
+
+<Screenshot id="skills-hub" alt="Offline Row-Bot Public Skills Hub with two fictional skills." caption="Skills import into the local library off by default so you can inspect them before enabling." />
+
+<Screenshot id="plugin-marketplace" alt="Offline Row-Bot Plugin Marketplace with fictional entries." caption="Marketplace cards expose publisher, verification, capabilities, permissions, and install review before any plugin is added." />
+
+<Screenshot id="mcp-add-server" alt="Row-Bot Add MCP Server dialog." caption="New MCP servers start as explicit configurations; keep them disabled until transport, command or URL, environment, and tool risk are understood." />
+
+<Screenshot id="mcp-marketplace" alt="Row-Bot Browse MCP Servers marketplace with bundled starter servers." caption="The MCP browser makes source, overlap, authentication, transport, and risk visible before you import a disabled server definition." />
+
+## Safe Evaluation Sequence
+
+1. Read the extension description and source.
+2. Check requested permissions, credentials, network destinations, commands, and install steps.
+3. Install into the local data directory only from a source you trust.
+4. Keep it disabled while you inspect configuration and provided capabilities.
+5. Test with fictional data and a non-consequential task.
+6. Enable the minimum capabilities and keep approval mode at **Ask** until behaviour is familiar.
+7. Disable or remove extensions that are no longer maintained or needed.
+
+Third-party dependency telemetry is not Row-Bot telemetry. Review and accept any dependency behaviour before installation, and never allow it to receive Row-Bot prompts, files, memories, secrets, screenshots, tool arguments, or channel content unless that transfer is the explicit feature you chose.
+""",
+        screenshot=True,
+    )
+
+    write(
+        "integrations/accounts.mdx",
+        "Accounts And Authorisation",
+        "Connect and disconnect external accounts while keeping scopes, tokens, and data flow understandable.",
+        """
+# Accounts And Authorisation
+
+Accounts let selected tools act through services such as GitHub, Google, or X. A model provider account supplies models; an integration account supplies service access. They are configured separately.
+
+## Connect Safely
+
+1. Open **Settings -> Accounts**.
+2. Choose the service and read the status and requested purpose.
+3. Prefer the supported OAuth or local CLI flow rather than pasting broad tokens.
+4. Verify the service, account, and scopes in the external authorisation page.
+5. Return to Row-Bot and refresh status.
+6. Test a read-only action before approving writes, posts, email, calendar, or repository changes.
+
+<Screenshot id="settings-accounts" alt="Row-Bot Accounts settings with external services disconnected." caption="Account rows keep connection status and actions visible without displaying stored credentials." />
+
+## Tokens And Scopes
+
+Secrets use the configured operating-system secret store when available. Settings show status, not the secret value. A service may still retain its own authorisation grant until you revoke it there. Use the narrowest scopes that support the feature and disconnect access you no longer use.
+
+## Troubleshooting
+
+- Confirm the system browser returned to the same Row-Bot instance that started the flow.
+- For GitHub CLI, refresh CLI authorisation after signing in or changing accounts.
+- If a callback fails, repeat the supported flow instead of copying browser storage.
+- If an action is denied after connection, review both the service scopes and the Row-Bot approval policy.
+""",
+        screenshot=True,
+    )
+
+    write(
+        "concepts/index.mdx",
+        "How Row-Bot Works",
+        "Understand Row-Bot's request, knowledge, agent, workflow, and extension models before configuring them.",
+        """
+# How Row-Bot Works
+
+These pages explain the ideas behind Row-Bot without walking through every control. Use them when you want to predict what the app will do, where data goes, why work continues in the background, or what an extension is allowed to change.
+
+- [How A Request Runs](/docs/concepts/request-lifecycle) follows a message from a thread through model context, tools, approvals, and saved results.
+- [How Memory Becomes Knowledge](/docs/concepts/memory-knowledge-and-dream-cycle) separates thread history, memory, documents, the Knowledge Graph, Wiki Vault, and Dream Cycle.
+- [How Profiles, Goals, And Agents Work](/docs/concepts/profiles-goals-and-agents) explains reusable roles, durable objectives, parent coordination, and child-agent hand-offs.
+- [How Background Workflows Run](/docs/concepts/background-workflows) explains schedules, run state, approvals, retries, and delivery.
+- [Extensions And Trust Boundaries](/docs/concepts/extensions-and-trust) compares built-in tools, Skills, Custom Tools, plugins, MCP, channels, and accounts.
+
+Each page ends with links to the settings and task guides that change the behaviour it describes.
+""",
+    )
+
+    write(
+        "concepts/request-lifecycle.mdx",
+        "How A Request Runs",
+        "Follow a Row-Bot request through context assembly, a selected model route, tools, approvals, and local history.",
+        """
+# How A Request Runs
+
+A Row-Bot request is a controlled loop, not a single message sent blindly to every connected service.
+
+1. **A thread provides continuity.** Your message joins the selected conversation. The thread supplies recent history and any thread-specific model or profile choice.
+2. **Row-Bot assembles useful context.** Depending on your settings and request, this can include profile instructions, enabled Skills, attachments, and relevant local memory or document results. It does not mean the whole local data directory is attached.
+3. **The selected model route receives the model prompt.** A local model keeps that inference on the configured local runtime. A hosted, API, subscription, or remote custom endpoint sends the assembled prompt to that provider under its terms.
+4. **The model may answer or ask for a tool.** Row-Bot checks that the tool exists, is enabled for the active profile or workflow, and is permitted by policy.
+5. **Consequential actions stop at an approval boundary.** The approval describes the proposed action and target. Rejecting it prevents that action; approving it does not give unrelated future actions permission.
+6. **Tool results return to the active run.** A local file tool, browser, channel, account, plugin, or MCP server has its own execution and data boundary. The model can use the result to continue the loop.
+7. **The result is recorded locally.** The thread keeps the conversation and run evidence. Optional extraction, memory, and document features decide what becomes reusable knowledge later.
+
+## Three Boundaries To Keep In Mind
+
+| Boundary | What crosses it | What controls it |
+| --- | --- | --- |
+| Model route | The assembled prompt and later tool results needed for reasoning. | Selected provider/model, thread override, profile or workflow policy. |
+| Tool execution | Arguments needed by a local or external capability. | Tool enablement, workspace or account scope, approval policy. |
+| Durable knowledge | Reviewed or extracted information that may be recalled in another request. | Memory, Knowledge, document, embedding, and retention settings. |
+
+Local-first describes where Row-Bot and its durable data live. It does not make a hosted model, web tool, channel, remote MCP server, realtime voice provider, or external account local.
+
+## Change How Requests Run
+
+- Choose routes and defaults in [Models And Providers](/docs/configuration/models-and-providers), [Provider Settings](/docs/settings/providers), and [Model Settings](/docs/settings/models).
+- Control tools and approvals in [Tools, Approvals, And Terminal](/docs/chat/tools-approvals-and-terminal) and [Privacy And Safety](/docs/privacy-safety/).
+- Control reusable context in [Knowledge Settings](/docs/settings/knowledge), [Documents Settings](/docs/settings/documents), and [Skills Settings](/docs/settings/skills).
+""",
+    )
+
+    write(
+        "concepts/memory-knowledge-and-dream-cycle.mdx",
+        "How Memory Becomes Knowledge",
+        "Understand thread history, memory, documents, the Knowledge Graph, Wiki Vault, and Dream Cycle as related but distinct layers.",
+        """
+# How Memory Becomes Knowledge
+
+Row-Bot has several kinds of continuity. They work together, but none is a magical copy of everything the app has ever seen.
+
+| Layer | What it represents | How it is used |
+| --- | --- | --- |
+| Thread history | Messages, attachments, tool traces, approvals, and results in one conversation. | Keeps the current conversation coherent and reviewable. |
+| Memory | Reusable facts, preferences, summaries, and events saved or extracted for later recall. | Supplies selected relevant context to future requests when enabled. |
+| Documents | Files deliberately added to the document library and split into searchable content. | Finds passages related to a question without placing every document in every prompt. |
+| Knowledge Graph | Local entities and directed relationships with source and confidence information. | Connects related people, projects, events, facts, and sources during review and recall. |
+| Wiki Vault | Linked Markdown pages generated from reviewed graph material. | Makes a portable, human-browsable projection in a folder you choose. |
+
+## From Conversation To Recall
+
+When extraction is enabled, Row-Bot can identify useful information from eligible conversations or documents and save structured records. Search combines the available lexical, vector, and graph signals to choose candidates relevant to a later request. Recall refreshes useful memories; it does not make every stored item equally likely to appear.
+
+The source record matters. A graph relation or memory should remain traceable to the conversation, document, or process that produced it. Correct the underlying Knowledge record before rebuilding derived indexes or Wiki Vault pages.
+
+## What Dream Cycle Does
+
+Dream Cycle is idle-time knowledge maintenance. When enabled and due, it can examine the local knowledge set, merge high-confidence duplicates, refresh summaries from available source context, infer strongly supported relationships, and prune stale low-confidence inferred relations. It records a journal so you can review what happened.
+
+Dream Cycle is not an autonomous second assistant and it does not make external facts true. It should run only during the configured window while the app is idle. Inferred relationships use confidence thresholds, but important knowledge still deserves human review.
+
+## What Wiki Vault Does
+
+Wiki Vault writes a readable view of selected graph material. The graph remains the source of truth; the vault is a generated output. If the destination is synced to a cloud drive, repository, or publishing tool, that folder becomes a separate sharing boundary.
+
+## Configure And Review It
+
+- Review records in [Knowledge](/docs/knowledge/) and investigate changes in [Monitor](/docs/monitor/).
+- Configure extraction, recall, embeddings, graph maintenance, Dream Cycle, and Wiki output in [Knowledge Settings](/docs/settings/knowledge).
+- Configure indexed files in [Documents Settings](/docs/settings/documents).
+- Set up the export folder in [Wiki Vault](/docs/knowledge/wiki-vault) and correct mistakes with [Provenance And Repair](/docs/knowledge/provenance-repair).
+- Back up the related local data as one set using [Operations, Data, And Recovery](/docs/operations/).
+""",
+    )
+
+    write(
+        "concepts/profiles-goals-and-agents.mdx",
+        "How Profiles, Goals, And Agents Work",
+        "Understand reusable Agent Profiles, durable goals, parent coordination, and bounded child-agent delegation.",
+        """
+# How Profiles, Goals, And Agents Work
+
+Profiles, goals, and agent runs describe different parts of long-running work.
+
+- An **Agent Profile** is a reusable operating role: instructions, model policy, Skills, tools, delegation limits, and approval policy.
+- A **goal** is the durable objective and finish condition for a piece of work that may span several turns.
+- An **agent run** is one execution attempt with a prompt, model, status, result, and evidence.
+- A **parent agent** coordinates the objective and combines results.
+- A **child agent** receives a bounded subtask and returns a hand-off to its parent.
+
+## Why Delegate
+
+Delegation is useful when independent research, inspection, or implementation can happen in parallel or needs a specialist profile. It is less useful when agents would edit the same small resource or when only one decision is needed. The parent remains responsible for deciding whether the combined evidence actually completes the goal.
+
+Child agents do not become invisible background permissions. Their runs remain linked to the parent, and a returned result is evidence rather than automatic authorisation to write, send, publish, or declare the goal complete. Tool availability and approvals still apply to the run doing the action.
+
+## Status And Hand-Offs
+
+An active goal can accumulate progress across turns. Completion should mean the finish condition and required checks are satisfied. A block should identify a real impasse, not merely unfinished work. Stopping an agent ends that run without deleting the parent thread, goal history, or already-recorded evidence.
+
+A useful child-agent hand-off says what was checked, what changed, what evidence was found, what remains uncertain, and whether any consequential action still needs the parent or user.
+
+## Configure And Use It
+
+- Create and select roles with [Profiles, Goals, And Agents](/docs/profiles-goals-agents/).
+- Choose a profile in a workflow with [Workflows](/docs/guides/workflows).
+- Control the models behind runs in [Models And Providers](/docs/configuration/models-and-providers).
+- Review waiting work and failures in [Mobile And Native Surfaces](/docs/mobile-native/) or [Monitor](/docs/monitor/).
+""",
+    )
+
+    write(
+        "concepts/background-workflows.mdx",
+        "How Background Workflows Run",
+        "Understand saved workflow definitions, schedules, isolated runs, approvals, retries, and delivery semantics.",
+        """
+# How Background Workflows Run
+
+A workflow is a saved task definition. A run is one attempt to execute it. Keeping those separate lets Row-Bot preserve history when you edit the next schedule or retry a failed attempt.
+
+1. **A trigger starts a run.** This can be a manual click, a recurring schedule, a one-time time, or another supported trigger.
+2. **The run resolves its policy.** Row-Bot chooses the workflow's Agent Profile, model override, tools, Skills, steps, and approval mode.
+3. **The run gets its own state.** Status, progress, step output, logs, and any persistent thread link are recorded so the scheduler can recover cleanly.
+4. **Approval can pause the run.** A background action that needs a decision becomes a pending approval instead of silently continuing. Approving resumes that action; rejecting or expiring it leaves a visible run outcome.
+5. **Completion and delivery are recorded separately.** A useful result can complete even if an external channel delivery fails, so the app can show the result and the delivery problem honestly.
+
+## Delivery Defaults
+
+The web app always receives run status. External channels are an additional destination.
+
+- **Inherit defaults** means the workflow uses the current workflow-level external channel selection.
+- **An explicit empty selection** means web app only, even when a global external default exists.
+- **An explicit channel selection** targets those configured running channels.
+
+This distinction prevents a workflow that was deliberately set to app-only from beginning to send externally after someone changes the global default.
+
+## Failure And Retry
+
+A failed run remains evidence; retrying creates another attempt rather than rewriting history. Fix the underlying provider, model, tool, approval, input, or delivery problem first. For multi-step work, keep steps narrow enough that the status identifies where the run stopped.
+
+Scheduled work can outlive the screen where it was created, but it cannot outlive the local Row-Bot process indefinitely. Pausing a workflow prevents future schedule starts; stopping one active run does not necessarily change the saved schedule.
+
+## Configure And Operate It
+
+- Create schedules, profiles, approvals, steps, and delivery in [Workflows](/docs/guides/workflows).
+- Configure external destinations in [Channels](/docs/integrations/channels) and [Channel Settings](/docs/settings/channels).
+- Review live status in [Monitor](/docs/monitor/) and mobile Activity in [Mobile And Native Surfaces](/docs/mobile-native/).
+- Back up workflow definitions and history with [Operations, Data, And Recovery](/docs/operations/).
+""",
+    )
+
+    write(
+        "concepts/extensions-and-trust.mdx",
+        "Extensions And Trust Boundaries",
+        "Compare Row-Bot tools, Skills, Custom Tools, plugins, MCP servers, channels, and accounts by what they add and where they run.",
+        """
+# Extensions And Trust Boundaries
+
+Row-Bot can learn a procedure, gain a tool, load code, connect a server, or authorise an account. Those are different changes and deserve different review.
+
+| Capability | What it adds | Main trust question |
+| --- | --- | --- |
+| Built-in tool | A maintained capability shipped with Row-Bot. | Is it enabled for this profile, and does this action need approval? |
+| Skill | Instructions, examples, and supporting files that shape behaviour. | Do the instructions match your intent and avoid unexpected data or tool use? |
+| Custom Tool | Reviewed local code or a command exposed as a reusable tool. | What code runs, in which workspace, with which dependencies and command class? |
+| Plugin | A packaged extension that can add code, tools, Skills, channels, configuration, or UI. | Do you trust its publisher, source, permissions, dependencies, and update path? |
+| MCP server | Tools supplied by a separate local process or remote service. | What can the server access, where does it run, and which of its tools are enabled? |
+| Channel | A bridge for incoming messages or outgoing results. | Who can contact it, which conversation receives replies, and may workflows deliver there? |
+| Account | Authorisation for a service such as GitHub, Google, or X. | Which service scopes and account data become available to enabled tools? |
+
+## Instructions Are Not Permissions
+
+A Skill or profile can tell the model when to use a capability, but it does not create credentials or bypass Row-Bot's tool and approval policy. Conversely, installing a plugin or MCP server can add real executable capability even when no Skill mentions it. Review both the guidance layer and the execution layer.
+
+## Local Does Not Always Mean Harmless
+
+A local plugin, command, or MCP process can still read files, start programs, or use locally stored credentials. A remote server or account can send data outside the app even if its configuration is stored locally. Use narrow workspaces, least-privilege accounts, disabled-by-default imports, and fictional test data.
+
+Third-party dependency telemetry is not Row-Bot telemetry. Review dependency behaviour before installation and do not expose prompts, files, memories, secrets, screenshots, tool arguments, or channel content unless that transfer is the feature you intentionally selected.
+
+## Browse And Configure Extensions
+
+- Compare extension types and browse screenshots in [Extend Row-Bot](/docs/extending/).
+- Browse and review Skills in [Skills Hub](/docs/skills/) and [Skills Settings](/docs/settings/skills).
+- Install and control packaged code in [Plugins](/docs/integrations/plugins) and [Plugin Settings](/docs/settings/plugins).
+- Browse, add, test, and enable servers in [MCP](/docs/integrations/mcp) and [MCP Settings](/docs/settings/mcp).
+- Configure external messaging in [Channels](/docs/integrations/channels) and service authorisation in [Accounts And Authorisation](/docs/integrations/accounts).
+""",
+    )
+
+    write(
+        "operations/index.mdx",
+        "Operations, Data, And Recovery",
+        "Back up, restore, update, repair, and uninstall Row-Bot without losing track of local data and credentials.",
+        """
+# Operations, Data, And Recovery
+
+Row-Bot is local-first, so operational safety starts with knowing which data directory and workspace are active. Conversations, settings, memory, Knowledge, workflows, documents, Designer projects, Developer workspace records, skills, plugins, logs, channel state, and MCP configuration can live under that directory. Operating-system key stores may hold credentials separately.
+
+## Back Up
+
+1. Open Settings and note the active data and workspace paths.
+2. Stop running workflows, channels, servers, and active generations.
+3. Close Row-Bot so databases are not changing during the copy.
+4. Copy the whole active data directory to protected storage.
+5. Back up external workspaces, exported Designer files, and Wiki vaults separately when they live elsewhere.
+6. Record the Row-Bot version used with the backup.
+
+## Restore
+
+Restore related databases and files as one set while Row-Bot is closed. Point a test launch at the restored directory first, then check conversations, providers, workflows, Knowledge, documents, Designer, Developer, plugins, MCP, and channels. Reconnect secrets that were stored in an OS keychain and were not included in the file backup.
+
+## Update, Repair, And Uninstall
+
+Use the supported package or updater flow for your platform. Back up before a major update. Repair may replace application files but should not be treated as a data backup. Uninstalling the application and deleting the local data directory are separate decisions; review both the application location and the data location before removal.
+
+## Logs And Support
+
+Use Monitor and the local log folder to diagnose startup, provider, workflow, channel, and background failures. Before sharing diagnostics, remove names, paths, account identifiers, document content, prompts, message content, tokens, and screenshots that expose private data.
+
+## Release-Specific Manual Checks
+
+Installer UX, upgrade, repair, uninstall, Windows signing, macOS notarisation, native file dialogs, OS permissions, and clean-machine behaviour require manual testing on release candidates. A successful docs build does not prove those native flows are release-ready.
+""",
+    )
+
+    write(
         "troubleshooting/index.mdx",
         "Troubleshooting",
         "Resolve setup, model, chat, workflow, Designer, Developer, Knowledge, Monitor, Settings, channel, MCP, plugin, skill, voice, and Buddy issues.",
@@ -1737,6 +2261,7 @@ Use the reference pages when you need a table or lookup after reading the guided
 - [Tools](/docs/reference/generated/tools)
 - [Providers](/docs/reference/generated/providers)
 - [Settings](/docs/reference/generated/settings)
+- [Settings Controls](/docs/reference/generated/settings-controls)
 - [Home Tabs](/docs/reference/generated/home-tabs)
 - [Channels](/docs/reference/generated/channels)
 - [Skills](/docs/reference/generated/skills)
@@ -1745,6 +2270,7 @@ Use the reference pages when you need a table or lookup after reading the guided
 - [Data Storage](/docs/reference/generated/data-storage)
 - [Safety And Approvals](/docs/reference/generated/safety-approvals)
 - [Environment And Config](/docs/reference/generated/environment-and-config)
+- [CLI](/docs/reference/generated/cli)
 - [Screenshots](/docs/reference/generated/screenshots)
 """,
     )
@@ -1757,6 +2283,8 @@ Use the reference pages when you need a table or lookup after reading the guided
 # Models And Providers
 
 Providers are where models come from. Models are the specific choices you use in Chat, workflows, Designer, Developer, voice, and other Row-Bot surfaces.
+
+To understand what leaves the app, when tools run, and where approvals fit, read [How A Request Runs](/docs/concepts/request-lifecycle).
 
 ## Recommended Setup Order
 
