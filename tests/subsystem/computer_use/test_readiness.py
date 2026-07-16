@@ -42,6 +42,8 @@ def test_system_override_version_check_cannot_run_before_disclosure(tmp_path, mo
 
 def test_verified_system_override_must_match_exact_reviewed_version(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(readiness_module.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(readiness_module.platform, "machine", lambda: "AMD64")
     binary = tmp_path / "cua-driver.exe"
     binary.write_bytes(b"fake")
     configure_system_cua(str(binary), enabled=True)
@@ -57,6 +59,8 @@ def test_verified_system_override_must_match_exact_reviewed_version(tmp_path, mo
 
 def test_failed_managed_doctor_rolls_back_to_retained_known_good(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(readiness_module.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(readiness_module.platform, "machine", lambda: "AMD64")
     monkeypatch.setattr(requirements, "RUNTIMES_DIR", tmp_path / "runtimes")
     acknowledge_disclosure()
     asset = readiness_module.selected_asset()
