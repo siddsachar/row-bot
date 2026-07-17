@@ -1,6 +1,8 @@
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
+const landingPageUrl = 'https://row-bot.ai/';
+
 const config: Config = {
   title: 'Row-Bot',
   tagline: 'Reason. Orchestrate. Work.',
@@ -57,8 +59,11 @@ const config: Config = {
       logo: {
         alt: 'Row-Bot',
         src: 'img/brand/row_bot_glyph_256.png',
+        href: landingPageUrl,
+        target: '_self',
       },
       items: [
+        {href: landingPageUrl, label: 'Home', position: 'left', target: '_self'},
         {to: '/docs/', label: 'Docs', position: 'left'},
         {to: '/docs/getting-started/installation', label: 'Install', position: 'left'},
         {to: '/docs/designer/', label: 'Designer', position: 'left'},
@@ -71,9 +76,10 @@ const config: Config = {
           position: 'right',
         },
         {
-          href: 'https://github.com/siddsachar/row-bot/releases/latest',
+          href: landingPageUrl,
           label: 'Download',
           position: 'right',
+          target: '_self',
         },
       ],
     },

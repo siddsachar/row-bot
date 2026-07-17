@@ -183,6 +183,21 @@ def test_conceptual_guides_link_to_configuration_pages() -> None:
         assert configuration_route in content
 
 
+def test_docs_navigation_returns_to_the_marketing_landing_page() -> None:
+    config = (ROOT / "docs-site" / "docusaurus.config.ts").read_text(encoding="utf-8")
+    docs_home = (ROOT / "docs-site" / "src" / "pages" / "index.tsx").read_text(
+        encoding="utf-8"
+    )
+
+    assert "const landingPageUrl = 'https://row-bot.ai/';" in config
+    assert config.count("href: landingPageUrl") == 3
+    assert "{href: landingPageUrl, label: 'Home'" in config
+    assert "label: 'Download'" in config
+    assert "github.com/siddsachar/row-bot/releases/latest" not in config
+    assert 'href="https://row-bot.ai/"' in docs_home
+    assert "github.com/siddsachar/row-bot/releases/latest" not in docs_home
+
+
 def test_authoritative_surface_map_has_one_outcome_per_surface() -> None:
     data = yaml.safe_load(
         (ROOT / "docs-content" / "metadata" / "ui_surfaces.yml").read_text(encoding="utf-8")
