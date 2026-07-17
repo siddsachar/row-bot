@@ -33,8 +33,13 @@ def test_active_session_and_settings_sources_expose_required_local_controls() ->
         "Technical details",
         "Manage Computer Use",
         "Developer options",
+        "Open Accessibility Settings",
+        "Open Screen Recording Settings",
+        "macOS is blocking Computer Use",
     ):
         assert label in source
+    assert "Privacy_Accessibility" in source
+    assert "Privacy_ScreenCapture" in source
     for label in (
         "Stop",
         "Take over",

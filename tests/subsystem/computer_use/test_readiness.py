@@ -111,3 +111,126 @@ def test_failed_managed_doctor_rolls_back_to_retained_known_good(tmp_path, monke
     assert requirements._read_manifest("cua-driver")["version"] == "0.7.0"
     assert old_root.exists()
     assert not new_root.exists()
+
+
+def test_macos_legacy_flattened_bundle_requires_repair_before_diagnostics(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(readiness_module.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(readiness_module.platform, "machine", lambda: "arm64")
+    monkeypatch.setattr(requirements, "RUNTIMES_DIR", tmp_path / "runtimes")
+    acknowledge_disclosure()
+    asset = readiness_module.selected_asset()
+    assert asset is not None
+    version_root = requirements.RUNTIMES_DIR / "cua-driver" / "0.7.1"
+    executable = version_root / "Contents" / "MacOS" / "cua-driver"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"reviewed")
+    requirements._write_manifest(
+        "cua-driver",
+        {
+            "installed": True,
+            "version": "0.7.1",
+            "archive_sha256": asset["sha256"],
+            "root": str(version_root),
+            "executable_path": str(executable),
+            "source": "reviewed-pinned-archive",
+        },
+    )
+
+    state = readiness(enabled=True)
+
+    assert state.code is ReadinessCode.DEGRADED
+    assert state.executable == str(executable)
+    assert "repair" in state.remediation.casefold()
+    assert "reinstall" in state.remediation.casefold()
+
+
+def test_macos_cua_install_requests_app_bundle_preservation(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(readiness_module.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(readiness_module.platform, "machine", lambda: "arm64")
+    acknowledge_disclosure()
+    captured = {}
+
+    def _install(runtime_id, **kwargs):
+        captured["runtime_id"] = runtime_id
+        captured.update(kwargs)
+        return SimpleNamespace(ok=True, message="installed")
+
+    monkeypatch.setattr(requirements, "install_pinned_archive_runtime", _install)
+
+    result = readiness_module.install_cua_runtime()
+
+    assert result.ok is True
+    assert captured["runtime_id"] == "cua-driver"
+    assert captured["preserve_top_level_directory"] is True
+
+
+def test_macos_permission_diagnostics_do_not_expose_upstream_internal_hints(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(readiness_module.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(readiness_module.platform, "machine", lambda: "arm64")
+    monkeypatch.setattr(requirements, "RUNTIMES_DIR", tmp_path / "runtimes")
+    acknowledge_disclosure()
+    asset = readiness_module.selected_asset()
+    assert asset is not None
+    version_root = requirements.RUNTIMES_DIR / "cua-driver" / "0.7.1"
+    executable = version_root / "CuaDriver.app" / "Contents" / "MacOS" / "cua-driver"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"reviewed")
+    requirements._write_manifest(
+        "cua-driver",
+        {
+            "installed": True,
+            "version": "0.7.1",
+            "archive_sha256": asset["sha256"],
+            "root": str(version_root),
+            "executable_path": str(executable),
+            "source": "reviewed-pinned-archive",
+            "preserve_top_level_directory": True,
+        },
+    )
+
+    class _PermissionDoctor:
+        def __init__(self, _executable):
+            pass
+
+        def start(self):
+            return None
+
+        def call_internal(self, _name):
+            return SimpleNamespace(
+                structured={
+                    "schema_version": "1",
+                    "overall": "failed",
+                    "checks": [
+                        {
+                            "name": "tcc_accessibility",
+                            "status": "fail",
+                            "hint": (
+                                "Grant Accessibility to CuaDriver.app; see bundle_identity "
+                                "and restart via cua-driver mcp."
+                            ),
+                        }
+                    ],
+                }
+            )
+
+        def close(self):
+            return None
+
+    import row_bot.computer_use.client as client_module
+
+    monkeypatch.setattr(client_module, "CuaClient", _PermissionDoctor)
+
+    result = readiness_module.run_cua_diagnostics()
+
+    assert result.code is ReadinessCode.PERMISSION_MISSING
+    assert "Row-Bot" in result.remediation
+    assert "CuaDriver" not in result.remediation
+    assert "bundle_identity" not in result.remediation
+    assert "cua-driver mcp" not in result.remediation
+    assert result.details is not None

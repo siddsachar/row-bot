@@ -20,6 +20,16 @@ def _zip(path: Path, members: dict[str, bytes]) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _tar_gz(path: Path, members: dict[str, bytes]) -> str:
+    with tarfile.open(path, "w:gz") as archive:
+        for name, data in members.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            info.mode = 0o755 if name.endswith("/cua-driver") else 0o644
+            archive.addfile(info, io.BytesIO(data))
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def test_pinned_installer_verifies_hash_layout_and_writes_manifest_atomically(tmp_path, monkeypatch) -> None:
     archive = tmp_path / "source.zip"
     sha = _zip(archive, {"bundle/cua-driver.exe": b"reviewed-binary", "bundle/LICENSE": b"MIT"})
@@ -35,6 +45,154 @@ def test_pinned_installer_verifies_hash_layout_and_writes_manifest_atomically(tm
     assert manifest["archive_sha256"] == sha
     assert Path(manifest["executable_path"]).read_bytes() == b"reviewed-binary"
     assert not list((runtimes / "cua-driver").glob("manifest.json.*.tmp"))
+
+
+def test_pinned_installer_preserves_a_reviewed_macos_app_bundle(tmp_path, monkeypatch) -> None:
+    archive = tmp_path / "cua-driver.tar.gz"
+    sha = _tar_gz(
+        archive,
+        {
+            "CuaDriver.app/Contents/Info.plist": b"reviewed-plist",
+            "CuaDriver.app/Contents/MacOS/cua-driver": b"reviewed-binary",
+        },
+    )
+    runtimes = tmp_path / "runtimes"
+    monkeypatch.setattr(requirements, "RUNTIMES_DIR", runtimes)
+    monkeypatch.setattr(
+        requirements,
+        "_download",
+        lambda _url, destination, _progress=None: shutil.copyfile(archive, destination),
+    )
+
+    result = requirements.install_pinned_archive_runtime(
+        "cua-driver",
+        version="0.7.1",
+        url="https://example.invalid/cua-driver.tar.gz",
+        sha256=sha,
+        asset_name="cua-driver.tar.gz",
+        executable_candidates=("CuaDriver.app/Contents/MacOS/cua-driver",),
+        preserve_top_level_directory=True,
+    )
+
+    manifest = requirements._read_manifest("cua-driver")
+    executable = Path(manifest["executable_path"])
+    assert result.ok is True
+    assert executable == (
+        runtimes
+        / "cua-driver"
+        / "0.7.1"
+        / "CuaDriver.app"
+        / "Contents"
+        / "MacOS"
+        / "cua-driver"
+    )
+    assert executable.read_bytes() == b"reviewed-binary"
+    assert manifest["preserve_top_level_directory"] is True
+
+
+def test_pinned_installer_repairs_legacy_flattened_macos_app_layout(tmp_path, monkeypatch) -> None:
+    archive = tmp_path / "cua-driver.tar.gz"
+    sha = _tar_gz(
+        archive,
+        {
+            "CuaDriver.app/Contents/Info.plist": b"reviewed-plist",
+            "CuaDriver.app/Contents/MacOS/cua-driver": b"reviewed-binary",
+        },
+    )
+    runtimes = tmp_path / "runtimes"
+    runtime_root = runtimes / "cua-driver"
+    legacy_root = runtime_root / "0.7.1"
+    legacy_executable = legacy_root / "Contents" / "MacOS" / "cua-driver"
+    legacy_executable.parent.mkdir(parents=True)
+    legacy_executable.write_bytes(b"reviewed-binary")
+    monkeypatch.setattr(requirements, "RUNTIMES_DIR", runtimes)
+    requirements._write_manifest(
+        "cua-driver",
+        {
+            "installed": True,
+            "version": "0.7.1",
+            "archive_sha256": sha,
+            "root": str(legacy_root),
+            "executable_path": str(legacy_executable),
+            "source": "reviewed-pinned-archive",
+        },
+    )
+    monkeypatch.setattr(
+        requirements,
+        "_download",
+        lambda _url, destination, _progress=None: shutil.copyfile(archive, destination),
+    )
+
+    result = requirements.install_pinned_archive_runtime(
+        "cua-driver",
+        version="0.7.1",
+        url="https://example.invalid/cua-driver.tar.gz",
+        sha256=sha,
+        asset_name="cua-driver.tar.gz",
+        executable_candidates=("CuaDriver.app/Contents/MacOS/cua-driver",),
+        preserve_top_level_directory=True,
+    )
+
+    executable = Path(requirements._read_manifest("cua-driver")["executable_path"])
+    assert result.ok is True
+    assert executable.parent.parent.parent.name == "CuaDriver.app"
+    assert executable.read_bytes() == b"reviewed-binary"
+    assert not (legacy_root / "Contents").exists()
+
+
+def test_failed_macos_layout_repair_restores_the_previous_managed_runtime(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    archive = tmp_path / "cua-driver.tar.gz"
+    sha = _tar_gz(
+        archive,
+        {
+            "CuaDriver.app/Contents/Info.plist": b"reviewed-plist",
+            "CuaDriver.app/Contents/MacOS/cua-driver": b"new-reviewed-binary",
+        },
+    )
+    runtimes = tmp_path / "runtimes"
+    runtime_root = runtimes / "cua-driver"
+    legacy_root = runtime_root / "0.7.1"
+    legacy_executable = legacy_root / "Contents" / "MacOS" / "cua-driver"
+    legacy_executable.parent.mkdir(parents=True)
+    legacy_executable.write_bytes(b"previous-reviewed-binary")
+    monkeypatch.setattr(requirements, "RUNTIMES_DIR", runtimes)
+    requirements._write_manifest(
+        "cua-driver",
+        {
+            "installed": True,
+            "version": "0.7.1",
+            "archive_sha256": sha,
+            "root": str(legacy_root),
+            "executable_path": str(legacy_executable),
+            "source": "reviewed-pinned-archive",
+        },
+    )
+    monkeypatch.setattr(
+        requirements,
+        "_download",
+        lambda _url, destination, _progress=None: shutil.copyfile(archive, destination),
+    )
+    def _fail_manifest_write(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(requirements, "_write_manifest", _fail_manifest_write)
+
+    with pytest.raises(OSError, match="disk full"):
+        requirements.install_pinned_archive_runtime(
+            "cua-driver",
+            version="0.7.1",
+            url="https://example.invalid/cua-driver.tar.gz",
+            sha256=sha,
+            asset_name="cua-driver.tar.gz",
+            executable_candidates=("CuaDriver.app/Contents/MacOS/cua-driver",),
+            preserve_top_level_directory=True,
+        )
+
+    assert legacy_executable.read_bytes() == b"previous-reviewed-binary"
+    assert not (legacy_root / "CuaDriver.app").exists()
 
 
 def test_corrupt_download_never_activates(tmp_path, monkeypatch) -> None:
