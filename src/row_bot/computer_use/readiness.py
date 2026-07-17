@@ -155,6 +155,11 @@ def resolve_cua_executable() -> str:
     return str(path) if path.is_file() else ""
 
 
+def _is_macos_app_bundle_executable(executable: str) -> bool:
+    path = Path(executable)
+    return any(parent.suffix.casefold() == ".app" for parent in path.parents)
+
+
 def configure_system_cua(path: str, *, enabled: bool) -> None:
     """Store an explicit advanced override without executing it."""
 
@@ -226,6 +231,16 @@ def readiness(*, enabled: bool | None = None) -> CuaReadiness:
         return CuaReadiness(ReadinessCode.VERSION_MISMATCH, "Installed Cua Driver version is outside the reviewed pin.", version=str(installed.get("version") or ""), executable=executable, remediation="Install the reviewed version.")
     if str(installed.get("archive_sha256") or "").lower() != str(asset["sha256"]).lower():
         return CuaReadiness(ReadinessCode.HASH_MISMATCH, "Cua Driver integrity metadata does not match the reviewed artifact.", version=str(installed.get("version") or ""), executable=executable, hash_status="mismatch", remediation="Reinstall the reviewed artifact.")
+    if asset.get("platform_key") == "macos-universal" and not _is_macos_app_bundle_executable(executable):
+        return CuaReadiness(
+            ReadinessCode.DEGRADED,
+            "The managed macOS helper needs repair before Computer Use can run.",
+            version=str(manifest["version"]),
+            executable=executable,
+            hash_status="verified",
+            remediation="Reinstall Computer Use to repair its macOS helper.",
+            details={"repair_required": True},
+        )
     if not installed.get("doctor_ok"):
         return CuaReadiness(ReadinessCode.DEGRADED, "Cua Driver integrity is verified; run diagnostics before use.", version=str(manifest["version"]), executable=executable, hash_status="verified", remediation="Run diagnostics.")
     if not installed.get("observation_ok"):
@@ -275,6 +290,7 @@ def install_cua_runtime(
         executable_candidates=tuple(str(value) for value in asset["executable_candidates"]),
         progress=progress,
         cancelled=cancelled,
+        preserve_top_level_directory=asset.get("platform_key") == "macos-universal",
     )
 
 
@@ -305,6 +321,8 @@ def run_cua_diagnostics() -> CuaReadiness:
     require_cua_disclosure()
     state = readiness(enabled=True)
     if state.code not in {ReadinessCode.READY, ReadinessCode.DEGRADED} or not state.executable:
+        return state
+    if state.details and state.details.get("repair_required"):
         return state
     from row_bot.computer_use.client import CuaClient
     from row_bot.mcp_client.requirements import finalize_pinned_archive_runtime, rollback_pinned_archive_runtime
@@ -337,5 +355,11 @@ def run_cua_diagnostics() -> CuaReadiness:
     permission = any(str(item.get("name") or "").startswith(("tcc_", "ax_", "screen_capture")) for item in failed)
     code = ReadinessCode.PERMISSION_MISSING if permission else ReadinessCode.DEGRADED if overall == "degraded" else ReadinessCode.FAILED
     hints = "; ".join(str(item.get("hint") or item.get("message") or "") for item in failed)
+    if permission:
+        hints = (
+            "Allow Row-Bot in macOS Privacy & Security, then return here and check again."
+            if platform.system().lower() == "darwin"
+            else "Grant the required screen and control permissions, then check again."
+        )
     _rollback_managed_candidate()
     return CuaReadiness(code, "Cua Driver diagnostics need attention.", state.version, state.executable, state.hash_status, hints, report)

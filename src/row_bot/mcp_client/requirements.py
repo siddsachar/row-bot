@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 import platform
-import re
 import subprocess
 import shutil
 import tarfile
@@ -500,7 +499,7 @@ def _extract_archive(archive: Path, destination: Path) -> Path:
                 _safe_target(member.name)
                 if member.issym() or member.islnk() or member.isdev() or member.isfifo():
                     raise RuntimeError(f"Archive contains unsupported special entry: {member.name}")
-            handle.extractall(destination)
+            handle.extractall(destination, filter="data")
     children = [item for item in destination.iterdir() if item.is_dir()]
     return children[0] if len(children) == 1 else destination
 
@@ -515,8 +514,14 @@ def install_pinned_archive_runtime(
     executable_candidates: tuple[str, ...],
     progress: Callable[[str], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
+    preserve_top_level_directory: bool = False,
 ) -> RuntimeInstallResult:
-    """Install one reviewed archive without resolving latest or running it."""
+    """Install one reviewed archive without resolving latest or running it.
+
+    ``preserve_top_level_directory`` keeps a reviewed archive's outer bundle
+    directory intact. This is required for signed macOS ``.app`` helpers,
+    whose bundle identity and permission attribution depend on that layout.
+    """
 
     if cancelled and cancelled():
         return RuntimeInstallResult(False, runtime_id, "Installation cancelled before download.")
@@ -548,35 +553,73 @@ def install_pinned_archive_runtime(
         if cancelled and cancelled():
             return RuntimeInstallResult(False, runtime_id, "Installation cancelled before activation.")
         version_root = runtime_root / version
+        legacy_layout_backup: Path | None = None
         if version_root.exists():
             existing = _read_manifest(runtime_id)
             existing_path = Path(str(existing.get("executable_path") or ""))
             if existing.get("version") == version and existing.get("archive_sha256") == sha256 and existing_path.is_file():
-                return RuntimeInstallResult(True, runtime_id, f"{runtime_id} {version} is already installed.", str(existing_path.parent), version)
-            raise RuntimeError(f"Existing {runtime_id} {version} directory failed integrity metadata checks")
-        activated_source = extracted if extracted != extracted_root else extracted_root
-        shutil.move(str(activated_source), str(version_root))
+                existing_root = Path(str(existing.get("root") or ""))
+                app_bundle_preserved = any(
+                    parent.suffix.casefold() == ".app"
+                    for parent in existing_path.parents
+                    if parent != existing_root.parent
+                )
+                if not preserve_top_level_directory or app_bundle_preserved:
+                    return RuntimeInstallResult(True, runtime_id, f"{runtime_id} {version} is already installed.", str(existing_path.parent), version)
+                try:
+                    valid_managed_root = existing_root.resolve() == version_root.resolve()
+                    valid_managed_path = existing_path.resolve().is_relative_to(existing_root.resolve())
+                except (OSError, RuntimeError, ValueError):
+                    valid_managed_root = False
+                    valid_managed_path = False
+                if not valid_managed_root or not valid_managed_path:
+                    raise RuntimeError(
+                        f"Refusing to repair {runtime_id} outside its managed version directory"
+                    )
+                legacy_layout_backup = tmp_root / "legacy-layout"
+                shutil.move(str(version_root), str(legacy_layout_backup))
+            else:
+                raise RuntimeError(f"Existing {runtime_id} {version} directory failed integrity metadata checks")
+        activated_source = (
+            extracted_root
+            if preserve_top_level_directory
+            else extracted if extracted != extracted_root else extracted_root
+        )
         relative_executable = executable.relative_to(activated_source)
         active_executable = version_root / relative_executable
-        if platform.system().lower() != "windows":
-            active_executable.chmod(active_executable.stat().st_mode | stat.S_IXUSR)
-        activated_manifest: dict[str, Any] = {
-            "installed": True,
-            "version": version,
-            "archive_name": asset_name,
-            "archive_url": url,
-            "archive_sha256": sha256,
-            "root": str(version_root),
-            "bin_dir": str(active_executable.parent),
-            "executable_path": str(active_executable),
-            "source": "reviewed-pinned-archive",
-        }
-        previous_executable = Path(str(previous_manifest.get("executable_path") or ""))
-        if previous_manifest.get("doctor_ok") and previous_executable.is_file():
-            retained = dict(previous_manifest)
-            retained.pop("previous_manifest", None)
-            activated_manifest["previous_manifest"] = retained
-        _write_manifest(runtime_id, activated_manifest)
+        activated = False
+        try:
+            shutil.move(str(activated_source), str(version_root))
+            if platform.system().lower() != "windows":
+                active_executable.chmod(active_executable.stat().st_mode | stat.S_IXUSR)
+            activated_manifest: dict[str, Any] = {
+                "installed": True,
+                "version": version,
+                "archive_name": asset_name,
+                "archive_url": url,
+                "archive_sha256": sha256,
+                "root": str(version_root),
+                "bin_dir": str(active_executable.parent),
+                "executable_path": str(active_executable),
+                "source": "reviewed-pinned-archive",
+                "preserve_top_level_directory": bool(preserve_top_level_directory),
+            }
+            previous_executable = Path(str(previous_manifest.get("executable_path") or ""))
+            if previous_manifest.get("doctor_ok") and previous_executable.is_file():
+                retained = dict(previous_manifest)
+                retained.pop("previous_manifest", None)
+                activated_manifest["previous_manifest"] = retained
+            _write_manifest(runtime_id, activated_manifest)
+            activated = True
+        except Exception:
+            if version_root.exists():
+                shutil.rmtree(version_root)
+            if legacy_layout_backup is not None and legacy_layout_backup.exists():
+                shutil.move(str(legacy_layout_backup), str(version_root))
+            raise
+        finally:
+            if activated and legacy_layout_backup is not None:
+                shutil.rmtree(legacy_layout_backup, ignore_errors=True)
     return RuntimeInstallResult(True, runtime_id, f"Installed {runtime_id} {version} for Row-Bot.", str(active_executable.parent), version)
 
 

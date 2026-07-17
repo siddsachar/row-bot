@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+import platform
 import secrets
+import subprocess
 from dataclasses import dataclass
 from typing import Any
 
@@ -43,10 +45,92 @@ class ComputerUseSettingsView:
     show_manage: bool = False
 
 
+@dataclass(frozen=True)
+class ComputerUsePermissionRecovery:
+    """Sanitized, user-actionable macOS permission recovery state."""
+
+    title: str
+    detail: str
+    steps: tuple[str, ...]
+    missing_accessibility: bool
+    missing_screen_recording: bool
+
+
+def computer_use_permission_recovery(
+    state: Any,
+    *,
+    system: str | None = None,
+) -> ComputerUsePermissionRecovery | None:
+    """Translate Cua health checks into Row-Bot-focused macOS instructions."""
+
+    if (system or platform.system()).casefold() != "darwin":
+        return None
+    if getattr(state, "code", None) is not ReadinessCode.PERMISSION_MISSING:
+        return None
+    checks = (getattr(state, "details", None) or {}).get("checks") or []
+    failed_names = {
+        str(check.get("name") or "").casefold()
+        for check in checks
+        if isinstance(check, dict) and check.get("status") == "fail"
+    }
+    missing_accessibility = any(
+        name.startswith(("tcc_accessibility", "ax_")) for name in failed_names
+    )
+    missing_screen_recording = any(
+        name.startswith(("tcc_screen", "screen_capture")) for name in failed_names
+    )
+    if not missing_accessibility and not missing_screen_recording:
+        missing_accessibility = True
+        missing_screen_recording = True
+    steps: list[str] = []
+    if missing_accessibility:
+        steps.append("Open Accessibility Settings and switch on Row-Bot.")
+    if missing_screen_recording:
+        steps.append("Open Screen Recording Settings and switch on Row-Bot.")
+    steps.append(
+        "Quit and reopen Row-Bot if macOS asks, then return here and select Recheck."
+    )
+    return ComputerUsePermissionRecovery(
+        title="macOS is blocking Computer Use",
+        detail=(
+            "Row-Bot can open the correct System Settings pages, but macOS requires "
+            "you to switch these permissions on."
+        ),
+        steps=tuple(steps),
+        missing_accessibility=missing_accessibility,
+        missing_screen_recording=missing_screen_recording,
+    )
+
+
+_MACOS_PRIVACY_URLS = {
+    "accessibility": (
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+    ),
+    "screen_recording": (
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+    ),
+}
+
+
+def open_macos_privacy_settings(permission: str) -> None:
+    """Open a macOS privacy pane after an explicit user action."""
+
+    try:
+        url = _MACOS_PRIVACY_URLS[permission]
+    except KeyError as exc:
+        raise ValueError(f"Unknown macOS privacy permission: {permission}") from exc
+    subprocess.Popen(  # noqa: S603 - fixed executable and fixed deep links
+        ["open", url],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
 def computer_use_settings_view(
     state: Any,
     *,
     operation: str = "",
+    system: str | None = None,
 ) -> ComputerUseSettingsView:
     """Map detailed runtime readiness to a non-technical user-facing state."""
 
@@ -105,18 +189,41 @@ def computer_use_settings_view(
             primary_action="Install Computer Use",
             needs_install=True,
         )
+    if code is ReadinessCode.PERMISSION_MISSING:
+        is_macos = (system or platform.system()).casefold() == "darwin"
+        return ComputerUseSettingsView(
+            "Allow macOS access" if is_macos else "Allow Computer Use access",
+            (
+                "Open the guided steps below, switch on Row-Bot, then recheck setup."
+                if is_macos
+                else "Grant the required screen and control permissions, then recheck setup."
+            ),
+            "privacy_tip",
+            "warning",
+            primary_action="Recheck",
+            allow_check=True,
+            show_manage=has_runtime,
+        )
     if code is ReadinessCode.DEGRADED:
         needs_test = "calculator" in remediation or "test" in remediation
+        needs_repair = "repair" in remediation or "reinstall" in remediation
         return ComputerUseSettingsView(
             "Finish setting up Computer Use",
             (
-                "Run a quick Calculator test to finish setup."
+                "Repair the managed macOS helper before checking access again."
+                if needs_repair
+                else "Run a quick Calculator test to finish setup."
                 if needs_test
                 else "Check local access before using Computer Use."
             ),
             "build_circle",
             "warning",
-            primary_action="Test Computer Use" if needs_test else "Check setup",
+            primary_action=(
+                "Repair Computer Use"
+                if needs_repair
+                else "Test Computer Use" if needs_test else "Check setup"
+            ),
+            needs_install=needs_repair,
             allow_check=True,
             allow_test=needs_test,
             show_manage=has_runtime,
@@ -218,8 +325,10 @@ def build_computer_use_settings_card(tool_registry: Any) -> None:
 
     status_container = ui.column().classes("w-full gap-1 q-mt-sm")
     action_container = ui.row().classes("w-full items-center gap-2 q-mt-xs")
+    recovery_container = ui.column().classes("w-full q-mt-xs")
     technical_status: Any = None
     operation = {"value": ""}
+    diagnostic_state: dict[str, Any] = {"value": None}
     manage_section: Any = None
     developer_section: Any = None
 
@@ -231,6 +340,7 @@ def build_computer_use_settings_card(tool_registry: Any) -> None:
         with ui.row().classes("w-full justify-end gap-2"):
             def _cancel() -> None:
                 cancel_disclosure()
+                diagnostic_state["value"] = None
                 toggle.value = False
                 tool_registry.set_enabled("computer_use", False)
                 disclosure.close()
@@ -256,6 +366,7 @@ def build_computer_use_settings_card(tool_registry: Any) -> None:
         else:
             tool_registry.set_enabled("computer_use", False)
             get_computer_use_service().stop()
+            diagnostic_state["value"] = None
         _refresh_status()
 
     toggle.on_value_change(_toggle)
@@ -279,6 +390,7 @@ def build_computer_use_settings_card(tool_registry: Any) -> None:
         ui.label(vision_summary).classes("text-xs text-grey-5")
 
     async def _install() -> None:
+        diagnostic_state["value"] = None
         operation["value"] = "installing"
         _refresh_status()
         try:
@@ -295,7 +407,20 @@ def build_computer_use_settings_card(tool_registry: Any) -> None:
         _refresh_status()
         try:
             result = await run.io_bound(run_cua_diagnostics)
-            ui.notify(result.message + (f" {result.remediation}" if result.remediation else ""), type="positive" if result.code is ReadinessCode.READY else "warning")
+            diagnostic_state["value"] = (
+                result if result.code is ReadinessCode.PERMISSION_MISSING else None
+            )
+            if result.code is ReadinessCode.PERMISSION_MISSING:
+                ui.notify(
+                    "macOS access is incomplete. Follow the guided steps below.",
+                    type="warning",
+                )
+            else:
+                ui.notify(
+                    result.message
+                    + (f" {result.remediation}" if result.remediation else ""),
+                    type="positive" if result.code is ReadinessCode.READY else "warning",
+                )
         except Exception as exc:
             ui.notify(str(exc), type="negative")
         finally:
@@ -388,7 +513,15 @@ def build_computer_use_settings_card(tool_registry: Any) -> None:
 
     def _refresh_status() -> None:
         state = readiness(enabled=tool_registry.is_enabled("computer_use"))
+        latest_diagnostic = diagnostic_state["value"]
+        if (
+            latest_diagnostic is not None
+            and latest_diagnostic.code is ReadinessCode.PERMISSION_MISSING
+            and tool_registry.is_enabled("computer_use")
+        ):
+            state = latest_diagnostic
         view = computer_use_settings_view(state, operation=operation["value"])
+        recovery = computer_use_permission_recovery(state)
         status_container.clear()
         with status_container:
             with ui.row().classes("items-center gap-2"):
@@ -398,7 +531,10 @@ def build_computer_use_settings_card(tool_registry: Any) -> None:
 
         action_container.clear()
         with action_container:
-            if not operation["value"] and view.primary_action == "Install Computer Use":
+            if not operation["value"] and view.primary_action in {
+                "Install Computer Use",
+                "Repair Computer Use",
+            }:
                 ui.button(view.primary_action, icon="download", on_click=_install).props(
                     "unelevated dense no-caps color=primary"
                 )
@@ -414,6 +550,55 @@ def build_computer_use_settings_card(tool_registry: Any) -> None:
                 ui.button(view.primary_action, icon="health_and_safety", on_click=_diagnostics).props(
                     "unelevated dense no-caps color=primary"
                 )
+            elif (
+                not operation["value"]
+                and view.primary_action == "Recheck"
+                and recovery is None
+            ):
+                ui.button("Recheck", icon="refresh", on_click=_diagnostics).props(
+                    "unelevated dense no-caps color=primary"
+                )
+
+        recovery_container.clear()
+        if recovery is not None:
+            with recovery_container:
+                with ui.card().classes("w-full q-pa-md").style(
+                    "border: 1px solid rgba(234,179,8,.55); "
+                    "background: rgba(113,63,18,.18);"
+                ):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.icon("privacy_tip", color="warning")
+                        ui.label(recovery.title).classes("text-sm text-weight-bold")
+                    ui.label(recovery.detail).classes("text-sm q-mt-xs")
+                    with ui.column().classes("gap-1 q-mt-sm"):
+                        for index, step in enumerate(recovery.steps, start=1):
+                            ui.label(f"{index}. {step}").classes("text-sm")
+
+                    def _open_permission(permission: str) -> None:
+                        try:
+                            open_macos_privacy_settings(permission)
+                        except Exception:
+                            ui.notify(
+                                "Could not open System Settings. Open Privacy & Security manually.",
+                                type="negative",
+                            )
+
+                    with ui.row().classes("items-center gap-2 q-mt-sm"):
+                        if recovery.missing_accessibility:
+                            ui.button(
+                                "Open Accessibility Settings",
+                                icon="accessibility_new",
+                                on_click=lambda: _open_permission("accessibility"),
+                            ).props("outline dense no-caps")
+                        if recovery.missing_screen_recording:
+                            ui.button(
+                                "Open Screen Recording Settings",
+                                icon="screenshot_monitor",
+                                on_click=lambda: _open_permission("screen_recording"),
+                            ).props("outline dense no-caps")
+                        ui.button("Recheck", icon="refresh", on_click=_diagnostics).props(
+                            "unelevated dense no-caps color=primary"
+                        )
 
         technical_status.clear()
         with technical_status:
@@ -422,8 +607,12 @@ def build_computer_use_settings_card(tool_registry: Any) -> None:
             ui.label(f"Integrity: {state.hash_status or 'not yet verified'}").classes(
                 "text-xs text-grey-6"
             )
-            if state.remediation:
+            if state.remediation and state.code is not ReadinessCode.PERMISSION_MISSING:
                 ui.label(f"Recovery detail: {state.remediation}").classes("text-xs text-grey-6")
+            elif state.code is ReadinessCode.PERMISSION_MISSING:
+                ui.label(
+                    "Recovery detail: macOS privacy permissions are incomplete."
+                ).classes("text-xs text-grey-6")
 
         enabled_and_disclosed = bool(
             tool_registry.is_enabled("computer_use") and disclosure_acknowledged()
