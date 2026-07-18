@@ -1,13 +1,13 @@
 ---
 title: "Settings: System"
-description: "Configure local access, workspace paths, shell and browser behavior, tunnels, logs, and updates."
+description: "Configure local access, workspace paths, browser and Computer Use behavior, tunnels, logs, and updates."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
 
 # Settings: System
 
-System settings describe what the local app may access and how it runs on your machine. This is where you adjust the app window, workspace boundaries, shell behavior, browser automation, tunnels, and diagnostics.
+System settings describe what the local app may access and how it runs on your machine. This is where you adjust the app window, workspace boundaries, shell behavior, browser automation, opt-in native Computer Use, tunnels, and diagnostics.
 
 <Screenshot id="settings-system" alt="Settings: System in Row-Bot." caption="The System tab contains local runtime choices, workspace access, window mode, tunnels, and diagnostic controls." />
 
@@ -20,6 +20,7 @@ Open **Settings**, then choose **System** from the left tab list.
 - Workspace and filesystem controls define where Row-Bot may read or write when tools need local files.
 - Shell and command controls affect whether command-running tools are available and how approvals apply.
 - Browser controls affect page-reading and browser automation features.
+- Computer Use controls keep native application automation separate, off by default, and gated by platform readiness, telemetry disclosure, and a verified optional runtime.
 - Window mode chooses whether Row-Bot opens in its own app window, the system browser, or asks at launch.
 - Tunnel settings are for external callback use cases such as channels that need a public webhook URL.
 - Log and diagnostic controls help support troubleshooting without changing your model setup.
@@ -28,8 +29,9 @@ Open **Settings**, then choose **System** from the left tab list.
 
 1. Keep workspace access narrow for everyday use.
 2. Enable shell or browser automation only when you intend to use those tools.
-3. Use tunnels only for channels or integrations that explicitly require inbound webhooks.
-4. Collect logs from this tab when troubleshooting startup or provider issues.
+3. Enable Computer Use only on an interactive Windows or macOS desktop after reviewing its separate setup and safety guide.
+4. Use tunnels only for channels or integrations that explicitly require inbound webhooks.
+5. Collect logs from this tab when troubleshooting startup or provider issues.
 
 ## What Is Saved
 
@@ -46,5 +48,6 @@ The [generated Settings Controls reference](/docs/reference/generated/settings-c
 ## Troubleshooting
 
 - If Row-Bot cannot read a file, check whether it is inside the allowed workspace.
+- If Computer Use is unavailable, open its setup card and follow the reported runtime or operating-system permission recovery step.
 - If a tunnel URL is unavailable, check the tunnel provider credentials and whether the tunnel is running.
 - If the app opens in the wrong place, change Window mode and restart Row-Bot.

@@ -1,10 +1,10 @@
 (() => {
     'use strict';
 
-    const WINDOWS_URL = 'https://github.com/siddsachar/row-bot/releases/download/v4.4.0/Row-Bot-4.4.0-Windows-x64.exe';
-    const MAC_URL = 'https://github.com/siddsachar/row-bot/releases/download/v4.4.0/Row-Bot-4.4.0-macOS-arm64.dmg';
+    const WINDOWS_URL = 'https://github.com/siddsachar/row-bot/releases/download/v4.5.0/Row-Bot-4.5.0-Windows-x64.exe';
+    const MAC_URL = 'https://github.com/siddsachar/row-bot/releases/download/v4.5.0/Row-Bot-4.5.0-macOS-arm64.dmg';
     const LINUX_TARGET = '#install';
-    const LINUX_COMMAND = 'curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/v4.4.0/installer/install-linux.sh | bash -s -- 4.4.0';
+    const LINUX_COMMAND = 'curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/v4.5.0/installer/install-linux.sh | bash -s -- 4.5.0';
 
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 

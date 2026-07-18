@@ -23,6 +23,8 @@ For the mental model behind delegation and hand-offs, read [How Profiles, Goals,
 
 Profiles do not grant capabilities by themselves. A selected tool must still be enabled, available, and allowed by the active approval policy. A profile that can delegate may start child agents, but each run remains visible in the Activity Center and the chat agent strip.
 
+New runs also receive a checkpointed work budget. The Models settings tab shows the recommended application-wide work-round, nesting, concurrency, and optional child active-time limits. Extra children wait in a first-in, first-out queue when capacity is full; changing a setting affects new runs, not work already in progress.
+
 <Screenshot id="goal-and-agents" alt="Row-Bot active goal and delegated agents for a fictional launch checklist." caption="The goal strip records bounded progress while parent and child agent rows show who is running, complete, waiting, or stopped." />
 
 ## Run A Goal
@@ -39,6 +41,8 @@ A goal is useful when work needs more than one turn. State the objective and an 
 Parent agents coordinate. Child agents handle bounded subtasks. Open an agent row to review its prompt, profile, model, status, result, evidence, and thread. A completed child result is evidence for the parent, not automatic permission to write files, send messages, commit code, or publish.
 
 If a run appears stuck, inspect its last update before stopping it. If several agents edit the same resource, narrow their ownership or run them sequentially. Keep consequential final actions with the parent and a human approval point.
+
+Repeated model-and-tool states are detected before a run can loop indefinitely. The fourth identical no-progress state is blocked; a fifth ends the run cleanly with a durable reason. Reaching a configured work limit also finalizes the run instead of leaving it marked as active.
 
 ## What Is Saved
 

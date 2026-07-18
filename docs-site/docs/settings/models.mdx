@@ -1,6 +1,6 @@
 ---
 title: "Settings: Models"
-description: "Choose defaults, pin Quick Choices, and review discovered model catalog data."
+description: "Choose defaults, pin Quick Choices, review model catalogs, and set Agent runtime limits."
 ---
 
 import Screenshot from '@site/src/components/Screenshot';
@@ -23,6 +23,7 @@ Open **Settings**, then choose **Models** from the left tab list.
 - Compatibility labels separate ordinary chat models from tool-capable, vision-capable, reasoning, embedding, voice, or media models.
 - Provider filters and search help find a specific model when many are available.
 - Warnings explain when a model is visible but not recommended for tool-heavy Agent Mode.
+- Agent runtime and delegation controls set work rounds, nesting depth, per-parent and app-wide child capacity, and an optional active-time limit for new runs.
 
 ## Common Workflow
 
@@ -30,6 +31,7 @@ Open **Settings**, then choose **Models** from the left tab list.
 2. Pin one everyday chat model and one stronger tool-capable model.
 3. Use provider-qualified names when two providers expose models with similar names.
 4. Return to Chat and pick the pinned model from the model picker.
+5. Keep the recommended Agent runtime limits unless you have a measured reason to change them; active runs retain the snapshot they started with.
 
 ## What Is Saved
 

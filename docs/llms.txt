@@ -34,6 +34,8 @@ Public documentation index for Row-Bot.
   Route: /docs/knowledge/wiki-vault. Generate and maintain a local Markdown vault from reviewed Row-Bot knowledge.
 - [Knowledge Provenance And Repair](/docs/knowledge/provenance-repair)
   Route: /docs/knowledge/provenance-repair. Trace where knowledge came from, correct records, repair relations, and rebuild derived outputs safely.
+- [Computer Use](/docs/computer-use/)
+  Route: /docs/computer-use/. Set up and safely use Row-Bot's opt-in native Windows and macOS application control.
 - [Monitor](/docs/monitor/)
   Route: /docs/monitor/. Inspect Row-Bot logs, journals, workflow state, channels, and background activity.
 - [Android And Native Desktop](/docs/mobile-native/)
@@ -55,7 +57,7 @@ Public documentation index for Row-Bot.
 - [Settings: Providers](/docs/settings/providers)
   Route: /docs/settings/providers. Connect local, hosted, subscription, and custom model providers.
 - [Settings: Models](/docs/settings/models)
-  Route: /docs/settings/models. Choose defaults, pin Quick Choices, and review discovered model catalog data.
+  Route: /docs/settings/models. Choose defaults, pin Quick Choices, review model catalogs, and set Agent runtime limits.
 - [Settings: Knowledge](/docs/settings/knowledge)
   Route: /docs/settings/knowledge. Configure memory, graph review, embeddings, document knowledge, and wiki export.
 - [Settings: Buddy](/docs/settings/buddy)
@@ -63,7 +65,7 @@ Public documentation index for Row-Bot.
 - [Settings: Voice](/docs/settings/voice)
   Route: /docs/settings/voice. Configure dictation, realtime talk, read-aloud, voice models, devices, and diagnostics.
 - [Settings: System](/docs/settings/system)
-  Route: /docs/settings/system. Configure local access, workspace paths, shell and browser behavior, tunnels, logs, and updates.
+  Route: /docs/settings/system. Configure local access, workspace paths, browser and Computer Use behavior, tunnels, logs, and updates.
 - [Settings: Tracker](/docs/settings/tracker)
   Route: /docs/settings/tracker. Configure recurring activity, habit, symptom, and health tracking surfaces.
 - [Settings: Documents](/docs/settings/documents)

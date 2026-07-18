@@ -21,13 +21,15 @@ files, repos, workflows, and channels you choose.
 It combines chat, durable memory, tool use, Agent Profiles, Goal Mode,
 child-agent delegation, profile-first workflows, Developer Studio, Designer
 Studio, Smart Skills, Skills Hub, Custom Tools, Plugin System v2, messaging
-channels, a secure mobile web companion, realtime voice, and provider-aware
-model routing. Durable app data stays local by default.
+channels, a secure mobile web companion, opt-in native Computer Use, realtime
+voice, and provider-aware model routing. Durable app data stays local by
+default.
 
 For larger tasks, Row-Bot can keep a visible goal, run the thread through a
 focused Agent Profile, and delegate scoped child agents for research, review,
 implementation, or follow-up work while preserving tool limits, approvals, and
-local run history.
+local run history. Checkpoint-safe work budgets and application-wide delegation
+limits keep long or repetitive agent runs bounded and visible.
 
 Choose the model path that fits the task: local models through
 [Ollama](https://ollama.com/); provider keys for OpenAI, Anthropic, Google AI,
@@ -42,9 +44,11 @@ chat-only fallbacks explicit so local, hosted, subscription, and self-hosted
 models can sit side by side.
 
 Row-Bot itself has no account system, no Row-Bot-hosted inference server, and
-no telemetry pipeline. Provider calls go to the provider or endpoint you choose,
-and provider keys, OAuth tokens, and subscription tokens are stored in the OS
-credential store when available.
+no first-party telemetry pipeline. Provider calls go to the provider or
+endpoint you choose, and provider keys, OAuth tokens, and subscription tokens
+are stored in the OS credential store when available. The optional Computer Use
+beta depends on Cua Driver, whose separately disclosed upstream telemetry must
+be accepted before Row-Bot installs or invokes it.
 
 Download the latest installer from [GitHub Releases](https://github.com/siddsachar/row-bot/releases). Windows and macOS use one-click installers. Linux has a one-line user installer.
 
@@ -63,16 +67,16 @@ Download the latest installer from [GitHub Releases](https://github.com/siddsach
 
 | Area | Details |
 |------|---------|
-| Agent orchestration | LangGraph ReAct agent, Goal Mode, Agent Profiles, Profile Library, child-agent delegation, durable child-agent runs and parent-thread approvals, profile/tool allowlists, agent status and wait tools, promoted Agent-run workflows, generation-scoped cancellation, streaming activity, thinking bubbles, smart context trimming, and per-thread, per-workflow, per-profile, and per-Developer model overrides. |
+| Agent orchestration | LangGraph ReAct agent, Goal Mode, Agent Profiles, Profile Library, child-agent delegation, durable child-agent runs and parent-thread approvals, checkpoint-safe work budgets, repeated-action protection, configurable nesting/concurrency/active-time limits, profile/tool allowlists, agent status and wait tools, promoted Agent-run workflows, generation-scoped cancellation, streaming activity, thinking bubbles, smart context trimming, and per-thread, per-workflow, per-profile, and per-Developer model overrides. |
 | Models and providers | Provider-qualified model selection, readiness routing, chat-only fallback for non-tool models, chat/agent/vision/image/video capability labels, custom endpoint profiles and probes, automatic live catalog discovery with last-known-good preservation, xAI Grok OAuth, ChatGPT / Codex and Claude Subscription providers, OpenCode providers, provider-scoped tool-schema compatibility, prompt-cache diagnostics, and background model cache. |
-| Memory and knowledge | Personal knowledge graph, 10 entity types, 67 typed relations, bounded semantic/lexical/graph recall, audit and review states, recall traces, graph visualization, Obsidian-compatible wiki export, document extraction with source provenance, Dream Cycle refinement, duplicate merging, stale-confidence decay, relationship inference, self-knowledge, insights, and conversation search. |
-| Tools | 30+ core tool modules for web search, DuckDuckGo, Wikipedia, arXiv, YouTube transcripts, URL reading, documents, wiki vault, Gmail, Google Calendar, filesystem, shell, browser automation, workflows, Goal Mode, child-agent delegation, tracker, channels, X, image generation/editing, video generation, MCP, Developer Studio, Designer Studio, Custom Tool Builder, status, calculator, Wolfram Alpha, weather, vision, memory, system info, and charts. File tools read PDF, CSV, Excel, JSON, JSONL, TSV, and image files, with schema, stats, previews, and PDF export where supported. |
+| Memory and knowledge | Personal knowledge graph, 10 entity types, 67 typed relations, bounded semantic/lexical/graph recall, cache-only local embeddings with explicit download/repair and fast lexical/graph fallback, audit and review states, recall traces, graph visualization, Obsidian-compatible wiki export, document extraction with source provenance, Dream Cycle refinement, duplicate merging, stale-confidence decay, relationship inference, self-knowledge, insights, and conversation search. |
+| Tools | 30+ core tool modules for web search, DuckDuckGo, Wikipedia, arXiv, YouTube transcripts, URL reading, documents, wiki vault, Gmail, Google Calendar, filesystem, shell, visible browser automation, opt-in native Computer Use, workflows, Goal Mode, child-agent delegation, tracker, channels, X, image generation/editing, video generation, MCP, Developer Studio, Designer Studio, Custom Tool Builder, status, calculator, Wolfram Alpha, weather, vision, memory, system info, and charts. File tools read PDF, CSV, Excel, JSON, JSONL, TSV, and image files, with schema, stats, previews, and PDF export where supported. |
 | Developer Studio | Local Git workspace linking and cloning, code threads, per-thread and child-agent worktrees, repo inspector, file tree, diffs, todos, tests, branch, commit, push and PR prep, approval modes, and optional Docker Sandbox with a shadow workspace and explicit import back into the real repo. |
 | Designer Studio | Decks, documents, landing pages, app mockups, and storyboards with a sandboxed interactive runtime, templates, brand controls, critique and repair, AI image and video generation, chart insertion, Mermaid and Plotly rendering, shareable HTML, and export to PDF, HTML, PNG, and PPTX. |
 | Workflows | Scheduled runs, webhook triggers, task-completion triggers, step pipelines, conditions, approvals, subtasks, notification-only runs, concurrency groups, delivery defaults, profile-first workflow agents, promoted Agent-run workflows, per-workflow model/tool/skill/profile overrides, safety modes, run status, run history, upcoming runs, and a Workflow Console. |
 | Controlled self-evolution | Structured self-reflection, bounded change proposals, reviewable execution boundaries, persistence, Dream Cycle and memory integration, and Command Center/status visibility for improvement work that stays explicit and auditable. |
 | Channels and voice | Telegram, WhatsApp, Discord, Slack, SMS, and plugin-owned channels with platform-aware live streaming, typing and edit fallbacks, interactive approvals, durable child-agent and Goal Mode notices, media intake, voice transcription, document extraction, health checks, auto-generated send/photo/document tools, and optional tunnel support. SMS remains final-text-only. Realtime voice adds provider-backed voice sessions, action handling, speech/cue policy, and local faster-whisper STT plus Kokoro TTS options. |
-| Platform and app | Native desktop app plus a secure browser-first mobile companion for chat, Activity, workflows, Knowledge, and phone-safe settings; QR pairing over local network, Tailscale, ngrok, or a custom route; installable PWA support; tray integration on Windows and macOS; native macOS tray host; local browser-first Linux launch; optional Linux native window/tray mode; Home status surfaces; recovery tools; and verified auto-updates. |
+| Platform and app | Native desktop app plus a secure browser-first mobile companion for chat, Activity, workflows, Knowledge, and phone-safe settings; opt-in Computer Use setup, live takeover, and permission recovery on Windows and macOS; QR pairing over local network, Tailscale, ngrok, or a custom route; installable PWA support; tray integration on Windows and macOS; native macOS tray host; local browser-first Linux launch; optional Linux native window/tray mode; Home status surfaces; recovery tools; verified auto-updates; and a searchable public user guide. |
 | Extensibility | Smart Skills, pinned skills, slash commands, Skills Hub browsing/import/search, Plugin System v2 for native tools, MCP-backed tools, bundled skills, and channels, sandboxed Plugin Center and marketplace, bundled skills and tool guides, Agent Profiles, child-agent tools, Goal Mode tools, external MCP clients over stdio, Streamable HTTP, and SSE, Custom Tools from repos or folders, hardened Custom Tool Builder setup, Claude Code Delegation through an approval-gated CLI worker, migration from selected Hermes/OpenClaw data, setup center, identity settings, and stability diagnostics. |
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full subsystem reference.
@@ -108,7 +112,7 @@ curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/i
 To install a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash -s -- 4.4.0
+curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash -s -- 4.5.0
 ```
 
 The installer downloads the release tarball, verifies its SHA256 from the GitHub release manifest, installs under `~/.local/share/row-bot`, creates `~/.local/bin/row-bot`, and stores user data in `~/.row-bot`. The default Linux build opens in your system browser. Native window and tray support are available when the required GTK, Qt, and AppIndicator libraries are installed.
@@ -162,12 +166,21 @@ in a revocable HttpOnly cookie. The desktop host must remain running. Skills
 Hub, Plugin Marketplace setup, Developer Studio, Designer Studio, and advanced
 workflow graphs remain desktop-only in Mobile V1.
 
+To let an interactive local task operate a native Windows or macOS app, open
+`Settings -> System -> Browser & Computer Use`. Review the Cua Driver telemetry
+notice, explicitly install the checksum-verified private runtime, grant the
+requested operating-system permissions, and complete the Calculator test.
+Computer Use is off by default and unavailable to channels, schedules,
+background workflows, child agents, and headless/server callers. Browser
+automation remains the preferred tool for websites.
+
 Common first prompts:
 
 - `Remember that my mom's birthday is March 15`
 - `Search for recent papers on transformer architectures`
 - `Read report.pdf in my workspace`
 - `Run git status on my project`
+- `Open Calculator and work out the total from these figures`
 - `Create a goal to update the release docs and track blockers`
 - `Delegate competitor research to a focused child agent and summarize the risks`
 - `Create a six-slide pitch deck for my startup`
@@ -241,7 +254,14 @@ Grok runtime state separate from `XAI_API_KEY`, reports token health and runtime
 readiness in Settings, and scopes Grok Imagine image/video models to media
 surfaces instead of chat and agent pickers.
 
-Embedding providers are configured separately from chat models. Local embeddings are available for private document and vector indexing. Optional cloud embeddings show a privacy warning because document text is sent to the selected embedding provider.
+Embedding providers are configured separately from chat models. Local
+embeddings are available for private document and vector indexing and load
+strictly from the existing local Hugging Face cache during normal use. Download
+or repair a local embedding model explicitly from Settings; if it is missing,
+failed, or still loading, bounded memory recall continues with lexical and
+graph fallback instead of silently downloading or blocking the turn. Optional
+cloud embeddings show a privacy warning because document text is sent to the
+selected embedding provider.
 
 External Codex CLI and Claude Code login files are metadata/reference only. Row-Bot can detect that a CLI login exists, but direct Codex runtime requires the in-app ChatGPT sign-in and direct Claude Subscription runtime requires Row-Bot-owned Claude OAuth or an explicit user import. Row-Bot does not copy runnable tokens from `~/.codex/auth.json` or `~/.claude/*`, and Claude Subscription never falls back to `ANTHROPIC_API_KEY`.
 
@@ -256,7 +276,7 @@ Row-Bot's tools can be enabled or disabled from Settings. Many tools expose mult
 | Group | Included tools |
 |-------|----------------|
 | Search and knowledge | Tavily web search, DuckDuckGo, Wikipedia, arXiv, YouTube transcripts, URL reader, document search, wiki vault, memory graph, and conversation search. |
-| Productivity | Gmail, Google Calendar, filesystem, shell, visible Chromium browser automation, workflows, goals, tracker, channel tools, and X. |
+| Productivity | Gmail, Google Calendar, filesystem, shell, visible Chromium browser automation, opt-in native Computer Use on Windows and macOS, workflows, goals, tracker, channel tools, and X. |
 | Media and design | Designer Studio, image generation/editing through OpenAI, Google, xAI API keys, and xAI Grok OAuth, video generation through Google Veo and xAI Grok Imagine Video, chart insertion, Mermaid, Plotly, and media persistence. |
 | Developer and extensibility | Developer Studio, Agent Profiles, child-agent delegation, Goal Mode tools, Custom Tool Builder, promoted Custom Tools, external MCP tools, plugin tools, Claude Code Delegation, and Row-Bot Status. |
 | Analysis | Calculator, Wolfram Alpha, weather, vision for camera/screen/workspace images, system info, and Plotly charts with PNG export. |
@@ -264,6 +284,14 @@ Row-Bot's tools can be enabled or disabled from Settings. Many tools expose mult
 Safety controls are built into the tool layer:
 
 - Destructive operations require confirmation, including file delete/move, moderate-risk shell commands, Gmail send, calendar move/delete, memory delete, tracker delete, and task delete.
+- Computer Use is off by default, interactive-local-only, restricted to one
+  task-scoped target window, and protected by an allowlisted Cua surface,
+  generation-bound targets, point-of-risk confirmation, ephemeral screenshots,
+  typed-value redaction, and direct Stop/Take over/Resume controls.
+- Every logical agent turn has a checkpointed model-iteration budget. Exact
+  repeated tool actions are blocked before they can loop indefinitely, and
+  Settings can cap nested depth, per-parent and global child concurrency, and
+  optional child active time.
 - Child-agent approval requests are surfaced in the parent thread and durable
   channel/mobile approval surfaces instead of waiting invisibly in a background
   run.
@@ -297,10 +325,11 @@ Safety controls are built into the tool layer:
 ## Architecture
 
 Row-Bot is organized around reasoning, orchestration, and work: Agent Profiles,
-Goal Mode, explicit prompt context/cache sections, memory, profile-first
-workflows, the mobile access gate and companion shell, shared channel streaming,
-Designer Studio, Developer Studio worktrees, provider runtime and cancellation,
-Plugin System v2/MCP boundaries, and safety controls.
+Goal Mode, checkpoint-safe agent budgets, explicit prompt context/cache
+sections, memory, profile-first workflows, the mobile access gate and companion
+shell, separate browser and native Computer Use engines, shared channel
+streaming, Designer Studio, Developer Studio worktrees, provider runtime and
+cancellation, Plugin System v2/MCP boundaries, and safety controls.
 
 Explore the visual architecture gallery: [docs/architecture.html](docs/architecture.html)
 
@@ -340,6 +369,7 @@ Review the Docusaurus docs source and local preview instructions:
 |-------|---------|-------------|
 | Local model runtime | Windows 10/11 64-bit, macOS 12+, or glibc Linux x86_64; Python 3.12+ for source installs; 8 GB RAM for 8B models; about 5 GB disk for the app and one small model; internet for install and model download. | 16 to 32 GB RAM for 14B to 30B models; NVIDIA GPU with 8+ GB VRAM or Apple Silicon for much faster inference; 20+ GB disk for multiple or larger models. |
 | Provider/custom models only | Windows 10/11 64-bit, macOS 12+, or glibc Linux x86_64; Python 3.12+ for source installs; 4 GB RAM; about 1 GB disk; internet for provider inference. | No GPU required. Use this path if you do not want local model downloads. |
+| Computer Use beta | Windows 10/11 x86-64 or ARM64, or macOS 12+ on Intel/Apple Silicon; interactive local UI; internet for the explicit Cua Driver install or repair; Accessibility and Screen Recording permission on macOS. | Optional and off by default. Browser automation remains preferred for websites; Linux and unattended/background use are not supported. |
 | Developer Sandbox | Docker Desktop or a compatible Docker/Podman runtime. | Optional. Developer Studio also works with local execution in the selected repo. |
 | Public docs site | Node.js 20+ and npm. | Optional. Used only for local Docusaurus docs preview and generated-docs validation. |
 
@@ -442,6 +472,15 @@ running desktop host through the route you choose. A public tunnel exposes the
 pairing gate to that URL, so keep tunnel links and pairing QR codes private and
 revoke devices you no longer trust.
 
+Computer Use is also opt-in. Row-Bot downloads the reviewed Cua Driver 0.7.1
+asset only after a separate Install action, verifies its SHA-256, and keeps the
+runtime private with upstream update checks disabled. Cua Driver has separately
+disclosed third-party telemetry; Row-Bot requires acceptance before any Cua
+process starts and does not send prompts, memories, secrets, screenshots, tool
+arguments, typed content, or channel data to that telemetry. Target-window
+screenshots are ephemeral, and typed values are excluded from durable history,
+logs, checkpoints, approvals, memory, and media.
+
 Provider and custom models are opt-in. When selected, the current conversation, model-visible tool context, and tool results are sent to that endpoint. Memories, documents, files, graph data, and other conversations stay local unless you explicitly include them in the current conversation or expose them through a tool result. Memory recall happens locally before any selected memory is inserted into the active turn.
 
 Developer Studio only touches repos you link, clone, or explicitly allocate as
@@ -456,9 +495,11 @@ Row-Bot does not require a Row-Bot account, and there is no Row-Bot-hosted middl
 
 ## Project Docs
 
+- [Complete public user guide](https://row-bot.ai/docs/)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Visual architecture gallery](docs/architecture.html)
 - [Public docs site source](docs-site/README.md)
+- [Computer Use security decision](docs/COMPUTER_USE_SECURITY.md)
 - [Plugin System v2](docs/PLUGIN_SYSTEM_V2.md)
 - [Prompt context and cache contract](docs/PROMPT_CONTEXT_AND_CACHE.md)
 - [Contributing guide](CONTRIBUTING.md)
@@ -477,4 +518,4 @@ Apache 2.0. See [LICENSE](LICENSE).
 
 ## Acknowledgements
 
-Built with [NiceGUI](https://nicegui.io/), [LangGraph](https://langchain-ai.github.io/langgraph/), [LangChain](https://python.langchain.com/), [Ollama](https://ollama.com/), [FAISS](https://github.com/facebookresearch/faiss), [Kokoro TTS](https://github.com/thewh1teagle/kokoro-onnx), [faster-whisper](https://github.com/SYSTRAN/faster-whisper), [HuggingFace](https://huggingface.co/), and [tiktoken](https://github.com/openai/tiktoken).
+Built with [NiceGUI](https://nicegui.io/), [LangGraph](https://langchain-ai.github.io/langgraph/), [LangChain](https://python.langchain.com/), [Ollama](https://ollama.com/), [FAISS](https://github.com/facebookresearch/faiss), [Cua Driver](https://github.com/trycua/cua), [Kokoro TTS](https://github.com/thewh1teagle/kokoro-onnx), [faster-whisper](https://github.com/SYSTRAN/faster-whisper), [HuggingFace](https://huggingface.co/), and [tiktoken](https://github.com/openai/tiktoken).

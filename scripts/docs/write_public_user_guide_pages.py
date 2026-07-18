@@ -142,7 +142,7 @@ SETTINGS = {
     },
     "models": {
         "title": "Settings: Models",
-        "desc": "Choose defaults, pin Quick Choices, and review discovered model catalog data.",
+        "desc": "Choose defaults, pin Quick Choices, review model catalogs, and set Agent runtime limits.",
         "shot": "settings-models",
         "caption": "The Models tab manages defaults, Quick Choices, catalog refreshes, and model readiness details.",
         "overview": "Models are the specific brains exposed by a provider. The Models tab decides which model Row-Bot should use by default and which choices appear quickly in chat and specialist surfaces.",
@@ -153,12 +153,14 @@ SETTINGS = {
             "Compatibility labels separate ordinary chat models from tool-capable, vision-capable, reasoning, embedding, voice, or media models.",
             "Provider filters and search help find a specific model when many are available.",
             "Warnings explain when a model is visible but not recommended for tool-heavy Agent Mode.",
+            "Agent runtime and delegation controls set work rounds, nesting depth, per-parent and app-wide child capacity, and an optional active-time limit for new runs.",
         ],
         "workflow": [
             "Refresh the catalog after connecting a provider.",
             "Pin one everyday chat model and one stronger tool-capable model.",
             "Use provider-qualified names when two providers expose models with similar names.",
             "Return to Chat and pick the pinned model from the model picker.",
+            "Keep the recommended Agent runtime limits unless you have a measured reason to change them; active runs retain the snapshot they started with.",
         ],
         "saved": "Default and pinned models are global preferences. A thread can still carry its own model override when you select a model inside that thread.",
         "troubleshoot": [
@@ -250,14 +252,15 @@ SETTINGS = {
     },
     "system": {
         "title": "Settings: System",
-        "desc": "Configure local access, workspace paths, shell and browser behavior, tunnels, logs, and updates.",
+        "desc": "Configure local access, workspace paths, browser and Computer Use behavior, tunnels, logs, and updates.",
         "shot": "settings-system",
         "caption": "The System tab contains local runtime choices, workspace access, window mode, tunnels, and diagnostic controls.",
-        "overview": "System settings describe what the local app may access and how it runs on your machine. This is where you adjust the app window, workspace boundaries, shell behavior, browser automation, tunnels, and diagnostics.",
+        "overview": "System settings describe what the local app may access and how it runs on your machine. This is where you adjust the app window, workspace boundaries, shell behavior, browser automation, opt-in native Computer Use, tunnels, and diagnostics.",
         "controls": [
             "Workspace and filesystem controls define where Row-Bot may read or write when tools need local files.",
             "Shell and command controls affect whether command-running tools are available and how approvals apply.",
             "Browser controls affect page-reading and browser automation features.",
+            "Computer Use controls keep native application automation separate, off by default, and gated by platform readiness, telemetry disclosure, and a verified optional runtime.",
             "Window mode chooses whether Row-Bot opens in its own app window, the system browser, or asks at launch.",
             "Tunnel settings are for external callback use cases such as channels that need a public webhook URL.",
             "Log and diagnostic controls help support troubleshooting without changing your model setup.",
@@ -265,12 +268,14 @@ SETTINGS = {
         "workflow": [
             "Keep workspace access narrow for everyday use.",
             "Enable shell or browser automation only when you intend to use those tools.",
+            "Enable Computer Use only on an interactive Windows or macOS desktop after reviewing its separate setup and safety guide.",
             "Use tunnels only for channels or integrations that explicitly require inbound webhooks.",
             "Collect logs from this tab when troubleshooting startup or provider issues.",
         ],
         "saved": "System settings are global for the local app. Workspace files are not uploaded to Row-Bot; external providers may still receive content when a model or tool request sends it.",
         "troubleshoot": [
             "If Row-Bot cannot read a file, check whether it is inside the allowed workspace.",
+            "If Computer Use is unavailable, open its setup card and follow the reported runtime or operating-system permission recovery step.",
             "If a tunnel URL is unavailable, check the tunnel provider credentials and whether the tunnel is running.",
             "If the app opens in the wrong place, change Window mode and restart Row-Bot.",
         ],
@@ -628,7 +633,7 @@ def main() -> int:
 
 Row-Bot is a local-first desktop AI assistant for people who want models, memory, tools, workflows, design, code help, integrations, and voice in one controllable app. This guide explains how to install Row-Bot, choose a model path, use the main interface, configure settings, and understand what happens when Row-Bot uses external services.
 
-These pages describe Row-Bot 4.4.0, the current stable release represented by this source tree.
+These pages describe Row-Bot 4.5.0, the current stable release represented by this source tree.
 
 <Screenshot id="app-shell-overview" alt="Row-Bot main interface with sidebar, Home tabs, activity center, and terminal." caption="Row-Bot's main interface brings conversations, Home tabs, settings, Buddy, activity, approvals, workflows, and terminal output into one local workspace." />
 
@@ -639,6 +644,7 @@ These pages describe Row-Bot 4.4.0, the current stable release represented by th
 - [Chat](/docs/chat/) explains conversations, composer controls, attachments, model selection, approvals, and tool results.
 - [Settings](/docs/settings/) explains every configuration tab and what each choice changes.
 - [Profiles, Goals, And Agents](/docs/profiles-goals-agents/) explains reusable roles, bounded goals, and delegated work.
+- [Computer Use](/docs/computer-use/) explains the opt-in native desktop tool, setup, live controls, and safety boundaries.
 
 ## Feature Guides
 
@@ -646,6 +652,7 @@ These pages describe Row-Bot 4.4.0, the current stable release represented by th
 - [Designer Studio](/docs/designer/) for creating pages, slides, mockups, branded assets, and exportable designs.
 - [Developer Studio](/docs/developer/) for folders, repositories, code chat, inspectors, commands, and sandbox modes.
 - [Knowledge](/docs/knowledge/) for local memory, documents, graph review, and background organization.
+- [Computer Use](/docs/computer-use/) for target-window automation in native Windows and macOS applications.
 - [Android And Native Desktop](/docs/mobile-native/) for pairing, mobile Chat and Activity, and native-only behaviour.
 - [Monitor](/docs/monitor/) for logs, journals, channel state, and background activity.
 - [Skills Hub](/docs/skills/) for browsing, enabling, creating, and reviewing skills.
@@ -1670,6 +1677,8 @@ Conversations, memories, documents, workflows, logs, Designer projects, Develope
 
 External calls happen when you choose or enable something that needs them: hosted models, subscription providers, API providers, web search, browser automation, account tools, messaging channels, MCP servers, plugin tools, realtime voice, and media generation.
 
+Computer Use is a distinct opt-in boundary. Row-Bot downloads the pinned Cua Driver only after an explicit Install or Repair action, verifies the selected archive, and requires a telemetry disclosure before any executable invocation. The reviewed upstream telemetry includes installation and platform metadata but excludes typed content, screenshots, prompts, files, memories, tool arguments, secrets, and channel content. See [Computer Use](/docs/computer-use/) for the full boundary.
+
 ## Credentials
 
 Enter credentials only in the relevant Settings tab or provider sign-in flow. Row-Bot stores secrets in the operating system key store when available and keeps local metadata for status and diagnostics.
@@ -1688,6 +1697,7 @@ Before sharing logs, screenshots, documents, thread exports, or review packages,
 
 - Start with local models when privacy matters most.
 - Keep channels, MCP, and plugins disabled until needed.
+- Keep Computer Use disabled until a local interactive task needs native application control.
 - Use narrow workspaces for file tools.
 - Review approvals before external or destructive actions.
 - Keep a final human review step before publishing screenshots or docs built from a personal app state.
@@ -1717,6 +1727,8 @@ For the mental model behind delegation and hand-offs, read [How Profiles, Goals,
 
 Profiles do not grant capabilities by themselves. A selected tool must still be enabled, available, and allowed by the active approval policy. A profile that can delegate may start child agents, but each run remains visible in the Activity Center and the chat agent strip.
 
+New runs also receive a checkpointed work budget. The Models settings tab shows the recommended application-wide work-round, nesting, concurrency, and optional child active-time limits. Extra children wait in a first-in, first-out queue when capacity is full; changing a setting affects new runs, not work already in progress.
+
 <Screenshot id="goal-and-agents" alt="Row-Bot active goal and delegated agents for a fictional launch checklist." caption="The goal strip records bounded progress while parent and child agent rows show who is running, complete, waiting, or stopped." />
 
 ## Run A Goal
@@ -1733,6 +1745,8 @@ A goal is useful when work needs more than one turn. State the objective and an 
 Parent agents coordinate. Child agents handle bounded subtasks. Open an agent row to review its prompt, profile, model, status, result, evidence, and thread. A completed child result is evidence for the parent, not automatic permission to write files, send messages, commit code, or publish.
 
 If a run appears stuck, inspect its last update before stopping it. If several agents edit the same resource, narrow their ownership or run them sequentially. Keep consequential final actions with the parent and a human approval point.
+
+Repeated model-and-tool states are detected before a run can loop indefinitely. The fourth identical no-progress state is blocked; a fifth ends the run cleanly with a durable reason. Reaching a configured work limit also finalizes the run instead of leaving it marked as active.
 
 ## What Is Saved
 
@@ -1813,6 +1827,60 @@ Before a large repair or migration, close Row-Bot and back up the active data di
 ## Safety Boundary
 
 Deleting a thread does not necessarily mean every derived record disappears immediately, and deleting one graph entity can affect linked output. Review the exact record and its relationships first. Never run repair tests against a personal data directory.
+""",
+    )
+
+    write(
+        "computer-use/index.mdx",
+        "Computer Use",
+        "Set up and safely use Row-Bot's opt-in native Windows and macOS application control.",
+        """
+# Computer Use
+
+Computer Use is Row-Bot's provider-neutral tool for operating native Windows and macOS applications. It is separate from browser automation: use Browser for web pages and Computer Use only when the task must interact with a desktop application window.
+
+Computer Use is a beta feature. It is off by default, supports one interactive local task at a time, and is unavailable to schedules, channels, background workflows, child agents, plugins, external MCP callers, mobile clients, and headless or server sessions.
+
+## Set It Up
+
+1. Open **Settings -> System -> Browser & Computer Use**.
+2. Expand **Computer Use (Beta)** and read the capability and privacy summary.
+3. Choose **Install**. Row-Bot shows the required Cua Driver telemetry disclosure before it downloads or starts anything.
+4. Choose **Continue** only if you accept the disclosure. Row-Bot downloads the pinned Cua Driver 0.7.1 asset for your platform, verifies its SHA-256, and extracts it into Row-Bot's private data directory.
+5. On macOS, grant Accessibility and Screen Recording to the Row-Bot process when prompted, then choose **Recheck**. Restart the same process after changing permissions if the status asks you to.
+6. Turn on **Computer Use (Beta)** after the setup card reports ready.
+
+Install, Repair, Reinstall, Remove, and system-binary controls affect only the optional driver. Row-Bot never runs the upstream installer or updater. A custom system binary is accepted only after explicit opt-in and version verification.
+
+## Run A Native Task
+
+Ask from a normal local desktop chat and name the application and desired outcome. Row-Bot discovers applications and windows, acquires one exclusive task lease, and binds actions to the selected target window. It can launch an allowlisted application, observe that window, click, type, press keys, scroll, and drag when the current policy permits the operation.
+
+When accessibility data is insufficient, Row-Bot may send one ephemeral target-window screenshot to the Vision model configured in Settings. The live control card shows sanitized state and a shielded thumbnail; screenshot bytes are not written to chat, durable memory, replay history, logs, or tool results.
+
+## Stop Or Take Over
+
+- **Stop** cancels queued work and releases the session.
+- **Take over** cancels queued mutation and pauses the lease so you can interact directly.
+- **Resume** requires Row-Bot to observe the target again before it can act.
+
+Window replacement, permission loss, target changes, or driver failure invalidates stale state. Row-Bot must reacquire and observe before another mutation.
+
+## Safety Boundaries
+
+Computer Use blocks terminals, password managers, Row-Bot itself, secure desktops, elevation prompts, security settings, and attempts to handle credentials, one-time codes, CAPTCHAs, biometrics, or operating-system permission dialogs. Consequential actions use approval policy at the point of risk, and external handoff flows stay with the user.
+
+The reviewed Cua telemetry sends a stable random Cua installation ID, Cua version, operating-system name and version, architecture, CI flag, event category, and timestamp to Cua's PostHog endpoint. It excludes usernames, file paths, command or tool arguments, typed content, and screenshots. Row-Bot adds no first-party telemetry and prevents its prompts, files, memories, secrets, screenshots, tool arguments, and channel content from reaching Cua telemetry.
+
+For the exact allowlist and reviewed dependency record, see [Computer Use Beta: architecture and security decision](https://github.com/siddsachar/row-bot/blob/main/docs/COMPUTER_USE_SECURITY.md).
+
+## Troubleshooting
+
+- If setup reports an archive or checksum error, choose **Repair** and retry on a trusted network.
+- If macOS reports missing permission, use the provided buttons to open Accessibility and Screen Recording settings, grant the running Row-Bot process, restart it, and recheck.
+- If the requested app is blocked, do not work around the policy with a terminal or generic MCP tool. Operate it manually or use a narrower supported application.
+- If a session is busy, stop or finish the active Computer Use task before starting another.
+- If the target window closes or changes, ask Row-Bot to reacquire it before resuming.
 """,
     )
 
@@ -2058,9 +2126,13 @@ Delegation is useful when independent research, inspection, or implementation ca
 
 Child agents do not become invisible background permissions. Their runs remain linked to the parent, and a returned result is evidence rather than automatic authorisation to write, send, publish, or declare the goal complete. Tool availability and approvals still apply to the run doing the action.
 
+Delegation capacity is bounded. Each new run snapshots the application-wide work-round, nesting, per-parent concurrency, app-wide concurrency, and optional child active-time settings. When capacity is full, eligible children wait in a first-in, first-out queue rather than bypassing the limits.
+
 ## Status And Hand-Offs
 
 An active goal can accumulate progress across turns. Completion should mean the finish condition and required checks are satisfied. A block should identify a real impasse, not merely unfinished work. Stopping an agent ends that run without deleting the parent thread, goal history, or already-recorded evidence.
+
+The work-round budget is checked at model, tool, and resume boundaries so a restart cannot reset it. Repeated no-progress states are blocked and then terminated cleanly, and every terminal path writes one durable final status and reason.
 
 A useful child-agent hand-off says what was checked, what changed, what evidence was found, what remains uncertain, and whether any consequential action still needs the parent or user.
 
@@ -2202,6 +2274,7 @@ Start with the visible status text in Row-Bot. Then check the relevant Settings 
 - Reopen Setup Center if first launch was skipped or incomplete.
 - Check Settings -> Providers and Settings -> Models before troubleshooting Chat.
 - Check Settings -> System if local files, browser automation, command execution, or tunnels are involved.
+- For native application control, open the Computer Use setup card and resolve its driver or operating-system permission status before retrying.
 
 ## Model Problems
 
@@ -2214,6 +2287,7 @@ Start with the visible status text in Row-Bot. Then check the relevant Settings 
 - Check the model picker, Agent Profile, approval mode, and enabled tools.
 - If an action is waiting, review the thread approval prompt or open Activity Center.
 - Ask Row-Bot to explain the last tool result if the transcript is unclear.
+- If Computer Use is paused, choose Resume only after reviewing the target; if its lease is busy, stop or finish the active native task first.
 
 ## Workflow Problems
 

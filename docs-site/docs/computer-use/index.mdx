@@ -1,0 +1,51 @@
+---
+title: "Computer Use"
+description: "Set up and safely use Row-Bot's opt-in native Windows and macOS application control."
+---
+
+# Computer Use
+
+Computer Use is Row-Bot's provider-neutral tool for operating native Windows and macOS applications. It is separate from browser automation: use Browser for web pages and Computer Use only when the task must interact with a desktop application window.
+
+Computer Use is a beta feature. It is off by default, supports one interactive local task at a time, and is unavailable to schedules, channels, background workflows, child agents, plugins, external MCP callers, mobile clients, and headless or server sessions.
+
+## Set It Up
+
+1. Open **Settings -> System -> Browser & Computer Use**.
+2. Expand **Computer Use (Beta)** and read the capability and privacy summary.
+3. Choose **Install**. Row-Bot shows the required Cua Driver telemetry disclosure before it downloads or starts anything.
+4. Choose **Continue** only if you accept the disclosure. Row-Bot downloads the pinned Cua Driver 0.7.1 asset for your platform, verifies its SHA-256, and extracts it into Row-Bot's private data directory.
+5. On macOS, grant Accessibility and Screen Recording to the Row-Bot process when prompted, then choose **Recheck**. Restart the same process after changing permissions if the status asks you to.
+6. Turn on **Computer Use (Beta)** after the setup card reports ready.
+
+Install, Repair, Reinstall, Remove, and system-binary controls affect only the optional driver. Row-Bot never runs the upstream installer or updater. A custom system binary is accepted only after explicit opt-in and version verification.
+
+## Run A Native Task
+
+Ask from a normal local desktop chat and name the application and desired outcome. Row-Bot discovers applications and windows, acquires one exclusive task lease, and binds actions to the selected target window. It can launch an allowlisted application, observe that window, click, type, press keys, scroll, and drag when the current policy permits the operation.
+
+When accessibility data is insufficient, Row-Bot may send one ephemeral target-window screenshot to the Vision model configured in Settings. The live control card shows sanitized state and a shielded thumbnail; screenshot bytes are not written to chat, durable memory, replay history, logs, or tool results.
+
+## Stop Or Take Over
+
+- **Stop** cancels queued work and releases the session.
+- **Take over** cancels queued mutation and pauses the lease so you can interact directly.
+- **Resume** requires Row-Bot to observe the target again before it can act.
+
+Window replacement, permission loss, target changes, or driver failure invalidates stale state. Row-Bot must reacquire and observe before another mutation.
+
+## Safety Boundaries
+
+Computer Use blocks terminals, password managers, Row-Bot itself, secure desktops, elevation prompts, security settings, and attempts to handle credentials, one-time codes, CAPTCHAs, biometrics, or operating-system permission dialogs. Consequential actions use approval policy at the point of risk, and external handoff flows stay with the user.
+
+The reviewed Cua telemetry sends a stable random Cua installation ID, Cua version, operating-system name and version, architecture, CI flag, event category, and timestamp to Cua's PostHog endpoint. It excludes usernames, file paths, command or tool arguments, typed content, and screenshots. Row-Bot adds no first-party telemetry and prevents its prompts, files, memories, secrets, screenshots, tool arguments, and channel content from reaching Cua telemetry.
+
+For the exact allowlist and reviewed dependency record, see [Computer Use Beta: architecture and security decision](https://github.com/siddsachar/row-bot/blob/main/docs/COMPUTER_USE_SECURITY.md).
+
+## Troubleshooting
+
+- If setup reports an archive or checksum error, choose **Repair** and retry on a trusted network.
+- If macOS reports missing permission, use the provided buttons to open Accessibility and Screen Recording settings, grant the running Row-Bot process, restart it, and recheck.
+- If the requested app is blocked, do not work around the policy with a terminal or generic MCP tool. Operate it manually or use a narrower supported application.
+- If a session is busy, stop or finish the active Computer Use task before starting another.
+- If the target window closes or changes, ask Row-Bot to reacquire it before resuming.

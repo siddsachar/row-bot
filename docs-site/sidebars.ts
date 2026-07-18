@@ -30,6 +30,7 @@ const sidebars: SidebarsConfig = {
         'knowledge/index',
         'knowledge/wiki-vault',
         'knowledge/provenance-repair',
+        'computer-use/index',
         'monitor/index',
         'mobile-native/index',
       ],

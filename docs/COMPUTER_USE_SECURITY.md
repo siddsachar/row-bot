@@ -1,7 +1,9 @@
 # Computer Use Beta: architecture and security decision
 
-Status: accepted for implementation on `feat/computer-use`
-Canonical implementation plan: `.local/plans/computer-use-end-to-end-implementation-plan.md`
+Status: accepted and implemented for Row-Bot 4.5.0
+Implementation: `src/row_bot/computer_use/`,
+`src/row_bot/tools/computer_use_tool.py`, and
+`src/row_bot/ui/computer_use.py`
 
 ## Decision
 

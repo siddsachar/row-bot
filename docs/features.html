@@ -40,7 +40,7 @@
                 <a href="https://sydsachar.com/category/row-bot/" target="_blank" rel="noopener noreferrer">Blog</a>
                 <a href="contact.html">Contact</a>
                 <a href="https://github.com/siddsachar/row-bot" target="_blank" rel="noopener noreferrer">GitHub</a>
-                <a class="nav-download" href="https://github.com/siddsachar/row-bot/releases/download/v4.4.0/Row-Bot-4.4.0-Windows-x64.exe" data-os-primary data-os-label="short" data-download="windows">Download</a>
+                <a class="nav-download" href="https://github.com/siddsachar/row-bot/releases/download/v4.5.0/Row-Bot-4.5.0-Windows-x64.exe" data-os-primary data-os-label="short" data-download="windows">Download</a>
             </div>
         </div>
     </nav>
@@ -49,7 +49,7 @@
         <header class="page-hero page-hero--visual">
             <div class="shell page-hero__grid">
                 <div class="page-hero__content">
-                    <a class="release-pill" href="https://github.com/siddsachar/row-bot/releases/tag/v4.4.0" target="_blank" rel="noopener noreferrer">Feature inventory · Row-Bot 4.4.0</a>
+                    <a class="release-pill" href="https://github.com/siddsachar/row-bot/releases/tag/v4.5.0" target="_blank" rel="noopener noreferrer">Feature inventory · Row-Bot 4.5.0</a>
                     <p class="eyebrow">The complete workbench</p>
                     <h1>One system.<br><em>Every surface.</em></h1>
                     <p class="page-hero__copy">Row-Bot combines the reasoning flexibility of a model router with durable agents, explicit goals, local memory, real tools, background workflows, phone access, messaging, code workspaces, design canvases, and reviewable extensions. This page documents what ships and where each capability fits.</p>
@@ -94,6 +94,7 @@
                         <article class="capability"><h3>Agent Profiles</h3><p>Give a thread a reusable role with instructions, usage guidance, handoff contracts, workspace policy, enabled tools and skills, approval policy, and model preferences. Profile snapshots travel with delegated work so the operating contract remains explicit.</p><div class="tags"><span class="tag">Built in</span><span class="tag">Desktop</span></div></article>
                         <article class="capability"><h3>Goal Mode</h3><p>Keep the objective, current progress, evidence, blockers, next step, status, and completion summary beside the conversation. Goal turns can use tools, delegate work, resume after approvals, and deliver terminal notices through configured channels.</p><div class="tags"><span class="tag">Built in</span><span class="tag">Desktop + Mobile</span></div></article>
                         <article class="capability"><h3>Child-agent delegation</h3><p>Spawn focused runs with parent linkage, live status, event history, queues, tool boundaries, wait and stop controls, and durable completion summaries. Promote successful patterns into reusable profiles or reviewable workflows.</p><div class="tags"><span class="tag">Built in</span><span class="tag">Approval aware</span></div></article>
+                        <article class="capability"><h3>Checkpointed execution budgets</h3><p>Bound long-running Agent work with durable model-and-tool round counters, repeat-stall protection, exactly-once finalization, and configurable nesting, concurrency, and active-time limits. Extra child runs wait in a fair queue instead of bypassing capacity.</p><div class="tags"><span class="tag tag--new">New in 4.5</span><span class="tag">Durable</span></div></article>
                         <article class="capability"><h3>Parent-thread lifecycle</h3><p>Child approvals, completion notices, failures, queued turns, and run summaries surface in the parent thread instead of disappearing into background state. Version 4.4 adds durable, deduplicated approval and terminal messages.</p><div class="tags"><span class="tag tag--new">Improved in 4.4</span></div></article>
                     </div>
                 </section>
@@ -118,7 +119,8 @@
                     <p class="chapter-intro">Row-Bot can chain built-in tools inside an agent turn, limit them through profiles, pause for approval, and return generated files to the conversation or configured delivery channel.</p>
                     <div class="capability-grid">
                         <article class="capability"><h3>Search and research</h3><p>Search the web through configured services or DuckDuckGo, read URLs, query Wikipedia and arXiv, inspect YouTube content, work with local documents, and preserve useful findings in memory or the wiki vault.</p><div class="tags"><span class="tag">Built in</span><span class="tag">Some online</span></div></article>
-                        <article class="capability"><h3>Files, shell, and browser</h3><p>Read and manage files, run approval-gated shell commands, automate Chromium, inspect page state, and bring generated files back into a thread. Cancellation reaches active shell and browser work instead of only stopping the visible response.</p><div class="tags"><span class="tag">Built in</span><span class="tag">Approval gated</span></div></article>
+                        <article class="capability"><h3>Files, shell, and browser</h3><p>Read and manage files, run approval-gated shell commands, automate isolated Chromium contexts, inspect page state, redact sensitive tool output, and bring generated files back into a thread. Consequential navigation and browser takeover remain visible.</p><div class="tags"><span class="tag">Built in</span><span class="tag">Approval gated</span></div></article>
+                        <article class="capability"><h3>Native Computer Use</h3><p>Opt into provider-neutral Windows and macOS application control through a pinned, checksum-verified Cua Driver. Target-window capture, an exclusive interactive lease, point-of-risk approvals, blocked sensitive surfaces, ephemeral Vision fallback, and Stop/Take over/Resume controls constrain every session.</p><div class="tags"><span class="tag tag--new">Beta in 4.5</span><span class="tag">Explicit install</span></div></article>
                         <article class="capability"><h3>Email and Calendar</h3><p>Use Gmail and Google Calendar with OAuth-backed tools for search, drafting, event lookup, typed mutations, and bulk creation. Calendar operations use request-scoped clients, safe concurrent refresh, retries, ordered writes, and timeout reconciliation.</p><div class="tags"><span class="tag">OAuth</span><span class="tag tag--new">Improved in 4.4</span></div></article>
                         <article class="capability"><h3>Analysis and output</h3><p>Calculate, query Wolfram Alpha, inspect weather, analyse images, search conversations, create charts, generate or edit images, and produce video through compatible provider models. Media choices remain scoped to the correct surface.</p><div class="tags"><span class="tag">Built in + providers</span></div></article>
                     </div>
@@ -130,7 +132,7 @@
                     <p class="chapter-intro">Useful recall needs more than an opaque summary. Row-Bot stores structured local records, combines semantic, lexical, and graph signals, and keeps review state and trace information available when you need to understand why something returned.</p>
                     <div class="capability-grid">
                         <article class="capability"><h3>Personal knowledge graph</h3><p>Represent people, projects, preferences, facts, events, documents, and other entities as typed nodes and relationships. Browse the graph, review extracted memories, normalise relations, and repair inconsistent records without touching real user data in tests.</p><div class="tags"><span class="tag">Local</span><span class="tag">Auditable</span></div></article>
-                        <article class="capability"><h3>Bounded hybrid recall</h3><p>Combine configurable embeddings, FAISS semantic search, FTS5 lexical matching, and bounded graph expansion. Ranking, deduplication, one-hop context, and recall traces keep retrieval useful without flooding every model request.</p><div class="tags"><span class="tag">Local by default</span></div></article>
+                        <article class="capability"><h3>Bounded hybrid recall</h3><p>Combine configurable embeddings, FAISS semantic search, FTS5 lexical matching, and bounded graph expansion. Local embedding startup is cache-only, downloads and repair are explicit, and missing models fall back quickly to lexical and graph retrieval instead of stalling the request.</p><div class="tags"><span class="tag tag--new">Improved in 4.5</span><span class="tag">Local by default</span></div></article>
                         <article class="capability"><h3>Documents and extraction</h3><p>Read PDFs, spreadsheets, JSON, TSV, images, and common text formats; extract knowledge under reviewable policies; and retain source metadata so derived facts can be traced to their origin.</p><div class="tags"><span class="tag">Built in</span></div></article>
                         <article class="capability"><h3>Wiki Vault and Dream Cycle</h3><p>Export an Obsidian-compatible local wiki, synchronise selected knowledge, and let the idle-aware Dream Cycle consolidate memory or prepare bounded improvement proposals while preserving busy-state and review controls.</p><div class="tags"><span class="tag">Optional</span><span class="tag">Local</span></div></article>
                     </div>
@@ -236,11 +238,11 @@
 
         <section class="final-cta">
             <div class="shell shell--narrow">
-                <p class="kicker">Row-Bot 4.4.0</p>
+                <p class="kicker">Row-Bot 4.5.0</p>
                 <h2>Choose the parts you need.<br><em>Keep control of the whole.</em></h2>
                 <p>Start locally, add providers and integrations deliberately, and let the workbench grow with the work.</p>
                 <div class="final-actions">
-                    <a class="button button--primary" href="https://github.com/siddsachar/row-bot/releases/download/v4.4.0/Row-Bot-4.4.0-Windows-x64.exe" data-os-primary data-download="windows">Download for Windows <small>· .exe</small></a>
+                    <a class="button button--primary" href="https://github.com/siddsachar/row-bot/releases/download/v4.5.0/Row-Bot-4.5.0-Windows-x64.exe" data-os-primary data-download="windows">Download for Windows <small>· .exe</small></a>
                     <a class="button button--secondary" href="index.html">Return to overview</a>
                 </div>
             </div>
@@ -249,7 +251,7 @@
 
     <footer class="site-footer">
         <div class="shell footer-grid">
-            <span>Row-Bot · v4.4.0 · Apache 2.0</span>
+            <span>Row-Bot · v4.5.0 · Apache 2.0</span>
             <div class="footer-links">
                 <a href="index.html">Overview</a>
                 <a href="architecture.html">Architecture</a>

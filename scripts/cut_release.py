@@ -59,6 +59,11 @@ def main() -> None:
         f"Row-Bot v{version}",
     )
     replace_once(
+        ROOT / "Start Row-Bot.command",
+        r'^    ROW_BOT_VERSION="\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?"$',
+        f'    ROW_BOT_VERSION="{version}"',
+    )
+    replace_once(
         ROOT / ".github" / "workflows" / "release.yml",
         r'default: "\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?"',
         f'default: "{version}"',

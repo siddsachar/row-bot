@@ -163,7 +163,7 @@ def build_report() -> str:
         "",
         "## Baseline and current state",
         "",
-        "- Branch confirmed: `docs/public-docs-end-to-end-uplift`; stable application version: `4.4.0`.",
+        "- Branch confirmed: `chore/release-v4.5.0`; stable application version: `4.5.0`.",
         "- Initial lightweight inventory, validation, docs build, and eight documentation tests passed before editing.",
         "- The initial build contained 69 pages and 1,707 Pagefind words. The old automated images were narrow 1440×960 frames or partial crops and included machine-specific configured states; all screenshot-eligible assets were regenerated.",
         "- `docs-content/metadata/ui_surfaces.yml` is now the single surface → page → screenshot/no-image outcome ledger.",

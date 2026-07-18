@@ -19,9 +19,13 @@ Delegation is useful when independent research, inspection, or implementation ca
 
 Child agents do not become invisible background permissions. Their runs remain linked to the parent, and a returned result is evidence rather than automatic authorisation to write, send, publish, or declare the goal complete. Tool availability and approvals still apply to the run doing the action.
 
+Delegation capacity is bounded. Each new run snapshots the application-wide work-round, nesting, per-parent concurrency, app-wide concurrency, and optional child active-time settings. When capacity is full, eligible children wait in a first-in, first-out queue rather than bypassing the limits.
+
 ## Status And Hand-Offs
 
 An active goal can accumulate progress across turns. Completion should mean the finish condition and required checks are satisfied. A block should identify a real impasse, not merely unfinished work. Stopping an agent ends that run without deleting the parent thread, goal history, or already-recorded evidence.
+
+The work-round budget is checked at model, tool, and resume boundaries so a restart cannot reset it. Repeated no-progress states are blocked and then terminated cleanly, and every terminal path writes one durable final status and reason.
 
 A useful child-agent hand-off says what was checked, what changed, what evidence was found, what remains uncertain, and whether any consequential action still needs the parent or user.
 

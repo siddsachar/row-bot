@@ -40,10 +40,11 @@ Row-Bot uses semantic versioning:
    ```
 
    This updates `src/row_bot/version.py`, `installer/row_bot_setup.iss`,
-   `installer/install_deps.bat`, `.github/workflows/release.yml`, the macOS app
-   `Info.plist`, the bug report version placeholder, and the brand/user-agent
-   contract expectations. The Linux package script derives its version from
-   `src/row_bot/version.py` or the workflow `ROW_BOT_VERSION` argument.
+   `installer/install_deps.bat`, the `Start Row-Bot.command` fallback,
+   `.github/workflows/release.yml`, the macOS app `Info.plist`, the bug report
+   version placeholder, and the brand/user-agent contract expectations. The
+   Linux package script derives its version from `src/row_bot/version.py` or
+   the workflow `ROW_BOT_VERSION` argument.
 
 5. Update `RELEASE_NOTES.md` with human-readable notes.
 6. Confirm new shipped runtime files are covered by platform packaging:
@@ -52,9 +53,13 @@ Row-Bot uses semantic versioning:
    `installer/install-linux.sh`, and the installer payload notes in
    `installer/README.md`. The current source-layout and payload contract is
    summarized in [`docs/SOURCE_LAYOUT.md`](SOURCE_LAYOUT.md).
+   For Computer Use releases, also confirm the pinned Cua manifest is packaged
+   while the third-party executable remains an explicit post-install download.
 7. Smoke-test first-run behavior against a clean data directory before building
    artifacts, especially setup wizard imports, provider config defaults, and
-   Custom/Self-hosted endpoint setup.
+   Custom/Self-hosted endpoint setup. Confirm Computer Use remains off by
+   default and does not download or invoke Cua before its disclosure and an
+   explicit Install or Repair action.
 8. Run focused startup and packaging hardening tests:
 
    ```bash
@@ -107,6 +112,11 @@ Row-Bot uses semantic versioning:
    directory: `--reset-tasks-db`, `--reset-db`, and `--restore-data`. Confirm
    they print the resolved data paths and that task DB reset backs up
    `tasks.db`, `tasks.db-wal`, and `tasks.db-shm`.
+   On Windows and macOS, also exercise Computer Use setup, telemetry consent,
+   pinned-runtime verification, one target-window action, Stop, Take over, and
+   permission recovery. Confirm screenshots and typed content do not appear in
+   logs. On Linux, confirm Computer Use reports unsupported without attempting
+   a driver download.
 9. Publish the GitHub Release.
 10. Confirm `.github/workflows/update-manifest.yml` patches SHA256 hashes into
    the release body.
@@ -197,6 +207,7 @@ Minimum smoke checks:
 - First-run setup with Providers and Custom/Self-hosted paths
 - Ollama local model when `ollama` is installed and in `PATH`
 - Browser tool after Playwright browser/dependency install
+- Computer Use remains unavailable without attempting a Cua download
 - Designer export and vault/open-folder actions
 - Update from the previous Linux tarball to the new tarball
 

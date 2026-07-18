@@ -531,6 +531,8 @@ def test_release_workflows_reference_linux_artifact():
 
 
 def test_release_scripts_use_source_layout_version_file():
+    from row_bot.version import __version__
+
     release = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
     cut_release = Path("scripts/cut_release.py").read_text(encoding="utf-8")
     windows_builder = Path("installer/build_installer.ps1").read_text(encoding="utf-8")
@@ -544,6 +546,7 @@ def test_release_scripts_use_source_layout_version_file():
     assert "from version import __version__" not in release
     assert '"src" / "row_bot" / "version.py"' in cut_release
     assert '"installer" / "install_deps.bat"' in cut_release
+    assert '"Start Row-Bot.command"' in cut_release
     assert '"tests" / "test_brand_constants.py"' in cut_release
     assert 'Join-Path $ProjectRoot "src\\row_bot\\version.py"' in windows_builder
     for script in (linux_builder, mac_builder, mac_zip_builder):
@@ -551,6 +554,7 @@ def test_release_scripts_use_source_layout_version_file():
         assert '$PROJECT_DIR/version.py' not in script
     assert '$PROJECT_DIR/src/row_bot/version.py' in mac_launcher
     assert '$PROJECT_DIR/version.py' not in mac_launcher
+    assert f'ROW_BOT_VERSION="{__version__}"' in mac_launcher
 
 
 def test_release_manifest_script_uses_brand_contract():

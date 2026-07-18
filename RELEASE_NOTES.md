@@ -2,6 +2,256 @@
 
 ---
 
+## v4.5.0 - Secure Computer Use, Agent Budgets & Public Documentation
+
+This release builds on v4.4.0 with a native-computer-control, agent-safety,
+local-retrieval, and documentation pass. It adds an opt-in Computer Use beta
+for native Windows and macOS applications, introduces checkpoint-safe work
+budgets and configurable child-agent capacity, makes local embedding recall
+recover cleanly when a cached model is unavailable or still loading, hardens
+browser and live-control isolation, and publishes a comprehensive searchable
+user guide with reviewed screenshots and machine-readable references.
+
+### Native Computer Use (Beta)
+
+- **Native application control** - adds a provider-neutral `computer_use` tool
+  for launching allowlisted applications, selecting one target window, reading
+  its accessibility tree or screenshot, clicking, typing, pressing keys,
+  scrolling, and dragging in native desktop interfaces.
+- **Browser remains separate** - keeps DOM-based browser automation as the
+  preferred path for websites and routes native applications and operating
+  system dialogs through the new Computer Use engine instead.
+- **Task-scoped exclusive sessions** - gives one interactive local task an
+  exclusive Computer Use lease covering discovery, capture, optional Vision
+  fallback, and input, preventing overlapping agents from controlling the
+  desktop at the same time.
+- **Generation-bound targeting** - uses opaque target and element tokens that
+  expire after observations, reconnects, approvals, target drift, and user
+  takeover so stale coordinates or accessibility nodes cannot be replayed.
+- **Live control card** - shows the active application, bounded ephemeral
+  preview, current state, and direct Stop, Take over, and Resume controls in
+  chat while shielding the preview during user or approval handoff.
+- **Human takeover** - cancels queued mutations before handing control to the
+  user, retains the paused lease, and requires a fresh target-window
+  observation before automation can resume.
+- **Point-of-risk approvals** - classifies routine and consequential desktop
+  actions, always confirms foreground escalation and sensitive consequences,
+  and hands credentials, OTPs, CAPTCHAs, biometrics, UAC/TCC, terminals,
+  password managers, and secure desktops back to the user.
+- **Vision fallback** - can send an ephemeral target-window screenshot to the
+  configured Vision provider only when accessibility information is
+  insufficient, with the active local or cloud disclosure shown in Settings.
+- **Interactive-only boundary** - keeps Computer Use unavailable to schedules,
+  channels, background workflows, child agents, headless/server callers, and
+  plugin or general MCP exposure.
+
+### Computer Use Setup, Privacy & Recovery
+
+- **Off-by-default setup** - adds a state-driven Settings flow for enablement,
+  installation, health checks, a Calculator verification run, repair,
+  reinstall, removal, and an explicitly configured reviewed system binary.
+- **Reviewed Cua runtime** - pins Cua Driver Rust 0.7.1 for Windows x86-64,
+  Windows ARM64, and macOS universal, downloads it only after an explicit
+  Install action, verifies the platform SHA-256, and extracts it into Row-Bot's
+  private data directory without invoking the upstream installer or updater.
+- **Mandatory telemetry disclosure** - requires Continue or Cancel before any
+  Cua executable invocation and documents the reviewed upstream telemetry
+  fields and endpoint; Row-Bot still adds no first-party telemetry.
+- **Narrow driver allowlist** - exposes only the reviewed application,
+  target-window observation, input, health, permission, configuration, and
+  session operations while blocking recording, desktop-wide capture, CDP,
+  arbitrary configuration, updates, autostart, telemetry mutation, skills,
+  process control, and maintenance surfaces.
+- **Ephemeral sensitive data** - excludes typed values from logs, history,
+  checkpoints, approval payloads, memory, and durable media, and does not
+  persist target-window screenshots.
+- **macOS permission recovery** - detects missing Accessibility and Screen
+  Recording access, explains the recovery steps, links directly to the
+  relevant Privacy & Security panes, and rechecks readiness after permissions
+  are granted or the app is re-added.
+- **Runtime readiness diagnostics** - distinguishes disabled, disclosure,
+  install, permission, test, ready, repair, and unsupported states with
+  actionable, non-technical recovery guidance.
+
+### Agent Runtime Budgets & Delegation
+
+- **Checkpoint-safe work budgets** - gives every new logical agent turn an
+  explicit model-iteration budget, charges one round per successful model
+  response, persists progress through interrupts, and derives the LangGraph
+  recursion ceiling from remaining capacity.
+- **Graceful budget completion** - reserves an exactly-once, tool-free final
+  response when the work-round budget is exhausted instead of surfacing a raw
+  recursion error or leaving the run in an ambiguous state.
+- **Repeated-action protection** - detects identical tool requests without
+  storing their arguments, blocks the fourth repeat, and terminates continued
+  no-progress loops on the fifth request.
+- **Configurable runtime limits** - adds Settings controls for maximum work
+  rounds, nested agent levels, active children per parent, active children
+  across the app, and an optional child active-time limit.
+- **Reviewed defaults** - starts new runs with 90 work rounds, one child level,
+  three active children per parent, eight active children application-wide,
+  and no child timeout.
+- **Queued child capacity** - queues excess child agents in order until both
+  parent and global capacity are available instead of rejecting them, while
+  preserving Stop behavior for queued work.
+- **Run snapshots and progress** - snapshots effective settings into durable
+  Agent Run rows, records safe model-iteration counters and heartbeats, and
+  keeps active runs on the limits they started with when Settings change.
+- **Optional active-time timeout** - applies the configured child limit only
+  while a child is executing, excludes queue time, and records a clear terminal
+  timeout reason.
+
+### Local Embeddings & Memory Recall Reliability
+
+- **Strict cache-only runtime** - resolves local embedding models from the
+  existing Hugging Face cache and sets local-only loading so normal recall,
+  indexing, status checks, and startup cannot trigger a surprise model
+  download.
+- **Explicit download and repair** - keeps network access behind the user-run
+  local-model download or repair action and reports whether the selected model
+  is cached, missing, loading, ready, or failed.
+- **Shared background loading** - coalesces concurrent recall callers onto one
+  local embedding load and gives the first recall a bounded grace period rather
+  than starting duplicate model loads.
+- **Fast deterministic fallback** - remembers missing, failed, or timed-out
+  local-model state so later recall attempts fail fast and continue through
+  bounded lexical and graph retrieval instead of stalling the response.
+- **Visible fallback notice** - emits one safe per-generation notice explaining
+  when semantic memory search fell back and points to the local model setup
+  action without exposing memory content.
+- **Recall diagnostics** - records semantic status, fallback code, wait time,
+  retrieval-stage timings, selected counts, and bounded ranking details for
+  troubleshooting.
+- **Workflow-safe retrieval** - applies the same bounded fallback to agent
+  turns and workflow knowledge lookups while preserving existing provenance,
+  ranking, and no-mutation recall policy.
+
+### Browser & Interactive Control Hardening
+
+- **Thread and task isolation** - scopes browser tabs and live-control state to
+  their owning thread/task and cleans them up when work finishes or a thread is
+  removed.
+- **Navigation policy** - validates browser destinations and redirects before
+  mutation so unsafe or out-of-scope navigation cannot silently broaden an
+  agent's authority.
+- **Consequence-aware actions** - applies shared approval and consequence
+  classification to browser mutations while keeping observation and control
+  state explicit.
+- **History redaction** - prevents sensitive typed values and unsafe action
+  details from leaking into durable browser history or tool traces.
+- **Cancellation and readiness** - makes browser operations responsive to Stop,
+  reports unavailable runtimes clearly, and keeps takeover/resume state
+  consistent with Computer Use.
+- **MCP result isolation** - normalizes private Computer Use MCP results without
+  registering its driver as a general MCP server or exposing unreviewed tools.
+
+### Public Documentation & Website
+
+- **Comprehensive user guide** - expands the Docusaurus site with concepts,
+  request lifecycle, profiles/goals/agents, workflows, integrations, extension
+  trust, operations, mobile/native guidance, knowledge provenance and repair,
+  wiki vault, settings, and reference pages.
+- **Control-level Settings reference** - generates a searchable inventory of
+  visible Settings controls, defaults, declared ranges, dependencies, restart
+  notes, security notes, and source locations.
+- **Reviewed UI screenshot library** - refreshes desktop Settings and Home
+  images and adds chat, approval, tool trace, profiles, workflows, Developer,
+  Designer, Skills Hub, Plugin Marketplace, MCP, and mobile screenshots from an
+  isolated neutral demonstration profile.
+- **Safe capture automation** - refuses the normal Row-Bot data directory,
+  disables background autostart and network status checks, seeds display-only
+  provider/channel/plugin/MCP states, and validates screenshot review metadata.
+- **Searchable static publication** - adds Pagefind search, committed GitHub
+  Pages output under `docs/`, a generated sitemap, and structural validation of
+  the published search artifacts.
+- **Machine-readable docs** - publishes `llms.txt` and `llms-full.txt` alongside
+  the human documentation and links them from the docs footer.
+- **Docs CI coverage** - regenerates inventories and LLM files, checks generated
+  references, validates screenshots and source, builds the review report and
+  Docusaurus site, runs docs tests, and verifies the committed Pages artifact.
+- **Publication synchronization** - adds a deterministic sync command that
+  refreshes only generated documentation assets while preserving the
+  hand-curated marketing homepage, feature pages, contact form, analytics, and
+  shared site assets.
+- **Navigation and mobile fixes** - restores reliable Home/Docs navigation,
+  aligns the landing, feature, architecture, and contact pages, and improves
+  responsive layouts without changing the desktop visual system.
+- **Maintenance contract** - documents the authoritative UI coverage map,
+  screenshot capture/review workflow, publication steps, and generated-file
+  ownership, with repository attributes marking built docs as generated.
+
+### Tests & Release Validation
+
+- **Computer Use contracts** - adds deterministic fake-driver coverage for the
+  private client, allowlist, leases, observation tokens, actions, approvals,
+  cancellation, takeover, text privacy, Vision fallback, readiness, runtime
+  manifest, installer package data, and UI state.
+- **Agent budget coverage** - tests checkpoint schema, iteration charging,
+  repeated-action termination, exactly-once finalization, settings validation,
+  FIFO capacity queues, nesting limits, active-time timeout, and durable run
+  progress.
+- **Browser regressions** - adds focused cancellation, consequence, redaction,
+  live-control, navigation, readiness, and tab-isolation tests.
+- **Embedding regressions** - covers cache-only model resolution, shared loads,
+  missing/failed/timeout fast paths, explicit repair downloads, fallback
+  notices, recall timing, workflow knowledge lookup, and bounded ranking.
+- **Documentation automation tests** - validates source coverage, screenshot
+  metadata, generated references, Pagefind artifact structure, Pages sync, and
+  cross-platform path handling.
+
+### Breaking Changes And Caveats
+
+- Computer Use is a beta, is off by default, and supports reviewed Windows and
+  macOS artifacts only. Linux, unattended/background automation, channels,
+  schedules, workflows, child agents, and headless callers are not supported.
+- Enabling Computer Use requires accepting the separate Cua Driver telemetry
+  disclosure. Cua telemetry is third-party behavior, not Row-Bot telemetry;
+  canceling the disclosure leaves the tool disabled and does not install or run
+  Cua.
+- The Computer Use component is downloaded on demand and therefore needs
+  network access for initial install or repair. Normal use runs the verified
+  private local executable with its updater disabled.
+- macOS users must grant Accessibility and Screen Recording access to the
+  relevant Row-Bot/Cua application entries. Permission changes may require the
+  app entry to be removed, re-added, and rechecked.
+- Local embedding models are no longer downloaded implicitly during recall or
+  startup. If the configured model is not already cached, use the explicit
+  Settings download action; recall continues with lexical/graph fallback in the
+  meantime.
+- Agent runtime limit changes apply only to new runs. A low work-round or child
+  active-time limit can stop long tasks before they finish, while queued child
+  time does not count toward the active-time limit.
+- Published docs under `docs/assets`, `docs/docs`, `docs/img`, `docs/pagefind`,
+  and `docs/search` are generated artifacts. Update their source and run the
+  documented synchronization flow instead of editing them directly.
+- Windows signing, macOS notarization, clean-machine artifact smoke tests,
+  previous-version updater checks, and real provider/channel/MCP/Computer Use
+  validation remain manual release gates after CI artifacts are built.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `src/row_bot/computer_use/*`, `src/row_bot/tools/computer_use_tool.py` | Adds the reviewed Cua client, runtime manifest/install/readiness flow, policy, exclusive service, and model-visible native application tool. |
+| `src/row_bot/ui/computer_use.py`, `src/row_bot/ui/live_control.py` | Adds Computer Use Settings, telemetry disclosure, installation/repair, macOS permission recovery, ephemeral preview, and Stop/Take over/Resume UI. |
+| `src/row_bot/tools/browser_tool.py`, `src/row_bot/ui/tool_trace.py`, `src/row_bot/ui/streaming.py` | Hardens browser and Computer Use routing, cancellation, navigation, redaction, live-control state, and tool traces. |
+| `src/row_bot/agent_budget.py`, `src/row_bot/agent_settings.py`, `src/row_bot/agent.py` | Adds checkpointed model-iteration capacity, repeated-action detection, graceful terminal finalization, and typed local runtime settings. |
+| `src/row_bot/agent_runner.py`, `src/row_bot/agent_runs.py`, `src/row_bot/tools/agent_tool.py` | Adds child-agent capacity queues, nesting and active-time limits, settings snapshots, budget progress, and durable terminal reasons. |
+| `src/row_bot/ui/settings.py`, `src/row_bot/ui/agent_drawer.py`, `src/row_bot/tools/row_bot_status_tool.py` | Exposes agent runtime limits, Computer Use readiness, and safe live capacity/progress status. |
+| `src/row_bot/embedding_providers.py`, `src/row_bot/embedding_config.py`, `src/row_bot/memory_policy.py` | Adds strict cache-only local embedding resolution, shared background loading, explicit download/repair, fallback notices, and diagnostics. |
+| `src/row_bot/knowledge_graph.py`, `src/row_bot/documents.py`, `src/row_bot/tasks.py` | Applies bounded semantic fallback and timing to memory, document, and workflow retrieval paths. |
+| `src/row_bot/mcp_client/requirements.py`, `runtime.py`, `results.py` | Adds private Cua runtime resolution and result handling without exposing the driver as a general MCP integration. |
+| `docs/COMPUTER_USE_SECURITY.md`, `AGENTS.md`, `CONTRIBUTING.md` | Records the accepted Computer Use dependency/telemetry decision and tightens contributor rules for third-party telemetry review. |
+| `docs-site/docs/*`, `docs-content/metadata/*`, `docs-site/static/img/screenshots/*` | Expands the public guide, generated references, coverage metadata, and reviewed real-UI screenshot set. |
+| `scripts/docs/*`, `docs-content/MAINTENANCE.md`, `.github/workflows/docs.yml` | Adds safe docs capture/generation, review, validation, Pagefind build, GitHub Pages synchronization, and CI verification. |
+| `docs/assets/*`, `docs/docs/*`, `docs/img/*`, `docs/pagefind/*`, `docs/search/*` | Publishes the generated Docusaurus, screenshot, search, sitemap, and machine-readable documentation artifacts. |
+| `docs/index.html`, `docs/features.html`, `docs/architecture.html`, `docs/contact.html`, `docs/site.css`, `docs/site.js` | Overhauls the 4.4 marketing site, aligns navigation and shared styling, and improves responsive layouts. |
+| `src/row_bot/version.py`, `scripts/cut_release.py`, `Start Row-Bot.command`, `installer/*`, `.github/workflows/release.yml` | Prepares the 4.5.0 runtime, CI, Windows, macOS, and Linux release surfaces and keeps the legacy macOS launcher fallback under the canonical release cutter. |
+| `tests/contracts/*`, `tests/integration/computer_use/*`, `tests/subsystem/computer_use/*` | Adds deterministic Computer Use contracts, end-to-end fake-driver flows, safety invariants, installer coverage, and UI integration tests. |
+| `tests/subsystem/agents/*`, `tests/subsystem/browser/*`, `tests/test_embedding_provider_config.py`, `tests/test_generation_stop.py` | Adds agent-budget, delegation, browser, local-embedding, fallback, and cancellation regression coverage. |
+
+---
+
 ## v4.4.0 - Mobile Companion, Channel Streaming & Runtime Reliability
 
 This release builds on v4.3.0 with a mobile-access, messaging, provider, and
