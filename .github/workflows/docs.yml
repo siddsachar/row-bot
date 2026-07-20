@@ -107,7 +107,7 @@ jobs:
         run: pytest tests/docs -q
 
       - name: Set up Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: npm
