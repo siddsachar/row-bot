@@ -1,6 +1,7 @@
 import json
 import re
 import subprocess
+from urllib.parse import unquote, urlsplit
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -22,6 +23,7 @@ LINUX_COMMAND = (
     "curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/"
     "installer/install-linux.sh | bash -s -- 4.5.0"
 )
+MARKETING_PAGES = ("index.html", "features.html", "architecture.html", "contact.html", "404.html")
 
 
 class LandingPageParser(HTMLParser):
@@ -183,3 +185,128 @@ def test_device_detection_runtime_matrix() -> None:
         timeout=10,
     )
     assert result.returncode == 0, result.stderr
+
+
+def _page_parser(name: str) -> LandingPageParser:
+    parser = LandingPageParser()
+    parser.feed((ROOT / "docs" / name).read_text(encoding="utf-8"))
+    return parser
+
+
+def _block_links(content: str, class_name: str) -> list[str]:
+    match = re.search(
+        rf'<(?:div|footer)[^>]*class="[^"]*\b{class_name}\b[^"]*"[^>]*>(.*?)</(?:div|footer)>',
+        content,
+        re.DOTALL,
+    )
+    assert match, class_name
+    return re.findall(r'<a\b[^>]*href="([^"]+)"', match.group(1))
+
+
+def test_marketing_navigation_and_footers_share_one_contract() -> None:
+    navigation_prefix = [
+        "features.html",
+        "architecture.html",
+        "docs/",
+        "contact.html",
+        "https://github.com/siddsachar/row-bot",
+    ]
+    footer_links = [
+        "index.html",
+        "features.html",
+        "architecture.html",
+        "docs/",
+        "index.html#privacy",
+        "index.html#comparison",
+        "contact.html",
+        "https://sydsachar.com/category/row-bot/",
+        "https://github.com/siddsachar/row-bot",
+    ]
+
+    for name in MARKETING_PAGES:
+        content = (ROOT / "docs" / name).read_text(encoding="utf-8")
+        nav_links = _block_links(content, "nav-menu")
+        assert nav_links[:5] == navigation_prefix, name
+        assert nav_links[5] in {"#install", "index.html#install"}, name
+        assert _block_links(content, "footer-links") == footer_links, name
+        assert 'href="index.html#new"' not in content
+        assert "What’s new" not in content
+
+
+def test_all_marketing_internal_links_and_images_resolve() -> None:
+    parsed_pages = {name: _page_parser(name) for name in MARKETING_PAGES}
+
+    for name, parser in parsed_pages.items():
+        for link in parser.links:
+            href = link.get("href", "")
+            parts = urlsplit(href)
+            if parts.scheme or parts.netloc or href.startswith(("mailto:", "tel:")):
+                continue
+            target_name = unquote(parts.path) or name
+            target = ROOT / "docs" / target_name
+            if target.is_dir() or (not target.suffix and (target / "index.html").is_file()):
+                target = target / "index.html"
+            assert target.is_file(), f"{name}: {href}"
+            if parts.fragment:
+                target_parser = parsed_pages.get(target.name)
+                if target_parser is None:
+                    target_parser = LandingPageParser()
+                    target_parser.feed(target.read_text(encoding="utf-8"))
+                assert parts.fragment in target_parser.ids, f"{name}: {href}"
+
+        for image in parser.images:
+            source = image.get("src", "")
+            if urlsplit(source).scheme:
+                continue
+            assert (ROOT / "docs" / unquote(source)).is_file(), f"{name}: {source}"
+            assert image.get("width") and image.get("height"), f"{name}: {source}"
+
+
+def test_cross_page_cta_fallbacks_are_mobile_safe() -> None:
+    for name in MARKETING_PAGES:
+        content = (ROOT / "docs" / name).read_text(encoding="utf-8")
+        parser = _page_parser(name)
+        os_primary = [link for link in parser.links if "data-os-primary" in link]
+        assert os_primary, name
+        assert all(not link["href"].endswith((".exe", ".dmg")) for link in os_primary), name
+        assert "data-download=" not in content
+
+    assert "sectionTarget('install', locationInfo)" in JS
+    assert "navMenu.inert = !shouldOpen" in JS
+    assert "visibility: hidden" in CSS
+    assert "pointer-events: none" in CSS
+
+
+def test_features_inventory_is_evergreen_and_documented() -> None:
+    features = (ROOT / "docs" / "features.html").read_text(encoding="utf-8")
+    for historical in ("New in 4.", "Improved in 4.", "Restored in 4.", "Beta in 4.", "Version 4."):
+        assert historical not in features
+    assert "tag--new" not in features
+    assert features.count('class="feature-chapter"') == 12
+    assert features.count('class="chapter-links"') == 12
+    assert "consent-gated third-party telemetry" in features
+    assert "No first-party telemetry" in features
+
+
+def test_architecture_contact_and_not_found_progressive_contracts() -> None:
+    architecture = (ROOT / "docs" / "architecture.html").read_text(encoding="utf-8")
+    contact = (ROOT / "docs" / "contact.html").read_text(encoding="utf-8")
+    not_found = (ROOT / "docs" / "404.html").read_text(encoding="utf-8")
+
+    assert architecture.count("data-lightbox-open") == 10
+    assert architecture.count("data-lightbox role=\"dialog\"") == 10
+    assert architecture.count("data-lightbox-close") == 10
+    assert architecture.count('loading="lazy" decoding="async"') == 20
+    assert "event.key === 'Escape'" in JS
+    assert "lightboxBackground.forEach" in JS
+    assert "github.com/siddsachar/row-bot/blob/main/docs/ARCHITECTURE.md" in architecture
+
+    assert 'action="https://formspree.io/f/mwvagdzv"' in contact
+    assert "Submitting sends these form fields to Formspree" in contact
+    assert "<option>Security</option>" not in contact
+    assert "use one of the project channels" in contact
+    assert 'method="POST"' in contact
+
+    assert '<meta name="robots" content="noindex, follow">' in not_found
+    assert '<main class="not-found-main shell" id="main">' in not_found
+    assert 'href="#main">Skip to content</a>' in not_found
