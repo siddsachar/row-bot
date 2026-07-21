@@ -3,7 +3,6 @@
 
     const WINDOWS_URL = 'https://github.com/siddsachar/row-bot/releases/download/v4.5.0/Row-Bot-4.5.0-Windows-x64.exe';
     const MAC_URL = 'https://github.com/siddsachar/row-bot/releases/download/v4.5.0/Row-Bot-4.5.0-macOS-arm64.dmg';
-    const LINUX_TARGET = '#install';
     const LINUX_COMMAND = 'curl -fsSL https://raw.githubusercontent.com/siddsachar/row-bot/main/installer/install-linux.sh | bash -s -- 4.5.0';
     const DESKTOP_LINK = 'https://row-bot.ai/';
     const CTA_PLACEMENTS = new Set([
@@ -49,9 +48,18 @@
         return { device: 'desktop', platform: 'windows', name: 'Windows' };
     }
 
-    function platformChoice(platform) {
+    function isHomepage(locationInfo = window.location) {
+        const pathname = String(locationInfo?.pathname || '');
+        return pathname === '' || pathname === '/' || pathname.endsWith('/index.html');
+    }
+
+    function sectionTarget(section, locationInfo = window.location) {
+        return `${isHomepage(locationInfo) ? '' : 'index.html'}#${section}`;
+    }
+
+    function platformChoice(platform, locationInfo = window.location) {
         if (platform === 'macos') return { label: 'Download for macOS', name: 'macOS', hint: '.dmg', href: MAC_URL, platform: 'macos' };
-        if (platform === 'linux') return { label: 'Install on Linux', name: 'Linux', hint: 'curl', href: LINUX_TARGET, platform: 'linux' };
+        if (platform === 'linux') return { label: 'Install on Linux', name: 'Linux', hint: 'curl', href: sectionTarget('install', locationInfo), platform: 'linux' };
         return { label: 'Download for Windows', name: 'Windows', hint: '.exe', href: WINDOWS_URL, platform: 'windows' };
     }
 
@@ -88,8 +96,9 @@
     document.querySelectorAll('[data-os-primary]').forEach(link => {
         if (detectedDevice.device === 'mobile') {
             const isNavigation = link.dataset.osLabel === 'short';
-            link.href = isNavigation ? '#install' : '#demos';
-            link.textContent = isNavigation ? 'Desktop install' : 'See Row-Bot in action';
+            const target = link.dataset.mobileTarget || (isNavigation ? 'install' : 'demos');
+            link.href = sectionTarget(target);
+            link.textContent = link.dataset.mobileLabel || (isNavigation ? 'Desktop install' : 'See Row-Bot in action');
             setPrimaryIntent(link, 'explore');
             return;
         }
@@ -103,7 +112,7 @@
 
     document.querySelectorAll('[data-hero-secondary]').forEach(link => {
         if (detectedDevice.device === 'desktop') {
-            link.href = '#proof';
+            link.href = sectionTarget('proof');
             link.innerHTML = 'See Row-Bot in action <span aria-hidden="true">&rarr;</span>';
         }
     });
@@ -259,10 +268,22 @@
 
     const nav = document.querySelector('.site-nav');
     const navToggle = document.querySelector('.nav-hamburger');
+    const navMenu = document.querySelector('.nav-menu');
+    const compactNav = window.matchMedia('(max-width: 1080px)');
     const setNavOpen = open => {
-        nav?.classList.toggle('is-open', open);
-        navToggle?.setAttribute('aria-expanded', String(open));
-        navToggle?.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+        const shouldOpen = Boolean(open && compactNav.matches);
+        nav?.classList.toggle('is-open', shouldOpen);
+        navToggle?.setAttribute('aria-expanded', String(shouldOpen));
+        navToggle?.setAttribute('aria-label', shouldOpen ? 'Close navigation' : 'Open navigation');
+        if (navMenu) {
+            if (compactNav.matches) {
+                navMenu.setAttribute('aria-hidden', String(!shouldOpen));
+                navMenu.inert = !shouldOpen;
+            } else {
+                navMenu.removeAttribute('aria-hidden');
+                navMenu.inert = false;
+            }
+        }
     };
     navToggle?.addEventListener('click', () => setNavOpen(!nav?.classList.contains('is-open')));
     document.querySelectorAll('.nav-menu a').forEach(link => {
@@ -274,6 +295,67 @@
             navToggle?.focus();
         }
     });
+    compactNav.addEventListener?.('change', () => setNavOpen(false));
+    setNavOpen(false);
+
+    const lightboxes = Array.from(document.querySelectorAll('[data-lightbox]'));
+    if (lightboxes.length) {
+        const lightboxBackground = Array.from(document.querySelectorAll('body > header, body > main, body > footer'));
+        let activeLightbox = null;
+        let lightboxTrigger = null;
+
+        const closeLightbox = restoreFocus => {
+            if (!activeLightbox) return;
+            activeLightbox = null;
+            document.documentElement.classList.remove('lightbox-open');
+            lightboxBackground.forEach(element => { element.inert = false; });
+            if (restoreFocus) lightboxTrigger?.focus();
+        };
+
+        const syncLightbox = () => {
+            const target = document.getElementById(window.location.hash.slice(1));
+            if (!target?.matches('[data-lightbox]')) {
+                closeLightbox(true);
+                return;
+            }
+
+            activeLightbox = target;
+            document.documentElement.classList.add('lightbox-open');
+            lightboxBackground.forEach(element => { element.inert = true; });
+            window.setTimeout(() => target.focus(), 0);
+        };
+
+        document.querySelectorAll('[data-lightbox-open]').forEach(trigger => {
+            trigger.addEventListener('click', () => { lightboxTrigger = trigger; });
+        });
+        document.querySelectorAll('[data-lightbox-close]').forEach(close => {
+            close.addEventListener('click', () => {
+                window.setTimeout(() => closeLightbox(true), 0);
+            });
+        });
+        document.addEventListener('keydown', event => {
+            if (!activeLightbox) return;
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                window.location.hash = 'diagrams';
+                return;
+            }
+            if (event.key !== 'Tab') return;
+            const focusable = Array.from(activeLightbox.querySelectorAll('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+            if (!focusable.length) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey && (document.activeElement === first || document.activeElement === activeLightbox)) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        });
+        window.addEventListener('hashchange', syncLightbox);
+        syncLightbox();
+    }
 
     const progress = document.querySelector('.site-progress');
     if (progress) {
@@ -354,5 +436,5 @@
         });
     });
 
-    window.RowBotLanding = Object.freeze({ detectDevice });
+    window.RowBotLanding = Object.freeze({ detectDevice, isHomepage, sectionTarget, platformChoice });
 })();
