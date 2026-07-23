@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from ipaddress import ip_address
 import json
+import logging
+import time
 from typing import Awaitable, Callable
 from urllib.parse import quote
 
@@ -12,6 +15,7 @@ from row_bot.mobile.cookies import extract_cookie_from_header
 from row_bot.mobile.store import MobileAuthStore
 
 ASGIApp = Callable[[dict, Callable, Callable], Awaitable[None]]
+logger = logging.getLogger(__name__)
 
 FORWARDED_HEADER_NAMES = {
     b"forwarded",
@@ -29,6 +33,12 @@ FORWARDED_HEADER_NAMES = {
     b"true-client-ip",
     b"fly-client-ip",
 }
+
+REJECTION_LOG_CACHE_MAX = 128
+REJECTION_LOG_WINDOW_SECONDS = 30.0
+_DIAGNOSTIC_METHOD_MAX_CHARS = 16
+_DIAGNOSTIC_PATH_MAX_CHARS = 256
+_DIAGNOSTIC_PEER_MAX_CHARS = 64
 
 UNAUTHENTICATED_HTTP_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
@@ -51,8 +61,17 @@ def _headers(scope: dict) -> dict[bytes, bytes]:
 
 
 def has_forwarded_headers(scope: dict) -> bool:
-    headers = _headers(scope)
-    return any(name in headers for name in FORWARDED_HEADER_NAMES)
+    return bool(recognized_forwarding_header_names(scope))
+
+
+def recognized_forwarding_header_names(scope: dict) -> tuple[str, ...]:
+    """Return recognized forwarding-header names without retaining their values."""
+    present = {
+        bytes(name).lower()
+        for name, _value in scope.get("headers", [])
+        if bytes(name).lower() in FORWARDED_HEADER_NAMES
+    }
+    return tuple(name.decode("ascii") for name in sorted(present))
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -90,6 +109,27 @@ def _path(scope: dict) -> str:
 
 def _method(scope: dict) -> str:
     return str(scope.get("method") or "GET").upper()
+
+
+def _bounded_log_field(value: object, *, max_chars: int) -> str:
+    text = str(value or "").replace("\r", "_").replace("\n", "_").replace("\t", "_")
+    return text[:max_chars]
+
+
+def _diagnostic_path(scope: dict) -> str:
+    path = _path(scope).split("?", 1)[0] or "/"
+    return _bounded_log_field(path, max_chars=_DIAGNOSTIC_PATH_MAX_CHARS)
+
+
+def _diagnostic_peer(scope: dict) -> str:
+    client = scope.get("client") or ("", 0)
+    raw_peer = str(client[0] or "")
+    peer_bytes = raw_peer.encode("latin-1", errors="ignore")
+    if peer_bytes:
+        for name, value in scope.get("headers", []):
+            if bytes(name).lower() in FORWARDED_HEADER_NAMES and peer_bytes in bytes(value):
+                return "forwarded-derived"
+    return _bounded_log_field(raw_peer, max_chars=_DIAGNOSTIC_PEER_MAX_CHARS)
 
 
 def is_unauthenticated_route_allowed(scope: dict) -> bool:
@@ -145,15 +185,16 @@ async def _redirect_to_pair(scope: dict, send: Callable) -> None:
     )
 
 
-async def _unauthorized_http(scope: dict, send: Callable) -> None:
+async def _unauthorized_http(scope: dict, send: Callable) -> str:
     path = _path(scope)
     method = _method(scope)
     accept = _headers(scope).get(b"accept", b"").decode("latin-1", errors="ignore").lower()
     if method == "GET" and path == "/" and ("text/html" in accept or "*/*" in accept or not accept):
         await _redirect_to_pair(scope, send)
-        return
+        return "redirect_pair"
     body = json.dumps({"ok": False, "error": "mobile_auth_required"}).encode("utf-8")
     await _send_response(send, 401, body)
+    return "http_401"
 
 
 class MobileAccessGate:
@@ -162,6 +203,36 @@ class MobileAccessGate:
     def __init__(self, app: ASGIApp, *, store: MobileAuthStore | None = None) -> None:
         self.app = app
         self.store = store or MobileAuthStore()
+        self._rejection_log_times: OrderedDict[tuple[object, ...], float] = OrderedDict()
+
+    def _log_rejection(self, scope: dict, decision: str) -> None:
+        scope_type = _bounded_log_field(scope.get("type"), max_chars=_DIAGNOSTIC_METHOD_MAX_CHARS)
+        peer = _diagnostic_peer(scope)
+        method = _bounded_log_field(_method(scope), max_chars=_DIAGNOSTIC_METHOD_MAX_CHARS)
+        path = _diagnostic_path(scope)
+        forwarding_headers = recognized_forwarding_header_names(scope)
+        key = (scope_type, peer, method, path, forwarding_headers, decision)
+        now = time.monotonic()
+        cutoff = now - REJECTION_LOG_WINDOW_SECONDS
+        while self._rejection_log_times:
+            _oldest_key, oldest_time = next(iter(self._rejection_log_times.items()))
+            if oldest_time > cutoff:
+                break
+            self._rejection_log_times.popitem(last=False)
+        if key in self._rejection_log_times:
+            return
+        if len(self._rejection_log_times) >= REJECTION_LOG_CACHE_MAX:
+            return
+        self._rejection_log_times[key] = now
+        logger.warning(
+            "mobile access rejected scope=%s peer=%s method=%s path=%s forwarded_headers=%s decision=%s",
+            scope_type,
+            peer,
+            method,
+            path,
+            ",".join(forwarding_headers) or "none",
+            decision,
+        )
 
     async def __call__(self, scope: dict, receive: Callable, send: Callable) -> None:
         scope_type = scope.get("type")
@@ -178,6 +249,8 @@ class MobileAccessGate:
             await self.app(scope, receive, send)
             return
         if scope_type == "websocket":
+            self._log_rejection(scope, "websocket_close")
             await send({"type": "websocket.close", "code": 1008})
             return
-        await _unauthorized_http(scope, send)
+        decision = await _unauthorized_http(scope, send)
+        self._log_rejection(scope, decision)

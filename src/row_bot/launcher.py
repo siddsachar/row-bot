@@ -31,7 +31,14 @@ import webbrowser
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
-from row_bot.app_port import DEFAULT_APP_PORT, ROW_BOT_HOST_ENV, ROW_BOT_PORT_ENV, parse_app_port
+from row_bot.app_port import (
+    DEFAULT_APP_PORT,
+    ROW_BOT_HOST_ENV,
+    ROW_BOT_PORT_ENV,
+    get_app_host,
+    parse_app_host,
+    parse_app_port,
+)
 from row_bot.brand import (
     APP_AUTO_START_OLLAMA_ENV,
     APP_BRAND_ACCENT,
@@ -131,6 +138,7 @@ def _launch_event(event: str, **fields) -> None:
         or key
         in {
             "port",
+            "host",
             "pid",
             "mode",
             "duration_ms",
@@ -826,7 +834,12 @@ def _is_port_in_use(port: int = _PORT) -> bool:
 
 
 def _url_for_port(port: int) -> str:
-    return f"http://localhost:{port}"
+    return f"http://127.0.0.1:{port}"
+
+
+def _resolve_launch_host(cli_host: object) -> str:
+    """Resolve CLI-over-environment bind-host precedence for a launch."""
+    return parse_app_host(cli_host, default=get_app_host())
 
 
 def _has_display_server() -> bool:
@@ -998,7 +1011,7 @@ class _RowBotProcess:
         self._log_file: Path | None = None
         self._log_handle = None
         self.port = port
-        self.host = host
+        self.host = _resolve_launch_host(host)
 
     def start(self, port: int | None = None, host: str | None = None) -> None:
         """Launch ``python app.py`` as a headless server.
@@ -1012,7 +1025,7 @@ class _RowBotProcess:
         if port is not None:
             self.port = port
         if host is not None:
-            self.host = host
+            self.host = _resolve_launch_host(host)
 
         # Use the same Python that's running this launcher
         python = sys.executable
@@ -1052,8 +1065,7 @@ class _RowBotProcess:
             APP_NATIVE_ENV: "1",
             ROW_BOT_PORT_ENV: str(self.port),
         })
-        if self.host:
-            env[ROW_BOT_HOST_ENV] = self.host
+        env[ROW_BOT_HOST_ENV] = self.host
 
         try:
             self._proc = subprocess.Popen(
@@ -1068,9 +1080,9 @@ class _RowBotProcess:
         except Exception:
             self._close_log_handle()
             raise
-        logger.info("%s server started (PID %s, log=%s)",
+        logger.info("%s server started on %s:%s (PID %s, log=%s)",
                      APP_DISPLAY_NAME,
-                     self._proc.pid, self._log_file)
+                     self.host, self.port, self._proc.pid, self._log_file)
 
     def _close_log_handle(self) -> None:
         if self._log_handle is None:
@@ -2275,11 +2287,11 @@ class RowBotTray:
                  no_ollama: bool = False) -> None:
         self._preferred_port = preferred_port
         self._port = preferred_port
-        self._host = host
+        self._host = _resolve_launch_host(host)
         self._preferred_mode = preferred_mode
         self._no_splash = no_splash
         self._no_ollama = no_ollama
-        self._server = _RowBotProcess(self._port, host=host)
+        self._server = _RowBotProcess(self._port, host=self._host)
         self._owns_server = False          # True if *we* started it
         self._window_proc: subprocess.Popen | None = None
         self._window_control_port: int | None = None
@@ -2548,6 +2560,7 @@ class RowBotTray:
             _launch_event(
                 "server_spawned",
                 port=self._port,
+                host=self._host,
                 pid=self._server._proc.pid if self._server._proc else 0,
                 duration_ms=round((time.perf_counter() - server_started) * 1000.0, 1),
             )
@@ -2645,14 +2658,15 @@ def _block_until_interrupted(server: _RowBotProcess | None, owns_server: bool) -
 
 def _run_direct(args: argparse.Namespace) -> None:
     """Run Row-Bot without a tray icon, for Linux/browser/server modes."""
-    _launch_event("direct_run_start", port=args.port, mode="direct")
+    resolved_host = _resolve_launch_host(args.host)
+    _launch_event("direct_run_start", port=args.port, host=resolved_host, mode="direct")
     ollama_started = time.perf_counter()
     _maybe_start_ollama(no_ollama=args.no_ollama)
     _launch_event("ollama_gate_done", duration_ms=round((time.perf_counter() - ollama_started) * 1000.0, 1))
 
     preferred = parse_app_port(args.port, default=_PORT)
     port, already_running = _select_app_port(preferred)
-    server = _RowBotProcess(port, host=args.host)
+    server = _RowBotProcess(port, host=resolved_host)
     owns_server = False
     splash_proc: subprocess.Popen | None = _claim_early_splash()
 
@@ -2661,10 +2675,11 @@ def _run_direct(args: argparse.Namespace) -> None:
         _launch_event("server_already_running", port=port)
     else:
         server_started = time.perf_counter()
-        server.start(port, args.host)
+        server.start(port, resolved_host)
         _launch_event(
             "server_spawned",
             port=port,
+            host=resolved_host,
             pid=server._proc.pid if server._proc else 0,
             duration_ms=round((time.perf_counter() - server_started) * 1000.0, 1),
         )
@@ -2906,6 +2921,7 @@ def main(argv: list[str] | None = None) -> None:
         from row_bot.plugins import devtools as plugin_devtools
 
         raise SystemExit(plugin_devtools.run_cli(args))
+    args.host = _resolve_launch_host(args.host)
     preferred_mode = "browser" if args.browser else "native" if args.native else None
     linux_default_direct = sys.platform.startswith("linux") and not args.tray
     direct = args.server or args.no_tray or linux_default_direct
