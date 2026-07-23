@@ -43,8 +43,14 @@ def test_unpaired_remote_can_only_reach_minimal_mobile_routes(tmp_path) -> None:
     remote = TestClient(app, client=("192.168.1.25", 50000), follow_redirects=False)
 
     assert remote.get("/api/mobile/session").status_code == 200
-    assert remote.get("/mobile/pair").status_code == 200
-    assert remote.get("/", headers={"accept": "text/html"}).status_code == 303
+    missing_ticket = remote.get("/mobile/pair")
+    root = remote.get("/", headers={"accept": "text/html"})
+    assert missing_ticket.status_code == 200
+    assert "create a new QR code" in missing_ticket.text
+    assert "<form" not in missing_ticket.text
+    assert "Pair device" not in missing_ticket.text
+    assert root.status_code == 303
+    assert root.headers["location"] == "/mobile/pair?next=%2F"
     assert remote.get("/_media/thread/file.png").status_code == 401
     assert remote.get("/published/page.html").status_code == 401
     assert remote.post("/api/webhook/task-1").status_code == 401

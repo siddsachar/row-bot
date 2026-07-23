@@ -90,6 +90,7 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
     SourceTestRule(
         "startup_runtime",
         (
+            "src/row_bot/app_port.py",
             "src/row_bot/app.py",
             "src/row_bot/launcher.py",
             "src/row_bot/startup_diagnostics.py",
@@ -99,10 +100,13 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
             "scripts/smoke_app.py",
         ),
         (
+            "tests/test_app_port.py",
             "tests/test_startup_hardening.py",
             "tests/test_ui_performance.py",
+            "tests/subsystem/mobile",
+            "tests/integration/mobile",
         ),
-        "Startup, app shell, and smoke harness changes need import, readiness, and UI performance regressions.",
+        "Startup host, app shell, and smoke harness changes need import, readiness, UI performance, and mobile exposure regressions.",
     ),
     SourceTestRule(
         "mobile_companion",

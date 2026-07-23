@@ -454,12 +454,60 @@ def test_main_requests_early_splash_before_tray_start(monkeypatch):
     monkeypatch.setattr(launcher, "RowBotTray", FakeTray)
     monkeypatch.setattr(launcher, "_ACTIVE_TRAY", None)
     monkeypatch.setattr(launcher, "_EARLY_SPLASH_PROC", None)
+    monkeypatch.delenv("ROW_BOT_HOST", raising=False)
 
     launcher.main(["--no-ollama"])
 
     assert calls[0][0] == "splash"
     assert calls[1][0] == "tray_init"
+    assert calls[1][1]["host"] == "127.0.0.1"
     assert ("tray_run", True) in calls
+
+
+def test_main_passes_cli_host_over_environment_to_tray(monkeypatch):
+    captured = {}
+
+    class FakeTray:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def run(self):
+            captured["ran"] = True
+
+    monkeypatch.setattr(launcher.sys, "platform", "win32")
+    monkeypatch.setattr(launcher, "RowBotTray", FakeTray)
+    monkeypatch.setattr(launcher, "_ACTIVE_TRAY", None)
+    monkeypatch.setenv("ROW_BOT_HOST", "0.0.0.0")
+
+    launcher.main(
+        [
+            "--no-splash",
+            "--no-ollama",
+            "--host",
+            "192.168.1.20",
+        ]
+    )
+
+    assert captured["host"] == "192.168.1.20"
+    assert captured["ran"] is True
+
+
+def test_tray_builds_server_with_resolved_environment_host(monkeypatch):
+    captured = {}
+
+    class FakeServer:
+        def __init__(self, port, host=None):
+            captured["port"] = port
+            captured["host"] = host
+
+    monkeypatch.setenv("ROW_BOT_HOST", "0.0.0.0")
+    monkeypatch.setattr(launcher, "_RowBotProcess", FakeServer)
+    monkeypatch.setattr(launcher, "_create_tray_backend", lambda _entries: object())
+
+    tray = launcher.RowBotTray(no_ollama=True)
+
+    assert tray._host == "0.0.0.0"
+    assert captured == {"port": 8080, "host": "0.0.0.0"}
 
 
 def _install_fake_appkit(monkeypatch, events, setup_ready: threading.Event | None = None):
@@ -866,6 +914,7 @@ def test_direct_native_mode_writes_window_state(tmp_path, monkeypatch):
             return True
 
     monkeypatch.setenv("ROW_BOT_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("ROW_BOT_HOST", raising=False)
     monkeypatch.setattr(launcher, "_launch_event", lambda event, **fields: events.append((event, fields)))
     monkeypatch.setattr(launcher, "_maybe_start_ollama", lambda **_kwargs: None)
     monkeypatch.setattr(launcher, "_select_app_port", lambda preferred: (8092, False))
@@ -895,7 +944,7 @@ def test_direct_native_mode_writes_window_state(tmp_path, monkeypatch):
 
     launcher._run_direct(args)
 
-    assert started == [(8092, None)]
+    assert started == [(8092, "127.0.0.1")]
     assert opened == [(8092, 18092)]
     state = json.loads((tmp_path / "launcher_state.json").read_text(encoding="utf-8"))
     assert state["port"] == 8092
@@ -903,6 +952,10 @@ def test_direct_native_mode_writes_window_state(tmp_path, monkeypatch):
     assert state["window_control_port"] == 18092
     assert state["window_pid"] == 2222
     assert any(event == "native_window_requested" for event, _fields in events)
+    assert any(
+        event == "server_spawned" and fields["host"] == "127.0.0.1"
+        for event, fields in events
+    )
 
 
 def test_windows_tray_keeps_pystray_backend_and_menu(monkeypatch):

@@ -96,10 +96,27 @@ def _can_manage_mobile_access(request: Request) -> bool:
     return is_true_local_request(request) or (device is not None and "settings" in device.scopes)
 
 
-def _pairing_page(code: str = "", error: str = "") -> str:
-    safe_code = escape(code)
+def _pairing_page(code: str = "", error: str = "", *, show_form: bool | None = None) -> str:
+    normalized_code = str(code or "").strip()
+    render_form = bool(normalized_code) if show_form is None else bool(show_form and normalized_code)
+    safe_code = escape(normalized_code)
     safe_error = escape(error)
-    error_html = f"<p class=\"error\">{safe_error}</p>" if safe_error else ""
+    if render_form:
+        content_html = f"""
+    <p>Name this device to finish pairing. The session token is stored in an HttpOnly cookie and never appears in the URL.</p>
+    <p class="hint">Pairing links are single-use and expire after 10 minutes.</p>
+    <form method="post" action="/api/mobile/pair/confirm">
+      <input type="hidden" name="code" value="{safe_code}">
+      <label for="display_name">Device name</label>
+      <input id="display_name" name="display_name" autocomplete="nickname" placeholder="My phone">
+      <button type="submit">Pair device</button>
+    </form>"""
+    else:
+        recovery_message = safe_error or escape(PAIRING_ERROR_MESSAGES["invalid_code"])
+        content_html = f"""
+    <p class="error">{recovery_message}</p>
+    <p>Open Row-Bot on your desktop, go to Mobile Access, and create a new QR code. Scan the new QR to try again.</p>
+    <p class="hint">Pairing links are single-use and expire after 10 minutes.</p>"""
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -122,15 +139,7 @@ def _pairing_page(code: str = "", error: str = "") -> str:
 <body>
   <main>
     <h1>Pair Row-Bot</h1>
-    <p>Name this device to finish pairing. The session token is stored in an HttpOnly cookie and never appears in the URL.</p>
-    <p class="hint">Pairing links are single-use and expire after 10 minutes.</p>
-    {error_html}
-    <form method="post" action="/api/mobile/pair/confirm">
-      <input type="hidden" name="code" value="{safe_code}">
-      <label for="display_name">Device name</label>
-      <input id="display_name" name="display_name" autocomplete="nickname" placeholder="My phone">
-      <button type="submit">Pair device</button>
-    </form>
+    {content_html}
   </main>
 </body>
 </html>"""
@@ -299,7 +308,7 @@ async def mobile_pair_confirm(request: Request) -> Response:
         )
         if not is_json_request:
             return HTMLResponse(
-                _pairing_page(code=code, error=message),
+                _pairing_page(code=code, error=message, show_form=False),
                 status_code=400,
                 headers=PAIRING_PAGE_HEADERS,
             )

@@ -5,7 +5,8 @@ from datetime import timedelta
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-from row_bot.mobile.auth import create_pairing_ticket
+from row_bot.mobile import routes as mobile_routes
+from row_bot.mobile.auth import PairingError, create_pairing_ticket
 from row_bot.mobile.routes import register_mobile_routes
 from row_bot.mobile.store import MobileAuthStore
 
@@ -73,14 +74,37 @@ def test_pairing_form_redirects_to_mobile_shell_with_cookie(tmp_path) -> None:
 
 def test_pairing_page_is_not_cached(tmp_path) -> None:
     app = _app(tmp_path)
+    desktop = TestClient(app, client=("127.0.0.1", 50000))
+    code = desktop.post("/api/mobile/pair/start", json={}).json()["pairing"]["code"]
     phone = TestClient(app, base_url="http://phone.test", client=("192.168.1.25", 50000))
 
-    response = phone.get("/mobile/pair?code=rbp_fake.fake")
+    response = phone.get(f"/mobile/pair?code={code}")
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["pragma"] == "no-cache"
+    assert response.headers["x-robots-tag"] == "noindex"
     assert "Pairing links are single-use and expire after 10 minutes." in response.text
+    assert '<form method="post" action="/api/mobile/pair/confirm">' in response.text
+    assert f'name="code" value="{code}"' in response.text
+    assert "Pair device" in response.text
+
+
+def test_pairing_page_without_code_shows_recovery_without_dead_form(tmp_path) -> None:
+    app = _app(tmp_path)
+    phone = TestClient(app, base_url="http://phone.test", client=("192.168.1.25", 50000))
+
+    response = phone.get("/mobile/pair")
+
+    assert response.status_code == 200
+    assert "This pairing link is invalid or incomplete." in response.text
+    assert "create a new QR code" in response.text
+    assert "<form" not in response.text
+    assert "Pair device" not in response.text
+    assert 'type="hidden" name="code"' not in response.text
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["pragma"] == "no-cache"
+    assert response.headers["x-robots-tag"] == "noindex"
 
 
 def test_pairing_form_failure_renders_pairing_page(tmp_path) -> None:
@@ -95,6 +119,10 @@ def test_pairing_form_failure_renders_pairing_page(tmp_path) -> None:
     assert response.status_code == 400
     assert "This pairing link is invalid or incomplete." in response.text
     assert "Pair Row-Bot" in response.text
+    assert "create a new QR code" in response.text
+    assert "<form" not in response.text
+    assert "Pair device" not in response.text
+    assert 'type="hidden" name="code"' not in response.text
 
 
 def test_pairing_form_failure_explains_expired_code(tmp_path) -> None:
@@ -111,6 +139,9 @@ def test_pairing_form_failure_explains_expired_code(tmp_path) -> None:
 
     assert response.status_code == 400
     assert "This pairing code has expired." in response.text
+    assert "create a new QR code" in response.text
+    assert "<form" not in response.text
+    assert "Pair device" not in response.text
     assert response.headers["cache-control"] == "no-store"
 
 
@@ -140,6 +171,43 @@ def test_pair_confirm_rejects_reused_code(tmp_path) -> None:
     assert first.status_code == 200
     assert second.status_code == 400
     assert second.json()["error"] == "already_claimed"
+
+
+def test_reused_pairing_form_shows_terminal_recovery_state(tmp_path) -> None:
+    app = _app(tmp_path)
+    desktop = TestClient(app, client=("127.0.0.1", 50000))
+    code = desktop.post("/api/mobile/pair/start", json={}).json()["pairing"]["code"]
+    phone = TestClient(app, client=("192.168.1.25", 50000))
+    assert phone.post("/api/mobile/pair/confirm", json={"code": code, "display_name": "Phone"}).status_code == 200
+
+    response = phone.post(
+        "/api/mobile/pair/confirm",
+        data={"code": code, "display_name": "Phone"},
+    )
+
+    assert response.status_code == 400
+    assert "This pairing code was already used." in response.text
+    assert "<form" not in response.text
+    assert "Pair device" not in response.text
+
+
+def test_locked_pairing_form_shows_terminal_recovery_state(tmp_path, monkeypatch) -> None:
+    def _raise_locked(*_args, **_kwargs):
+        raise PairingError("locked")
+
+    app = _app(tmp_path)
+    phone = TestClient(app, client=("192.168.1.25", 50000))
+    monkeypatch.setattr(mobile_routes, "confirm_pairing", _raise_locked)
+
+    response = phone.post(
+        "/api/mobile/pair/confirm",
+        data={"code": "rbp_locked.ticket", "display_name": "Phone"},
+    )
+
+    assert response.status_code == 400
+    assert "temporarily locked" in response.text
+    assert "<form" not in response.text
+    assert "Pair device" not in response.text
 
 
 def test_revoke_device_blocks_next_session_validation(tmp_path) -> None:

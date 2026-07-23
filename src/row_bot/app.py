@@ -44,7 +44,7 @@ for _discord_noisy in _DISCORD_BENIGN_VOICE_LOGGERS:
     logging.getLogger(_discord_noisy).setLevel(logging.ERROR)
 
 os.environ.setdefault("OPENCV_LOG_LEVEL", "ERROR")
-from row_bot.brand import APP_BRAND_ACCENT, APP_DISPLAY_NAME, APP_HOST_ENV, APP_PING_ID, APP_USER_AGENT
+from row_bot.brand import APP_BRAND_ACCENT, APP_DISPLAY_NAME, APP_PING_ID, APP_USER_AGENT
 from row_bot.data_paths import get_row_bot_data_dir
 from row_bot.docs_capture import (
     configure_docs_capture_state,
@@ -105,12 +105,12 @@ except Exception:
 
 from nicegui import ui, app, run
 from fastapi import HTTPException
-from row_bot.app_port import get_app_port
+from row_bot.app_port import get_app_host, get_app_port
 from row_bot.ui.performance import log_ui_perf
 from row_bot.ui.timer_utils import deactivate_on_disconnect, defer_ui, safe_timer, safe_ui_task
 
 _APP_PORT = get_app_port()
-_APP_HOST = os.environ.get(APP_HOST_ENV) or None
+_APP_HOST = get_app_host()
 
 
 @app.post("/api/voice/realtime/client-secret")
@@ -548,7 +548,7 @@ async def on_startup():
 
     _st.startup_ready = False
     _st.startup_status = "Starting Row-Bot..."
-    _app_boot_event("startup_shell_ready", port=_APP_PORT)
+    _app_boot_event("startup_shell_ready", host=_APP_HOST, port=_APP_PORT)
     logger.info(
         "%s startup shell ready; scheduling background startup (session=%s)",
         APP_DISPLAY_NAME,
@@ -2328,6 +2328,7 @@ if __name__ in {"__main__", "__mp_main__"}:
 
     _run_kwargs = {
         "title": APP_DISPLAY_NAME,
+        "host": _APP_HOST,
         "port": _APP_PORT,
         "dark": True,
         "favicon": Path(_static_dir) / "favicon.ico",
@@ -2336,7 +2337,4 @@ if __name__ in {"__main__", "__mp_main__"}:
         "native": _native,
         "window_size": (1280, 900) if _native else None,
     }
-    if _APP_HOST:
-        _run_kwargs["host"] = _APP_HOST
-
     ui.run(**_run_kwargs)
