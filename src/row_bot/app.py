@@ -651,6 +651,22 @@ async def _run_startup_sequence():
         await asyncio.to_thread(start_periodic_extraction)
         await asyncio.to_thread(schedule_idle_extraction)
 
+    _set("Recovering document ingestion…")
+    try:
+        from row_bot.document_jobs import ensure_document_supervisor
+
+        with _startup_phase("document_ingestion_supervisor"):
+            await asyncio.to_thread(ensure_document_supervisor)
+    except Exception as exc:
+        logger.warning(
+            "Document ingestion startup recovery skipped (non-fatal): %s",
+            exc,
+        )
+        _st.startup_warnings.append(
+            "Document ingestion could not start. Existing document search remains available; "
+            "restart Row-Bot or review System Diagnosis before uploading more files."
+        )
+
     _set("🌙 Starting dream cycle daemon…")
     with _startup_phase("dream_cycle_daemon"):
         await asyncio.to_thread(start_dream_loop)
