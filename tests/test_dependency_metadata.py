@@ -26,6 +26,7 @@ HIGH_RISK_DIRECT_DEPENDENCIES = {
     "discord-py",
     "faiss-cpu",
     "faster-whisper",
+    "funasr",
     "google-genai",
     "huggingface-hub",
     "kokoro-onnx",
@@ -116,14 +117,18 @@ def test_high_risk_direct_dependencies_have_upper_bounds_or_pins():
     dependency_map = _direct_dependency_map(_load_pyproject())
 
     missing = sorted(HIGH_RISK_DIRECT_DEPENDENCIES - set(dependency_map))
-    assert not missing, f"high-risk dependencies missing from project metadata: {missing}"
+    assert not missing, (
+        f"high-risk dependencies missing from project metadata: {missing}"
+    )
 
     unbounded = sorted(
         name
         for name in HIGH_RISK_DIRECT_DEPENDENCIES
         if not _has_upper_bound_or_pin(dependency_map[name])
     )
-    assert not unbounded, f"high-risk dependencies missing upper bounds or pins: {unbounded}"
+    assert not unbounded, (
+        f"high-risk dependencies missing upper bounds or pins: {unbounded}"
+    )
 
 
 def test_macos_appkit_dependencies_are_direct_and_darwin_scoped():
@@ -147,7 +152,9 @@ def test_lockfile_and_generated_requirements_are_committed():
 
 
 def test_dependabot_uses_uv_for_python_updates():
-    dependabot = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text(encoding="utf-8"))
+    dependabot = yaml.safe_load(
+        (ROOT / ".github/dependabot.yml").read_text(encoding="utf-8")
+    )
     updates = dependabot["updates"]
     ecosystems = {entry["package-ecosystem"]: entry for entry in updates}
 
@@ -174,7 +181,9 @@ def test_ci_security_and_installer_dependency_hooks_are_wired():
     mac_build = (ROOT / "installer/build_mac_app.sh").read_text(encoding="utf-8")
     linux_build = (ROOT / "installer/build_linux_app.sh").read_text(encoding="utf-8")
     legacy_deps = (ROOT / "installer/install_deps.bat").read_text(encoding="utf-8")
-    windows_installer = (ROOT / "installer/row_bot_setup.iss").read_text(encoding="utf-8")
+    windows_installer = (ROOT / "installer/row_bot_setup.iss").read_text(
+        encoding="utf-8"
+    )
 
     assert "uv sync --locked --all-extras --group test" in ci
     assert "uv sync --locked --all-extras --group test" in release
@@ -182,7 +191,9 @@ def test_ci_security_and_installer_dependency_hooks_are_wired():
     assert lock_check.is_file()
     assert ".github/dependabot.yml" in lock_check.read_text(encoding="utf-8")
     assert "uv lock --check" in lock_check.read_text(encoding="utf-8")
-    assert "export_locked_requirements.py --check" in lock_check.read_text(encoding="utf-8")
+    assert "export_locked_requirements.py --check" in lock_check.read_text(
+        encoding="utf-8"
+    )
     assert osv.is_file()
     assert "uv.lock" in osv.read_text(encoding="utf-8")
     assert "OSV" in osv.read_text(encoding="utf-8")
@@ -224,9 +235,11 @@ def test_runtime_verifier_checks_appkit_modules_on_macos(monkeypatch):
     monkeypatch.setattr(
         verifier.importlib,
         "import_module",
-        lambda module: imported.append(module) or SimpleNamespace()
-        if module in {"AppKit", "Foundation", "objc", "PyObjCTools.AppHelper"}
-        else original_import_module(module),
+        lambda module: (
+            imported.append(module) or SimpleNamespace()
+            if module in {"AppKit", "Foundation", "objc", "PyObjCTools.AppHelper"}
+            else original_import_module(module)
+        ),
     )
 
     for module in ("AppKit", "Foundation", "objc", "PyObjCTools.AppHelper"):
