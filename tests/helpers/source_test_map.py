@@ -326,6 +326,29 @@ SOURCE_TEST_RULES: tuple[SourceTestRule, ...] = (
         "Migration wizard changes need deterministic core, detection, planning, apply, and UI coverage.",
     ),
     SourceTestRule(
+        "document_ingestion",
+        (
+            "src/row_bot/document_jobs.py",
+            "src/row_bot/document_uploads.py",
+            "src/row_bot/document_index.py",
+            "src/row_bot/document_extraction.py",
+            "src/row_bot/documents.py",
+            "src/row_bot/tools/documents_tool.py",
+            "src/row_bot/ui/status_bar.py",
+            "src/row_bot/ui/status_checks.py",
+        ),
+        (
+            "tests/subsystem/knowledge_graph/test_document_ingestion_jobs.py",
+            "tests/subsystem/knowledge_graph/test_document_index_shards.py",
+            "tests/subsystem/knowledge_graph/test_document_extraction_resume.py",
+            "tests/test_memory_evolution.py",
+            "tests/test_embedding_provider_config.py",
+            "tests/test_home_status_workflow_buddy.py",
+            "tests/test_settings_overhaul_contracts.py",
+        ),
+        "Document ingestion changes need durable queue, bounded parsing/indexing, resumable extraction, retrieval compatibility, and UI/status coverage.",
+    ),
+    SourceTestRule(
         "memory_and_knowledge",
         (
             "src/row_bot/knowledge_graph.py",
