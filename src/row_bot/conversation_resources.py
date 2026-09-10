@@ -289,11 +289,16 @@ def current_execution_context() -> ResourceExecutionContext | None:
 
 
 @contextmanager
-def execution_context(conversation_id: str, *, binding_ids: tuple[str, ...] | None = None
+def execution_context(conversation_id: str, *, binding_ids: tuple[str, ...] | None = None,
+                      captured_bindings: tuple[ResourceBinding, ...] | None = None
                       ) -> Iterator[ResourceExecutionContext]:
     """Capture explicit accepted relationships for one execution or child handoff."""
     snapshot = list_bindings(conversation_id)
     bindings = snapshot.bindings
+    if captured_bindings is not None:
+        if any(binding not in bindings for binding in captured_bindings):
+            raise ResourceError("resource_binding_revoked")
+        bindings = captured_bindings
     if binding_ids is not None:
         if not set(binding_ids) <= {item.binding_id for item in bindings}:
             raise ResourceError("resource_binding_revoked")

@@ -43,7 +43,7 @@ for (const appearance of ['light', 'dark'] as const) {
         persisted: { ...localStorage },
         session: { ...sessionStorage },
         mountedConversations: document.querySelectorAll(
-          '[data-testid="conversation-placeholder"]',
+          '[data-testid="conversation-workspace"]',
         ).length,
       };
     });
@@ -138,17 +138,23 @@ test('real host bootstrap uses the accepted API and causes no provider work', as
   request,
 }, testInfo) => {
   await page.goto('/app-v2/');
-  await expect(page.getByTestId('conversation-placeholder')).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Home', exact: true }),
+  ).toBeVisible();
   const compact = testInfo.project.use.viewport!.width < 1024;
   if (compact)
     await page
       .getByRole('button', { name: 'Toggle navigation', exact: true })
       .click();
   await expect(
-    page.getByText('Phase 1 conversation A', { exact: true }),
+    page
+      .getByRole('navigation', { name: 'Workspace navigation', exact: true })
+      .getByRole('button', { name: 'Phase 1 conversation A', exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText('Phase 1 conversation B', { exact: true }),
+    page
+      .getByRole('navigation', { name: 'Workspace navigation', exact: true })
+      .getByRole('button', { name: 'Phase 1 conversation B', exact: true }),
   ).toBeVisible();
   if (compact) await page.keyboard.press('Escape');
   expect(await page.evaluate(() => '__ROW_BOT_FIXTURE__' in window)).toBe(
@@ -191,7 +197,9 @@ test('real host recovers after browser offline without replaying producer comman
       acknowledgements += 1;
   });
   await page.goto('/app-v2/');
-  await expect(page.getByTestId('conversation-placeholder')).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Home', exact: true }),
+  ).toBeVisible();
   const compact = testInfo.project.use.viewport!.width < 1024;
   if (compact)
     await page

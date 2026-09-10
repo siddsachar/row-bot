@@ -86,3 +86,6 @@ docs/BUDDY_IMPLEMENTATION_PLAN.md
 docs/roadmap.md
 
 *backup_*
+
+# TypeScript incremental build metadata
+frontend/tsconfig.tsbuildinfo

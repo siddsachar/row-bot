@@ -1,0 +1,83 @@
+{
+  "$defs": {
+    "DeckTemplateChoice": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 256,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "title": "DeckTemplateChoice",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "canvases": {
+      "items": {
+        "$ref": "#/$defs/DeckTemplateChoice"
+      },
+      "maxItems": 20,
+      "title": "Canvases",
+      "type": "array"
+    },
+    "default_brand": {
+      "maxLength": 256,
+      "title": "Default Brand",
+      "type": "string"
+    },
+    "default_canvas": {
+      "default": "16:9",
+      "title": "Default Canvas",
+      "type": "string"
+    },
+    "default_name": {
+      "maxLength": 256,
+      "title": "Default Name",
+      "type": "string"
+    },
+    "default_template": {
+      "default": "blank_deck",
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Default Template",
+      "type": "string"
+    },
+    "mode": {
+      "const": "deck",
+      "default": "deck",
+      "title": "Mode",
+      "type": "string"
+    },
+    "templates": {
+      "items": {
+        "$ref": "#/$defs/DeckTemplateChoice"
+      },
+      "maxItems": 100,
+      "title": "Templates",
+      "type": "array"
+    }
+  },
+  "required": [
+    "templates",
+    "canvases",
+    "default_name",
+    "default_brand"
+  ],
+  "title": "DeckSetupOptions",
+  "type": "object"
+}

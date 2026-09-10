@@ -9,6 +9,10 @@ import re
 import subprocess
 import tempfile
 import uuid
+import threading
+from contextlib import contextmanager
+from functools import wraps
+from typing import Callable, Iterator, ParamSpec, TypeVar
 from datetime import datetime
 
 from row_bot.data_paths import get_row_bot_data_dir
@@ -22,6 +26,24 @@ DEVELOPER_DIR = DATA_DIR / "developer"
 WORKSPACES_PATH = DEVELOPER_DIR / "workspaces.json"
 GIT_REPOSITORY_URL_PREFIXES = ("http://", "https://", "git@", "ssh://", "git://")
 _REPLACE_RETRY_WINERRORS = {5, 32}
+_REGISTRY_LOCK = threading.RLock()
+_P = ParamSpec("_P")
+_T = TypeVar("_T")
+
+
+@contextmanager
+def workspace_transaction() -> Iterator[None]:
+    """Serialize registry read/modify/write, including ordinary legacy callers."""
+    with _REGISTRY_LOCK:
+        yield
+
+
+def _registry_mutation(function: Callable[_P, _T]) -> Callable[_P, _T]:
+    @wraps(function)
+    def guarded(*args: _P.args, **kwargs: _P.kwargs) -> _T:
+        with workspace_transaction():
+            return function(*args, **kwargs)
+    return guarded
 
 
 def _ensure_dirs() -> None:
@@ -108,6 +130,7 @@ def get_workspace(workspace_id: str) -> DeveloperWorkspace | None:
     return None
 
 
+@_registry_mutation
 def save_workspace(workspace: DeveloperWorkspace) -> DeveloperWorkspace:
     payload = _load_payload()
     seen = False
@@ -127,6 +150,7 @@ def save_workspace(workspace: DeveloperWorkspace) -> DeveloperWorkspace:
     return workspace
 
 
+@_registry_mutation
 def remove_workspace(workspace_id: str) -> DeveloperWorkspace:
     """Hide a Developer workspace from recents without touching files or history."""
     workspace = get_workspace(workspace_id)
@@ -137,6 +161,7 @@ def remove_workspace(workspace_id: str) -> DeveloperWorkspace:
     return save_workspace(workspace)
 
 
+@_registry_mutation
 def delete_workspace_record(workspace_id: str) -> bool:
     """Delete only a Row-Bot workspace registry row; never touch its files."""
 
@@ -156,6 +181,7 @@ def delete_workspace_record(workspace_id: str) -> bool:
     return True
 
 
+@_registry_mutation
 def clear_thread_references(
     thread_id: str,
     *,
@@ -192,6 +218,7 @@ def clear_thread_references(
     return changed
 
 
+@_registry_mutation
 def set_workspace_approval_mode(workspace_id: str, approval_mode: str) -> DeveloperWorkspace:
     workspace = get_workspace(workspace_id)
     if workspace is None:
@@ -208,6 +235,7 @@ def set_workspace_approval_mode(workspace_id: str, approval_mode: str) -> Develo
     return save_workspace(workspace)
 
 
+@_registry_mutation
 def set_workspace_execution_settings(
     workspace_id: str,
     *,
@@ -243,6 +271,7 @@ def set_workspace_execution_settings(
     return save_workspace(workspace)
 
 
+@_registry_mutation
 def add_or_update_local_workspace(path: str, *, repo_url: str = "") -> DeveloperWorkspace:
     if not str(path or "").strip():
         raise ValueError("Choose a workspace folder before opening a Developer project.")
@@ -276,6 +305,7 @@ def list_clone_parent_folders() -> list[str]:
     return rows[:8]
 
 
+@_registry_mutation
 def remember_clone_parent_folder(path: str) -> None:
     resolved = str(pathlib.Path(path).expanduser().resolve())
     payload = _load_payload()
@@ -346,6 +376,7 @@ def latest_workspace_thread(workspace_id: str) -> str | None:
     return str(rows[0][0]) if rows else None
 
 
+@_registry_mutation
 def create_workspace_thread(
     workspace_id: str,
     *,
@@ -424,6 +455,7 @@ def ensure_latest_workspace_thread(workspace_id: str) -> str:
     return create_workspace_thread(workspace_id)
 
 
+@_registry_mutation
 def ensure_workspace_thread(workspace_id: str) -> str:
     workspace = get_workspace(workspace_id)
     if workspace is None:

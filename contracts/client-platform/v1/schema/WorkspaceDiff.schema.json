@@ -1,0 +1,51 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "next_offset": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Offset"
+    },
+    "revision": {
+      "maxLength": 256,
+      "title": "Revision",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "text",
+        "missing",
+        "denied",
+        "stale",
+        "unavailable"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 65536,
+      "title": "Text",
+      "type": "string"
+    },
+    "truncated": {
+      "default": false,
+      "title": "Truncated",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "status",
+    "text",
+    "revision"
+  ],
+  "title": "WorkspaceDiff",
+  "type": "object"
+}

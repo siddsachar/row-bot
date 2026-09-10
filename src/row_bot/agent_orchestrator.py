@@ -7,6 +7,7 @@ transitions coordinate retries, completion barriers, synthesis, and delivery.
 from __future__ import annotations
 
 import copy
+import base64
 import hashlib
 import json
 import logging
@@ -16,7 +17,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +217,100 @@ class ParentPassResult:
     output_kind: str
     waiting: bool
     text: str
+
+
+@dataclass(frozen=True)
+class ParentSteeringItem:
+    """Public user-authored guidance from the existing durable event owner."""
+
+    id: str
+    event_id: str
+    text: str
+    state: Literal["queued", "consumed"]
+    editable: bool = False
+
+
+@dataclass(frozen=True)
+class ParentSteeringView:
+    conversation_id: str
+    generation_id: str
+    orchestration_id: str
+    items: tuple[ParentSteeringItem, ...]
+    next_cursor: str | None = None
+    has_more: bool = False
+
+
+def read_parent_steering(
+    conversation_id: str, *, generation_id: str = "", cursor: str | None = None,
+    limit: int = 100,
+) -> ParentSteeringView:
+    """Read one scoped page, including completed receipts, without child context."""
+    if not isinstance(conversation_id, str) or not conversation_id.strip():
+        raise OrchestrationError("A conversation id is required.")
+    if type(limit) is not int or not 1 <= limit <= 256:
+        raise OrchestrationError("Invalid steering page limit.")
+    if generation_id:
+        orchestration = get_generation_orchestration(conversation_id, generation_id)
+    else:
+        orchestration = get_active_orchestration(conversation_id)
+        if orchestration is None:
+            rows = list_orchestrations(parent_thread_id=conversation_id, limit=1)
+            orchestration = rows[0] if rows else None
+    if not _is_unified_parent(orchestration):
+        if cursor:
+            raise OrchestrationError("Steering cursor does not match this generation.")
+        return ParentSteeringView(conversation_id, generation_id, "", ())
+    orchestration_id = str(orchestration["id"])
+    after = 0
+    if cursor:
+        try:
+            if len(cursor) > 2048:
+                raise ValueError
+            scoped, after = json.loads(base64.urlsafe_b64decode(cursor.encode("ascii")))
+            if scoped != orchestration_id or type(after) is not int or after < 0:
+                raise ValueError
+        except (ValueError, TypeError, UnicodeError) as exc:
+            raise OrchestrationError("Steering cursor does not match this generation.") from exc
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT rowid AS sequence, id, source_event_id, content, consumed_at "
+            "FROM agent_orchestration_messages WHERE orchestration_id = ? "
+            "AND kind = 'event.parent_steering' AND rowid > ? ORDER BY rowid LIMIT ?",
+            (orchestration_id, after, limit + 1),
+        ).fetchall()
+    finally:
+        conn.close()
+    has_more = len(rows) > limit
+    page = rows[:limit]
+    next_cursor = (base64.urlsafe_b64encode(json.dumps(
+        [orchestration_id, page[-1]["sequence"]], separators=(",", ":")
+    ).encode()).decode() if has_more else None)
+    return ParentSteeringView(
+        conversation_id, str(orchestration["parent_generation_id"]), orchestration_id,
+        tuple(ParentSteeringItem(
+            id=str(row["source_event_id"]).removeprefix("steering:"),
+            event_id=str(row["id"]), text=str(row["content"]),
+            state="consumed" if row["consumed_at"] else "queued",
+        ) for row in page), next_cursor, has_more,
+    )
+
+
+def _publish_parent_steering(
+    orchestration: Mapping[str, Any], event_type: str, steering_ids: Sequence[str],
+) -> None:
+    """Publish identities only; authoritative content/receipts remain in SQLite."""
+    from row_bot.projection.conversation import conversation_projection
+
+    for offset in range(0, len(steering_ids), 256):
+        try:
+            conversation_projection.publish(str(orchestration["parent_thread_id"]), event_type, {
+                "generation_id": str(orchestration["parent_generation_id"]),
+                "steering_ids": list(steering_ids[offset:offset + 256]),
+            })
+        except Exception:
+            # Reconnection reads the durable owner even if an observer is gone.
+            logger.debug("Could not publish steering receipt", exc_info=True)
 
 
 def orchestration_status_label(status: str) -> str:
@@ -1627,22 +1722,35 @@ def _format_thread_events(
     return text[: max(0, limit - 70)].rstrip() + "\n\n[Thread events truncated to context budget.]"
 
 
-def _mark_events_consumed(event_ids: Sequence[str]) -> None:
-    clean_ids = [str(event_id) for event_id in event_ids if str(event_id)]
+def _mark_events_consumed(orchestration_id: str, event_ids: Sequence[str]) -> None:
+    clean_ids = list(dict.fromkeys(str(event_id) for event_id in event_ids if str(event_id)))
     if not clean_ids:
         return
     placeholders = ", ".join("?" for _ in clean_ids)
     conn = _conn()
     try:
+        conn.execute("BEGIN IMMEDIATE")
+        receipts = conn.execute(
+            "SELECT source_event_id FROM agent_orchestration_messages "
+            f"WHERE orchestration_id = ? AND id IN ({placeholders}) "
+            "AND kind = 'event.parent_steering' AND consumed_at = '' ORDER BY rowid",
+            (orchestration_id, *clean_ids),
+        ).fetchall()
         conn.execute(
             f"UPDATE agent_orchestration_messages SET consumed_at = ?, "
-            f"delivery_status = 'consumed' WHERE id IN ({placeholders}) "
+            f"delivery_status = 'consumed' WHERE orchestration_id = ? AND id IN ({placeholders}) "
             "AND consumed_at = ''",
-            (_now(), *clean_ids),
+            (_now(), orchestration_id, *clean_ids),
         )
         conn.commit()
     finally:
         conn.close()
+    if receipts:
+        orchestration = get_orchestration(orchestration_id)
+        if orchestration:
+            _publish_parent_steering(orchestration, "steering.consumed", [
+                str(row["source_event_id"]).removeprefix("steering:") for row in receipts
+            ])
 
 
 def _joined_work_pending(orchestration_id: str) -> bool:
@@ -1750,7 +1858,7 @@ def complete_parent_pass(
     if not _is_unified_parent(orchestration):
         raise OrchestrationError("Parent passes require a version 2 orchestration.")
     if consumed_event_ids:
-        _mark_events_consumed(consumed_event_ids)
+        _mark_events_consumed(orchestration_id, consumed_event_ids)
     state = dict(orchestration.get("continuation_state_json") or {})
     state.update(dict(continuation_state or {}))
     state["finalization_ready"] = True
@@ -2011,13 +2119,25 @@ def route_parent_steering(
         == str(incoming_generation_id)
     ):
         return None
-    record_thread_event(
-        str(orchestration["id"]),
-        kind="parent_steering",
-        content=text,
-        source_event_id=f"steering:{incoming_generation_id}",
-        payload={"incoming_generation_id": str(incoming_generation_id)},
-    )
+    with _SERVICE_LOCK:
+        source_event_id = f"steering:{incoming_generation_id}"
+        conn = _conn()
+        try:
+            existing = conn.execute(
+                "SELECT 1 FROM agent_orchestration_messages WHERE orchestration_id = ? "
+                "AND source_event_id = ? LIMIT 1", (str(orchestration["id"]), source_event_id),
+            ).fetchone()
+        finally:
+            conn.close()
+        record_thread_event(
+            str(orchestration["id"]), kind="parent_steering", content=text,
+            source_event_id=source_event_id,
+            payload={"incoming_generation_id": str(incoming_generation_id)},
+            request_wake=False,
+        )
+        if existing is None:
+            _publish_parent_steering(orchestration, "steering.queued", [str(incoming_generation_id)])
+        request_parent_wake(str(orchestration["id"]))
     return get_orchestration(str(orchestration["id"])) or orchestration
 
 

@@ -67,7 +67,7 @@ test('compact activity returns to one desktop dock after resize', async ({
   await openPanel(page, 'Activity preview');
   const instance = (await readLayout(page)).panels[0].instance_id;
   await page.setViewportSize({ width: 1440, height: 900 });
-  await expect(page.getByTestId('conversation-placeholder')).toBeVisible();
+  await expect(page.getByTestId('conversation-workspace')).toBeVisible();
   await expect(
     page.getByRole('region', { name: 'Compact panel', exact: true }),
   ).toHaveCount(0);

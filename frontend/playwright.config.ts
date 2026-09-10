@@ -8,11 +8,24 @@ if (!['127.0.0.1', 'localhost', '[::1]'].includes(origin.hostname)) {
     'Shell browser fixtures require an isolated loopback backend',
   );
 }
-const evidence =
+const evidence = path.resolve(
   process.env.ROW_BOT_BROWSER_EVIDENCE ??
-  path.resolve(
-    '../.local/evidence/unified-client-platform/phase-2/qa/playwright-local',
-  );
+    path.resolve(
+      '../.local/evidence/unified-client-platform/phase-3-visual-alignment/qa/playwright-local',
+    ),
+);
+const sealedEvidence = path.resolve(
+  '../.local/evidence/unified-client-platform/phase-3',
+);
+const relativeEvidence = path.relative(sealedEvidence, evidence);
+if (
+  relativeEvidence === '' ||
+  (!relativeEvidence.startsWith(`..${path.sep}`) &&
+    relativeEvidence !== '..' &&
+    !path.isAbsolute(relativeEvidence))
+) {
+  throw new Error('Browser output cannot overwrite sealed Phase 3 evidence');
+}
 const viewports = [
   { name: 'desktop', width: 1440, height: 900, touch: false },
   { name: 'laptop', width: 1280, height: 720, touch: false },

@@ -20,6 +20,15 @@ class VoiceCoordinatorEvent:
     detail: str = ""
 
 
+@dataclass(frozen=True)
+class VoiceCallbackIdentity:
+    """Identity captured before a transport callback starts doing work."""
+
+    session_id: int
+    thread_id: str
+    generation_id: str
+
+
 class VoiceSessionCoordinator:
     """Owns the active Talk/Dictate session around the existing VoiceService."""
 
@@ -31,6 +40,7 @@ class VoiceSessionCoordinator:
         self.realtime_last_error = ""
         self._session_id = 0
         self._active = False
+        self._callback_thread_id = ""
         self._events: deque[VoiceCoordinatorEvent] = deque(maxlen=200)
         self.output_activity = OutputActivityTracker()
         self.no_speech_timeout_seconds = 45.0
@@ -183,7 +193,30 @@ class VoiceSessionCoordinator:
         return text
 
     def accepts(self, session_id: int) -> bool:
-        return self._active and session_id == self._session_id
+        return (self._active and session_id == self._session_id
+                and (self.transport != "realtime" or self.realtime_state not in {"stopped", "error"}))
+
+    def capture_callback(
+        self, session_id: int, *, thread_id: str, generation_id: str = ""
+    ) -> VoiceCallbackIdentity | None:
+        """Bind a realtime session to its first surface and capture its run."""
+        if not self.accepts(session_id) or self.transport != "realtime" or self.mode != "talk":
+            return None
+        if not thread_id or self._callback_thread_id not in {"", thread_id}:
+            return None
+        self._callback_thread_id = thread_id
+        return VoiceCallbackIdentity(session_id, thread_id, generation_id)
+
+    def accepts_callback(
+        self, identity: VoiceCallbackIdentity, *, thread_id: str, generation_id: str = ""
+    ) -> bool:
+        return (
+            self.accepts(identity.session_id)
+            and self.transport == "realtime"
+            and self.mode == "talk"
+            and self._callback_thread_id == identity.thread_id == thread_id
+            and identity.generation_id == generation_id
+        )
 
     def drain_events(self) -> list[VoiceCoordinatorEvent]:
         events = list(self._events)
@@ -210,7 +243,9 @@ class VoiceSessionCoordinator:
             "realtime_completed_speech_window_id": self._realtime_completed_speech_window_id,
         }
 
-    def record_assistant_output(self, text: str) -> None:
+    def record_assistant_output(self, text: str, *, session_id: int | None = None) -> None:
+        if not self._active or (session_id is not None and not self.accepts(session_id)):
+            return
         self.output_activity.record_output(text)
 
     def set_realtime_state(self, state: str, *, detail: str = "", session_id: int | None = None) -> None:
@@ -236,6 +271,8 @@ class VoiceSessionCoordinator:
         self._emit(f"realtime_{normalized}", detail=detail)
 
     def queue_realtime_tool_call(self, call: dict[str, object]) -> None:
+        if not self._active or self.transport != "realtime" or self.mode != "talk":
+            return
         if self.queued_realtime_tool_call:
             self._emit("realtime_tool_call_replaced", detail=self.queued_realtime_tool_call["name"])
         self.queued_realtime_tool_call = {
@@ -270,6 +307,8 @@ class VoiceSessionCoordinator:
         output_item_id: str = "",
         session_id: int | None = None,
     ) -> None:
+        if not self._active or self.transport != "realtime":
+            return
         if session_id is not None and session_id != self._session_id:
             self._emit("stale_realtime_output_ignored", detail=str(session_id))
             return
@@ -285,6 +324,8 @@ class VoiceSessionCoordinator:
         session_id: int | None = None,
         clear_generation: bool = False,
     ) -> None:
+        if not self._active or self.transport != "realtime":
+            return
         if session_id is not None and session_id != self._session_id:
             self._emit("stale_realtime_output_done_ignored", detail=str(session_id))
             return
@@ -298,6 +339,8 @@ class VoiceSessionCoordinator:
         self.set_realtime_state("listening", session_id=session_id)
 
     def record_barge_in(self, *, reason: str, session_id: int | None = None) -> bool:
+        if not self._active or self.transport != "realtime":
+            return False
         if session_id is not None and session_id != self._session_id:
             self._emit("stale_realtime_barge_in_ignored", detail=str(session_id))
             return False
@@ -422,6 +465,7 @@ class VoiceSessionCoordinator:
         return self.output_activity.should_drop_echo(normalized)
 
     def _reset_realtime_runtime_state(self, *, keep_latency: bool = False) -> None:
+        self._callback_thread_id = ""
         self.active_realtime_response_id = ""
         self.active_realtime_output_item_id = ""
         self.active_row_bot_generation_id = ""

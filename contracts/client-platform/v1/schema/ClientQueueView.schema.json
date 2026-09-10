@@ -1,0 +1,118 @@
+{
+  "$defs": {
+    "ClientQueueItem": {
+      "additionalProperties": false,
+      "properties": {
+        "editable": {
+          "title": "Editable",
+          "type": "boolean"
+        },
+        "generation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Generation Id",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "removable": {
+          "title": "Removable",
+          "type": "boolean"
+        },
+        "revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "queued",
+            "dispatching",
+            "consumed",
+            "cancelled",
+            "paused"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "submission_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Submission Id",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 16000,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "submission_id",
+        "generation_id",
+        "text",
+        "revision",
+        "state",
+        "editable",
+        "removable"
+      ],
+      "title": "ClientQueueItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "generation_id": {
+      "maxLength": 128,
+      "title": "Generation Id",
+      "type": "string"
+    },
+    "has_more": {
+      "default": false,
+      "title": "Has More",
+      "type": "boolean"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/ClientQueueItem"
+      },
+      "maxItems": 256,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Cursor"
+    }
+  },
+  "required": [
+    "conversation_id",
+    "generation_id",
+    "items"
+  ],
+  "title": "ClientQueueView",
+  "type": "object"
+}

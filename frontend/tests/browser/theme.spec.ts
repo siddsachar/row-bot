@@ -41,7 +41,7 @@ test('system preference is applied before the first frame and updates without re
       });
       if (
         frames.length < 120 &&
-        !document.querySelector('[data-testid="conversation-placeholder"]')
+        !document.querySelector('[data-testid="conversation-workspace"]')
       )
         requestAnimationFrame(sample);
     }
@@ -63,7 +63,7 @@ test('system preference is applied before the first frame and updates without re
   expect(frames.length).toBeGreaterThan(0);
   expect(
     frames.every(
-      (frame) => frame.theme === 'dark' && frame.canvas === '#101820',
+      (frame) => frame.theme === 'dark' && frame.canvas === '#121212',
     ),
   ).toBe(true);
   await writeEvidence(testInfo, 'before-paint-dark-frame-audit', frames);
@@ -133,7 +133,7 @@ test('unavailable or corrupt local storage leaves a usable shell', async ({
     });
   }, size);
   await openFixture(page);
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await page.getByRole('button', { name: 'Preferences', exact: true }).click();
   await page
     .getByRole('combobox', { name: 'Appearance', exact: true })

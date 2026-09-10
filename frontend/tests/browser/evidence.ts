@@ -84,7 +84,6 @@ export async function assertLocalContentPolicy(page: Page): Promise<void> {
   for (const directive of [
     'default-src',
     'connect-src',
-    'font-src',
     'base-uri',
     'form-action',
   ])
@@ -98,8 +97,9 @@ export async function assertLocalContentPolicy(page: Page): Promise<void> {
       ),
   ).toBe(true);
   expect(directives.get('img-src')).toEqual(["'self'", 'data:', 'blob:']);
+  expect(directives.get('font-src')).toEqual(["'self'", 'data:']);
   expect(directives.get('style-src')).toEqual(["'self'", "'unsafe-inline'"]);
-  expect(directives.get('frame-src')).toEqual(["'none'"]);
+  expect(directives.get('frame-src')).toEqual(["'self'"]);
   expect(directives.get('object-src')).toEqual(["'none'"]);
 }
 
@@ -214,11 +214,35 @@ export async function accessibility(
   page: Page,
   testInfo: TestInfo,
   name: string,
+  options: { opaquePreview?: boolean } = {},
 ): Promise<void> {
-  const result = await new AxeBuilder({ page })
-    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
-    .analyze();
+  const builder = new AxeBuilder({ page }).withTags([
+    'wcag2a',
+    'wcag2aa',
+    'wcag21aa',
+  ]);
+  const opaquePreviewScope = [];
+  if (options.opaquePreview) {
+    const selector = '[aria-label="Design preview"] iframe[sandbox=""]';
+    const frames = page.locator(selector);
+    for (let index = 0; index < (await frames.count()); index++) {
+      const frame = frames.nth(index);
+      await expect(frame).toHaveAttribute('sandbox', '');
+      await expect(frame).toHaveAttribute('title', /^Slide preview: .+/);
+      opaquePreviewScope.push({
+        selector,
+        index,
+        title: await frame.getAttribute('title'),
+      });
+    }
+    if (opaquePreviewScope.length) builder.exclude(selector);
+  }
+  const result = await builder.analyze();
   await writeEvidence(testInfo, name, {
+    opaquePreviewScope,
+    scope: opaquePreviewScope.length
+      ? 'Only generated artwork inside the named opaque, script-disabled preview iframe is excluded from axe injection. Chrome and controls remain scanned; iframe title/sandbox are asserted and artwork geometry/visual evidence is separate. No sandbox or CSP permission is changed.'
+      : 'Complete default axe context; no preview exclusions.',
     violations: result.violations,
     incomplete: result.incomplete,
     passes: result.passes.length,

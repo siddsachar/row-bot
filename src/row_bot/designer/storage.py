@@ -169,7 +169,10 @@ def save_asset_bytes(project_id: str, asset_id: str, original_name: str, data: b
 
 def load_reference_bytes(project_id: str, stored_name: str) -> Optional[bytes]:
     """Load a persisted reference file by project id and stored filename."""
-    path = _project_reference_dir(project_id) / stored_name
+    from row_bot.thread_cleanup import resolve_managed_path
+
+    project_root = resolve_managed_path(REFERENCES_DIR, project_id)
+    path = resolve_managed_path(project_root, stored_name)
     if not path.exists():
         return None
     try:
@@ -181,7 +184,10 @@ def load_reference_bytes(project_id: str, stored_name: str) -> Optional[bytes]:
 
 def load_asset_bytes(project_id: str, stored_name: str) -> Optional[bytes]:
     """Load a persisted asset file by project id and stored filename."""
-    path = _project_asset_dir(project_id) / stored_name
+    from row_bot.thread_cleanup import resolve_managed_path
+
+    project_root = resolve_managed_path(ASSETS_DIR, project_id)
+    path = resolve_managed_path(project_root, stored_name)
     if not path.exists():
         return None
     try:
@@ -357,6 +363,8 @@ def detach_thread(project_id: str, thread_id: str) -> bool:
             return False
         project = DesignerProject.from_dict(data)
         project._row_bot_persisted_updated_at = str(data.get("updated_at") or "")
+        if project.thread_ownership == "resume":
+            project.missing_origin_thread_id = clean_thread_id
         project.thread_id = None
         save_project(project)
     try:
@@ -379,8 +387,9 @@ def delete_project(project_id: str) -> bool:
     if path.exists():
         try:
             with open(path, "r", encoding="utf-8") as f:
-                linked = str((json.load(f) or {}).get("thread_id", "") or "")
-                if linked:
+                metadata = json.load(f) or {}
+                linked = str(metadata.get("thread_id", "") or "")
+                if linked and metadata.get("thread_ownership", "legacy") == "legacy":
                     linked_thread_ids.add(linked)
         except Exception:
             logger.debug("Could not read thread_id from %s", path, exc_info=True)
@@ -390,6 +399,22 @@ def delete_project(project_id: str) -> bool:
         linked_thread_ids.update(_list_project_thread_ids(clean_project_id))
     except Exception:
         logger.debug("Could not enumerate linked Designer threads", exc_info=True)
+
+    # Explicit additive relationships are not legacy project ownership. Never
+    # cascade through one, even when compatibility metadata mirrors project_id.
+    if linked_thread_ids:
+        import sqlite3
+        from contextlib import closing
+        from row_bot import threads
+
+        with closing(sqlite3.connect(threads.DB_PATH)) as connection:
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(thread_meta)")}
+            if "resource_bindings_json" in columns:
+                additive = {str(row[0]) for row in connection.execute(
+                    "SELECT thread_id FROM thread_meta WHERE "
+                    "COALESCE(resource_bindings_json, '') != ''"
+                )}
+                linked_thread_ids.difference_update(additive)
 
     deleted = False
     try:

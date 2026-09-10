@@ -16,10 +16,18 @@ export type PanelInstance = {
   descriptor: PanelDescriptor;
   placement: PanelPlacement;
   visibility: 'visible' | 'collapsed';
+  /** Stable binding/resource identity, independent of title and revision. */
+  presentationKey?: string;
+};
+export type PanelPresentationState = {
+  initialized: boolean;
+  seen: string[];
+  dismissed: string[];
+  lastExplicitKey: string | null;
 };
 export type Region = { size: number; restoreSize: number; collapsed: boolean };
 export type PanelLayout = {
-  version: 1;
+  version: 2;
   widthClass: WidthClass;
   width: number;
   height: number;
@@ -30,6 +38,7 @@ export type PanelLayout = {
   activePanelId: string | null;
   suggestions: PanelDescriptor[];
   nextInstance: number;
+  presentation: PanelPresentationState;
 };
 export type PanelRegistration = {
   title: string;
@@ -38,8 +47,22 @@ export type PanelRegistration = {
   capabilities: readonly string[];
   compact: 'tab' | 'sheet';
 };
-/** Bundled fake renderers only. Server descriptors cannot register code or routes. */
+/** Bundled renderers only. Server descriptors cannot register code or routes. */
 export const panelRegistry = {
+  'artifact.preview': {
+    title: 'Deck preview',
+    resourceKinds: ['artifact'],
+    requiresResource: true,
+    capabilities: [],
+    compact: 'tab',
+  },
+  'workspace.inspector': {
+    title: 'Workspace Inspector',
+    resourceKinds: ['workspace'],
+    requiresResource: true,
+    capabilities: [],
+    compact: 'tab',
+  },
   'fake.info': {
     title: 'Sample information',
     resourceKinds: [],
@@ -100,7 +123,7 @@ export function regionBounds(
 export function createPanelLayout(width = 1440, height = 900): PanelLayout {
   return reconcileLayout(
     {
-      version: 1,
+      version: 2,
       widthClass: widthClass(width),
       width,
       height,
@@ -111,6 +134,12 @@ export function createPanelLayout(width = 1440, height = 900): PanelLayout {
       activePanelId: null,
       suggestions: [],
       nextInstance: 1,
+      presentation: {
+        initialized: false,
+        seen: [],
+        dismissed: [],
+        lastExplicitKey: null,
+      },
     },
     width,
     height,
@@ -147,6 +176,12 @@ export function panelKey(descriptor: PanelDescriptor): string {
     descriptor.resource_ref ?? '',
     descriptor.subresource_key ?? '',
   ]);
+}
+export function panelInstanceKey(panel: PanelInstance): string {
+  return panel.presentationKey ?? panelKey(panel.descriptor);
+}
+export function boundedPanelKeys(keys: readonly string[]): string[] {
+  return [...new Set(keys)].slice(-200);
 }
 export function panelPresentation(
   layout: PanelLayout,
@@ -216,13 +251,30 @@ export function openPanel(
   const known = layout.panels.find(
     (panel) => panelKey(panel.descriptor) === panelKey(descriptor),
   );
-  if (known && !duplicate) return focusPanel(layout, known.instance_id);
+  if (known && !duplicate)
+    return focusPanel(
+      {
+        ...layout,
+        panels: layout.panels.map((panel) =>
+          panel === known ? { ...panel, descriptor: { ...descriptor } } : panel,
+        ),
+      },
+      known.instance_id,
+    );
   if (layout.panels.length >= 20) return layout;
   const instance_id = `panel-${layout.nextInstance}`;
   return {
     ...layout,
     nextInstance: layout.nextInstance + 1,
     activePanelId: instance_id,
+    presentation: {
+      ...layout.presentation,
+      initialized: true,
+      dismissed: layout.presentation.dismissed.filter(
+        (key) => key !== panelKey(descriptor),
+      ),
+      lastExplicitKey: panelKey(descriptor),
+    },
     [placement]: { ...layout[placement], collapsed: false },
     panels: [
       ...layout.panels,
@@ -244,6 +296,14 @@ export function focusPanel(
   return {
     ...layout,
     activePanelId: id,
+    presentation: {
+      ...layout.presentation,
+      initialized: true,
+      dismissed: layout.presentation.dismissed.filter(
+        (key) => key !== panelInstanceKey(panel),
+      ),
+      lastExplicitKey: panelInstanceKey(panel),
+    },
     [panel.placement]: { ...layout[panel.placement], collapsed: false },
     panels: layout.panels.map((value) =>
       value.instance_id === id ? { ...value, visibility: 'visible' } : value,
@@ -254,13 +314,39 @@ export function closePanel(layout: PanelLayout, id: string): PanelLayout {
   const index = layout.panels.findIndex((value) => value.instance_id === id);
   if (index < 0) return layout;
   const panels = layout.panels.filter((value) => value.instance_id !== id);
+  const key = panelInstanceKey(layout.panels[index]);
   return {
     ...layout,
     panels,
+    presentation: {
+      ...layout.presentation,
+      initialized: true,
+      dismissed: boundedPanelKeys([...layout.presentation.dismissed, key]),
+      lastExplicitKey:
+        layout.presentation.lastExplicitKey === key
+          ? null
+          : layout.presentation.lastExplicitKey,
+    },
     activePanelId:
       layout.activePanelId === id
         ? (panels[Math.min(index, panels.length - 1)]?.instance_id ?? null)
         : layout.activePanelId,
+  };
+}
+export function closeAllPanels(layout: PanelLayout): PanelLayout {
+  return {
+    ...layout,
+    panels: [],
+    activePanelId: null,
+    presentation: {
+      ...layout.presentation,
+      initialized: true,
+      dismissed: boundedPanelKeys([
+        ...layout.presentation.dismissed,
+        ...layout.panels.map(panelInstanceKey),
+      ]),
+      lastExplicitKey: null,
+    },
   };
 }
 export function movePanel(
@@ -300,6 +386,19 @@ export function toggleRegion(
   return reconcileLayout(
     {
       ...layout,
+      presentation:
+        region === 'navigation' || value.collapsed
+          ? layout.presentation
+          : {
+              ...layout.presentation,
+              initialized: true,
+              dismissed: boundedPanelKeys([
+                ...layout.presentation.dismissed,
+                ...layout.panels
+                  .filter((panel) => panel.placement === region)
+                  .map(panelInstanceKey),
+              ]),
+            },
       [region]: value.collapsed
         ? { ...value, size: value.restoreSize, collapsed: false }
         : { ...value, restoreSize: value.size, collapsed: true },
@@ -309,7 +408,10 @@ export function toggleRegion(
   );
 }
 export function resetLayout(layout: PanelLayout): PanelLayout {
-  return createPanelLayout(layout.width, layout.height);
+  return {
+    ...createPanelLayout(layout.width, layout.height),
+    presentation: closeAllPanels(layout).presentation,
+  };
 }
 
 /** Suggestions are advisory and cannot focus, open, move or select a conversation. */
@@ -340,7 +442,7 @@ export function dismissSuggestion(
 
 export function persistLayout(layout: PanelLayout): string {
   return JSON.stringify({
-    version: 1,
+    version: 2,
     widthClass: layout.widthClass,
     navigation: layout.navigation,
     side: layout.side,
@@ -348,6 +450,7 @@ export function persistLayout(layout: PanelLayout): string {
     panels: layout.panels,
     activePanelId: layout.activePanelId,
     nextInstance: layout.nextInstance,
+    presentation: layout.presentation,
   });
 }
 export function restoreLayout(
@@ -356,7 +459,7 @@ export function restoreLayout(
   height: number,
 ): PanelLayout {
   const fallback = createPanelLayout(width, height);
-  if (!serialized || serialized.length > 65536) return fallback;
+  if (!serialized || serialized.length > 524288) return fallback;
   try {
     const value = JSON.parse(serialized) as Record<string, unknown>;
     if (
@@ -364,7 +467,7 @@ export function restoreLayout(
       value.widthClass !== fallback.widthClass
     )
       return fallback;
-    if (value.version !== 1 && value.version !== 0) return fallback;
+    if (![0, 1, 2].includes(value.version as number)) return fallback;
     let layout = { ...fallback };
     // v0 stored naked region sizes; v1 stores collapse/restore as well.
     for (const key of ['navigation', 'side', 'bottom'] as const) {
@@ -394,7 +497,10 @@ export function restoreLayout(
             ids.has(item.instance_id) ||
             !isPanelDescriptor(item.descriptor) ||
             !['side', 'bottom'].includes(item.placement) ||
-            !['visible', 'collapsed'].includes(item.visibility)
+            !['visible', 'collapsed'].includes(item.visibility) ||
+            (item.presentationKey !== undefined &&
+              (typeof item.presentationKey !== 'string' ||
+                item.presentationKey.length > 1024))
           )
             return false;
           ids.add(item.instance_id);
@@ -412,6 +518,49 @@ export function restoreLayout(
             ids.has(value.activePanelId)
           ? value.activePanelId
           : (layout.panels[0]?.instance_id ?? null);
+    // Earlier versions had no dismissal record. Preserve a saved resource view
+    // and collapse choice; a legacy empty shell may discover its first resource.
+    const resourcePanels = layout.panels.filter(
+      (panel) => panel.descriptor.resource_ref,
+    );
+    layout.presentation.initialized =
+      resourcePanels.length > 0 ||
+      layout.side.collapsed ||
+      layout.bottom.collapsed;
+    layout.presentation.seen = resourcePanels.map(panelInstanceKey);
+    layout.presentation.dismissed = resourcePanels
+      .filter(
+        (panel) =>
+          panel.visibility === 'collapsed' || layout[panel.placement].collapsed,
+      )
+      .map(panelInstanceKey);
+    const presentation = value.presentation as
+      Partial<PanelPresentationState> | undefined;
+    if (
+      value.version === 2 &&
+      presentation &&
+      typeof presentation === 'object'
+    ) {
+      const keys = (input: unknown): string[] =>
+        Array.isArray(input)
+          ? boundedPanelKeys(
+              input.filter(
+                (key): key is string =>
+                  typeof key === 'string' && key.length <= 1024,
+              ),
+            )
+          : [];
+      layout.presentation = {
+        initialized: presentation.initialized === true,
+        seen: keys(presentation.seen),
+        dismissed: keys(presentation.dismissed),
+        lastExplicitKey:
+          typeof presentation.lastExplicitKey === 'string' &&
+          presentation.lastExplicitKey.length <= 1024
+            ? presentation.lastExplicitKey
+            : null,
+      };
+    }
     return reconcileLayout(layout, width, height);
   } catch {
     return fallback;
@@ -419,4 +568,11 @@ export function restoreLayout(
 }
 export function layoutStorageKey(profile: string, width: number): string {
   return `row-bot:layout:v1:${profile}:${widthClass(width)}`;
+}
+export function scopedLayoutStorageKey(
+  instanceId: string,
+  conversationId: string | null,
+  width: number,
+): string {
+  return `row-bot:layout:v2:${encodeURIComponent(instanceId)}:${encodeURIComponent(conversationId ?? 'home')}:${widthClass(width)}`;
 }

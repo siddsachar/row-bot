@@ -149,6 +149,97 @@
       "title": "ConversationBindCommand",
       "type": "object"
     },
+    "ConversationControls": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_mode": {
+          "default": "approve",
+          "enum": [
+            "block",
+            "approve",
+            "allow_all"
+          ],
+          "title": "Approval Mode",
+          "type": "string"
+        },
+        "model_selection": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelSelection"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "profile_id": {
+          "default": "",
+          "maxLength": 128,
+          "title": "Profile Id",
+          "type": "string"
+        },
+        "reasoning": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReasoningControl"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "runtime_mode": {
+          "default": "agent",
+          "enum": [
+            "agent",
+            "chat_only"
+          ],
+          "title": "Runtime Mode",
+          "type": "string"
+        }
+      },
+      "title": "ConversationControls",
+      "type": "object"
+    },
+    "ConversationControlsCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ConversationControls"
+        },
+        "type": {
+          "const": "conversation.controls",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ConversationControlsCommand",
+      "type": "object"
+    },
     "ConversationCreateCommand": {
       "additionalProperties": false,
       "properties": {
@@ -258,6 +349,117 @@
         "payload"
       ],
       "title": "ConversationPinCommand",
+      "type": "object"
+    },
+    "ConversationQueueDispatchCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/QueueItemCommand"
+        },
+        "type": {
+          "const": "conversation.queue.dispatch",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ConversationQueueDispatchCommand",
+      "type": "object"
+    },
+    "ConversationQueueEditCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/QueueEditPayload"
+        },
+        "type": {
+          "const": "conversation.queue.edit",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ConversationQueueEditCommand",
+      "type": "object"
+    },
+    "ConversationQueueRemoveCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/QueueItemCommand"
+        },
+        "type": {
+          "const": "conversation.queue.remove",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ConversationQueueRemoveCommand",
       "type": "object"
     },
     "ConversationRenameCommand": {
@@ -496,6 +698,39 @@
       "title": "CreatePayload",
       "type": "object"
     },
+    "DeckSetupPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "aspect_ratio": {
+          "default": "16:9",
+          "maxLength": 32,
+          "title": "Aspect Ratio",
+          "type": "string"
+        },
+        "brief": {
+          "default": "",
+          "maxLength": 16000,
+          "title": "Brief",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "maxLength": 120,
+          "title": "Name",
+          "type": "string"
+        },
+        "template_id": {
+          "default": "blank_deck",
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Template Id",
+          "type": "string"
+        }
+      },
+      "title": "DeckSetupPayload",
+      "type": "object"
+    },
     "EmptyPayload": {
       "additionalProperties": false,
       "properties": {},
@@ -540,6 +775,131 @@
       "title": "PinPayload",
       "type": "object"
     },
+    "QueueEditPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_queue_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Queue Revision",
+          "type": "string"
+        },
+        "submission_id": {
+          "format": "uuid",
+          "title": "Submission Id",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 16000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "submission_id",
+        "expected_queue_revision",
+        "text"
+      ],
+      "title": "QueueEditPayload",
+      "type": "object"
+    },
+    "QueueItemCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_queue_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Queue Revision",
+          "type": "string"
+        },
+        "submission_id": {
+          "format": "uuid",
+          "title": "Submission Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "submission_id",
+        "expected_queue_revision"
+      ],
+      "title": "QueueItemCommand",
+      "type": "object"
+    },
+    "ReasoningControl": {
+      "additionalProperties": false,
+      "properties": {
+        "capability_revision": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Capability Revision",
+          "type": "string"
+        },
+        "model_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Model Ref",
+          "type": "string"
+        },
+        "selection": {
+          "$ref": "#/$defs/ReasoningSelectionValue"
+        }
+      },
+      "required": [
+        "model_ref",
+        "capability_revision",
+        "selection"
+      ],
+      "title": "ReasoningControl",
+      "type": "object"
+    },
+    "ReasoningSelectionValue": {
+      "additionalProperties": false,
+      "properties": {
+        "budget": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Budget"
+        },
+        "effort": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effort"
+        },
+        "kind": {
+          "enum": [
+            "provider_default",
+            "effort",
+            "on",
+            "off",
+            "budget"
+          ],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "ReasoningSelectionValue",
+      "type": "object"
+    },
     "RenamePayload": {
       "additionalProperties": false,
       "properties": {
@@ -556,6 +916,179 @@
       "title": "RenamePayload",
       "type": "object"
     },
+    "ResourceContinueCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/SetupContinuePayload"
+        },
+        "type": {
+          "const": "resource.continue",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ResourceContinueCommand",
+      "type": "object"
+    },
+    "ResourceSetupCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "client_session_id": {
+          "format": "uuid",
+          "title": "Client Session Id",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "expected_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Expected Revision",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ResourceSetupPayload"
+        },
+        "type": {
+          "const": "resource.setup",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command_id",
+        "client_session_id",
+        "expected_revision",
+        "type",
+        "payload"
+      ],
+      "title": "ResourceSetupCommand",
+      "type": "object"
+    },
+    "ResourceSetupPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "deck": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeckSetupPayload"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "expected_origin_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9:_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Origin Id"
+        },
+        "expected_resource_revision": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Resource Revision"
+        },
+        "folder_grant": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9:_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Folder Grant"
+        },
+        "intent": {
+          "enum": [
+            "create",
+            "open",
+            "add",
+            "repair",
+            "new_conversation"
+          ],
+          "title": "Intent",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "artifact",
+            "workspace"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "resource_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9:_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resource Id"
+        }
+      },
+      "required": [
+        "kind",
+        "intent"
+      ],
+      "title": "ResourceSetupPayload",
+      "type": "object"
+    },
     "ResumePayload": {
       "additionalProperties": false,
       "properties": {
@@ -567,6 +1100,43 @@
         "model_selection"
       ],
       "title": "ResumePayload",
+      "type": "object"
+    },
+    "SetupContinuePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_origin_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9:_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Origin Id"
+        },
+        "expected_resource_revision": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Expected Resource Revision",
+          "type": "string"
+        },
+        "setup_command_id": {
+          "format": "uuid",
+          "title": "Setup Command Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "setup_command_id",
+        "expected_resource_revision"
+      ],
+      "title": "SetupContinuePayload",
       "type": "object"
     },
     "SteerPayload": {
@@ -618,6 +1188,22 @@
           "minLength": 1,
           "title": "Text",
           "type": "string"
+        },
+        "write_targets": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/WriteTarget"
+              },
+              "maxItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Write Targets"
         }
       },
       "required": [
@@ -644,21 +1230,74 @@
       ],
       "title": "UnbindPayload",
       "type": "object"
+    },
+    "WriteTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "binding_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Binding Revision",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "artifact",
+            "workspace"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "resource_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "resource_revision": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Resource Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "binding_id",
+        "resource_id",
+        "kind",
+        "binding_revision",
+        "resource_revision"
+      ],
+      "title": "WriteTarget",
+      "type": "object"
     }
   },
   "discriminator": {
     "mapping": {
       "approval.resolve": "#/$defs/ApprovalResolveCommand",
       "conversation.bind": "#/$defs/ConversationBindCommand",
+      "conversation.controls": "#/$defs/ConversationControlsCommand",
       "conversation.create": "#/$defs/ConversationCreateCommand",
       "conversation.delete": "#/$defs/ConversationDeleteCommand",
       "conversation.pin": "#/$defs/ConversationPinCommand",
+      "conversation.queue.dispatch": "#/$defs/ConversationQueueDispatchCommand",
+      "conversation.queue.edit": "#/$defs/ConversationQueueEditCommand",
+      "conversation.queue.remove": "#/$defs/ConversationQueueRemoveCommand",
       "conversation.rename": "#/$defs/ConversationRenameCommand",
       "conversation.resume": "#/$defs/ConversationResumeCommand",
       "conversation.steer": "#/$defs/ConversationSteerCommand",
       "conversation.stop": "#/$defs/ConversationStopCommand",
       "conversation.submit": "#/$defs/ConversationSubmitCommand",
-      "conversation.unbind": "#/$defs/ConversationUnbindCommand"
+      "conversation.unbind": "#/$defs/ConversationUnbindCommand",
+      "resource.continue": "#/$defs/ResourceContinueCommand",
+      "resource.setup": "#/$defs/ResourceSetupCommand"
     },
     "propertyName": "type"
   },
@@ -695,6 +1334,24 @@
     },
     {
       "$ref": "#/$defs/ApprovalResolveCommand"
+    },
+    {
+      "$ref": "#/$defs/ConversationControlsCommand"
+    },
+    {
+      "$ref": "#/$defs/ResourceSetupCommand"
+    },
+    {
+      "$ref": "#/$defs/ResourceContinueCommand"
+    },
+    {
+      "$ref": "#/$defs/ConversationQueueEditCommand"
+    },
+    {
+      "$ref": "#/$defs/ConversationQueueRemoveCommand"
+    },
+    {
+      "$ref": "#/$defs/ConversationQueueDispatchCommand"
     }
   ]
 }

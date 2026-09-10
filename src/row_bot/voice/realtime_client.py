@@ -3,13 +3,22 @@ from __future__ import annotations
 import json
 
 
-def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
+def start_realtime_client_js(
+    *, sink_id: int, session_id: int, thread_id: str = "", generation_id: str = ""
+) -> str:
     sink = json.dumps(sink_id)
     session = json.dumps(session_id)
     return f"""
 (async function() {{
   const sinkId = {sink};
   const sessionId = {session};
+  const threadId = {json.dumps(thread_id)};
+  const initialGenerationId = {json.dumps(generation_id)};
+  const activation = {{}};
+  window.RowBotRealtimeActivation = activation;
+  const responseIdentities = new Map();
+  let currentGenerationId = initialGenerationId;
+  function isCurrent() {{ return window.RowBotRealtimeActivation === activation; }}
 
   function getSink() {{
     if (typeof getElement === 'function') return getElement(sinkId);
@@ -17,10 +26,14 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
   }}
 
   function emit(type, detail) {{
+    if (!isCurrent()) return;
     const el = getSink();
     if (!el) return;
+    const responseId = detail && detail.response_id;
+    const identity = responseIdentities.get(responseId) || {{thread_id: threadId, generation_id: currentGenerationId}};
+    const scoped = threadId ? identity : {{}};
     el.dispatchEvent(new CustomEvent('row-bot-realtime-event', {{
-      detail: Object.assign({{type, session_id: sessionId}}, detail || {{}})
+      detail: Object.assign({{type}}, detail || {{}}, scoped, {{session_id: sessionId}})
     }}));
   }}
 
@@ -64,6 +77,7 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
 
   const previousRuntime = window.RowBotRealtimeVoice;
   await cleanup(previousRuntime && previousRuntime.session);
+  if (!isCurrent()) return;
 
   const runtime = {{
     session: null,
@@ -82,11 +96,18 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
     handledCallIds: new Set(),
     outputQueue: [],
     emit,
+    clearGeneration(expectedSession, expectedThread, expectedGeneration) {{
+      if (!isCurrent() || expectedSession !== sessionId || expectedThread !== threadId ||
+          expectedGeneration !== currentGenerationId) return false;
+      currentGenerationId = '';
+      return true;
+    }},
     dcState() {{
       const dc = this.session && this.session.dc;
       return dc ? dc.readyState : 'missing';
     }},
     sendEvent(event) {{
+      if (!isCurrent()) return false;
       const dc = this.session && this.session.dc;
       if (!dc || dc.readyState !== 'open') {{
         emit('client_event_failed', {{
@@ -100,6 +121,7 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
       return true;
     }},
     async stop() {{
+      if (isCurrent()) window.RowBotRealtimeActivation = null;
       this.outputQueue = [];
       this.playbackActive = false;
       this.responseState = 'idle';
@@ -211,6 +233,8 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
       }}
     }},
     sendFunctionOutput(callId, output, meta) {{
+      if (!isCurrent() || (threadId && meta && meta.thread_id !== threadId)) return false;
+      if (meta && typeof meta.generation_id === 'string') currentGenerationId = meta.generation_id;
       const cleanCallId = String(callId || '').trim();
       const cleanOutput = typeof output === 'string' ? output : JSON.stringify(output || {{}});
       const localMeta = localControlMeta(meta);
@@ -232,6 +256,8 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
       return sent;
     }},
     sendRunEvent(text, meta) {{
+      if (!isCurrent() || (threadId && meta && meta.thread_id !== threadId)) return false;
+      if (meta && typeof meta.generation_id === 'string') currentGenerationId = meta.generation_id;
       const clean = String(text || '').trim();
       if (!clean) return false;
       const origin = String(meta && meta.origin || '');
@@ -278,7 +304,7 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
       this.settleResponseLifecycle('barge_in_cancelled', 450);
       return true;
     }},
-    emitFunctionCall(item, sourceType) {{
+    emitFunctionCall(item, sourceType, responseId) {{
       if (!item || item.type !== 'function_call') return false;
       const callId = String(item.call_id || item.id || '');
       if (!callId || this.handledCallIds.has(callId)) return false;
@@ -293,14 +319,14 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
         arguments: argumentsText,
         parsed_arguments: safeJson(argumentsText),
         source_event_type: sourceType || '',
-        response_id: this.activeResponseId,
+        response_id: responseId || this.activeResponseId,
         item_id: String(item.id || '')
       }});
       return true;
     }},
-    handleResponseOutputItem(item, sourceType) {{
+    handleResponseOutputItem(item, sourceType, responseId) {{
       if (!item) return;
-      if (item.type === 'function_call') this.emitFunctionCall(item, sourceType);
+      if (item.type === 'function_call') this.emitFunctionCall(item, sourceType, responseId);
     }}
   }};
   window.RowBotRealtimeVoice = runtime;
@@ -311,11 +337,13 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
       method: 'POST',
       headers: {{'Content-Type': 'application/json'}}
     }});
+    if (!isCurrent()) return;
     if (!tokenResponse.ok) {{
       const detail = await tokenResponse.text();
       throw new Error(detail || ('Realtime token request failed: ' + tokenResponse.status));
     }}
     const tokenData = await tokenResponse.json();
+    if (!isCurrent()) return;
     const ephemeralKey = tokenData.value;
     if (!ephemeralKey) throw new Error('Realtime client secret did not include a value.');
 
@@ -324,6 +352,7 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
     audio.autoplay = true;
     audio.style.display = 'none';
     document.body.appendChild(audio);
+    runtime.session = {{pc, audio}};
     pc.ontrack = (event) => {{
       audio.srcObject = event.streams[0];
       emit('remote_audio_track', {{streams: event.streams.length}});
@@ -333,6 +362,7 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
     try {{
       if (navigator.permissions && navigator.permissions.query) {{
         const permission = await navigator.permissions.query({{name: 'microphone'}});
+        if (!isCurrent()) return;
         emit('microphone_permission', {{
           state: permission.state || '',
           origin: window.location.origin || '',
@@ -355,6 +385,7 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
     }}
 
     const stream = await navigator.mediaDevices.getUserMedia({{audio: true}});
+    if (!isCurrent()) {{ await cleanup({{pc, audio, stream}}); return; }}
     stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
     const dc = pc.createDataChannel('oai-events');
@@ -362,9 +393,20 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
 
     dc.addEventListener('open', () => emit('connected'));
     dc.addEventListener('message', (event) => {{
+      if (!isCurrent()) return;
       let payload = null;
       try {{ payload = JSON.parse(event.data); }} catch (_) {{ return; }}
       const type = String(payload.type || '');
+      const response = payload.response || {{}};
+      const responseId = String(response.id || payload.response_id || '');
+      if (responseId && !responseIdentities.has(responseId)) {{
+        const meta = response.metadata || {{}};
+        responseIdentities.set(responseId, {{
+          thread_id: String(meta.thread_id || threadId),
+          generation_id: String(meta.generation_id ?? currentGenerationId)
+        }});
+        if (responseIdentities.size > 200) responseIdentities.delete(responseIdentities.keys().next().value);
+      }}
       if (type === 'session.created' || type === 'session.updated') {{
         emit('session_lifecycle', {{event_type: type, raw: payload}});
       }} else if (type === 'input_audio_buffer.speech_started') {{
@@ -413,7 +455,7 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
         }});
       }} else if (type === 'response.output_item.done') {{
         const item = payload.item || {{}};
-        runtime.handleResponseOutputItem(item, type);
+        runtime.handleResponseOutputItem(item, type, responseId);
         emit('output_item_done', {{
           response_id: String(payload.response_id || runtime.activeResponseId || ''),
           output_item_id: String(item.id || payload.item_id || runtime.activeOutputItemId || ''),
@@ -450,7 +492,7 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
         const outputs = Array.isArray(response.output) ? response.output : [];
         let hadFunctionCall = false;
         outputs.forEach((item) => {{
-          if (item && item.type === 'function_call') hadFunctionCall = runtime.emitFunctionCall(item, type) || hadFunctionCall;
+          if (item && item.type === 'function_call') hadFunctionCall = runtime.emitFunctionCall(item, type, String(response.id || '')) || hadFunctionCall;
         }});
         const responseId = String(response.id || runtime.activeResponseId || '');
         const outputItemId = runtime.activeOutputItemId;
@@ -507,7 +549,9 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
     dc.addEventListener('error', () => emit('fatal_error', {{message: 'Realtime data channel error'}}));
 
     const offer = await pc.createOffer();
+    if (!isCurrent()) return;
     await pc.setLocalDescription(offer);
+    if (!isCurrent()) return;
     const sdpResponse = await fetch('https://api.openai.com/v1/realtime/calls', {{
       method: 'POST',
       body: offer.sdp,
@@ -516,11 +560,15 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
         'Content-Type': 'application/sdp'
       }}
     }});
+    if (!isCurrent()) return;
     if (!sdpResponse.ok) {{
       const detail = await sdpResponse.text();
       throw new Error(detail || ('Realtime SDP exchange failed: ' + sdpResponse.status));
     }}
-    await pc.setRemoteDescription({{type: 'answer', sdp: await sdpResponse.text()}});
+    const answer = await sdpResponse.text();
+    if (!isCurrent()) return;
+    await pc.setRemoteDescription({{type: 'answer', sdp: answer}});
+    if (!isCurrent()) return;
     emit('listening');
   }} catch (error) {{
     await cleanup(runtime.session);
@@ -534,10 +582,22 @@ def start_realtime_client_js(*, sink_id: int, session_id: int) -> str:
 def stop_realtime_client_js() -> str:
     return """
 (async function() {
+  window.RowBotRealtimeActivation = null;
   if (window.RowBotRealtimeVoice && window.RowBotRealtimeVoice.stop) {
     await window.RowBotRealtimeVoice.stop();
   }
 })();
+"""
+
+
+def clear_realtime_generation_js(*, session_id: int, thread_id: str, generation_id: str) -> str:
+    """Release only the completed run; a newer session or run keeps its identity."""
+    return f"""
+(function() {{
+  const runtime = window.RowBotRealtimeVoice;
+  if (runtime && runtime.clearGeneration) runtime.clearGeneration(
+    {json.dumps(session_id)}, {json.dumps(thread_id)}, {json.dumps(generation_id)});
+}})();
 """
 
 

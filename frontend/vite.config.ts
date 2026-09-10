@@ -53,5 +53,13 @@ export default defineConfig({
     sourcemap: false,
     target: 'es2022',
     emptyOutDir: false,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('/node_modules/')) return 'vendor';
+          if (id.includes('/contracts/client-platform/')) return 'protocol';
+        },
+      },
+    },
   },
 });

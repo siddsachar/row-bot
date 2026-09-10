@@ -1,0 +1,34 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "attachment_refs": {
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9:_-]+$",
+        "type": "string"
+      },
+      "maxItems": 32,
+      "title": "Attachment Refs",
+      "type": "array"
+    },
+    "expected_revision": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Expected Revision",
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 200000,
+      "title": "Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "expected_revision",
+    "text",
+    "attachment_refs"
+  ],
+  "title": "DraftSave",
+  "type": "object"
+}

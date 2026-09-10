@@ -1,0 +1,133 @@
+{
+  "$defs": {
+    "ArtifactPage": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "index": {
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "title": {
+          "maxLength": 256,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "index"
+      ],
+      "title": "ArtifactPage",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "canvas_height": {
+      "maximum": 16384,
+      "minimum": 1,
+      "title": "Canvas Height",
+      "type": "integer"
+    },
+    "canvas_width": {
+      "maximum": 16384,
+      "minimum": 1,
+      "title": "Canvas Width",
+      "type": "integer"
+    },
+    "html": {
+      "anyOf": [
+        {
+          "maxLength": 2097152,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Html"
+    },
+    "mode": {
+      "const": "deck",
+      "title": "Mode",
+      "type": "string"
+    },
+    "page_count": {
+      "minimum": 1,
+      "title": "Page Count",
+      "type": "integer"
+    },
+    "page_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Page Id",
+      "type": "string"
+    },
+    "page_index": {
+      "minimum": 0,
+      "title": "Page Index",
+      "type": "integer"
+    },
+    "page_title": {
+      "maxLength": 256,
+      "title": "Page Title",
+      "type": "string"
+    },
+    "pages": {
+      "items": {
+        "$ref": "#/$defs/ArtifactPage"
+      },
+      "maxItems": 200,
+      "title": "Pages",
+      "type": "array"
+    },
+    "preview_revision": {
+      "maxLength": 128,
+      "title": "Preview Revision",
+      "type": "string"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "resource_revision": {
+      "maxLength": 128,
+      "title": "Resource Revision",
+      "type": "string"
+    },
+    "unchanged": {
+      "title": "Unchanged",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "resource_id",
+    "resource_revision",
+    "preview_revision",
+    "mode",
+    "page_id",
+    "page_index",
+    "page_count",
+    "page_title",
+    "canvas_width",
+    "canvas_height",
+    "pages",
+    "unchanged"
+  ],
+  "title": "ArtifactPreview",
+  "type": "object"
+}

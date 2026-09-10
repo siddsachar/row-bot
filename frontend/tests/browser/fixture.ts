@@ -25,7 +25,7 @@ export async function openFixture(
   page: Page,
   scenario = 'normal',
 ): Promise<void> {
-  await page.goto(`/app-v2/?fixture=${scenario}`);
+  await page.goto(`/app-v2/conversations/conversation-a?fixture=${scenario}`);
   await page.waitForFunction(
     () => !!(window as FixtureWindow).__ROW_BOT_FIXTURE__,
   );
@@ -39,7 +39,7 @@ export async function openFixture(
     )
     .not.toBe('loading');
   if (scenario === 'normal') {
-    await expect(page.getByTestId('conversation-placeholder')).toBeVisible();
+    await expect(page.getByTestId('conversation-workspace')).toBeVisible();
     await expect
       .poll(() =>
         page.evaluate(
@@ -54,13 +54,13 @@ export async function openFixture(
 }
 
 export async function stableConversationMarker(page: Page): Promise<void> {
-  await page.getByTestId('conversation-placeholder').evaluate((element) => {
+  await page.getByTestId('conversation-workspace').evaluate((element) => {
     element.setAttribute('data-qa-identity', 'retained-node');
   });
 }
 
 export async function assertConversationMarker(page: Page): Promise<void> {
-  await expect(page.getByTestId('conversation-placeholder')).toHaveAttribute(
+  await expect(page.getByTestId('conversation-workspace')).toHaveAttribute(
     'data-qa-identity',
     'retained-node',
   );

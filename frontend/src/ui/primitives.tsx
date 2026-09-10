@@ -13,7 +13,8 @@ import * as Tooltip from '@radix-ui/react-tooltip';
 import * as Dropdown from '@radix-ui/react-dropdown-menu';
 import * as Popover from '@radix-ui/react-popover';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
-import { ChevronDown, AlertCircle, Info } from 'lucide-react';
+import { ChevronDown, AlertCircle, Info, Check } from 'lucide-react';
+export { Brand } from './Brand';
 
 export const Button = forwardRef<
   HTMLButtonElement,
@@ -96,16 +97,58 @@ export function Hint({
   label: string;
   children: ReactNode;
 }) {
+  const [open, setOpen] = useState(false);
+  const focusOwned = useRef(false);
+  const pointerDown = useRef(false);
+  const dismiss = () => {
+    focusOwned.current = false;
+    setOpen(false);
+  };
   return (
     <Tooltip.Provider delayDuration={400}>
-      <Tooltip.Root>
-        <Tooltip.Trigger asChild>{children}</Tooltip.Trigger>
+      <Tooltip.Root
+        open={open}
+        onOpenChange={(next) => {
+          // Native focus can scroll a compact drawer after Radix opens the
+          // tooltip. Its ancestor-scroll dismissal must not erase a keyboard
+          // user's full label while that trigger still owns focus.
+          if (next || !focusOwned.current) setOpen(next);
+        }}
+      >
+        <Tooltip.Trigger
+          asChild
+          onFocus={() => {
+            if (!pointerDown.current) {
+              focusOwned.current = true;
+              setOpen(true);
+            }
+          }}
+          onBlur={() => {
+            pointerDown.current = false;
+            dismiss();
+          }}
+          onPointerDown={() => {
+            pointerDown.current = true;
+            dismiss();
+          }}
+          onPointerUp={() => {
+            pointerDown.current = false;
+          }}
+          onPointerCancel={() => {
+            pointerDown.current = false;
+          }}
+          onClick={dismiss}
+        >
+          {children}
+        </Tooltip.Trigger>
         <Tooltip.Portal>
           <div className="tooltip-layer">
             <Tooltip.Content
               className="tooltip"
               sideOffset={6}
               collisionPadding={12}
+              onEscapeKeyDown={dismiss}
+              onPointerDownOutside={dismiss}
             >
               {label}
             </Tooltip.Content>
@@ -120,6 +163,7 @@ export type MenuAction = {
   onSelect: (opener: HTMLButtonElement | null) => void;
   disabled?: boolean;
   danger?: boolean;
+  selected?: boolean;
 };
 export function Menu({
   label,
@@ -127,28 +171,43 @@ export function Menu({
   children,
   triggerRef,
   focusAfterClose,
+  disabled,
+  className,
+  variant,
+  hint,
 }: {
   label: string;
   actions: MenuAction[];
   children?: ReactNode;
   triggerRef?: RefObject<HTMLButtonElement | null>;
   focusAfterClose?: () => HTMLElement | null;
+  disabled?: boolean;
+  className?: string;
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
+  hint?: string;
 }) {
   const opener = useRef<HTMLButtonElement>(null);
+  const trigger = (
+    <Dropdown.Trigger asChild>
+      <Button
+        ref={(element) => {
+          opener.current = element;
+          if (triggerRef) triggerRef.current = element;
+        }}
+        aria-label={label}
+        aria-description={hint}
+        disabled={disabled}
+        className={className}
+        variant={variant}
+      >
+        {children ?? label}
+        <ChevronDown size={16} aria-hidden />
+      </Button>
+    </Dropdown.Trigger>
+  );
   return (
     <Dropdown.Root>
-      <Dropdown.Trigger asChild>
-        <Button
-          ref={(element) => {
-            opener.current = element;
-            if (triggerRef) triggerRef.current = element;
-          }}
-          aria-label={label}
-        >
-          {children ?? label}
-          <ChevronDown size={16} aria-hidden />
-        </Button>
-      </Dropdown.Trigger>
+      {hint ? <Hint label={hint}>{trigger}</Hint> : trigger}
       <Dropdown.Portal>
         <Dropdown.Content
           className="menu surface-effect"
@@ -165,6 +224,7 @@ export function Menu({
               key={action.label}
               className={`menu-item ${action.danger ? 'danger-text' : ''}`}
               disabled={action.disabled}
+              aria-current={action.selected ? true : undefined}
               onSelect={() => {
                 // A modal menu can trap focus until it unmounts. Pass the
                 // connected trigger explicitly to any task opened by an item.
@@ -172,6 +232,7 @@ export function Menu({
               }}
             >
               {action.label}
+              {action.selected && <Check size={16} aria-hidden />}
             </Dropdown.Item>
           ))}
         </Dropdown.Content>

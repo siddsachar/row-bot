@@ -424,6 +424,9 @@ class DesignerProject:
     brief: Optional[ProjectBrief] = None
     template_id: Optional[str] = None
     thread_id: Optional[str] = None
+    # A resume association never grants ownership of an ordinary conversation.
+    thread_ownership: str = "legacy"
+    missing_origin_thread_id: Optional[str] = None
     assets: list[DesignerAsset] = field(default_factory=list)
     references: list[DesignerReference] = field(default_factory=list)
     manual_edits: list[str] = field(default_factory=list)
@@ -488,6 +491,8 @@ class DesignerProject:
             "brief": self.brief.to_dict() if self.brief else None,
             "template_id": self.template_id,
             "thread_id": self.thread_id,
+            "thread_ownership": self.thread_ownership,
+            "missing_origin_thread_id": self.missing_origin_thread_id,
             "assets": [asset.to_dict() for asset in self.assets],
             "references": [reference.to_dict() for reference in self.references],
             "publish_url": self.publish_url,
@@ -524,6 +529,8 @@ class DesignerProject:
             brief=brief,
             template_id=d.get("template_id"),
             thread_id=d.get("thread_id"),
+            thread_ownership=d.get("thread_ownership", "legacy"),
+            missing_origin_thread_id=d.get("missing_origin_thread_id"),
             assets=assets,
             references=references,
             publish_url=d.get("publish_url", ""),

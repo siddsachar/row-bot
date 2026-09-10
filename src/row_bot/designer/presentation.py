@@ -56,7 +56,7 @@ def _build_reveal_html(project: DesignerProject, start_page: int = 0, presenter:
                 <div class="slide-frame-shell" style="width: {project.canvas_width}px; height: {project.canvas_height}px;">
                     <iframe
                         class="slide-frame"
-                        sandbox="allow-same-origin allow-scripts"
+                        sandbox="allow-same-origin"
                         scrolling="no"
                         tabindex="-1"
                         srcdoc="{safe_srcdoc}"

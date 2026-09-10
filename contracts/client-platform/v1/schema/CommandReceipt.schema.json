@@ -29,6 +29,11 @@
       "default": null,
       "title": "Approval Id"
     },
+    "association_required": {
+      "default": false,
+      "title": "Association Required",
+      "type": "boolean"
+    },
     "attachment_ref": {
       "anyOf": [
         {
@@ -77,6 +82,20 @@
       "title": "Command Id",
       "type": "string"
     },
+    "confirmed_stages": {
+      "items": {
+        "enum": [
+          "created",
+          "conversation",
+          "associated",
+          "bound"
+        ],
+        "type": "string"
+      },
+      "maxItems": 4,
+      "title": "Confirmed Stages",
+      "type": "array"
+    },
     "conversation_id": {
       "anyOf": [
         {
@@ -95,7 +114,8 @@
     "current_revision": {
       "anyOf": [
         {
-          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "maxLength": 128,
+          "minLength": 1,
           "type": "string"
         },
         {
@@ -150,6 +170,50 @@
       "default": null,
       "title": "Pass Id"
     },
+    "resource_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resource Id"
+    },
+    "resource_kind": {
+      "anyOf": [
+        {
+          "enum": [
+            "artifact",
+            "workspace"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resource Kind"
+    },
+    "resource_revision": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resource Revision"
+    },
     "revision": {
       "anyOf": [
         {
@@ -163,6 +227,38 @@
       "default": null,
       "title": "Revision"
     },
+    "setup_command_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Setup Command Id"
+    },
+    "setup_intent": {
+      "anyOf": [
+        {
+          "enum": [
+            "create",
+            "open",
+            "add",
+            "repair",
+            "new_conversation"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Setup Intent"
+    },
     "status": {
       "enum": [
         "accepted",
@@ -174,7 +270,8 @@
         "AlreadyDeleting",
         "DeleteRejected",
         "admitting",
-        "rejected"
+        "rejected",
+        "partial"
       ],
       "title": "Status",
       "type": "string"

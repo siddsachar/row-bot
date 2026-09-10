@@ -1,4 +1,14 @@
 import type * as Wire from '../../../contracts/client-platform/v1/typescript/client';
+import { validateWire } from '../../../contracts/client-platform/v1/typescript/client';
+
+export function isCommandReceipt(value: unknown): value is Wire.CommandReceipt {
+  try {
+    validateWire('CommandReceipt', value);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export type * from '../../../contracts/client-platform/v1/typescript/client';
 
@@ -37,11 +47,20 @@ export type ClientState = {
   connection: 'none' | 'sse' | 'poll';
   handshake: Omit<Wire.HandshakeView, 'csrf_token'> | null;
   conversations: Wire.ConversationView[];
+  conversationGroup: 'all' | 'pinned' | 'artifact' | 'workspace';
   hasMoreConversations: boolean;
   loadingConversations: boolean;
+  conversationListError: ClientError | null;
   selectedConversationId: string | null;
   conversation: Wire.ConversationView | null;
   projection: Wire.Snapshot | null;
+  workspace: Wire.ConversationWorkspace | null;
+  activity: Wire.EventRecord[];
+  history: Wire.TranscriptPage | null;
+  historyFocus: string | null;
+  search: Wire.SearchPage | null;
+  searching: boolean;
+  draftStatus: 'saved' | 'saving' | 'conflict' | 'failed';
   hasMoreTranscript: boolean;
   loadingConversation: boolean;
   suggestions: ClientPanelSuggestion[];
@@ -65,7 +84,7 @@ export function isPanelDescriptor(value: unknown): value is PanelDescriptor {
       )) &&
     (row.resource_revision === undefined ||
       (typeof row.resource_revision === 'string' &&
-        /^(0|[1-9][0-9]{0,19})$/.test(row.resource_revision))) &&
+        row.resource_revision.length <= 128)) &&
     (row.subresource_key === undefined ||
       (typeof row.subresource_key === 'string' &&
         row.subresource_key.length <= 160)) &&
@@ -80,10 +99,139 @@ export function isPanelDescriptor(value: unknown): value is PanelDescriptor {
 
 /** The sole network boundary. Fixtures implement this same interface. */
 export interface ClientTransport {
+  delegatedActivity?(
+    conversation: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.DelegatedActivityView>;
+  delegatedRun?(
+    conversation: string,
+    run: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.DelegatedRun>;
+  queue?(
+    conversation: string,
+    generation?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ClientQueueView>;
+  messageText?(
+    conversation: string,
+    message: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.LazyContent>;
+  steering?(
+    conversation: string,
+    generation?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ParentSteeringView>;
+  draft?(conversation: string, signal?: AbortSignal): Promise<Wire.DraftView>;
+  saveDraft?(
+    conversation: string,
+    body: Wire.DraftSave,
+    signal?: AbortSignal,
+  ): Promise<Wire.DraftView>;
+  search?(
+    query: string,
+    conversation?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.SearchPage>;
+  openConversation?(
+    conversation: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ConversationOpenView>;
+  history?(
+    conversation: string,
+    messageId?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.TranscriptPage>;
+  workspace?(
+    conversation: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ConversationWorkspace>;
+  library?(
+    kind: 'artifact' | 'workspace',
+    cursor?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ResourceChoicePage>;
+  deckSetup?(signal?: AbortSignal): Promise<Wire.DeckSetupOptions>;
+  pickFolder?(signal?: AbortSignal): Promise<Wire.FolderGrantView>;
+  artifactPreview?(
+    conversation: string,
+    binding: string,
+    pageId?: string,
+    knownRevision?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.ArtifactPreview>;
+  inspector?(
+    conversation: string,
+    binding: string,
+    refresh?: boolean,
+    signal?: AbortSignal,
+  ): Promise<Wire.WorkspaceInspector>;
+  changes?(
+    conversation: string,
+    binding: string,
+    revision?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.WorkspaceChanges>;
+  directory?(
+    conversation: string,
+    binding: string,
+    directory?: string,
+    cursor?: string,
+    revision?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.WorkspaceDirectory>;
+  file?(
+    conversation: string,
+    binding: string,
+    path: string,
+    offset?: number,
+    revision?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.WorkspaceFile>;
+  diff?(
+    conversation: string,
+    binding: string,
+    path: string,
+    snapshot: string,
+    offset?: number,
+    revision?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.WorkspaceDiff>;
+  changeSets?(
+    conversation: string,
+    binding: string,
+    revision: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.WorkspaceChangeSetPage>;
+  changeSetFiles?(
+    conversation: string,
+    binding: string,
+    change: string,
+    revision: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.WorkspaceChangeSetFiles>;
+  approval?(identity: string, signal?: AbortSignal): Promise<Wire.ApprovalView>;
+  content?(
+    conversation: string,
+    message: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ): Promise<Wire.LazyContent>;
   connect(signal?: AbortSignal): Promise<Wire.HandshakeView>;
   listConversations(
     cursor?: string,
     signal?: AbortSignal,
+    group?: ClientState['conversationGroup'],
   ): Promise<Wire.ConversationPage>;
   getConversation(
     id: string,

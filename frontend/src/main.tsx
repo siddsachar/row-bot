@@ -9,6 +9,7 @@ import { ThemeProvider } from './ui/theme';
 import { OverlayProvider } from './ui/overlays';
 import { EmptyState, ErrorState, Skeleton } from './ui/primitives';
 import Workspace, { panelMetrics } from './features/shell/Workspace';
+import { resourcePanelMetrics } from './features/panels/ResourcePanel';
 import './ui/styles.css';
 
 const Gallery = lazy(() => import('./features/shell/Gallery'));
@@ -59,6 +60,12 @@ async function start() {
     },
   });
   let platform = selectClientPlatform(controller, undefined);
+  if (import.meta.env.VITE_ENABLE_FIXTURES === '1') {
+    Object.defineProperty(window, '__ROW_BOT_WORKSPACE_METRICS__', {
+      value: () => ({ ...resourcePanelMetrics }),
+      configurable: true,
+    });
+  }
   if (import.meta.env.VITE_ENABLE_FIXTURES === '1' && fixtureTransport) {
     if (
       new URLSearchParams(location.search).get('fixturePlatform') === 'fake'
@@ -85,6 +92,10 @@ async function start() {
               <Suspense fallback={<Skeleton label="Opening workspace" />}>
                 <Routes>
                   <Route path="/" element={<Workspace />}>
+                    <Route
+                      path="conversations/:conversationId"
+                      element={null}
+                    />
                     <Route path="primitives" element={<Gallery />} />
                     <Route path="settings" element={<SettingsIndex />} />
                     <Route

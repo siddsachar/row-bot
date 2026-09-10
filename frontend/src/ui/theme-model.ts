@@ -10,9 +10,9 @@ export type ThemePreference = {
 export const THEME_KEY = 'row-bot.appearance.v1';
 export const DEFAULT_THEME: ThemePreference = {
   version: 1,
-  appearance: 'system',
+  appearance: 'dark',
   accent: 'blue',
-  density: 'comfortable',
+  density: 'compact',
   reduce_transparency: false,
 };
 export const TOKENS = {
@@ -70,20 +70,20 @@ export const TOKENS = {
     'overlay-scrim': '#17212B80',
   },
   dark: {
-    canvas: '#101820',
-    surface: '#18232E',
-    'surface-raised': '#22313F',
-    'surface-hover': '#293B4D',
-    'surface-pressed': '#31465B',
-    'surface-disabled': '#22313F',
-    'text-primary': '#F1F5F9',
-    'text-secondary': '#C6D1DC',
-    'text-muted': '#A6B6C7',
-    'text-disabled': '#A6B6C7',
-    'text-inverse': '#101820',
-    'border-subtle': '#3B4B5C',
-    'border-control': '#8294A7',
-    'code-background': '#111B25',
+    canvas: '#121212',
+    surface: '#1D1D1D',
+    'surface-raised': '#262626',
+    'surface-hover': '#303030',
+    'surface-pressed': '#383838',
+    'surface-disabled': '#262626',
+    'text-primary': '#F2F2F2',
+    'text-secondary': '#CCCCCC',
+    'text-muted': '#ADADAD',
+    'text-disabled': '#ADADAD',
+    'text-inverse': '#121212',
+    'border-subtle': '#3B3B3B',
+    'border-control': '#888888',
+    'code-background': '#181818',
     'code-text': '#F1F5F9',
     'code-comment': '#A6B6C7',
     'syntax-keyword': '#BEA7EA',
@@ -118,9 +118,9 @@ export const TOKENS = {
     'chart-series-6': '#C6D1DC',
     'chart-grid': '#8294A7',
     'chart-axis': '#C6D1DC',
-    'artifact-canvas-chrome': '#111B25',
+    'artifact-canvas-chrome': '#181818',
     'artifact-page-border': '#8294A7',
-    'overlay-scrim': '#101820CC',
+    'overlay-scrim': '#000000B3',
   },
   accents: {
     blue: { light: '#345E87', dark: '#92B5D8' },
@@ -137,9 +137,9 @@ export function bootstrapTheme(
 ): ThemePreference {
   const preference: ThemePreference = {
     version: 1,
-    appearance: 'system',
+    appearance: 'dark',
     accent: 'blue',
-    density: 'comfortable',
+    density: 'compact',
     reduce_transparency: false,
   };
   try {
@@ -151,7 +151,8 @@ export function bootstrapTheme(
         preference.appearance = saved.appearance;
       if (['blue', 'teal', 'violet', 'amber'].includes(saved.accent))
         preference.accent = saved.accent;
-      if (saved.density === 'compact') preference.density = 'compact';
+      if (['compact', 'comfortable'].includes(saved.density))
+        preference.density = saved.density;
       preference.reduce_transparency = saved.reduce_transparency === true;
     }
   } catch {

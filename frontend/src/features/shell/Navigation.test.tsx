@@ -25,6 +25,9 @@ function CurrentRoute() {
 
 async function setup(count = 55, route = '/') {
   const onOpenConversation = vi.fn();
+  const onOpenHome = vi.fn();
+  const onNewChat = vi.fn();
+  const onPreferences = vi.fn();
   const transport = new FixtureTransport({ conversationCount: count });
   const list = vi.spyOn(transport, 'listConversations');
   const controller = new ClientController(transport, () => 1);
@@ -37,12 +40,25 @@ async function setup(count = 55, route = '/') {
         value={{ controller, platform: createFakePlatform() }}
       >
         <OverlayProvider>
-          <Navigation onOpenConversation={onOpenConversation} />
+          <Navigation
+            onOpenConversation={onOpenConversation}
+            onOpenHome={onOpenHome}
+            onNewChat={onNewChat}
+            onPreferences={onPreferences}
+          />
         </OverlayProvider>
       </RuntimeContext.Provider>
     </MemoryRouter>,
   );
-  return { controller, transport, list, onOpenConversation };
+  return {
+    controller,
+    transport,
+    list,
+    onOpenConversation,
+    onOpenHome,
+    onNewChat,
+    onPreferences,
+  };
 }
 
 function rows() {
@@ -51,13 +67,34 @@ function rows() {
   ).getAllByRole('button');
 }
 
+it('shows a scoped library failure with retry while retaining confirmed rows and selection', async () => {
+  const { controller, list } = await setup(2);
+  await act(async () => controller.selectConversation('conversation-a'));
+  list.mockRejectedValueOnce({ status: 503 });
+  await act(async () => controller.loadMoreConversations(true));
+  expect(screen.getByRole('alert')).toBeVisible();
+  expect(rows()).toHaveLength(2);
+  expect(controller.getSnapshot().status).toBe('ready');
+  await act(async () =>
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Retry conversations' }),
+    ),
+  );
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(controller.getSnapshot().selectedConversationId).toBe(
+    'conversation-a',
+  );
+});
+
 it.each(['/primitives', '/settings/appearance'])(
   'returns to the conversation when selecting a row from %s',
   async (route) => {
     const { controller, transport, onOpenConversation } = await setup(2, route);
     expect(screen.getByLabelText('Current route')).toHaveTextContent(route);
     await act(async () => fireEvent.click(rows()[0]));
-    expect(screen.getByLabelText('Current route').textContent).toBe('/');
+    expect(screen.getByLabelText('Current route').textContent).toBe(
+      `/conversations/${transport.conversations[0].id}`,
+    );
     expect(controller.getSnapshot().selectedConversationId).toBe(
       transport.conversations[0].id,
     );
@@ -66,20 +103,23 @@ it.each(['/primitives', '/settings/appearance'])(
   },
 );
 
-it('preserves the existing history entry when selecting conversations on the root view', async () => {
-  const { controller, transport, onOpenConversation } = await setup(2);
+it('preserves the history entry when selecting the current canonical conversation', async () => {
+  const { controller, transport, onOpenConversation } = await setup(
+    2,
+    '/conversations/conversation-a',
+  );
   const historyKey = screen
     .getByLabelText('Current route')
     .getAttribute('data-history-key');
-  for (const row of rows()) {
-    await act(async () => fireEvent.click(row));
+  for (let repeat = 0; repeat < 2; repeat++) {
+    await act(async () => fireEvent.click(rows()[0]));
     expect(screen.getByLabelText('Current route')).toHaveAttribute(
       'data-history-key',
       historyKey,
     );
   }
   expect(controller.getSnapshot().selectedConversationId).toBe(
-    transport.conversations[1].id,
+    transport.conversations[0].id,
   );
   expect(transport.counters.commands).toBe(0);
   expect(onOpenConversation).toHaveBeenCalledTimes(2);
@@ -156,7 +196,10 @@ it('retains the selected older row through Show less and section collapse', asyn
 });
 
 it('keeps confirmed selection visible when refreshing the list no longer includes it', async () => {
-  const { controller, transport } = await setup(15);
+  const { controller, transport } = await setup(
+    15,
+    '/conversations/conversation-15',
+  );
   await act(async () => controller.selectConversation('conversation-15'));
   transport.conversations.splice(0);
   await act(async () => controller.loadMoreConversations(true));
@@ -164,6 +207,36 @@ it('keeps confirmed selection visible when refreshing the list no longer include
   expect(rows()[0]).toHaveAccessibleName('Sample conversation 15');
   expect(rows()[0]).toHaveAttribute('aria-current', 'page');
   expect(screen.queryByText('Your conversations will appear here.')).toBeNull();
+});
+
+it('opens Home without a creation, Stop, selection change or draft mutation', async () => {
+  const { controller, transport, onOpenHome, onNewChat } = await setup(
+    2,
+    '/conversations/conversation-a',
+  );
+  await act(async () => controller.selectConversation('conversation-a'));
+  const before = controller.getSnapshot();
+  const commands = transport.counters.commands;
+  fireEvent.click(screen.getByRole('link', { name: 'Home' }));
+  expect(screen.getByLabelText('Current route')).toHaveTextContent('/');
+  expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  expect(rows()[0]).not.toHaveAttribute('aria-current');
+  expect(controller.getSnapshot()).toBe(before);
+  expect(transport.counters.commands).toBe(commands);
+  expect(onOpenHome).toHaveBeenCalledTimes(1);
+  expect(onNewChat).not.toHaveBeenCalled();
+});
+
+it('delegates sidebar New chat and Preferences to the persistent owners', async () => {
+  const { transport, onNewChat, onPreferences } = await setup();
+  fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Preferences' }));
+  expect(onNewChat).toHaveBeenCalledTimes(1);
+  expect(onPreferences).toHaveBeenCalledTimes(1);
+  expect(transport.counters.commands).toBe(0);
 });
 
 it('supports an empty collapsible section without introducing commands or controls for nonexistent pages', async () => {

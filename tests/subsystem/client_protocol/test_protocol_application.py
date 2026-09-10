@@ -17,7 +17,7 @@ pytestmark = pytest.mark.subsystem
 
 @pytest.fixture
 def service(tmp_path, monkeypatch):
-    from row_bot import threads, tasks
+    from row_bot import threads, tasks, agent_profiles
     from row_bot.application.client_platform import ClientPlatformService
     from row_bot.projection.conversation import ConversationProjection
     from row_bot.runtime.executions import GenerationRuntimeRegistry
@@ -25,6 +25,7 @@ def service(tmp_path, monkeypatch):
 
     monkeypatch.setattr(tasks, "_DB_PATH", str(tmp_path / "tasks.db"))
     monkeypatch.setattr(tasks, "_SCHEMA_READY_PATH", None)
+    monkeypatch.setattr(agent_profiles, "_SCHEMA_READY", False)
     monkeypatch.setattr(threads, "DB_PATH", str(tmp_path / "threads.db"))
     media = tmp_path / "media"
     media.mkdir()

@@ -1327,8 +1327,11 @@ _managed_tunnel_manager.set_managed_origin_registrar(_runtime_access_policy)
 register_mobile_routes(app)
 from row_bot.api.v1.routes import install_client_platform
 from row_bot.application.client_platform import client_platform_service
+from row_bot.application.folder_selections import FolderSelections
+from row_bot.native_client import select_existing_workspace_folder
 
-install_client_platform(app, client_platform_service, instance_id=client_platform_service.instance_id)
+install_client_platform(app, client_platform_service, instance_id=client_platform_service.instance_id,
+                        folder_selections=FolderSelections(picker=select_existing_workspace_folder))
 
 # The established NiceGUI shell remains the default. The new client is opt-in.
 from row_bot.client_assets import install_client_assets

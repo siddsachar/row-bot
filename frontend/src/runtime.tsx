@@ -14,3 +14,17 @@ export function useClientState() {
   const { controller } = useRuntime();
   return useSyncExternalStore(controller.subscribe, controller.getSnapshot);
 }
+
+/** Select stable store fields so unrelated token updates do not wake panels. */
+export function useClientSelector<T>(
+  selector: (
+    state: ReturnType<
+      ReturnType<typeof useRuntime>['controller']['getSnapshot']
+    >,
+  ) => T,
+): T {
+  const { controller } = useRuntime();
+  return useSyncExternalStore(controller.subscribe, () =>
+    selector(controller.getSnapshot()),
+  );
+}

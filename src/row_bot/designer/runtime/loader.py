@@ -3,7 +3,8 @@
 Reads ``runtime_bridge.js`` / ``runtime_bridge.css`` from disk and
 injects them into an assembled multi-route HTML document for preview or
 publish.  The injected ``<script>`` is tagged with
-``data-row-bot-runtime="1"`` so ``sanitize_agent_html`` leaves it alone.
+``data-row-bot-runtime="1"`` for runtime inspection. This marker grants no
+sanitizer exemption; trusted injection always follows sanitation.
 """
 
 from __future__ import annotations
@@ -39,7 +40,9 @@ def build_routes_payload(
         "order": list(order or []),
         "labels": dict(labels or {}),
     }
-    return json.dumps(payload, ensure_ascii=False)
+    return json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c").replace(
+        ">", "\\u003e"
+    ).replace("&", "\\u0026")
 
 
 def inject_runtime(
@@ -59,7 +62,7 @@ def inject_runtime(
     routes_block = (
         '<script type="application/json" id="__row_bot_routes__" '
         'data-row-bot-runtime="1">'
-        + (routes_payload or "{}")
+        + (routes_payload or "{}").replace("<", "\\u003c").replace(">", "\\u003e")
         + "</script>"
     )
     script_block = (

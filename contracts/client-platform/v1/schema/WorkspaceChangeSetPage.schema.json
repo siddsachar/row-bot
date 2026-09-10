@@ -1,0 +1,82 @@
+{
+  "$defs": {
+    "WorkspaceChangeSet": {
+      "additionalProperties": false,
+      "properties": {
+        "file_count": {
+          "minimum": 0,
+          "title": "File Count",
+          "type": "integer"
+        },
+        "id": {
+          "maxLength": 256,
+          "title": "Id",
+          "type": "string"
+        },
+        "reverted": {
+          "title": "Reverted",
+          "type": "boolean"
+        },
+        "reviewed": {
+          "title": "Reviewed",
+          "type": "boolean"
+        },
+        "summary": {
+          "maxLength": 4096,
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "summary",
+        "reviewed",
+        "reverted",
+        "file_count"
+      ],
+      "title": "WorkspaceChangeSet",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/WorkspaceChangeSet"
+      },
+      "maxItems": 100,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "snapshot_revision": {
+      "maxLength": 128,
+      "title": "Snapshot Revision",
+      "type": "string"
+    },
+    "total": {
+      "minimum": 0,
+      "title": "Total",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "items",
+    "next_cursor",
+    "snapshot_revision",
+    "total"
+  ],
+  "title": "WorkspaceChangeSetPage",
+  "type": "object"
+}

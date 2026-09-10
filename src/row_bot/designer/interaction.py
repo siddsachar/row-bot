@@ -229,44 +229,121 @@ BRIDGE_JS = r"""
 BRIDGE_JS = BRIDGE_JS.replace("__ROW_BOT_BRAND_ACCENT__", APP_BRAND_ACCENT)
 
 
-def inject_bridge_js(html: str) -> str:
+def inject_bridge_js(html: str, *, preview_id: str = "", revision: str = "",
+                     capability: str = "") -> str:
     """Inject the interaction bridge JS into page HTML.
 
     Inserts before </body> if present, otherwise appends.
     """
+    if not preview_id or not revision or not capability:
+        return html
+    identity = json.dumps({"previewId": preview_id, "revision": revision,
+                           "capability": capability}).replace("<", "\\u003c")
+    bridge_js = BRIDGE_JS.replace("window.parent.postMessage(", "sendToOwner(")
+    bridge_js = bridge_js.replace("(function() {", "(function() {\n"
+        f"const identity = {identity};\n"
+        "function sendToOwner(message) { window.parent.postMessage("
+        "Object.assign({}, identity, message), '*'); }\n", 1)
     if "</body>" in html.lower():
         # Insert before </body>
         idx = html.lower().rfind("</body>")
-        return html[:idx] + BRIDGE_JS + html[idx:]
-    return html + BRIDGE_JS
+        return html[:idx] + bridge_js + html[idx:]
+    return html + bridge_js
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # PARENT-SIDE MESSAGE LISTENER  (registered once per preview)
 # ═══════════════════════════════════════════════════════════════════════
 
-def get_parent_listener_js(callback_id: str) -> str:
+def get_parent_listener_js(callback_id: str, *, iframe_id: str = "") -> str:
     """Return JS to register a window message listener that calls back into Python.
 
     The callback_id is the NiceGUI element ID used for emitting events.
     """
+    if not iframe_id:
+        return ""  # No ambient global receiver is a safe default.
     return f"""
     (function() {{
-        if (window.__rowBotDesignerListener) return;
-        window.__rowBotDesignerListener = true;
-
-        window.addEventListener('message', function(e) {{
-            var data = e.data;
-            if (!data || !data.type) return;
-            // Forward to NiceGUI via custom event on the document
-            if (data.type === 'element-click' || data.type === 'text-edit' ||
-                data.type === 'edit-start' || data.type === 'edit-cancel') {{
-                // Emit to NiceGUI backend via the global emitEvent helper
-                emitEvent('{callback_id}', {{msgType: data.type, detail: data.detail || {{}}}});
+        const frameId = {json.dumps(iframe_id)};
+        const callbackId = {json.dumps(callback_id)};
+        window.__rowBotDesignerListeners ||= new Map();
+        const previous = window.__rowBotDesignerListeners.get(frameId);
+        if (previous) previous();
+        let observer = null;
+        function cleanup() {{
+            window.removeEventListener('message', listener);
+            if (observer) observer.disconnect();
+            window.__rowBotDesignerListeners.delete(frameId);
+        }}
+        function listener(e) {{
+            const frame = document.getElementById(frameId);
+            const bridge = getElement(callbackId);
+            if (!frame || !bridge) {{
+                cleanup();
+                return;
             }}
+            if (e.source !== frame.contentWindow || e.origin !== 'null') return;
+            var data = e.data;
+            if (!data || typeof data !== 'object' || Array.isArray(data)) return;
+            if (data.previewId !== frameId || data.revision !== frame.dataset.previewRevision ||
+                !data.capability || data.capability !== frame.dataset.previewCapability) return;
+            if (!['element-click','text-edit','edit-start','edit-cancel',
+                  'designer-undo-shortcut','designer-redo-shortcut'].includes(data.type)) return;
+            if (Object.keys(data).some(k => !['previewId','revision','capability','type','detail'].includes(k))) return;
+            if (data.detail !== undefined && (!data.detail || typeof data.detail !== 'object' || Array.isArray(data.detail))) return;
+            let size; try {{ size = JSON.stringify(data).length; }} catch (_) {{ return; }}
+            if (size > 16384) return;
+            const event = new Event('bridge_msg', {{bubbles:true}});
+            event.msgType = data.type;
+            event.detail = data.detail || {{}};
+            event.previewId = data.previewId;
+            event.revision = data.revision;
+            event.capability = data.capability;
+            bridge.dispatchEvent(event);
+        }}
+        window.__rowBotDesignerListeners.set(frameId, cleanup);
+        window.addEventListener('message', listener);
+        observer = new MutationObserver(() => {{
+            if (!document.getElementById(frameId) || !getElement(callbackId)) cleanup();
         }});
+        observer.observe(document.body, {{childList:true, subtree:true}});
     }})();
     """
+
+
+def validate_bridge_event(data: object, *, preview_id: str, revision: str,
+                          capability: str) -> bool:
+    """Validate the exact current bounded authoring event before invoking edits."""
+    if not isinstance(data, dict) or set(data) - {
+        "msgType", "detail", "previewId", "revision", "capability",
+    }:
+        return False
+    if (not capability or data.get("previewId") != preview_id
+            or data.get("revision") != revision or data.get("capability") != capability):
+        return False
+    detail = data.get("detail", {})
+    if not isinstance(detail, dict):
+        return False
+    try:
+        if len(json.dumps(data)) > 16384:
+            return False
+    except (TypeError, ValueError):
+        return False
+    kind = data.get("msgType")
+    if kind in {"designer-undo-shortcut", "designer-redo-shortcut", "edit-cancel"}:
+        return not detail
+    if kind == "text-edit":
+        return (set(detail) <= {"xpath", "tag", "oldText", "newText", "elementInfo"}
+                and all(isinstance(detail.get(k), str) for k in ("xpath", "tag", "oldText", "newText"))
+                and detail["xpath"].startswith("/html")
+                and isinstance(detail.get("elementInfo", {}), dict))
+    if kind in {"element-click", "edit-start"}:
+        return (set(detail) <= {"tag", "text", "className", "id", "assetId", "assetKind", "elementId", "xpath", "rect"}
+                and all(isinstance(detail.get(k), str) for k in ("tag", "xpath"))
+                and detail["xpath"].startswith("/html")
+                and all(isinstance(v, str) for k, v in detail.items() if k != "rect")
+                and isinstance(detail.get("rect", {}), dict))
+    return False
 
 
 # ═══════════════════════════════════════════════════════════════════════

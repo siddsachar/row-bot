@@ -232,3 +232,21 @@ def test_foreign_navigation_rejection_cannot_restore_old_proof_by_returning(nati
     state["url"] = "http://localhost:8080/app-v2/"
     assert bridge.native_client_dispatch(proof, "clipboard_read", {})["status"] == "unavailable"
     assert driver.calls == []
+
+
+def test_workspace_picker_is_explicit_and_headless_default_stays_unavailable(monkeypatch, tmp_path):
+    import sys
+    from row_bot.application.folder_selections import select_existing_folder
+    from row_bot.application.client_platform import ClientPlatformError
+    from row_bot.native_client import select_existing_workspace_folder
+    calls = []
+    window = SimpleNamespace(create_file_dialog=lambda kind, **kwargs: calls.append((kind, kwargs)) or [str(tmp_path)])
+    monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(windows=[window], FOLDER_DIALOG=17))
+    with pytest.raises(ClientPlatformError, match="capability_unavailable"):
+        select_existing_folder()
+    assert not calls
+    assert select_existing_workspace_folder() == tmp_path
+    assert calls == [(17, {"allow_multiple": False})]
+    monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(windows=[]))
+    with pytest.raises(ClientPlatformError, match="capability_unavailable"):
+        select_existing_workspace_folder()

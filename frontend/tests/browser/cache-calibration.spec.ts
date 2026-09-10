@@ -76,7 +76,7 @@ test('one-thousand and ten-thousand row protocol continuation stays bounded', as
       mountedTranscriptRows: document.querySelectorAll('[data-transcript-row]')
         .length,
       placeholderCount: document.querySelectorAll(
-        '[data-testid="conversation-placeholder"]',
+        '[data-testid="conversation-workspace"]',
       ).length,
     }));
     expect(visited.size).toBe(count);

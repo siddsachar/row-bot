@@ -34,7 +34,10 @@
       "type": "boolean"
     },
     "media_type": {
-      "const": "application/json",
+      "enum": [
+        "application/json",
+        "text/plain"
+      ],
       "title": "Media Type",
       "type": "string"
     },

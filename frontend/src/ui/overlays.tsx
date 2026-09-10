@@ -25,7 +25,7 @@ type Task = Overlay & { opener: HTMLElement | null };
 type Notice = { id: number; message: string };
 const OverlayContext = createContext<{
   open: (overlay: Overlay) => void;
-  close: () => void;
+  close: (returnFocusTo?: HTMLElement | null) => void;
   dismiss: (key: string) => void;
   notify: (message: string) => void;
 } | null>(null);
@@ -58,13 +58,13 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
       });
     }
   }
-  function close() {
+  function close(returnFocusTo?: HTMLElement | null) {
     if (confirmation) {
       if (task) resumeFocus.current = confirmation.opener;
       else returningTo.current = confirmation.opener;
       setConfirmation(null);
     } else {
-      returningTo.current = task?.opener ?? null;
+      returningTo.current = returnFocusTo ?? task?.opener ?? null;
       setTask(null);
     }
   }
@@ -93,123 +93,130 @@ export function OverlayProvider({ children }: { children: ReactNode }) {
       }}
     >
       <Toast.Provider duration={6000} swipeDirection="right">
-        {children}
-        <Dialog.Root
-          open={Boolean(current)}
-          onOpenChange={(value) => {
-            if (!value) close();
-          }}
-        >
-          <Dialog.Portal>
-            <Dialog.Overlay className="overlay-backdrop" />
-            <Dialog.Content
-              aria-modal="true"
-              role={confirmation ? 'alertdialog' : 'dialog'}
-              className={`dialog ${confirmation ? 'alert-dialog' : task?.kind === 'sheet' ? 'sheet' : task?.kind === 'drawer' ? 'drawer' : ''}`}
-              onOpenAutoFocus={(event) => {
-                const search = document.querySelector<HTMLElement>(
-                  '[role="dialog"] [data-initial-focus]',
-                );
-                if (confirmation) {
-                  event.preventDefault();
-                  cancelRef.current?.focus();
-                } else if (search) {
-                  event.preventDefault();
-                  search.focus();
-                }
-              }}
-              onCloseAutoFocus={(event) => {
-                event.preventDefault();
-                if (returningTo.current?.isConnected)
-                  returningTo.current.focus();
-              }}
-            >
-              <header className="dialog-header">
-                <div>
-                  <Dialog.Title className="dialog-title">
-                    {current?.title}
-                  </Dialog.Title>
-                  <Dialog.Description className="dialog-description">
-                    {current?.description}
-                  </Dialog.Description>
-                </div>
-                {!confirmation && (
-                  <Button
-                    iconOnly={task?.kind !== 'drawer'}
-                    variant="ghost"
-                    aria-label={
-                      task?.kind === 'drawer'
-                        ? 'Back to conversation'
-                        : 'Close dialog'
-                    }
-                    onClick={() => close()}
-                  >
-                    {task?.kind === 'drawer' ? (
-                      'Back'
-                    ) : (
-                      <X size={20} aria-hidden />
-                    )}
-                  </Button>
-                )}
-              </header>
-              <div
-                className="dialog-body"
-                hidden={Boolean(confirmation)}
-                inert={Boolean(confirmation)}
-              >
-                {task?.content}
-              </div>
-              {confirmation && (
-                <div className="dialog-body">{confirmation.content}</div>
-              )}
-              <footer className="dialog-footer">
-                {confirmation ? (
-                  <>
-                    <Button ref={cancelRef} onClick={close}>
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="danger"
-                      onClick={() => {
-                        confirmation.onConfirm?.();
-                        close();
-                      }}
-                    >
-                      {confirmation.confirmLabel ?? 'Confirm'}
-                    </Button>
-                  </>
-                ) : (
-                  <Button onClick={close}>Close</Button>
-                )}
-              </footer>
-            </Dialog.Content>
-          </Dialog.Portal>
-        </Dialog.Root>
-        <Toast.Viewport className="toast-viewport" label="Notifications" />
-        {!current &&
-          notices.map((notice) => (
-            <Toast.Root
-              className="toast"
-              key={notice.id}
-              onOpenChange={(value) => {
-                if (!value)
-                  setNotices((values) =>
-                    values.filter((item) => item.id !== notice.id),
+        <div className="overlay-layout">
+          <div className="overlay-content">{children}</div>
+          <Dialog.Root
+            open={Boolean(current)}
+            onOpenChange={(value) => {
+              if (!value) close();
+            }}
+          >
+            <Dialog.Portal>
+              <Dialog.Overlay className="overlay-backdrop" />
+              <Dialog.Content
+                aria-modal="true"
+                role={confirmation ? 'alertdialog' : 'dialog'}
+                className={`dialog ${confirmation ? 'alert-dialog' : task?.kind === 'sheet' ? 'sheet' : task?.kind === 'drawer' ? 'drawer' : ''}`}
+                onOpenAutoFocus={(event) => {
+                  const search = document.querySelector<HTMLElement>(
+                    '[role="dialog"] [data-initial-focus]',
                   );
-              }}
-            >
-              <Toast.Description>{notice.message}</Toast.Description>
-              <Toast.Close asChild>
-                <Button
-                  iconOnly
-                  variant="ghost"
-                  aria-label="Dismiss notification"
+                  if (confirmation) {
+                    event.preventDefault();
+                    cancelRef.current?.focus();
+                  } else if (search) {
+                    event.preventDefault();
+                    search.focus();
+                  }
+                }}
+                onCloseAutoFocus={(event) => {
+                  event.preventDefault();
+                  if (returningTo.current?.isConnected)
+                    returningTo.current.focus();
+                }}
+              >
+                <header className="dialog-header">
+                  <div>
+                    <Dialog.Title className="dialog-title">
+                      {current?.title}
+                    </Dialog.Title>
+                    <Dialog.Description className="dialog-description">
+                      {current?.description}
+                    </Dialog.Description>
+                  </div>
+                  {!confirmation && (
+                    <Button
+                      iconOnly={task?.kind !== 'drawer'}
+                      variant="ghost"
+                      aria-label={
+                        task?.kind === 'drawer'
+                          ? 'Back to conversation'
+                          : 'Close dialog'
+                      }
+                      onClick={() => close()}
+                    >
+                      {task?.kind === 'drawer' ? (
+                        'Back'
+                      ) : (
+                        <X size={20} aria-hidden />
+                      )}
+                    </Button>
+                  )}
+                </header>
+                <div
+                  className="dialog-body"
+                  hidden={Boolean(confirmation)}
+                  inert={Boolean(confirmation)}
                 >
-                  <X size={16} aria-hidden />
-                </Button>
-              </Toast.Close>
-            </Toast.Root>
-          ))}
+                  {task?.content}
+                </div>
+                {confirmation && (
+                  <div className="dialog-body">{confirmation.content}</div>
+                )}
+                <footer className="dialog-footer">
+                  {confirmation ? (
+                    <>
+                      <Button ref={cancelRef} onClick={() => close()}>
+                        Cancel
+                      </Button>
+                      <Button
+                        variant="danger"
+                        onClick={() => {
+                          confirmation.onConfirm?.();
+                          close();
+                        }}
+                      >
+                        {confirmation.confirmLabel ?? 'Confirm'}
+                      </Button>
+                    </>
+                  ) : (
+                    <Button onClick={() => close()}>Close</Button>
+                  )}
+                </footer>
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
+          <div
+            className="notification-footer"
+            hidden={Boolean(current) || notices.length === 0}
+          >
+            <Toast.Viewport className="toast-viewport" label="Notifications" />
+          </div>
+          {!current &&
+            notices.map((notice) => (
+              <Toast.Root
+                className="toast"
+                key={notice.id}
+                onOpenChange={(value) => {
+                  if (!value)
+                    setNotices((values) =>
+                      values.filter((item) => item.id !== notice.id),
+                    );
+                }}
+              >
+                <Toast.Description>{notice.message}</Toast.Description>
+                <Toast.Close asChild>
+                  <Button
+                    iconOnly
+                    variant="ghost"
+                    aria-label="Dismiss notification"
+                  >
+                    <X size={16} aria-hidden />
+                  </Button>
+                </Toast.Close>
+              </Toast.Root>
+            ))}
+        </div>
       </Toast.Provider>
     </OverlayContext.Provider>
   );

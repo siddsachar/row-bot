@@ -158,6 +158,7 @@ def test_refresh_failure_preserves_cache_and_allows_retry(tmp_path, monkeypatch)
         owner.request_snapshot_refresh(snapshot.workspace_id, snapshot.thread_id, debounce=0)
         await owner._states[(snapshot.workspace_id, snapshot.thread_id)].task
         assert owner.get_snapshot(snapshot.workspace_id, snapshot.thread_id) is original
+        assert owner.get_snapshot_refresh_error(snapshot.workspace_id, snapshot.thread_id) == "inspector_refresh_failed"
 
         async def success(fn, *args):
             return replace(snapshot, git_summary={"branch": "fixture"})
@@ -166,7 +167,39 @@ def test_refresh_failure_preserves_cache_and_allows_retry(tmp_path, monkeypatch)
         owner.request_snapshot_refresh(snapshot.workspace_id, snapshot.thread_id, debounce=0)
         await owner._states[(snapshot.workspace_id, snapshot.thread_id)].task
         assert owner.get_snapshot(snapshot.workspace_id, snapshot.thread_id).version > original.version
+        assert owner.get_snapshot_refresh_error(snapshot.workspace_id, snapshot.thread_id) == ""
         await owner.shutdown_snapshot_refreshes()
         await owner.shutdown_snapshot_refreshes()
 
+    asyncio.run(scenario())
+
+
+def test_cancelled_query_does_not_cancel_shared_inspector_collection(tmp_path, monkeypatch):
+    from row_bot.developer import inspector_snapshot as owner
+    snapshot = _snapshot(tmp_path)
+    monkeypatch.setattr(owner, "_snapshots", {})
+    monkeypatch.setattr(owner, "_states", {})
+    async def scenario():
+        entered, release = asyncio.Event(), asyncio.Event()
+        async def collect(*args):
+            entered.set()
+            await release.wait()
+            return snapshot
+        monkeypatch.setattr(owner.asyncio, "to_thread", collect)
+        owner.request_snapshot_refresh(snapshot.workspace_id, snapshot.thread_id, debounce=0)
+        await entered.wait()
+        observing = asyncio.Event()
+        async def observe():
+            observing.set()
+            return await owner.wait_for_snapshot_refresh(snapshot.workspace_id, snapshot.thread_id)
+        waiter = asyncio.create_task(observe())
+        await observing.wait()
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+        assert not owner._states[(snapshot.workspace_id, snapshot.thread_id)].task.cancelled()
+        release.set()
+        stored = await owner.wait_for_snapshot_refresh(snapshot.workspace_id, snapshot.thread_id)
+        assert stored is not None and stored.workspace_id == snapshot.workspace_id
+        await owner.shutdown_snapshot_refreshes()
     asyncio.run(scenario())

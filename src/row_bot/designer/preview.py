@@ -5,8 +5,8 @@ from __future__ import annotations
 import base64
 import json
 import logging
-
-from nicegui import ui
+import secrets
+from typing import Any
 
 from row_bot.designer.render_assets import resolve_project_image_sources, resolve_project_media_sources
 from row_bot.designer.storage import load_asset_bytes
@@ -174,8 +174,107 @@ def render_page_html(
 ) -> str:
     """Render one page with resolved image references and brand variables applied."""
 
-    resolved_html = resolve_project_media_sources(page_html, project)
-    return inject_brand_variables(resolved_html, project.brand, project=project, page_index=page_index)
+    from row_bot.designer.html_ops import sanitize_agent_html
+
+    resolved_html = resolve_project_media_sources(sanitize_agent_html(page_html), project)
+    return sanitize_agent_html(inject_brand_variables(
+        resolved_html, project.brand, project=project, page_index=page_index,
+    ))
+
+
+def isolate_preview_html(html: str, *, scripts: bool = False,
+                         brand: BrandConfig | None = None) -> str:
+    """Apply a network-free document policy inside an opaque sandboxed frame.
+
+    Call after trusted bridge injection. This is an extra restriction, never a
+    replacement for the host's sandbox attribute and validated message source.
+    """
+    from bs4 import BeautifulSoup
+    import re
+
+    def offline_url(match: re.Match[str]) -> str:
+        value = match.group(1).strip().strip("'\"")
+        return match.group(0) if value.startswith("data:") else "none"
+
+    soup = BeautifulSoup(html, "html.parser")
+    # Frames never fetch application routes or remote assets. Resolve local
+    # brand fonts to embedded bytes and omit unavailable CSS URLs up front,
+    # avoiding surprise requests and repeated CSP console errors.
+    for link in list(soup.find_all("link")):
+        link.decompose()
+    for style in soup.find_all("style"):
+        css = style.get_text()
+        css = re.sub(r"@import\s+[^;]+;", "", css, flags=re.IGNORECASE)
+        css = re.sub(r"@font-face\s*\{[^}]*\}", "", css, flags=re.IGNORECASE)
+        css = re.sub(r"url\((.*?)\)", offline_url, css, flags=re.IGNORECASE | re.DOTALL)
+        style.string = css
+    if brand:
+        from row_bot.designer.fonts import get_font_css_embedded, is_font_available_offline
+
+        fonts = []
+        for family in dict.fromkeys([brand.heading_font, brand.body_font]):
+            if family and re.fullmatch(r"[A-Za-z0-9 _-]{1,100}", family) and is_font_available_offline(family):
+                fonts.append(get_font_css_embedded(family))
+        if fonts:
+            style = soup.new_tag("style")
+            style.string = "\n".join(fonts)
+            (soup.head or soup).append(style)
+    for tag in soup.find_all(True):
+        for attr in ("src", "poster", "srcset"):
+            value = tag.get(attr)
+            if value and (attr == "srcset" or not str(value).startswith("data:")):
+                del tag.attrs[attr]
+        if isinstance(tag.get("style"), str):
+            tag["style"] = re.sub(r"url\((.*?)\)", offline_url, tag["style"],
+                                  flags=re.IGNORECASE | re.DOTALL)
+    for meta in list(soup.find_all("meta")):
+        if meta.get("http-equiv"):
+            meta.decompose()
+    policy = ("default-src 'none'; img-src data:; media-src data:; font-src data:; "
+              "style-src 'unsafe-inline'; connect-src 'none'; frame-src 'none'; "
+              "object-src 'none'; base-uri 'none'; form-action 'none'; ")
+    policy += "script-src 'unsafe-inline'" if scripts else "script-src 'none'"
+    meta = soup.new_tag("meta", attrs={"http-equiv": "Content-Security-Policy", "content": policy})
+    if soup.head:
+        soup.head.insert(0, meta)
+    else:
+        soup.insert(0, meta)
+    # Suppress navigation within the generated frame as well as top navigation.
+    for anchor in soup.find_all("a"):
+        href = anchor.get("href", "")
+        if not isinstance(href, str) or not href.startswith("#"):
+            anchor.attrs.pop("href", None)
+        anchor.attrs.pop("target", None)
+    return str(soup)
+
+
+def preview_fingerprint(project: DesignerProject, *, page_index: int | None = None,
+                        preview_mode: bool = False) -> tuple[Any, ...]:
+    """Detect all render inputs before constructing HTML, including unsaved edits."""
+    from row_bot.designer import storage
+    from row_bot.thread_cleanup import resolve_managed_path
+
+    media_versions = []
+    for root, entries in ((storage.ASSETS_DIR, project.assets),
+                          (storage.REFERENCES_DIR, project.references)):
+        for item in entries:
+            if not item.stored_name:
+                continue
+            path = resolve_managed_path(resolve_managed_path(root, project.id), item.stored_name)
+            try:
+                stat = path.stat()
+                media_versions.append((item.id, stat.st_mtime_ns, stat.st_size))
+            except FileNotFoundError:
+                media_versions.append((item.id, None, None))
+    return (project.id, project.updated_at, project.active_page if page_index is None else page_index,
+            project.canvas_width, project.canvas_height, project.aspect_ratio, project.mode,
+            preview_mode, project.runtime_version,
+            tuple((p.route_id, p.title, p.html, p.kind, tuple(p.states)) for p in project.pages),
+            json.dumps(project.brand.to_dict() if project.brand else None, sort_keys=True),
+            json.dumps([a.to_dict() for a in project.assets], sort_keys=True),
+            json.dumps([r.to_dict() for r in project.references], sort_keys=True),
+            json.dumps([i.to_dict() for i in project.interactions], sort_keys=True),
+            tuple(media_versions))
 
 
 # ── Interactive (landing / app_mockup / storyboard) multi-route render ──
@@ -364,7 +463,7 @@ def render_multi_route_html(
                 inner = rendered
         sections.append(
             f'<section data-row-bot-route-host="1" '
-            f'data-row-bot-route="{rid}" '
+            f'data-row-bot-route="{_escape_attr(rid)}" '
             f'data-row-bot-route-index="{idx}" '
             f'aria-label="{_escape_attr(page.title)}">'
             f'{inner}'
@@ -462,7 +561,11 @@ def build_preview(project: DesignerProject, *,
         Called when the page structure or active page changes (e.g. agent added
         or deleted a page).  The page navigator uses this to re-render.
     """
+    from nicegui import ui
+
     _last_html: list[str | None] = [None]
+    _last_inputs: list[tuple[Any, ...] | None] = [None]
+    _bridge_identity = ["", ""]
     _last_structure: list[tuple[int, int, int, int]] = [
         (len(project.pages), project.active_page,
          project.canvas_width, project.canvas_height)
@@ -474,7 +577,7 @@ def build_preview(project: DesignerProject, *,
     def _content_fingerprint() -> tuple[int, ...]:
         return tuple(hash((p.title, p.html)) for p in project.pages)
     _last_content: list[tuple[int, ...]] = [_content_fingerprint()]
-    _iframe_id = f"designer-preview-{project.id[:8]}"
+    _iframe_id = f"designer-preview-{secrets.token_hex(12)}"
     _zoom_value: list[str] = ["Fit"]
     # "authoring" = the designer-side click/edit bridge that captures clicks
     # to drive the hotspot recorder and inline text editor. This is ON by
@@ -507,14 +610,14 @@ def build_preview(project: DesignerProject, *,
 
         # Aspect-ratio container
         ratio = project.canvas_width / project.canvas_height
-        _sandbox = "allow-same-origin allow-scripts" if _scripts_allowed else "allow-same-origin"
+        _sandbox = "allow-scripts" if _scripts_allowed else ""
         _chrome = get_preview_chrome(project)
         with ui.element("div").classes("w-full flex-grow").style(
             "display: flex; align-items: center; justify-content: center;"
             "overflow: hidden; background: #111;"
         ) as _ratio_wrap:
             # Sized wrapper — JS will set width/height to the scaled dims
-            _wrapper_id = f"designer-wrapper-{project.id[:8]}"
+            _wrapper_id = f"{_iframe_id}-wrapper"
             _iframe_markup = (
                 f'<iframe id="{_iframe_id}" '
                 f'sandbox="{_sandbox}" '
@@ -584,6 +687,9 @@ def build_preview(project: DesignerProject, *,
         """
         if not project.pages:
             return
+        inputs = preview_fingerprint(project, preview_mode=_preview_mode[0])
+        if not force and inputs == _last_inputs[0]:
+            return
         # Detect structural changes (page added/deleted/navigated/resized)
         cur_structure = (len(project.pages), project.active_page,
                          project.canvas_width, project.canvas_height)
@@ -631,7 +737,14 @@ def build_preview(project: DesignerProject, *,
         # mode. Preview mode lets clicks reach the runtime bridge so
         # interactive prototypes can be exercised from the editor.
         if _authoring_enabled and not _preview_mode[0]:
-            html = inject_bridge_js(html)
+            _bridge_identity[:] = [secrets.token_hex(16), secrets.token_hex(32)]
+            html = inject_bridge_js(html, preview_id=_iframe_id,
+                                    revision=_bridge_identity[0], capability=_bridge_identity[1])
+        else:
+            _bridge_identity[:] = ["", ""]
+        html = isolate_preview_html(html, scripts=_scripts_allowed, brand=project.brand)
+        if inputs != preview_fingerprint(project, preview_mode=_preview_mode[0]):
+            return  # A background edit won; the next tick renders its revision.
         if not force and html == _last_html[0] and not structure_changed:
             return
         safe_html = json.dumps(html)
@@ -642,6 +755,8 @@ def build_preview(project: DesignerProject, *,
                     if (!iframe) return;
                     var replacement = iframe.cloneNode(false);
                     iframe.replaceWith(replacement);
+                    replacement.dataset.previewRevision = {json.dumps(_bridge_identity[0])};
+                    replacement.dataset.previewCapability = {json.dumps(_bridge_identity[1])};
                     replacement.srcdoc = {safe_html};
                 }})();
             '''
@@ -649,11 +764,16 @@ def build_preview(project: DesignerProject, *,
             js = f'''
                 (function() {{
                     var iframe = document.getElementById("{_iframe_id}");
-                    if (iframe) iframe.srcdoc = {safe_html};
+                    if (iframe) {{
+                        iframe.dataset.previewRevision = {json.dumps(_bridge_identity[0])};
+                        iframe.dataset.previewCapability = {json.dumps(_bridge_identity[1])};
+                        iframe.srcdoc = {safe_html};
+                    }}
                 }})();
             '''
         ui.run_javascript(js)
         _last_html[0] = html
+        _last_inputs[0] = inputs
         # Re-apply zoom after content change
         _apply_zoom()
 
@@ -678,6 +798,8 @@ def build_preview(project: DesignerProject, *,
     # Register parent-side message listener for interactive bridge
     if _authoring_enabled:
         _setup_message_listener(
+            iframe_id=_iframe_id,
+            current_identity=lambda: tuple(_bridge_identity),
             on_element_click=on_element_click,
             on_text_edit=on_text_edit,
             on_undo_shortcut=on_undo_shortcut,
@@ -711,17 +833,25 @@ def build_preview(project: DesignerProject, *,
 
 def _setup_message_listener(
     *,
+    iframe_id: str,
+    current_identity,
     on_element_click=None,
     on_text_edit=None,
     on_undo_shortcut=None,
     on_redo_shortcut=None,
 ):
     """Register a window.message listener that forwards iframe events to Python."""
+    from nicegui import ui
+    from row_bot.designer.interaction import get_parent_listener_js, validate_bridge_event
     # Use a hidden NiceGUI element to receive events from JS
     bridge = ui.element("div").style("display:none;")
 
     def _handle_bridge_event(e):
         data = e.args or {}
+        revision, capability = current_identity()
+        if not validate_bridge_event(data, preview_id=iframe_id,
+                                     revision=revision, capability=capability):
+            return
         msg_type = data.get("msgType", "")
         detail = data.get("detail", {})
         if msg_type == "element-click" and on_element_click:
@@ -733,29 +863,8 @@ def _setup_message_listener(
         elif msg_type == "designer-redo-shortcut" and on_redo_shortcut:
             on_redo_shortcut()
 
-    bridge.on("bridge_msg", _handle_bridge_event)
+    bridge.on("bridge_msg", _handle_bridge_event,
+              args=["msgType", "detail", "previewId", "revision", "capability"])
 
     # Register JS listener that forwards postMessage events to the bridge element
-    js = f"""
-    (function() {{
-        window.__rowBotDesignerBridgeId = {bridge.id};
-        if (window.__rowBotDesignerListener) return;
-        window.__rowBotDesignerListener = true;
-
-        window.addEventListener('message', function(e) {{
-            var data = e.data;
-            if (!data || !data.type) return;
-            if (data.type === 'element-click' || data.type === 'text-edit' ||
-                data.type === 'edit-start' || data.type === 'edit-cancel' ||
-                data.type === 'designer-undo-shortcut' || data.type === 'designer-redo-shortcut') {{
-                var bridge = getElement(window.__rowBotDesignerBridgeId);
-                if (!bridge) return;
-                var bridgeEvent = new Event('bridge_msg', {{ bubbles: true }});
-                bridgeEvent.msgType = data.type;
-                bridgeEvent.detail = data.detail || {{}};
-                bridge.dispatchEvent(bridgeEvent);
-            }}
-        }});
-    }})();
-    """
-    ui.run_javascript(js)
+    ui.run_javascript(get_parent_listener_js(str(bridge.id), iframe_id=iframe_id))

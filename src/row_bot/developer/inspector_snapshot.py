@@ -44,6 +44,7 @@ class _RefreshState:
     task: asyncio.Task | None = None
     pending: bool = False
     last_requested_at: float = 0.0
+    error: str = ""
 
 
 _snapshots: dict[tuple[str, str | None], InspectorSnapshot] = {}
@@ -105,6 +106,7 @@ def request_snapshot_refresh(
                 if _states.get(key) is not state:
                     return
                 _store_snapshot(snapshot)
+                state.error = ""
                 elapsed = time.perf_counter() - started
                 if elapsed > 0.75:
                     logger.info("perf: developer inspector snapshot refreshed in %.3fs", elapsed)
@@ -114,6 +116,7 @@ def request_snapshot_refresh(
             raise
         except Exception:
             # Keep the last confirmed snapshot. The next request can retry.
+            state.error = "inspector_refresh_failed"
             logger.warning("Developer inspector snapshot refresh failed", exc_info=True)
         finally:
             if _states.get(key) is state:
@@ -126,6 +129,20 @@ def request_snapshot_refresh(
         _store_snapshot(_collect_snapshot_sync(workspace_id, thread_id))
     else:
         state.task = loop.create_task(_runner(), name="developer inspector snapshot")
+
+
+def get_snapshot_refresh_error(workspace_id: str, thread_id: str | None) -> str:
+    """Return a safe refresh error without exposing filesystem exception details."""
+    state = _states.get((workspace_id, thread_id))
+    return state.error if state else ""
+
+
+async def wait_for_snapshot_refresh(workspace_id: str, thread_id: str | None) -> InspectorSnapshot | None:
+    """Observe the existing coalesced refresh; cancelling a reader keeps it alive."""
+    state = _states.get((workspace_id, thread_id))
+    if state is not None and state.task is not None:
+        await asyncio.shield(state.task)
+    return get_snapshot(workspace_id, thread_id)
 
 
 async def shutdown_snapshot_refreshes() -> None:

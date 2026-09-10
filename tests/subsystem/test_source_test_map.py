@@ -36,6 +36,48 @@ def test_shared_execution_changes_select_legacy_overlay_and_workflow_adapters() 
         assert "tests/test_channel_workflow_model_routing.py" in selection.test_paths
 
 
+@pytest.mark.parametrize("path", [
+    "frontend/src/features/shell/Conversation.tsx",
+    "frontend/src/features/panels/WorkspaceInspector.tsx",
+    "frontend/src/api/controller.ts", "frontend/tests/browser/unified-history.spec.ts",
+    "contracts/client-platform/v1/schema/DraftView.schema.json",
+    "scripts/generate_client_platform_contracts.py",
+    "tests/browser/client_workspace/fixture_app.py",
+    "tests/browser/client_workspace/run_browser.py",
+    "docs/client-platform/unified-workspace.md",
+    "src/row_bot/application/workspace_setup.py",
+    "src/row_bot/application/conversation_drafts.py",
+    "src/row_bot/application/conversation_search.py",
+    "src/row_bot/application/folder_selections.py",
+    "src/row_bot/application/client_platform.py",
+    "src/row_bot/api/v1/routes.py", "src/row_bot/api/v1/schemas.py",
+    "src/row_bot/runtime/admissions.py", "src/row_bot/runtime/checkpoint_reader.py",
+    "src/row_bot/client_assets.py", "src/row_bot/conversation_resources.py",
+    "src/row_bot/threads.py", "src/row_bot/agent_orchestrator.py",
+    "src/row_bot/designer/client_service.py", "src/row_bot/designer/html_ops.py",
+    "src/row_bot/designer/interaction.py", "src/row_bot/designer/presentation.py",
+    "src/row_bot/designer/preview.py", "src/row_bot/designer/runtime/loader.py",
+    "src/row_bot/designer/state.py", "src/row_bot/designer/storage.py",
+    "src/row_bot/developer/client_workspace.py", "src/row_bot/developer/inspector_snapshot.py",
+    "src/row_bot/developer/review.py", "src/row_bot/developer/state.py",
+    "src/row_bot/developer/storage.py", "src/row_bot/ui/chat.py",
+    "src/row_bot/ui/chat_components.py", "src/row_bot/ui/voice_realtime_events.py",
+    "src/row_bot/voice/actions.py", "src/row_bot/voice/coordinator.py",
+    "src/row_bot/voice/realtime_client.py",
+])
+def test_unified_workspace_changes_select_shared_domain_and_legacy_owners(path: str) -> None:
+    selection = select_tests_for_changes([path])
+    assert "unified_workspace_composition" in selection.matched_rules
+    assert {
+        "tests/subsystem/client_platform", "tests/subsystem/client_protocol",
+        "tests/subsystem/developer", "tests/subsystem/designer",
+        "tests/subsystem/agents/test_client_steering.py",
+        "tests/subsystem/mobile/test_voice_client_lifecycle.py",
+        "tests/test_developer_workspace_threads.py", "tests/test_agent_write_locks.py",
+    } <= set(selection.test_paths)
+    assert not selection.unmatched_files
+
+
 def test_source_test_rules_have_unique_names_and_actionable_tests() -> None:
     names = [rule.name for rule in SOURCE_TEST_RULES]
     assert len(names) == len(set(names))

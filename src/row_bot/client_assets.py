@@ -160,7 +160,7 @@ def _shell_headers(content: bytes) -> dict[str, str]:
             "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY",
             "Content-Security-Policy": "default-src 'self'; script-src 'self' " + hashes + "; "
             "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; "
-            "font-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"}
+            "font-src 'self' data:; object-src 'none'; frame-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"}
 
 
 def install_client_assets(app: FastAPI, *, asset_root: Path | None = None) -> None:

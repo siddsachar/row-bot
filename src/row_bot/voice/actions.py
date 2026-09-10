@@ -31,6 +31,8 @@ class ActiveVoiceSurfaceBinding:
         self.active = False
 
     async def send_talk(self, text: str) -> None:
+        if not self.active:
+            return
         await submit_voice_text(
             self.send_talk_text,
             text,
@@ -39,7 +41,11 @@ class ActiveVoiceSurfaceBinding:
         )
 
     def append_dictation(self, text: str) -> str:
+        if not self.active:
+            return ""
         updated = append_dictation_text(self.get_composer_text(), text)
+        if not self.active:
+            return ""
         self.set_composer_text(updated)
         return updated
 
