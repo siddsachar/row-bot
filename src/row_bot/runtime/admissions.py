@@ -62,6 +62,15 @@ def transaction() -> Iterator[sqlite3.Connection]:
             for name, definition in (("owner_pid", "INTEGER NOT NULL DEFAULT 0"), ("owner_birth", "REAL NOT NULL DEFAULT 0")):
                 if name not in columns:
                     conn.execute(f"ALTER TABLE generation_passes ADD COLUMN {name} {definition}")
+            for name, definition in (
+                ("queue_state", "TEXT NOT NULL DEFAULT ''"),
+                ("queue_revision", "INTEGER NOT NULL DEFAULT 0"),
+                ("queue_source_generation_id", "TEXT NOT NULL DEFAULT ''"),
+                ("queue_epoch", "TEXT NOT NULL DEFAULT ''"),
+                ("queue_checkpoint_revision", "TEXT NOT NULL DEFAULT ''"),
+            ):
+                if name not in columns:
+                    conn.execute(f"ALTER TABLE generation_passes ADD COLUMN {name} {definition}")
             conn.commit()
             conn.execute("BEGIN IMMEDIATE")
             yield conn
@@ -122,10 +131,22 @@ def receipt(owner_id: str, command_id: str) -> dict | None:
     with transaction() as conn:
         row = conn.execute("SELECT status,result_json FROM client_commands WHERE owner_id=? AND command_id=?",
                            (owner_id, command_id)).fetchone()
-        return ({"status": row["status"], **json.loads(row["result_json"])} if row else None)
+        return ({"command_id": command_id, "status": row["status"], **json.loads(row["result_json"])} if row else None)
 
 
-def reserve(conversation_id: str, submission_id: str, generation_id: str, *, command_id: str = "") -> dict:
+def command_progress(owner_id: str, key: str, result: dict) -> None:
+    """Persist confirmed setup identities without storing setup text or secrets."""
+    with transaction() as conn:
+        changed = conn.execute(
+            "UPDATE client_commands SET result_json=? WHERE owner_id=? AND key=? AND status='admitting'",
+            (json.dumps(result, separators=(",", ":")), owner_id, key),
+        ).rowcount
+        if changed != 1:
+            raise AdmissionError("operation_uncertain")
+
+
+def reserve(conversation_id: str, submission_id: str, generation_id: str, *, command_id: str = "",
+            queued_pass_id: str = "", resume_pending: bool = False) -> dict:
     with transaction() as conn:
         if conn.execute("SELECT 1 FROM conversation_deletion_receipts WHERE conversation_id=?", (conversation_id,)).fetchone():
             raise AdmissionError("conversation_deleting")
@@ -137,6 +158,17 @@ def reserve(conversation_id: str, submission_id: str, generation_id: str, *, com
                                (conversation_id,)).fetchone()
         if pending:
             raise AdmissionError("generation_active")
+        queued = conn.execute("SELECT * FROM generation_passes WHERE conversation_id=? AND state IN ('queue_preparing','queued') ORDER BY admission_sequence LIMIT 1",
+                              (conversation_id,)).fetchone()
+        if queued_pass_id:
+            if (not queued or queued["pass_id"] != queued_pass_id or queued["submission_id"] != submission_id
+                    or queued["generation_id"] != generation_id or queued["queue_state"] != "dispatching"):
+                raise AdmissionError("queue_revision_conflict")
+            conn.execute("UPDATE generation_passes SET state='admitting' WHERE pass_id=? AND state='queued'", (queued_pass_id,))
+            return {"pass_id": queued_pass_id, "submission_id": submission_id, "generation_id": generation_id,
+                    "admission_sequence": str(queued["admission_sequence"])}
+        if queued and not resume_pending:
+            raise AdmissionError("queue_pending")
         sequence = int(lifecycle["next_sequence"]) + 1
         pass_id = str(uuid.uuid4())
         conn.execute("UPDATE conversation_lifecycle SET next_sequence=? WHERE conversation_id=?", (sequence, conversation_id))
@@ -204,6 +236,8 @@ def recover(epoch: str) -> None:
                           "pass_id": row["pass_id"], "status": "accepted" if matching_input else "rejected"}
                 conn.execute("UPDATE client_commands SET status='completed',result_json=? WHERE command_id=? AND target=? AND status='admitting'",
                              (json.dumps(result, separators=(",", ":")), row["command_id"], row["conversation_id"]))
+    from row_bot.application.client_queue import recover_queue
+    recover_queue(epoch)
 
 
 def _owner_alive(row: dict) -> bool:
@@ -262,6 +296,7 @@ def close_admission(conversation_id: str) -> None:
         conn.execute("INSERT OR IGNORE INTO conversation_lifecycle(conversation_id) VALUES(?)", (conversation_id,))
         conn.execute("UPDATE conversation_lifecycle SET state='admission_closed' WHERE conversation_id=? AND state='active'", (conversation_id,))
         conn.execute("UPDATE generation_passes SET state='cancelled' WHERE conversation_id=? AND state IN ('admitting','admitted')", (conversation_id,))
+        conn.execute("UPDATE generation_passes SET state='cancelled',queue_state='cancelled',queue_revision=queue_revision+1 WHERE conversation_id=? AND state IN ('queue_preparing','queued')", (conversation_id,))
 
 
 def advance_deletion(conversation_id: str, phase: str) -> None:

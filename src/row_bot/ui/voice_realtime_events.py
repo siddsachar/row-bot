@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from row_bot.brand import APP_DISPLAY_NAME
 from nicegui import ui
 
 from row_bot.ui.state import AppState, P, _active_generations
+from row_bot.voice.coordinator import VoiceCallbackIdentity
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +38,24 @@ def make_realtime_event_handler(
     p: P,
     send_message: Callable[..., Any],
 ):
+    thread_id = str(state.thread_id or "")
+    bound_session: int | None = None
+    binding: Any = None
+
     async def _on_realtime_event(e):
+        nonlocal bound_session, binding
+        if str(state.thread_id or "") != thread_id:
+            return
         payload = e.args if isinstance(e.args, dict) else {}
+        session_id = _session_id(payload)
+        if session_id is None or not state.voice_coordinator.accepts(session_id):
+            return
+        if bound_session != session_id:
+            bound_session = session_id
+            binding = getattr(p, "active_voice_binding", None)
+        if binding is not None and (getattr(p, "active_voice_binding", None) is not binding
+                                    or not binding.is_current(thread_id)):
+            return
         await handle_realtime_event(payload, state=state, p=p, send_message=send_message)
 
     return _on_realtime_event
@@ -52,6 +70,9 @@ async def handle_realtime_event(
 ) -> None:
     event_type = str(payload.get("type") or "")
     session_id = _session_id(payload)
+    context = _capture_callback(payload, state=state, p=p, session_id=session_id)
+    if context is None:
+        return
 
     def _realtime_diag(stage: str, **extra: Any) -> None:
         active_gen = _active_generations.get(state.thread_id)
@@ -81,13 +102,15 @@ async def handle_realtime_event(
             p=p,
             send_message=send_message,
             session_id=session_id,
+            context=context,
             diag=_realtime_diag,
         )
         return
 
     if event_type == "consult_fallback_needed":
         state.voice_coordinator.mark_realtime_latency("consult_fallback_needed")
-        await _handle_forced_fallback(payload, state=state, send_message=send_message, session_id=session_id)
+        await _handle_forced_fallback(payload, state=state, send_message=send_message,
+                                      session_id=session_id, context=context)
         return
 
     if event_type == "transcript_final":
@@ -134,7 +157,7 @@ async def handle_realtime_event(
         return
 
     if event_type == "assistant_transcript_final":
-        state.voice_coordinator.record_assistant_output(str(payload.get("text") or ""))
+        state.voice_coordinator.record_assistant_output(str(payload.get("text") or ""), session_id=session_id)
 
     if event_type in {"response_done", "response_cancelled", "output_audio_done", "assistant_transcript_final"}:
         active_gen = _active_generations.get(state.thread_id)
@@ -147,6 +170,16 @@ async def handle_realtime_event(
             session_id=session_id,
             clear_generation=clear_generation,
         )
+        if clear_generation and context.identity.generation_id:
+            from row_bot.voice.realtime_client import clear_realtime_generation_js
+            from row_bot.ui.streaming import run_realtime_client_js
+
+            run_realtime_client_js(
+                p, clear_realtime_generation_js(session_id=context.identity.session_id,
+                                               thread_id=context.identity.thread_id,
+                                               generation_id=context.identity.generation_id),
+                context="realtime_generation_finished",
+            )
         _realtime_diag("output_lifecycle_done")
         return
 
@@ -221,6 +254,7 @@ async def _handle_function_call(
     p: P,
     send_message: Callable[..., Any],
     session_id: int | None,
+    context: _CallbackContext,
     diag: Callable[..., None] | None = None,
 ) -> None:
     from row_bot.voice.agent_bridge import VoiceAgentBridge
@@ -228,16 +262,16 @@ async def _handle_function_call(
     from row_bot.ui.streaming import request_generation_stop, run_realtime_client_js
 
     bridge = VoiceAgentBridge(
-        send_message=send_message,
-        active_generation=lambda: _active_generations.get(state.thread_id),
-        cancel_generation=lambda _gen: request_generation_stop(
-            state.thread_id,
+        send_message=context.guard_sender(send_message),
+        active_generation=lambda: context.generation if context.current() else None,
+        cancel_generation=lambda _gen: context.current() and request_generation_stop(
+            context.identity.thread_id,
             state=state,
             p=p,
             reason="realtime_control",
         ),
-        surface=lambda: _active_surface(state),
-        thread_id=lambda: state.thread_id,
+        surface=context.surface,
+        thread_id=context.identity.thread_id,
     )
 
     name = str(payload.get("name") or "")
@@ -251,8 +285,10 @@ async def _handle_function_call(
         name=name,
         call_id=call_id,
         arguments=payload.get("arguments") or payload.get("parsed_arguments"),
-        queue_consult=state.voice_coordinator.queue_realtime_tool_call,
+        queue_consult=context.queue_consult,
     )
+    if not context.current():
+        return
     if result.get("deferred"):
         return
     output = str(result.get("output") or "{}")
@@ -262,8 +298,8 @@ async def _handle_function_call(
         send_realtime_function_output_js(
             call_id=call_id,
             output=output,
-            thread_id=state.thread_id,
-            generation_id=f"{state.thread_id}:control",
+            thread_id=context.identity.thread_id,
+            generation_id=context.identity.generation_id,
             silent=silent,
         ),
         context="realtime_control_function_output",
@@ -286,38 +322,109 @@ async def _handle_forced_fallback(
     state: AppState,
     send_message: Callable[..., Any],
     session_id: int | None,
+    context: _CallbackContext,
 ) -> None:
     from row_bot.voice.agent_bridge import VoiceAgentBridge
     from row_bot.ui.streaming import request_generation_stop
 
     bridge = VoiceAgentBridge(
-        send_message=send_message,
-        active_generation=lambda: _active_generations.get(state.thread_id),
-        cancel_generation=lambda _gen: request_generation_stop(
-            state.thread_id,
+        send_message=context.guard_sender(send_message),
+        active_generation=lambda: context.generation if context.current() else None,
+        cancel_generation=lambda _gen: context.current() and request_generation_stop(
+            context.identity.thread_id,
             state=state,
             reason="realtime_forced_fallback",
         ),
-        surface=lambda: _active_surface(state),
-        thread_id=lambda: state.thread_id,
+        surface=context.surface,
+        thread_id=context.identity.thread_id,
     )
     text = str(payload.get("text") or "")
     state.voice_coordinator.set_realtime_state("consulting_row_bot", detail="forced_fallback", session_id=session_id)
     state.voice_coordinator.mark_realtime_latency("forced_consult_started")
     result = await bridge.force_consult_if_substantive(
         text,
-        queue_consult=state.voice_coordinator.queue_realtime_tool_call,
+        queue_consult=context.queue_consult,
     )
+    if not context.current():
+        return
     if not result.get("handled"):
         state.voice_coordinator.set_realtime_state("listening", detail="fallback_skipped", session_id=session_id)
 
 
 def _session_id(payload: dict[str, Any]) -> int | None:
     raw = payload.get("session_id")
-    try:
-        return int(raw) if raw is not None else None
-    except Exception:
+    return raw if type(raw) is int and raw > 0 else None
+
+
+@dataclass(frozen=True)
+class _CallbackContext:
+    state: AppState
+    p: P
+    identity: VoiceCallbackIdentity
+    generation: Any
+    surface: str
+    binding: Any
+
+    def current(self) -> bool:
+        generation = _active_generations.get(self.identity.thread_id)
+        binding = getattr(self.p, "active_voice_binding", None)
+        return (
+            generation is self.generation
+            and binding is self.binding
+            and (binding is None or binding.is_current(self.identity.thread_id))
+            and _active_surface(self.state) == self.surface
+            and self.state.voice_coordinator.accepts_callback(
+                self.identity, thread_id=str(self.state.thread_id or ""),
+                generation_id=_generation_id(self.state, generation),
+            )
+        )
+
+    def queue_consult(self, call: dict[str, Any]) -> None:
+        if self.current():
+            self.state.voice_coordinator.queue_realtime_tool_call(call)
+
+    def guard_sender(self, sender: Callable[..., Any]) -> Callable[..., Any]:
+        async def send(text: str, **kwargs: Any) -> None:
+            if not self.current():
+                return
+            # Preserve the original sender's voice-mode signature adaptation.
+            from row_bot.voice.actions import submit_voice_text
+
+            await submit_voice_text(sender, text, surface=self.surface, thread_id=self.identity.thread_id)
+            if not self.current():
+                return
+
+        return send
+
+
+def _capture_callback(
+    payload: dict[str, Any], *, state: AppState, p: P, session_id: int | None
+) -> _CallbackContext | None:
+    if session_id is None:
         return None
+    thread_id = str(state.thread_id or "")
+    generation = _active_generations.get(thread_id)
+    generation_id = _generation_id(state, generation)
+    # Existing NiceGUI producers carry the session and registration-bound thread;
+    # newer transports also carry explicit thread/run metadata.
+    if "thread_id" in payload and payload["thread_id"] != thread_id:
+        return None
+    if "generation_id" in payload and payload["generation_id"] != generation_id:
+        return None
+    identity = state.voice_coordinator.capture_callback(
+        session_id, thread_id=thread_id, generation_id=generation_id,
+    )
+    if identity is None:
+        return None
+    context = _CallbackContext(state, p, identity, generation, _active_surface(state),
+                               getattr(p, "active_voice_binding", None))
+    return context if context.current() else None
+
+
+def _generation_id(state: AppState, generation: Any) -> str:
+    # Spoken output can finish after the normal run leaves the active map.
+    return str(getattr(generation, "generation_id", "") or
+               state.voice_coordinator.active_row_bot_generation_id or "")
 
 
 def _handle_realtime_fatal_error(

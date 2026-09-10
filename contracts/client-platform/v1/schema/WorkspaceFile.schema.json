@@ -1,0 +1,58 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "next_offset": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Offset"
+    },
+    "relative_path": {
+      "maxLength": 4096,
+      "title": "Relative Path",
+      "type": "string"
+    },
+    "revision": {
+      "default": "",
+      "maxLength": 256,
+      "title": "Revision",
+      "type": "string"
+    },
+    "size_bytes": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Size Bytes",
+      "type": "integer"
+    },
+    "status": {
+      "enum": [
+        "text",
+        "binary",
+        "missing",
+        "denied",
+        "stale"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "text": {
+      "default": "",
+      "maxLength": 65536,
+      "title": "Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "relative_path"
+  ],
+  "title": "WorkspaceFile",
+  "type": "object"
+}

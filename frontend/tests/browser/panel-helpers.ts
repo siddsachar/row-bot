@@ -18,17 +18,25 @@ export async function readLayout(page: Page): Promise<SavedLayout> {
   await page.waitForFunction(() => {
     const size =
       innerWidth >= 1024 ? 'desktop' : innerWidth >= 768 ? 'tablet' : 'phone';
+    const id = decodeURIComponent(
+      location.pathname.split('/conversations/')[1] ?? 'home',
+    );
     return Object.keys(localStorage).some(
       (value) =>
-        value.startsWith('row-bot:layout:v1:') && value.endsWith(':' + size),
+        value.startsWith('row-bot:layout:v2:') &&
+        value.endsWith(`:${encodeURIComponent(id)}:${size}`),
     );
   });
   return page.evaluate(() => {
     const size =
       innerWidth >= 1024 ? 'desktop' : innerWidth >= 768 ? 'tablet' : 'phone';
+    const id = decodeURIComponent(
+      location.pathname.split('/conversations/')[1] ?? 'home',
+    );
     const key = Object.keys(localStorage).find(
       (value) =>
-        value.startsWith('row-bot:layout:v1:') && value.endsWith(':' + size),
+        value.startsWith('row-bot:layout:v2:') &&
+        value.endsWith(`:${encodeURIComponent(id)}:${size}`),
     );
     return JSON.parse(localStorage.getItem(key!)!);
   }) as Promise<SavedLayout>;

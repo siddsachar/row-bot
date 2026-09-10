@@ -295,8 +295,11 @@
               "media.available": "#/$defs/MediaAvailableEvent",
               "media.error": "#/$defs/MediaErrorEvent",
               "projection.reset": "#/$defs/ProjectionResetEvent",
+              "queue.changed": "#/$defs/QueueChangedEvent",
               "queue.updated": "#/$defs/QueueUpdatedEvent",
               "resource.changed": "#/$defs/ResourceChangedEvent",
+              "steering.consumed": "#/$defs/SteeringConsumedEvent",
+              "steering.queued": "#/$defs/SteeringQueuedEvent",
               "tool.activity": "#/$defs/ToolActivityEvent",
               "transcript.checkpoint": "#/$defs/TranscriptCheckpointEvent",
               "transcript.delta": "#/$defs/TranscriptDeltaEvent",
@@ -346,6 +349,15 @@
             },
             {
               "$ref": "#/$defs/MediaErrorEvent"
+            },
+            {
+              "$ref": "#/$defs/SteeringQueuedEvent"
+            },
+            {
+              "$ref": "#/$defs/SteeringConsumedEvent"
+            },
+            {
+              "$ref": "#/$defs/QueueChangedEvent"
             }
           ],
           "title": "Event"
@@ -1201,6 +1213,136 @@
       "title": "ProjectionResetEvent",
       "type": "object"
     },
+    "QueueChanged": {
+      "additionalProperties": false,
+      "properties": {
+        "generation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Generation Id",
+          "type": "string"
+        },
+        "submission_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9:_-]+$",
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Submission Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "generation_id",
+        "submission_ids"
+      ],
+      "title": "QueueChanged",
+      "type": "object"
+    },
+    "QueueChangedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "event_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/QueueChanged"
+        },
+        "projection_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Projection Revision",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Protocol Version",
+          "type": "string"
+        },
+        "server_epoch": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Server Epoch",
+          "type": "string"
+        },
+        "source": {
+          "default": "runtime",
+          "enum": [
+            "runtime",
+            "checkpoint",
+            "approval",
+            "resource"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "source_epoch": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Source Epoch",
+          "type": "string"
+        },
+        "source_sequence_end": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Source Sequence End",
+          "type": "string"
+        },
+        "source_sequence_start": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Source Sequence Start",
+          "type": "string"
+        },
+        "source_stream_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Source Stream Id",
+          "type": "string"
+        },
+        "topic": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Topic",
+          "type": "string"
+        },
+        "type": {
+          "const": "queue.changed",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "topic",
+        "server_epoch",
+        "conversation_id",
+        "projection_revision",
+        "source_stream_id",
+        "source_epoch",
+        "source_sequence_start",
+        "source_sequence_end",
+        "type",
+        "payload"
+      ],
+      "title": "QueueChangedEvent",
+      "type": "object"
+    },
     "QueueUpdated": {
       "additionalProperties": false,
       "properties": {
@@ -1508,6 +1650,237 @@
       "title": "Snapshot",
       "type": "object"
     },
+    "SteeringActivity": {
+      "additionalProperties": false,
+      "properties": {
+        "generation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Generation Id",
+          "type": "string"
+        },
+        "steering_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9:_-]+$",
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Steering Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "generation_id",
+        "steering_ids"
+      ],
+      "title": "SteeringActivity",
+      "type": "object"
+    },
+    "SteeringConsumedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "event_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/SteeringActivity"
+        },
+        "projection_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Projection Revision",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Protocol Version",
+          "type": "string"
+        },
+        "server_epoch": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Server Epoch",
+          "type": "string"
+        },
+        "source": {
+          "default": "runtime",
+          "enum": [
+            "runtime",
+            "checkpoint",
+            "approval",
+            "resource"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "source_epoch": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Source Epoch",
+          "type": "string"
+        },
+        "source_sequence_end": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Source Sequence End",
+          "type": "string"
+        },
+        "source_sequence_start": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Source Sequence Start",
+          "type": "string"
+        },
+        "source_stream_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Source Stream Id",
+          "type": "string"
+        },
+        "topic": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Topic",
+          "type": "string"
+        },
+        "type": {
+          "const": "steering.consumed",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "topic",
+        "server_epoch",
+        "conversation_id",
+        "projection_revision",
+        "source_stream_id",
+        "source_epoch",
+        "source_sequence_start",
+        "source_sequence_end",
+        "type",
+        "payload"
+      ],
+      "title": "SteeringConsumedEvent",
+      "type": "object"
+    },
+    "SteeringQueuedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "event_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/SteeringActivity"
+        },
+        "projection_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Projection Revision",
+          "type": "string"
+        },
+        "protocol_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Protocol Version",
+          "type": "string"
+        },
+        "server_epoch": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Server Epoch",
+          "type": "string"
+        },
+        "source": {
+          "default": "runtime",
+          "enum": [
+            "runtime",
+            "checkpoint",
+            "approval",
+            "resource"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "source_epoch": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Source Epoch",
+          "type": "string"
+        },
+        "source_sequence_end": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Source Sequence End",
+          "type": "string"
+        },
+        "source_sequence_start": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Source Sequence Start",
+          "type": "string"
+        },
+        "source_stream_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Source Stream Id",
+          "type": "string"
+        },
+        "topic": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Topic",
+          "type": "string"
+        },
+        "type": {
+          "const": "steering.queued",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "topic",
+        "server_epoch",
+        "conversation_id",
+        "projection_revision",
+        "source_stream_id",
+        "source_epoch",
+        "source_sequence_start",
+        "source_sequence_end",
+        "type",
+        "payload"
+      ],
+      "title": "SteeringQueuedEvent",
+      "type": "object"
+    },
     "TextBlock": {
       "additionalProperties": false,
       "properties": {
@@ -1580,6 +1953,12 @@
           "default": "",
           "maxLength": 256,
           "title": "Tool Call Id",
+          "type": "string"
+        },
+        "tool_name": {
+          "default": "",
+          "maxLength": 128,
+          "title": "Tool Name",
           "type": "string"
         }
       },

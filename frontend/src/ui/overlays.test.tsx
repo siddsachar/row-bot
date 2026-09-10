@@ -1,7 +1,7 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { OverlayProvider, useOverlay } from './overlays';
 import { Button, Input, Skeleton } from './primitives';
 
@@ -108,19 +108,112 @@ it('does not confirm when Enter originates in unrelated text', async () => {
 
 it('queues notifications during a modal so Escape dismisses the active task', async () => {
   const user = userEvent.setup();
-  render(
+  const { container } = render(
     <OverlayProvider>
       <Fixture confirmed={vi.fn()} />
     </OverlayProvider>,
   );
+  const footer = container.querySelector('.notification-footer')!;
+  const viewport = container.querySelector('.toast-viewport')!;
+  expect(footer).not.toBeVisible();
   const opener = screen.getByRole('button', { name: 'Edit' });
   await user.click(opener);
+  const draft = screen.getByRole('textbox', { name: 'Draft' });
+  await user.clear(draft);
+  await user.type(draft, 'Keep the modal draft');
   await user.click(screen.getByRole('button', { name: 'Notify' }));
+  expect(footer).not.toBeVisible();
   expect(screen.queryByText('Example notification')).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Reset example' }));
   await user.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.getByRole('textbox', { name: 'Draft' })).toBe(draft);
+  expect(draft).toHaveValue('Keep the modal draft');
+  expect(footer).not.toBeVisible();
   await user.keyboard('{Escape}');
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(opener).toHaveFocus();
   expect(await screen.findByText('Example notification')).toBeVisible();
+  expect(footer).toBeVisible();
+  expect(container.querySelector('.toast-viewport')).toBe(viewport);
+});
+
+function NotificationFixture({ mounted }: { mounted: () => void }) {
+  const [draft, setDraft] = useState('');
+  const { notify } = useOverlay();
+  useEffect(() => {
+    mounted();
+  }, [mounted]);
+  return (
+    <>
+      <Input
+        aria-label="Conversation draft"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+      />
+      <Button onClick={() => notify('Message queued')}>Queue message</Button>
+      <Button
+        onClick={() => ['One', 'Two', 'Two', 'Three', 'Four'].forEach(notify)}
+      >
+        Several notices
+      </Button>
+    </>
+  );
+}
+
+it('keeps the child draft and node identity as the normal-flow notification footer opens and empties', async () => {
+  const user = userEvent.setup();
+  const mounted = vi.fn();
+  const { container } = render(
+    <OverlayProvider>
+      <NotificationFixture mounted={mounted} />
+    </OverlayProvider>,
+  );
+  const input = screen.getByRole('textbox', { name: 'Conversation draft' });
+  const content = container.querySelector('.overlay-content')!;
+  const footer = container.querySelector('.notification-footer')!;
+  const viewport = container.querySelector('.toast-viewport')!;
+  expect(content.nextElementSibling).toBe(footer);
+  expect(content.contains(input)).toBe(true);
+  expect(footer).not.toBeVisible();
+  await user.type(input, 'Keep this unsent draft');
+  await user.click(screen.getByRole('button', { name: 'Queue message' }));
+  expect(footer).toBeVisible();
+  expect(screen.getByRole('textbox', { name: 'Conversation draft' })).toBe(
+    input,
+  );
+  expect(input).toHaveValue('Keep this unsent draft');
+  expect(screen.getByRole('button', { name: 'Queue message' })).toBeEnabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification' }));
+  expect(footer).not.toBeVisible();
+  expect(container.querySelector('.toast-viewport')).toBe(viewport);
+  expect(screen.getByRole('textbox', { name: 'Conversation draft' })).toBe(
+    input,
+  );
+  expect(input).toHaveValue('Keep this unsent draft');
+  expect(mounted).toHaveBeenCalledTimes(1);
+});
+
+it('deduplicates and bounds notices while preserving F8 focus and explicit dismissal', async () => {
+  const user = userEvent.setup();
+  const { container } = render(
+    <OverlayProvider>
+      <NotificationFixture mounted={vi.fn()} />
+    </OverlayProvider>,
+  );
+  await user.click(screen.getByRole('button', { name: 'Several notices' }));
+  const viewport =
+    container.querySelector<HTMLOListElement>('.toast-viewport')!;
+  expect(viewport.querySelectorAll('.toast')).toHaveLength(3);
+  expect(within(viewport).queryByText('One')).not.toBeInTheDocument();
+  expect(within(viewport).getAllByText('Two')).toHaveLength(1);
+  expect(within(viewport).getByText('Three')).toBeVisible();
+  expect(within(viewport).getByText('Four')).toBeVisible();
+  fireEvent.keyDown(document, { key: 'F8', code: 'F8' });
+  expect(viewport).toHaveFocus();
+  const dismiss = within(viewport).getAllByRole('button', {
+    name: 'Dismiss notification',
+  });
+  fireEvent.click(dismiss[0]);
+  expect(within(viewport).queryByText('Two')).not.toBeInTheDocument();
+  expect(viewport.querySelectorAll('.toast')).toHaveLength(2);
 });

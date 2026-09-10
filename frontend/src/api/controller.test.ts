@@ -3,6 +3,7 @@ import { webcrypto } from 'node:crypto';
 import { validateWire } from '../../../contracts/client-platform/v1/typescript/client';
 import * as wire from '../../../contracts/client-platform/v1/typescript/client';
 import { ClientController } from './controller';
+import { ACK_RETIRE_TIMEOUT_MS } from './acknowledgements';
 import { HttpTransport } from './http';
 import {
   FixtureClock,
@@ -11,6 +12,7 @@ import {
   recordings,
 } from './fixtures';
 import { clientError } from './errors';
+import thinkingRecording from '../../../contracts/client-platform/v1/fixtures/F-P12.json';
 import type {
   Command,
   ConversationView,
@@ -19,9 +21,35 @@ import type {
   Snapshot,
   SubscriptionView,
   TranscriptPage,
+  DraftSave,
+  DraftView,
 } from './types';
 
 const clients: ClientController[] = [];
+class CachedDraftTransport extends FixtureTransport {
+  constructor() {
+    super({ conversationCount: 48 });
+  }
+  reads = vi.fn(async (id: string): Promise<DraftView> => ({
+    conversation_id: id,
+    revision: '0',
+    text: `Saved ${id}`,
+    attachments: [],
+  }));
+  draft(id: string): Promise<DraftView> {
+    return this.reads(id);
+  }
+  writer = (id: string, body: DraftSave): Promise<DraftView> =>
+    Promise.resolve({
+      conversation_id: id,
+      revision: '1',
+      text: body.text,
+      attachments: [],
+    });
+  saveDraft(id: string, body: DraftSave): Promise<DraftView> {
+    return this.writer(id, body);
+  }
+}
 function client(transport = new FixtureTransport()) {
   const value = new ClientController(transport, () => 1);
   clients.push(value);
@@ -37,7 +65,88 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+it('bounds clean draft content and metadata while reloading evicted drafts from their retained owner', async () => {
+  const transport = new CachedDraftTransport(),
+    value = client(transport);
+  value.setVisible(false);
+  await value.start();
+  for (const conversation of transport.conversations)
+    await value.selectConversation(conversation.id);
+  const maps = value as unknown as {
+    drafts: Map<string, unknown>;
+    draftRevisions: Map<string, unknown>;
+    draftStates: Map<string, unknown>;
+  };
+  expect(maps.drafts.size).toBeLessThanOrEqual(32);
+  expect(maps.draftRevisions.size).toBeLessThanOrEqual(32);
+  expect(maps.draftStates.size).toBeLessThanOrEqual(32);
+  expect(value.getDraft('conversation-a').text).toBe('');
+  expect(value.getDraft('conversation-48').text).toBe('Saved conversation-48');
+  await value.selectConversation('conversation-a');
+  expect(
+    transport.reads.mock.calls.filter(([id]) => id === 'conversation-a'),
+  ).toHaveLength(2);
+  expect(value.getDraft('conversation-a').text).toBe('Saved conversation-a');
+  expect(maps.drafts.size).toBeLessThanOrEqual(32);
+});
+
+it('preserves dirty, conflicted and in-flight drafts while reclaiming clean conversations', async () => {
+  const transport = new CachedDraftTransport(),
+    value = client(transport);
+  let finish!: (result: DraftView) => void;
+  transport.writer = async (id) => {
+    if (id === 'conversation-a') throw { code: 'draft_revision_conflict' };
+    if (id === 'conversation-2')
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    throw new TypeError('Synthetic offline draft');
+  };
+  value.setVisible(false);
+  await value.start();
+  for (const id of ['conversation-a', 'conversation-2', 'conversation-3']) {
+    await value.selectConversation(id);
+    value.setDraft(id, { text: `Unsent ${id}`, attachments: [] });
+    await flush();
+  }
+  for (const conversation of transport.conversations.slice(3))
+    await value.selectConversation(conversation.id);
+  for (const id of ['conversation-a', 'conversation-2', 'conversation-3'])
+    expect(value.getDraft(id).text).toBe(`Unsent ${id}`);
+  const maps = value as unknown as {
+    drafts: Map<string, unknown>;
+    draftRevisions: Map<string, unknown>;
+    draftStates: Map<string, unknown>;
+    draftWrites: Set<string>;
+  };
+  expect(maps.draftStates.get('conversation-a')).toBe('conflict');
+  expect(maps.draftWrites.has('conversation-2')).toBe(true);
+  expect(maps.draftStates.get('conversation-3')).toBe('failed');
+  expect(maps.drafts.size).toBeLessThanOrEqual(35);
+  expect(maps.draftRevisions.size).toBeLessThanOrEqual(35);
+  expect(maps.draftStates.size).toBeLessThanOrEqual(35);
+  expect(value.hasUnsavedDraft()).toBe(true);
+  finish({
+    conversation_id: 'conversation-2',
+    revision: '1',
+    text: 'Unsent conversation-2',
+    attachments: [],
+  });
+  await flush();
+  expect(value.getDraft('conversation-a').text).toBe('Unsent conversation-a');
+  expect(value.getDraft('conversation-3').text).toBe('Unsent conversation-3');
+});
+
 describe('accepted protocol recordings', () => {
+  it('consumes exact-model Thinking HTTP recording with the canonical TypeScript validator', () => {
+    for (const record of thinkingRecording.records)
+      expect(validateWire(record.schema, record.value)).toEqual(record.value);
+    expect(
+      thinkingRecording.records.some((record) =>
+        JSON.stringify(record.value).includes('capability_revision'),
+      ),
+    ).toBe(true);
+  });
   it('consumes every F-P01 through F-P10 recorded response with the canonical validator', () => {
     expect(recordings.map((value) => value.fixture_id)).toEqual(
       Array.from(
@@ -68,7 +177,334 @@ describe('accepted protocol recordings', () => {
   });
 });
 
+it.each([
+  ['approval_expired', 'expired'],
+  ['approval_already_resolved', 'already resolved'],
+  ['model_configuration_required', 'configured model'],
+])(
+  'offers explicit review for %s without exposing server details',
+  (code, text) => {
+    const error = clientError({ code, status: 409, title: '/private/secret' });
+    expect(error).toMatchObject({ code, recovery: 'review' });
+    expect(error.message).toContain(text);
+    expect(error.message).not.toContain('/private');
+    expect(clientError({ code, status: 401 }).recovery).toBe('authenticate');
+    expect(clientError({ code, status: 403 }).recovery).toBe('authenticate');
+  },
+);
+
 describe('connection and lifecycle ownership', () => {
+  it('drains an offline subscription before starting either recovery read', async () => {
+    const transport = new FixtureTransport(),
+      value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await flush();
+    await value.setOnline(false);
+    await flush();
+    let release!: () => void;
+    const original = transport.unsubscribe.bind(transport);
+    vi.spyOn(transport, 'unsubscribe').mockImplementationOnce(
+      async (...args) => {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return original(...args);
+      },
+    );
+    const list = vi.spyOn(transport, 'listConversations');
+    const open = vi.spyOn(transport, 'getConversation');
+    const recovering = value.setOnline(true);
+    await flush();
+    expect(list).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+    release();
+    await recovering;
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+  it('does not install a concurrent open after the library revokes authentication', async () => {
+    const transport = new FixtureTransport(),
+      value = client(transport);
+    await value.selectConversation('conversation-a');
+    let release!: (row: ConversationView) => void;
+    vi.spyOn(transport, 'getConversation').mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    let reject!: (error: unknown) => void;
+    vi.spyOn(transport, 'listConversations').mockImplementationOnce(
+      () =>
+        new Promise((_resolve, fail) => {
+          reject = fail;
+        }),
+    );
+    const starting = value.start();
+    await flush();
+    reject({ status: 401, code: 'session_expired' });
+    await flush();
+    release(transport.conversations[0]);
+    await starting;
+    expect(value.getSnapshot()).toMatchObject({
+      status: 'unauthorized',
+      handshake: null,
+      conversation: null,
+      projection: null,
+      selectedConversationId: null,
+    });
+    expect(transport.counters.subscribes).toBe(0);
+  });
+  it('recovers the selected stream while a library refresh is pending and keeps transient failure local', async () => {
+    vi.stubGlobal('crypto', webcrypto);
+    const transport = new FixtureTransport(),
+      value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await flush();
+    let rejectList!: (error: unknown) => void;
+    vi.spyOn(transport, 'listConversations').mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectList = reject;
+        }),
+    );
+    value.setDraft('conversation-a', {
+      text: 'Unsent recovery draft',
+      attachments: [],
+    });
+    const reconnecting = value.reconnect();
+    await flush();
+    expect(value.getSnapshot()).toMatchObject({
+      status: 'ready',
+      connection: 'sse',
+      loadingConversations: true,
+      conversation: { id: 'conversation-a' },
+    });
+    expect(transport.counters.active).toBe(1);
+    rejectList({ status: 503 });
+    await reconnecting;
+    expect(value.getSnapshot()).toMatchObject({
+      status: 'ready',
+      connection: 'sse',
+      error: null,
+      loadingConversations: false,
+      conversationListError: { recovery: 'retry' },
+    });
+    expect(value.getDraft('conversation-a').text).toBe('Unsent recovery draft');
+    const command: Command = {
+      command_id: '00000000-0000-4000-8000-000000000099',
+      client_session_id: value.getSnapshot().handshake!.client_session_id,
+      type: 'conversation.stop',
+      expected_revision: '1',
+      payload: {},
+    };
+    await value.command('conversation-a', command, 'library-failure-command');
+    expect(transport.counters.commands).toBe(1);
+    await value.loadMoreConversations(true);
+    expect(value.getSnapshot().conversationListError).toBeNull();
+  });
+  it.each(['ready', 'list'] as const)(
+    'preserves newer selection made by a synchronous %s listener',
+    async (stage) => {
+      const transport = new FixtureTransport(),
+        value = client(transport);
+      await value.selectConversation('conversation-a');
+      const reads = vi.spyOn(transport, 'getConversation');
+      let selected = false;
+      const unsubscribe = value.subscribe(() => {
+        const state = value.getSnapshot();
+        if (
+          !selected &&
+          state.status === 'ready' &&
+          (stage === 'ready' || state.loadingConversations)
+        ) {
+          selected = true;
+          void value.selectConversation('conversation-3');
+        }
+      });
+      await value.start();
+      await flush();
+      unsubscribe();
+      expect(reads.mock.calls.map(([id]) => id)).toEqual(['conversation-3']);
+      expect(value.getSnapshot().conversation?.id).toBe('conversation-3');
+    },
+  );
+  it.each([false, true])(
+    'applies a late library authentication failure only to its credential epoch (replacement=%s)',
+    async (replacement) => {
+      const transport = new FixtureTransport(),
+        value = client(transport);
+      await value.start();
+      await value.selectConversation('conversation-a');
+      let rejectList!: (error: unknown) => void;
+      vi.spyOn(transport, 'listConversations').mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectList = reject;
+          }),
+      );
+      const pending = value.loadMoreConversations(true);
+      if (replacement) await value.reconnect();
+      await value.selectConversation('conversation-3');
+      value.setDraft('conversation-3', {
+        text: 'Private draft',
+        attachments: [],
+      });
+      rejectList({ status: 401, code: 'session_expired' });
+      await pending;
+      expect(value.getSnapshot().status).toBe(
+        replacement ? 'ready' : 'unauthorized',
+      );
+      expect(value.getDraft('conversation-3').text).toBe(
+        replacement ? 'Private draft' : '',
+      );
+      if (!replacement)
+        expect(value.getSnapshot()).toMatchObject({
+          handshake: null,
+          conversation: null,
+          conversations: [],
+          conversationListError: null,
+        });
+    },
+  );
+  it.each([false, true])(
+    'applies history authentication failure only to its credential epoch (replacement=%s)',
+    async (replacement) => {
+      let rejectHistory!: (error: unknown) => void;
+      class HistoryAuthentication extends FixtureTransport {
+        hold = false;
+        async history(id: string): Promise<TranscriptPage> {
+          if (!this.hold) return this.getTranscript(id);
+          return new Promise((_resolve, reject) => {
+            rejectHistory = reject;
+          });
+        }
+      }
+      const transport = new HistoryAuthentication(),
+        value = client(transport);
+      value.setVisible(false);
+      await value.start();
+      await value.selectConversation('conversation-a');
+      transport.hold = true;
+      const oldHistory = value.showHistory();
+      transport.hold = false;
+      if (replacement) await value.reconnect();
+      await value.selectConversation('conversation-3');
+      value.setDraft('conversation-3', {
+        text: 'Current private draft',
+        attachments: [],
+      });
+      rejectHistory({ status: 401, code: 'session_expired' });
+      await oldHistory;
+      if (replacement) {
+        expect(value.getSnapshot().handshake).not.toBeNull();
+        expect(value.getSnapshot().conversation?.id).toBe('conversation-3');
+        expect(value.getDraft('conversation-3').text).toBe(
+          'Current private draft',
+        );
+      } else {
+        expect(value.getSnapshot().handshake).toBeNull();
+        expect(value.getSnapshot().conversation).toBeNull();
+        expect(value.getDraft('conversation-3').text).toBe('');
+      }
+    },
+  );
+  it('does not reopen route selection or abort its history after the bootstrap list finishes', async () => {
+    let releaseList!: () => void;
+    let releaseHistory!: () => void;
+    let historySignal: AbortSignal | undefined;
+    class StartupBarrier extends FixtureTransport {
+      holdHistory = false;
+      override async listConversations(cursor?: string, signal?: AbortSignal) {
+        const page = await super.listConversations(cursor, signal);
+        await new Promise<void>((resolve) => {
+          releaseList = resolve;
+        });
+        return page;
+      }
+      async history(
+        id: string,
+        _message?: string,
+        _cursor?: string,
+        signal?: AbortSignal,
+      ): Promise<TranscriptPage> {
+        if (!this.holdHistory) return this.getTranscript(id);
+        historySignal = signal;
+        await new Promise<void>((resolve, reject) => {
+          releaseHistory = resolve;
+          signal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('Superseded', 'AbortError')),
+            { once: true },
+          );
+        });
+        return this.getTranscript(id);
+      }
+    }
+    const transport = new StartupBarrier();
+    const reads = vi.spyOn(transport, 'getConversation');
+    const value = client(transport);
+    value.setVisible(false);
+    const starting = value.start();
+    await flush();
+    await value.selectConversation('conversation-a');
+    const selection = value.getSelectionVersion();
+    transport.holdHistory = true;
+    const browsing = value.showHistory();
+    releaseList();
+    await starting;
+    expect(value.getSelectionVersion()).toBe(selection);
+    expect(reads).toHaveBeenCalledTimes(1);
+    expect(historySignal?.aborted).toBe(false);
+    releaseHistory();
+    await browsing;
+    expect(value.getSnapshot().history?.conversation_id).toBe('conversation-a');
+  });
+  it('waits for an opened conversation and contains obsolete history failures without hiding current failures', async () => {
+    let releaseOpen!: () => void;
+    let failHistory!: (error: unknown) => void;
+    class HistoryBarrier extends FixtureTransport {
+      holdHistory = false;
+      override async getConversation(id: string, signal?: AbortSignal) {
+        const row = await super.getConversation(id, signal);
+        if (id === 'conversation-a')
+          await new Promise<void>((resolve) => {
+            releaseOpen = resolve;
+          });
+        return row;
+      }
+      history = vi.fn(async (id: string): Promise<TranscriptPage> => {
+        if (!this.holdHistory) return this.getTranscript(id);
+        return new Promise((_resolve, reject) => {
+          failHistory = reject;
+        });
+      });
+    }
+    const transport = new HistoryBarrier(),
+      value = client(transport);
+    value.setVisible(false);
+    await value.start();
+    const opening = value.selectConversation('conversation-a');
+    await flush();
+    expect(transport.history).toHaveBeenCalledTimes(1);
+    await value.showHistory();
+    expect(transport.history).toHaveBeenCalledTimes(1);
+    releaseOpen();
+    await opening;
+    transport.holdHistory = true;
+    const obsolete = value.showHistory();
+    transport.holdHistory = false;
+    await value.selectConversation('conversation-3');
+    failHistory(new TypeError('Synthetic lost old response'));
+    await expect(obsolete).resolves.toBeUndefined();
+    expect(value.getSnapshot().history).toBeNull();
+    transport.holdHistory = true;
+    const current = value.showHistory();
+    failHistory({ code: 'cursor_expired' });
+    await expect(current).rejects.toMatchObject({ code: 'cursor_expired' });
+  });
   it('forwards keepalive only when explicitly requested for HTTP subscription release', async () => {
     const handshake = recorded<wire.HandshakeView>('F-P06', 'HandshakeView')[0];
     vi.spyOn(wire, 'handshake').mockResolvedValue(handshake);
@@ -390,6 +826,85 @@ describe('connection and lifecycle ownership', () => {
     await flush();
     expect(value.getSnapshot().projection).toEqual(snapshot);
   });
+  it('drains the issued ACK and cancels trailing cuts before retiring a reset subscription', async () => {
+    vi.useFakeTimers();
+    const transport = new FixtureTransport();
+    let finish!: () => void;
+    const actual = transport.acknowledge.bind(transport);
+    let calls = 0;
+    vi.spyOn(transport, 'acknowledge').mockImplementation(async (...args) => {
+      if (++calls === 2)
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      return actual(...args);
+    });
+    const retire = vi.spyOn(transport, 'unsubscribe');
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await flush();
+    transport.emitTextDelta('first');
+    await flush();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls).toBe(2);
+    transport.emitTextDelta('trailing');
+    transport.emit({ snapshot_required: true, recovery: 'resubscribe' });
+    await flush();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(retire).not.toHaveBeenCalled();
+    expect(calls).toBe(2);
+    finish();
+    await flush();
+    expect(retire).toHaveBeenCalledTimes(1);
+    expect(transport.counters.subscribes).toBe(2);
+    expect(calls).toBe(3);
+    expect(value.getSnapshot().status).toBe('ready');
+  });
+  it('resets after a stalled ACK deadline and contains its late failure without a trailing ACK', async () => {
+    vi.useFakeTimers();
+    const transport = new FixtureTransport();
+    const actual = transport.acknowledge.bind(transport);
+    let calls = 0,
+      reject!: (error: unknown) => void,
+      stalled!: AbortSignal;
+    vi.spyOn(transport, 'acknowledge').mockImplementation((...args) => {
+      if (++calls === 2) {
+        stalled = args[2]!;
+        return new Promise((_resolve, no) => {
+          reject = no;
+        });
+      }
+      return actual(...args);
+    });
+    const retired = vi.spyOn(transport, 'unsubscribe');
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await flush();
+    transport.emitTextDelta('first');
+    await flush();
+    await vi.advanceTimersByTimeAsync(0);
+    transport.emitTextDelta('trailing');
+    transport.emit({ snapshot_required: true, recovery: 'resubscribe' });
+    await flush();
+    await vi.advanceTimersByTimeAsync(ACK_RETIRE_TIMEOUT_MS - 1);
+    expect(retired).not.toHaveBeenCalled();
+    expect(stalled.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await flush();
+    expect(stalled.aborted).toBe(true);
+    expect(retired).toHaveBeenCalledTimes(1);
+    expect(transport.counters.subscribes).toBe(2);
+    expect(calls).toBe(3);
+    expect(value.getSnapshot().status).toBe('ready');
+    reject({ status: 401, code: 'session_expired' });
+    await flush();
+    expect(value.getSnapshot().status).toBe('ready');
+    expect(value.getSnapshot().error).toBeNull();
+    expect(calls).toBe(3);
+    expect(transport.counters.active).toBe(1);
+  });
   it('expires replay exactly once during reconnect and installs a fresh snapshot', async () => {
     const transport = new FixtureTransport();
     const value = client(transport);
@@ -705,14 +1220,73 @@ describe('revisioned snapshot and independent selection', () => {
     expect(a.getSnapshot().selectedConversationId).toBe('conversation-a');
     expect(b.getSnapshot().selectedConversationId).toBe('conversation-2');
   });
+  it('keeps a workspace read-hook denial local to the panel while the conversation observes', async () => {
+    class PolicyTransport extends FixtureTransport {
+      async inspector() {
+        throw { status: 403, code: 'workspace_read_hooks_unavailable' };
+      }
+    }
+    const transport = new PolicyTransport();
+    const value = client(transport);
+    await value.start();
+    await value.selectConversation('conversation-a');
+    await flush();
+    await expect(
+      value.inspector('conversation-a', 'binding'),
+    ).rejects.toMatchObject({ code: 'workspace_read_hooks_unavailable' });
+    expect(
+      clientError({ status: 403, code: 'workspace_read_hooks_unavailable' })
+        .recovery,
+    ).toBe('review');
+    expect(
+      clientError({ status: 401, code: 'workspace_read_hooks_unavailable' })
+        .recovery,
+    ).toBe('authenticate');
+    expect(value.getSnapshot().status).toBe('ready');
+    expect(value.getSnapshot().handshake).not.toBeNull();
+    transport.emitTextDelta('Conversation continues');
+    await flush();
+    expect(
+      value
+        .getSnapshot()
+        .projection?.rows.some((row) =>
+          row.blocks.some((block) => block.text === 'Conversation continues'),
+        ),
+    ).toBe(true);
+    expect(transport.counters.active).toBe(1);
+  });
   it('traverses all 1005 conversations through continuation without duplicate IDs', async () => {
     const value = client(new FixtureTransport({ conversationCount: 1005 }));
     await value.start();
-    while (value.getSnapshot().hasMoreConversations)
+    const visited = new Set(
+      value.getSnapshot().conversations.map((row) => row.id),
+    );
+    while (value.getSnapshot().hasMoreConversations) {
       await value.loadMoreConversations();
-    expect(
-      new Set(value.getSnapshot().conversations.map((row) => row.id)).size,
-    ).toBe(1005);
+      value.getSnapshot().conversations.forEach((row) => visited.add(row.id));
+      expect(value.getSnapshot().conversations.length).toBeLessThanOrEqual(
+        1000,
+      );
+    }
+    expect(visited.size).toBe(1005);
+  });
+  it('accepts an unchanged first-page cursor on repeated library refresh', async () => {
+    const value = client(new FixtureTransport({ conversationCount: 1005 }));
+    await value.start();
+    await value.selectConversation('conversation-a');
+    const first = value.getSnapshot().conversations.map((row) => row.id);
+    for (let index = 0; index < 3; index++) {
+      await value.loadMoreConversations(true);
+      expect(value.getSnapshot().status).toBe('ready');
+      expect(value.getSnapshot().error).toBeNull();
+      expect(value.getSnapshot().conversations.map((row) => row.id)).toEqual(
+        first,
+      );
+    }
+    await value.loadMoreConversations();
+    expect(value.getSnapshot().conversations.length).toBeGreaterThan(
+      first.length,
+    );
   });
   it('traverses the accepted 1005-row recording with at most 200 materialized rows', async () => {
     const pages = recorded<TranscriptPage>('F-P05', 'TranscriptPage');
@@ -826,8 +1400,17 @@ describe('event order, atomic reset and commands', () => {
     }
     const transport = new ResetLoop();
     const value = client(transport);
+    const exhausted = new Promise<void>((resolve) => {
+      const detach = value.subscribe(() => {
+        if (value.getSnapshot().status === 'incompatible') {
+          detach();
+          resolve();
+        }
+      });
+    });
     await value.start();
     await value.selectConversation('conversation-a');
+    await exhausted;
     await flush();
     expect(value.getSnapshot().status).toBe('incompatible');
     expect(transport.counters.subscribes).toBe(4);
@@ -924,6 +1507,7 @@ describe('event order, atomic reset and commands', () => {
     };
   }
   it('deduplicates accepted events and never acknowledges a backwards cursor', async () => {
+    vi.useFakeTimers();
     const { value, transport, initial } = await observed();
     const first = eventRecord(initial, 1),
       second = eventRecord(initial, 2);
@@ -934,6 +1518,7 @@ describe('event order, atomic reset and commands', () => {
     expect(value.metrics.appliedEvents).toBe(2);
     expect(value.metrics.duplicateEvents).toBe(1);
     expect(value.getSnapshot().projection?.cursor).toBe('cursor-2');
+    await vi.advanceTimersByTimeAsync(1000);
     expect(transport.counters.acks.at(-1)).toBe('cursor-2');
   });
   it('resubscribes on a source sequence gap and atomically installs a new snapshot cut', async () => {
@@ -1005,6 +1590,26 @@ describe('event order, atomic reset and commands', () => {
     };
     await value.retryCommand('conversation-a', lost, 'lost-key');
     expect(transport.counters.commands).toBe(2);
+  });
+  it('retires settled command claims without blocking a long-lived session', async () => {
+    vi.stubGlobal('crypto', webcrypto);
+    const transport = new FixtureTransport();
+    const value = client(transport);
+    await value.start();
+    for (let index = 0; index < 260; index++) {
+      await value.command(
+        'conversation-a',
+        {
+          command_id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+          client_session_id: value.getSnapshot().handshake!.client_session_id,
+          type: 'conversation.rename',
+          expected_revision: '1',
+          payload: { title: `Title ${index}` },
+        },
+        `claim-${index}`,
+      );
+    }
+    expect(transport.counters.commands).toBe(260);
   });
   it.each(['dispose', 'reconnect'] as const)(
     'does not dispatch delayed command verification across %s',

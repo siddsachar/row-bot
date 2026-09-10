@@ -4,6 +4,7 @@ import {
   validateWire,
 } from '../../../contracts/client-platform/v1/typescript/client';
 import { aborted, clientError, failureStatus } from './errors';
+import { Acknowledgements } from './acknowledgements';
 import { isPanelDescriptor } from './types';
 import type {
   ClientState,
@@ -23,11 +24,20 @@ const INITIAL: ClientState = {
   connection: 'none',
   handshake: null,
   conversations: [],
+  conversationGroup: 'all',
   hasMoreConversations: false,
   loadingConversations: false,
+  conversationListError: null,
   selectedConversationId: null,
   conversation: null,
   projection: null,
+  workspace: null,
+  activity: [],
+  history: null,
+  historyFocus: null,
+  search: null,
+  searching: false,
+  draftStatus: 'saved',
   hasMoreTranscript: false,
   loadingConversation: false,
   suggestions: [],
@@ -91,8 +101,19 @@ export class ClientController {
   private retiredSubscriptions = new Set<string>();
   private selectionNumber = 0;
   private conversationCursor: string | undefined;
+  private conversationListNumber = 0;
   private transcriptCursor: string | undefined;
   private transcriptRequest = false;
+  private searchNumber = 0;
+  private historyNumber = 0;
+  private drafts = new Map<
+    string,
+    { text: string; attachments: import('./types').AttachmentView[] }
+  >();
+  private draftRevisions = new Map<string, string>();
+  private draftWrites = new Set<string>();
+  private dirtyDrafts = new Set<string>();
+  private draftStates = new Map<string, ClientState['draftStatus']>();
   private seen = new Set<string>();
   private sequences = new Map<string, bigint>();
   private commandClaims = new Map<
@@ -101,6 +122,7 @@ export class ClientController {
       verifier: Promise<string>;
       result: Promise<CommandReceipt>;
       failed: boolean;
+      settled: boolean;
     }
   >();
   readonly metrics = {
@@ -119,6 +141,7 @@ export class ClientController {
     private readonly random: () => number = Math.random,
   ) {}
   getSnapshot = (): ClientState => this.state;
+  getSelectionVersion = (): number => this.selectionNumber;
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => {
@@ -151,11 +174,18 @@ export class ClientController {
       this.selection.abort();
       this.stopObservation();
       this.transport.clearSession();
+      this.drafts.clear();
+      this.draftRevisions.clear();
       this.update({
         handshake: null,
         conversations: [],
+        conversationListError: null,
         conversation: null,
         projection: null,
+        workspace: null,
+        activity: [],
+        history: null,
+        search: null,
         selectedConversationId: null,
         suggestions: [],
         hasMoreConversations: false,
@@ -207,16 +237,25 @@ export class ClientController {
         native_adapter: result.native_adapter,
         limits: result.limits,
       };
+      // Publishing readiness can synchronously start route selection. Resume a
+      // pre-handshake intent only if no authenticated selection started since.
+      const selection = this.selectionNumber;
       this.update({ handshake, status: 'ready' });
       await this.drainRetiredSubscriptions(authentication, signal);
-      await this.loadMoreConversations(true);
+      if (this.disposed || authentication !== this.authenticationNumber) return;
+      // Library and selected history are independent authenticated reads. A
+      // slow sidebar refresh must not delay recovery of the active conversation.
+      const library = this.loadMoreConversations(true);
+      let opening: Promise<void> | undefined;
       if (
         authentication === this.authenticationNumber &&
+        selection === this.selectionNumber &&
         this.state.handshake &&
         this.state.selectedConversationId
       ) {
-        await this.selectConversation(this.state.selectedConversationId);
+        opening = this.selectConversation(this.state.selectedConversationId);
       }
+      await Promise.all([library, opening]);
     } catch (error) {
       if (authentication === this.authenticationNumber) this.failed(error);
     }
@@ -228,23 +267,31 @@ export class ClientController {
       !this.online ||
       this.disposed ||
       !this.state.handshake ||
-      this.state.loadingConversations ||
+      (!reset && this.state.loadingConversations) ||
       (!reset && !this.state.hasMoreConversations)
     )
       return;
-    this.update({ loadingConversations: true });
+    const ticket = ++this.conversationListNumber;
+    this.update({ loadingConversations: true, conversationListError: null });
     try {
       const page = validateWire<import('./types').ConversationPage>(
         'ConversationPage',
         await this.transport.listConversations(
           reset ? undefined : this.conversationCursor,
           this.lifetime.signal,
+          this.state.conversationGroup,
         ),
       );
-      if (this.disposed || authentication !== this.authenticationNumber) return;
+      if (
+        this.disposed ||
+        authentication !== this.authenticationNumber ||
+        ticket !== this.conversationListNumber
+      )
+        return;
       if (
         page.has_more &&
-        (!page.next_cursor || page.next_cursor === this.conversationCursor)
+        (!page.next_cursor ||
+          (!reset && page.next_cursor === this.conversationCursor))
       )
         throw new Error('protocol_incompatible');
       this.conversationCursor = page.next_cursor ?? undefined;
@@ -253,13 +300,38 @@ export class ClientController {
       );
       page.items.forEach((row) => rows.set(row.id, row));
       this.update({
-        conversations: [...rows.values()],
+        conversations: [...rows.values()].slice(-1000),
         hasMoreConversations: page.has_more,
         loadingConversations: false,
       });
     } catch (error) {
-      if (authentication === this.authenticationNumber) this.failed(error);
+      if (
+        authentication === this.authenticationNumber &&
+        ticket === this.conversationListNumber
+      ) {
+        if (aborted(error) || this.disposed) return;
+        const safe = clientError(error);
+        if (safe.recovery === 'authenticate' || safe.recovery === 'update')
+          this.failed(error);
+        else
+          this.update({
+            conversationListError: safe,
+            loadingConversations: false,
+          });
+      }
     }
+  }
+  async setConversationGroup(
+    group: ClientState['conversationGroup'],
+  ): Promise<void> {
+    if (this.state.conversationGroup === group) return;
+    this.conversationCursor = undefined;
+    this.update({
+      conversationGroup: group,
+      conversations: [],
+      hasMoreConversations: true,
+    });
+    await this.loadMoreConversations(true);
   }
 
   async selectConversation(id: string): Promise<void> {
@@ -279,6 +351,7 @@ export class ClientController {
     }
     if (!this.state.handshake && this.state.status !== 'loading') return;
     const ticket = ++this.selectionNumber;
+    this.historyNumber += 1;
     this.selection.abort();
     this.selection = new AbortController();
     this.stopObservation();
@@ -288,6 +361,10 @@ export class ClientController {
       selectedConversationId: id,
       conversation: null,
       projection: null,
+      workspace: null,
+      activity: [],
+      history: null,
+      historyFocus: null,
       loadingConversation: true,
       hasMoreTranscript: false,
       connection: 'none',
@@ -295,25 +372,73 @@ export class ClientController {
     // Selection is local intent even while an authenticated bootstrap is pending.
     if (!this.state.handshake) return;
     try {
-      const [conversation, page] = await Promise.all([
-        this.transport.getConversation(id, this.selection.signal),
-        this.transport.getTranscript(id, undefined, this.selection.signal),
-      ]);
+      const opened = this.transport.openConversation
+        ? validateWire<import('./types').ConversationOpenView>(
+            'ConversationOpenView',
+            await this.transport.openConversation(id, this.selection.signal),
+          )
+        : null;
+      const [conversation, page, workspace, draft] = opened
+        ? [opened.conversation, opened.history, opened.workspace, opened.draft]
+        : await Promise.all([
+            this.transport.getConversation(id, this.selection.signal),
+            this.transport.history
+              ? this.transport.history(
+                  id,
+                  undefined,
+                  undefined,
+                  this.selection.signal,
+                )
+              : this.transport.getTranscript(
+                  id,
+                  undefined,
+                  this.selection.signal,
+                ),
+            this.transport.workspace?.(id, this.selection.signal) ??
+              Promise.resolve(null),
+            this.transport.draft?.(id, this.selection.signal) ??
+              Promise.resolve(null),
+          ]);
       if (ticket !== this.selectionNumber || this.disposed) return;
       validateWire('ConversationView', conversation);
       validateWire('TranscriptPage', page);
-      if (conversation.id !== id || page.conversation_id !== id)
+      if (
+        conversation.id !== id ||
+        page.conversation_id !== id ||
+        (draft && draft.conversation_id !== id) ||
+        (workspace && workspace.conversation_id !== id)
+      )
         throw new Error('protocol_incompatible');
+      if (draft && !this.dirtyDrafts.has(id)) {
+        this.drafts.set(id, {
+          text: draft.text,
+          attachments: draft.attachments,
+        });
+        this.draftRevisions.set(id, draft.revision);
+        this.draftStates.set(id, 'saved');
+      } else if (draft && !this.draftRevisions.has(id)) {
+        this.draftRevisions.set(id, draft.revision);
+        // Typing while the initial read is pending must not strand an unsaved
+        // draft. A pre-existing saved draft needs review before replacement.
+        if (draft.text || draft.attachments.length) {
+          this.draftStates.set(id, 'conflict');
+        } else {
+          void this.saveDraft(id);
+        }
+      }
+      this.trimCleanDrafts();
       this.transcriptCursor = page.next_cursor ?? undefined;
       this.update({
         conversation,
+        workspace,
+        draftStatus: this.draftStates.get(id) ?? 'saved',
         projection: this.pageSnapshot(page),
         hasMoreTranscript: page.has_more,
         loadingConversation: false,
         status: 'ready',
         error: null,
       });
-      if (this.visible) this.beginObservation(id, ticket);
+      if (this.visible) this.beginObservation(id, ticket, true);
     } catch (error) {
       if (ticket === this.selectionNumber) this.failed(error);
     }
@@ -440,14 +565,18 @@ export class ClientController {
       this.retiredSubscriptions.delete(subscription);
     }
   }
-  private beginObservation(id: string, ticket: number): void {
+  private beginObservation(
+    id: string,
+    ticket: number,
+    freshlyOpened = false,
+  ): void {
     if (!this.online || this.disposed || !this.state.handshake) return;
     this.stopObservation();
     const abort = new AbortController();
     this.observer = abort;
-    void this.observe(id, ticket, abort.signal);
+    void this.observe(id, ticket, abort.signal, freshlyOpened);
   }
-  private install(snapshot: Snapshot, cursor: string): void {
+  private install(snapshot: Snapshot, cursor: string, refresh = true): void {
     if (
       snapshot.conversation_id !== this.state.selectedConversationId ||
       snapshot.cursor !== cursor
@@ -458,6 +587,7 @@ export class ClientController {
     this.metrics.resets += 1;
     // The snapshot and its cursor are one immutable cut, installed in one notification.
     this.update({ projection: snapshot, status: 'ready', error: null });
+    if (refresh) void this.refreshWorkspace();
   }
   private apply(record: EventRecord): 'applied' | 'duplicate' | 'reset' {
     const event = record.event;
@@ -532,20 +662,47 @@ export class ClientController {
     }
     this.metrics.appliedEvents += 1;
     this.metrics.maxBatch = Math.max(this.metrics.maxBatch, 1);
-    this.update({ projection: next });
+    const activity = [
+      'tool.activity',
+      'agent.activity',
+      'queue.updated',
+      'queue.changed',
+      'media.available',
+      'media.error',
+      'approval.required',
+      'generation.error',
+      'steering.queued',
+      'steering.consumed',
+    ].includes(event.type)
+      ? [...this.state.activity, record].slice(-200)
+      : this.state.activity;
+    this.update({ projection: next, activity });
+    if (event.type === 'generation.state' && event.payload.quiesced)
+      void this.refreshWorkspace();
     return 'applied';
   }
   private async observe(
     id: string,
     ticket: number,
     signal: AbortSignal,
+    freshlyOpened = false,
   ): Promise<void> {
     let subscription: SubscriptionView | null = null;
+    let firstSubscription = freshlyOpened;
     let cursor = '';
     let failures = 0;
     let streamFailures = 0;
     let resetsWithoutProgress = 0;
     let idle = 2000;
+    let acknowledgements: Acknowledgements | null = null;
+    const retireObserved = async (subscriptionId: string) => {
+      const previous = acknowledgements;
+      acknowledgements = null;
+      // Cancel trailing cuts and drain the issued ACK within its bounded grace
+      // before retiring. A cancelled observer aborts that ACK immediately.
+      await previous?.close();
+      await this.retireSubscription(subscriptionId);
+    };
     const alive = () =>
       !signal.aborted && !this.disposed && ticket === this.selectionNumber;
     try {
@@ -561,8 +718,35 @@ export class ClientController {
               return;
             }
             this.activeSubscription = subscription.subscription_id;
+            acknowledgements?.close();
+            const subscriptionId = subscription.subscription_id;
+            acknowledgements = new Acknowledgements(
+              async (cut, acknowledgementSignal) => {
+                if (!alive()) return;
+                await this.transport.acknowledge(
+                  subscriptionId,
+                  cut,
+                  acknowledgementSignal,
+                );
+                if (alive() && !acknowledgementSignal.aborted)
+                  this.metrics.acknowledgements += 1;
+              },
+              (error) => {
+                if (alive()) this.failed(error);
+              },
+              undefined,
+              signal,
+            );
             cursor = subscription.cursor;
-            this.install(subscription.snapshot, cursor);
+            const openedCut = this.state.projection;
+            const unchangedOpen =
+              firstSubscription &&
+              openedCut &&
+              openedCut.server_epoch === subscription.snapshot.server_epoch &&
+              openedCut.projection_revision ===
+                subscription.snapshot.projection_revision;
+            this.install(subscription.snapshot, cursor, !unchangedOpen);
+            firstSubscription = false;
             await this.transport.acknowledge(
               subscription.subscription_id,
               cursor,
@@ -588,18 +772,13 @@ export class ClientController {
                 subscription = null;
                 if (this.activeSubscription === previous)
                   this.activeSubscription = null;
-                await this.retireSubscription(previous);
+                await retireObserved(previous);
                 break;
               }
               if (disposition === 'applied') resetsWithoutProgress = 0;
               // Never move a cursor backwards on duplicate/reordered delivery.
               cursor = this.state.projection!.cursor;
-              await this.transport.acknowledge(
-                subscription.subscription_id,
-                cursor,
-                signal,
-              );
-              this.metrics.acknowledgements += 1;
+              acknowledgements?.offer(cursor);
               failures = 0;
             }
             if (!alive()) return;
@@ -624,7 +803,7 @@ export class ClientController {
                 subscription = null;
                 if (this.activeSubscription === previous)
                   this.activeSubscription = null;
-                await this.retireSubscription(previous);
+                await retireObserved(previous);
                 continue;
               }
               this.install(page.snapshot, page.snapshot.cursor);
@@ -649,7 +828,7 @@ export class ClientController {
               subscription = null;
               if (this.activeSubscription === previous)
                 this.activeSubscription = null;
-              await this.retireSubscription(previous);
+              await retireObserved(previous);
               continue;
             }
             if (page.events.length) resetsWithoutProgress = 0;
@@ -693,6 +872,7 @@ export class ClientController {
     } catch (error) {
       if (alive()) this.failed(error);
     } finally {
+      acknowledgements?.close();
       if (
         subscription &&
         this.activeSubscription === subscription.subscription_id
@@ -701,6 +881,443 @@ export class ClientController {
         await this.retireSubscription(subscription.subscription_id);
       }
     }
+  }
+
+  getDraft(id: string) {
+    return this.drafts.get(id) ?? { text: '', attachments: [] };
+  }
+  private trimCleanDrafts(): void {
+    // The retained server draft remains authoritative. Keep the selected draft
+    // and at most 31 other clean drafts; never evict unsaved or active work.
+    const candidates = new Set([
+      ...this.drafts.keys(),
+      ...this.draftRevisions.keys(),
+      ...this.draftStates.keys(),
+    ]);
+    const clean = [...candidates].filter(
+      (id) =>
+        id !== this.state.selectedConversationId &&
+        !this.dirtyDrafts.has(id) &&
+        !this.draftWrites.has(id) &&
+        this.draftStates.get(id) !== 'conflict',
+    );
+    for (const id of clean.slice(0, Math.max(0, clean.length - 31))) {
+      this.drafts.delete(id);
+      this.draftRevisions.delete(id);
+      this.draftStates.delete(id);
+    }
+  }
+  setDraft(
+    id: string,
+    draft: { text: string; attachments: import('./types').AttachmentView[] },
+  ): void {
+    if (draft.text.length > 200000 || draft.attachments.length > 32) return;
+    this.drafts.set(id, draft);
+    this.dirtyDrafts.add(id);
+    this.setDraftStatus(id, 'saving');
+    void this.saveDraft(id);
+  }
+  private async saveDraft(id: string): Promise<void> {
+    if (
+      !this.transport.saveDraft ||
+      !this.draftRevisions.has(id) ||
+      this.draftWrites.has(id) ||
+      !this.state.handshake
+    )
+      return;
+    this.draftWrites.add(id);
+    const authentication = this.authenticationNumber;
+    try {
+      while (authentication === this.authenticationNumber && !this.disposed) {
+        const draft = this.drafts.get(id);
+        if (!draft) break;
+        this.setDraftStatus(id, 'saving');
+        const result = await this.transport.saveDraft(
+          id,
+          {
+            expected_revision: this.draftRevisions.get(id)!,
+            text: draft.text,
+            attachment_refs: draft.attachments.map((a) => a.attachment_ref),
+          },
+          this.lifetime.signal,
+        );
+        if (authentication !== this.authenticationNumber) break;
+        this.draftRevisions.set(id, result.revision);
+        if (this.drafts.get(id) === draft) {
+          this.dirtyDrafts.delete(id);
+          this.setDraftStatus(id, 'saved');
+          break;
+        }
+      }
+    } catch (error) {
+      if (authentication === this.authenticationNumber)
+        this.setDraftStatus(
+          id,
+          (error as { code?: string }).code === 'draft_revision_conflict'
+            ? 'conflict'
+            : 'failed',
+        );
+    } finally {
+      this.draftWrites.delete(id);
+      this.trimCleanDrafts();
+    }
+  }
+  async refreshWorkspace(): Promise<void> {
+    const id = this.state.selectedConversationId,
+      ticket = this.selectionNumber;
+    if (!id || !this.transport.workspace || !this.state.handshake) return;
+    try {
+      const [workspace, conversation] = await Promise.all([
+        this.transport.workspace(id, this.selection.signal),
+        this.transport.getConversation(id, this.selection.signal),
+      ]);
+      if (ticket === this.selectionNumber && !this.selection.signal.aborted)
+        this.update({ workspace, conversation });
+    } catch (error) {
+      if (!aborted(error) && ticket === this.selectionNumber)
+        this.failed(error);
+    }
+  }
+  private setDraftStatus(id: string, status: ClientState['draftStatus']): void {
+    this.draftStates.set(id, status);
+    if (this.state.selectedConversationId === id)
+      this.update({ draftStatus: status });
+  }
+  savedDraft = (id: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.draft?.(id, signal));
+  async resolveDraft(
+    id: string,
+    revision: string,
+    keepLocal: boolean,
+  ): Promise<void> {
+    const saved = await this.savedDraft(id);
+    if (saved.revision !== revision) throw { code: 'draft_revision_conflict' };
+    if (this.draftWrites.has(id)) throw { code: 'operation_uncertain' };
+    this.draftRevisions.set(id, saved.revision);
+    if (keepLocal) {
+      await this.saveDraft(id);
+      if (this.dirtyDrafts.has(id))
+        throw {
+          code:
+            this.draftStates.get(id) === 'conflict'
+              ? 'draft_revision_conflict'
+              : 'draft_save_failed',
+        };
+    } else {
+      this.drafts.set(id, { text: saved.text, attachments: saved.attachments });
+      this.dirtyDrafts.delete(id);
+      this.setDraftStatus(id, 'saved');
+      this.trimCleanDrafts();
+    }
+  }
+  retryDraft(id: string): Promise<void> {
+    return this.saveDraft(id);
+  }
+  hasUnsavedDraft(): boolean {
+    return this.dirtyDrafts.size > 0;
+  }
+  async searchLibrary(
+    query: string,
+    conversation?: string,
+    cursor?: string,
+  ): Promise<void> {
+    const ticket = ++this.searchNumber,
+      authentication = this.authenticationNumber;
+    if (!query.trim()) {
+      this.update({ search: null, searching: false });
+      return;
+    }
+    this.update({ searching: true });
+    try {
+      const page = await this.query(() =>
+        this.transport.search?.(
+          query,
+          conversation,
+          cursor,
+          this.lifetime.signal,
+        ),
+      );
+      if (
+        ticket === this.searchNumber &&
+        authentication === this.authenticationNumber
+      )
+        this.update({ search: page, searching: false });
+    } catch (error) {
+      if (ticket === this.searchNumber) {
+        this.update({ searching: false });
+        throw error;
+      }
+    }
+  }
+  async showHistory(message?: string, cursor?: string): Promise<void> {
+    const id = this.state.selectedConversationId,
+      selection = this.selectionNumber,
+      ticket = ++this.historyNumber;
+    if (
+      !id ||
+      this.state.loadingConversation ||
+      this.state.conversation?.id !== id
+    )
+      return;
+    try {
+      const page = await this.query(() =>
+        this.transport.history?.(id, message, cursor, this.selection.signal),
+      );
+      if (selection === this.selectionNumber && ticket === this.historyNumber)
+        this.update({ history: page, historyFocus: message ?? null });
+    } catch (error) {
+      if (
+        aborted(error) ||
+        selection !== this.selectionNumber ||
+        ticket !== this.historyNumber
+      )
+        return;
+      throw error;
+    }
+  }
+  showLatest(): void {
+    this.historyNumber += 1;
+    this.update({ history: null, historyFocus: null });
+  }
+  private async query<T>(operation: () => Promise<T> | undefined): Promise<T> {
+    const authentication = this.authenticationNumber;
+    if (!this.state.handshake || !this.online || this.disposed)
+      throw clientError({ code: 'authentication_required' });
+    const promise = operation();
+    if (!promise) throw clientError({ code: 'capability_unavailable' });
+    try {
+      const value = await promise;
+      if (
+        authentication !== this.authenticationNumber ||
+        !this.state.handshake ||
+        this.disposed
+      )
+        throw clientError({ code: 'capability_revoked' });
+      return value;
+    } catch (error) {
+      if (
+        authentication === this.authenticationNumber &&
+        clientError(error).recovery === 'authenticate'
+      )
+        this.failed(error);
+      throw error;
+    }
+  }
+  recentConversations = (signal?: AbortSignal) =>
+    this.query(() =>
+      this.transport.listConversations(undefined, signal, 'all'),
+    );
+  library = (
+    kind: 'artifact' | 'workspace',
+    cursor?: string,
+    signal?: AbortSignal,
+  ) => this.query(() => this.transport.library?.(kind, cursor, signal));
+  messageText = (
+    conversation: string,
+    message: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.messageText?.(conversation, message, cursor, signal),
+    );
+  delegatedActivity = (
+    conversation: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.authenticatedResult(async (combined) => {
+      if (!this.transport.delegatedActivity)
+        throw { code: 'capability_unavailable' };
+      return this.transport.delegatedActivity(conversation, cursor, combined);
+    }, signal);
+  delegatedRun = (conversation: string, run: string, signal?: AbortSignal) =>
+    this.authenticatedResult(async (combined) => {
+      if (!this.transport.delegatedRun)
+        throw { code: 'capability_unavailable' };
+      return this.transport.delegatedRun(conversation, run, combined);
+    }, signal);
+  queue = (
+    conversation: string,
+    generation?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.queue?.(conversation, generation, cursor, signal),
+    );
+  workspaceFor = (conversation: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.workspace?.(conversation, signal));
+  steering = (
+    conversation: string,
+    generation?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.steering?.(conversation, generation, cursor, signal),
+    );
+  deckSetup = (signal?: AbortSignal) =>
+    this.query(() => this.transport.deckSetup?.(signal));
+  pickFolder = (signal?: AbortSignal) =>
+    this.query(() => this.transport.pickFolder?.(signal));
+  artifactPreview = (
+    conversation: string,
+    binding: string,
+    page?: string,
+    revision?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.artifactPreview?.(
+        conversation,
+        binding,
+        page,
+        revision,
+        signal,
+      ),
+    );
+  inspector = (
+    conversation: string,
+    binding: string,
+    refresh?: boolean,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.inspector?.(conversation, binding, refresh, signal),
+    );
+  changes = (
+    conversation: string,
+    binding: string,
+    revision?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.changes?.(conversation, binding, revision, cursor, signal),
+    );
+  directory = (
+    conversation: string,
+    binding: string,
+    path?: string,
+    cursor?: string,
+    revision?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.directory?.(
+        conversation,
+        binding,
+        path,
+        cursor,
+        revision,
+        signal,
+      ),
+    );
+  file = (
+    conversation: string,
+    binding: string,
+    path: string,
+    offset?: number,
+    revision?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.file?.(
+        conversation,
+        binding,
+        path,
+        offset,
+        revision,
+        signal,
+      ),
+    );
+  approval = (id: string, signal?: AbortSignal) =>
+    this.query(() => this.transport.approval?.(id, signal));
+  diff = (
+    conversation: string,
+    binding: string,
+    path: string,
+    snapshot: string,
+    offset?: number,
+    revision?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.diff?.(
+        conversation,
+        binding,
+        path,
+        snapshot,
+        offset,
+        revision,
+        signal,
+      ),
+    );
+  changeSets = (
+    conversation: string,
+    binding: string,
+    revision: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.changeSets?.(
+        conversation,
+        binding,
+        revision,
+        cursor,
+        signal,
+      ),
+    );
+  changeSetFiles = (
+    conversation: string,
+    binding: string,
+    change: string,
+    revision: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.changeSetFiles?.(
+        conversation,
+        binding,
+        change,
+        revision,
+        cursor,
+        signal,
+      ),
+    );
+  content = (
+    conversation: string,
+    message: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) =>
+    this.query(() =>
+      this.transport.content?.(conversation, message, cursor, signal),
+    );
+  async intent(
+    target: string | null,
+    type: Command['type'],
+    payload: object,
+    revision: string,
+    identity: string = crypto.randomUUID(),
+  ): Promise<CommandReceipt> {
+    const session = this.state.handshake?.client_session_id;
+    if (!session) throw clientError({ code: 'authentication_required' });
+    const command = {
+      command_id: identity,
+      client_session_id: session,
+      type,
+      payload,
+      expected_revision: revision,
+    } as Command;
+    const receipt = await this.command(target, command, identity);
+    if (target === this.state.selectedConversationId)
+      await this.refreshWorkspace();
+    await this.loadMoreConversations(true);
+    return receipt;
   }
 
   setVisible(visible: boolean): void {
@@ -825,11 +1442,10 @@ export class ClientController {
       return Promise.reject(new DOMException('Cancelled', 'AbortError'));
     if (!this.online)
       return Promise.reject(clientError(new TypeError('Offline')));
-    if (
-      !isCommand(command) ||
-      command.client_session_id !== this.state.handshake?.client_session_id
-    )
+    if (command.client_session_id !== this.state.handshake?.client_session_id)
       return Promise.reject(clientError({ code: 'authentication_required' }));
+    if (!isCommand(command))
+      return Promise.reject(clientError({ code: 'invalid_command' }));
     if (this.state.status !== 'ready')
       return Promise.reject(clientError({ code: 'operation_uncertain' }));
     const authentication = this.authenticationNumber;
@@ -845,6 +1461,14 @@ export class ClientController {
           return previous.result;
         },
       );
+    if (this.commandClaims.size >= 256) {
+      for (const [oldKey, claim] of this.commandClaims) {
+        if (claim.settled && !claim.failed) {
+          this.commandClaims.delete(oldKey);
+          break;
+        }
+      }
+    }
     if (this.commandClaims.size >= 256)
       return Promise.reject(clientError({ code: 'operation_uncertain' }));
     let dispatched = false;
@@ -866,6 +1490,8 @@ export class ClientController {
       })
       .then((receipt) => {
         current();
+        const claim = this.commandClaims.get(key);
+        if (claim) claim.settled = true;
         return receipt;
       })
       .catch((error) => {
@@ -876,7 +1502,12 @@ export class ClientController {
         if (clientError(error).recovery === 'authenticate') this.failed(error);
         throw clientError(error);
       });
-    this.commandClaims.set(key, { verifier, result, failed: false });
+    this.commandClaims.set(key, {
+      verifier,
+      result,
+      failed: false,
+      settled: false,
+    });
     return result;
   }
   /** Explicit user retry only. The identical key/body remains bound at the server. */

@@ -11,6 +11,7 @@ import threading
 import tempfile
 import time
 from collections.abc import Callable
+from contextlib import closing
 from dataclasses import dataclass, field
 from typing import BinaryIO
 from uuid import UUID, uuid4
@@ -36,7 +37,7 @@ def _conversation(conversation_id: str) -> None:
     if not _ID.fullmatch(conversation_id):
         raise AttachmentError("not_found")
     threads._ensure_thread_db()
-    with sqlite3.connect(threads.DB_PATH) as conn:
+    with closing(sqlite3.connect(threads.DB_PATH)) as conn, conn:
         if not conn.execute("SELECT 1 FROM thread_meta WHERE thread_id=?", (conversation_id,)).fetchone():
             raise AttachmentError("not_found")
     if threads._thread_write_blocked(conversation_id) or admissions.deletion_state(conversation_id) != "active":

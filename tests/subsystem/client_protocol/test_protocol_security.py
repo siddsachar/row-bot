@@ -215,6 +215,50 @@ def test_mutation_saturation_preserves_stop_reserve():
     security.rate(current, "control")
 
 
+@pytest.mark.parametrize("lane,capacity", [("view", 60), ("observation", 120), ("acknowledgement", 30)])
+def test_navigation_lanes_are_bounded_and_preserve_command_reserves(lane, capacity):
+    security = ClientSecurity("fixture", clock=lambda: 10)
+    current = security.handshake(context())
+    for _ in range(capacity):
+        security.rate(current, lane)
+    with pytest.raises(ProtocolError, match="rate_limited"):
+        security.rate(current, lane)
+    security.rate(current, "control")
+    security.rate(current, "mutation")
+
+
+def test_forty_observer_switches_keep_stop_available_through_public_routes():
+    now = [10.0]
+    security = ClientSecurity("fixture", clock=lambda: now[0])
+    service = Service()
+    service.snapshot = lambda conversation: {"conversation_id": conversation, "server_epoch": service.server_epoch,
+        "projection_revision": "0", "cursor": "0", "checkpoint_revision": "", "rows": [], "generation": None}
+    service.events_since = lambda *_: {"server_epoch": service.server_epoch, "snapshot_required": False, "events": []}
+    def missing(*_):
+        raise ProtocolError("not_found", 404)
+    service.receipt = missing
+    app = create_client_platform_app(service, security=security, choices=lambda: {"models": [], "capabilities": []})
+    with TestClient(app, base_url="http://localhost", client=("127.0.0.1", 1234)) as client:
+        data, headers = bootstrap(client)
+        for index in range(40):
+            now[0] += 0.3
+            response = client.post(f"/api/v1/conversations/chat-{index % 2}/subscriptions", headers=headers)
+            assert response.status_code == 200, response.text
+            sub = response.json()
+            assert client.get("/api/v1/events/poll", params={"subscription_id": sub["subscription_id"],
+                "cursor": sub["cursor"]}, headers=headers).status_code == 200
+            assert client.put(f"/api/v1/subscriptions/{sub['subscription_id']}/ack", json={"cursor": sub["cursor"]},
+                headers=headers).status_code == 200
+            assert client.delete(f"/api/v1/subscriptions/{sub['subscription_id']}", headers=headers).status_code == 200
+        identity = str(uuid4())
+        response = client.post("/api/v1/conversations/chat-1/commands", headers={**headers, "Idempotency-Key": identity},
+            json={"command_id": identity, "client_session_id": data["client_session_id"], "type": "conversation.stop",
+                  "expected_revision": "0", "payload": {}})
+        assert response.status_code == 200, response.text
+        assert len(service.commands) == 1
+        assert not security._subscriptions
+
+
 def test_approval_response_uses_control_reserve_after_mutation_saturation():
     service = Service()
     service.get_approval = lambda _: {"id": "fixture-approval", "status": "pending", "revision": "0",

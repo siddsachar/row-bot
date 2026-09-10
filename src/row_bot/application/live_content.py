@@ -6,6 +6,7 @@ Checkpoint settlement owns retirement; restart discards every spool and cursor.
 from __future__ import annotations
 
 import base64
+import codecs
 from dataclasses import dataclass
 import hashlib
 import hmac
@@ -99,9 +100,34 @@ class LiveContentStore:
             spool.revision += 1
             self._total += additional
 
-    def _cursor(self, conversation_id: str, content_ref: str, spool: _Spool, offset: int) -> str:
-        body = json.dumps([conversation_id, content_ref, spool.revision, spool.size, offset], separators=(",", ":")).encode()
+    def _cursor(self, conversation_id: str, content_ref: str, spool: _Spool, offset: int, *, text: bool = False) -> str:
+        value = [conversation_id, content_ref, spool.revision, spool.size, offset]
+        if text:
+            value.append("text")
+        body = json.dumps(value, separators=(",", ":")).encode()
         return base64.urlsafe_b64encode(body).decode().rstrip("=") + "." + hmac.new(self._key, body, hashlib.sha256).hexdigest()
+
+    def _offset(self, conversation_id: str, content_ref: str, spool: _Spool, cursor: str | None, *, text: bool = False) -> int:
+        if not cursor:
+            return 0
+        try:
+            if len(cursor) > 2048:
+                raise ValueError()
+            token, signature = cursor.split(".")
+            body = base64.b64decode(token + "=" * (-len(token) % 4), altchars=b"-_", validate=True)
+            if not hmac.compare_digest(signature, hmac.new(self._key, body, hashlib.sha256).hexdigest()):
+                raise ValueError()
+            value = json.loads(body)
+            if (not isinstance(value, list) or len(value) != (6 if text else 5)
+                    or value[:4] != [conversation_id, content_ref, spool.revision, spool.size]
+                    or (text and value[5] != "text")):
+                raise ValueError()
+            offset = value[4]
+            if type(offset) is not int or not 0 <= offset <= spool.size:
+                raise ValueError()
+            return offset
+        except (ValueError, TypeError, IndexError):
+            raise LiveContentError("cursor_expired") from None
 
     def read_page(self, conversation_id: str, content_ref: str, limit_bytes: int = 65536,
                   cursor: str | None = None) -> dict:
@@ -112,23 +138,7 @@ class LiveContentStore:
                 raise LiveContentError("cursor_expired" if cursor else "not_found")
             if not 1 <= limit_bytes <= 65536:
                 raise LiveContentError("invalid_command")
-            offset = 0
-            if cursor:
-                try:
-                    if len(cursor) > 2048:
-                        raise ValueError()
-                    token, signature = cursor.split(".")
-                    body = base64.b64decode(token + "=" * (-len(token) % 4), altchars=b"-_", validate=True)
-                    if not hmac.compare_digest(signature, hmac.new(self._key, body, hashlib.sha256).hexdigest()):
-                        raise ValueError()
-                    value = json.loads(body)
-                    if value[:4] != [conversation_id, content_ref, spool.revision, spool.size]:
-                        raise ValueError()
-                    offset = value[4]
-                    if type(offset) is not int or not 0 <= offset <= spool.size:
-                        raise ValueError()
-                except (ValueError, TypeError, IndexError):
-                    raise LiveContentError("cursor_expired") from None
+            offset = self._offset(conversation_id, content_ref, spool, cursor)
             spool.file.seek(offset)
             data = spool.file.read(limit_bytes)
             following = offset + len(data)
@@ -137,6 +147,52 @@ class LiveContentStore:
                     "encoding": "base64", "media_type": "application/json", "data": base64.b64encode(data).decode(),
                     "has_more": more,
                     "next_cursor": self._cursor(conversation_id, content_ref, spool, following) if more else None}
+
+    def read_text_page(self, conversation_id: str, content_ref: str, cursor: str | None = None) -> dict:
+        """Decode one bounded text page without reassembling or rescanning JSON.
+
+        Text cursors share the existing HMAC owner/revision checks and additionally
+        pin the representation. Offsets always point to a complete encoded unit.
+        """
+        with self._lock:
+            self._owner(conversation_id, content_ref)
+            spool = self._spools.get((conversation_id, content_ref))
+            if spool is None:
+                raise LiveContentError("cursor_expired" if cursor else "not_found")
+            offset = self._offset(conversation_id, content_ref, spool, cursor, text=True)
+            if not cursor:
+                offset = len(PREFIX)
+            end = spool.size - len(SUFFIX)
+            if not len(PREFIX) <= offset <= end:
+                raise LiveContentError("cursor_expired")
+            spool.file.seek(offset)
+            raw = spool.file.read(min(65536, end - offset))
+            try:
+                fragment = codecs.getincrementaldecoder("utf-8")().decode(raw, final=False)
+                boundary, characters = 0, 0
+                while boundary < len(fragment) and characters < 16384:
+                    width = 1
+                    if fragment[boundary] == "\\":
+                        if boundary + 1 >= len(fragment):
+                            break
+                        width = 6 if fragment[boundary + 1] == "u" else 2
+                    if boundary + width > len(fragment):
+                        break
+                    boundary += width
+                    characters += 1
+                encoded = fragment[:boundary]
+                text = json.loads('"' + encoded + '"')
+            except (ValueError, UnicodeError):
+                raise LiveContentError("cursor_expired" if cursor else "not_found") from None
+            following = offset + len(encoded.encode("utf-8"))
+            if following == offset and offset != end:
+                raise LiveContentError("cursor_expired")
+            self._owner(conversation_id, content_ref)
+            more = following < end
+            return {"conversation_id": conversation_id, "content_ref": content_ref, "checkpoint_revision": "",
+                    "encoding": "base64", "media_type": "text/plain", "data": base64.b64encode(text.encode("utf-8")).decode(),
+                    "has_more": more,
+                    "next_cursor": self._cursor(conversation_id, content_ref, spool, following, text=True) if more else None}
 
     def discard(self, conversation_id: str, content_ref: str) -> None:
         with self._lock:
@@ -166,6 +222,10 @@ def append(conversation_id: str, content_ref: str, text: str) -> None:
 
 def read_page(conversation_id: str, content_ref: str, limit_bytes: int = 65536, cursor: str | None = None) -> dict:
     return live_content_store.read_page(conversation_id, content_ref, limit_bytes, cursor)
+
+
+def read_text_page(conversation_id: str, content_ref: str, cursor: str | None = None) -> dict:
+    return live_content_store.read_text_page(conversation_id, content_ref, cursor)
 
 
 def discard(conversation_id: str, content_ref: str) -> None:

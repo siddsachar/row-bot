@@ -1,0 +1,78 @@
+{
+  "$defs": {
+    "WorkspaceChangedFile": {
+      "additionalProperties": false,
+      "properties": {
+        "additions": {
+          "minimum": 0,
+          "title": "Additions",
+          "type": "integer"
+        },
+        "deletions": {
+          "minimum": 0,
+          "title": "Deletions",
+          "type": "integer"
+        },
+        "path": {
+          "maxLength": 4096,
+          "title": "Path",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 80,
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "status",
+        "additions",
+        "deletions"
+      ],
+      "title": "WorkspaceChangedFile",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/WorkspaceChangedFile"
+      },
+      "maxItems": 100,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "snapshot_revision": {
+      "maxLength": 128,
+      "title": "Snapshot Revision",
+      "type": "string"
+    },
+    "total": {
+      "minimum": 0,
+      "title": "Total",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "items",
+    "next_cursor",
+    "snapshot_revision",
+    "total"
+  ],
+  "title": "WorkspaceChanges",
+  "type": "object"
+}

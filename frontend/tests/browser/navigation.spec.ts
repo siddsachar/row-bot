@@ -225,13 +225,13 @@ test('sidebar preview and cursor pages preserve server order and an out-of-previ
   page,
 }, testInfo) => {
   const rows = await seedLibrary(page);
-  const readRootHistory = () =>
+  const readRouteHistory = () =>
     page.evaluate(() => ({
       length: history.length,
       pathname: location.pathname,
       search: location.search,
     }));
-  const originalRootHistory = await readRootHistory();
+  const originalRootHistory = await readRouteHistory();
   let nav = await navigation(page);
   await assertRowOrder(nav, rows.slice(0, 10));
   await expect(
@@ -247,7 +247,12 @@ test('sidebar preview and cursor pages preserve server order and an out-of-previ
   await wheelToPageControls(page, nav, testInfo);
   await nav.getByRole('button', { name: rows[12].title, exact: true }).click();
   await assertSelection(page, rows[12].id);
-  expect(await readRootHistory()).toEqual(originalRootHistory);
+  const firstSelectionHistory = await readRouteHistory();
+  expect(firstSelectionHistory).toEqual({
+    length: originalRootHistory.length + 1,
+    pathname: `/app-v2/conversations/${rows[12].id}`,
+    search: '',
+  });
   nav = await navigation(page);
   await showLess(nav);
   await assertRowOrder(nav, [...rows.slice(0, 10), rows[12]]);
@@ -280,7 +285,12 @@ test('sidebar preview and cursor pages preserve server order and an out-of-previ
   ).toHaveCount(0);
   await nav.getByRole('button', { name: rows[54].title, exact: true }).click();
   await assertSelection(page, rows[54].id);
-  expect(await readRootHistory()).toEqual(originalRootHistory);
+  const secondSelectionHistory = await readRouteHistory();
+  expect(secondSelectionHistory).toEqual({
+    length: originalRootHistory.length + 2,
+    pathname: `/app-v2/conversations/${rows[54].id}`,
+    search: '',
+  });
   nav = await navigation(page);
   await showLess(nav);
   await assertRowOrder(nav, [...rows.slice(0, 10), rows[54]]);
@@ -289,11 +299,25 @@ test('sidebar preview and cursor pages preserve server order and an out-of-previ
     .getByRole('link', { name: 'Component gallery', exact: true })
     .click();
   await expect(page).toHaveURL(/\/app-v2\/primitives(?:[?#].*)?$/);
+  const galleryHistory = await readRouteHistory();
+  expect(galleryHistory).toEqual({
+    length: originalRootHistory.length + 3,
+    pathname: '/app-v2/primitives',
+    search: '',
+  });
   nav = await navigation(page);
   await nav.getByRole('button', { name: rows[54].title, exact: true }).click();
-  await expect(page).toHaveURL(/\/app-v2\/?(?:[?#].*)?$/);
+  await expect(page).toHaveURL(
+    new URL(`/app-v2/conversations/${rows[54].id}`, page.url()).href,
+  );
   await assertSelection(page, rows[54].id);
-  await expect(page.getByTestId('conversation-placeholder')).toBeVisible();
+  const returnedConversationHistory = await readRouteHistory();
+  expect(returnedConversationHistory).toEqual({
+    length: originalRootHistory.length + 4,
+    pathname: `/app-v2/conversations/${rows[54].id}`,
+    search: '',
+  });
+  await expect(page.getByTestId('conversation-workspace')).toBeVisible();
   await assertNoOverflow(page);
   await writeEvidence(testInfo, 'sidebar-order-and-selection', {
     supplied: rows,
@@ -302,7 +326,12 @@ test('sidebar preview and cursor pages preserve server order and an out-of-previ
     fullLoadedCount: 55,
     selectedOutsidePreview: [rows[12].id, rows[54].id],
     originalRootHistory,
-    ordinarySelectionsPreserveRootHistoryAndQuery: true,
+    firstSelectionHistory,
+    secondSelectionHistory,
+    galleryHistory,
+    returnedConversationHistory,
+    routeMethod:
+      'Each explicit conversation or gallery selection pushes its registered route once; conversation selection clears the fixture-only query.',
     selectionStyle,
     commands: await page.evaluate(
       () =>
@@ -312,7 +341,7 @@ test('sidebar preview and cursor pages preserve server order and an out-of-previ
   });
 });
 
-test('selecting a conversation reveals it from a compact activity tab while preserving registered panels', async ({
+test('selecting another conversation preserves its own view and restores the original registered panels on return', async ({
   page,
 }, testInfo) => {
   const rows = await seedLibrary(page);
@@ -327,25 +356,26 @@ test('selecting a conversation reveals it from a compact activity tab while pres
   await nav.getByRole('button', { name: 'Show more', exact: true }).click();
   await nav.getByRole('button', { name: rows[12].title, exact: true }).click();
   await assertSelection(page, rows[12].id);
-  await expect(page.getByTestId('conversation-placeholder')).toBeVisible();
+  await expect(page.getByTestId('conversation-workspace')).toBeVisible();
   const afterSelection = await readLayout(page);
-  expect(afterSelection.panels).toEqual(before.panels);
-  const desktop = testInfo.project.use.viewport!.width >= 1024;
-  if (desktop) {
-    expect(afterSelection).toEqual(before);
-    await expect(
-      page
-        .locator('.sample-panel:visible')
-        .getByRole('heading', { name: 'Activity preview', exact: true }),
-    ).toBeVisible();
-  } else {
-    expect(afterSelection.activePanelId).toBeNull();
-    await expect(
-      page.getByRole('region', { name: 'Compact panel', exact: true }),
-    ).toHaveCount(0);
-  }
+  expect(afterSelection.panels).toEqual([]);
+  expect(afterSelection.activePanelId).toBeNull();
+  await expect(
+    page.getByRole('region', { name: 'Compact panel', exact: true }),
+  ).toHaveCount(0);
+  await expect(page.locator('.sample-panel:visible')).toHaveCount(0);
   await screenshot(page, testInfo, 'sidebar-select-from-activity');
   await accessibility(page, testInfo, 'sidebar-select-from-activity-axe');
+  const returnNavigation = await navigation(page);
+  await returnNavigation
+    .getByRole('button', { name: rows[0].title, exact: true })
+    .click();
+  await assertSelection(page, rows[0].id);
+  const restored = await readLayout(page);
+  expect(restored.panels).toEqual(before.panels);
+  expect(restored.activePanelId).toBe(
+    testInfo.project.use.viewport!.width >= 1024 ? before.activePanelId : null,
+  );
   await openPanel(page, 'Activity preview');
   const reopened = await readLayout(page);
   expect(reopened.panels).toEqual(before.panels);
@@ -360,10 +390,12 @@ test('selecting a conversation reveals it from a compact activity tab while pres
   await controllerHandle.dispose();
   await screenshot(page, testInfo, 'sidebar-activity-reopened-same-instance');
   await writeEvidence(testInfo, 'sidebar-selection-preserves-panel-owner', {
-    desktop,
-    selectedConversationId: rows[12].id,
+    desktop: testInfo.project.use.viewport!.width >= 1024,
+    selectedConversationId: rows[0].id,
+    otherConversationId: rows[12].id,
     before,
     afterSelection,
+    restored,
     reopened,
     sameController,
     conversationNodeRetained: true,
@@ -386,6 +418,12 @@ test('collapsed Conversations keeps the current row and tracks the same live sel
     await (
       window as FixtureWindow
     ).__ROW_BOT_FIXTURE__.controller.selectConversation(id);
+    // Keep this injected selection on its canonical route without loading the
+    // rest of the library or remounting the workspace.
+    history.replaceState(history.state, '', `/app-v2/conversations/${id}`);
+    window.dispatchEvent(
+      new PopStateEvent('popstate', { state: history.state }),
+    );
   }, rows[54].id);
   await assertSelection(page, rows[54].id);
   const nav = await navigation(page);
@@ -426,6 +464,12 @@ test('collapsed Conversations keeps the current row and tracks the same live sel
     await (
       window as FixtureWindow
     ).__ROW_BOT_FIXTURE__.controller.selectConversation(id);
+    // Keep this injected selection on its canonical route without loading the
+    // rest of the library or remounting the workspace.
+    history.replaceState(history.state, '', `/app-v2/conversations/${id}`);
+    window.dispatchEvent(
+      new PopStateEvent('popstate', { state: history.state }),
+    );
   }, rows[0].id);
   await assertSelection(page, rows[0].id);
   await expect(current.getByRole('button')).toHaveAccessibleName(rows[0].title);
@@ -464,7 +508,15 @@ for (const zoom of [1, 2]) {
       const labelRect = label.getBoundingClientRect();
       const iconRect = element.querySelector('svg')!.getBoundingClientRect();
       const style = getComputedStyle(label);
+      const fineDesktop = matchMedia(
+        '(pointer: fine) and (min-width: 1024px)',
+      ).matches;
+      const density = document.documentElement.dataset.density;
+      const minimumHeight = fineDesktop && density === 'compact' ? 34 : 44;
       return {
+        fineDesktop,
+        density,
+        minimumHeight,
         row: {
           x: rect.x,
           y: rect.y,
@@ -502,7 +554,7 @@ for (const zoom of [1, 2]) {
       `sidebar-${zoom * 100}-title-geometry`,
       geometry,
     );
-    expect(geometry.cssHeight).toBeGreaterThanOrEqual(44);
+    expect(geometry.cssHeight).toBeGreaterThanOrEqual(geometry.minimumHeight);
     expect(geometry.row.x).toBeGreaterThanOrEqual(0);
     expect(geometry.row.right).toBeLessThanOrEqual(geometry.viewport.width + 1);
     expect(geometry.row.bottom).toBeLessThanOrEqual(
@@ -602,12 +654,14 @@ for (const zoom of [1, 2]) {
     expect(hintGeometry.scrollWidth).toBeLessThanOrEqual(
       hintGeometry.clientWidth + 1,
     );
-    await page.mouse.move(0, 0);
+    await page.mouse.move(0, 0, { steps: 10 });
     const section = nav.getByRole('button', {
       name: 'Conversations',
       exact: true,
     });
     await section.focus();
+    await expect(section).toBeFocused();
+    await expect(page.getByRole('tooltip')).toHaveCount(0);
     await first.focus();
     await expect(first).toBeFocused();
     await expect(page.getByRole('tooltip')).toHaveText(rows[0].title);
@@ -628,7 +682,7 @@ for (const zoom of [1, 2]) {
           ? 'CSS zoom: 2, not browser chrome or physical-device zoom'
           : 'Native CSS scale',
       hoverMethod:
-        'Playwright mouse input, including touch-capable emulated viewports',
+        'Playwright mouse input, including touch-capable emulated viewports; ten native pointer steps to (0,0) exit the hover grace region before the separate keyboard-focus trial',
       keyboardSelection: rows[0].id,
       commands: 0,
     });

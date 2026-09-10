@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextvars import ContextVar
+from copy import deepcopy
 from hashlib import sha256
 import json
 import logging
@@ -282,7 +284,17 @@ def resolve_reasoning_capabilities_for_ref(value: str | None) -> ReasoningCapabi
 def request_plan_for(
     thread_id: str | None,
     canonical_model_ref: str,
+    *,
+    use_snapshot: bool = True,
 ) -> ReasoningRequestPlan:
+    snapshot = _active_reasoning_snapshot.get() if use_snapshot else None
+    if (snapshot is not None and snapshot.get("conversation_id") == str(thread_id or "")
+            and snapshot.get("model_ref") == canonical_model_ref):
+        return ReasoningRequestPlan(
+            canonical_model_ref,
+            ReasoningSelection.from_json(snapshot.get("selection")),
+            ReasoningCapabilities.from_json(snapshot.get("capabilities")),
+        )
     caps = resolve_reasoning_capabilities_for_ref(canonical_model_ref)
     selection = ReasoningSelection()
     if thread_id and caps:
@@ -311,6 +323,15 @@ def request_plan_for(
     if key in _suppressed_overrides:
         selection = ReasoningSelection()
     return ReasoningRequestPlan(canonical_model_ref, selection, caps)
+
+
+_active_reasoning_snapshot: ContextVar[dict[str, Any] | None] = ContextVar(
+    "row_bot_reasoning_snapshot", default=None)
+
+
+def activate_reasoning_snapshot(snapshot: dict[str, Any] | None = None) -> None:
+    """Set or clear the immutable request cut at the existing invocation boundary."""
+    _active_reasoning_snapshot.set(deepcopy(snapshot) if isinstance(snapshot, dict) else None)
 
 
 def canonical_reasoning_model_ref(provider_id: str, model_id: str) -> str:

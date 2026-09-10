@@ -1,0 +1,1086 @@
+{
+  "$defs": {
+    "ActionReadiness": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "send",
+            "generate",
+            "create_deck",
+            "bind",
+            "preview",
+            "register_folder"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "code": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Code"
+        },
+        "ready": {
+          "title": "Ready",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "action",
+        "ready"
+      ],
+      "title": "ActionReadiness",
+      "type": "object"
+    },
+    "AttachmentView": {
+      "additionalProperties": false,
+      "properties": {
+        "attachment_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Attachment Ref",
+          "type": "string"
+        },
+        "mime_type": {
+          "enum": [
+            "image/png",
+            "image/jpeg",
+            "video/mp4",
+            "application/pdf",
+            "application/octet-stream"
+          ],
+          "title": "Mime Type",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "size_bytes": {
+          "maximum": 26214400,
+          "minimum": 1,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "attachment_ref",
+        "name",
+        "mime_type",
+        "size_bytes",
+        "revision"
+      ],
+      "title": "AttachmentView",
+      "type": "object"
+    },
+    "ContextUsageView": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "estimated_input_tokens": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Estimated Input Tokens"
+        },
+        "last_confirmed_input_tokens": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Confirmed Input Tokens"
+        },
+        "model_ref": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Ref"
+        },
+        "native_window_tokens": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Native Window Tokens"
+        },
+        "state": {
+          "enum": [
+            "unknown",
+            "saved",
+            "stale"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "usable_input_tokens": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Usable Input Tokens"
+        }
+      },
+      "required": [
+        "conversation_id",
+        "state"
+      ],
+      "title": "ContextUsageView",
+      "type": "object"
+    },
+    "ConversationControls": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_mode": {
+          "default": "approve",
+          "enum": [
+            "block",
+            "approve",
+            "allow_all"
+          ],
+          "title": "Approval Mode",
+          "type": "string"
+        },
+        "model_selection": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelSelection"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "profile_id": {
+          "default": "",
+          "maxLength": 128,
+          "title": "Profile Id",
+          "type": "string"
+        },
+        "reasoning": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReasoningControl"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "runtime_mode": {
+          "default": "agent",
+          "enum": [
+            "agent",
+            "chat_only"
+          ],
+          "title": "Runtime Mode",
+          "type": "string"
+        }
+      },
+      "title": "ConversationControls",
+      "type": "object"
+    },
+    "ConversationView": {
+      "additionalProperties": false,
+      "properties": {
+        "generation_state": {
+          "items": {
+            "$ref": "#/$defs/GenerationState"
+          },
+          "maxItems": 32,
+          "title": "Generation State",
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "pinned": {
+          "title": "Pinned",
+          "type": "boolean"
+        },
+        "resource_bindings": {
+          "items": {
+            "$ref": "#/$defs/ResourceBinding"
+          },
+          "maxItems": 200,
+          "title": "Resource Bindings",
+          "type": "array"
+        },
+        "revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 256,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "title",
+        "pinned"
+      ],
+      "title": "ConversationView",
+      "type": "object"
+    },
+    "ConversationWorkspace": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/ActionReadiness"
+          },
+          "maxItems": 6,
+          "title": "Actions",
+          "type": "array"
+        },
+        "context_usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContextUsageView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "controls": {
+          "$ref": "#/$defs/ConversationControls"
+        },
+        "conversation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "profiles": {
+          "items": {
+            "$ref": "#/$defs/ProfileChoice"
+          },
+          "maxItems": 256,
+          "title": "Profiles",
+          "type": "array"
+        },
+        "reasoning": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReasoningView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "resources": {
+          "items": {
+            "$ref": "#/$defs/ResourceView"
+          },
+          "maxItems": 200,
+          "title": "Resources",
+          "type": "array"
+        },
+        "revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "conversation_id",
+        "revision",
+        "controls",
+        "profiles",
+        "resources",
+        "actions"
+      ],
+      "title": "ConversationWorkspace",
+      "type": "object"
+    },
+    "DraftView": {
+      "additionalProperties": false,
+      "properties": {
+        "attachments": {
+          "items": {
+            "$ref": "#/$defs/AttachmentView"
+          },
+          "maxItems": 32,
+          "title": "Attachments",
+          "type": "array"
+        },
+        "conversation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "revision": {
+          "maxLength": 128,
+          "title": "Revision",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 200000,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "conversation_id",
+        "revision",
+        "text",
+        "attachments"
+      ],
+      "title": "DraftView",
+      "type": "object"
+    },
+    "GenerationState": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9:_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Approval Id"
+        },
+        "can_stop": {
+          "title": "Can Stop",
+          "type": "boolean"
+        },
+        "cancel_requested": {
+          "title": "Cancel Requested",
+          "type": "boolean"
+        },
+        "cleanup_complete": {
+          "title": "Cleanup Complete",
+          "type": "boolean"
+        },
+        "conversation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "execution_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Execution Id",
+          "type": "string"
+        },
+        "external_outcome": {
+          "enum": [
+            "known_not_sent",
+            "sent",
+            "uncertain",
+            "not_applicable"
+          ],
+          "title": "External Outcome",
+          "type": "string"
+        },
+        "generation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Generation Id",
+          "type": "string"
+        },
+        "pass_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Pass Id",
+          "type": "string"
+        },
+        "quiesced": {
+          "title": "Quiesced",
+          "type": "boolean"
+        },
+        "revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "segment_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9:_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Segment Id"
+        },
+        "status": {
+          "enum": [
+            "running",
+            "stopping",
+            "stopped",
+            "waiting_approval",
+            "completed",
+            "interrupted"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "execution_id",
+        "conversation_id",
+        "generation_id",
+        "pass_id",
+        "status",
+        "revision",
+        "cancel_requested",
+        "quiesced",
+        "cleanup_complete",
+        "external_outcome",
+        "approval_id",
+        "can_stop"
+      ],
+      "title": "GenerationState",
+      "type": "object"
+    },
+    "ModelSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "model_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Model Ref",
+          "type": "string"
+        },
+        "provider_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Provider Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider_id",
+        "model_ref"
+      ],
+      "title": "ModelSelection",
+      "type": "object"
+    },
+    "ProfileChoice": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 256,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "title": "ProfileChoice",
+      "type": "object"
+    },
+    "ReasoningChoice": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "maxLength": 160,
+          "title": "Label",
+          "type": "string"
+        },
+        "selection": {
+          "$ref": "#/$defs/ReasoningSelectionValue"
+        }
+      },
+      "required": [
+        "selection",
+        "label"
+      ],
+      "title": "ReasoningChoice",
+      "type": "object"
+    },
+    "ReasoningControl": {
+      "additionalProperties": false,
+      "properties": {
+        "capability_revision": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Capability Revision",
+          "type": "string"
+        },
+        "model_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Model Ref",
+          "type": "string"
+        },
+        "selection": {
+          "$ref": "#/$defs/ReasoningSelectionValue"
+        }
+      },
+      "required": [
+        "model_ref",
+        "capability_revision",
+        "selection"
+      ],
+      "title": "ReasoningControl",
+      "type": "object"
+    },
+    "ReasoningSelectionValue": {
+      "additionalProperties": false,
+      "properties": {
+        "budget": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Budget"
+        },
+        "effort": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effort"
+        },
+        "kind": {
+          "enum": [
+            "provider_default",
+            "effort",
+            "on",
+            "off",
+            "budget"
+          ],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "ReasoningSelectionValue",
+      "type": "object"
+    },
+    "ReasoningView": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "budget_max": {
+          "minimum": 0,
+          "title": "Budget Max",
+          "type": "integer"
+        },
+        "budget_min": {
+          "minimum": 0,
+          "title": "Budget Min",
+          "type": "integer"
+        },
+        "capability_revision": {
+          "maxLength": 128,
+          "title": "Capability Revision",
+          "type": "string"
+        },
+        "choices": {
+          "items": {
+            "$ref": "#/$defs/ReasoningChoice"
+          },
+          "maxItems": 32,
+          "title": "Choices",
+          "type": "array"
+        },
+        "model_ref": {
+          "maxLength": 256,
+          "title": "Model Ref",
+          "type": "string"
+        },
+        "selection": {
+          "$ref": "#/$defs/ReasoningSelectionValue"
+        },
+        "stale": {
+          "title": "Stale",
+          "type": "boolean"
+        },
+        "supports_budget": {
+          "title": "Supports Budget",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "model_ref",
+        "capability_revision",
+        "available",
+        "selection",
+        "choices",
+        "supports_budget",
+        "budget_min",
+        "budget_max",
+        "stale"
+      ],
+      "title": "ReasoningView",
+      "type": "object"
+    },
+    "ResourceBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Binding Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "workspace",
+            "artifact",
+            "browser_session",
+            "task",
+            "document"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "resource_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "context",
+            "primary",
+            "reference",
+            "output"
+          ],
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "binding_id",
+        "kind",
+        "resource_id",
+        "role",
+        "revision"
+      ],
+      "title": "ResourceBinding",
+      "type": "object"
+    },
+    "ResourceView": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "binding": {
+          "$ref": "#/$defs/ResourceBinding"
+        },
+        "conversation_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Conversation Revision",
+          "type": "string"
+        },
+        "resource_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Resource Ref",
+          "type": "string"
+        },
+        "resource_revision": {
+          "maxLength": 128,
+          "title": "Resource Revision",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 256,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_ref",
+        "conversation_revision",
+        "binding",
+        "title",
+        "resource_revision",
+        "available"
+      ],
+      "title": "ResourceView",
+      "type": "object"
+    },
+    "TextBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "maxLength": 2097152,
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "text",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ],
+      "title": "TextBlock",
+      "type": "object"
+    },
+    "TranscriptPage": {
+      "additionalProperties": false,
+      "properties": {
+        "checkpoint_revision": {
+          "maxLength": 128,
+          "title": "Checkpoint Revision",
+          "type": "string"
+        },
+        "conversation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "cursor": {
+          "maxLength": 2048,
+          "title": "Cursor",
+          "type": "string"
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GenerationState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "has_more": {
+          "title": "Has More",
+          "type": "boolean"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        },
+        "previous_cursor": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Previous Cursor"
+        },
+        "projection_revision": {
+          "pattern": "^(0|[1-9][0-9]{0,19})$",
+          "title": "Projection Revision",
+          "type": "string"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/TranscriptRow"
+          },
+          "maxItems": 200,
+          "title": "Rows",
+          "type": "array"
+        },
+        "server_epoch": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Server Epoch",
+          "type": "string"
+        }
+      },
+      "required": [
+        "conversation_id",
+        "server_epoch",
+        "projection_revision",
+        "cursor",
+        "checkpoint_revision",
+        "rows",
+        "generation",
+        "has_more",
+        "previous_cursor",
+        "next_cursor"
+      ],
+      "title": "TranscriptPage",
+      "type": "object"
+    },
+    "TranscriptRow": {
+      "additionalProperties": false,
+      "properties": {
+        "blocks": {
+          "items": {
+            "$ref": "#/$defs/TextBlock"
+          },
+          "maxItems": 256,
+          "title": "Blocks",
+          "type": "array"
+        },
+        "content_ref": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Ref"
+        },
+        "content_status": {
+          "anyOf": [
+            {
+              "enum": [
+                "inline",
+                "lazy",
+                "oversized"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Status"
+        },
+        "id": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "message_id": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message Id"
+        },
+        "render_revision": {
+          "anyOf": [
+            {
+              "pattern": "^(0|[1-9][0-9]{0,19})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Render Revision"
+        },
+        "role": {
+          "enum": [
+            "user",
+            "assistant",
+            "tool"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "tool_call_id": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Tool Call Id",
+          "type": "string"
+        },
+        "tool_call_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Tool Call Ids",
+          "type": "array"
+        },
+        "tool_calls_ref": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Calls Ref"
+        }
+      },
+      "required": [
+        "id",
+        "role",
+        "blocks"
+      ],
+      "title": "TranscriptRow",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Combined response bounded to 2 MiB; history keeps its 100-row/256-KiB bound.",
+  "properties": {
+    "conversation": {
+      "$ref": "#/$defs/ConversationView"
+    },
+    "draft": {
+      "$ref": "#/$defs/DraftView"
+    },
+    "history": {
+      "$ref": "#/$defs/TranscriptPage"
+    },
+    "workspace": {
+      "$ref": "#/$defs/ConversationWorkspace"
+    }
+  },
+  "required": [
+    "conversation",
+    "history",
+    "workspace",
+    "draft"
+  ],
+  "title": "ConversationOpenView",
+  "type": "object"
+}

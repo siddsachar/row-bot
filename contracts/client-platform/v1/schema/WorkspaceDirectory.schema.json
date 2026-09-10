@@ -1,0 +1,83 @@
+{
+  "$defs": {
+    "WorkspaceDirectoryEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "file",
+            "directory"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 1024,
+          "title": "Name",
+          "type": "string"
+        },
+        "previewable": {
+          "title": "Previewable",
+          "type": "boolean"
+        },
+        "relative_path": {
+          "maxLength": 4096,
+          "title": "Relative Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "relative_path",
+        "kind",
+        "previewable"
+      ],
+      "title": "WorkspaceDirectoryEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "directory_revision": {
+      "maxLength": 256,
+      "title": "Directory Revision",
+      "type": "string"
+    },
+    "excluded": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 10,
+      "title": "Excluded",
+      "type": "array"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/WorkspaceDirectoryEntry"
+      },
+      "maxItems": 100,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    }
+  },
+  "required": [
+    "items",
+    "next_cursor",
+    "directory_revision",
+    "excluded"
+  ],
+  "title": "WorkspaceDirectory",
+  "type": "object"
+}

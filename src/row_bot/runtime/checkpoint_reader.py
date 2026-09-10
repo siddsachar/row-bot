@@ -195,6 +195,36 @@ class BlobReader:
                 yield b"}"
         yield b"]"
 
+    def public_text_chunks(self, record: dict) -> Iterator[str]:
+        """Yield only public text, never JSON structure or nontext metadata."""
+        position = record.get("content_position")
+        if position is None:
+            return
+        content = self.node(position)
+        def positions() -> Iterator[int]:
+            if content.kind == "str":
+                yield position
+            elif content.kind == "array":
+                current = content.body
+                for _ in range(content.size):
+                    fields = self.fields(current, {"type", "text"})
+                    if "type" in fields and self.text(fields["type"]) == "text" and "text" in fields:
+                        yield fields["text"]
+                    current = self.end(current)
+        for text_position in positions():
+            node = self.node(text_position)
+            if node.kind != "str":
+                continue
+            decoder = codecs.getincrementaldecoder("utf-8")()
+            offset, remaining = node.body, node.size
+            while remaining:
+                size = min(512, remaining)
+                self.blob.seek(offset)
+                yield decoder.decode(self._read(size), final=size == remaining)
+                offset += size
+                remaining -= size
+            yield "\n"
+
     def text_only(self, record: dict) -> bool:
         """Whether public text blocks represent the complete native content."""
         position = record.get("content_position")

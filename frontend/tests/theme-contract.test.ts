@@ -149,7 +149,7 @@ describe('device preference input boundary', () => {
   ])('invalid stored preference %s has safe defaults', (stored) => {
     localStorage.setItem(THEME_KEY, stored);
     expect(bootstrapTheme(TOKENS)).toEqual(DEFAULT_THEME);
-    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(document.documentElement.dataset.theme).toBe('dark');
   });
 
   it('migrates only the supported preference fields, excluding arbitrary properties', () => {
@@ -191,6 +191,10 @@ describe('device preference input boundary', () => {
   });
 
   it('resolves system appearance and transparency synchronously before a renderer is mounted', () => {
+    localStorage.setItem(
+      THEME_KEY,
+      JSON.stringify({ ...DEFAULT_THEME, appearance: 'system' }),
+    );
     vi.spyOn(window, 'matchMedia').mockImplementation(
       (query) =>
         ({

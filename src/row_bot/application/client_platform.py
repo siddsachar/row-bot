@@ -31,9 +31,11 @@ _COMMAND_LOCK = threading.RLock()
 
 class ClientPlatformService:
     def __init__(self, stream_factory: Callable | None = None,
-                 resume_factory: Callable | None = None) -> None:
+                 resume_factory: Callable | None = None,
+                 readiness_factory: Callable | None = None) -> None:
         self.stream_factory = stream_factory
         self.resume_factory = resume_factory
+        self.readiness_factory = readiness_factory
         self.registry = generation_registry
         self.projection = conversation_projection
 
@@ -46,7 +48,8 @@ class ClientPlatformService:
         return self.registry.server_epoch
 
     def admit_execution(self, conversation_id: str, config: dict, *, text: str | None = None,
-                        cancel_scope: Any = None) -> Any:
+                        cancel_scope: Any = None, queued_pass_id: str = "", queue_context: dict | None = None,
+                        resume_pending: bool = False) -> Any:
         """Single admission path for the API and retained NiceGUI producer."""
         from langchain_core.messages import HumanMessage
         from row_bot import threads
@@ -54,20 +57,31 @@ class ClientPlatformService:
         from row_bot.providers.selection import model_choice_value
         with _COMMAND_LOCK:
             configurable = config.setdefault("configurable", {})
+            metadata = self._metadata(conversation_id)
+            if "agent_profile_id" not in configurable and "agent_profile_snapshot" not in configurable:
+                configurable["agent_profile_id"] = metadata.get("agent_profile_id") or metadata.get("agent_profile_slug") or ""
+            from row_bot.application.profile_controls import freeze_profile
+            freeze_profile(configurable)
             configurable["model_override"] = model_choice_value(
                 configurable.get("model_override") or get_current_model())
-            self._metadata(conversation_id)
+            from row_bot.application.reasoning_controls import freeze_reasoning, restore_resume_reasoning
+            if text is None:
+                restore_resume_reasoning(configurable, conversation_id)
+            freeze_reasoning(configurable, conversation_id)
             threads.migrate_checkpoint_message_ids(conversation_id)
             if self.registry.active(conversation_id):
                 raise ClientPlatformError("generation_active")
             submission_id = str(configurable.get("platform_submission_id") or uuid.uuid4())
             generation_id = str(configurable.get("generation_id") or uuid.uuid4())
             admitted = admissions.reserve(conversation_id, submission_id, generation_id,
-                                           command_id=str(configurable.get("platform_command_id") or ""))
+                                           command_id=str(configurable.get("platform_command_id") or ""),
+                                           queued_pass_id=queued_pass_id, resume_pending=resume_pending)
             if text is not None and not threads.append_checkpoint_messages(
                     conversation_id, [HumanMessage(content=text, id=submission_id)]):
                 raise ClientPlatformError("checkpoint_unavailable")
             admissions.admit(admitted["pass_id"], threads.get_latest_checkpoint_revision(conversation_id))
+            from row_bot.application.client_queue import remember_context
+            remember_context(conversation_id, generation_id, config, queue_context)
             handle = self.registry.register(conversation_id, generation_id=generation_id,
                                             pass_id=admitted["pass_id"], cancel_scope=cancel_scope)
             admissions.start(handle.pass_id, handle.execution_id, handle.server_epoch)
@@ -108,6 +122,14 @@ class ClientPlatformService:
                           "quiesced": True, "cleanup_complete": True, "can_stop": False}
             self.projection.publish(handle.conversation_id, "generation.state", final_view)
             self.registry.finish(handle, status=status)
+            from row_bot.application import client_queue
+            if status == "completed":
+                try:
+                    client_queue.dispatch(self, handle.conversation_id, automatic=True)
+                except Exception:
+                    client_queue.pause_pending(self, handle.conversation_id)
+            else:
+                client_queue.pause_pending(self, handle.conversation_id)
 
     def _metadata(self, conversation_id: str) -> dict:
         from row_bot import threads
@@ -153,23 +175,37 @@ class ClientPlatformService:
             except admissions.AdmissionError as exc:
                 raise ClientPlatformError(str(exc)) from exc
 
-    def list_conversations(self, limit: int = 50, cursor: str | None = None) -> dict:
+    def list_conversations(self, limit: int = 50, cursor: str | None = None, group: str = "all") -> dict:
         from row_bot import threads
         threads._ensure_thread_db()
         limit = min(200, max(1, limit))
-        after = ""
-        if cursor:
-            try:
-                after = base64.urlsafe_b64decode(cursor.encode()).decode()
-            except Exception as exc:
-                raise ClientPlatformError("cursor_expired") from exc
+        if group not in {"all", "pinned", "artifact", "workspace"}:
+            raise ClientPlatformError("invalid_command")
         with closing(sqlite3.connect(threads.DB_PATH)) as conn, conn:
-            rows = conn.execute("SELECT thread_id FROM thread_meta WHERE thread_id>? ORDER BY thread_id LIMIT ?",
-                                (after, limit + 1)).fetchall()
+            from row_bot.application.conversation_search import _library_revision
+            revision = _library_revision(conn) + ":" + group
+            after = None
+            if cursor:
+                try:
+                    cut, after = json.loads(base64.urlsafe_b64decode(cursor))
+                    if cut != revision or not isinstance(after, list) or len(after) != 3:
+                        raise ValueError()
+                except (ValueError, TypeError) as exc:
+                    raise ClientPlatformError("cursor_expired") from exc
+            rows = conn.execute(
+                "SELECT thread_id,CASE WHEN COALESCE(pinned_at,'')<>'' THEN 1 ELSE 0 END AS pinned,"
+                "COALESCE(updated_at,'') AS recent FROM thread_meta "
+                + "WHERE " + ({"all": "1=1", "pinned": "COALESCE(pinned_at,'')<>''",
+                    "artifact": "(COALESCE(project_id,'')<>'' OR EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(resource_bindings_json) THEN resource_bindings_json ELSE '[]' END) WHERE json_extract(value,'$.kind')='artifact'))",
+                    "workspace": "(COALESCE(developer_workspace_id,'')<>'' OR EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(resource_bindings_json) THEN resource_bindings_json ELSE '[]' END) WHERE json_extract(value,'$.kind')='workspace'))"}[group]) + " "
+                + ("AND (CASE WHEN COALESCE(pinned_at,'')<>'' THEN 1 ELSE 0 END,COALESCE(updated_at,''),thread_id)<(?,?,?) " if after else "")
+                + "ORDER BY pinned DESC,recent DESC,thread_id DESC LIMIT ?",
+                (*after, limit + 1) if after else (limit + 1,),
+            ).fetchall()
         more = len(rows) > limit
         selected = rows[:limit]
         return {"items": [self.get_conversation(row[0]) for row in selected], "has_more": more,
-                "next_cursor": base64.urlsafe_b64encode(selected[-1][0].encode()).decode() if more else None}
+                "next_cursor": base64.urlsafe_b64encode(json.dumps([revision, [selected[-1][1], selected[-1][2], selected[-1][0]]]).encode()).decode() if more else None}
 
     def _refresh_checkpoint(self, conversation_id: str) -> None:
         from row_bot import threads
@@ -278,10 +314,16 @@ class ClientPlatformService:
         result = admissions.receipt(owner_id, command_id)
         if result is None:
             raise ClientPlatformError("not_found")
-        return result
+        if result.get("status") == "admitting" and result.get("conversation_id") and not result.get("setup_command_id"):
+            from row_bot import threads
+            conversation = result["conversation_id"]
+            if threads._thread_exists(conversation) and not threads._thread_write_blocked(conversation):
+                return {**result, "status": "completed", "revision": str(self._metadata(conversation)["client_revision"])}
+        from row_bot.application.workspace_setup import reconcile_setup_receipt
+        return reconcile_setup_receipt(result)
 
     def execute(self, *, owner_id: str, idempotency_key: str, command: dict, target: str,
-                validate: Callable[[], None] | None = None) -> dict:
+                validate: Callable[[], None] | None = None, authorized_folder: Any = None) -> dict:
         with _COMMAND_LOCK:
             claimed = False
             try:
@@ -293,10 +335,24 @@ class ClientPlatformService:
                 claimed = True
                 if validate:
                     validate()
-                result = self._execute(command, target)
+                if command["type"] in {"resource.setup", "resource.continue"}:
+                    from row_bot.application.workspace_setup import setup
+                    result = setup(self, command, target, owner_id=owner_id, key=idempotency_key,
+                                   authorized_folder=authorized_folder, validate=validate)
+                else:
+                    if command["type"] == "conversation.create":
+                        conversation = str(uuid.uuid5(uuid.UUID(str(command["command_id"])), "conversation"))
+                        admissions.command_progress(owner_id, idempotency_key, {
+                            "command_id": command["command_id"], "conversation_id": conversation, "status": "admitting",
+                        })
+                    result = self._execute(command, target)
                 result["command_id"] = command["command_id"]
                 return admissions.complete_command(owner_id, idempotency_key, result)
             except admissions.AdmissionError as exc:
+                if str(exc) == "operation_uncertain" and command["type"] == "conversation.create":
+                    recovered = self.receipt(owner_id, command["command_id"])
+                    if recovered.get("status") == "completed":
+                        return recovered
                 if claimed:
                     admissions.reject_command(owner_id, idempotency_key, str(exc), exc.current_revision)
                 raise ClientPlatformError(str(exc), exc.current_revision) from exc
@@ -310,8 +366,8 @@ class ClientPlatformService:
         payload = command.get("payload") or {}
         kind = command["type"]
         if kind == "conversation.create":
-            conversation_id = str(uuid.uuid4())
-            threads._save_thread_meta(conversation_id, str(payload.get("title") or "New conversation"))
+            conversation_id = str(uuid.uuid5(uuid.UUID(str(command["command_id"])), "conversation"))
+            threads.create_thread(str(payload.get("title") or "New conversation"), thread_id=conversation_id)
             return {"conversation_id": conversation_id, "revision": "0", "status": "completed"}
         if kind == "approval.resolve":
             approval = self.get_approval(target)
@@ -326,12 +382,48 @@ class ClientPlatformService:
             with closing(sqlite3.connect(threads.DB_PATH)) as conn, conn:
                 if kind.endswith("rename"):
                     field, value = "name", str(payload.get("title") or "").strip()[:120]
+                    if not value:
+                        raise ClientPlatformError("invalid_command")
                 else:
                     field, value = "pinned_at", datetime.now(timezone.utc).isoformat() if payload.get("pinned") else ""
                 changed = conn.execute(f"UPDATE thread_meta SET {field}=?,client_revision=client_revision+1 WHERE thread_id=? AND client_revision=?",
                                        (value, target, row["client_revision"])).rowcount
                 if not changed:
                     raise ClientPlatformError("revision_conflict")
+                if kind.endswith("rename"):
+                    conn.execute("UPDATE thread_meta SET name_source='manual' WHERE thread_id=?", (target,))
+            return {"conversation_id": target, "revision": str(row["client_revision"] + 1), "status": "completed"}
+        if kind == "conversation.controls":
+            if self.registry.active(target):
+                raise ClientPlatformError("generation_active")
+            from row_bot.providers.selection import parse_model_ref
+            selection = payload.get("model_selection")
+            model = selection["model_ref"] if selection else str(row.get("model_override") or "")
+            if selection and (parse_model_ref(model) or (None,))[0] != selection["provider_id"]:
+                raise ClientPlatformError("model_selection_mismatch")
+            from row_bot.agent_profiles import require_agent_profile
+            profile = require_agent_profile(payload["profile_id"], enabled_only=True) if payload.get("profile_id") else None
+            from row_bot.application.reasoning_controls import validated_control, merged_selection
+            reasoning_control = payload.get("reasoning")
+            reasoning_selection = validated_control(model, reasoning_control) if reasoning_control is not None else None
+            with closing(sqlite3.connect(threads.DB_PATH)) as conn, conn:
+                conn.execute("BEGIN IMMEDIATE")
+                current = conn.execute("SELECT reasoning_selections_json FROM thread_meta WHERE thread_id=?", (target,)).fetchone()
+                reasoning_json = current[0] if current else ""
+                if reasoning_selection is not None:
+                    reasoning_json = merged_selection(reasoning_json, model, reasoning_selection)
+                changed = conn.execute(
+                    "UPDATE thread_meta SET model_override=?,approval_mode=?,agent_profile_id=?,agent_profile_slug=?,"
+                    "client_runtime_mode=?,reasoning_selections_json=?,client_revision=client_revision+1 WHERE thread_id=? AND client_revision=?",
+                    (model, payload["approval_mode"], profile["id"] if profile else "", profile["slug"] if profile else "",
+                     payload["runtime_mode"], reasoning_json, target, row["client_revision"]),
+                ).rowcount
+                if not changed:
+                    raise ClientPlatformError("revision_conflict")
+            if reasoning_selection is not None:
+                from row_bot.providers.reasoning import clear_reasoning_suppression
+                clear_reasoning_suppression(target, model)
+            self.projection.publish(target, "resource.changed", {"revision": str(row["client_revision"] + 1)})
             return {"conversation_id": target, "revision": str(row["client_revision"] + 1), "status": "completed"}
         if kind in {"conversation.bind", "conversation.unbind"}:
             from row_bot.conversation_resources import bind, unbind, ResourceError
@@ -356,20 +448,29 @@ class ClientPlatformService:
             return self._start(target, payload, resume=kind.endswith("resume"), command_id=str(command["command_id"]))
         if kind == "conversation.stop":
             self.registry.stop(target)
+            from row_bot.application.client_queue import pause_pending
+            pause_pending(self, target)
             for handle in self.registry.active(target):
                 self.projection.publish(target, "generation.state", handle.view())
             return {"conversation_id": target, "status": "cancel_requested"}
         if kind == "conversation.steer":
             from row_bot.agent_orchestrator import get_active_orchestration, route_parent_steering
             orchestration = get_active_orchestration(target)
-            if not orchestration:
-                raise ClientPlatformError("generation_not_steerable")
             routed = route_parent_steering(parent_thread_id=target,
                 incoming_generation_id=str(payload.get("steering_id") or command["command_id"]),
-                content=str(payload.get("text") or ""))
+                content=str(payload.get("text") or "")) if orchestration else None
             if not routed:
-                raise ClientPlatformError("generation_not_steerable")
+                from row_bot.application.client_queue import enqueue
+                return enqueue(self, target, str(payload.get("steering_id") or command["command_id"]),
+                               str(payload.get("text") or ""), command_id=str(command["command_id"]))
             return {"conversation_id": target, "status": "accepted"}
+        if kind in {"conversation.queue.edit", "conversation.queue.remove", "conversation.queue.dispatch"}:
+            from row_bot.application import client_queue
+            if kind.endswith("dispatch"):
+                return client_queue.dispatch(self, target, submission_id=str(payload["submission_id"]),
+                    expected_revision=str(payload["expected_queue_revision"]))
+            return client_queue.change(self, target, str(payload["submission_id"]),
+                str(payload["expected_queue_revision"]), text=payload.get("text"), remove=kind.endswith("remove"))
         if kind == "conversation.delete":
             from row_bot.thread_cleanup import delete_thread
             admissions.close_admission(target)
@@ -381,10 +482,18 @@ class ClientPlatformService:
         raise ClientPlatformError("invalid_command")
 
     def _start(self, conversation_id: str, payload: dict, *, resume: bool, command_id: str = "",
-               approval_context: dict | None = None) -> dict:
+               approval_context: dict | None = None, queue_record: dict | None = None,
+               frozen_context: dict | None = None) -> dict:
         if self.registry.active(conversation_id):
             raise ClientPlatformError("generation_active")
+        from row_bot.application import client_queue
+        frozen_config = (frozen_context or {}).get("configurable") or {}
         selection = payload.get("model_selection") or {}
+        if frozen_context is not None:
+            from row_bot.providers.selection import parse_model_ref
+            captured_model = str(frozen_config.get("model_override") or "")
+            parsed_model = parse_model_ref(captured_model)
+            selection = {"provider_id": parsed_model[0] if parsed_model else "", "model_ref": captured_model}
         model_ref = str(selection.get("model_ref") or "")
         provider_id = str(selection.get("provider_id") or "")
         if not model_ref or not provider_id:
@@ -394,8 +503,45 @@ class ClientPlatformService:
         if parsed and parsed[0] != provider_id:
             raise ClientPlatformError("model_selection_mismatch")
         model_ref = model_choice_value(model_ref, provider_id=provider_id)
+        from row_bot.approval_policy import normalize_approval_mode
+        row = self._metadata(conversation_id)
+        if frozen_context is not None:
+            row = {**row, "approval_mode": frozen_config.get("approval_mode"),
+                   "agent_profile_id": frozen_config.get("agent_profile_id"),
+                   "client_runtime_mode": frozen_config.get("runtime_mode")}
+        runtime_mode = row.get("client_runtime_mode") or "agent"
+        from row_bot.conversation_resources import list_bindings, describe
+        captured_bindings = list_bindings(conversation_id).bindings
+        targets = frozen_context.get("write_targets") if frozen_context is not None else payload.get("write_targets")
+        if frozen_context is not None:
+            from row_bot.conversation_resources import ResourceBinding
+            frozen_bindings = tuple(ResourceBinding(**value) for value in frozen_context["bindings"])
+            if any(binding not in captured_bindings for binding in frozen_bindings):
+                raise ClientPlatformError("resource_binding_revoked")
+            captured_bindings = frozen_bindings
+            for binding in frozen_bindings:
+                if describe(binding).resource_revision != frozen_context["resource_revisions"].get(binding.binding_id):
+                    raise ClientPlatformError("resource_revision_conflict")
+        if targets is not None:
+            from row_bot.application.workspace_setup import generation_readiness
+            if not generation_readiness(self, {"model_selection": selection, "runtime_mode": runtime_mode}):
+                raise ClientPlatformError("model_configuration_required")
+            selected = []
+            seen_kinds = set()
+            for target in targets:
+                binding = next((item for item in captured_bindings if item.binding_id == target["binding_id"]), None)
+                if binding is None or binding.resource_id != target["resource_id"] or binding.kind != target["kind"] or binding.revision != target["binding_revision"]:
+                    raise ClientPlatformError("resource_binding_revoked")
+                if binding.kind in seen_kinds:
+                    raise ClientPlatformError("resource_ambiguous")
+                seen_kinds.add(binding.kind)
+                descriptor = describe(binding)
+                if not descriptor.available or descriptor.resource_revision != target["resource_revision"]:
+                    raise ClientPlatformError("resource_revision_conflict")
+                selected.append(binding)
+            captured_bindings = tuple(selected)
         submission_id = str(payload.get("submission_id") or uuid.uuid4())
-        generation_id = str(uuid.uuid4())
+        generation_id = str(queue_record["generation_id"]) if queue_record else str(uuid.uuid4())
         text = str(payload.get("text") or "")
         attachment_refs = list(payload.get("attachment_refs") or ())
         if len(attachment_refs) > 32:
@@ -410,11 +556,28 @@ class ClientPlatformService:
                 if total_size > UPLOAD_BATCH_BYTES:
                     raise ClientPlatformError("payload_too_large")
         config = {"configurable": {"thread_id": conversation_id, "runtime_surface": "normal_chat",
-                  "runtime_mode": "agent", "generation_id": generation_id,
+                  "runtime_mode": runtime_mode, "generation_id": generation_id,
+                  "approval_mode": normalize_approval_mode(row.get("approval_mode")),
+                  "agent_profile_id": row.get("agent_profile_id") or "",
                   "platform_submission_id": submission_id,
                   "platform_command_id": command_id,
                   "model_override": model_ref}}
-        handle = self.admit_execution(conversation_id, config, text=None if resume else text)
+        from copy import deepcopy
+        from row_bot.application.profile_controls import freeze_profile
+        if frozen_context is not None:
+            for field in ("agent_profile_snapshot", "agent_profile_frozen", "tool_allowlist", "reasoning_snapshot"):
+                if field in frozen_config:
+                    config["configurable"][field] = deepcopy(frozen_config[field])
+        freeze_profile(config["configurable"], frozen=frozen_context is not None)
+        from row_bot.application.reasoning_controls import freeze_reasoning, restore_resume_reasoning
+        if resume:
+            restore_resume_reasoning(config["configurable"], conversation_id,
+                                     pass_id=str((approval_context or {}).get("pass_id") or ""))
+        freeze_reasoning(config["configurable"], conversation_id, revalidate=frozen_context is not None)
+        queue_context = frozen_context or client_queue.freeze_context(config, captured_bindings, targets)
+        handle = self.admit_execution(conversation_id, config, text=None if resume else text,
+            queued_pass_id=str(queue_record["pass_id"]) if queue_record else "", queue_context=queue_context,
+            resume_pending=resume)
         admitted = {"pass_id": handle.pass_id, "submission_id": submission_id, "generation_id": generation_id}
 
         def producer() -> None:
@@ -434,7 +597,7 @@ class ClientPlatformService:
                 from row_bot.conversation_resources import execution_context
                 from row_bot.application.attachment_context import prepared_attachments
                 self.registry.check_dispatch(handle)
-                with execution_context(conversation_id), prepared_attachments(conversation_id, files, model_ref=model_ref) as attachment_context:
+                with execution_context(conversation_id, captured_bindings=captured_bindings), prepared_attachments(conversation_id, files, model_ref=model_ref) as attachment_context:
                     self.registry.check_dispatch(handle)
                     prepared_text = text + ("\n\n" + attachment_context if attachment_context else "")
                     if attachment_context and not resume:
@@ -442,12 +605,30 @@ class ClientPlatformService:
                         handle.input_checkpoint_revision = replace_admitted_human_content(
                             conversation_id, submission_id, prepared_text, expected_revision=handle.input_checkpoint_revision)
                     self.registry.check_dispatch(handle)
+                    if frozen_context is not None:
+                        current = list_bindings(conversation_id)
+                        for binding in captured_bindings:
+                            if binding not in current.bindings or describe(binding).resource_revision != frozen_context["resource_revisions"].get(binding.binding_id):
+                                raise ClientPlatformError("resource_binding_revoked")
+                    if targets is not None:
+                        # Scheduling/attachment preparation can yield to a resource
+                        # edit. Recheck the accepted cut at the effect boundary.
+                        current = list_bindings(conversation_id)
+                        for target in targets:
+                            binding = next((item for item in current.bindings if item.binding_id == target["binding_id"]), None)
+                            if binding not in captured_bindings or binding is None:
+                                raise ClientPlatformError("resource_binding_revoked")
+                            descriptor = describe(binding)
+                            if not descriptor.available or descriptor.resource_revision != target["resource_revision"]:
+                                raise ClientPlatformError("resource_revision_conflict")
                     events = ((self.resume_factory or resume_stream_agent)(enabled, config,
                               bool((approval_context or {}).get("approved")),
                               interrupt_ids=(approval_context or {}).get("interrupt_ids"), stop_event=handle.cancel_scope.stop_event)
                               if resume else (self.stream_factory or stream_agent)(prepared_text, enabled, config, stop_event=handle.cancel_scope.stop_event))
                     for event in events:
                         self.registry.check_dispatch(handle)
+                        if self.stream_factory is not None and event[0] in {"token", "tool_start", "tool_done", "output_binding"}:
+                            client_queue.acknowledge_consumed(handle)
                         self.observe_event(conversation_id, event, handle)
                         if event[0] == "done":
                             status = "completed"
@@ -534,6 +715,7 @@ class ClientPlatformService:
         elif kind in {"tool_call", "tool_done"}:
             getter = getattr(payload, "get", lambda key, default="": default)
             self.projection.publish(conversation_id, "tool.activity", {
+                **({"tool_name": str(getter("name") or getter("tool_name"))[:128]} if getter("name") or getter("tool_name") else {}),
                 "state": kind, "tool_call_id": str(getter("tool_call_id") or getter("id") or ""),
                 "message_id": str(getter("message_id") or ""),
                 "pass_id": handle.pass_id, "segment_id": handle.segment_id})
@@ -544,7 +726,8 @@ class ClientPlatformService:
                         "tool_call_id": str(getter("tool_call_id") or ""),
                         "message_id": str(getter("message_id") or "")})
                 if getter("media_error"):
-                    self.projection.publish(conversation_id, "generation.error", {"code": "media_unavailable"})
+                    self.projection.publish(conversation_id, "media.error", {"code": "media_unavailable",
+                        "tool_call_id": str(getter("tool_call_id") or ""), "message_id": str(getter("message_id") or "")})
                 content = str(getter("content") or "")
                 if content.startswith("__IMAGE__:"):
                     from row_bot.application.attachments import register_attachment
@@ -581,12 +764,13 @@ class ClientPlatformService:
 
     def get_approval(self, approval_id: str) -> dict:
         from row_bot.tasks import _get_conn
-        with _get_conn() as conn:
+        with closing(_get_conn()) as conn:
             row = conn.execute("SELECT * FROM approval_requests WHERE id=?", (approval_id,)).fetchone()
         if row is None:
             raise ClientPlatformError("not_found")
         return {"id": row["id"], "status": row["status"], "revision": "0" if row["status"] == "pending" else "1",
-                "expires_at": row["timeout_at"], "policy_revision": "1", "action_digest": admissions.keyed_digest(dict(row))}
+                "expires_at": row["timeout_at"], "summary": str(row["message"] or "Review the pending action.")[:4096],
+                "policy_revision": "1", "action_digest": admissions.keyed_digest(dict(row))}
 
     def claim_legacy_approval(self, approval_id: str, conversation_id: str, approved: bool) -> dict:
         """Consume the same durable approval before the retained renderer resumes."""
@@ -600,6 +784,10 @@ class ClientPlatformService:
                 raise ClientPlatformError("conversation_deleting")
             if self.registry.active(conversation_id):
                 raise ClientPlatformError("generation_active")
+            from row_bot.application.reasoning_controls import restore_resume_reasoning
+            context = json.loads(row["approval_payload_json"])
+            restore_resume_reasoning({"model_override": context["model_selection"]["model_ref"]},
+                                     conversation_id, pass_id=str(context.get("pass_id") or ""))
             claimed = claim_conversation_approval(approval_id, approved,
                 expected_payload=row["approval_payload_json"], expected_timeout=row["timeout_at"])
             if not claimed:
@@ -632,7 +820,8 @@ class ClientPlatformService:
             context = self.claim_legacy_approval(approval_id, conversation_id, payload.get("decision") == "approve")
             result = self._start(conversation_id, {"model_selection": context["model_selection"]}, resume=True,
                                  approval_context={"approved": payload.get("decision") == "approve",
-                                                   "interrupt_ids": context["interrupt_ids"]})
+                                                   "interrupt_ids": context["interrupt_ids"],
+                                                   "pass_id": context.get("pass_id")})
             return {**result, "approval_id": approval_id}
         if not respond_to_approval(row["resume_token"], payload.get("decision") == "approve"):
             raise ClientPlatformError("approval_already_resolved")

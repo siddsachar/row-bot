@@ -1396,6 +1396,8 @@ def build_chat_input_bar(
                     start_realtime_client_js(
                         sink_id=p.realtime_event_sink.id,
                         session_id=session_id,
+                        thread_id=str(state.thread_id or ""),
+                        generation_id=str(getattr(_active_generations.get(state.thread_id), "generation_id", "") or ""),
                     ),
                     context="shared_start_realtime_talk",
                 )

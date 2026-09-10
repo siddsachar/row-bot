@@ -1,0 +1,1260 @@
+{
+  "recording_version": 1,
+  "protocol_version": "1.0",
+  "fixture_id": "F-P12",
+  "kind": "service_recording",
+  "deterministic_seed": "F-P12:v1",
+  "source": {
+    "base_commit": "5c0f2217074d5ca940d8443d8c05a83329bc9dc1",
+    "files": {
+      "src/row_bot/api/v1/__init__.py": "f54ba3b1c9555e65c5e715ba99685ae3c795ced6c6c15c9bac2bc3f18a1498a8",
+      "src/row_bot/api/v1/routes.py": "949496f944a1bd29b7aa1f45a46ae31f78b8077ad3ac24f05cb3117b52b1bfa5",
+      "src/row_bot/api/v1/schemas.py": "169f541f5040b4047bd26ab35575297fc8b336958f2c0f8e3ae0203667befdec",
+      "src/row_bot/api/v1/security.py": "706e0f188be59774f58882500529975c6243f1b0202b5132965bd4b99b638510",
+      "src/row_bot/application/__init__.py": "139fbb6a5592b9bf600f82c1623c05a4f0b90b793e4d7183cac03951984fff51",
+      "src/row_bot/application/attachment_context.py": "b8c463c9f8b599d203890b0bb9dabddc982333333f71d9262c4e453278c0f2ef",
+      "src/row_bot/application/attachments.py": "a97079f9daeecd7730f42981f164e93996ac5b3d6c27a8da9e6b9f5711d2c988",
+      "src/row_bot/application/client_platform.py": "3c54a93c91dfb18f044c9adc349d8557cafff1df1d5a0175cc25fc31b8c3bd6b",
+      "src/row_bot/application/client_queue.py": "070222e060b10c2e76ce2a3bf23cf85721da40f76035a4db530bf675389ed622",
+      "src/row_bot/application/context_status.py": "932a1dc0fff85fdacdfdfa79802d84540f1119434e9b2e3bd78adb846f0124cf",
+      "src/row_bot/application/conversation_drafts.py": "d56d012f515e221b44ad01ba9a959b475fa6d8a97e0fc055aad2734bb635d4be",
+      "src/row_bot/application/conversation_open.py": "e3099d6fba176c295b3ee134d49b44f7a15a1e7b18f267e3f2a76b1899853dd3",
+      "src/row_bot/application/conversation_search.py": "d8ddea22b6bbbc2cb6290cdac31c676e8851e37ab6f072e6b9af43cd0720f670",
+      "src/row_bot/application/delegated_activity.py": "c8647ec140f142858dde896fa46d5a90d121b92df423abeadcb497ee58ca7e19",
+      "src/row_bot/application/folder_selections.py": "1b419fa4a329035de3f6500e9c3b39bedb8e301b0db9f29f76387e96d1a2fa1e",
+      "src/row_bot/application/generated_media.py": "9f1168e932b4f11ad92e283c04358527e474252069b59c0fb3392d13108b6416",
+      "src/row_bot/application/lifecycle.py": "7c5fea18f048a181818ec36213fd315903333476bc9f3d1c4cf178cb62d387f6",
+      "src/row_bot/application/live_content.py": "c446f4b9a39b9a750cd6f9f48a6821d20e7c851ded15cbef036c4c17881080b1",
+      "src/row_bot/application/message_text.py": "4313b9344e8822ac0df0f3e1e554834519eccc8fa53d8d3a52899b5e734b0313",
+      "src/row_bot/application/profile_controls.py": "6d32c392ac97697774a0187e5e1cd140a339b3831ecb4c336cd120f48bdffc8c",
+      "src/row_bot/application/reasoning_controls.py": "fb5d9515ce034aaca9d4d8d2c0ed8d857f20ba21a6d0423837457f9a3b06c97c",
+      "src/row_bot/application/workspace_setup.py": "34f1a26012134dea9e03475cd7460307d66310d06126a75dcc2e24dfce26aa9f",
+      "src/row_bot/conversation_resources.py": "cb1eda58dbbd67a235d62c5da2950120f6969a2f22cd03754fa3e45e1f52c553",
+      "src/row_bot/projection/__init__.py": "b13e25f65e14b5273db9d6de9da2149de0b0c62883b52e3379ec59c5a3ffb375",
+      "src/row_bot/projection/canonical.py": "14a05e08289ccc6b9f431b5799c0c9d545cff7e5395d3f2f52b4a7c78073c8db",
+      "src/row_bot/projection/conversation.py": "d403bfec5c9ce7a18e3ecd7d7a7df156195e7393f951e836301264fcb866c6cc",
+      "src/row_bot/runtime/__init__.py": "dc07d08406de7b69a49a74ba25964c5ed928f062d84f2d04dfed184a9b87e5cf",
+      "src/row_bot/runtime/admissions.py": "e0d9da5b1ee281c2ec77c30f4b6b4ae1e2dd3ae439edcd3af317a380684ba927",
+      "src/row_bot/runtime/checkpoint_reader.py": "e9a67fe7bd03a36af813e4c6ebd9c1e1eb3a56ddf12cc55766d865f3a5afc3b0",
+      "src/row_bot/runtime/executions.py": "3e98f3b34d2583b9f1fdba07a8b8ed422b8acb33e3afc4351b14feecfda5b82e",
+      "src/row_bot/tasks.py": "f794fc537b27b326f811d823c0b96263f9c04553457d46683ca8319e8213e0db",
+      "src/row_bot/threads.py": "4298a8ecf3833abd1b6c93ce67d417cb0293e0dc5cda5cc197b909128c3d6944",
+      "tests/helpers/client_platform_fakes.py": "11719558a358b7e8b3511074a71d2d1d3c1a63b46e4f12c3f8c77718249786b5",
+      "src/row_bot/providers/reasoning.py": "a3085851270611feb558c4f9d6f8e7bfa301e26c806de922022c35df5564c0ba",
+      "tests/contracts/client_platform/test_reasoning_recording.py": "4561ce83651ae6e95d1fa1fae6ff8915836926387285e0c0c821b174010162b1"
+    },
+    "sha256": "3e88a349750064192ebb9442f4a147e095f22082a9f58863fa47814eaac54e82"
+  },
+  "records": [
+    {
+      "schema": "Command",
+      "value": {
+        "command_id": "1539e2b7-018e-5b9f-9898-317210cb7642",
+        "client_session_id": "4246081b-f1b2-5840-bb9f-37847f00b57e",
+        "type": "conversation.controls",
+        "expected_revision": "0",
+        "payload": {
+          "model_selection": {
+            "provider_id": "fixture",
+            "model_ref": "model:fixture:fixture/model"
+          },
+          "runtime_mode": "agent",
+          "profile_id": "",
+          "approval_mode": "approve"
+        }
+      }
+    },
+    {
+      "schema": "CommandReceipt",
+      "value": {
+        "command_id": "1539e2b7-018e-5b9f-9898-317210cb7642",
+        "status": "completed",
+        "conversation_id": "conversation-a",
+        "revision": "1"
+      }
+    },
+    {
+      "schema": "ConversationWorkspace",
+      "value": {
+        "conversation_id": "conversation-a",
+        "revision": "1",
+        "controls": {
+          "model_selection": {
+            "provider_id": "fixture",
+            "model_ref": "model:fixture:fixture/model"
+          },
+          "runtime_mode": "agent",
+          "profile_id": "",
+          "approval_mode": "approve"
+        },
+        "profiles": [
+          {
+            "id": "builtin:row_bot_default",
+            "label": "Default"
+          },
+          {
+            "id": "builtin:plan",
+            "label": "Plan"
+          },
+          {
+            "id": "builtin:research",
+            "label": "Research"
+          },
+          {
+            "id": "builtin:write",
+            "label": "Write"
+          },
+          {
+            "id": "builtin:ideas",
+            "label": "Ideas"
+          },
+          {
+            "id": "builtin:knowledge",
+            "label": "Knowledge"
+          },
+          {
+            "id": "builtin:data",
+            "label": "Data"
+          },
+          {
+            "id": "builtin:automate",
+            "label": "Automate"
+          },
+          {
+            "id": "builtin:review",
+            "label": "Review"
+          },
+          {
+            "id": "builtin:design",
+            "label": "Design"
+          },
+          {
+            "id": "builtin:develop",
+            "label": "Develop"
+          },
+          {
+            "id": "builtin:code_review",
+            "label": "Code Review"
+          },
+          {
+            "id": "builtin:ui_check",
+            "label": "UI Check"
+          },
+          {
+            "id": "builtin:worker",
+            "label": "Worker"
+          },
+          {
+            "id": "builtin:synthesize",
+            "label": "Synthesize"
+          },
+          {
+            "id": "builtin:verify",
+            "label": "Verify"
+          }
+        ],
+        "resources": [],
+        "actions": [
+          {
+            "action": "send",
+            "ready": false,
+            "code": "model_configuration_required"
+          },
+          {
+            "action": "generate",
+            "ready": false,
+            "code": "model_configuration_required"
+          },
+          {
+            "action": "create_deck",
+            "ready": true,
+            "code": null
+          },
+          {
+            "action": "bind",
+            "ready": true,
+            "code": null
+          },
+          {
+            "action": "preview",
+            "ready": true,
+            "code": null
+          }
+        ],
+        "context_usage": {
+          "conversation_id": "conversation-a",
+          "state": "unknown",
+          "estimated_input_tokens": null,
+          "usable_input_tokens": null,
+          "native_window_tokens": null,
+          "last_confirmed_input_tokens": null,
+          "model_ref": null
+        },
+        "reasoning": {
+          "model_ref": "model:fixture:fixture/model",
+          "capability_revision": "f678ada11b095660c6dad70544c4d9a411beec2ecc6420a7549ac7efe65b5592",
+          "available": true,
+          "selection": {
+            "kind": "provider_default"
+          },
+          "choices": [
+            {
+              "selection": {
+                "kind": "provider_default"
+              },
+              "label": "Provider default"
+            },
+            {
+              "selection": {
+                "kind": "effort",
+                "effort": "low"
+              },
+              "label": "Low"
+            },
+            {
+              "selection": {
+                "kind": "effort",
+                "effort": "high"
+              },
+              "label": "High"
+            }
+          ],
+          "supports_budget": false,
+          "budget_min": 1,
+          "budget_max": 0,
+          "stale": false
+        }
+      }
+    },
+    {
+      "schema": "Command",
+      "value": {
+        "command_id": "06e2058f-a6ce-5736-bee7-337cadd546f1",
+        "client_session_id": "4246081b-f1b2-5840-bb9f-37847f00b57e",
+        "type": "conversation.controls",
+        "expected_revision": "1",
+        "payload": {
+          "model_selection": {
+            "provider_id": "fixture",
+            "model_ref": "model:fixture:fixture/model"
+          },
+          "runtime_mode": "agent",
+          "profile_id": "",
+          "approval_mode": "approve",
+          "reasoning": {
+            "model_ref": "model:fixture:fixture/model",
+            "capability_revision": "f678ada11b095660c6dad70544c4d9a411beec2ecc6420a7549ac7efe65b5592",
+            "selection": {
+              "kind": "effort",
+              "effort": "low"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema": "CommandReceipt",
+      "value": {
+        "command_id": "06e2058f-a6ce-5736-bee7-337cadd546f1",
+        "status": "completed",
+        "conversation_id": "conversation-a",
+        "revision": "2"
+      }
+    },
+    {
+      "schema": "Command",
+      "value": {
+        "command_id": "06e2058f-a6ce-5736-bee7-337cadd546f1",
+        "client_session_id": "4246081b-f1b2-5840-bb9f-37847f00b57e",
+        "type": "conversation.controls",
+        "expected_revision": "1",
+        "payload": {
+          "model_selection": {
+            "provider_id": "fixture",
+            "model_ref": "model:fixture:fixture/model"
+          },
+          "runtime_mode": "agent",
+          "profile_id": "",
+          "approval_mode": "approve",
+          "reasoning": {
+            "model_ref": "model:fixture:fixture/model",
+            "capability_revision": "f678ada11b095660c6dad70544c4d9a411beec2ecc6420a7549ac7efe65b5592",
+            "selection": {
+              "kind": "effort",
+              "effort": "low"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema": "CommandReceipt",
+      "value": {
+        "command_id": "06e2058f-a6ce-5736-bee7-337cadd546f1",
+        "status": "completed",
+        "conversation_id": "conversation-a",
+        "revision": "2"
+      }
+    },
+    {
+      "schema": "ConversationWorkspace",
+      "value": {
+        "conversation_id": "conversation-a",
+        "revision": "2",
+        "controls": {
+          "model_selection": {
+            "provider_id": "fixture",
+            "model_ref": "model:fixture:fixture/model"
+          },
+          "runtime_mode": "agent",
+          "profile_id": "",
+          "approval_mode": "approve"
+        },
+        "profiles": [
+          {
+            "id": "builtin:row_bot_default",
+            "label": "Default"
+          },
+          {
+            "id": "builtin:plan",
+            "label": "Plan"
+          },
+          {
+            "id": "builtin:research",
+            "label": "Research"
+          },
+          {
+            "id": "builtin:write",
+            "label": "Write"
+          },
+          {
+            "id": "builtin:ideas",
+            "label": "Ideas"
+          },
+          {
+            "id": "builtin:knowledge",
+            "label": "Knowledge"
+          },
+          {
+            "id": "builtin:data",
+            "label": "Data"
+          },
+          {
+            "id": "builtin:automate",
+            "label": "Automate"
+          },
+          {
+            "id": "builtin:review",
+            "label": "Review"
+          },
+          {
+            "id": "builtin:design",
+            "label": "Design"
+          },
+          {
+            "id": "builtin:develop",
+            "label": "Develop"
+          },
+          {
+            "id": "builtin:code_review",
+            "label": "Code Review"
+          },
+          {
+            "id": "builtin:ui_check",
+            "label": "UI Check"
+          },
+          {
+            "id": "builtin:worker",
+            "label": "Worker"
+          },
+          {
+            "id": "builtin:synthesize",
+            "label": "Synthesize"
+          },
+          {
+            "id": "builtin:verify",
+            "label": "Verify"
+          }
+        ],
+        "resources": [],
+        "actions": [
+          {
+            "action": "send",
+            "ready": false,
+            "code": "model_configuration_required"
+          },
+          {
+            "action": "generate",
+            "ready": false,
+            "code": "model_configuration_required"
+          },
+          {
+            "action": "create_deck",
+            "ready": true,
+            "code": null
+          },
+          {
+            "action": "bind",
+            "ready": true,
+            "code": null
+          },
+          {
+            "action": "preview",
+            "ready": true,
+            "code": null
+          }
+        ],
+        "context_usage": {
+          "conversation_id": "conversation-a",
+          "state": "unknown",
+          "estimated_input_tokens": null,
+          "usable_input_tokens": null,
+          "native_window_tokens": null,
+          "last_confirmed_input_tokens": null,
+          "model_ref": null
+        },
+        "reasoning": {
+          "model_ref": "model:fixture:fixture/model",
+          "capability_revision": "f678ada11b095660c6dad70544c4d9a411beec2ecc6420a7549ac7efe65b5592",
+          "available": true,
+          "selection": {
+            "kind": "effort",
+            "effort": "low"
+          },
+          "choices": [
+            {
+              "selection": {
+                "kind": "provider_default"
+              },
+              "label": "Provider default"
+            },
+            {
+              "selection": {
+                "kind": "effort",
+                "effort": "low"
+              },
+              "label": "Low"
+            },
+            {
+              "selection": {
+                "kind": "effort",
+                "effort": "high"
+              },
+              "label": "High"
+            }
+          ],
+          "supports_budget": false,
+          "budget_min": 1,
+          "budget_max": 0,
+          "stale": false
+        }
+      }
+    },
+    {
+      "schema": "Command",
+      "value": {
+        "command_id": "69fb3a80-73c3-5417-98ca-b4af9f993dc5",
+        "client_session_id": "4246081b-f1b2-5840-bb9f-37847f00b57e",
+        "type": "conversation.controls",
+        "expected_revision": "1",
+        "payload": {
+          "model_selection": {
+            "provider_id": "fixture",
+            "model_ref": "model:fixture:fixture/model"
+          },
+          "runtime_mode": "agent",
+          "profile_id": "",
+          "approval_mode": "approve",
+          "reasoning": {
+            "model_ref": "model:fixture:fixture/model",
+            "capability_revision": "f678ada11b095660c6dad70544c4d9a411beec2ecc6420a7549ac7efe65b5592",
+            "selection": {
+              "kind": "effort",
+              "effort": "high"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema": "Problem",
+      "value": {
+        "type": "urn:row-bot:error:revision_conflict",
+        "title": "Revision conflict",
+        "status": 409,
+        "code": "revision_conflict",
+        "request_id": "51d837f4-56ad-53ec-8dca-c6ef1b782f08",
+        "retryable": false,
+        "current_revision": "2",
+        "recovery": "reload_then_review"
+      }
+    },
+    {
+      "schema": "ConversationWorkspace",
+      "value": {
+        "conversation_id": "conversation-a",
+        "revision": "2",
+        "controls": {
+          "model_selection": {
+            "provider_id": "fixture",
+            "model_ref": "model:fixture:fixture/model"
+          },
+          "runtime_mode": "agent",
+          "profile_id": "",
+          "approval_mode": "approve"
+        },
+        "profiles": [
+          {
+            "id": "builtin:row_bot_default",
+            "label": "Default"
+          },
+          {
+            "id": "builtin:plan",
+            "label": "Plan"
+          },
+          {
+            "id": "builtin:research",
+            "label": "Research"
+          },
+          {
+            "id": "builtin:write",
+            "label": "Write"
+          },
+          {
+            "id": "builtin:ideas",
+            "label": "Ideas"
+          },
+          {
+            "id": "builtin:knowledge",
+            "label": "Knowledge"
+          },
+          {
+            "id": "builtin:data",
+            "label": "Data"
+          },
+          {
+            "id": "builtin:automate",
+            "label": "Automate"
+          },
+          {
+            "id": "builtin:review",
+            "label": "Review"
+          },
+          {
+            "id": "builtin:design",
+            "label": "Design"
+          },
+          {
+            "id": "builtin:develop",
+            "label": "Develop"
+          },
+          {
+            "id": "builtin:code_review",
+            "label": "Code Review"
+          },
+          {
+            "id": "builtin:ui_check",
+            "label": "UI Check"
+          },
+          {
+            "id": "builtin:worker",
+            "label": "Worker"
+          },
+          {
+            "id": "builtin:synthesize",
+            "label": "Synthesize"
+          },
+          {
+            "id": "builtin:verify",
+            "label": "Verify"
+          }
+        ],
+        "resources": [],
+        "actions": [
+          {
+            "action": "send",
+            "ready": false,
+            "code": "model_configuration_required"
+          },
+          {
+            "action": "generate",
+            "ready": false,
+            "code": "model_configuration_required"
+          },
+          {
+            "action": "create_deck",
+            "ready": true,
+            "code": null
+          },
+          {
+            "action": "bind",
+            "ready": true,
+            "code": null
+          },
+          {
+            "action": "preview",
+            "ready": true,
+            "code": null
+          }
+        ],
+        "context_usage": {
+          "conversation_id": "conversation-a",
+          "state": "unknown",
+          "estimated_input_tokens": null,
+          "usable_input_tokens": null,
+          "native_window_tokens": null,
+          "last_confirmed_input_tokens": null,
+          "model_ref": null
+        },
+        "reasoning": {
+          "model_ref": "model:fixture:fixture/model",
+          "capability_revision": "c2168a3b3b3ebefa93b0772d908f5019912993e4e649022e05ba433261b787fe",
+          "available": true,
+          "selection": {
+            "kind": "provider_default"
+          },
+          "choices": [
+            {
+              "selection": {
+                "kind": "provider_default"
+              },
+              "label": "Provider default"
+            }
+          ],
+          "supports_budget": true,
+          "budget_min": 128,
+          "budget_max": 4096,
+          "stale": true
+        }
+      }
+    },
+    {
+      "schema": "Command",
+      "value": {
+        "command_id": "045c46b6-9504-5fc8-b873-a4e72b5f93aa",
+        "client_session_id": "4246081b-f1b2-5840-bb9f-37847f00b57e",
+        "type": "conversation.controls",
+        "expected_revision": "2",
+        "payload": {
+          "model_selection": {
+            "provider_id": "fixture",
+            "model_ref": "model:fixture:fixture/model"
+          },
+          "runtime_mode": "agent",
+          "profile_id": "",
+          "approval_mode": "approve",
+          "reasoning": {
+            "model_ref": "model:fixture:fixture/model",
+            "capability_revision": "f678ada11b095660c6dad70544c4d9a411beec2ecc6420a7549ac7efe65b5592",
+            "selection": {
+              "kind": "effort",
+              "effort": "low"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema": "Problem",
+      "value": {
+        "type": "urn:row-bot:error:reasoning_capabilities_changed",
+        "title": "Reasoning capabilities changed",
+        "status": 409,
+        "code": "reasoning_capabilities_changed",
+        "request_id": "3cfde65a-c7db-56ec-bc94-ae4ca8ae90db",
+        "retryable": false,
+        "recovery": "reload_then_review"
+      }
+    },
+    {
+      "schema": "Command",
+      "value": {
+        "command_id": "74cb8ecf-33a6-5a28-a957-2b8bc420ebd0",
+        "client_session_id": "4246081b-f1b2-5840-bb9f-37847f00b57e",
+        "type": "conversation.controls",
+        "expected_revision": "2",
+        "payload": {
+          "model_selection": {
+            "provider_id": "fixture",
+            "model_ref": "model:fixture:fixture/model"
+          },
+          "runtime_mode": "agent",
+          "profile_id": "",
+          "approval_mode": "approve",
+          "reasoning": {
+            "model_ref": "model:fixture:fixture/model",
+            "capability_revision": "c2168a3b3b3ebefa93b0772d908f5019912993e4e649022e05ba433261b787fe",
+            "selection": {
+              "kind": "budget",
+              "budget": 127
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema": "Problem",
+      "value": {
+        "type": "urn:row-bot:error:invalid_reasoning_selection",
+        "title": "Invalid reasoning selection",
+        "status": 422,
+        "code": "invalid_reasoning_selection",
+        "request_id": "d79e6cd6-3ef8-5dcd-82ca-cdb224fde8b8",
+        "retryable": false,
+        "recovery": "none"
+      }
+    },
+    {
+      "schema": "Command",
+      "value": {
+        "command_id": "4a432c7b-1ffe-5655-b2a3-3a9a52ca5f0f",
+        "client_session_id": "4246081b-f1b2-5840-bb9f-37847f00b57e",
+        "type": "conversation.controls",
+        "expected_revision": "2",
+        "payload": {
+          "model_selection": {
+            "provider_id": "fixture",
+            "model_ref": "model:fixture:fixture/model"
+          },
+          "runtime_mode": "agent",
+          "profile_id": "",
+          "approval_mode": "approve",
+          "reasoning": {
+            "model_ref": "model:fixture:fixture/model",
+            "capability_revision": "c2168a3b3b3ebefa93b0772d908f5019912993e4e649022e05ba433261b787fe",
+            "selection": {
+              "kind": "budget",
+              "budget": 128
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema": "CommandReceipt",
+      "value": {
+        "command_id": "4a432c7b-1ffe-5655-b2a3-3a9a52ca5f0f",
+        "status": "completed",
+        "conversation_id": "conversation-a",
+        "revision": "3"
+      }
+    },
+    {
+      "schema": "ConversationWorkspace",
+      "value": {
+        "conversation_id": "conversation-a",
+        "revision": "3",
+        "controls": {
+          "model_selection": {
+            "provider_id": "fixture",
+            "model_ref": "model:fixture:fixture/model"
+          },
+          "runtime_mode": "agent",
+          "profile_id": "",
+          "approval_mode": "approve"
+        },
+        "profiles": [
+          {
+            "id": "builtin:row_bot_default",
+            "label": "Default"
+          },
+          {
+            "id": "builtin:plan",
+            "label": "Plan"
+          },
+          {
+            "id": "builtin:research",
+            "label": "Research"
+          },
+          {
+            "id": "builtin:write",
+            "label": "Write"
+          },
+          {
+            "id": "builtin:ideas",
+            "label": "Ideas"
+          },
+          {
+            "id": "builtin:knowledge",
+            "label": "Knowledge"
+          },
+          {
+            "id": "builtin:data",
+            "label": "Data"
+          },
+          {
+            "id": "builtin:automate",
+            "label": "Automate"
+          },
+          {
+            "id": "builtin:review",
+            "label": "Review"
+          },
+          {
+            "id": "builtin:design",
+            "label": "Design"
+          },
+          {
+            "id": "builtin:develop",
+            "label": "Develop"
+          },
+          {
+            "id": "builtin:code_review",
+            "label": "Code Review"
+          },
+          {
+            "id": "builtin:ui_check",
+            "label": "UI Check"
+          },
+          {
+            "id": "builtin:worker",
+            "label": "Worker"
+          },
+          {
+            "id": "builtin:synthesize",
+            "label": "Synthesize"
+          },
+          {
+            "id": "builtin:verify",
+            "label": "Verify"
+          }
+        ],
+        "resources": [],
+        "actions": [
+          {
+            "action": "send",
+            "ready": false,
+            "code": "model_configuration_required"
+          },
+          {
+            "action": "generate",
+            "ready": false,
+            "code": "model_configuration_required"
+          },
+          {
+            "action": "create_deck",
+            "ready": true,
+            "code": null
+          },
+          {
+            "action": "bind",
+            "ready": true,
+            "code": null
+          },
+          {
+            "action": "preview",
+            "ready": true,
+            "code": null
+          }
+        ],
+        "context_usage": {
+          "conversation_id": "conversation-a",
+          "state": "unknown",
+          "estimated_input_tokens": null,
+          "usable_input_tokens": null,
+          "native_window_tokens": null,
+          "last_confirmed_input_tokens": null,
+          "model_ref": null
+        },
+        "reasoning": {
+          "model_ref": "model:fixture:fixture/model",
+          "capability_revision": "c2168a3b3b3ebefa93b0772d908f5019912993e4e649022e05ba433261b787fe",
+          "available": true,
+          "selection": {
+            "kind": "budget",
+            "budget": 128
+          },
+          "choices": [
+            {
+              "selection": {
+                "kind": "provider_default"
+              },
+              "label": "Provider default"
+            }
+          ],
+          "supports_budget": true,
+          "budget_min": 128,
+          "budget_max": 4096,
+          "stale": false
+        }
+      }
+    },
+    {
+      "schema": "Command",
+      "value": {
+        "command_id": "4e8f1b3f-07d2-5464-a835-ee22b2451678",
+        "client_session_id": "4246081b-f1b2-5840-bb9f-37847f00b57e",
+        "type": "conversation.controls",
+        "expected_revision": "3",
+        "payload": {
+          "model_selection": {
+            "provider_id": "fixture",
+            "model_ref": "model:fixture:fixture/model"
+          },
+          "runtime_mode": "agent",
+          "profile_id": "",
+          "approval_mode": "approve",
+          "reasoning": {
+            "model_ref": "model:fixture:fixture/model",
+            "capability_revision": "c2168a3b3b3ebefa93b0772d908f5019912993e4e649022e05ba433261b787fe",
+            "selection": {
+              "kind": "provider_default"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema": "CommandReceipt",
+      "value": {
+        "command_id": "4e8f1b3f-07d2-5464-a835-ee22b2451678",
+        "status": "completed",
+        "conversation_id": "conversation-a",
+        "revision": "4"
+      }
+    },
+    {
+      "schema": "ConversationWorkspace",
+      "value": {
+        "conversation_id": "conversation-a",
+        "revision": "4",
+        "controls": {
+          "model_selection": {
+            "provider_id": "fixture",
+            "model_ref": "model:fixture:fixture/model"
+          },
+          "runtime_mode": "agent",
+          "profile_id": "",
+          "approval_mode": "approve"
+        },
+        "profiles": [
+          {
+            "id": "builtin:row_bot_default",
+            "label": "Default"
+          },
+          {
+            "id": "builtin:plan",
+            "label": "Plan"
+          },
+          {
+            "id": "builtin:research",
+            "label": "Research"
+          },
+          {
+            "id": "builtin:write",
+            "label": "Write"
+          },
+          {
+            "id": "builtin:ideas",
+            "label": "Ideas"
+          },
+          {
+            "id": "builtin:knowledge",
+            "label": "Knowledge"
+          },
+          {
+            "id": "builtin:data",
+            "label": "Data"
+          },
+          {
+            "id": "builtin:automate",
+            "label": "Automate"
+          },
+          {
+            "id": "builtin:review",
+            "label": "Review"
+          },
+          {
+            "id": "builtin:design",
+            "label": "Design"
+          },
+          {
+            "id": "builtin:develop",
+            "label": "Develop"
+          },
+          {
+            "id": "builtin:code_review",
+            "label": "Code Review"
+          },
+          {
+            "id": "builtin:ui_check",
+            "label": "UI Check"
+          },
+          {
+            "id": "builtin:worker",
+            "label": "Worker"
+          },
+          {
+            "id": "builtin:synthesize",
+            "label": "Synthesize"
+          },
+          {
+            "id": "builtin:verify",
+            "label": "Verify"
+          }
+        ],
+        "resources": [],
+        "actions": [
+          {
+            "action": "send",
+            "ready": false,
+            "code": "model_configuration_required"
+          },
+          {
+            "action": "generate",
+            "ready": false,
+            "code": "model_configuration_required"
+          },
+          {
+            "action": "create_deck",
+            "ready": true,
+            "code": null
+          },
+          {
+            "action": "bind",
+            "ready": true,
+            "code": null
+          },
+          {
+            "action": "preview",
+            "ready": true,
+            "code": null
+          }
+        ],
+        "context_usage": {
+          "conversation_id": "conversation-a",
+          "state": "unknown",
+          "estimated_input_tokens": null,
+          "usable_input_tokens": null,
+          "native_window_tokens": null,
+          "last_confirmed_input_tokens": null,
+          "model_ref": null
+        },
+        "reasoning": {
+          "model_ref": "model:fixture:fixture/model",
+          "capability_revision": "c2168a3b3b3ebefa93b0772d908f5019912993e4e649022e05ba433261b787fe",
+          "available": true,
+          "selection": {
+            "kind": "provider_default"
+          },
+          "choices": [
+            {
+              "selection": {
+                "kind": "provider_default"
+              },
+              "label": "Provider default"
+            }
+          ],
+          "supports_budget": true,
+          "budget_min": 128,
+          "budget_max": 4096,
+          "stale": false
+        }
+      }
+    },
+    {
+      "schema": "Command",
+      "value": {
+        "command_id": "3be57be5-5ebf-59cf-8c8c-6fb3b85c15b7",
+        "client_session_id": "4246081b-f1b2-5840-bb9f-37847f00b57e",
+        "type": "conversation.controls",
+        "expected_revision": "4",
+        "payload": {
+          "model_selection": {
+            "provider_id": "fixture",
+            "model_ref": "model:fixture:unsupported"
+          },
+          "runtime_mode": "agent",
+          "profile_id": "",
+          "approval_mode": "approve"
+        }
+      }
+    },
+    {
+      "schema": "CommandReceipt",
+      "value": {
+        "command_id": "3be57be5-5ebf-59cf-8c8c-6fb3b85c15b7",
+        "status": "completed",
+        "conversation_id": "conversation-a",
+        "revision": "5"
+      }
+    },
+    {
+      "schema": "ConversationWorkspace",
+      "value": {
+        "conversation_id": "conversation-a",
+        "revision": "5",
+        "controls": {
+          "model_selection": {
+            "provider_id": "fixture",
+            "model_ref": "model:fixture:unsupported"
+          },
+          "runtime_mode": "agent",
+          "profile_id": "",
+          "approval_mode": "approve"
+        },
+        "profiles": [
+          {
+            "id": "builtin:row_bot_default",
+            "label": "Default"
+          },
+          {
+            "id": "builtin:plan",
+            "label": "Plan"
+          },
+          {
+            "id": "builtin:research",
+            "label": "Research"
+          },
+          {
+            "id": "builtin:write",
+            "label": "Write"
+          },
+          {
+            "id": "builtin:ideas",
+            "label": "Ideas"
+          },
+          {
+            "id": "builtin:knowledge",
+            "label": "Knowledge"
+          },
+          {
+            "id": "builtin:data",
+            "label": "Data"
+          },
+          {
+            "id": "builtin:automate",
+            "label": "Automate"
+          },
+          {
+            "id": "builtin:review",
+            "label": "Review"
+          },
+          {
+            "id": "builtin:design",
+            "label": "Design"
+          },
+          {
+            "id": "builtin:develop",
+            "label": "Develop"
+          },
+          {
+            "id": "builtin:code_review",
+            "label": "Code Review"
+          },
+          {
+            "id": "builtin:ui_check",
+            "label": "UI Check"
+          },
+          {
+            "id": "builtin:worker",
+            "label": "Worker"
+          },
+          {
+            "id": "builtin:synthesize",
+            "label": "Synthesize"
+          },
+          {
+            "id": "builtin:verify",
+            "label": "Verify"
+          }
+        ],
+        "resources": [],
+        "actions": [
+          {
+            "action": "send",
+            "ready": false,
+            "code": "model_configuration_required"
+          },
+          {
+            "action": "generate",
+            "ready": false,
+            "code": "model_configuration_required"
+          },
+          {
+            "action": "create_deck",
+            "ready": true,
+            "code": null
+          },
+          {
+            "action": "bind",
+            "ready": true,
+            "code": null
+          },
+          {
+            "action": "preview",
+            "ready": true,
+            "code": null
+          }
+        ],
+        "context_usage": {
+          "conversation_id": "conversation-a",
+          "state": "unknown",
+          "estimated_input_tokens": null,
+          "usable_input_tokens": null,
+          "native_window_tokens": null,
+          "last_confirmed_input_tokens": null,
+          "model_ref": null
+        },
+        "reasoning": {
+          "model_ref": "model:fixture:unsupported",
+          "capability_revision": "393d8d89e0ec2e9df78bc06e8708a7140efcd5bc4bf66087956473d2863c2d49",
+          "available": false,
+          "selection": {
+            "kind": "provider_default"
+          },
+          "choices": [],
+          "supports_budget": false,
+          "budget_min": 0,
+          "budget_max": 0,
+          "stale": false
+        }
+      }
+    }
+  ],
+  "delivery_order": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23
+  ],
+  "barriers": [
+    "Typed controls commit before query",
+    "Replay reuses the accepted command identity",
+    "Exact-model capability changes before a stale client writes"
+  ],
+  "assertions": [
+    "Authenticated HTTP controls and workspace queries roundtrip generated DTOs",
+    "Legacy omitted reasoning remains accepted",
+    "Effort and budget persist per qualified model",
+    "Stale capabilities and stale revisions reject without effects",
+    "Unsupported models have no active Thinking choices",
+    "Provider default clears only the exact-model preference"
+  ],
+  "allowed_external_effects": [],
+  "bounds": {
+    "quiescence_timeout_seconds": 10,
+    "event_bytes": 65536
+  },
+  "expected_final_snapshot": null
+}

@@ -35,6 +35,8 @@ class DeveloperWorkspace:
     sandbox_env_allowlist: list[str] = field(default_factory=list)
     trusted: bool = True
     hidden: bool = False
+    # A resume association does not confer ownership of an ordinary conversation.
+    origin_conversation_id: str = ""
 
     def touch(self) -> None:
         self.updated_at = datetime.now().isoformat()
@@ -48,6 +50,7 @@ class DeveloperWorkspace:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "default_thread_id": self.default_thread_id,
+            "origin_conversation_id": self.origin_conversation_id,
             "approval_mode": self.approval_mode,
             "execution_mode": self.execution_mode,
             "sandbox_network": self.sandbox_network,

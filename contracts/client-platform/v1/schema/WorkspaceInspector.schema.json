@@ -1,0 +1,284 @@
+{
+  "$defs": {
+    "WorkspaceCommandStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "maxLength": 128,
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 4096,
+          "title": "Label",
+          "type": "string"
+        },
+        "status": {
+          "const": "not_run",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "kind",
+        "status"
+      ],
+      "title": "WorkspaceCommandStatus",
+      "type": "object"
+    },
+    "WorkspaceDiffStats": {
+      "additionalProperties": false,
+      "properties": {
+        "additions": {
+          "minimum": 0,
+          "title": "Additions",
+          "type": "integer"
+        },
+        "deletions": {
+          "minimum": 0,
+          "title": "Deletions",
+          "type": "integer"
+        },
+        "files": {
+          "minimum": 0,
+          "title": "Files",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "files",
+        "additions",
+        "deletions"
+      ],
+      "title": "WorkspaceDiffStats",
+      "type": "object"
+    },
+    "WorkspacePolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_mode": {
+          "enum": [
+            "block",
+            "approve",
+            "allow_all"
+          ],
+          "title": "Approval Mode",
+          "type": "string"
+        },
+        "execution_mode": {
+          "enum": [
+            "local",
+            "docker"
+          ],
+          "title": "Execution Mode",
+          "type": "string"
+        },
+        "read_only": {
+          "const": true,
+          "default": true,
+          "title": "Read Only",
+          "type": "boolean"
+        },
+        "sandbox_network": {
+          "enum": [
+            "off",
+            "ask",
+            "on"
+          ],
+          "title": "Sandbox Network",
+          "type": "string"
+        }
+      },
+      "required": [
+        "execution_mode",
+        "approval_mode",
+        "sandbox_network"
+      ],
+      "title": "WorkspacePolicy",
+      "type": "object"
+    },
+    "WorkspaceProcessStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "pid": {
+          "minimum": 1,
+          "title": "Pid",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "running",
+            "stopped"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pid",
+        "status"
+      ],
+      "title": "WorkspaceProcessStatus",
+      "type": "object"
+    },
+    "WorkspaceTodo": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 256,
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 4096,
+          "title": "Label",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 80,
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "status"
+      ],
+      "title": "WorkspaceTodo",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "branch": {
+      "maxLength": 1024,
+      "title": "Branch",
+      "type": "string"
+    },
+    "changed_total": {
+      "minimum": 0,
+      "title": "Changed Total",
+      "type": "integer"
+    },
+    "commands": {
+      "items": {
+        "$ref": "#/$defs/WorkspaceCommandStatus"
+      },
+      "maxItems": 200,
+      "title": "Commands",
+      "type": "array"
+    },
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "diff_stats": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WorkspaceDiffStats"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "dirty": {
+      "title": "Dirty",
+      "type": "boolean"
+    },
+    "error": {
+      "default": "",
+      "maxLength": 128,
+      "title": "Error",
+      "type": "string"
+    },
+    "execution_workspace_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Execution Workspace Id",
+      "type": "string"
+    },
+    "is_git": {
+      "title": "Is Git",
+      "type": "boolean"
+    },
+    "name": {
+      "maxLength": 256,
+      "title": "Name",
+      "type": "string"
+    },
+    "policy": {
+      "$ref": "#/$defs/WorkspacePolicy"
+    },
+    "processes": {
+      "items": {
+        "$ref": "#/$defs/WorkspaceProcessStatus"
+      },
+      "maxItems": 200,
+      "title": "Processes",
+      "type": "array"
+    },
+    "project_workspace_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Project Workspace Id",
+      "type": "string"
+    },
+    "resource_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "snapshot_revision": {
+      "maxLength": 128,
+      "title": "Snapshot Revision",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "ready",
+        "stale",
+        "unavailable"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "todos": {
+      "items": {
+        "$ref": "#/$defs/WorkspaceTodo"
+      },
+      "maxItems": 200,
+      "title": "Todos",
+      "type": "array"
+    }
+  },
+  "required": [
+    "resource_id",
+    "project_workspace_id",
+    "execution_workspace_id",
+    "conversation_id",
+    "name",
+    "policy",
+    "snapshot_revision",
+    "status",
+    "is_git",
+    "branch",
+    "dirty",
+    "changed_total",
+    "diff_stats",
+    "commands",
+    "processes",
+    "todos"
+  ],
+  "title": "WorkspaceInspector",
+  "type": "object"
+}

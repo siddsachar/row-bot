@@ -21,7 +21,11 @@ MODELS = {name: getattr(schemas, name) for name in (
     "ConversationView", "ConversationPage", "Snapshot", "TranscriptPage", "SubscriptionView",
     "EventPage", "Choices", "HandshakeView", "ApprovalView", "ResourceView", "Acknowledgement",
     "Acknowledged", "Unsubscribed", "UploadRequest", "UploadView", "UploadCompletion", "UploadCancelled",
-    "StreamReset", "LazyContent")}
+    "StreamReset", "LazyContent", "SearchPage", "ConversationWorkspace", "ResourceChoicePage",
+    "DelegatedRun", "DelegatedActivityView",
+    "ContextUsageView", "ConversationOpenView",
+    "FolderGrantView", "DeckSetupOptions", "ArtifactPreview", "WorkspaceInspector", "WorkspaceChanges",
+    "WorkspaceDirectory", "WorkspaceFile", "WorkspaceDiff", "WorkspaceChangeSetPage", "WorkspaceChangeSetFiles", "DraftView", "DraftSave", "ParentSteeringView", "ClientQueueView")}
 
 # Method, path, request DTO (binary uses bytes), response DTO. This table also
 # drives OpenAPI and is checked against the actual router in the contract tests.
@@ -31,6 +35,7 @@ OPERATIONS = (
     ("get", "/conversations/{conversation_id}", None, "ConversationView"),
     ("get", "/conversations/{conversation_id}/transcript", None, "TranscriptPage"),
     ("get", "/conversations/{conversation_id}/content/{message_id}", None, "LazyContent"),
+    ("get", "/conversations/{conversation_id}/text/{message_id}", None, "LazyContent"),
     ("post", "/conversations/commands", "Command", "CommandReceipt"),
     ("post", "/conversations/{conversation_id}/commands", "Command", "CommandReceipt"),
     ("get", "/commands/{command_id}", None, "CommandReceipt"),
@@ -50,6 +55,28 @@ OPERATIONS = (
     ("post", "/uploads/{upload_id}/complete", "UploadCompletion", "AttachmentView"),
     ("delete", "/uploads/{upload_id}", None, "UploadCancelled"),
     ("get", "/attachments/{reference}", None, "bytes"),
+    ("get", "/search", None, "SearchPage"),
+    ("get", "/conversations/{conversation_id}/history", None, "TranscriptPage"),
+    ("get", "/conversations/{conversation_id}/workspace", None, "ConversationWorkspace"),
+    ("get", "/conversations/{conversation_id}/open", None, "ConversationOpenView"),
+    ("get", "/conversations/{conversation_id}/delegated", None, "DelegatedActivityView"),
+    ("get", "/conversations/{conversation_id}/delegated/{run_id}", None, "DelegatedRun"),
+    ("get", "/conversations/{conversation_id}/draft", None, "DraftView"),
+    ("get", "/conversations/{conversation_id}/steering", None, "ParentSteeringView"),
+    ("get", "/conversations/{conversation_id}/queue", None, "ClientQueueView"),
+    ("put", "/conversations/{conversation_id}/draft", "DraftSave", "DraftView"),
+    ("post", "/resources/commands", "Command", "CommandReceipt"),
+    ("post", "/resources/folder-selection", None, "FolderGrantView"),
+    ("get", "/resources/setup/deck", None, "DeckSetupOptions"),
+    ("get", "/resources/library/{kind}", None, "ResourceChoicePage"),
+    ("get", "/conversations/{conversation_id}/artifacts/{binding_id}/preview", None, "ArtifactPreview"),
+    ("get", "/conversations/{conversation_id}/workspaces/{binding_id}/inspector", None, "WorkspaceInspector"),
+    ("get", "/conversations/{conversation_id}/workspaces/{binding_id}/changes", None, "WorkspaceChanges"),
+    ("get", "/conversations/{conversation_id}/workspaces/{binding_id}/directory", None, "WorkspaceDirectory"),
+    ("get", "/conversations/{conversation_id}/workspaces/{binding_id}/file", None, "WorkspaceFile"),
+    ("get", "/conversations/{conversation_id}/workspaces/{binding_id}/diff", None, "WorkspaceDiff"),
+    ("get", "/conversations/{conversation_id}/workspaces/{binding_id}/change-sets", None, "WorkspaceChangeSetPage"),
+    ("get", "/conversations/{conversation_id}/workspaces/{binding_id}/change-sets/{change_set_id}", None, "WorkspaceChangeSetFiles"),
 )
 
 
@@ -152,13 +179,51 @@ export function validateWire<T>(name: string, value: unknown): T {
 function proofHeaders(proof?: SessionProof): Record<string, string> {
   return proof ? {'X-Client-Session': proof.client_session_id, 'X-CSRF-Token': proof.csrf_token} : {};
 }
+// Client pacing leaves headroom under the server's independently enforced
+// budgets. Pending work is bounded and abortable; no mutation is replayed.
+const budgets = new WeakMap<SessionProof, Map<string, {tokens:number; at:number; waiting:number}>>();
+async function pace(proof: SessionProof | undefined, path: string, method: string, signal?: AbortSignal, body?: unknown): Promise<void> {
+  if (!proof) return;
+  const view = /^\/conversations\/[^/?]+(?:\/(?:open|workspace|delegated))?(?:\?|$)/.test(path);
+  const observation = path.startsWith('/events') || /^\/conversations\/[^/]+\/subscriptions$/.test(path) || /^\/subscriptions\/[^/]+$/.test(path);
+  const type = body && typeof body === 'object' && 'type' in body ? body.type : undefined;
+  const control = method === 'POST' && path.endsWith('/commands') && (type === 'conversation.stop' || type === 'approval.resolve')
+    || method === 'DELETE' && /^\/uploads\/[^/]+$/.test(path);
+  // Draft autosaves, uploads and ordinary commands consume one server bucket.
+  // Stop/approval/cancel and ACK retain their independent admission paths.
+  if (control || /^\/subscriptions\/[^/]+\/ack$/.test(path)) return;
+  const lane = observation ? 'observation' : method === 'GET' ? (view ? 'view' : 'query') : 'mutation';
+  let lanes = budgets.get(proof);
+  if (!lanes) { lanes = new Map(); budgets.set(proof, lanes); }
+  const [capacity, rate] = lane === 'query' ? [20, 2] : lane === 'view' ? [50, 4] : lane === 'observation' ? [100, 10] : [8, 1];
+  let bucket = lanes.get(lane);
+  if (!bucket) { bucket = {tokens:capacity,at:performance.now(),waiting:0}; lanes.set(lane,bucket); }
+  if (bucket.waiting >= 128) throw {code:'rate_limited'};
+  bucket.waiting++;
+  try {
+    while (true) {
+      signal?.throwIfAborted();
+      const now = performance.now();
+      bucket.tokens = Math.min(capacity, bucket.tokens + Math.max(0, now - bucket.at) * rate / 1000);
+      bucket.at = now;
+      if (bucket.tokens >= 1) { bucket.tokens--; return; }
+      await new Promise<void>((resolve,reject) => {
+        const abort = () => { clearTimeout(timer); reject(new DOMException('Cancelled','AbortError')); };
+        const timer = setTimeout(() => { signal?.removeEventListener('abort',abort); resolve(); }, Math.ceil((1-bucket.tokens)*1000/rate));
+        signal?.addEventListener('abort',abort,{once:true});
+      });
+    }
+  } finally { bucket.waiting--; }
+}
 async function jsonRequest<T>(baseUrl: string, path: string, schema: string,
   proof?: SessionProof, method = 'GET', body?: unknown, key?: string, signal?: AbortSignal, keepalive = false): Promise<T> {
+  const encoded = body === undefined ? undefined : JSON.stringify(body);
+  await pace(proof,path,method,signal,body);
   const response = await fetch(`${baseUrl}/api/v1${path}`, {
     method, credentials: 'same-origin', cache: 'no-store', signal, ...(keepalive ? {keepalive: true} : {}),
     headers: {...proofHeaders(proof), ...(body === undefined ? {} : {'Content-Type': 'application/json'}),
       ...(key ? {'Idempotency-Key': key} : {})},
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: encoded,
   });
   const value: unknown = await response.json();
   if (!response.ok) throw validateWire<Problem>('Problem', value);
@@ -172,21 +237,65 @@ export async function handshake(baseUrl: string, body: Handshake, signal?: Abort
   validateWire<Handshake>('Handshake', body);
   return jsonRequest(baseUrl, '/handshake', 'HandshakeView', undefined, 'POST', body, undefined, signal);
 }
-export const listConversations = (base: string, proof: SessionProof, limit = 50, cursor?: string, signal?: AbortSignal): Promise<ConversationPage> =>
-  jsonRequest(base, '/conversations' + query({limit,cursor}), 'ConversationPage', proof, 'GET', undefined, undefined, signal);
+export const listConversations = (base: string, proof: SessionProof, limit = 50, cursor?: string, signal?: AbortSignal, group = 'all'): Promise<ConversationPage> =>
+  jsonRequest(base, '/conversations' + query({limit,cursor,group:group === 'all' ? undefined : group}), 'ConversationPage', proof, 'GET', undefined, undefined, signal);
 export const getConversation = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<ConversationView> =>
   jsonRequest(base, `/conversations/${id(conversation)}`, 'ConversationView', proof, 'GET', undefined, undefined, signal);
 export const getTranscript = (base: string, proof: SessionProof, conversation: string, limit = 100, cursor?: string, signal?: AbortSignal): Promise<TranscriptPage> =>
   jsonRequest(base, `/conversations/${id(conversation)}/transcript` + query({limit,cursor}), 'TranscriptPage', proof, 'GET', undefined, undefined, signal);
+export const getMessageText = (base: string, proof: SessionProof, conversation: string, message: string, cursor?: string, signal?: AbortSignal): Promise<LazyContent> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/text/${id(message)}` + query({cursor}), 'LazyContent', proof, 'GET', undefined, undefined, signal);
 export const getChoices = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<Choices> =>
   jsonRequest(base, '/choices', 'Choices', proof, 'GET', undefined, undefined, signal);
+export const searchLibrary = (base: string, proof: SessionProof, text: string, conversation_id?: string, cursor?: string, signal?: AbortSignal): Promise<SearchPage> =>
+  jsonRequest(base, '/search' + query({query:text,conversation_id,cursor}), 'SearchPage', proof, 'GET', undefined, undefined, signal);
+export const getHistory = (base: string, proof: SessionProof, conversation: string, message_id?: string, cursor?: string, signal?: AbortSignal): Promise<TranscriptPage> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/history` + query({message_id,cursor}), 'TranscriptPage', proof, 'GET', undefined, undefined, signal);
+export const getWorkspace = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<ConversationWorkspace> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/workspace`, 'ConversationWorkspace', proof, 'GET', undefined, undefined, signal);
+export const openConversation = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<ConversationOpenView> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/open`, 'ConversationOpenView', proof, 'GET', undefined, undefined, signal);
+export const getDraft = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<DraftView> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/draft`, 'DraftView', proof, 'GET', undefined, undefined, signal);
+export const getDelegatedActivity = (base: string, proof: SessionProof, conversation: string, cursor?: string, signal?: AbortSignal): Promise<DelegatedActivityView> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/delegated` + query({cursor}), 'DelegatedActivityView', proof, 'GET', undefined, undefined, signal);
+export const getDelegatedRun = (base: string, proof: SessionProof, conversation: string, run: string, signal?: AbortSignal): Promise<DelegatedRun> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/delegated/${id(run)}`, 'DelegatedRun', proof, 'GET', undefined, undefined, signal);
+export const getQueue = (base: string, proof: SessionProof, conversation: string, generation_id?: string, cursor?: string, signal?: AbortSignal): Promise<ClientQueueView> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/queue` + query({generation_id,cursor}), 'ClientQueueView', proof, 'GET', undefined, undefined, signal);
+export const getSteering = (base: string, proof: SessionProof, conversation: string, generation_id?: string, cursor?: string, signal?: AbortSignal): Promise<ParentSteeringView> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/steering` + query({generation_id,cursor}), 'ParentSteeringView', proof, 'GET', undefined, undefined, signal);
+export const saveDraft = (base: string, proof: SessionProof, conversation: string, body: DraftSave, signal?: AbortSignal): Promise<DraftView> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/draft`, 'DraftView', proof, 'PUT', body, undefined, signal);
+export const getResourceLibrary = (base: string, proof: SessionProof, kind: 'artifact'|'workspace', cursor?: string, signal?: AbortSignal): Promise<ResourceChoicePage> =>
+  jsonRequest(base, `/resources/library/${kind}` + query({cursor}), 'ResourceChoicePage', proof, 'GET', undefined, undefined, signal);
+export const getDeckSetup = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<DeckSetupOptions> =>
+  jsonRequest(base, '/resources/setup/deck', 'DeckSetupOptions', proof, 'GET', undefined, undefined, signal);
+export const pickFolder = (base: string, proof: SessionProof, signal?: AbortSignal): Promise<FolderGrantView> =>
+  jsonRequest(base, '/resources/folder-selection', 'FolderGrantView', proof, 'POST', undefined, undefined, signal);
+export const getArtifactPreview = (base: string, proof: SessionProof, conversation: string, binding: string, page_id?: string, known_revision?: string, signal?: AbortSignal): Promise<ArtifactPreview> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/artifacts/${id(binding)}/preview` + query({page_id,known_revision}), 'ArtifactPreview', proof, 'GET', undefined, undefined, signal);
+export const getWorkspaceInspector = (base: string, proof: SessionProof, conversation: string, binding: string, refresh = false, signal?: AbortSignal): Promise<WorkspaceInspector> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/workspaces/${id(binding)}/inspector` + query({refresh:refresh?'true':'false'}), 'WorkspaceInspector', proof, 'GET', undefined, undefined, signal);
+export const getWorkspaceChanges = (base: string, proof: SessionProof, conversation: string, binding: string, revision?: string, cursor?: string, signal?: AbortSignal): Promise<WorkspaceChanges> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/workspaces/${id(binding)}/changes` + query({revision,cursor}), 'WorkspaceChanges', proof, 'GET', undefined, undefined, signal);
+export const getWorkspaceDirectory = (base: string, proof: SessionProof, conversation: string, binding: string, directory = '', cursor?: string, revision?: string, signal?: AbortSignal): Promise<WorkspaceDirectory> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/workspaces/${id(binding)}/directory` + query({directory,cursor,revision}), 'WorkspaceDirectory', proof, 'GET', undefined, undefined, signal);
+export const getWorkspaceFile = (base: string, proof: SessionProof, conversation: string, binding: string, path: string, offset = 0, revision?: string, signal?: AbortSignal): Promise<WorkspaceFile> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/workspaces/${id(binding)}/file` + query({path,offset,revision}), 'WorkspaceFile', proof, 'GET', undefined, undefined, signal);
+export const getWorkspaceDiff = (base: string, proof: SessionProof, conversation: string, binding: string, path: string, snapshot_revision: string, offset = 0, revision?: string, signal?: AbortSignal): Promise<WorkspaceDiff> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/workspaces/${id(binding)}/diff` + query({path,snapshot_revision,offset,revision}), 'WorkspaceDiff', proof, 'GET', undefined, undefined, signal);
+export const getWorkspaceChangeSets = (base: string, proof: SessionProof, conversation: string, binding: string, revision: string, cursor?: string, signal?: AbortSignal): Promise<WorkspaceChangeSetPage> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/workspaces/${id(binding)}/change-sets` + query({revision,cursor}), 'WorkspaceChangeSetPage', proof, 'GET', undefined, undefined, signal);
+export const getWorkspaceChangeSetFiles = (base: string, proof: SessionProof, conversation: string, binding: string, change: string, revision: string, cursor?: string, signal?: AbortSignal): Promise<WorkspaceChangeSetFiles> =>
+  jsonRequest(base, `/conversations/${id(conversation)}/workspaces/${id(binding)}/change-sets/${id(change)}` + query({revision,cursor}), 'WorkspaceChangeSetFiles', proof, 'GET', undefined, undefined, signal);
 export const getLazyContent = (base: string, proof: SessionProof, conversation: string, message: string,
   limit_bytes = 65536, cursor?: string, signal?: AbortSignal): Promise<LazyContent> =>
   jsonRequest(base, `/conversations/${id(conversation)}/content/${id(message)}` + query({limit_bytes,cursor}), 'LazyContent', proof, 'GET', undefined, undefined, signal);
 export const getReceipt = (base: string, proof: SessionProof, command: string, signal?: AbortSignal): Promise<CommandReceipt> =>
   jsonRequest(base, `/commands/${id(command)}`, 'CommandReceipt', proof, 'GET', undefined, undefined, signal);
 export const getApproval = (base: string, proof: SessionProof, approval: string, signal?: AbortSignal): Promise<ApprovalView> =>
-  jsonRequest(base, `/approvals/${id(approval)}`, 'ApprovalView', proof, 'GET', undefined, undefined, signal);
+  jsonRequest(base, `/approvals/${id(approval)}?include_summary=true`, 'ApprovalView', proof, 'GET', undefined, undefined, signal);
 export const getResource = (base: string, proof: SessionProof, reference: string, signal?: AbortSignal): Promise<ResourceView> =>
   jsonRequest(base, `/resources/${id(reference)}`, 'ResourceView', proof, 'GET', undefined, undefined, signal);
 export const subscribe = (base: string, proof: SessionProof, conversation: string, signal?: AbortSignal): Promise<SubscriptionView> =>
@@ -265,7 +374,9 @@ export async function* observeEvents(base: string, proof: SessionProof, subscrip
 export async function sendConversationCommand(baseUrl: string, conversationId: string | null,
   command: Command, proof: SessionProof, idempotencyKey: string, signal?: AbortSignal): Promise<CommandReceipt> {
   if (!isCommand(command)) throw new Error('invalid_command');
-  const suffix = conversationId === null ? '/conversations/commands'
+  const suffix = command.type === 'approval.resolve' ? `/approvals/${id(conversationId || '')}/commands`
+    : conversationId === null && (command.type === 'resource.setup' || command.type === 'resource.continue') ? '/resources/commands'
+    : conversationId === null ? '/conversations/commands'
     : `/conversations/${encodeURIComponent(conversationId)}/commands`;
   return jsonRequest(baseUrl, suffix, 'CommandReceipt', proof, 'POST', command, idempotencyKey, signal);
 }

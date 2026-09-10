@@ -1,0 +1,96 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "estimated_input_tokens": {
+      "anyOf": [
+        {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Estimated Input Tokens"
+    },
+    "last_confirmed_input_tokens": {
+      "anyOf": [
+        {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Confirmed Input Tokens"
+    },
+    "model_ref": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Ref"
+    },
+    "native_window_tokens": {
+      "anyOf": [
+        {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Native Window Tokens"
+    },
+    "state": {
+      "enum": [
+        "unknown",
+        "saved",
+        "stale"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "usable_input_tokens": {
+      "anyOf": [
+        {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Usable Input Tokens"
+    }
+  },
+  "required": [
+    "conversation_id",
+    "state"
+  ],
+  "title": "ContextUsageView",
+  "type": "object"
+}

@@ -48,6 +48,7 @@ _THREAD_META_COLUMNS = {
     "resource_bindings_json": "TEXT NOT NULL DEFAULT ''",
     "resource_revision": "INTEGER NOT NULL DEFAULT 0",
     "client_revision": "INTEGER NOT NULL DEFAULT 0",
+    "client_runtime_mode": "TEXT NOT NULL DEFAULT 'agent'",
 }
 
 THREAD_NAME_SOURCE_AUTO = "auto"
@@ -125,7 +126,7 @@ def _thread_write_blocked(thread_id: str | None) -> bool:
 def _init_thread_db(*, raise_on_error: bool = False):
     """Create and migrate the thread metadata table."""
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with closing(sqlite3.connect(DB_PATH)) as conn, conn:
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS thread_meta "
                 "(thread_id TEXT PRIMARY KEY, name TEXT, created_at TEXT, updated_at TEXT)"
@@ -543,7 +544,7 @@ def create_thread(
         else ""
     )
     now = datetime.now().isoformat()
-    with sqlite3.connect(DB_PATH) as conn:
+    with closing(sqlite3.connect(DB_PATH)) as conn, conn:
         existed = conn.execute(
             "SELECT 1 FROM thread_meta WHERE thread_id = ?",
             (tid,),
@@ -793,7 +794,7 @@ def _thread_ui_draft_path(thread_id: str) -> pathlib.Path:
     return _THREAD_UI_DIR / f"{safe_id}.draft.json"
 
 
-def save_thread_draft(thread_id: str, text: str, *, source: str = "") -> None:
+def save_thread_draft(thread_id: str, text: str, *, source: str = "", attachments: list[dict] | None = None) -> None:
     """Persist a composer draft for a thread until it is sent or replaced."""
 
     if not thread_id or _thread_write_blocked(thread_id):
@@ -805,9 +806,16 @@ def save_thread_draft(thread_id: str, text: str, *, source: str = "") -> None:
             "source": str(source or ""),
             "updated_at": datetime.now().isoformat(),
         }
-        _thread_ui_draft_path(thread_id).write_text(
-            json.dumps(payload, ensure_ascii=False), encoding="utf-8"
-        )
+        if attachments is not None:
+            payload["attachments"] = attachments
+        with checkpoint_mutation(thread_id):
+            path = _thread_ui_draft_path(thread_id)
+            temporary = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
+            try:
+                temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+                temporary.replace(path)
+            finally:
+                temporary.unlink(missing_ok=True)
     except Exception:
         logger.warning("Failed to save thread draft for %s", thread_id, exc_info=True)
 
@@ -1126,7 +1134,7 @@ def _set_thread_model_override(thread_id: str, model_name: str) -> None:
 def get_thread_reasoning_selections(thread_id: str) -> dict[str, dict]:
     """Return the per-canonical-model reasoning selections for a thread."""
     _ensure_thread_db()
-    with sqlite3.connect(DB_PATH) as conn:
+    with closing(sqlite3.connect(DB_PATH)) as conn, conn:
         row = conn.execute(
             "SELECT COALESCE(reasoning_selections_json, '') FROM thread_meta WHERE thread_id = ?",
             (thread_id,),
@@ -1408,7 +1416,7 @@ def load_validated_summary_state(
     if not thread_id or mode not in {"agent", "chat_only"}:
         return None
     _ensure_thread_db()
-    with sqlite3.connect(DB_PATH) as conn:
+    with closing(sqlite3.connect(DB_PATH)) as conn, conn:
         row = conn.execute(
             "SELECT COALESCE(summary_state_json, '') FROM thread_meta WHERE thread_id = ?",
             (thread_id,),

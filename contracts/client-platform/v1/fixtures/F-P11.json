@@ -1,0 +1,496 @@
+{
+  "recording_version": 1,
+  "protocol_version": "1.0",
+  "fixture_id": "F-P11",
+  "kind": "service_recording",
+  "deterministic_seed": "F-P11:v1",
+  "source": {
+    "base_commit": "5c0f2217074d5ca940d8443d8c05a83329bc9dc1",
+    "files": {
+      "src/row_bot/api/v1/__init__.py": "f54ba3b1c9555e65c5e715ba99685ae3c795ced6c6c15c9bac2bc3f18a1498a8",
+      "src/row_bot/api/v1/routes.py": "ea1a4c55542619deac23a5a43c9fe2a2571ef67d291287f39ca5e9767c8069b5",
+      "src/row_bot/api/v1/schemas.py": "e288a442d3df832fc70622b8d1c7b90c9e2068f45daa0ca7e31cadf39c3b7901",
+      "src/row_bot/api/v1/security.py": "9446898e887ccdb8d2941e7277bdd3a1dcbafaaa039dc262886cdc81f9f54b3a",
+      "src/row_bot/application/__init__.py": "139fbb6a5592b9bf600f82c1623c05a4f0b90b793e4d7183cac03951984fff51",
+      "src/row_bot/application/attachment_context.py": "b8c463c9f8b599d203890b0bb9dabddc982333333f71d9262c4e453278c0f2ef",
+      "src/row_bot/application/attachments.py": "fe1ace25fdd1d14eb350f8306c931da089e2f7c15dd54b667163a17ff87c6957",
+      "src/row_bot/application/client_platform.py": "4452a4992f4f8783e79da548e20497f530f96a76b262bdb21d30a7871e2c5239",
+      "src/row_bot/application/client_queue.py": "37b57227d8e1bd6e2232aec3f87c810aa48c206fe999c231780b7eb9ee70ba71",
+      "src/row_bot/application/conversation_drafts.py": "dc6fb3dd276797932ffbdece1b5f8d5c26425b743cf12932a9001805a4009727",
+      "src/row_bot/application/conversation_search.py": "023c40793d422411e7a17dbead9b045b31251870cc1fc6a7490eb0c5b01f2f6f",
+      "src/row_bot/application/folder_selections.py": "ae89e8de4229b44d68c30387ee491bb2b1c61c4c5383aa1e95cad707517473c1",
+      "src/row_bot/application/generated_media.py": "9f1168e932b4f11ad92e283c04358527e474252069b59c0fb3392d13108b6416",
+      "src/row_bot/application/lifecycle.py": "7c5fea18f048a181818ec36213fd315903333476bc9f3d1c4cf178cb62d387f6",
+      "src/row_bot/application/live_content.py": "fd2b3a32b10b502e53ae791c20809314dda1b6935ab88ee473472f40ee31e8f7",
+      "src/row_bot/application/message_text.py": "56297aa1b9810bf6b7a95aad35d0d35c21e8cc8470ce01e3811e043eb852b949",
+      "src/row_bot/application/workspace_setup.py": "6abae286ea07919024847fe82cf5bde3a45db8d5257ca7e0dd9ddc3dc0c9e3a2",
+      "src/row_bot/conversation_resources.py": "cb1eda58dbbd67a235d62c5da2950120f6969a2f22cd03754fa3e45e1f52c553",
+      "src/row_bot/projection/__init__.py": "b13e25f65e14b5273db9d6de9da2149de0b0c62883b52e3379ec59c5a3ffb375",
+      "src/row_bot/projection/canonical.py": "14a05e08289ccc6b9f431b5799c0c9d545cff7e5395d3f2f52b4a7c78073c8db",
+      "src/row_bot/projection/conversation.py": "d403bfec5c9ce7a18e3ecd7d7a7df156195e7393f951e836301264fcb866c6cc",
+      "src/row_bot/runtime/__init__.py": "dc07d08406de7b69a49a74ba25964c5ed928f062d84f2d04dfed184a9b87e5cf",
+      "src/row_bot/runtime/admissions.py": "e0d9da5b1ee281c2ec77c30f4b6b4ae1e2dd3ae439edcd3af317a380684ba927",
+      "src/row_bot/runtime/checkpoint_reader.py": "e9a67fe7bd03a36af813e4c6ebd9c1e1eb3a56ddf12cc55766d865f3a5afc3b0",
+      "src/row_bot/runtime/executions.py": "3e98f3b34d2583b9f1fdba07a8b8ed422b8acb33e3afc4351b14feecfda5b82e",
+      "src/row_bot/tasks.py": "f794fc537b27b326f811d823c0b96263f9c04553457d46683ca8319e8213e0db",
+      "src/row_bot/threads.py": "d3ba09fd60f72a8b57d9b8f342fae099cee9515ef6651de3be0f10bb478cc5c3",
+      "tests/helpers/client_platform_fakes.py": "11719558a358b7e8b3511074a71d2d1d3c1a63b46e4f12c3f8c77718249786b5",
+      "src/row_bot/agent_orchestrator.py": "408047a32140fd74981516713a02f6d665bf07d8d0be2c28943ab50b0a8a1004",
+      "src/row_bot/agent.py": "99474889e7361d21fb8b01790277f0c690c6bbd4d5b886eece5617847d5f26d8",
+      "tests/contracts/client_platform/test_phase3_queue_recording.py": "2d6791efdc67c6d965f97ca30a9df83f1bb9e6103f742ce7c0ef92d7b7635210"
+    },
+    "sha256": "e93740fe6f0f0c11dae054b2fa2737b52c1cd89790533c4cde3d8c82eedee7fd"
+  },
+  "records": [
+    {
+      "schema": "Command",
+      "value": {
+        "command_id": "3f6c93c8-0498-5e49-9acb-09684cbbdfe2",
+        "client_session_id": "5190d8d5-ee41-5d2a-8d92-a48145335601",
+        "type": "conversation.submit",
+        "expected_revision": "0",
+        "payload": {
+          "submission_id": "7a96a1d3-6e99-5d02-a08f-15c2cc41f99f",
+          "text": "Synthetic first input",
+          "attachment_refs": [],
+          "model_selection": {
+            "provider_id": "fixture",
+            "model_ref": "fixture/model"
+          }
+        }
+      }
+    },
+    {
+      "schema": "CommandReceipt",
+      "value": {
+        "command_id": "3f6c93c8-0498-5e49-9acb-09684cbbdfe2",
+        "status": "accepted",
+        "conversation_id": "conversation-a",
+        "generation_id": "0aae4c86-2451-54c6-be80-8e5e14b736fe",
+        "execution_id": "b01d8758-2a1f-5829-b26c-593f1ced8080",
+        "pass_id": "4d57c229-becd-5120-88a7-29849506808f",
+        "submission_id": "7a96a1d3-6e99-5d02-a08f-15c2cc41f99f"
+      }
+    },
+    {
+      "schema": "Command",
+      "value": {
+        "command_id": "d95cecdd-fa31-560e-8f68-30d6f7c52928",
+        "client_session_id": "5190d8d5-ee41-5d2a-8d92-a48145335601",
+        "type": "conversation.steer",
+        "expected_revision": "0",
+        "payload": {
+          "steering_id": "aba6365e-4966-5201-8912-3dd480005ba0",
+          "text": "Synthetic queued input"
+        }
+      }
+    },
+    {
+      "schema": "CommandReceipt",
+      "value": {
+        "command_id": "d95cecdd-fa31-560e-8f68-30d6f7c52928",
+        "status": "accepted",
+        "conversation_id": "conversation-a",
+        "generation_id": "2f62424f-eff7-5701-a0b5-36bdcb6ffc72",
+        "pass_id": "05715c08-8c6f-51dd-a09a-4c69aa62410d",
+        "submission_id": "aba6365e-4966-5201-8912-3dd480005ba0"
+      }
+    },
+    {
+      "schema": "ClientQueueView",
+      "value": {
+        "conversation_id": "conversation-a",
+        "generation_id": "0aae4c86-2451-54c6-be80-8e5e14b736fe",
+        "items": [
+          {
+            "id": "aba6365e-4966-5201-8912-3dd480005ba0",
+            "submission_id": "aba6365e-4966-5201-8912-3dd480005ba0",
+            "generation_id": "2f62424f-eff7-5701-a0b5-36bdcb6ffc72",
+            "text": "Synthetic queued input",
+            "revision": "0",
+            "state": "queued",
+            "editable": true,
+            "removable": true
+          }
+        ],
+        "next_cursor": null,
+        "has_more": false
+      }
+    },
+    {
+      "schema": "ClientQueueView",
+      "value": {
+        "conversation_id": "conversation-a",
+        "generation_id": "0aae4c86-2451-54c6-be80-8e5e14b736fe",
+        "items": [
+          {
+            "id": "aba6365e-4966-5201-8912-3dd480005ba0",
+            "submission_id": "aba6365e-4966-5201-8912-3dd480005ba0",
+            "generation_id": "2f62424f-eff7-5701-a0b5-36bdcb6ffc72",
+            "text": "Synthetic queued input",
+            "revision": "1",
+            "state": "dispatching",
+            "editable": false,
+            "removable": false
+          }
+        ],
+        "next_cursor": null,
+        "has_more": false
+      }
+    },
+    {
+      "schema": "ClientQueueView",
+      "value": {
+        "conversation_id": "conversation-a",
+        "generation_id": "0aae4c86-2451-54c6-be80-8e5e14b736fe",
+        "items": [
+          {
+            "id": "aba6365e-4966-5201-8912-3dd480005ba0",
+            "submission_id": "aba6365e-4966-5201-8912-3dd480005ba0",
+            "generation_id": "2f62424f-eff7-5701-a0b5-36bdcb6ffc72",
+            "text": "Synthetic queued input",
+            "revision": "2",
+            "state": "consumed",
+            "editable": false,
+            "removable": false
+          }
+        ],
+        "next_cursor": null,
+        "has_more": false
+      }
+    },
+    {
+      "schema": "Event",
+      "value": {
+        "protocol_version": "1.0",
+        "event_id": "05162206-7291-54d0-9420-84d82d6445ee",
+        "topic": "conversation.conversation-a",
+        "server_epoch": "888babad-912d-5ee6-b9fc-607f61c494ab",
+        "conversation_id": "conversation-a",
+        "projection_revision": "3",
+        "source": "runtime",
+        "source_stream_id": "conversation-a",
+        "source_epoch": "888babad-912d-5ee6-b9fc-607f61c494ab",
+        "source_sequence_start": "3",
+        "source_sequence_end": "3",
+        "type": "queue.changed",
+        "payload": {
+          "generation_id": "0aae4c86-2451-54c6-be80-8e5e14b736fe",
+          "submission_ids": [
+            "aba6365e-4966-5201-8912-3dd480005ba0"
+          ]
+        }
+      }
+    },
+    {
+      "schema": "Event",
+      "value": {
+        "protocol_version": "1.0",
+        "event_id": "ab8573b6-73ee-5c75-b04b-a457525ae6ef",
+        "topic": "conversation.conversation-a",
+        "server_epoch": "888babad-912d-5ee6-b9fc-607f61c494ab",
+        "conversation_id": "conversation-a",
+        "projection_revision": "9",
+        "source": "runtime",
+        "source_stream_id": "conversation-a",
+        "source_epoch": "888babad-912d-5ee6-b9fc-607f61c494ab",
+        "source_sequence_start": "9",
+        "source_sequence_end": "9",
+        "type": "queue.changed",
+        "payload": {
+          "generation_id": "0aae4c86-2451-54c6-be80-8e5e14b736fe",
+          "submission_ids": [
+            "aba6365e-4966-5201-8912-3dd480005ba0"
+          ]
+        }
+      }
+    },
+    {
+      "schema": "Event",
+      "value": {
+        "protocol_version": "1.0",
+        "event_id": "3d673158-6075-55f3-a5b9-595e0385a4b3",
+        "topic": "conversation.conversation-a",
+        "server_epoch": "888babad-912d-5ee6-b9fc-607f61c494ab",
+        "conversation_id": "conversation-a",
+        "projection_revision": "10",
+        "source": "runtime",
+        "source_stream_id": "conversation-a",
+        "source_epoch": "888babad-912d-5ee6-b9fc-607f61c494ab",
+        "source_sequence_start": "10",
+        "source_sequence_end": "10",
+        "type": "queue.changed",
+        "payload": {
+          "generation_id": "0aae4c86-2451-54c6-be80-8e5e14b736fe",
+          "submission_ids": [
+            "aba6365e-4966-5201-8912-3dd480005ba0"
+          ]
+        }
+      }
+    },
+    {
+      "schema": "Command",
+      "value": {
+        "command_id": "c0de13e5-3430-5e61-ba5b-732acf479378",
+        "client_session_id": "5190d8d5-ee41-5d2a-8d92-a48145335601",
+        "type": "conversation.steer",
+        "expected_revision": "0",
+        "payload": {
+          "steering_id": "e829400b-afc6-53bd-8cce-feacf54f444c",
+          "text": "Synthetic A"
+        }
+      }
+    },
+    {
+      "schema": "CommandReceipt",
+      "value": {
+        "command_id": "c0de13e5-3430-5e61-ba5b-732acf479378",
+        "status": "accepted",
+        "conversation_id": "conversation-b"
+      }
+    },
+    {
+      "schema": "Command",
+      "value": {
+        "command_id": "1de5b836-a038-580d-98be-6ba044ee86ca",
+        "client_session_id": "5190d8d5-ee41-5d2a-8d92-a48145335601",
+        "type": "conversation.steer",
+        "expected_revision": "0",
+        "payload": {
+          "steering_id": "682e069d-c3f7-5409-9168-683e00daaa02",
+          "text": "Synthetic B"
+        }
+      }
+    },
+    {
+      "schema": "CommandReceipt",
+      "value": {
+        "command_id": "1de5b836-a038-580d-98be-6ba044ee86ca",
+        "status": "accepted",
+        "conversation_id": "conversation-b"
+      }
+    },
+    {
+      "schema": "Command",
+      "value": {
+        "command_id": "4f99a68a-45ff-5eb9-8c11-428b75816d05",
+        "client_session_id": "5190d8d5-ee41-5d2a-8d92-a48145335601",
+        "type": "conversation.steer",
+        "expected_revision": "0",
+        "payload": {
+          "steering_id": "6f210675-44c9-53b5-b23e-3e06df5c88d0",
+          "text": "Synthetic A"
+        }
+      }
+    },
+    {
+      "schema": "CommandReceipt",
+      "value": {
+        "command_id": "4f99a68a-45ff-5eb9-8c11-428b75816d05",
+        "status": "accepted",
+        "conversation_id": "conversation-b"
+      }
+    },
+    {
+      "schema": "ParentSteeringView",
+      "value": {
+        "conversation_id": "conversation-b",
+        "generation_id": "64800911-1878-5022-959e-6c9578d164f4",
+        "orchestration_id": "360babfd-e75d-5b81-8569-9d9aa2b02269",
+        "items": [
+          {
+            "id": "e829400b-afc6-53bd-8cce-feacf54f444c",
+            "event_id": "orchestration:360babfd-e75d-5b81-8569-9d9aa2b02269:event:steering:e829400b-afc6-53bd-8cce-feacf54f444c",
+            "text": "Synthetic A",
+            "state": "queued",
+            "editable": false
+          },
+          {
+            "id": "682e069d-c3f7-5409-9168-683e00daaa02",
+            "event_id": "orchestration:360babfd-e75d-5b81-8569-9d9aa2b02269:event:steering:682e069d-c3f7-5409-9168-683e00daaa02",
+            "text": "Synthetic B",
+            "state": "queued",
+            "editable": false
+          },
+          {
+            "id": "6f210675-44c9-53b5-b23e-3e06df5c88d0",
+            "event_id": "orchestration:360babfd-e75d-5b81-8569-9d9aa2b02269:event:steering:6f210675-44c9-53b5-b23e-3e06df5c88d0",
+            "text": "Synthetic A",
+            "state": "queued",
+            "editable": false
+          }
+        ],
+        "next_cursor": null,
+        "has_more": false
+      }
+    },
+    {
+      "schema": "ParentSteeringView",
+      "value": {
+        "conversation_id": "conversation-b",
+        "generation_id": "64800911-1878-5022-959e-6c9578d164f4",
+        "orchestration_id": "360babfd-e75d-5b81-8569-9d9aa2b02269",
+        "items": [
+          {
+            "id": "e829400b-afc6-53bd-8cce-feacf54f444c",
+            "event_id": "orchestration:360babfd-e75d-5b81-8569-9d9aa2b02269:event:steering:e829400b-afc6-53bd-8cce-feacf54f444c",
+            "text": "Synthetic A",
+            "state": "consumed",
+            "editable": false
+          },
+          {
+            "id": "682e069d-c3f7-5409-9168-683e00daaa02",
+            "event_id": "orchestration:360babfd-e75d-5b81-8569-9d9aa2b02269:event:steering:682e069d-c3f7-5409-9168-683e00daaa02",
+            "text": "Synthetic B",
+            "state": "consumed",
+            "editable": false
+          },
+          {
+            "id": "6f210675-44c9-53b5-b23e-3e06df5c88d0",
+            "event_id": "orchestration:360babfd-e75d-5b81-8569-9d9aa2b02269:event:steering:6f210675-44c9-53b5-b23e-3e06df5c88d0",
+            "text": "Synthetic A",
+            "state": "consumed",
+            "editable": false
+          }
+        ],
+        "next_cursor": null,
+        "has_more": false
+      }
+    },
+    {
+      "schema": "Event",
+      "value": {
+        "protocol_version": "1.0",
+        "event_id": "b0dd6d8b-c18a-574a-a682-c29fe2364dec",
+        "topic": "conversation.conversation-b",
+        "server_epoch": "888babad-912d-5ee6-b9fc-607f61c494ab",
+        "conversation_id": "conversation-b",
+        "projection_revision": "2",
+        "source": "runtime",
+        "source_stream_id": "conversation-b",
+        "source_epoch": "888babad-912d-5ee6-b9fc-607f61c494ab",
+        "source_sequence_start": "2",
+        "source_sequence_end": "2",
+        "type": "steering.queued",
+        "payload": {
+          "generation_id": "64800911-1878-5022-959e-6c9578d164f4",
+          "steering_ids": [
+            "e829400b-afc6-53bd-8cce-feacf54f444c"
+          ]
+        }
+      }
+    },
+    {
+      "schema": "Event",
+      "value": {
+        "protocol_version": "1.0",
+        "event_id": "93015134-48cd-5973-b19a-eb8ff56f91fb",
+        "topic": "conversation.conversation-b",
+        "server_epoch": "888babad-912d-5ee6-b9fc-607f61c494ab",
+        "conversation_id": "conversation-b",
+        "projection_revision": "3",
+        "source": "runtime",
+        "source_stream_id": "conversation-b",
+        "source_epoch": "888babad-912d-5ee6-b9fc-607f61c494ab",
+        "source_sequence_start": "3",
+        "source_sequence_end": "3",
+        "type": "steering.queued",
+        "payload": {
+          "generation_id": "64800911-1878-5022-959e-6c9578d164f4",
+          "steering_ids": [
+            "682e069d-c3f7-5409-9168-683e00daaa02"
+          ]
+        }
+      }
+    },
+    {
+      "schema": "Event",
+      "value": {
+        "protocol_version": "1.0",
+        "event_id": "269bb3cc-8ff7-56b2-8f08-8924a1a8101a",
+        "topic": "conversation.conversation-b",
+        "server_epoch": "888babad-912d-5ee6-b9fc-607f61c494ab",
+        "conversation_id": "conversation-b",
+        "projection_revision": "4",
+        "source": "runtime",
+        "source_stream_id": "conversation-b",
+        "source_epoch": "888babad-912d-5ee6-b9fc-607f61c494ab",
+        "source_sequence_start": "4",
+        "source_sequence_end": "4",
+        "type": "steering.queued",
+        "payload": {
+          "generation_id": "64800911-1878-5022-959e-6c9578d164f4",
+          "steering_ids": [
+            "6f210675-44c9-53b5-b23e-3e06df5c88d0"
+          ]
+        }
+      }
+    },
+    {
+      "schema": "Event",
+      "value": {
+        "protocol_version": "1.0",
+        "event_id": "34e1daaa-a9bb-5d9b-a295-8cdd68fd743a",
+        "topic": "conversation.conversation-b",
+        "server_epoch": "888babad-912d-5ee6-b9fc-607f61c494ab",
+        "conversation_id": "conversation-b",
+        "projection_revision": "5",
+        "source": "runtime",
+        "source_stream_id": "conversation-b",
+        "source_epoch": "888babad-912d-5ee6-b9fc-607f61c494ab",
+        "source_sequence_start": "5",
+        "source_sequence_end": "5",
+        "type": "steering.consumed",
+        "payload": {
+          "generation_id": "64800911-1878-5022-959e-6c9578d164f4",
+          "steering_ids": [
+            "e829400b-afc6-53bd-8cce-feacf54f444c",
+            "682e069d-c3f7-5409-9168-683e00daaa02",
+            "6f210675-44c9-53b5-b23e-3e06df5c88d0"
+          ]
+        }
+      }
+    }
+  ],
+  "delivery_order": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21
+  ],
+  "barriers": [
+    "ordinary producer active before enqueue",
+    "pending input admitted before fake provider output",
+    "parent batch captured by actual orchestration consumer"
+  ],
+  "assertions": [
+    "Ordinary queued identity survives dispatch and becomes consumed only at effect proof",
+    "Parent A/B/A inputs retain three exact identities",
+    "Only actual parent consumer acknowledges its captured batch",
+    "All calls use synthetic local stores and fake external execution"
+  ],
+  "allowed_external_effects": [],
+  "bounds": {
+    "quiescence_timeout_seconds": 10,
+    "event_bytes": 65536
+  },
+  "expected_final_snapshot": null
+}

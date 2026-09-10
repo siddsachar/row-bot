@@ -1,0 +1,112 @@
+{
+  "$defs": {
+    "SearchHit": {
+      "additionalProperties": false,
+      "properties": {
+        "checkpoint_revision": {
+          "maxLength": 128,
+          "title": "Checkpoint Revision",
+          "type": "string"
+        },
+        "conversation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "excerpt": {
+          "maxLength": 400,
+          "title": "Excerpt",
+          "type": "string"
+        },
+        "message_id": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message Id"
+        },
+        "row_id": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Row Id"
+        },
+        "title": {
+          "maxLength": 256,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "conversation_id",
+        "title",
+        "excerpt",
+        "checkpoint_revision"
+      ],
+      "title": "SearchHit",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "has_more": {
+      "title": "Has More",
+      "type": "boolean"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/SearchHit"
+      },
+      "maxItems": 50,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Cursor"
+    },
+    "revision": {
+      "maxLength": 128,
+      "title": "Revision",
+      "type": "string"
+    },
+    "scanned_messages": {
+      "maximum": 500,
+      "minimum": 0,
+      "title": "Scanned Messages",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "items",
+    "has_more",
+    "scanned_messages",
+    "revision"
+  ],
+  "title": "SearchPage",
+  "type": "object"
+}

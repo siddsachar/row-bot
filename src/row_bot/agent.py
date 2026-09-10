@@ -3137,6 +3137,11 @@ def _pre_model_trim(state: dict, config: dict | None = None) -> dict:
             _emit_context_event("platform_segment", {"segment_id": segment_id})
     inputs = _collect_agent_preparation_inputs(state, config)
     prepared = _prepare_with_compaction(inputs)
+    if execution is not None:
+        generation_registry.check_dispatch(execution)
+        from row_bot.application.client_queue import acknowledge_consumed
+        acknowledge_consumed(execution, [str(getattr(message, "id", "") or "") for message in prepared.messages])
+        generation_registry.check_dispatch(execution)
     return {
         "llm_input_messages": prepared.messages,
         "execution_budget": inputs.execution_budget,
@@ -3229,6 +3234,9 @@ _current_agent_profile_id_var: _contextvars.ContextVar[str] = _contextvars.Conte
 )
 _current_agent_profile_snapshot_var: _contextvars.ContextVar[dict] = _contextvars.ContextVar(
     "current_agent_profile_snapshot", default={}
+)
+_current_agent_profile_frozen_var: _contextvars.ContextVar[bool] = _contextvars.ContextVar(
+    "current_agent_profile_frozen", default=False
 )
 _current_tool_allowlist_var: _contextvars.ContextVar[tuple[str, ...]] = _contextvars.ContextVar(
     "current_tool_allowlist", default=()
@@ -3340,6 +3348,8 @@ def _set_active_runtime_context(
     tool_allowlist: list[str] | tuple[str, ...] | None = None,
     agent_profile_id: str = "",
     agent_profile_snapshot: dict | None = None,
+    agent_profile_frozen: bool = False,
+    reasoning_snapshot: dict | None = None,
     channel_streaming: bool = False,
     agent_run_id: str = "",
     external_discovery_active: bool = False,
@@ -3358,6 +3368,9 @@ def _set_active_runtime_context(
     _current_tool_allowlist_active_var.set(tool_allowlist is not None)
     _current_agent_profile_id_var.set(agent_profile_id or "")
     _current_agent_profile_snapshot_var.set(dict(agent_profile_snapshot or {}))
+    _current_agent_profile_frozen_var.set(bool(agent_profile_frozen))
+    from row_bot.providers.reasoning import activate_reasoning_snapshot
+    activate_reasoning_snapshot(reasoning_snapshot)
     _current_channel_streaming_var.set(bool(channel_streaming))
     _current_agent_run_id_var.set(agent_run_id or "")
     _current_external_discovery_active_var.set(bool(external_discovery_active))
@@ -3375,6 +3388,8 @@ def _agent_profile_system_context(thread_id: str = "") -> str:
     snapshot = dict(_current_agent_profile_snapshot_var.get({}) or {})
     ref = str(_current_agent_profile_id_var.get("") or snapshot.get("id") or "").strip()
     profile = snapshot if snapshot else None
+    if profile is None and not ref and _current_agent_profile_frozen_var.get(False):
+        return ""
     if profile is None and not ref and thread_id:
         try:
             from row_bot.threads import _get_thread_agent_profile
@@ -4464,6 +4479,8 @@ def _invoke_agent_graph(user_input: str, enabled_tool_names: list[str], config: 
         tool_allowlist=_tool_allowlist,
         agent_profile_id=str(configurable.get("agent_profile_id") or ""),
         agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
+        agent_profile_frozen=bool(configurable.get("agent_profile_frozen")),
+        reasoning_snapshot=configurable.get("reasoning_snapshot"),
         channel_streaming=bool(configurable.get("channel_streaming")),
         agent_run_id=str(configurable.get("agent_run_id") or ""),
         external_discovery_active=bool(configurable.get("external_discovery_active")),
@@ -4973,10 +4990,10 @@ def _collect_chat_only_preparation_inputs(
         if not content:
             continue
         if role == "user":
-            messages.append(HumanMessage(content=content))
+            messages.append(HumanMessage(content=content, id=msg.get("message_id")))
         elif role == "assistant":
-            messages.append(AIMessage(content=content))
-    messages.append(HumanMessage(content=user_input))
+            messages.append(AIMessage(content=content, id=msg.get("message_id")))
+    messages.append(HumanMessage(content=user_input, id=submission_id or None))
     messages = _consolidate_system_messages(messages)
     model_ref = str(_active_model_override.get() or get_current_model())
     policy = get_context_policy(model_ref)
@@ -5070,6 +5087,8 @@ def stream_chat_only(
         enabled_tool_names=(),
         agent_profile_id=str(configurable.get("agent_profile_id") or ""),
         agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
+        agent_profile_frozen=bool(configurable.get("agent_profile_frozen")),
+        reasoning_snapshot=configurable.get("reasoning_snapshot"),
         channel_streaming=bool(configurable.get("channel_streaming")),
         agent_run_id=str(configurable.get("agent_run_id") or ""),
         external_discovery_active=bool(configurable.get("external_discovery_active")),
@@ -5141,6 +5160,13 @@ def stream_chat_only(
         "mode": "stream",
         "start_ms": 0.0,
     }
+    from row_bot.runtime.executions import current_execution, generation_registry
+    execution = current_execution()
+    if execution is not None:
+        generation_registry.check_dispatch(execution)
+        from row_bot.application.client_queue import acknowledge_consumed
+        acknowledge_consumed(execution, [str(getattr(message, "id", "") or "") for message in messages])
+        generation_registry.check_dispatch(execution)
     try:
         stream_iter = llm.stream(messages)
         phase_timings["generation.provider_stream_create_ms"] = (
@@ -5193,6 +5219,8 @@ def stream_chat_only(
         else:
             provider_call["mode"] = "invoke"
             _provider_started = time.perf_counter()
+            if execution is not None:
+                generation_registry.check_dispatch(execution)
             result = llm.invoke(messages)
             response_metadata = getattr(result, "response_metadata", None) or {}
             if isinstance(response_metadata, dict) and response_metadata:
@@ -5398,6 +5426,8 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         tool_allowlist=_tool_allowlist,
         agent_profile_id=str(configurable.get("agent_profile_id") or ""),
         agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
+        agent_profile_frozen=bool(configurable.get("agent_profile_frozen")),
+        reasoning_snapshot=configurable.get("reasoning_snapshot"),
         channel_streaming=bool(configurable.get("channel_streaming")),
         agent_run_id=str(configurable.get("agent_run_id") or ""),
         external_discovery_active=bool(configurable.get("external_discovery_active")),
@@ -5496,6 +5526,8 @@ def stream_agent(user_input: str, enabled_tool_names: list[str], config: dict,
         tool_allowlist=_tool_allowlist,
         agent_profile_id=str(configurable.get("agent_profile_id") or ""),
         agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
+        agent_profile_frozen=bool(configurable.get("agent_profile_frozen")),
+        reasoning_snapshot=configurable.get("reasoning_snapshot"),
         channel_streaming=bool(configurable.get("channel_streaming")),
         agent_run_id=str(configurable.get("agent_run_id") or ""),
         external_discovery_active=bool(configurable.get("external_discovery_active")),
@@ -5645,6 +5677,8 @@ def resume_stream_agent(enabled_tool_names: list[str], config: dict, approved: b
         tool_allowlist=_tool_allowlist,
         agent_profile_id=str(configurable.get("agent_profile_id") or ""),
         agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
+        agent_profile_frozen=bool(configurable.get("agent_profile_frozen")),
+        reasoning_snapshot=configurable.get("reasoning_snapshot"),
         channel_streaming=bool(configurable.get("channel_streaming")),
         agent_run_id=str(configurable.get("agent_run_id") or ""),
         external_discovery_active=bool(configurable.get("external_discovery_active")),
@@ -5733,6 +5767,8 @@ def _resume_invoke_agent_graph(enabled_tool_names: list[str], config: dict, appr
         tool_allowlist=_tool_allowlist,
         agent_profile_id=str(configurable.get("agent_profile_id") or ""),
         agent_profile_snapshot=configurable.get("agent_profile_snapshot") or {},
+        agent_profile_frozen=bool(configurable.get("agent_profile_frozen")),
+        reasoning_snapshot=configurable.get("reasoning_snapshot"),
         channel_streaming=bool(configurable.get("channel_streaming")),
         agent_run_id=str(configurable.get("agent_run_id") or ""),
         external_discovery_active=bool(configurable.get("external_discovery_active")),

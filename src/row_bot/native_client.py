@@ -54,6 +54,22 @@ class NativeDriver(Protocol):
     def capabilities(self) -> list[str]: ...
 
 
+def select_existing_workspace_folder() -> Path | None:
+    """Explicit host picker callback; no native library is loaded before invocation."""
+    from row_bot.application.client_platform import ClientPlatformError
+    try:
+        import webview
+        windows = list(webview.windows)
+        if not windows:
+            raise ClientPlatformError("capability_unavailable")
+        selected = PyWebViewDriver(windows[0]).select("folder")
+        return Path(selected) if selected else None
+    except ClientPlatformError:
+        raise
+    except Exception:
+        raise ClientPlatformError("capability_unavailable") from None
+
+
 class PyWebViewDriver:
     """Use one supplied window; file paths stay inside trusted Python callbacks."""
 

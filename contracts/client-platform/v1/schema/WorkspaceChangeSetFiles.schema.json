@@ -1,0 +1,72 @@
+{
+  "$defs": {
+    "WorkspaceChangeSetFile": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "maxLength": 128,
+          "title": "Action",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "action"
+      ],
+      "title": "WorkspaceChangeSetFile",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "change_set_id": {
+      "maxLength": 256,
+      "title": "Change Set Id",
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/WorkspaceChangeSetFile"
+      },
+      "maxItems": 100,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    },
+    "snapshot_revision": {
+      "maxLength": 128,
+      "title": "Snapshot Revision",
+      "type": "string"
+    },
+    "total": {
+      "minimum": 0,
+      "title": "Total",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "items",
+    "next_cursor",
+    "snapshot_revision",
+    "total",
+    "change_set_id"
+  ],
+  "title": "WorkspaceChangeSetFiles",
+  "type": "object"
+}

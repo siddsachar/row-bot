@@ -40,17 +40,315 @@ export class HttpTransport implements ClientTransport {
     };
     return view;
   }
-  listConversations(cursor?: string, signal?: AbortSignal) {
+  listConversations(cursor?: string, signal?: AbortSignal, group = 'all') {
     return wire.listConversations(
       this.base,
       this.session(),
       50,
       cursor,
       signal,
+      group,
+    );
+  }
+  messageText(
+    conversation: string,
+    message: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getMessageText(
+      this.base,
+      this.session(),
+      conversation,
+      message,
+      cursor,
+      signal,
     );
   }
   getConversation(id: string, signal?: AbortSignal) {
     return wire.getConversation(this.base, this.session(), id, signal);
+  }
+  openConversation(id: string, signal?: AbortSignal) {
+    return wire.openConversation(this.base, this.session(), id, signal);
+  }
+  search(
+    text: string,
+    conversation?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.searchLibrary(
+      this.base,
+      this.session(),
+      text,
+      conversation,
+      cursor,
+      signal,
+    );
+  }
+  history(
+    conversation: string,
+    message?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getHistory(
+      this.base,
+      this.session(),
+      conversation,
+      message,
+      cursor,
+      signal,
+    );
+  }
+  workspace(conversation: string, signal?: AbortSignal) {
+    return wire.getWorkspace(this.base, this.session(), conversation, signal);
+  }
+  draft(conversation: string, signal?: AbortSignal) {
+    return wire.getDraft(this.base, this.session(), conversation, signal);
+  }
+  delegatedActivity(
+    conversation: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getDelegatedActivity(
+      this.base,
+      this.session(),
+      conversation,
+      cursor,
+      signal,
+    );
+  }
+  delegatedRun(conversation: string, run: string, signal?: AbortSignal) {
+    return wire.getDelegatedRun(
+      this.base,
+      this.session(),
+      conversation,
+      run,
+      signal,
+    );
+  }
+  queue(
+    conversation: string,
+    generation?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getQueue(
+      this.base,
+      this.session(),
+      conversation,
+      generation,
+      cursor,
+      signal,
+    );
+  }
+  steering(
+    conversation: string,
+    generation?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getSteering(
+      this.base,
+      this.session(),
+      conversation,
+      generation,
+      cursor,
+      signal,
+    );
+  }
+  saveDraft(conversation: string, body: wire.DraftSave, signal?: AbortSignal) {
+    return wire.saveDraft(
+      this.base,
+      this.session(),
+      conversation,
+      body,
+      signal,
+    );
+  }
+  library(
+    kind: 'artifact' | 'workspace',
+    cursor?: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getResourceLibrary(
+      this.base,
+      this.session(),
+      kind,
+      cursor,
+      signal,
+    );
+  }
+  deckSetup(signal?: AbortSignal) {
+    return wire.getDeckSetup(this.base, this.session(), signal);
+  }
+  pickFolder(signal?: AbortSignal) {
+    return wire.pickFolder(this.base, this.session(), signal);
+  }
+  artifactPreview(
+    conversation: string,
+    binding: string,
+    pageId?: string,
+    knownRevision?: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getArtifactPreview(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      pageId,
+      knownRevision,
+      signal,
+    );
+  }
+  inspector(
+    conversation: string,
+    binding: string,
+    refresh = false,
+    signal?: AbortSignal,
+  ) {
+    return wire.getWorkspaceInspector(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      refresh,
+      signal,
+    );
+  }
+  changes(
+    conversation: string,
+    binding: string,
+    revision?: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getWorkspaceChanges(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      revision,
+      cursor,
+      signal,
+    );
+  }
+  directory(
+    conversation: string,
+    binding: string,
+    directory = '',
+    cursor?: string,
+    revision?: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getWorkspaceDirectory(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      directory,
+      cursor,
+      revision,
+      signal,
+    );
+  }
+  file(
+    conversation: string,
+    binding: string,
+    path: string,
+    offset = 0,
+    revision?: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getWorkspaceFile(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      path,
+      offset,
+      revision,
+      signal,
+    );
+  }
+  approval(identity: string, signal?: AbortSignal) {
+    return wire.getApproval(this.base, this.session(), identity, signal);
+  }
+  diff(
+    conversation: string,
+    binding: string,
+    path: string,
+    snapshot: string,
+    offset = 0,
+    revision?: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getWorkspaceDiff(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      path,
+      snapshot,
+      offset,
+      revision,
+      signal,
+    );
+  }
+  changeSets(
+    conversation: string,
+    binding: string,
+    revision: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getWorkspaceChangeSets(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      revision,
+      cursor,
+      signal,
+    );
+  }
+  changeSetFiles(
+    conversation: string,
+    binding: string,
+    change: string,
+    revision: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getWorkspaceChangeSetFiles(
+      this.base,
+      this.session(),
+      conversation,
+      binding,
+      change,
+      revision,
+      cursor,
+      signal,
+    );
+  }
+  content(
+    conversation: string,
+    message: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) {
+    return wire.getLazyContent(
+      this.base,
+      this.session(),
+      conversation,
+      message,
+      65536,
+      cursor,
+      signal,
+    );
   }
   getTranscript(id: string, cursor?: string, signal?: AbortSignal) {
     return wire.getTranscript(

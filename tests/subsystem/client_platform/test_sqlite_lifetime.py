@@ -16,8 +16,9 @@ from tests.contracts.client_platform.test_headless_lifecycle import platform  # 
 def connections(platform, monkeypatch):
     from row_bot import threads
 
-    # Schema setup predates this change and already ran in the real fixture.
-    # Its legacy connection lifetime is outside these seven new call sites.
+    # Keep operation failures separate from schema setup in the older checks.
+    # The dedicated pressure tests below restore the real initializer.
+    ensure_schema = threads._ensure_thread_db
     monkeypatch.setattr(threads, "_ensure_thread_db", lambda: None)
     monkeypatch.setattr(threads, "_thread_write_blocked", lambda _thread_id: False)
     original = sqlite3.connect
@@ -44,7 +45,8 @@ def connections(platform, monkeypatch):
         return connection
 
     monkeypatch.setattr(sqlite3, "connect", connect)
-    yield SimpleNamespace(opened=opened, failure=failure, raw_connect=original, path=threads.DB_PATH)
+    yield SimpleNamespace(opened=opened, failure=failure, raw_connect=original,
+                          path=threads.DB_PATH, ensure_schema=ensure_schema)
     for connection in opened:
         if not connection.closed:
             connection.close()
@@ -86,9 +88,81 @@ def test_metadata_and_list_close_on_success_and_missing_row(platform, connection
     _assert_closed(connections)
 
 
+def test_repeated_metadata_reads_close_real_initializer_connections(platform, connections, monkeypatch):
+    from row_bot import threads
+    from row_bot.application.client_platform import ClientPlatformError
+    monkeypatch.setattr(threads, "_ensure_thread_db", connections.ensure_schema)
+    for _ in range(12):
+        assert platform._metadata("conversation-a")["name"] == "conversation-a"
+        with pytest.raises(ClientPlatformError, match="not_found"):
+            platform._metadata("missing")
+        _assert_closed(connections)
+    # Every call exercises both the real schema initializer and its own read.
+    assert len(connections.opened) == 48
+
+
+def test_initializer_failure_closes_and_rolls_back_before_metadata_retry(platform, connections, monkeypatch):
+    from row_bot import threads
+    monkeypatch.setattr(threads, "_ensure_thread_db", connections.ensure_schema)
+    with closing(connections.raw_connect(connections.path)) as conn, conn:
+        conn.execute("UPDATE thread_meta SET developer_workspace_id='fixture-workspace', "
+                     "project_workspace_id='', thread_type='code' WHERE thread_id='conversation-a'")
+    connections.failure["after"] = "UPDATE thread_meta SET project_workspace_id"
+    with pytest.raises(sqlite3.OperationalError, match="Synthetic failure"):
+        platform._metadata("conversation-a")
+    _assert_closed(connections)
+    with closing(connections.raw_connect(connections.path)) as conn:
+        assert conn.execute("SELECT project_workspace_id FROM thread_meta WHERE thread_id='conversation-a'").fetchone()[0] == ""
+    connections.failure["after"] = None
+    assert platform._metadata("conversation-a")["project_workspace_id"] == "fixture-workspace"
+    _assert_closed(connections)
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_create_thread_closes_and_commits_or_rolls_back(platform, connections, fail):
+    from row_bot import threads
+    if fail:
+        connections.failure["after"] = "INSERT INTO thread_meta"
+        with pytest.raises(sqlite3.OperationalError, match="Synthetic failure"):
+            threads.create_thread("Retained", thread_id="new-fixture", seed_default_skills=False)
+    else:
+        assert threads.create_thread("Retained", thread_id="new-fixture", seed_default_skills=False) == "new-fixture"
+    _assert_closed(connections)
+    with closing(connections.raw_connect(connections.path)) as conn:
+        row = conn.execute("SELECT name FROM thread_meta WHERE thread_id='new-fixture'").fetchone()
+    assert row == (None if fail else ("Retained",))
+
+
+@pytest.mark.parametrize("operation", ["reasoning", "summary", "attachment"])
+@pytest.mark.parametrize("fail", [False, True])
+def test_retained_read_helpers_close_success_and_sql_error(platform, connections, operation, fail):
+    from row_bot import threads
+    from row_bot.application import attachments
+    functions = {
+        "reasoning": (lambda: threads.get_thread_reasoning_selections("conversation-a"), "SELECT COALESCE(reasoning_selections_json", {}),
+        "summary": (lambda: threads.load_validated_summary_state("conversation-a", "agent"), "SELECT COALESCE(summary_state_json", None),
+        "attachment": (lambda: attachments._conversation("conversation-a"), "SELECT 1 FROM thread_meta", None),
+    }
+    read, statement, expected = functions[operation]
+    if fail:
+        connections.failure["after"] = statement
+        with pytest.raises(sqlite3.OperationalError, match="Synthetic failure"):
+            read()
+    else:
+        assert read() == expected
+    _assert_closed(connections)
+
+
+def test_attachment_missing_conversation_closes_before_rejecting(platform, connections):
+    from row_bot.application import attachments
+    with pytest.raises(attachments.AttachmentError, match="not_found"):
+        attachments._conversation("missing")
+    _assert_closed(connections)
+
+
 @pytest.mark.parametrize("operation", ["metadata", "list"])
 def test_metadata_reads_close_on_sql_error(platform, connections, operation):
-    connections.failure["after"] = "SELECT * FROM thread_meta" if operation == "metadata" else "SELECT thread_id FROM thread_meta"
+    connections.failure["after"] = "SELECT * FROM thread_meta" if operation == "metadata" else "SELECT thread_id,CASE"
     with pytest.raises(sqlite3.OperationalError, match="Synthetic failure"):
         if operation == "metadata":
             platform._metadata("conversation-a")

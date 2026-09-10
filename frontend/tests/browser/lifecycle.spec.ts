@@ -110,7 +110,9 @@ test('actual browser Back returns to a usable real workspace', async ({
     });
   });
   await page.goto('/app-v2/');
-  await expect(page.getByTestId('conversation-placeholder')).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Home', exact: true }),
+  ).toBeVisible();
   const compact = testInfo.project.use.viewport!.width < 1024;
   if (compact)
     await page
@@ -143,7 +145,7 @@ test('actual browser Back returns to a usable real workspace', async ({
   };
   await page.goto('/readyz');
   await page.goBack();
-  await expect(page.getByTestId('conversation-placeholder')).toBeVisible();
+  await expect(page.getByTestId('conversation-workspace')).toBeVisible();
   await expect(page.locator('.connection-status')).toHaveText('Connected');
   const pageShows = await page.evaluate(
     () =>

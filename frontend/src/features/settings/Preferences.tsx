@@ -73,7 +73,7 @@ export default function Preferences({ onReset }: { onReset?: () => void }) {
                 kind: 'alert',
                 title: 'Reset layout?',
                 description:
-                  'Restore the default panel sizes and close sample panels. Your conversations and appearance stay saved.',
+                  'Restore the default panel sizes and close panels. Your conversations and appearance stay saved.',
                 confirmLabel: 'Reset layout',
                 onConfirm: () => {
                   onReset();
@@ -100,7 +100,7 @@ export default function Preferences({ onReset }: { onReset?: () => void }) {
         <ul className="settings-results">
           {searchSettings(query).map((leaf) => (
             <li key={leaf.id}>
-              <Link to={leaf.href} onClick={close}>
+              <Link to={leaf.href} onClick={() => close()}>
                 {leaf.label}
                 <small>{leaf.category}</small>
               </Link>

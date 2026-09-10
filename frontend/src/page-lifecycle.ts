@@ -1,6 +1,7 @@
 type ClientLifecycle = {
   setOnline(online: boolean): void;
   dispose(): void;
+  hasUnsavedDraft?(): boolean;
 };
 type PageLifecycle = {
   addEventListener(type: string, listener: EventListener): void;
@@ -28,6 +29,15 @@ export function bindPageLifecycle(
     }
   };
   const listeners: [string, EventListener][] = [
+    [
+      'beforeunload',
+      (event) => {
+        if (client.hasUnsavedDraft?.()) {
+          event.preventDefault();
+          (event as BeforeUnloadEvent).returnValue = '';
+        }
+      },
+    ],
     ['online', online],
     ['offline', online],
     ['pagehide', hide],

@@ -156,7 +156,12 @@ class ClientSecurity:
             return session
 
     def rate(self, session: ClientSession, lane: str) -> None:
-        capacity, per_minute = {"query": (30, 120), "mutation": (10, 60), "control": (20, 20)}[lane]
+        # View navigation and observing a run must not consume its Stop/approval
+        # reserve. Each lane is still bounded; subscription and stream ownership
+        # additionally retain their independent concurrent admission limits.
+        capacity, per_minute = {"query": (30, 120), "mutation": (10, 60), "control": (20, 20),
+                               "view": (60, 240), "observation": (120, 600),
+                               "acknowledgement": (30, 180)}[lane]
         with self._lock:
             now = self.clock()
             tokens, then = session.buckets.get(lane, (float(capacity), now))

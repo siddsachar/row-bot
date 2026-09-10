@@ -1,0 +1,119 @@
+{
+  "$defs": {
+    "DelegatedRun": {
+      "additionalProperties": false,
+      "properties": {
+        "child_conversation_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9:_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Child Conversation Id"
+        },
+        "name": {
+          "maxLength": 256,
+          "title": "Name",
+          "type": "string"
+        },
+        "parent_conversation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Parent Conversation Id",
+          "type": "string"
+        },
+        "run_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 80,
+          "title": "Status",
+          "type": "string"
+        },
+        "summary": {
+          "maxLength": 4096,
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "parent_conversation_id",
+        "name",
+        "status",
+        "summary"
+      ],
+      "title": "DelegatedRun",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "has_more": {
+      "title": "Has More",
+      "type": "boolean"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/DelegatedRun"
+      },
+      "maxItems": 50,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Cursor"
+    },
+    "parent_conversation_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Conversation Id"
+    }
+  },
+  "required": [
+    "conversation_id",
+    "items",
+    "has_more"
+  ],
+  "title": "DelegatedActivityView",
+  "type": "object"
+}

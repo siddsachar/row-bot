@@ -1,0 +1,103 @@
+{
+  "$defs": {
+    "ParentSteeringItem": {
+      "additionalProperties": false,
+      "properties": {
+        "editable": {
+          "const": false,
+          "default": false,
+          "title": "Editable",
+          "type": "boolean"
+        },
+        "event_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "queued",
+            "consumed"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 16000,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "event_id",
+        "text",
+        "state"
+      ],
+      "title": "ParentSteeringItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "conversation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9:_-]+$",
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "generation_id": {
+      "maxLength": 128,
+      "title": "Generation Id",
+      "type": "string"
+    },
+    "has_more": {
+      "default": false,
+      "title": "Has More",
+      "type": "boolean"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/ParentSteeringItem"
+      },
+      "maxItems": 256,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Cursor"
+    },
+    "orchestration_id": {
+      "maxLength": 128,
+      "title": "Orchestration Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "conversation_id",
+    "generation_id",
+    "orchestration_id",
+    "items"
+  ],
+  "title": "ParentSteeringView",
+  "type": "object"
+}

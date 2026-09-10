@@ -1098,31 +1098,36 @@ _JS_URL_RE = re.compile(r"^\s*javascript:", re.IGNORECASE)
 def sanitize_agent_html(html: str) -> str:
     """Remove scripts, inline event handlers, and javascript: URLs.
 
-    Safe to run on any HTML string, including strings produced by
-    ``build_media_fragment`` / ``wrap_asset_fragment``. Never touches
-    ``<script data-row-bot-runtime="1">`` so runtime bridge injection is
-    idempotent.
+    Markers supplied by generated or persisted content confer no trust.
+    Bundled runtime scripts must be injected after sanitation.
     """
     if not html or "<" not in html:
         return html or ""
     soup = BeautifulSoup(html, "html.parser")
 
-    # 1) Remove <script> tags unless they carry the reserved runtime marker.
-    for script_tag in list(soup.find_all("script")):
-        if script_tag.get("data-row-bot-runtime"):
-            continue
+    # Remove every executable/nested document, including forged runtime tags.
+    for script_tag in list(soup.find_all(["script", "iframe", "object", "embed", "base"])):
         script_tag.decompose()
+    for meta in list(soup.find_all("meta")):
+        if meta.get("http-equiv"):
+            meta.decompose()
 
     # 2) Strip inline event handlers (onclick, onmouseover, …) and
     #    javascript: URLs on any element.
     for tag in soup.find_all(True):
         for attr in list(tag.attrs.keys()):
-            if _EVENT_HANDLER_RE.match(attr):
+            if (_EVENT_HANDLER_RE.match(attr) or attr in {
+                "data-row-bot-runtime", "data-row-bot-bridge", "srcdoc", "nonce",
+            }):
                 del tag.attrs[attr]
                 continue
             value = tag.attrs.get(attr)
-            if isinstance(value, str) and _JS_URL_RE.match(value):
-                del tag.attrs[attr]
+            if isinstance(value, str):
+                # URL schemes normalize embedded ASCII controls in browsers.
+                # BeautifulSoup has already decoded character references.
+                scheme = "".join(c for c in value.split(":", 1)[0] if ord(c) > 32).lower()
+                if scheme in {"javascript", "vbscript"}:
+                    del tag.attrs[attr]
 
     return str(soup)
 

@@ -1,0 +1,101 @@
+{
+  "$defs": {
+    "ResourceChoice": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "kind": {
+          "enum": [
+            "artifact",
+            "workspace"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "title": "Name",
+          "type": "string"
+        },
+        "origin_conversation_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9:_-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Origin Conversation Id"
+        },
+        "origin_status": {
+          "enum": [
+            "available",
+            "unassociated",
+            "repair_required"
+          ],
+          "title": "Origin Status",
+          "type": "string"
+        },
+        "resource_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9:_-]+$",
+          "title": "Resource Id",
+          "type": "string"
+        },
+        "revision": {
+          "maxLength": 128,
+          "title": "Revision",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id",
+        "kind",
+        "name",
+        "revision",
+        "origin_status",
+        "available"
+      ],
+      "title": "ResourceChoice",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/ResourceChoice"
+      },
+      "maxItems": 100,
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Cursor"
+    }
+  },
+  "required": [
+    "items"
+  ],
+  "title": "ResourceChoicePage",
+  "type": "object"
+}

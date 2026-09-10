@@ -44,12 +44,12 @@ test('compact Back stays on the conversation after refresh while retaining the p
   await page
     .getByRole('button', { name: 'Back to conversation', exact: true })
     .click();
-  await expect(page.getByTestId('conversation-placeholder')).toBeVisible();
+  await expect(page.getByTestId('conversation-workspace')).toBeVisible();
   await expect
     .poll(async () => (await readLayout(page)).activePanelId)
     .toBeNull();
   await page.reload();
-  await expect(page.getByTestId('conversation-placeholder')).toBeVisible();
+  await expect(page.getByTestId('conversation-workspace')).toBeVisible();
   await expect(
     page.getByRole('region', { name: 'Compact panel', exact: true }),
   ).toHaveCount(0);
@@ -90,14 +90,14 @@ test('version-zero layout migrates, clamps obsolete sizes and resets only after 
         }),
       );
   }, size);
-  await page.goto('/app-v2/?fixture=normal');
+  await page.goto('/app-v2/conversations/conversation-a?fixture=normal');
   await expect(
     page
       .locator('.sample-panel:visible')
       .getByRole('heading', { name: 'Migrated activity', exact: true }),
   ).toBeVisible();
   const migrated = await readLayout(page);
-  expect(migrated.version).toBe(1);
+  expect(migrated.version).toBe(2);
   expect(migrated.navigation.size).toBe(278);
   expect(migrated.side.size).toBeGreaterThanOrEqual(320);
   expect(migrated.side.size).toBeLessThanOrEqual(720);
@@ -113,7 +113,7 @@ test('version-zero layout migrates, clamps obsolete sizes and resets only after 
     .click();
   await expect.poll(async () => (await readLayout(page)).panels.length).toBe(0);
   await page.keyboard.press('Escape');
-  await expect(page.getByTestId('conversation-placeholder')).toBeVisible();
+  await expect(page.getByTestId('conversation-workspace')).toBeVisible();
   const reset = await readLayout(page);
   expect(reset.navigation.size).toBe(240);
   expect(
